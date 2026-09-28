@@ -15,7 +15,7 @@ import {
 import { useMemo, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
-import { PostCard } from '../features/huddle/PostCard';
+import { HuddleFeed } from '../features/huddle/HuddleFeed';
 import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -27,8 +27,7 @@ import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
-import { useLiveClockEvents } from '@lib/ddp';
+import { huddleApi } from '@lib/api';
 import { toDateString } from '@lib/timeUtils';
 
 export default function Huddle() {
@@ -36,7 +35,6 @@ export default function Huddle() {
   // A failed inline edit from the feed. Separate from useHuddlePosts' `error`,
   // which is a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
@@ -46,8 +44,15 @@ export default function Huddle() {
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
   const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
-    useTeam();
+  const {
+    selectedTeamId,
+    selectedTeam,
+    setSelectedTeamId,
+    teams,
+    allTeams,
+    setSelectedOrgId,
+    teamsReady,
+  } = useTeam();
   const {
     posts,
     loading,
@@ -162,36 +167,6 @@ export default function Huddle() {
     return () => clearTimeout(timer);
   }, [highlight]);
 
-  // Live session state for the post headers. The posts publication only fires
-  // on post writes, so a clock-out would never reach the feed on its own —
-  // `clock.liveForTeams` carries every still-open session for the team.
-  const liveTeamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
-  const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
-  const activeClockEventIds = useMemo(
-    () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
-    [liveClockEvents],
-  );
-
-  // Load team data for permission checks
-  useEffect(() => {
-    async function loadTeam() {
-      if (!selectedTeamId) {
-        setTeam(null);
-        return;
-      }
-
-      try {
-        const teams = await teamApi.getTeamsOnly();
-        const foundTeam = teams.find((t) => t.id === selectedTeamId);
-        setTeam(foundTeam || null);
-      } catch (err) {
-        console.error('[Huddle] Failed to load team:', err);
-      }
-    }
-
-    loadTeam();
-  }, [selectedTeamId]);
-
   async function addPost(content: ComposerContent) {
     // Thrown, not alerted: HuddleComposer catches it and shows the reason in
     // its own `role="alert"` region, keeping the draft and the caret intact.
@@ -227,22 +202,6 @@ export default function Huddle() {
     }
   }
 
-  // Determine permissions for each post
-  function canEditPost(post: HuddlePost): boolean {
-    if (!user || !team) return false;
-    const isAuthor = post.userId === user.id;
-    const isTeamAdmin = team.admins.includes(user.id);
-    const isOrgOwner =
-      user.organizationMembership?.role === 'owner' &&
-      user.organizationMembership?.organizationId === team.orgId;
-    return isAuthor || isTeamAdmin || isOrgOwner;
-  }
-
-  function canDeletePost(post: HuddlePost): boolean {
-    // Same permissions as edit
-    return canEditPost(post);
-  }
-
   const filteredPosts = posts.filter((post) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -258,8 +217,13 @@ export default function Huddle() {
   // because filteredPosts is a fresh array every render.
   const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
   const conversation = useMemo(
-    () => postsToConversation(selectedTeamId ?? 'huddle', team?.name ?? 'Huddle', filteredPosts),
-    [selectedTeamId, team?.name, conversationKey],
+    () =>
+      postsToConversation(
+        selectedTeamId ?? 'huddle',
+        selectedTeam?.name ?? 'Huddle',
+        filteredPosts,
+      ),
+    [selectedTeamId, selectedTeam?.name, conversationKey],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -424,23 +388,14 @@ export default function Huddle() {
                 )}
 
                 {/* Classic card view — keeps per-post comments and likes */}
-                {!loading &&
-                  !error &&
-                  user &&
-                  feedView === 'cards' &&
-                  filteredPosts.map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      currentUserId={user?.id ?? ''}
-                      canEdit={canEditPost(post)}
-                      canDelete={canDeletePost(post)}
-                      highlighted={post.id === highlightedPostId}
-                      sessionActive={
-                        !!post.clockEventId && activeClockEventIds.has(post.clockEventId)
-                      }
-                    />
-                  ))}
+                {!loading && !error && feedView === 'cards' && (
+                  <HuddleFeed
+                    teamId={selectedTeamId}
+                    posts={filteredPosts}
+                    label="Huddle posts"
+                    highlightedPostId={highlightedPostId}
+                  />
+                )}
               </>
             )}
           </div>

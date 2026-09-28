@@ -190,14 +190,14 @@ should be almost identical.
 
   Commit: `refactor(huddle): extract the post list into HuddleFeed`
 
-- [ ] **3.4** Render `<HuddleFeed>` in `Huddle.tsx`'s card view with
+- [x] **3.4** Render `<HuddleFeed>` in `Huddle.tsx`'s card view with
       `filteredPosts`, and delete the moved code from the page. Keep the page's own
       "No posts yet. Be the first to share!" block where it is: it also covers the
       chat view, so don't pass it as `emptyState`. Take the chat view's team name
       from `useTeam().selectedTeam`.
       Commit: `refactor(huddle): render the card view through HuddleFeed`
 
-- [ ] **3.5** Search `Huddle.tsx` for code the move left behind: unused imports,
+- [x] **3.5** Search `Huddle.tsx` for code the move left behind: unused imports,
       state or effects. Delete it. If there's nothing to delete, skip the commit but
       still tick the box.
       Commit: `refactor(huddle): drop code orphaned by the feed extraction`
