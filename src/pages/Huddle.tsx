@@ -460,9 +460,12 @@ export default function Huddle() {
           </div>
         )}
 
-        {/* Feed */}
+        {/* Feed. overflow-y-auto alone computes overflow-x to auto too, so one
+            post wider than the phone let the whole feed pan sideways — every
+            card shifted left with its avatar cut off. Wide content scrolls
+            inside its own card instead (see MarkdownContent). */}
         {feedTab === 'feed' && (
-          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {!selectedTeamId && (
               <div className="flex items-center justify-center py-16 px-4">
                 <p className="text-sm text-gray-500 dark:text-neutral-400">

@@ -93,10 +93,14 @@ function transformUrl(url: string, key: string): string {
 // This is the key fix: parent components (feed, composer) re-render all the
 // time but the rendered markdown stays stable.
 export const MarkdownContent = memo(function MarkdownContent({ content }: { content: string }) {
+  // wrap-anywhere: a long unbroken URL or token otherwise sets the card's
+  // min-content width past a phone screen and pans the whole feed sideways.
+  // Display math can't wrap, so it scrolls within its own block instead.
   return (
     <div
       className="
         prose prose-sm dark:prose-invert max-w-none
+        wrap-anywhere [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden
         prose-p:text-gray-800 dark:prose-p:text-neutral-200
         prose-headings:text-gray-900 dark:prose-headings:text-neutral-100
         prose-strong:text-gray-900 dark:prose-strong:text-neutral-100
