@@ -222,7 +222,7 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
   Commit: `refactor(profile): rename ProfileFeed to ProfileMedia`
 
-- [ ] **4.2** Create `src/features/profile/ProfilePosts.tsx` with the props
+- [x] **4.2** Create `src/features/profile/ProfilePosts.tsx` with the props
       `{ userId }`:
 
   - Get `selectedTeamId` from `useTeam()` (`src/lib/TeamContext.tsx`).
