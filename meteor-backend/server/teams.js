@@ -35,6 +35,19 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[teams] failed to create invitation index:', error);
   }
+
+  // Teams created before the plan-first default never had the setting. Turn it
+  // on for them; an explicit false (an admin turned it off) is left alone, and
+  // Personal teams stay ungated.
+  try {
+    const { modifiedCount } = await rawDb().collection('teams').updateMany(
+      { isPersonal: { $ne: true }, 'settings.requirePlanForClock': { $exists: false } },
+      { $set: { 'settings.requirePlanForClock': true } },
+    );
+    if (modifiedCount) console.log(`[teams] enabled requirePlanForClock on ${modifiedCount} team(s)`);
+  } catch (error) {
+    console.error('[teams] failed to backfill requirePlanForClock:', error);
+  }
 });
 
 // Safe ObjectId conversion — only converts 24-char hex strings
