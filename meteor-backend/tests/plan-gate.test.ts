@@ -57,6 +57,7 @@ beforeAll(async () => {
     admins: [adminUserId],
     code: 'WHPLAN01',
     isPersonal: false,
+    settings: { requirePlanForClock: false },
     createdAt: new Date(),
   };
   await db.collection('teams').insertOne(teamDoc);
@@ -97,7 +98,7 @@ describe('teams.create default', () => {
 describe('plan-first clock flow (wormhole)', () => {
   let postId: string;
 
-  it('gate off for a team with no setting: clock in and out work with no post', async () => {
+  it('gate off: clock in and out work with no post', async () => {
     const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
     expect(start.ok).toBe(true);
     const stop = await wormhole<{ id: string }>('clock.stop', { teamId }, memberJwt);

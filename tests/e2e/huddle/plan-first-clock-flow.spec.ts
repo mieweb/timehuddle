@@ -4,14 +4,15 @@
  * Comprehensive test suite for the plan-first clock flow feature:
  *
  * 1. User creates a team
- * 2. User goes to team settings and enables "Require a plan for every clock-in/out"
+ * 2. New teams start with "Require a plan for every clock-in/out" enabled; an
+ *    admin can turn it off in team settings
  * 3. When enabled: User must write a plan before clocking in, and add a wrap-up before clocking out
  * 4. When disabled: User can clock in/out normally without posting to huddle
  * 5. Posts created via clock flow appear in the huddle feed
  * 6. Wrap-ups are appended to the same post
  *
  * Scenarios tested:
- *   - Plan requirement disabled (default) — can clock in/out freely
+ *   - Plan requirement disabled — can clock in/out freely
  *   - Plan requirement enabled — plan gate blocks clock in
  *   - Post plan → clock in → post wrap-up → clock out → verify in huddle
  *   - Save draft plan → clock in with draft → update wrap-up → clock out
@@ -77,21 +78,16 @@ test.describe('Plan-First Clock Flow', () => {
     // Wait for modal to appear
     await teamSettingsPage.waitForModal();
 
-    // Verify requirement is disabled by default
+    // Verify requirement is enabled by default on a new team
     const initialState = await teamSettingsPage.isRequirePlanEnabled();
-    expect(initialState).toBe(false);
+    expect(initialState).toBe(true);
 
-    // Enable the requirement
-    await teamSettingsPage.enableRequirePlan();
-    const enabledState = await teamSettingsPage.isRequirePlanEnabled();
-    expect(enabledState).toBe(true);
-
-    // Disable it again
+    // Disable the requirement
     await teamSettingsPage.disableRequirePlan();
     const disabledState = await teamSettingsPage.isRequirePlanEnabled();
     expect(disabledState).toBe(false);
 
-    // Enable it one more time for the final state
+    // Enable it again for the final state
     await teamSettingsPage.enableRequirePlan();
     const finalState = await teamSettingsPage.isRequirePlanEnabled();
     expect(finalState).toBe(true);
@@ -103,7 +99,7 @@ test.describe('Plan-First Clock Flow', () => {
   test('when plan requirement DISABLED: user can clock in/out without posting', async ({
     page,
   }) => {
-    // Create team with plan requirement disabled (default)
+    // Create team, then turn off the plan requirement it starts with
     await teamsPage.goto();
     const teamName = `NoReqTest-${Date.now()}`;
     await page.getByRole('button', { name: 'Create Team' }).click();
@@ -112,6 +108,11 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+    await teamSettingsPage.waitForModal();
+    await teamSettingsPage.disableRequirePlan();
+    await teamSettingsPage.close();
 
     // Navigate to clock page
     await clockPage.goto();
@@ -310,7 +311,12 @@ test.describe('Plan-First Clock Flow', () => {
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
-    // Navigate to clock page (requirement disabled by default)
+    // New teams start gated; turn it off so the first cycle needs no plan
+    await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+    await teamSettingsPage.waitForModal();
+    await teamSettingsPage.disableRequirePlan();
+    await teamSettingsPage.close();
+
     await clockPage.goto();
 
     // Verify no plan gate
