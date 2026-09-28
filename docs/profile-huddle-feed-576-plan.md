@@ -145,7 +145,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
 `src/pages/Huddle.tsx`; it isn't copied. If a reviewer diffs the moved code, it
 should be almost identical.
 
-- [ ] **3.1** Create `src/features/huddle/useHuddlePosts.ts`, exporting
+- [x] **3.1** Create `src/features/huddle/useHuddlePosts.ts`, exporting
       `useHuddlePosts({ teamId, authorId }: { teamId: string | null; authorId?: string })`.
 
   Move these in from `Huddle.tsx`:
@@ -163,7 +163,7 @@ should be almost identical.
     is set.** This matters: the `huddlePosts` DDP cache is shared, and the dashboard
     keeps a full-team subscription open, so the cache holds other people's posts too.
 
-  It returns `{ posts, loading, error, setError, refresh: refreshFeed, isInFeed }`.
+  It returns `{ posts, loading, error, refresh: refreshFeed, isInFeed }`.
   `isInFeed(id)` is the `inFeed` check currently inside `addPost`.
 
   Commit: `refactor(huddle): extract feed loading into useHuddlePosts`
