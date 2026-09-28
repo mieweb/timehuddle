@@ -85,7 +85,7 @@ retry). The flaky test was already flaky before this work.
 
 Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
 
-- [ ] **1.1** Add a small helper near the top of `huddle.js` that builds the
+- [x] **1.1** Add a small helper near the top of `huddle.js` that builds the
       published-posts filter, e.g. `feedFilter(teamId, userId)` →
       `{ teamId, ...PUBLISHED, ...(userId ? { userId } : {}) }`. Both the method and
       the publication will call it, so the filter lives in one place.

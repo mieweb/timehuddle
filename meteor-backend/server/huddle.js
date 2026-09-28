@@ -16,6 +16,12 @@ const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Drafts carry status: 'draft'; absent status = published (legacy posts included).
 const PUBLISHED = { status: { $ne: 'draft' } };
 
+// The team feed query: published posts in a team, optionally narrowed to one
+// author (a person's profile feed). `teamId` may be a legacy ObjectId.
+function feedFilter(teamId, userId) {
+  return { teamId, ...PUBLISHED, ...(userId ? { userId } : {}) };
+}
+
 // Permission helpers
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
@@ -202,11 +208,11 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   
   // Initial fetch and send — published posts only (drafts are author-only
   // and never appear in the team feed).
-  let posts = await collection.find({ teamId, ...PUBLISHED }).sort({ createdAt: -1 }).toArray();
+  let posts = await collection.find(feedFilter(teamId)).sort({ createdAt: -1 }).toArray();
   // Also fetch posts where teamId was stored as ObjectId (legacy)
   if (/^[a-f0-9]{24}$/i.test(teamId)) {
     const legacyPosts = await collection
-      .find({ teamId: new ObjectId(teamId), ...PUBLISHED })
+      .find(feedFilter(new ObjectId(teamId)))
       .sort({ createdAt: -1 })
       .toArray();
     // Merge, deduplicate by _id hex string
@@ -311,7 +317,7 @@ Meteor.methods({
     }
     
     const posts = await rawDb().collection('huddlePosts')
-      .find({ teamId, ...PUBLISHED })
+      .find(feedFilter(teamId))
       .sort({ createdAt: -1 })
       .toArray();
     
