@@ -423,7 +423,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* Tab rail — Feed | Media | Work | Activity */}
       {profile && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="mb-4 w-full">
+          <TabsList aria-label="Profile sections" className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
               Feed
             </TabsTrigger>
