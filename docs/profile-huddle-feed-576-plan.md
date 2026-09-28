@@ -243,19 +243,19 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
   Commit: `feat(profile): show Huddle posts on Feed and move media to a Media tab`
 
-- [ ] **4.4** Check by hand in the browser. _(no commit; note any problem and fix it
+- [x] **4.4** Check by hand in the browser. _(no commit; note any problem and fix it
       in its own commit)_
 
-  - [ ] Clicking a post author's avatar or name in Huddle opens their profile on
+  - [x] Clicking a post author's avatar or name in Huddle opens their profile on
         **Feed**, showing only their posts.
-  - [ ] Switching teams in the team picker updates the list.
-  - [ ] Edit and delete show for the author, a team admin and the org owner, and
+  - [x] Switching teams in the team picker updates the list.
+  - [x] Edit and delete show for the author, a team admin and the org owner, and
         not for anyone else. An edit shows up live in a second browser.
-  - [ ] Comments and reactions work.
-  - [ ] `?tab=media` opens Media. Upload works as it did before.
-  - [ ] Tabbing through the tabs and posts works with the keyboard, with a visible
+  - [x] Comments and reactions work.
+  - [x] `?tab=media` opens Media. Upload works as it did before.
+  - [x] Tabbing through the tabs and posts works with the keyboard, with a visible
         focus ring.
-  - [ ] At phone width (≈390px) the feed doesn't scroll sideways.
+  - [x] At phone width (≈390px) the feed doesn't scroll sideways.
 
 **Gate:** lint, typecheck, format and test:unit pass. Push.
 
@@ -263,14 +263,16 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
 ## Milestone 5: Tests
 
-- [ ] **5.1** Read `tests/e2e/teams/profile-routing.spec.ts`. If it asserts on the
+- [x] **5.1** Read `tests/e2e/teams/profile-routing.spec.ts`. If it asserts on the
       old Feed content (the media grid or the Upload button on the Feed tab), update it
       to look on the Media tab. Skip the commit if no change is needed.
       Commit: `test(e2e): follow the media grid to the profile Media tab`
 
-- [ ] **5.2** Add `tests/e2e/pages/ProfilePage.ts`: a page object with
-      `goto(userId)`, `openTab(name)` and `feedPosts()`. Follow the pattern in
+- [x] **5.2** Add `tests/e2e/pages/ProfilePage.ts`: a page object with
+      `gotoUser(userId, tab?)`, `tab(name)`, `openTab(name)`, `feedPosts()` and `feedPost(text)` (`goto(url)` is taken by `BasePage`). Follow the pattern in
       `tests/e2e/pages/HuddlePage.ts`.
+      Also move `getUserIdByEmail` out of `notifications/deep-links.spec.ts` into
+      `fixtures/users.ts` so the new spec can share it rather than copy it.
       Commit: `test(e2e): add a profile page object`
 
 - [ ] **5.3** Add `tests/e2e/huddle/profile-feed.spec.ts`. Seed with the helpers in
