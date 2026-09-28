@@ -138,4 +138,40 @@ test.describe('Profile Feed tab — a person’s Huddle posts', () => {
     await expect(page.getByText('No posts in this team yet.')).toBeVisible({ timeout: 15000 });
     await expect(profile.feedPosts()).toHaveCount(0);
   });
+
+  test('on a phone the tab rail stays pinned and compact while you scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAs(page, TEST_USERS.member1);
+    await selectSharedTestTeam(page);
+
+    const profile = new ProfilePage(page);
+    await profile.gotoUser(ownerId);
+    await expect(profile.feedPost(OWNER_POST)).toBeVisible({ timeout: 15000 });
+
+    // Seeded feeds are short, so stand in for a long one by making the tab
+    // container tall. A sticky element only pins within its parent's content
+    // box, and min-height grows that box without adding anything between the
+    // rail and the tab panels.
+    const rail = page.locator('.profile-tab-rail');
+    await rail.evaluate((el) => (el.parentElement!.style.minHeight = '4000px'));
+    const railOffset = () =>
+      rail.evaluate(
+        (el) => el.getBoundingClientRect().top - el.closest('main')!.getBoundingClientRect().top,
+      );
+    await page.locator('main').evaluate((el) => (el.scrollTop = 1500));
+    await expect.poll(railOffset).toBe(0);
+    expect((await rail.boundingBox())!.height).toBeLessThanOrEqual(36);
+
+    // Switching while pinned opens the new tab at its top, not mid-scroll: its
+    // panel starts just under the rail (the rail's 16px bottom margin). Without
+    // the jump it would begin far above the screen.
+    await profile.tab('Work').click();
+    await expect(profile.tab('Work')).toHaveAttribute('aria-selected', 'true');
+    const gapUnderRail = () =>
+      page.getByRole('tabpanel', { name: 'Work' }).evaluate((panel) => {
+        const railBottom = document.querySelector('.profile-tab-rail')!.getBoundingClientRect();
+        return Math.round(panel.getBoundingClientRect().top - railBottom.bottom);
+      });
+    await expect.poll(gapUnderRail).toBe(16);
+  });
 });
