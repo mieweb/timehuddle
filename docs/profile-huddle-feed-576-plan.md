@@ -111,7 +111,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
 
   Commit: `feat(huddle): filter the byTeam publication by author`
 
-- [ ] **1.4** In `main.js`, find `Wormhole.expose('huddle.getPosts', …)` (around
+- [x] **1.4** In `main.js`, find `Wormhole.expose('huddle.getPosts', …)` (around
       line 1279) and add `userId: { type: 'string' }` to `properties`. Leave `required`
       as `['teamId']`. **Without this, REST calls that pass `userId` are rejected.**
       Commit: `feat(huddle): expose the author filter over REST`
