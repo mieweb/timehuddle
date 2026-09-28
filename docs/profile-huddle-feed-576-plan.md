@@ -289,6 +289,12 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
 **Gate:** `npm run test:all` passes. Push.
 
+**Gate result (2026-09-28):** test:unit 154/154; e2e 187 passed, 6 skipped, 4 flaky
+(each passed on retry). The two flaky tests near this change — `deep-links.spec.ts:81`
+(post-link highlight) and `profile-routing.spec.ts:60` — then passed 8/8 with
+`--repeat-each=4 --retries=0`. The other two (`plan-first-clock-flow.spec.ts:296`,
+`org-invite-by-email.spec.ts:159`) don't touch the feed or the profile.
+
 ---
 
 ## Milestone 6: Release note
