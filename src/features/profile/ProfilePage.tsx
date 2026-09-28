@@ -17,9 +17,11 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  Avatar,
   Badge,
   Button,
   Card,
+  cn,
   Spinner,
   Tabs,
   TabsContent,
@@ -28,7 +30,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 
@@ -74,6 +76,37 @@ import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 import { TodayStatusCard } from '../timers/TodayStatusCard';
 
+/**
+ * Whether `el` has scrolled up to (or past) the top of the `<main>` scroll area.
+ * Pass the element itself (from a callback ref) so a remounted node is tracked.
+ */
+function useScrolledToTop(el: HTMLElement | null): boolean {
+  const [atTop, setAtTop] = useState(false);
+  useEffect(() => {
+    const scroller = el?.closest('main');
+    if (!el || !scroller) {
+      setAtTop(false);
+      return;
+    }
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      // 1px of slack: after scrollIntoView the element sits exactly at the top.
+      setAtTop(el.getBoundingClientRect().top <= scroller.getBoundingClientRect().top + 1);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(check);
+    };
+    check();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [el]);
+  return atTop;
+}
+
 // Shorter tabs on phones, so the pinned rail takes less of the screen.
 const PROFILE_TAB_TRIGGER = 'flex-1 py-1.5 text-sm md:py-2 md:text-base';
 
@@ -109,18 +142,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     replace(pathname);
   }, [search, pathname, replace]);
 
-  // The tab rail sticks to the top of the scroll area, so a tab can be switched
-  // from deep inside another tab's content. When it's pinned, bring the new tab
-  // in from its top — otherwise it would open at the old tab's scroll depth.
-  const tabsTopRef = useRef<HTMLDivElement>(null);
+  // The header (name + tab rail) sticks to the top of the scroll area, so a tab
+  // can be switched from deep inside another tab's content. When it's pinned,
+  // bring the new tab in from its top — otherwise it would open at the old
+  // tab's scroll depth.
+  // State, not a ref: the header unmounts behind the loading spinner when
+  // moving between profiles, and the scroll check must follow the new node.
+  const [headerAnchor, setHeaderAnchor] = useState<HTMLDivElement | null>(null);
+  const headerPinned = useScrolledToTop(headerAnchor);
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const anchor = tabsTopRef.current;
-    const scroller = anchor?.closest('main');
-    if (!anchor || !scroller) return;
-    if (anchor.getBoundingClientRect().top < scroller.getBoundingClientRect().top) {
-      anchor.scrollIntoView({ block: 'start' });
-    }
+    if (headerPinned) headerAnchor?.scrollIntoView({ block: 'start' });
   };
 
   useEffect(() => {
@@ -436,26 +468,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         />
       )}
 
-      {/* Tab rail — Feed | Work | Activity */}
+      {/* Tab rail — Feed | Work | Activity. -mt-6 cancels the page's 24px gap
+          above: the sticky name row takes its place, so the header is laid out
+          the same whether it's pinned or not. */}
       {profile && (
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div ref={tabsTopRef} className="profile-tab-rail-anchor" aria-hidden="true" />
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="-mt-6 w-full">
+          <div ref={setHeaderAnchor} className="profile-header-anchor" aria-hidden="true" />
           {/* Sticky under the app header, on an opaque background so content
               doesn't show through it. Full-width and compact on phones. */}
-          <TabsList
-            aria-label="Profile sections"
-            className="profile-tab-rail sticky top-0 z-20 -mx-4 mb-4 bg-neutral-50 px-4 md:mx-0 md:px-0 dark:bg-neutral-950"
-          >
-            <TabsTrigger value="feed" className={PROFILE_TAB_TRIGGER}>
-              Feed
-            </TabsTrigger>
-            <TabsTrigger value="work" className={PROFILE_TAB_TRIGGER}>
-              Work
-            </TabsTrigger>
-            <TabsTrigger value="activity" className={PROFILE_TAB_TRIGGER}>
-              Activity
-            </TabsTrigger>
-          </TabsList>
+          <div className="profile-sticky-header sticky top-0 z-20 -mx-4 mb-4 bg-neutral-50 px-4 md:mx-0 md:px-0 dark:bg-neutral-950">
+            {/* Whose profile this is, once the hero has scrolled away. Always
+                laid out and only shown when pinned, so pinning never shifts the
+                content. A visual echo of the <h1>, so hidden from screen readers. */}
+            <div
+              className={cn(
+                'profile-sticky-identity flex h-8 min-w-0 items-center gap-2',
+                !headerPinned && 'invisible',
+              )}
+              aria-hidden="true"
+            >
+              <Avatar size="xs" src={profile.image} name={nameText} />
+              <span className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {nameText}
+              </span>
+              {profile.username && (
+                <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                  @{profile.username}
+                </span>
+              )}
+            </div>
+            <TabsList aria-label="Profile sections" className="profile-tab-rail">
+              <TabsTrigger value="feed" className={PROFILE_TAB_TRIGGER}>
+                Feed
+              </TabsTrigger>
+              <TabsTrigger value="work" className={PROFILE_TAB_TRIGGER}>
+                Work
+              </TabsTrigger>
+              <TabsTrigger value="activity" className={PROFILE_TAB_TRIGGER}>
+                Activity
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Feed tab — their Huddle posts in the selected team */}
           <TabsContent value="feed">
