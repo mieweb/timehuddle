@@ -28,7 +28,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 
@@ -74,6 +74,9 @@ import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 import { TodayStatusCard } from '../timers/TodayStatusCard';
 
+// Shorter tabs on phones, so the pinned rail takes less of the screen.
+const PROFILE_TAB_TRIGGER = 'flex-1 py-1.5 text-sm md:py-2 md:text-base';
+
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
@@ -105,6 +108,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     setActiveTab(tab);
     replace(pathname);
   }, [search, pathname, replace]);
+
+  // The tab rail sticks to the top of the scroll area, so a tab can be switched
+  // from deep inside another tab's content. When it's pinned, bring the new tab
+  // in from its top — otherwise it would open at the old tab's scroll depth.
+  const tabsTopRef = useRef<HTMLDivElement>(null);
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    const anchor = tabsTopRef.current;
+    const scroller = anchor?.closest('main');
+    if (!anchor || !scroller) return;
+    if (anchor.getBoundingClientRect().top < scroller.getBoundingClientRect().top) {
+      anchor.scrollIntoView({ block: 'start' });
+    }
+  };
 
   useEffect(() => {
     setIsReady(false);
@@ -421,15 +438,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {/* Tab rail — Feed | Work | Activity */}
       {profile && (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList aria-label="Profile sections" className="mb-4 w-full">
-            <TabsTrigger value="feed" className="flex-1">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <div ref={tabsTopRef} className="profile-tab-rail-anchor" aria-hidden="true" />
+          {/* Sticky under the app header, on an opaque background so content
+              doesn't show through it. Full-width and compact on phones. */}
+          <TabsList
+            aria-label="Profile sections"
+            className="profile-tab-rail sticky top-0 z-20 -mx-4 mb-4 bg-neutral-50 px-4 md:mx-0 md:px-0 dark:bg-neutral-950"
+          >
+            <TabsTrigger value="feed" className={PROFILE_TAB_TRIGGER}>
               Feed
             </TabsTrigger>
-            <TabsTrigger value="work" className="flex-1">
+            <TabsTrigger value="work" className={PROFILE_TAB_TRIGGER}>
               Work
             </TabsTrigger>
-            <TabsTrigger value="activity" className="flex-1">
+            <TabsTrigger value="activity" className={PROFILE_TAB_TRIGGER}>
               Activity
             </TabsTrigger>
           </TabsList>
