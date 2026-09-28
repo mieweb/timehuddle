@@ -233,6 +233,8 @@ Meteor.methods({
       admins: [userId],
       code: generateTeamCode(),
       isPersonal: false,
+      // New teams start plan-first; older teams without the field read as off.
+      settings: { requirePlanForClock: true },
       createdAt: new Date(),
     };
     await Teams.insertAsync(doc);

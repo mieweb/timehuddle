@@ -82,10 +82,22 @@ afterAll(async () => {
   await closeDb();
 });
 
+describe('teams.create default', () => {
+  it('creates new teams with requirePlanForClock on', async () => {
+    const res = await wormhole<{
+      team: { id: string; settings: { requirePlanForClock: boolean } };
+    }>('teams.create', { name: 'WH Plan Default Team' }, adminJwt);
+    expect(res.ok).toBe(true);
+    expect(res.result.team.settings.requirePlanForClock).toBe(true);
+
+    await wormhole('teams.delete', { teamId: res.result.team.id }, adminJwt);
+  });
+});
+
 describe('plan-first clock flow (wormhole)', () => {
   let postId: string;
 
-  it('gate off by default: clock in and out work with no post', async () => {
+  it('gate off for a team with no setting: clock in and out work with no post', async () => {
     const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
     expect(start.ok).toBe(true);
     const stop = await wormhole<{ id: string }>('clock.stop', { teamId }, memberJwt);
