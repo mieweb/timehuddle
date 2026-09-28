@@ -173,24 +173,28 @@ should be almost identical.
       read `posts` from the hook.
       Commit: `refactor(huddle): drive the Huddle page from useHuddlePosts`
 
-- [ ] **3.3** Create `src/features/huddle/HuddleFeed.tsx`.
+- [x] **3.3** Create `src/features/huddle/HuddleFeed.tsx`.
 
   Move these in from `Huddle.tsx`:
 
-  - the team load used for permissions
+  - the team used for permissions — read it from `useTeam().allTeams` (live over
+    DDP) instead of the page's one-off `teamApi.getTeamsOnly()` fetch
   - `canEditPost` / `canDeletePost`
   - the live-clock `activeClockEventIds` set
   - the `PostCard` `.map`
 
-  Props: `teamId`, `posts`, `highlightedPostId?`, `emptyState: ReactNode`. Render
-  `emptyState` when `posts` is empty. Wrap the list in an element with a semantic
-  class name, `role="feed"` and an `aria-label`.
+  Props: `teamId`, `posts`, `label`, `emptyState?: ReactNode`,
+  `highlightedPostId?`. Render `emptyState` when `posts` is empty. Wrap the list in
+  a `<section>` with a semantic class name and `aria-label={label}`. (Not
+  `role="feed"`: that role requires `article` children, and `PostCard` isn't one.)
 
   Commit: `refactor(huddle): extract the post list into HuddleFeed`
 
-- [ ] **3.4** Render `<HuddleFeed>` in `Huddle.tsx`'s card view. Pass
-      `filteredPosts`, and pass the current "No posts yet. Be the first to share!"
-      block as `emptyState`.
+- [ ] **3.4** Render `<HuddleFeed>` in `Huddle.tsx`'s card view with
+      `filteredPosts`, and delete the moved code from the page. Keep the page's own
+      "No posts yet. Be the first to share!" block where it is: it also covers the
+      chat view, so don't pass it as `emptyState`. Take the chat view's team name
+      from `useTeam().selectedTeam`.
       Commit: `refactor(huddle): render the card view through HuddleFeed`
 
 - [ ] **3.5** Search `Huddle.tsx` for code the move left behind: unused imports,
