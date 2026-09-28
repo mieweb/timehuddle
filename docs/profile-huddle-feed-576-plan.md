@@ -275,15 +275,15 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
       `fixtures/users.ts` so the new spec can share it rather than copy it.
       Commit: `test(e2e): add a profile page object`
 
-- [ ] **5.3** Add `tests/e2e/huddle/profile-feed.spec.ts`. Seed with the helpers in
+- [x] **5.3** Add `tests/e2e/huddle/profile-feed.spec.ts`. Seed with the helpers in
       `tests/e2e/huddle/helpers.ts`: two users in one team, each with a post. Cover:
 
-  - [ ] Avatar click → profile Feed shows only that author's posts
-  - [ ] No composer on the profile Feed, including your own profile
-  - [ ] Edit and delete visible to the author and hidden from a plain teammate
-  - [ ] A comment added on the profile feed shows up
-  - [ ] Empty state for a user with no posts in the team
-  - [ ] Media tab shows the Upload button on your own profile
+  - [x] Avatar click → profile Feed shows only that author's posts
+  - [x] No composer on the profile Feed, including your own profile
+  - [x] Edit and delete visible to the author and hidden from a plain teammate
+  - [x] A comment added on the profile feed shows up
+  - [x] Empty state for a user with no posts in the team
+  - [x] Media tab shows the Upload button on your own profile
 
   Commit: `test(e2e): cover the profile Huddle feed`
 
