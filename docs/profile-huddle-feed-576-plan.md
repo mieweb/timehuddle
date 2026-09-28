@@ -100,7 +100,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
 
   Commit: `feat(huddle): filter getPosts by author`
 
-- [ ] **1.3** Update `huddlePosts.byTeam(teamId, userId)` (around line 182):
+- [x] **1.3** Update `huddlePosts.byTeam(teamId, userId)` (around line 182):
 
   - Add the optional second argument, with the same validation as 1.2.
   - Use the helper for the main query, and add `userId` to the legacy

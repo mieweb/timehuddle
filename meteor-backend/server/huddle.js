@@ -191,10 +191,12 @@ async function enrichComment(comment) {
 }
 
 // Publication with real-time updates
-Meteor.publish('huddlePosts.byTeam', async function (teamId) {
+// `userId` (optional) narrows the feed to one author — a person's profile feed.
+Meteor.publish('huddlePosts.byTeam', async function (teamId, userId) {
   if (!teamId || typeof teamId !== 'string') {
     throw new Meteor.Error('bad-request', 'teamId is required');
   }
+  assertOptionalUserId(userId);
   if (!this.userId) {
     throw new Meteor.Error('not-authorized', 'Authentication required');
   }
@@ -214,11 +216,11 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   
   // Initial fetch and send — published posts only (drafts are author-only
   // and never appear in the team feed).
-  let posts = await collection.find(feedFilter(teamId)).sort({ createdAt: -1 }).toArray();
+  let posts = await collection.find(feedFilter(teamId, userId)).sort({ createdAt: -1 }).toArray();
   // Also fetch posts where teamId was stored as ObjectId (legacy)
   if (/^[a-f0-9]{24}$/i.test(teamId)) {
     const legacyPosts = await collection
-      .find(feedFilter(new ObjectId(teamId)))
+      .find(feedFilter(new ObjectId(teamId), userId))
       .sort({ createdAt: -1 })
       .toArray();
     // Merge, deduplicate by _id hex string
@@ -256,6 +258,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
             : String(change.fullDocument?.teamId ?? '');
           if (tdStr !== teamId) return;
         }
+        if (userId && change.fullDocument.userId !== userId) return;
         const docId = change.fullDocument._id.toHexString
           ? change.fullDocument._id.toHexString()
           : String(change.fullDocument._id);
