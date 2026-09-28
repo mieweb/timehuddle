@@ -168,7 +168,7 @@ should be almost identical.
 
   Commit: `refactor(huddle): extract feed loading into useHuddlePosts`
 
-- [ ] **3.2** Rewire `Huddle.tsx` to the hook. `addPost`'s retry loop calls
+- [x] **3.2** Rewire `Huddle.tsx` to the hook. `addPost`'s retry loop calls
       `refresh()` and `isInFeed(id)`. Search, SuperChat, drafts and highlight still
       read `posts` from the hook.
       Commit: `refactor(huddle): drive the Huddle page from useHuddlePosts`
