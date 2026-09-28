@@ -116,7 +116,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
       as `['teamId']`. **Without this, REST calls that pass `userId` are rejected.**
       Commit: `feat(huddle): expose the author filter over REST`
 
-- [ ] **1.5** Check it by hand against the local backend, using the REST docs at
+- [x] **1.5** Check it by hand against the local backend, using the REST docs at
       `/api/docs` or curl with a bearer token. _(no commit; tick with the next commit)_
 
   - With `teamId` only: the full team feed, same as before.
@@ -129,7 +129,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
 
 ## Milestone 2: Frontend API client
 
-- [ ] **2.1** In `src/lib/api.ts` (around line 1167), change `getPosts` to take an
+- [x] **2.1** In `src/lib/api.ts` (around line 1167), change `getPosts` to take an
       optional `userId` and send it only when it's set:
       `getPosts: (teamId: string, userId?: string) => wormholeCall(..., { teamId, ...(userId ? { userId } : {}) })`.
       The existing call in `Huddle.tsx` compiles unchanged.

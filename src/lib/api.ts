@@ -1163,9 +1163,13 @@ export const huddleApi = {
    * refresh the feed the moment a post is created, since the DDP socket can be
    * down (the WebView drops it while backgrounded for a Pulse recording) and
    * the live subscription would otherwise deliver the new post only later.
+   * Pass `userId` to get only that author's posts (a person's profile feed).
    */
-  getPosts: (teamId: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
+  getPosts: (teamId: string, userId?: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', {
+      teamId,
+      ...(userId ? { userId } : {}),
+    }).then((r) => r.posts),
 
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
