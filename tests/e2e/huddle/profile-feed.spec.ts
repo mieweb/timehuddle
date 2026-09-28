@@ -139,7 +139,7 @@ test.describe('Profile Feed tab — a person’s Huddle posts', () => {
     await expect(profile.feedPosts()).toHaveCount(0);
   });
 
-  test('on a phone the tab rail stays pinned and compact while you scroll', async ({ page }) => {
+  test('on a phone the header pins with the person’s name and compact tabs', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await loginAs(page, TEST_USERS.member1);
     await selectSharedTestTeam(page);
@@ -151,27 +151,40 @@ test.describe('Profile Feed tab — a person’s Huddle posts', () => {
     // Seeded feeds are short, so stand in for a long one by making the tab
     // container tall. A sticky element only pins within its parent's content
     // box, and min-height grows that box without adding anything between the
-    // rail and the tab panels.
-    const rail = page.locator('.profile-tab-rail');
-    await rail.evaluate((el) => (el.parentElement!.style.minHeight = '4000px'));
-    const railOffset = () =>
-      rail.evaluate(
+    // header and the tab panels.
+    const header = page.locator('.profile-sticky-header');
+    const identity = header.locator('.profile-sticky-identity');
+    await header.evaluate((el) => (el.parentElement!.style.minHeight = '4000px'));
+    const headerOffset = () =>
+      header.evaluate(
         (el) => el.getBoundingClientRect().top - el.closest('main')!.getBoundingClientRect().top,
       );
+
+    // At rest the hero shows who this is, so the pinned name row stays hidden.
+    await expect(identity).toBeHidden();
+
     await page.locator('main').evaluate((el) => (el.scrollTop = 1500));
-    await expect.poll(railOffset).toBe(0);
-    expect((await rail.boundingBox())!.height).toBeLessThanOrEqual(36);
+    await expect.poll(headerOffset).toBe(0);
+    await expect(identity).toBeVisible();
+    await expect(identity).toContainText('Test Owner One');
+    await expect(identity).toContainText('@owner1');
+    expect((await page.locator('.profile-tab-rail').boundingBox())!.height).toBeLessThanOrEqual(36);
 
     // Switching while pinned opens the new tab at its top, not mid-scroll: its
-    // panel starts just under the rail (the rail's 16px bottom margin). Without
-    // the jump it would begin far above the screen.
+    // panel starts just under the header (its 16px bottom margin). Without the
+    // jump it would begin far above the screen.
     await profile.tab('Work').click();
     await expect(profile.tab('Work')).toHaveAttribute('aria-selected', 'true');
-    const gapUnderRail = () =>
+    const gapUnderHeader = () =>
       page.getByRole('tabpanel', { name: 'Work' }).evaluate((panel) => {
-        const railBottom = document.querySelector('.profile-tab-rail')!.getBoundingClientRect();
-        return Math.round(panel.getBoundingClientRect().top - railBottom.bottom);
+        const headerBox = document.querySelector('.profile-sticky-header')!.getBoundingClientRect();
+        return Math.round(panel.getBoundingClientRect().top - headerBox.bottom);
       });
-    await expect.poll(gapUnderRail).toBe(16);
+    await expect.poll(gapUnderHeader).toBe(16);
+    await expect(identity).toBeVisible();
+
+    // Back at the top, the name row hides again.
+    await page.locator('main').evaluate((el) => (el.scrollTop = 0));
+    await expect(identity).toBeHidden();
   });
 });
