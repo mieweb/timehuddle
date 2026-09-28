@@ -234,7 +234,7 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
   Commit: `feat(profile): add ProfilePosts backed by the shared Huddle feed`
 
-- [ ] **4.3** Change the tab rail in `ProfilePage.tsx` (around line 422) to
+- [x] **4.3** Change the tab rail in `ProfilePage.tsx` (around line 422) to
       **Feed | Media | Work | Activity**:
 
   - Feed renders `<ProfilePosts userId={profile.id} />`.

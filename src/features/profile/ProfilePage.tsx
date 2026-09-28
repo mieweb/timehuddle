@@ -70,6 +70,7 @@ import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileMedia } from './ProfileMedia';
+import { ProfilePosts } from './ProfilePosts';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 import { TodayStatusCard } from '../timers/TodayStatusCard';
@@ -419,12 +420,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         />
       )}
 
-      {/* Tab rail — Feed | Work | Activity */}
+      {/* Tab rail — Feed | Media | Work | Activity */}
       {profile && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
               Feed
+            </TabsTrigger>
+            <TabsTrigger value="media" className="flex-1">
+              Media
             </TabsTrigger>
             <TabsTrigger value="work" className="flex-1">
               Work
@@ -434,8 +438,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
             </TabsTrigger>
           </TabsList>
 
-          {/* Feed tab */}
+          {/* Feed tab — their Huddle posts in the selected team */}
           <TabsContent value="feed">
+            <ProfilePosts userId={profile.id} />
+          </TabsContent>
+
+          {/* Media tab — uploaded screenshots and videos */}
+          <TabsContent value="media">
             <ProfileMedia userId={profile.id} isOwn={isOwn} />
           </TabsContent>
 

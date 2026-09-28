@@ -207,7 +207,7 @@ export const ProfileMedia: React.FC<ProfileMediaProps> = ({ userId, isOwn }) => 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Spinner size="lg" label="Loading feed…" />
+        <Spinner size="lg" label="Loading media…" />
       </div>
     );
   }
