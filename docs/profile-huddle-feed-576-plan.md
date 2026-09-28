@@ -293,7 +293,7 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
 ## Milestone 6: Release note
 
-- [ ] **6.1** Read `release-notes/README.md` in full, then add a section per D4.
+- [x] **6.1** Read `release-notes/README.md` in full, then add a section per D4.
       Write it for users, not developers:
 
   - A person's profile Feed now shows their Huddle posts in your current team.
@@ -302,7 +302,7 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
   Commit: `docs(release-notes): note profile Huddle posts and the Media tab`
 
-- [ ] **6.2** `npm run dev` → open `/release-notes` and confirm the note shows. A
+- [x] **6.2** `npm run dev` → open `/release-notes` and confirm the note shows. A
       bad version, date or image path silently drops the note, so this check is the
       only one there is. _(no commit)_
 
