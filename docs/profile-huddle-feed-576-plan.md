@@ -316,11 +316,11 @@ Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed
 
 ## Milestone 7: Pull request
 
-- [ ] **7.1** Do a final pass against the checklist in `CLAUDE.md` (DRY, no dead
+- [x] **7.1** Do a final pass against the checklist in `CLAUDE.md` (DRY, no dead
       code, ARIA, `@mieweb/ui` components) and against every acceptance criterion in
       #576.
-- [ ] **7.2** Open the PR against `main`. Title:
-      `feat: show a person's Huddle posts on their profile Feed`. In the body, include:
+- [x] **7.2** Open the PR against `main`. Title:
+      `Show a Person's Huddle Posts on Their Profile Feed Tab` (Title Case, like recent PRs). In the body, include:
 
   - a link to #576 (`Closes #576`)
   - the baseline results from 0.2
