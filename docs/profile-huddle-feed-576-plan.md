@@ -62,6 +62,16 @@ Build against these. Don't reopen them in the PR.
 
 ---
 
+## Change after review (2026-09-28)
+
+**The Media tab was dropped** after the PR opened: the rail is **Feed | Work |
+Activity**. That departs from #576, which asked for the media grid to move to its
+own tab. `ProfileMedia.tsx` went to `.attic/` with a note; `mediaApi`/`videoApi`
+stay because the Huddle composer uses them. Steps 4.1, 4.3, 5.2, 5.3 and 6.1 below
+describe the original Media tab and are kept as a record of what was built.
+
+---
+
 ## Milestone 0: Setup
 
 - [x] **0.1** Branch off an up-to-date `main`:
