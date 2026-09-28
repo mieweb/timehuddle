@@ -69,7 +69,7 @@ import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
-import { ProfileFeed } from './ProfileFeed';
+import { ProfileMedia } from './ProfileMedia';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 import { TodayStatusCard } from '../timers/TodayStatusCard';
@@ -436,7 +436,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
           {/* Feed tab */}
           <TabsContent value="feed">
-            <ProfileFeed userId={profile.id} isOwn={isOwn} />
+            <ProfileMedia userId={profile.id} isOwn={isOwn} />
           </TabsContent>
 
           {/* Work tab */}

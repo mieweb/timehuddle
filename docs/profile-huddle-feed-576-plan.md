@@ -214,7 +214,7 @@ work. Push.
 
 Files: `src/features/profile/ProfilePage.tsx`, `src/features/profile/ProfileFeed.tsx`
 
-- [ ] **4.1** Rename the media grid without changing its behavior:
+- [x] **4.1** Rename the media grid without changing its behavior:
 
   - `git mv src/features/profile/ProfileFeed.tsx src/features/profile/ProfileMedia.tsx`
   - Rename the component to `ProfileMedia` and update the import in

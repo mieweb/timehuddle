@@ -110,12 +110,12 @@ const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface ProfileFeedProps {
+interface ProfileMediaProps {
   userId: string;
   isOwn: boolean;
 }
 
-export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
+export const ProfileMedia: React.FC<ProfileMediaProps> = ({ userId, isOwn }) => {
   useSession();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -241,7 +241,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
         </div>
       )}
 
-      {/* Feed items */}
+      {/* Media items */}
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Text variant="muted" size="sm">
