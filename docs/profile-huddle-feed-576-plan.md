@@ -91,7 +91,7 @@ Files: `meteor-backend/server/huddle.js`, `meteor-backend/server/main.js`
       the publication will call it, so the filter lives in one place.
       Commit: `refactor(huddle): share the published-posts filter`
 
-- [ ] **1.2** Update `huddle.getPosts({ teamId, userId })` (around line 291):
+- [x] **1.2** Update `huddle.getPosts({ teamId, userId })` (around line 291):
 
   - Accept an optional `userId`. If it's present and not a string, throw
     `bad-request`.

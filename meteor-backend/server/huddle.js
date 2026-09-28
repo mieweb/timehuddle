@@ -22,6 +22,12 @@ function feedFilter(teamId, userId) {
   return { teamId, ...PUBLISHED, ...(userId ? { userId } : {}) };
 }
 
+function assertOptionalUserId(userId) {
+  if (userId !== undefined && (typeof userId !== 'string' || !userId)) {
+    throw new Meteor.Error('bad-request', 'userId must be a non-empty string');
+  }
+}
+
 // Permission helpers
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
@@ -294,7 +300,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
 
 // Methods
 Meteor.methods({
-  async 'huddle.getPosts'({ teamId }) {
+  async 'huddle.getPosts'({ teamId, userId }) {
     // requireIdentity, not this.userId: this is the REST feed refresh the
     // composer runs right after creating a post (huddle.createPost is REST for
     // the same reason — the WebView drops DDP while backgrounded). Over the
@@ -305,6 +311,7 @@ Meteor.methods({
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }
+    assertOptionalUserId(userId);
 
     const team = await getTeam(teamId);
     if (!team) {
@@ -317,7 +324,7 @@ Meteor.methods({
     }
     
     const posts = await rawDb().collection('huddlePosts')
-      .find(feedFilter(teamId))
+      .find(feedFilter(teamId, userId))
       .sort({ createdAt: -1 })
       .toArray();
     
