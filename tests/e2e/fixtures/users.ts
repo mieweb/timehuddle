@@ -3,6 +3,10 @@
  * Maps seed users to roles (owner, admin, member) for E2E testing.
  */
 import type { Page } from '@playwright/test';
+import { MongoClient } from 'mongodb';
+
+const MONGO_URL =
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 export interface TestUser {
   email: string;
@@ -139,4 +143,19 @@ export function getUserByRole(role: 'owner' | 'admin' | 'member'): TestUser {
  */
 export function getAllUsersByRole(role: 'owner' | 'admin' | 'member'): TestUser[] {
   return Object.values(TEST_USERS).filter((u) => u.role === role);
+}
+
+/** The seed user's `_id`, needed to build `/app/profile/:id` deep links. */
+export async function getUserIdByEmail(email: string): Promise<string> {
+  const client = await MongoClient.connect(MONGO_URL);
+  try {
+    const user = await client
+      .db()
+      .collection('users')
+      .findOne({ 'emails.address': email }, { projection: { _id: 1 } });
+    if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
+    return String(user._id);
+  } finally {
+    await client.close();
+  }
 }

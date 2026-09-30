@@ -12,34 +12,29 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
-import { PostCard } from '../features/huddle/PostCard';
+import { HuddleFeed } from '../features/huddle/HuddleFeed';
 import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
 import { postsToConversation } from '../features/huddle/superChatFeed';
+import { useHuddlePosts } from '../features/huddle/useHuddlePosts';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
-import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
-import { useRefresh } from '@lib/RefreshContext';
+import { huddleApi } from '@lib/api';
 import { toDateString } from '@lib/timeUtils';
 
 export default function Huddle() {
   const { navigate, search, replace } = useRouter();
-  const [posts, setPosts] = useState<HuddlePost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // A failed inline edit from the feed. Separate from `error` above, which is
-  // a feed-load failure and takes the feed's place on screen.
+  // A failed inline edit from the feed. Separate from useHuddlePosts' `error`,
+  // which is a feed-load failure and takes the feed's place on screen.
   const [editError, setEditError] = useState<string | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
@@ -49,8 +44,22 @@ export default function Huddle() {
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
   const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
-    useTeam();
+  const {
+    selectedTeamId,
+    selectedTeam,
+    setSelectedTeamId,
+    teams,
+    allTeams,
+    setSelectedOrgId,
+    teamsReady,
+  } = useTeam();
+  const {
+    posts,
+    loading,
+    error,
+    refresh: refreshFeed,
+    isInFeed,
+  } = useHuddlePosts({ teamId: selectedTeamId });
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
@@ -158,123 +167,6 @@ export default function Huddle() {
     return () => clearTimeout(timer);
   }, [highlight]);
 
-  // Live session state for the post headers. The posts publication only fires
-  // on post writes, so a clock-out would never reach the feed on its own —
-  // `clock.liveForTeams` carries every still-open session for the team.
-  const liveTeamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
-  const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
-  const activeClockEventIds = useMemo(
-    () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
-    [liveClockEvents],
-  );
-
-  // Load team data for permission checks
-  useEffect(() => {
-    async function loadTeam() {
-      if (!selectedTeamId) {
-        setTeam(null);
-        return;
-      }
-
-      try {
-        const teams = await teamApi.getTeamsOnly();
-        const foundTeam = teams.find((t) => t.id === selectedTeamId);
-        setTeam(foundTeam || null);
-      } catch (err) {
-        console.error('[Huddle] Failed to load team:', err);
-      }
-    }
-
-    loadTeam();
-  }, [selectedTeamId]);
-
-  // Last REST snapshot for the team, replaced wholesale on every refetch (not
-  // merged) so an edit or delete that happened while DDP was disconnected is
-  // reflected, and a post absent from a later snapshot doesn't linger forever.
-  const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
-
-  // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
-  // component scope so addPost can trigger an immediate re-sync after posting.
-  const syncPosts = useCallback(() => {
-    if (!selectedTeamId) return;
-    const ddp = getDdpClient();
-    const byId = new Map<string, HuddlePost>();
-    for (const p of ddp.docs('huddlePosts')) {
-      if (p.teamId !== selectedTeamId) continue;
-      const post = { ...p, id: (p.id ?? p._id) as string } as unknown as HuddlePost;
-      byId.set(post.id, post);
-    }
-    // REST snapshot wins over the DDP cache when it's newer — DDP may be
-    // holding a stale copy while the socket is disconnected (e.g. backgrounded
-    // for a Pulse recording), so a plain "DDP always wins" merge would hide
-    // REST-only edits indefinitely.
-    for (const [id, restPost] of restPostsRef.current) {
-      const ddpPost = byId.get(id);
-      if (
-        !ddpPost ||
-        new Date(restPost.updatedAt).getTime() > new Date(ddpPost.updatedAt).getTime()
-      ) {
-        byId.set(id, restPost);
-      }
-    }
-    const teamPosts = [...byId.values()].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-    setPosts(teamPosts);
-  }, [selectedTeamId]);
-
-  // Fetch the feed over REST and overlay it. Used by pull-to-refresh and as a
-  // fallback when the live DDP socket is down (dropped while backgrounded for a
-  // Pulse recording), so the feed still updates without a reconnect.
-  const refreshFeed = useCallback(async () => {
-    if (!selectedTeamId) return;
-    try {
-      const fresh = await huddleApi.getPosts(selectedTeamId);
-      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
-      syncPosts();
-    } catch (err) {
-      console.error('[Huddle] refreshFeed failed:', err);
-    }
-  }, [selectedTeamId, syncPosts]);
-
-  // Wire pull-to-refresh (swipe down) to the REST refetch.
-  useRefresh(refreshFeed);
-
-  // Subscribe to live DDP publication for huddle posts
-  useEffect(() => {
-    if (!selectedTeamId) {
-      setPosts([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    const ddp = getDdpClient();
-    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
-
-    // Sync immediately in case data is already cached
-    syncPosts();
-
-    // REST fallback: populate the feed even if the DDP socket is down (it's
-    // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed().finally(() => setLoading(false));
-
-    // Then keep syncing on every change
-    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
-
-    const loadingFallback = setTimeout(() => setLoading(false), 3000);
-
-    return () => {
-      clearTimeout(loadingFallback);
-      unsub();
-      offChange();
-      setPosts([]);
-      restPostsRef.current.clear();
-    };
-  }, [selectedTeamId, syncPosts, refreshFeed]);
-
   async function addPost(content: ComposerContent) {
     // Thrown, not alerted: HuddleComposer catches it and shows the reason in
     // its own `role="alert"` region, keeping the draft and the caret intact.
@@ -303,31 +195,11 @@ export default function Huddle() {
     // whenever the socket is down — which is the exact case the REST overlay
     // exists to cover, and where the post is already on screen after the first
     // refresh.
-    const ddp = getDdpClient();
-    const inFeed = () =>
-      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
-
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
       await refreshFeed();
-      if (inFeed()) return;
+      if (isInFeed(id)) return;
     }
-  }
-
-  // Determine permissions for each post
-  function canEditPost(post: HuddlePost): boolean {
-    if (!user || !team) return false;
-    const isAuthor = post.userId === user.id;
-    const isTeamAdmin = team.admins.includes(user.id);
-    const isOrgOwner =
-      user.organizationMembership?.role === 'owner' &&
-      user.organizationMembership?.organizationId === team.orgId;
-    return isAuthor || isTeamAdmin || isOrgOwner;
-  }
-
-  function canDeletePost(post: HuddlePost): boolean {
-    // Same permissions as edit
-    return canEditPost(post);
   }
 
   const filteredPosts = posts.filter((post) => {
@@ -345,8 +217,13 @@ export default function Huddle() {
   // because filteredPosts is a fresh array every render.
   const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
   const conversation = useMemo(
-    () => postsToConversation(selectedTeamId ?? 'huddle', team?.name ?? 'Huddle', filteredPosts),
-    [selectedTeamId, team?.name, conversationKey],
+    () =>
+      postsToConversation(
+        selectedTeamId ?? 'huddle',
+        selectedTeam?.name ?? 'Huddle',
+        filteredPosts,
+      ),
+    [selectedTeamId, selectedTeam?.name, conversationKey],
   );
   const renderPlugins = useMemo(
     () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
@@ -511,23 +388,14 @@ export default function Huddle() {
                 )}
 
                 {/* Classic card view — keeps per-post comments and likes */}
-                {!loading &&
-                  !error &&
-                  user &&
-                  feedView === 'cards' &&
-                  filteredPosts.map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      currentUserId={user?.id ?? ''}
-                      canEdit={canEditPost(post)}
-                      canDelete={canDeletePost(post)}
-                      highlighted={post.id === highlightedPostId}
-                      sessionActive={
-                        !!post.clockEventId && activeClockEventIds.has(post.clockEventId)
-                      }
-                    />
-                  ))}
+                {!loading && !error && feedView === 'cards' && (
+                  <HuddleFeed
+                    teamId={selectedTeamId}
+                    posts={filteredPosts}
+                    label="Huddle posts"
+                    highlightedPostId={highlightedPostId}
+                  />
+                )}
               </>
             )}
           </div>

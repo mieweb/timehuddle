@@ -10,27 +10,12 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
-import { TEST_USERS, loginAs } from '../fixtures/users';
+import { TEST_USERS, getUserIdByEmail, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import { composerEditor, switchToCardView } from '../huddle/helpers';
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
-
-/** The seed user's `_id`, needed to build `/app/profile/:id` deep links. */
-async function getUserIdByEmail(email: string): Promise<string> {
-  const client = await MongoClient.connect(MONGO_URL);
-  try {
-    const user = await client
-      .db()
-      .collection('users')
-      .findOne({ 'emails.address': email }, { projection: { _id: 1 } });
-    if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
-    return String(user._id);
-  } finally {
-    await client.close();
-  }
-}
 
 /** Any team the user belongs to other than `excludeTeamId` (their personal one). */
 async function getOtherTeamId(email: string, excludeTeamId: string): Promise<string | null> {

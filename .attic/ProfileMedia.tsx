@@ -1,3 +1,13 @@
+/**
+ * ProfileMedia — ATTIC. The profile's media library grid (uploaded screenshots
+ * and videos, with an Upload button). It was the profile's Feed tab until #576
+ * gave Feed the person's Huddle posts, then briefly its own Media tab, which was
+ * dropped before release: the grid duplicated what posts already show.
+ *
+ * Kept because the upload path (tus → PulseVault `reserveForLibrary`) and the
+ * lightbox are non-trivial. `mediaApi` / `videoApi` are still live — the Huddle
+ * composer uses them — so restoring this only means importing it again.
+ */
 import { faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, Spinner, Text } from '@mieweb/ui';
@@ -110,12 +120,12 @@ const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface ProfileFeedProps {
+interface ProfileMediaProps {
   userId: string;
   isOwn: boolean;
 }
 
-export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
+export const ProfileMedia: React.FC<ProfileMediaProps> = ({ userId, isOwn }) => {
   useSession();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -207,7 +217,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Spinner size="lg" label="Loading feed…" />
+        <Spinner size="lg" label="Loading media…" />
       </div>
     );
   }
@@ -241,7 +251,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
         </div>
       )}
 
-      {/* Feed items */}
+      {/* Media items */}
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Text variant="muted" size="sm">

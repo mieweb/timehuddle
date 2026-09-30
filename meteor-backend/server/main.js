@@ -1277,10 +1277,10 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('huddle.getPosts', {
-    description: 'Fetch all published huddle posts for a team, newest first',
+    description: "Fetch published huddle posts for a team, newest first; userId narrows to one author's posts",
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: { teamId: { type: 'string' }, userId: { type: 'string' } },
       required: ['teamId'],
     },
   });
