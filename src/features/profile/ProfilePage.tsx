@@ -419,12 +419,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         />
       )}
 
-      {/* Tab rail — Feed | Work | Activity */}
+      {/* Tab rail — Media library | Work | Activity */}
       {profile && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
-              Feed
+              Media library
             </TabsTrigger>
             <TabsTrigger value="work" className="flex-1">
               Work
@@ -434,7 +434,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
             </TabsTrigger>
           </TabsList>
 
-          {/* Feed tab */}
+          {/* Media library tab: everything the user uploaded, anywhere in the app */}
           <TabsContent value="feed">
             <ProfileFeed userId={profile.id} isOwn={isOwn} />
           </TabsContent>

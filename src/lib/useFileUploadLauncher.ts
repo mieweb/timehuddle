@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 
-export const MEDIA_UPLOAD_ACCEPT = 'image/*,image/gif,.gif,video/mp4,.mp4';
+export const MEDIA_UPLOAD_ACCEPT = 'image/*,image/gif,.gif';
 
 interface UseFileUploadLauncherOptions {
   accept: string;

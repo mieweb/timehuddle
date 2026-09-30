@@ -18,7 +18,8 @@ import { composerEditor, openComposer, setSharedTeamPlanGate } from './helpers';
 
 const ACTION_BUTTONS: Array<string | RegExp> = [
   'Photo',
-  'Video',
+  // The Pulse chip's accessible name (its visible text is just "Pulse").
+  'Record your plan with Pulse and clock in',
   'Doc',
   'Ticket',
   '@Mention',

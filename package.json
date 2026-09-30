@@ -1,6 +1,6 @@
 {
   "name": "timehuddle",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -92,7 +92,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "serve": "^14.2.4",
-    "tus-js-client": "^4.3.1",
     "y-protocols": "^1.0.7",
     "yaml": "^2.9.0",
     "yjs": "^13.6.30",
@@ -112,7 +111,6 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.1.0",
-    "@types/tus-js-client": "^1.8.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
     "@vitejs/plugin-react": "^6.0.4",

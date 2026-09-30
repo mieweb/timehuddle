@@ -72,7 +72,6 @@ import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -847,7 +846,6 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
-  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
   // Status filter: Open vs Closed (GitHub style)
   type StatusFilter = 'open' | 'closed';
@@ -1795,14 +1793,9 @@ export const TicketsPage: React.FC = () => {
                 )}
                 <div className="space-y-1 pt-1">
                   <AttachmentsPanel
-                    key={detailsAttachmentRefresh}
                     kind="ticket"
                     entityId={detailsTicket.id}
                     currentUserId={userId ?? undefined}
-                  />
-                  <PulseUploadButton
-                    ticketId={detailsTicket.id}
-                    onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
                   />
                 </div>
               </div>

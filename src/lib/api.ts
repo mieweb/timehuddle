@@ -6,7 +6,6 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
-import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
 
@@ -1421,7 +1420,6 @@ export interface ClockEvent {
  */
 export interface TimesheetJustification {
   description: string;
-  videoUrl?: string;
 }
 
 export interface TimesheetChangeRequest {
@@ -1854,42 +1852,33 @@ export const timerApi = {
     wormholeCall<{ created: number }>('timers.copyPrevious', { toDate }).then((r) => r.created),
 };
 
-// ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
+// ─── PulseVault reservations (Pulse app uploads only) ────────────────────────────
+
+/**
+ * Where a Pulse upload goes. The server delivers the finished video there as
+ * soon as it lands (see meteor-backend/server/pulse-destinations.js): one
+ * link, one upload, one destination.
+ */
+export type PulseDestination =
+  | { kind: 'huddle'; teamId: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'clock-wrapup'; clockEventId: string; postDate: string }
+  | { kind: AttachmentKind; id: string }
+  | { kind: 'timesheet-request'; id: string };
+
+/** Where a reserved Pulse upload stands. */
+export type PulseUploadState = 'waiting' | 'done' | 'expired';
 
 export const videoApi = {
-  /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
-  uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
+  /** Reserve one Pulse upload for `destination`: a fresh videoid and its link token. */
+  reserve: (destination: PulseDestination) =>
+    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserve', { destination }),
 
-  /**
-   * Shared TUS retry backoff for every PulseVault upload path. No leading `0`
-   * on purpose: an immediate retry can race the still-streaming PATCH (the
-   * proxy buffers and doesn't abort it), so the backend sees two concurrent
-   * PATCHes at the same offset and 409s the second one.
-   */
-  uploadRetryDelays: [3000, 5000, 10000] as number[],
-
-  /**
-   * Don't retry a `409 Upload-Offset conflict`: it means a concurrent/duplicate
-   * PATCH already advanced the offset, so retrying only conflicts again. Every
-   * upload path shares this so ticket and huddle behave identically.
-   */
-  shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
-
-  /** Reserve a videoid for a ticket upload before starting TUS.
-   *  Pass `existingVideoid` when resuming a recording session so the backend
-   *  re-registers the same id instead of creating a new one.
-   */
-  reserve: (ticketId: string, existingVideoid?: string) =>
-    wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
-      'pulsevault.reserve',
-      existingVideoid
-        ? { target: 'ticket', ticketId, existingVideoid }
-        : { target: 'ticket', ticketId },
+  /** Whether a reserved upload has landed (and been delivered) yet. */
+  status: (videoid: string) =>
+    wormholeCall<{ state: PulseUploadState }>('pulsevault.status', { videoid }).then(
+      (r) => r.state,
     ),
-
-  /** Reserve a videoid for a media library upload (no ticket context). */
-  reserveForLibrary: () =>
-    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserveForLibrary', {}),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────
@@ -1908,6 +1897,11 @@ export interface MediaItem {
   altText: string | null;
   thumbnail: string | null;
   uploadedAt: string;
+  /**
+   * Where the item lives when it isn't a library upload: a Pulse video attached
+   * to a ticket or clock session. Managed there, not from the library.
+   */
+  source?: { kind: AttachmentKind; id: string } | null;
 }
 
 function withAbsoluteMediaItem(item: MediaItem): MediaItem {
@@ -1973,23 +1967,6 @@ export const mediaApi = {
     wormholeCall<{ items: MediaItem[] }>('media.listForUser', { userId }).then((r) =>
       r.items.map(withAbsoluteMediaItem),
     ),
-
-  uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
-    const form = new FormData();
-    form.append('file', blob, 'thumbnail.jpg');
-    const token = await getAccessToken();
-    const res = await fetch(`${METEOR_API_BASE}/api/media-thumbnail/${encodeURIComponent(id)}`, {
-      method: 'POST',
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
-    }
-    const data = (await res.json()) as { item: MediaItem };
-    return withAbsoluteMediaItem(data.item);
-  },
 };
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────

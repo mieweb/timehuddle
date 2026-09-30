@@ -1,14 +1,16 @@
 /**
- * AttachmentsPanel — Add, list, and remove media attachments for a clock entry or ticket.
+ * AttachmentsPanel — Add, list, and remove attachments for a clock entry or
+ * ticket. Two chips add to it: **Link** (a pasted URL — a YouTube Short, a
+ * Loom, any page) and **Pulse** (a video from the Pulse app, which the server
+ * attaches here when it lands; videos come from Pulse only).
  *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
  *   <AttachmentsPanel kind="ticket" entityId={ticketId} />
  */
-import { faLink, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faLink, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Input, Select, Spinner, Text } from '@mieweb/ui';
-import { getYouTubeTitleFromUrl, isYouTubeUrl } from '@timehuddle/youtube';
+import { Button, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -18,6 +20,9 @@ import {
   type AttachmentType,
   type Attachment,
 } from '../../lib/api';
+import { LinkAttachButton } from './LinkAttachButton';
+import type { AddedLink } from './linkAttach';
+import { PulseButton } from '../pulse-upload/PulseButton';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -25,12 +30,7 @@ interface AttachmentsPanelProps {
   currentUserId?: string;
 }
 
-const TYPE_OPTIONS: { value: AttachmentType; label: string }[] = [
-  { value: 'video', label: 'Video' },
-  { value: 'image', label: 'Image' },
-  { value: 'link', label: 'Link' },
-];
-
+/** What a pasted link is, from its URL alone. */
 function guessType(url: string): AttachmentType {
   const lower = url.toLowerCase();
   if (
@@ -52,11 +52,6 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
 }) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [url, setUrl] = useState('');
-  const [type, setType] = useState<AttachmentType>('link');
-  const [title, setTitle] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchAttachments = useCallback(async () => {
@@ -75,38 +70,18 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     void fetchAttachments();
   }, [fetchAttachments]);
 
-  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setUrl(val);
-    if (val.trim()) {
-      setType(guessType(val));
-      if (isYouTubeUrl(val) && !title.trim()) {
-        void getYouTubeTitleFromUrl(val).then((resolved) => {
-          if (resolved) setTitle((prev) => (prev.trim() ? prev : resolved));
-        });
-      }
-    }
-  };
-
-  const handleSubmit = useCallback(async () => {
-    if (!url.trim()) return;
-    setSubmitting(true);
-    try {
+  const handleAddLink = useCallback(
+    async ({ url, title }: AddedLink) => {
       await attachmentApi.add({
-        url: url.trim(),
-        type,
-        title: title.trim() || undefined,
+        url,
+        type: guessType(url),
+        title: title ?? undefined,
         attachedTo: { kind, id: entityId },
       });
-      setUrl('');
-      setTitle('');
-      setType('link');
-      setShowForm(false);
       await fetchAttachments();
-    } finally {
-      setSubmitting(false);
-    }
-  }, [url, type, title, kind, entityId, fetchAttachments]);
+    },
+    [kind, entityId, fetchAttachments],
+  );
 
   const handleRemove = useCallback(async (id: string) => {
     setDeletingId(id);
@@ -123,65 +98,23 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       <div className="attachments-header flex items-center justify-between mb-2">
         <Text size="sm" className="font-medium flex items-center gap-1">
           <FontAwesomeIcon icon={faLink} size="sm" />
-          Links
+          Links and videos
         </Text>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setShowForm((v) => !v)}
-          aria-label="Add link"
-        >
-          <FontAwesomeIcon icon={faPlus} size="sm" />
-          Add
-        </Button>
-      </div>
-
-      {showForm && (
-        <div className="attachment-form flex flex-col gap-2 mb-3 p-3 rounded-md border border-border bg-muted/30">
-          <Input
-            label="URL"
-            hideLabel
-            size="sm"
-            type="url"
-            placeholder="https://..."
-            value={url}
-            onChange={handleUrlChange}
-            autoFocus
+        <div className="attachments-actions flex items-center gap-2">
+          <LinkAttachButton onAdd={handleAddLink} />
+          <PulseButton
+            destination={{ kind, id: entityId }}
+            landedLabel="Added"
+            onLanded={() => void fetchAttachments()}
           />
-          <Input
-            label="Title (optional)"
-            hideLabel
-            size="sm"
-            type="text"
-            placeholder="Title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <Select
-            label="Type"
-            hideLabel
-            size="sm"
-            value={type}
-            onValueChange={(val) => setType(val as AttachmentType)}
-            options={TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
-            aria-label="Attachment type"
-          />
-          <div className="attachment-form-actions flex gap-2 justify-end">
-            <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleSubmit} isLoading={submitting} disabled={!url.trim()}>
-              Save
-            </Button>
-          </div>
         </div>
-      )}
+      </div>
 
       {loading && <Spinner size="sm" />}
 
-      {!loading && attachments.length === 0 && !showForm && (
+      {!loading && attachments.length === 0 && (
         <Text size="xs" variant="muted">
-          No links attached.
+          Nothing attached yet.
         </Text>
       )}
 
@@ -191,9 +124,9 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             key={a.id}
             className="attachment-item flex items-center justify-between gap-2 text-sm"
           >
-            {/* Backend-hosted attachments (Pulse videos, uploads) are stored
-                by path and bound to the current origin here; user-entered
-                links pass through resolveMediaUrl untouched. */}
+            {/* Backend-hosted attachments (Pulse videos) are stored by path
+                and bound to the current origin here; user-entered links pass
+                through resolveMediaUrl untouched. */}
             <a
               href={resolveMediaUrl(a.url)}
               target="_blank"

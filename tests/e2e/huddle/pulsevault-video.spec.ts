@@ -1,10 +1,11 @@
 /**
  * Huddle Feed — Pulse Video Tests
  *
- * Verifies two ways a video ends up in a huddle post:
- *  1. Direct upload from the composer's attach bar ("Video" button) — a
- *     file-picker path through PulseVault TUS, independent of any ticket.
- *     Driven through the Clock tab's plan composer.
+ * Videos reach a huddle post only through Pulse:
+ *  1. The composer (driven through the Clock tab's plan composer) offers
+ *     Pulse beside Post, and no raw "Video" file picker.
+ *  1b. A Pulse upload lands where it was reserved for, with no client step:
+ *     a Huddle post, a plan that clocks in, a wrap-up that clocks out.
  *  2. Cross-posting: a ticket that already has a Pulse video attached is
  *     picked via the composer's TicketPicker, and that video is
  *     automatically pulled into the post (HuddleComposer.tsx's `ticketVideos`
@@ -12,22 +13,28 @@
  *     the Huddle page shows it just for a team's first post — so this one runs
  *     on a freshly created, empty team.
  *
- * Both assert against the real backend — the post must link to the actual
- * /pulsevault/artifacts/:id playback URL (the inbox renders video attachments
- * as links), not just "some video exists".
+ * The cross-post asserts against the real backend: the post must link to the
+ * actual /pulsevault/artifacts/:id URL, not just "some video exists".
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
+import {
+  createTicket,
+  deleteTicket,
+  getSessionToken,
+  reservePulseUpload,
+  uploadVideoAsPulse,
+  uploadVideoToTicket,
+} from '../tickets/helpers';
 import {
   attachTicket,
   clockOut,
   composerEditor,
+  findOpenClockEventId,
   openComposer,
   openPostInInbox,
   setSharedTeamPlanGate,
-  submitPost,
 } from './helpers';
 
 /** Create a team through the UI; the app switches to it. */
@@ -39,7 +46,7 @@ async function createFreshTeam(page: Page, name: string): Promise<void> {
   await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 }
 
-test.describe('Huddle — direct video upload', () => {
+test.describe('Huddle — videos come from Pulse only', () => {
   test.setTimeout(90000);
 
   test.beforeAll(() => setSharedTeamPlanGate(true));
@@ -55,25 +62,64 @@ test.describe('Huddle — direct video upload', () => {
     await clockOut(page);
   });
 
-  test("uploading a video via the composer's Video button posts a playable video", async ({
-    page,
-  }) => {
-    const postText = `Huddle Video Post ${Date.now()}`;
+  test('the plan composer offers Pulse beside Post, and no raw video upload', async ({ page }) => {
+    await expect(
+      page.getByRole('button', { name: 'Record your plan with Pulse and clock in' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Video', exact: true })).toHaveCount(0);
+    await expect(page.locator('input[type="file"][accept*="video"]')).toHaveCount(0);
+  });
+});
 
-    await composerEditor(page).fill(postText);
+// One link, one upload, one destination: the server delivers a Pulse upload
+// where it was reserved for the moment it lands — nothing to attach or post.
+test.describe('Huddle — a Pulse upload goes straight to its destination', () => {
+  test.setTimeout(120000);
 
-    await page.getByRole('button', { name: 'Video', exact: true }).click();
-    const videoInput = page.locator('input[type="file"][accept="video/*"]');
-    await videoInput.setInputFiles(TEST_MP4);
+  test('a Pulse upload for Huddle posts itself to the team feed', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    await page.goto('/app/huddle');
+    await expect(page.getByRole('button', { name: 'Post a video with Pulse' })).toBeVisible();
 
-    // The attach bar shows the filename as a chip once uploadMedia() resolves.
-    await expect(page.getByText('test-video.mp4')).toBeVisible({ timeout: 20000 });
+    const token = await getSessionToken(page);
+    const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
+      destination: { kind: 'huddle', teamId },
+    });
+    await uploadVideoAsPulse(page.request, videoid, uploadToken);
 
-    await submitPost(page);
+    await page.reload();
+    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible({
+      timeout: 20000,
+    });
+  });
 
-    const post = await openPostInInbox(page, postText);
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
-      timeout: 10000,
+  test.describe('plan and wrap-up', () => {
+    test.beforeAll(() => setSharedTeamPlanGate(true));
+    test.afterAll(() => setSharedTeamPlanGate(false));
+
+    test('a Pulse plan clocks you in, and a Pulse wrap-up clocks you out', async ({ page }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-plan', teamId, postDate: today },
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-wrapup', clockEventId, postDate: today },
+      });
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .toBeNull();
     });
   });
 });

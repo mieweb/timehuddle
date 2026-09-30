@@ -1,9 +1,14 @@
 /**
- * AttachmentBar — the composer's Photo / Video / Doc file pickers.
+ * AttachmentBar — the composer's Photo / Doc file pickers.
+ *
+ * There is no video picker: videos reach a post only through Pulse (the Pulse
+ * button beside the composer, which posts the video itself), since PulseVault
+ * is built for the Pulse app and a general video upload endpoint doesn't exist
+ * yet.
  *
  * Upload progress is reported to the host (via `onUploadProgress`) rather than
  * rendered here: the composer shows a single bar covering every phase of
- * posting, so a slow video upload reads the same as a slow post instead of
+ * posting, so a slow upload reads the same as a slow post instead of
  * looking like a dead button. The pressed button still shows its own spinner
  * so it's obvious *which* attachment is in flight.
  */
@@ -13,7 +18,7 @@ import { useRef, useState } from 'react';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import type { MediaItem } from './types';
 
-type FileKind = 'photo' | 'video' | 'doc';
+type FileKind = 'photo' | 'doc';
 
 interface AttachmentBarProps {
   onAttachmentAdd: (media: MediaItem) => void;
@@ -29,7 +34,6 @@ interface AttachmentBarProps {
 export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: AttachmentBarProps) {
   const [uploadingKind, setUploadingKind] = useState<FileKind | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
   const { upload } = useAttachmentUpload({ onAttachmentAdd, onUploadProgress, onError });
@@ -60,12 +64,6 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: At
       icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z',
     },
     {
-      kind: 'video',
-      label: 'Video',
-      inputRef: videoInputRef,
-      icon: 'M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
-    },
-    {
       kind: 'doc',
       label: 'Doc',
       inputRef: docInputRef,
@@ -85,18 +83,6 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: At
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) handleFileSelect(file, 'photo');
-          e.target.value = '';
-        }}
-      />
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/*"
-        className="hidden"
-        aria-label="Choose a video to attach"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file, 'video');
           e.target.value = '';
         }}
       />

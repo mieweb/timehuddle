@@ -1,7 +1,6 @@
 // Huddle feature API helpers
-import { teamApi, ticketApi, mediaApi, videoApi, MEDIA_PATH_PREFIXES } from '@lib/api';
+import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
-import * as tus from 'tus-js-client';
 import type { TeamMember, MediaItem } from './types';
 
 export type PostAttachment = HuddlePost['attachments'][number];
@@ -133,60 +132,18 @@ export async function fetchTeamTickets(teamId: string) {
 export type UploadProgress = (fraction: number) => void;
 
 /**
- * Upload a media file (photo, video, doc).
+ * Upload a media file (photo or doc) to Meteor's multipart media endpoint.
  *
- * Videos stream to PulseVault over TUS; images and documents go to Meteor's
- * multipart media endpoint. Both report byte progress through `onProgress` so
- * the composer can show one progress bar regardless of which path a file took
- * — a several-second video upload with no feedback is indistinguishable from a
- * broken button.
+ * Reports byte progress through `onProgress` so the composer can show one
+ * progress bar. Videos never come through here: they reach a post only via
+ * Pulse (see `useAttachmentUpload`, which turns them away with a message).
  */
 export async function uploadMedia(file: File, onProgress?: UploadProgress): Promise<MediaItem> {
-  if (!file.type.startsWith('video/')) {
-    const item = await mediaApi.uploadImage(file, onProgress);
-    onProgress?.(1);
-    // `filename` off the wire is the storage name the backend generated
-    // (`<userId>-<hex>.png`), which is what the composer chip and the post
-    // attachment ended up showing. `title` is the name the user picked, so
-    // prefer it — rebased here, at the one boundary every caller goes through.
-    return { ...item, filename: item.title ?? item.filename };
-  }
-
-  // Videos go through PulseVault TUS
-  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
-
-  await new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: {
-        filename: file.name,
-        filetype: file.type,
-        videoid,
-      },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress(bytesUploaded, bytesTotal) {
-        if (bytesTotal > 0) onProgress?.(bytesUploaded / bytesTotal);
-      },
-      onSuccess() {
-        onProgress?.(1);
-        resolve();
-      },
-      onError(err) {
-        reject(err);
-      },
-    });
-    upload.start();
-  });
-
-  return {
-    id: videoid,
-    type: 'video',
-    size: file.size,
-    mimeType: file.type,
-    // Path only — the reader binds it to the current backend origin.
-    url: `/pulsevault/artifacts/${videoid}`,
-    filename: file.name,
-  };
+  const item = await mediaApi.uploadImage(file, onProgress);
+  onProgress?.(1);
+  // `filename` off the wire is the storage name the backend generated
+  // (`<userId>-<hex>.png`), which is what the composer chip and the post
+  // attachment ended up showing. `title` is the name the user picked, so
+  // prefer it — rebased here, at the one boundary every caller goes through.
+  return { ...item, filename: item.title ?? item.filename };
 }

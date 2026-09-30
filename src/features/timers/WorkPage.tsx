@@ -50,17 +50,14 @@ import {
   type Ticket,
   type TimesheetChangeRequest,
 } from '../../lib/api';
-import {
-  timesheetApprovalRequired,
-  timesheetApproversFor,
-  timesheetVideoRequired,
-} from '../../lib/timesheetApproval';
+import { timesheetApprovalRequired, timesheetApproversFor } from '../../lib/timesheetApproval';
 import {
   emptyJustification,
   isJustificationComplete,
   TimesheetJustificationFields,
   type TimesheetJustificationState,
 } from '../clock/TimesheetJustificationFields';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
@@ -541,7 +538,6 @@ export const WorkPage: React.FC = () => {
           deleteNeedsApproval
             ? {
                 description: editJustification.description,
-                videoUrl: editJustification.videoUrl ?? undefined,
               }
             : undefined,
         );
@@ -615,7 +611,6 @@ export const WorkPage: React.FC = () => {
         durationChanged && entryNeedsApproval
           ? {
               description: editJustification.description,
-              videoUrl: editJustification.videoUrl ?? undefined,
             }
           : undefined,
       );
@@ -1019,6 +1014,12 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2 text-right">
+                      {awaitingApproval && (
+                        <ChangeRequestWalkthrough
+                          request={pendingByEntry.get(de.entry.id)!}
+                          onAdded={loadMyRequests}
+                        />
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1071,12 +1072,8 @@ export const WorkPage: React.FC = () => {
             parsedSeconds !== null &&
             parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
           const editBlocked =
-            entryNeedsApproval &&
-            durationChanged &&
-            !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
-          const deleteBlocked =
-            deleteNeedsApproval &&
-            !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
+            entryNeedsApproval && durationChanged && !isJustificationComplete(editJustification);
+          const deleteBlocked = deleteNeedsApproval && !isJustificationComplete(editJustification);
           return (
             <AppModal
               open
@@ -1135,7 +1132,6 @@ export const WorkPage: React.FC = () => {
                   <TimesheetJustificationFields
                     value={editJustification}
                     onChange={setEditJustification}
-                    videoRequired={timesheetVideoRequired('update')}
                     disabled={editLoading}
                     approverCount={entryApproverCount}
                   />

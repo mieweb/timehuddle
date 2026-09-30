@@ -1,4 +1,4 @@
-import { faQrcode, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faCircleCheck, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
@@ -7,107 +7,118 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
+  Spinner,
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React from 'react';
 
+import type { PulseUploadState } from '../../lib/api';
+
 export interface PulseUploadModalProps {
   open: boolean;
+  /** Close the modal. The video still goes where it belongs when it lands. */
   onClose: () => void;
   /**
    * The https `/pulse/open` link to encode as a QR code, or null while
    * reserving. It resolves to the `pulsecam://` deep link on a phone that has
-   * Pulse Cam, and to the App Store / Play Store listing on one that doesn't.
+   * Pulse, and to the App Store / Play Store listing on one that doesn't.
    */
   scanLink: string | null;
-  /** Fallback: pick an MP4 from this device instead of the phone. */
-  onUploadFromDevice: () => void;
-  /** Confirm the phone upload finished (host refreshes / polls). */
-  onDone: () => void;
-  /** Footer confirm label. Defaults to "Done — Refresh". */
-  doneLabel?: string;
+  /** Where the upload stands: waiting, landed (`done`), or the link ran out. */
+  state: PulseUploadState;
+  /** What landing did: "Posted", "Added", "Clocked in". */
+  landedLabel: string;
 }
 
 /**
- * Shared QR + device-upload modal for Pulse video uploads. Presentational only —
- * the host owns reservation, polling, and TUS upload. Used by both the
- * ticket-scoped {@link PulseUploadButton} and the huddle composer's
- * {@link PulseAttachButton} so the modal UI stays single-source.
+ * The one Pulse modal, shown on a computer by every {@link PulseButton}: a QR
+ * code to scan with a phone, and a live status line. When the video lands it
+ * says what happened ("Posted ✓") and closes itself. Closing it earlier loses
+ * nothing: the server delivers the upload wherever it was meant to go.
  */
 export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   open,
   onClose,
   scanLink,
-  onUploadFromDevice,
-  onDone,
-  doneLabel = 'Done — Refresh',
-}) => {
-  return (
-    <AppModal
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      aria-label="Upload video with the Pulse app"
-    >
-      <ModalHeader>
-        <ModalTitle>
-          <span className="flex items-center gap-2">
-            <FontAwesomeIcon icon={faQrcode} />
-            Upload Video with Pulse
-          </span>
-        </ModalTitle>
-        <ModalClose />
-      </ModalHeader>
+  state,
+  landedLabel,
+}) => (
+  <AppModal
+    open={open}
+    onOpenChange={(next) => !next && onClose()}
+    aria-label="Record a video with Pulse"
+  >
+    <ModalHeader>
+      <ModalTitle>
+        <span className="flex items-center gap-2">
+          <FontAwesomeIcon icon={faVideo} aria-hidden="true" />
+          Record with Pulse
+        </span>
+      </ModalTitle>
+      <ModalClose />
+    </ModalHeader>
 
-      <ModalBody>
-        <div className="video-upload-modal-body flex flex-col items-center gap-4 py-2">
-          {scanLink && (
-            <div className="video-upload-qr-container rounded-lg border border-border bg-white p-4">
-              <QRCodeSVG
-                value={scanLink}
-                size={200}
-                aria-label="QR code to open the Pulse upload screen"
-              />
+    <ModalBody>
+      <div className="pulse-modal-body flex flex-col items-center gap-4 py-2">
+        <div className="pulse-modal-qr rounded-lg border border-border bg-white p-4">
+          {scanLink ? (
+            <QRCodeSVG
+              value={scanLink}
+              size={200}
+              aria-label="QR code to open the Pulse upload screen"
+            />
+          ) : (
+            <div className="flex h-[200px] w-[200px] items-center justify-center">
+              <Spinner size="md" label="Preparing…" />
             </div>
           )}
-
-          <Text size="sm" className="max-w-xs text-center text-muted-foreground">
-            Scan with your phone&rsquo;s camera to open the{' '}
-            <strong className="text-foreground">Pulse app</strong> — you&rsquo;ll be sent to the app
-            store if it isn&rsquo;t installed yet. The attachment will appear automatically once the
-            upload completes.
-          </Text>
-
-          <div className="video-upload-divider flex w-full items-center gap-3">
-            <hr className="flex-1 border-border" />
-            <Text size="xs" className="text-muted-foreground">
-              or
-            </Text>
-            <hr className="flex-1 border-border" />
-          </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onUploadFromDevice}
-            aria-label="Upload video from this device instead"
-          >
-            <FontAwesomeIcon icon={faVideo} className="mr-1.5" />
-            Upload from this device
-          </Button>
         </div>
-      </ModalBody>
 
-      <ModalFooter>
-        <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close without uploading">
-          <FontAwesomeIcon icon={faXmark} className="mr-1.5" />
-          Close
-        </Button>
-        <Button size="sm" onClick={onDone} aria-label="I have uploaded — refresh">
-          {doneLabel}
-        </Button>
-      </ModalFooter>
-    </AppModal>
-  );
-};
+        <Text size="sm" className="max-w-xs text-center text-muted-foreground">
+          Scan with your phone&rsquo;s camera to open the{' '}
+          <strong className="text-foreground">Pulse app</strong>, then record and upload. No app
+          yet? The scan takes you to the App Store or Play Store.
+        </Text>
+
+        <div
+          className="pulse-modal-status flex items-center gap-2"
+          role="status"
+          aria-live="polite"
+        >
+          {state === 'done' ? (
+            <>
+              <FontAwesomeIcon
+                icon={faCircleCheck}
+                className="text-green-600 dark:text-green-500"
+                aria-hidden="true"
+              />
+              <Text size="sm" weight="medium">
+                {landedLabel}
+              </Text>
+            </>
+          ) : state === 'expired' ? (
+            <Text size="xs" variant="muted">
+              This link has expired. Close this and press Pulse again for a new one.
+            </Text>
+          ) : (
+            <>
+              <Spinner size="xs" />
+              <Text size="xs" variant="muted">
+                Waiting for your video. Once it uploads, it goes straight where it belongs.
+              </Text>
+            </>
+          )}
+        </div>
+      </div>
+    </ModalBody>
+
+    <ModalFooter>
+      <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close">
+        <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
+        Close
+      </Button>
+    </ModalFooter>
+  </AppModal>
+);

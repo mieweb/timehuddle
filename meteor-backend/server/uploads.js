@@ -4,6 +4,7 @@ import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
+import { removeArtifact } from './pulsevault';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -16,7 +17,6 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uplo
 const PROFILE_DIR = path.join(UPLOADS_DIR, 'profile');
 const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
 
 // Incoming files land here first, then get renamed into place. Same volume as
 // the destinations, so the rename is atomic and free. Never served: the
@@ -25,7 +25,7 @@ const TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 
 // Uploads stream straight to disk, so peak memory is one chunk regardless of
 // file size and this cap is about storage policy rather than heap safety.
-// Videos recorded in-app bypass this entirely via PulseVault's TUS endpoint.
+// No video types: videos come in through the Pulse app only (PulseVault), never here.
 const MAX_FILE_MB = Number(process.env.MAX_UPLOAD_MB) || 100;
 const MAX_FILE_SIZE = MAX_FILE_MB * 1024 * 1024;
 
@@ -37,11 +37,6 @@ const MIME_TO_EXT = {
   'image/gif': 'gif',
   'image/avif': 'avif',
   'image/svg+xml': 'svg',
-  // Videos
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'video/avi': 'avi',
   // Documents
   'application/pdf': 'pdf',
   'application/msword': 'doc',
@@ -392,13 +387,8 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
 
     const url = `/uploads/media/${filename}`;
     
-    // Classify file type based on MIME type
-    let type = 'image';
-    if (file.mimeType.startsWith('video/')) {
-      type = 'video';
-    } else if (!file.mimeType.startsWith('image/')) {
-      type = 'document';
-    }
+    // Classify file type based on MIME type (videos never reach this route).
+    const type = file.mimeType.startsWith('image/') ? 'image' : 'document';
     
     const doc = {
       _id: new ObjectId(),
@@ -436,73 +426,11 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
   }
 });
 
-// ── Media thumbnail upload (/api/media-thumbnail/:id) ─────────────────────────
-
-WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
-  setCors(req, res);
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
-  const match = req.url.match(/^\/?([0-9a-f]{24})$/);
-  if (!match || req.method !== 'POST') return next();
-
-  const mediaId = match[1];
-  const identity = await authenticateRequest(req);
-  if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
-
-  const db = rawDb();
-  const item = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
-  if (!item) return sendJson(res, 404, { error: 'Not found' });
-  if (item.userId !== identity.userId) return sendJson(res, 403, { error: 'Forbidden' });
-
-  let file;
-  try {
-    file = await parseMultipart(req, ['image/jpeg', 'image/png', 'image/webp']);
-    if (file.size === 0) throw new Error('Empty file');
-
-    await fsp.mkdir(THUMBNAILS_DIR, { recursive: true });
-    const hex = randomBytes(8).toString('hex');
-    const filename = `${identity.userId}-${hex}.jpg`;
-    await fsp.rename(file.path, path.join(THUMBNAILS_DIR, filename));
-
-    const previousPath = resolveUploadPath(item.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR);
-    const thumbnailUrl = `/uploads/thumbnails/${filename}`;
-
-    const updated = await db.collection('mediaitems').findOneAndUpdate(
-      { _id: new ObjectId(mediaId) },
-      { $set: { thumbnail: thumbnailUrl } },
-      { returnDocument: 'after' },
-    );
-
-    if (previousPath && previousPath !== path.join(THUMBNAILS_DIR, filename)) {
-      unlinkSafe(previousPath);
-    }
-
-    return sendJson(res, 200, {
-      item: {
-        id: updated._id.toHexString(),
-        userId: updated.userId,
-        type: updated.type,
-        mimeType: updated.mimeType,
-        url: updated.url,
-        videoid: updated.videoid ?? null,
-        filename: updated.filename,
-        size: updated.size,
-        title: updated.title ?? null,
-        caption: updated.caption ?? null,
-        altText: updated.altText ?? null,
-        thumbnail: updated.thumbnail ?? null,
-        uploadedAt: updated.uploadedAt instanceof Date ? updated.uploadedAt.toISOString() : String(updated.uploadedAt),
-      },
-    });
-  } catch (err) {
-    unlinkSafe(file?.path);
-    return sendJson(res, err.statusCode ?? 400, { error: err.message });
-  }
-});
-
 // ── Media CRUD methods (wormhole) ─────────────────────────────────────────────
 
 import { Meteor } from 'meteor/meteor';
+
+const toIso = (value) => (value instanceof Date ? value.toISOString() : String(value));
 
 function toPublicMediaItem(m) {
   return {
@@ -518,8 +446,92 @@ function toPublicMediaItem(m) {
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
-    uploadedAt: m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : String(m.uploadedAt),
+    uploadedAt: toIso(m.uploadedAt),
+    // Uploaded to the library itself (vs. a ticket/session attachment).
+    source: null,
   };
+}
+
+/** An attachment's URL is a Pulse video when it points at a PulseVault artifact. */
+const PULSE_VIDEO_URL = /^\/pulsevault\/artifacts\/([^/?#]+)/;
+
+/**
+ * A Pulse video attached to a ticket or clock session, in media-item shape, so
+ * the media library can list it beside uploads. `source` says where it lives:
+ * it is managed there (removed from the ticket/session), not in the library.
+ */
+function toLibraryItemFromAttachment(att) {
+  const videoid = PULSE_VIDEO_URL.exec(att.url)?.[1] ?? null;
+  return {
+    id: att._id.toHexString ? att._id.toHexString() : String(att._id),
+    userId: att.addedBy,
+    type: 'video',
+    mimeType: 'video/mp4',
+    url: att.url,
+    videoid,
+    filename: `${videoid}.mp4`,
+    size: 0,
+    title: att.title ?? null,
+    caption: null,
+    altText: null,
+    thumbnail: att.thumbnail ?? null,
+    uploadedAt: toIso(att.addedAt),
+    source: { kind: att.attachedTo.kind, id: att.attachedTo.id },
+  };
+}
+
+/** Hex ids of every team `userId` belongs to, as a member or an admin. */
+async function teamIdsOf(userId) {
+  const teams = await Teams.rawCollection()
+    .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+    .toArray();
+  return new Set(teams.map((t) => (t._id.toHexString ? t._id.toHexString() : String(t._id))));
+}
+
+/**
+ * Pulse videos `ownerId` attached to tickets and clock sessions. A viewer who
+ * isn't the owner only sees the ones on a ticket or session belonging to a team
+ * they're in — the same people who can see that ticket or session anyway.
+ */
+async function attachedPulseVideos(ownerId, viewerId, limit) {
+  const db = rawDb();
+  const docs = await db
+    .collection('attachments')
+    .find({ addedBy: ownerId, type: 'video', url: PULSE_VIDEO_URL })
+    .sort({ addedAt: -1 })
+    .limit(limit)
+    .toArray();
+  if (docs.length === 0 || viewerId === ownerId) return docs.map(toLibraryItemFromAttachment);
+
+  const idsOf = (kind) =>
+    docs
+      .filter((d) => d.attachedTo?.kind === kind && isValidId(d.attachedTo.id))
+      .map((d) => new ObjectId(d.attachedTo.id));
+  const [viewerTeams, tickets, sessions] = await Promise.all([
+    teamIdsOf(viewerId),
+    db.collection('tickets').find({ _id: { $in: idsOf('ticket') } }, { projection: { teamId: 1 } }).toArray(),
+    db.collection('clockevents').find({ _id: { $in: idsOf('clock') } }, { projection: { teamId: 1 } }).toArray(),
+  ]);
+  const teamOf = new Map([...tickets, ...sessions].map((d) => [d._id.toHexString(), String(d.teamId)]));
+  return docs
+    .filter((d) => viewerTeams.has(teamOf.get(d.attachedTo?.id)))
+    .map(toLibraryItemFromAttachment);
+}
+
+/**
+ * A user's media library: everything they uploaded, wherever it was used —
+ * files and Pulse videos from Huddle/Clock posts and timesheet walkthroughs
+ * (media items), plus Pulse videos on tickets and clock sessions (attachments),
+ * newest first.
+ */
+async function libraryFor(ownerId, viewerId, limit) {
+  const [media, attached] = await Promise.all([
+    rawDb().collection('mediaitems').find({ userId: ownerId }).sort({ uploadedAt: -1 }).limit(limit).toArray(),
+    attachedPulseVideos(ownerId, viewerId, limit),
+  ]);
+  return [...media.map(toPublicMediaItem), ...attached]
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    .slice(0, limit);
 }
 
 Meteor.methods({
@@ -527,12 +539,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
-    const docs = await rawDb().collection('mediaitems')
-      .find({ userId })
-      .sort({ uploadedAt: -1 })
-      .limit(safeLimit)
-      .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await libraryFor(userId, userId, safeLimit) };
   },
 
   async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
@@ -547,12 +554,7 @@ Meteor.methods({
       if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not a teammate');
     }
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
-    const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId })
-      .sort({ uploadedAt: -1 })
-      .limit(safeLimit)
-      .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await libraryFor(targetUserId, userId, safeLimit) };
   },
 
   async 'media.update'({ mediaId, title, caption, altText } = {}) {
@@ -593,8 +595,11 @@ Meteor.methods({
 
     unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
     unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
+    // A Pulse video: remove it (and its poster frame) through PulseVault, which
+    // owns the storage layout — bytes, sidecar and all.
     if (doc.videoid) {
-      fsp.rm(path.join(VIDEOS_DIR, doc.videoid), { recursive: true, force: true }).catch(() => {});
+      await removeArtifact(doc.videoid);
+      await removeArtifact(doc.thumbnail);
     }
     return { ok: true };
   },

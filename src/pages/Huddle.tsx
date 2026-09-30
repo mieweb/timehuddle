@@ -661,6 +661,7 @@ export default function Huddle() {
                 <HuddleComposer
                   key={postingTeamId}
                   onPost={addPost}
+                  pulseTeamId={postingTeamId}
                   userInitials={user ? getUserInitials(user.name) : 'U'}
                   userColor={user ? getUserColor(user.id) : 'indigo'}
                 />

@@ -173,7 +173,7 @@ test.describe('Notification deep links', () => {
 
     await page.goto(`/app/profile/${userId}`);
     const workTab = page.getByRole('tab', { name: 'Work' });
-    const feedTab = page.getByRole('tab', { name: 'Feed' });
+    const libraryTab = page.getByRole('tab', { name: 'Media library' });
     await workTab.waitFor({ state: 'visible', timeout: 20000 });
 
     await tapNotification(page, profileUrl);
@@ -182,8 +182,8 @@ test.describe('Notification deep links', () => {
 
     // Switching by hand leaves the URL untouched, so a repeat tap pushes the
     // same query string again — it must still be acted on.
-    await feedTab.click();
-    await expect(feedTab).toHaveAttribute('aria-selected', 'true');
+    await libraryTab.click();
+    await expect(libraryTab).toHaveAttribute('aria-selected', 'true');
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });

@@ -35,17 +35,20 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
+import {
+  ApiError,
+  clockApi,
+  isPendingChange,
+  type ClockEvent,
+  type TimesheetChangeRequest,
+} from '../../lib/api';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
-import {
-  timesheetApprovalRequired,
-  timesheetApproversFor,
-  timesheetVideoRequired,
-} from '../../lib/timesheetApproval';
+import { timesheetApprovalRequired, timesheetApproversFor } from '../../lib/timesheetApproval';
 import {
   emptyJustification,
   isJustificationComplete,
@@ -134,6 +137,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  // The change just queued for another admin, so its walkthrough can be added.
+  const [pendingRequest, setPendingRequest] = useState<TimesheetChangeRequest | null>(null);
 
   // An admin's own edit is reviewed too, by one of the *other* admins — so this
   // panel needs the same justification the member-facing one collects, or every
@@ -147,15 +152,10 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const justification = editNeedsApproval
     ? {
         description: editJustification.description,
-        videoUrl: editJustification.videoUrl ?? undefined,
       }
     : undefined;
-  const saveBlocked =
-    editNeedsApproval &&
-    !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
-  const deleteBlocked =
-    editNeedsApproval &&
-    !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
+  const saveBlocked = editNeedsApproval && !isJustificationComplete(editJustification);
+  const deleteBlocked = editNeedsApproval && !isJustificationComplete(editJustification);
 
   // When the team changes, reset member selection (but keep initialMemberId if still valid)
   useEffect(() => {
@@ -344,6 +344,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         justification,
       );
       setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      setPendingRequest(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -364,6 +365,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     try {
       const result = await clockApi.deleteEvent(activeSession.id, justification);
       setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      setPendingRequest(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -514,8 +516,25 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       )}
 
       {pendingNotice && (
-        <Alert variant="info" dismissible onDismiss={() => setPendingNotice(null)}>
-          <AlertDescription>{pendingNotice}</AlertDescription>
+        <Alert
+          variant="info"
+          dismissible
+          onDismiss={() => {
+            setPendingNotice(null);
+            setPendingRequest(null);
+          }}
+        >
+          <AlertDescription>
+            <span className="flex flex-wrap items-center gap-2">
+              {pendingNotice}
+              {pendingRequest && (
+                <ChangeRequestWalkthrough
+                  request={pendingRequest}
+                  onAdded={() => setPendingRequest((r) => (r ? { ...r, videoUrl: 'added' } : r))}
+                />
+              )}
+            </span>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -620,7 +639,6 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
             <TimesheetJustificationFields
               value={editJustification}
               onChange={setEditJustification}
-              videoRequired={timesheetVideoRequired('update')}
               disabled={sessionSaveLoading || sessionDeleteLoading}
               approverCount={editApproverCount}
             />

@@ -1,42 +1,12 @@
-import { faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
+import { faFileLines, faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, Spinner, Text } from '@mieweb/ui';
-import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
-import { extractVideoThumbnail } from '../../lib/videoThumbnail';
+import { mediaApi, type MediaItem } from '../../lib/api';
 import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
-
-// ─── Upload helpers ───────────────────────────────────────────────────────────
-
-async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void): Promise<string> {
-  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
-
-  await new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: { videoid, filename: file.name, filetype: file.type },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress(bytesUploaded, bytesTotal) {
-        onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
-      },
-      onSuccess() {
-        resolve();
-      },
-      onError(err) {
-        reject(err);
-      },
-    });
-    upload.start();
-  });
-
-  return videoid;
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -45,24 +15,45 @@ interface MediaCardProps {
   onOpen: (id: string) => void;
 }
 
+/** Where a library item was used, when it isn't a plain library upload. */
+function sourceLabel(item: MediaItem): string | null {
+  if (item.source?.kind === 'ticket') return 'On a ticket';
+  if (item.source?.kind === 'clock') return 'On a clock session';
+  return null;
+}
+
+/** Documents open in a new tab; images and videos open in the viewer. */
+function openItem(item: MediaItem, onOpen: (id: string) => void) {
+  if (item.type === 'document') window.open(item.url, '_blank', 'noopener,noreferrer');
+  else onOpen(item.id);
+}
+
 const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
+  const source = sourceLabel(item);
   return (
     <Card
       padding="none"
       className="overflow-hidden"
-      onClick={() => onOpen(item.id)}
+      onClick={() => openItem(item, onOpen)}
       role="button"
       tabIndex={0}
       aria-label={`Open ${item.title ?? item.type}`}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onOpen(item.id);
+          openItem(item, onOpen);
         }
       }}
     >
       <div className="relative aspect-[16/9] w-full overflow-hidden bg-neutral-900">
-        {item.type === 'video' ? (
+        {item.type === 'document' ? (
+          <div className="media-card-document flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-neutral-300">
+            <FontAwesomeIcon icon={faFileLines} className="text-4xl" aria-hidden="true" />
+            <Text size="xs" className="max-w-full truncate text-neutral-300">
+              {item.title ?? item.filename}
+            </Text>
+          </div>
+        ) : item.type === 'video' ? (
           item.thumbnail ? (
             <img
               src={item.thumbnail}
@@ -101,6 +92,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
               day: 'numeric',
               year: 'numeric',
             })}
+            {source && ` · ${source}`}
           </Text>
         </div>
       </div>
@@ -137,44 +129,16 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     fetchItems();
   }, [fetchItems]);
 
-  const waitForUploadedVideo = useCallback(
-    async (videoid: string): Promise<MediaItem[] | null> => {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const latest = await mediaApi.listForUser(userId);
-        if (latest.some((item) => item.videoid === videoid)) return latest;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      return null;
-    },
-    [userId],
-  );
-
+  // Images only: videos reach a profile's library through Pulse (recorded from
+  // a Huddle or Clock post), since PulseVault is built for the Pulse app and a
+  // general video upload endpoint doesn't exist yet.
   const handleMediaFile = async (file: File) => {
     setUploadError(null);
     setUploadProgress(0);
     try {
-      if (file.type.startsWith('video/')) {
-        // Start thumbnail extraction in parallel with the upload.
-        const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
-
-        const videoid = await uploadFileToLibrary(file, setUploadProgress);
-        const freshItems = await waitForUploadedVideo(videoid);
-        if (freshItems) setItems(freshItems);
-
-        const thumbnailBlob = await thumbnailPromise;
-        const uploadedVideo = freshItems?.find((item) => item.videoid === videoid);
-        if (thumbnailBlob && uploadedVideo) {
-          try {
-            const updated = await mediaApi.uploadThumbnail(uploadedVideo.id, thumbnailBlob);
-            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-          } catch {
-            // Keep the successful upload and skip thumbnail update failures.
-          }
-        }
-        return;
-      }
-
-      const created = await mediaApi.uploadImage(file);
+      const created = await mediaApi.uploadImage(file, (fraction) =>
+        setUploadProgress(Math.round(fraction * 100)),
+      );
       setItems((prev) => [created, ...prev]);
     } catch {
       setUploadError('Upload failed. Please try again.');
@@ -189,19 +153,21 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
       onFile: handleMediaFile,
     });
 
-  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
-  const selectedIndex = selectedId ? items.findIndex((item) => item.id === selectedId) : -1;
+  // The viewer steps through images and videos only; documents open in a tab.
+  const viewable = items.filter((item) => item.type !== 'document');
+  const selectedItem = viewable.find((item) => item.id === selectedId) ?? null;
+  const selectedIndex = selectedId ? viewable.findIndex((item) => item.id === selectedId) : -1;
   const canGoPrevious = selectedIndex > 0;
-  const canGoNext = selectedIndex >= 0 && selectedIndex < items.length - 1;
+  const canGoNext = selectedIndex >= 0 && selectedIndex < viewable.length - 1;
 
   const handlePrevious = () => {
     if (!canGoPrevious) return;
-    setSelectedId(items[selectedIndex - 1]?.id ?? null);
+    setSelectedId(viewable[selectedIndex - 1]?.id ?? null);
   };
 
   const handleNext = () => {
     if (!canGoNext) return;
-    setSelectedId(items[selectedIndex + 1]?.id ?? null);
+    setSelectedId(viewable[selectedIndex + 1]?.id ?? null);
   };
 
   if (loading) {
@@ -245,9 +211,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Text variant="muted" size="sm">
-            {isOwn
-              ? 'No media yet. Upload a video or image to get started.'
-              : 'No media posted yet.'}
+            {isOwn ? 'No media yet. Upload an image to get started.' : 'No media posted yet.'}
           </Text>
         </div>
       ) : (

@@ -37,7 +37,6 @@ import { MarkdownContent } from '../../ui/MarkdownContent';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -139,7 +138,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Load ticket + activity
@@ -459,16 +457,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
                 Attachments
               </Text>
-              <AttachmentsPanel
-                key={attachmentRefresh}
-                kind="ticket"
-                entityId={ticket.id}
-                currentUserId={user?.id}
-              />
-              <PulseUploadButton
-                ticketId={ticket.id}
-                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
-              />
+              <AttachmentsPanel kind="ticket" entityId={ticket.id} currentUserId={user?.id} />
             </CardContent>
           </Card>
 

@@ -52,9 +52,6 @@ Meteor.startup(async () => {
   ).catch(() => {});
 });
 
-/** Only adding brand-new time needs a video; editing or deleting is explained in writing alone. */
-const VIDEO_REQUIRED_ACTIONS = ['create'];
-
 /**
  * Who can sign off on `requesterId`'s change to this team's timesheet.
  *
@@ -143,16 +140,18 @@ async function assertVideoIsOwnEvidence(videoUrl, requesterId) {
   return videoUrl;
 }
 
-async function assertJustification({ action, description, videoUrl, requesterId }) {
+/**
+ * A change is justified in writing. A video walkthrough is optional — the app
+ * records one with Pulse (videos come in through Pulse only) — and when given
+ * must be the requester's own recording.
+ */
+async function assertJustification({ description, videoUrl, requesterId }) {
   const text = typeof description === 'string' ? description.trim() : '';
   if (text.length < 10) {
     throw new Meteor.Error(
       'description-required',
       'Explain the change in at least 10 characters so the reviewer has context.'
     );
-  }
-  if (VIDEO_REQUIRED_ACTIONS.includes(action) && !videoUrl) {
-    throw new Meteor.Error('video-required', 'Attach a video walking through this change.');
   }
   return { text, video: await assertVideoIsOwnEvidence(videoUrl, requesterId) };
 }

@@ -50,15 +50,12 @@ import {
   type Team,
   type TimesheetChangeRequest,
 } from '../../lib/api';
-import {
-  timesheetApprovalRequired,
-  timesheetApproversFor,
-  timesheetVideoRequired,
-} from '../../lib/timesheetApproval';
+import { timesheetApprovalRequired, timesheetApproversFor } from '../../lib/timesheetApproval';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { ChangeRequestWalkthrough } from './ChangeRequestWalkthrough';
 import { TimesheetRow } from './TimesheetRow';
 import {
   emptyJustification,
@@ -423,7 +420,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         editNeedsApproval
           ? {
               description: editJustification.description,
-              videoUrl: editJustification.videoUrl ?? undefined,
             }
           : undefined,
       );
@@ -463,7 +459,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         editNeedsApproval
           ? {
               description: editJustification.description,
-              videoUrl: editJustification.videoUrl ?? undefined,
             }
           : undefined,
       );
@@ -529,7 +524,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         addNeedsApproval
           ? {
               description: addJustification.description,
-              videoUrl: addJustification.videoUrl ?? undefined,
             }
           : undefined,
       );
@@ -803,6 +797,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                     <Text size="sm" className="grow">
                       {describePendingAddition(r, teams)}
                     </Text>
+                    <ChangeRequestWalkthrough request={r} onAdded={loadMyRequests} />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -869,6 +864,11 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                             : undefined
                         }
                         changeNote={request?.responseNote ?? undefined}
+                        pendingAction={
+                          request?.status === 'pending' ? (
+                            <ChangeRequestWalkthrough request={request} onAdded={loadMyRequests} />
+                          ) : undefined
+                        }
                       />
                     );
                   })}
@@ -1036,7 +1036,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             <TimesheetJustificationFields
               value={editJustification}
               onChange={setEditJustification}
-              videoRequired={timesheetVideoRequired('update')}
               disabled={sessionSaveLoading || sessionDeleteLoading}
               approverCount={editApproverCount}
             />
@@ -1053,8 +1052,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               isLoading={sessionSaveLoading}
               disabled={
                 sessionDeleteLoading ||
-                (editNeedsApproval &&
-                  !isJustificationComplete(editJustification, timesheetVideoRequired('update')))
+                (editNeedsApproval && !isJustificationComplete(editJustification))
               }
             >
               {editNeedsApproval ? 'Submit for approval' : 'Save'}
@@ -1074,8 +1072,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                 isLoading={sessionDeleteLoading}
                 disabled={
                   sessionSaveLoading ||
-                  (editNeedsApproval &&
-                    !isJustificationComplete(editJustification, timesheetVideoRequired('delete')))
+                  (editNeedsApproval && !isJustificationComplete(editJustification))
                 }
               >
                 Delete
@@ -1141,7 +1138,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             <TimesheetJustificationFields
               value={addJustification}
               onChange={setAddJustification}
-              videoRequired={timesheetVideoRequired('create')}
               disabled={addEntryLoading}
               approverCount={addApproverCount}
             />
@@ -1153,10 +1149,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               variant="primary"
               onClick={handleAddEntry}
               isLoading={addEntryLoading}
-              disabled={
-                addNeedsApproval &&
-                !isJustificationComplete(addJustification, timesheetVideoRequired('create'))
-              }
+              disabled={addNeedsApproval && !isJustificationComplete(addJustification)}
             >
               {addNeedsApproval ? 'Submit for approval' : 'Save Entry'}
             </Button>

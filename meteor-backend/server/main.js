@@ -1860,13 +1860,32 @@ Meteor.startup(async() => {
   // ── PulseVault ────────────────────────────────────────────────────────────
 
   Wormhole.expose('pulsevault.reserve', {
-    description: 'Reserve a videoid for TUS video upload',
+    description:
+      'Reserve one Pulse upload: a fresh videoid, its link token, and where the finished video goes',
     inputSchema: {
       type: 'object',
       properties: {
-        ticketId: { type: 'string' },
-        existingVideoid: { type: 'string' },
-        target: { type: 'string', enum: ['ticket', 'library'] },
+        destination: {
+          type: 'object',
+          description:
+            'Where the video goes: { kind: huddle, teamId } | { kind: clock-plan, teamId, postDate } | ' +
+            '{ kind: clock-wrapup, clockEventId, postDate } | { kind: ticket | clock | timesheet-request, id } | ' +
+            '{ kind: library }',
+          properties: {
+            kind: {
+              type: 'string',
+              enum: ['huddle', 'clock-plan', 'clock-wrapup', 'ticket', 'clock', 'timesheet-request', 'library'],
+            },
+            teamId: { type: 'string' },
+            clockEventId: { type: 'string' },
+            postDate: { type: 'string' },
+            id: { type: 'string' },
+          },
+          required: ['kind'],
+        },
+        ticketId: { type: 'string', description: 'Legacy: use destination' },
+        clockEventId: { type: 'string', description: 'Legacy: use destination' },
+        target: { type: 'string', enum: ['ticket', 'clock', 'library'], description: 'Legacy: use destination' },
       },
     },
     outputSchema: {
@@ -1875,6 +1894,18 @@ Meteor.startup(async() => {
         videoid: { type: 'string' },
         uploadToken: { type: 'string' },
       },
+    },
+  });
+  Wormhole.expose('pulsevault.status', {
+    description: "Where one of the caller's Pulse uploads stands: waiting, done or expired",
+    inputSchema: {
+      type: 'object',
+      properties: { videoid: { type: 'string' } },
+      required: ['videoid'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { state: { type: 'string', enum: ['waiting', 'done', 'expired'] } },
     },
   });
   Wormhole.expose('pulsevault.reserveForLibrary', {

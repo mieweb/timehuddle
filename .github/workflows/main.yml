@@ -74,6 +74,11 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
+      - name: 'Build vendored PulseVault (meteor-backend file: dependency)'
+        run: |
+          git submodule update --init vendor/pulsevault
+          bash scripts/build-pulsevault.sh
+
       - name: Install Meteor backend dependencies
         working-directory: meteor-backend
         run: npm ci
@@ -219,6 +224,10 @@ jobs:
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
+
+            echo "=== build vendored PulseVault (meteor-backend file: dependency) ==="
+            git submodule update --init vendor/pulsevault
+            sudo bash scripts/build-pulsevault.sh
 
             echo "=== sudo npm install (meteor-backend) ==="
             cd meteor-backend
@@ -422,6 +431,10 @@ jobs:
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
+
+            echo "=== build vendored PulseVault (meteor-backend file: dependency) ==="
+            git submodule update --init vendor/pulsevault
+            sudo bash scripts/build-pulsevault.sh
 
             echo "=== sudo npm install (meteor-backend) ==="
             cd meteor-backend

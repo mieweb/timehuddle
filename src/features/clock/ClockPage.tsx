@@ -8,8 +8,9 @@
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
  *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
- *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
- *      (⌘/Ctrl+↵ submits).
+ *      same Photo/Doc/Ticket/@Mention bar as the Huddle composer (⌘/Ctrl+↵
+ *      submits). Pulse sits beside the post button: a Pulse video *is* the
+ *      plan (clocks in) or wrap-up (clocks out), delivered by the server.
  *   3. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
@@ -51,7 +52,7 @@ import {
   restoreImageAltText,
   toPostAttachment,
 } from '../huddle/api';
-import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
+import { PulseButton } from '../pulse-upload/PulseButton';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -114,13 +115,8 @@ export const ClockPage: React.FC = () => {
   // none is — same single-bar treatment as the Huddle composer, aggregated
   // across the pickers and paste so an overlapping pair can't read as idle.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // A Pulse recording reserved but not yet attached.
-  const [pulsePending, setPulsePending] = useState(false);
-  // Posting mid-upload would drop the attachment still on the wire, and posting
-  // with a Pulse recording outstanding would clear its reservation and change
-  // composer mode — unmounting the watcher before the clip lands. Every submit
-  // path stays closed until both have settled.
-  const uploadInFlight = uploadFraction !== null || pulsePending;
+  // Posting mid-upload would drop the attachment still on the wire.
+  const uploadInFlight = uploadFraction !== null;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -131,12 +127,6 @@ export const ClockPage: React.FC = () => {
     [],
   );
   const handleAttachmentRemove = (mediaId: string) => {
-    // Removing the Pulse video chip also forgets its persisted upload, so a
-    // recording that finishes afterward doesn't reattach itself.
-    const removed = attachments.find((m) => m.id === mediaId);
-    if (removed?.type === 'video' && composerMode) {
-      clearComposerPulseUpload(`clock-${composerMode}`);
-    }
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
   };
   // Same paste/drop-a-screenshot handling as the Huddle composer — both share
@@ -314,7 +304,6 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
-      clearComposerPulseUpload('clock-plan');
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -381,7 +370,6 @@ export const ClockPage: React.FC = () => {
       }
       setText('');
       cachedPlanPostIdRef.current = null;
-      clearComposerPulseUpload('clock-wrapup');
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
@@ -577,18 +565,16 @@ export const ClockPage: React.FC = () => {
               onAttachmentRemove={handleAttachmentRemove}
             />
 
-            {/* ── Attach bar — same Photo/Video/Doc/Pulse/Ticket/@Mention controls as Huddle ── */}
+            {/* ── Attach bar — same Photo/Doc/Ticket/@Mention controls as Huddle ── */}
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
-                pulseScope={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
-                onPulsePendingChange={setPulsePending}
               />
             </div>
 
@@ -608,6 +594,31 @@ export const ClockPage: React.FC = () => {
               >
                 {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
               </Button>
+              {/* Or record it: the Pulse video *is* the plan (clocks you in) or
+                  the wrap-up (clocks you out) — the server does both when the
+                  upload lands, so nothing typed above goes with it. */}
+              {composerMode === 'plan' && gateTeamId && (
+                <PulseButton
+                  destination={{
+                    kind: 'clock-plan',
+                    teamId: gateTeamId,
+                    postDate: toDateString(new Date()),
+                  }}
+                  landedLabel="Plan posted — you're clocked in"
+                  ariaLabel="Record your plan with Pulse and clock in"
+                />
+              )}
+              {composerMode === 'wrapup' && activeClockEvent && (
+                <PulseButton
+                  destination={{
+                    kind: 'clock-wrapup',
+                    clockEventId: activeClockEvent.id,
+                    postDate: toDateString(new Date()),
+                  }}
+                  landedLabel="Wrap-up posted — you're clocked out"
+                  ariaLabel="Record your wrap-up with Pulse and clock out"
+                />
+              )}
               <Text variant="muted" size="sm" className="font-mono">
                 {!text.trim()
                   ? composerMode === 'plan'

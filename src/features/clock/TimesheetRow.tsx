@@ -30,6 +30,8 @@ interface Props {
   changeStatus?: 'pending' | 'rejected';
   /** The reviewer's reason, shown on a declined change. */
   changeNote?: string;
+  /** Shown beside "Pending approval" — the add-a-walkthrough control. */
+  pendingAction?: React.ReactNode;
 }
 
 type TimelineRow = {
@@ -191,6 +193,7 @@ export const TimesheetRow: React.FC<Props> = ({
   onEdit,
   changeStatus,
   changeNote,
+  pendingAction,
 }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
@@ -234,13 +237,16 @@ export const TimesheetRow: React.FC<Props> = ({
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
               {row.isContinued ? null : changeStatus === 'pending' ? (
-                <Badge
-                  variant="warning"
-                  size="sm"
-                  title="Waiting for an admin to approve your change"
-                >
-                  Pending approval
-                </Badge>
+                <span className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="warning"
+                    size="sm"
+                    title="Waiting for an admin to approve your change"
+                  >
+                    Pending approval
+                  </Badge>
+                  {pendingAction}
+                </span>
               ) : changeStatus === 'rejected' ? (
                 <Badge
                   variant="danger"

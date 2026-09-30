@@ -1,0 +1,158 @@
+/**
+ * PulseButton — the one way to add a video anywhere in TimeHuddle: a "Pulse"
+ * pill that reserves an upload for a `destination`, then shows the QR code
+ * (computer) or opens the Pulse app (phone).
+ *
+ * Pulse is "one link, one upload": the reservation says where the video goes,
+ * and the server puts it there the moment it lands — a Huddle post, a plan
+ * that clocks you in, a wrap-up that clocks you out, a ticket or session
+ * attachment, a timesheet walkthrough (see pulse-destinations.js). So this
+ * button holds no upload state of its own: nothing to persist, nothing to
+ * attach. It only watches long enough to tell the person it worked, and calls
+ * `onLanded` for hosts that show the result themselves (an attachment list).
+ */
+import { faVideo } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Text } from '@mieweb/ui';
+import React, { useEffect, useRef, useState } from 'react';
+
+import { videoApi, type PulseDestination, type PulseUploadState } from '../../lib/api';
+import {
+  getStoreOS,
+  isNativeApp,
+  openNativePulseOrStore,
+  openPulseAppOrStore,
+} from '../../lib/device';
+import { ComposerChipButton } from '../huddle/ComposerChipButton';
+import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
+import { PulseUploadModal } from './PulseUploadModal';
+
+/** How often to ask whether the upload landed, while the modal is open. */
+const STATUS_POLL_MS = 3000;
+/** A Pulse link works for 30 minutes (UPLOAD_LINK_SECONDS on the server). */
+const LINK_LIFETIME_MS = 30 * 60 * 1000;
+
+interface PulseButtonProps {
+  destination: PulseDestination;
+  /** What landing did, shown in the modal: "Posted", "Added", "Clocked in". */
+  landedLabel?: string;
+  /** Accessible name; the visible label is always "Pulse". */
+  ariaLabel?: string;
+  /** Called once the video has been delivered to `destination`. */
+  onLanded?: () => void;
+  disabled?: boolean;
+}
+
+export const PulseButton: React.FC<PulseButtonProps> = ({
+  destination,
+  landedLabel = 'Added',
+  ariaLabel = 'Record a video with Pulse',
+  onLanded,
+  disabled,
+}) => {
+  const onLandedRef = useRef(onLanded);
+  onLandedRef.current = onLanded;
+
+  const [reserving, setReserving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [upload, setUpload] = useState<{ videoid: string; scanLink: string; at: number } | null>(
+    null,
+  );
+  const [state, setState] = useState<PulseUploadState>('waiting');
+  const [modalOpen, setModalOpen] = useState(false);
+
+  // Watch the reserved upload: on a timer while the modal is open, and when
+  // the page comes back from the Pulse app (phone). Stops once it's done or
+  // the link has run out — the video goes where it belongs either way.
+  useEffect(() => {
+    if (!upload || state !== 'waiting') return;
+    let cancelled = false;
+    const check = async () => {
+      if (cancelled || document.hidden) return;
+      if (Date.now() - upload.at > LINK_LIFETIME_MS) {
+        setState('expired');
+        return;
+      }
+      try {
+        const next = await videoApi.status(upload.videoid);
+        if (cancelled || next === 'waiting') return;
+        setState(next);
+        if (next === 'done') onLandedRef.current?.();
+      } catch {
+        // transient: try again next tick
+      }
+    };
+    const onVisible = () => {
+      if (!document.hidden) void check();
+    };
+    const interval = modalOpen ? setInterval(() => void check(), STATUS_POLL_MS) : undefined;
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [upload, state, modalOpen]);
+
+  // Once it has landed, let the modal show it for a moment, then close it.
+  useEffect(() => {
+    if (state !== 'done' || !modalOpen) return;
+    const t = setTimeout(() => setModalOpen(false), 1500);
+    return () => clearTimeout(t);
+  }, [state, modalOpen]);
+
+  const handleClick = async () => {
+    setReserving(true);
+    setError(null);
+    let reservation: { videoid: string; uploadToken: string };
+    try {
+      reservation = await videoApi.reserve(destination);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : 'Could not start Pulse. Try again.');
+      return;
+    } finally {
+      setReserving(false);
+    }
+
+    const { videoid, uploadToken } = reservation;
+    setUpload({ videoid, scanLink: buildScanLink(videoid, uploadToken), at: Date.now() });
+    setState('waiting');
+
+    // Phone: straight into the Pulse app (or its store listing). Computer: QR.
+    const storeOS = getStoreOS();
+    const deepLink = buildUploadDeepLink(videoid, uploadToken);
+    if (storeOS && isNativeApp()) await openNativePulseOrStore(deepLink, storeOS);
+    else if (storeOS) openPulseAppOrStore(deepLink, storeOS);
+    else setModalOpen(true);
+  };
+
+  return (
+    <>
+      <ComposerChipButton
+        onClick={handleClick}
+        disabled={disabled || reserving}
+        aria-label={ariaLabel}
+        aria-busy={reserving}
+        leftIcon={<FontAwesomeIcon icon={faVideo} className="w-3.5 h-3.5" aria-hidden="true" />}
+      >
+        {reserving ? 'Preparing…' : 'Pulse'}
+      </ComposerChipButton>
+
+      {error && (
+        <Text as="span" size="xs" className="text-red-500 dark:text-red-400" role="alert">
+          {error}
+        </Text>
+      )}
+
+      <PulseUploadModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        scanLink={upload?.scanLink ?? null}
+        state={state}
+        landedLabel={landedLabel}
+      />
+    </>
+  );
+};

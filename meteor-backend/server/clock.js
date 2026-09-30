@@ -291,207 +291,13 @@ Meteor.methods({
   /** Clock in: close any dangling open events, open a new one, fire side-effects. */
   async 'clock.start'({ teamId, planPostId } = {}) {
     const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    const team = await findUserTeam(userId, teamId);
-    if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
-
-    const now = Date.now();
-    await ClockEvents.updateAsync(
-      { userId, teamId, endTime: null },
-      { $set: { endTime: now } },
-      { multi: true }
-    );
-
-    const _id = await ClockEvents.insertAsync({
-      userId,
-      teamId,
-      startTime: now,
-      accumulatedTime: 0,
-      autoClockoutAgreed: null,
-      endTime: null,
-    });
-    const created = await ClockEvents.findOneAsync(_id);
-    const pub = toPublicClockEvent(created, []);
-
-    // Plan-first flow: link the just-posted plan to this session so the
-    // per-session clock-out gate can find it (one post per clock session).
-    // Only the author's own post in *this* team qualifies — the admin deep link
-    // below opens the team feed, which a post from elsewhere never appears in.
-    let planPost = null;
-    if (planPostId && isValidId(planPostId)) {
-      planPost = await rawDb()
-        .collection('huddlePosts')
-        .findOne({ _id: new ObjectId(planPostId), userId });
-      if (planPost && String(planPost.teamId) === String(teamId)) {
-        // Not `updatedAt` — the feed renders any post whose updatedAt differs
-        // from createdAt as "edited", and linking a session is not an edit.
-        await rawDb()
-          .collection('huddlePosts')
-          .updateOne(
-            { _id: planPost._id },
-            { $set: { clockEventId: created._id.toHexString() } }
-          );
-      } else {
-        planPost = null;
-      }
-    }
-
-    // Schedule 4h break reminder + 7h45m shift-end reminder.
-    scheduleClockJobs(created._id.toHexString(), userId, teamId, now).catch((err) =>
-      console.error('[agenda] scheduleClockJobs failed:', err)
-    );
-
-    const userName = await userDisplayName(userId);
-    const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-    // With a plan attached, send admins to that Huddle post (it shows the plan);
-    // otherwise fall back to the clocked-in member's Work tab.
-    const clockInUrl = planPost
-      ? `/app/huddle?postId=${planPostId}&teamId=${teamId}`
-      : `/app/profile/${userId}?tab=work`;
-    await Promise.all(
-      notifyAdmins.map((adminId) =>
-        createNotification({
-          userId: adminId,
-          title: 'Huddle',
-          body: `${userName} clocked in to ${team.name}`,
-          data: {
-            type: 'clock-in',
-            userId,
-            userName,
-            teamName: team.name,
-            teamId,
-            url: clockInUrl,
-          },
-        }).catch(() => {})
-      )
-    );
-
-    void emitActivity({
-      userId,
-      teamId,
-      type: ActivityType.ClockIn,
-      actor: { id: userId, name: userName },
-      payload: { teamId, teamName: team.name },
-    });
-
-    return pub;
+    return clockStart(identity.userId, { teamId, planPostId });
   },
 
   /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
   async 'clock.stop'({ teamId } = {}) {
     const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
-    if (!event) throw new Meteor.Error('not-found', 'No active clock event');
-
-    const team = await findUserTeam(userId, teamId);
-
-    // This session's Huddle post (one post per clock session, linked by
-    // clockEventId — see clock-post-simple-plan.md). Drafts never count.
-    // Used both by the plan-first clock-out gate and to deep-link the
-    // clock-out notifications at the post showing the plan + wrap-up.
-    const sessionPost = await rawDb()
-      .collection('huddlePosts')
-      .findOne(
-        { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
-        { sort: SESSION_POST_SORT }
-      );
-
-    // Plan-first flow: when the team requires a plan, block clock-out until
-    // THIS session's post has a wrap-up.
-    if (team?.settings?.requirePlanForClock && !sessionPost?.wrapUpAt) {
-      throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
-    }
-
-    const now = Date.now();
-    const eventId = event._id.toHexString();
-
-    cancelClockJobs(eventId).catch((err) =>
-      console.error('[agenda] cancelClockJobs failed:', err)
-    );
-
-    // Close any running timer sessions for this user.
-    await closeAllForUser(userId, now);
-
-    // Close any open break with auto-classification.
-    const breaks = await findBreaksForEvent(eventId);
-    const openBreak = breaks.find((b) => b.endTime === null);
-    if (openBreak) {
-      const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
-      await ClockBreaks.updateAsync(openBreak._id, {
-        $set: { endTime: now, ...classifyBreak(durationSeconds) },
-      });
-    }
-
-    const closedBreaks = await findBreaksForEvent(eventId);
-    const shiftSpan = Math.floor((now - event.startTime) / 1000);
-    const deducted = computeDeductedBreakSeconds(closedBreaks, now);
-    const finalAccumulatedTime = Math.max(0, shiftSpan - deducted);
-
-    await ClockEvents.updateAsync(event._id, {
-      $set: { endTime: now, accumulatedTime: finalAccumulatedTime },
-    });
-    const updated = await ClockEvents.findOneAsync(event._id);
-    const pub = toPublicClockEvent(updated, closedBreaks);
-
-    if (team) {
-      const userName = await userDisplayName(userId);
-      const totalSecs = pub.accumulatedTime ?? 0;
-      const h = Math.floor(totalSecs / 3600);
-      const m = Math.floor((totalSecs % 3600) / 60);
-      const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
-      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-      // Prefer this session's Huddle post (shows the plan + wrap-up); fall
-      // back to the member's Work tab when the session had no post.
-      const clockOutUrl = sessionPost
-        ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
-        : `/app/profile/${userId}?tab=work`;
-      await Promise.all(
-        notifyAdmins.map((adminId) =>
-          createNotification({
-            userId: adminId,
-            title: 'Huddle',
-            body: `${userName} clocked out of ${team.name} (${durationText})`,
-            data: {
-              type: 'clock-out',
-              userId,
-              userName,
-              teamName: team.name,
-              teamId,
-              duration: durationText,
-              url: clockOutUrl,
-            },
-          }).catch(() => {})
-        )
-      );
-
-      createNotification({
-        userId,
-        title: 'Huddle',
-        body: `You clocked out of ${team.name} (${durationText})`,
-        data: {
-          type: 'clock-out-self',
-          teamName: team.name,
-          teamId,
-          duration: durationText,
-          url: clockOutUrl,
-        },
-      }).catch(() => {});
-
-      void emitActivity({
-        userId,
-        teamId,
-        type: ActivityType.ClockOut,
-        actor: { id: userId, name: userName },
-        payload: {
-          teamId,
-          teamName: team.name,
-          durationSeconds: pub.accumulatedTime ?? undefined,
-        },
-      });
-    }
-
-    return pub;
+    return clockStop(identity.userId, { teamId });
   },
 
   /** Pause (break start): close running timer, open a break. */
@@ -897,6 +703,216 @@ Meteor.methods({
     }
   },
 });
+
+/**
+ * Clock `userId` in to `teamId`: close any dangling open events, open a new
+ * one, link the just-posted plan (plan-first flow), fire side-effects. Shared
+ * by the `clock.start` method and server-side callers (a Pulse plan upload).
+ */
+export async function clockStart(userId, { teamId, planPostId } = {}) {
+  const team = await findUserTeam(userId, teamId);
+  if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
+
+  const now = Date.now();
+  await ClockEvents.updateAsync(
+    { userId, teamId, endTime: null },
+    { $set: { endTime: now } },
+    { multi: true }
+  );
+
+  const _id = await ClockEvents.insertAsync({
+    userId,
+    teamId,
+    startTime: now,
+    accumulatedTime: 0,
+    autoClockoutAgreed: null,
+    endTime: null,
+  });
+  const created = await ClockEvents.findOneAsync(_id);
+  const pub = toPublicClockEvent(created, []);
+
+  // Plan-first flow: link the just-posted plan to this session so the
+  // per-session clock-out gate can find it (one post per clock session).
+  // Only the author's own post in *this* team qualifies — the admin deep link
+  // below opens the team feed, which a post from elsewhere never appears in.
+  let planPost = null;
+  if (planPostId && isValidId(planPostId)) {
+    planPost = await rawDb()
+      .collection('huddlePosts')
+      .findOne({ _id: new ObjectId(planPostId), userId });
+    if (planPost && String(planPost.teamId) === String(teamId)) {
+      // Not `updatedAt` — the feed renders any post whose updatedAt differs
+      // from createdAt as "edited", and linking a session is not an edit.
+      await rawDb()
+        .collection('huddlePosts')
+        .updateOne(
+          { _id: planPost._id },
+          { $set: { clockEventId: created._id.toHexString() } }
+        );
+    } else {
+      planPost = null;
+    }
+  }
+
+  // Schedule 4h break reminder + 7h45m shift-end reminder.
+  scheduleClockJobs(created._id.toHexString(), userId, teamId, now).catch((err) =>
+    console.error('[agenda] scheduleClockJobs failed:', err)
+  );
+
+  const userName = await userDisplayName(userId);
+  const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+  // With a plan attached, send admins to that Huddle post (it shows the plan);
+  // otherwise fall back to the clocked-in member's Work tab.
+  const clockInUrl = planPost
+    ? `/app/huddle?postId=${planPostId}&teamId=${teamId}`
+    : `/app/profile/${userId}?tab=work`;
+  await Promise.all(
+    notifyAdmins.map((adminId) =>
+      createNotification({
+        userId: adminId,
+        title: 'Huddle',
+        body: `${userName} clocked in to ${team.name}`,
+        data: {
+          type: 'clock-in',
+          userId,
+          userName,
+          teamName: team.name,
+          teamId,
+          url: clockInUrl,
+        },
+      }).catch(() => {})
+    )
+  );
+
+  void emitActivity({
+    userId,
+    teamId,
+    type: ActivityType.ClockIn,
+    actor: { id: userId, name: userName },
+    payload: { teamId, teamName: team.name },
+  });
+
+  return pub;
+}
+
+/**
+ * Clock `userId` out of `teamId`: enforce the plan-first wrap-up gate, cancel
+ * jobs, close timers and any open break, recompute, notify, log. Shared by the
+ * `clock.stop` method and server-side callers (a Pulse wrap-up upload).
+ */
+export async function clockStop(userId, { teamId } = {}) {
+  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+  if (!event) throw new Meteor.Error('not-found', 'No active clock event');
+
+  const team = await findUserTeam(userId, teamId);
+
+  // This session's Huddle post (one post per clock session, linked by
+  // clockEventId — see clock-post-simple-plan.md). Drafts never count.
+  // Used both by the plan-first clock-out gate and to deep-link the
+  // clock-out notifications at the post showing the plan + wrap-up.
+  const sessionPost = await rawDb()
+    .collection('huddlePosts')
+    .findOne(
+      { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
+      { sort: SESSION_POST_SORT }
+    );
+
+  // Plan-first flow: when the team requires a plan, block clock-out until
+  // THIS session's post has a wrap-up.
+  if (team?.settings?.requirePlanForClock && !sessionPost?.wrapUpAt) {
+    throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
+  }
+
+  const now = Date.now();
+  const eventId = event._id.toHexString();
+
+  cancelClockJobs(eventId).catch((err) =>
+    console.error('[agenda] cancelClockJobs failed:', err)
+  );
+
+  // Close any running timer sessions for this user.
+  await closeAllForUser(userId, now);
+
+  // Close any open break with auto-classification.
+  const breaks = await findBreaksForEvent(eventId);
+  const openBreak = breaks.find((b) => b.endTime === null);
+  if (openBreak) {
+    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+    await ClockBreaks.updateAsync(openBreak._id, {
+      $set: { endTime: now, ...classifyBreak(durationSeconds) },
+    });
+  }
+
+  const closedBreaks = await findBreaksForEvent(eventId);
+  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const deducted = computeDeductedBreakSeconds(closedBreaks, now);
+  const finalAccumulatedTime = Math.max(0, shiftSpan - deducted);
+
+  await ClockEvents.updateAsync(event._id, {
+    $set: { endTime: now, accumulatedTime: finalAccumulatedTime },
+  });
+  const updated = await ClockEvents.findOneAsync(event._id);
+  const pub = toPublicClockEvent(updated, closedBreaks);
+
+  if (team) {
+    const userName = await userDisplayName(userId);
+    const totalSecs = pub.accumulatedTime ?? 0;
+    const h = Math.floor(totalSecs / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+    // Prefer this session's Huddle post (shows the plan + wrap-up); fall
+    // back to the member's Work tab when the session had no post.
+    const clockOutUrl = sessionPost
+      ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+      : `/app/profile/${userId}?tab=work`;
+    await Promise.all(
+      notifyAdmins.map((adminId) =>
+        createNotification({
+          userId: adminId,
+          title: 'Huddle',
+          body: `${userName} clocked out of ${team.name} (${durationText})`,
+          data: {
+            type: 'clock-out',
+            userId,
+            userName,
+            teamName: team.name,
+            teamId,
+            duration: durationText,
+            url: clockOutUrl,
+          },
+        }).catch(() => {})
+      )
+    );
+
+    createNotification({
+      userId,
+      title: 'Huddle',
+      body: `You clocked out of ${team.name} (${durationText})`,
+      data: {
+        type: 'clock-out-self',
+        teamName: team.name,
+        teamId,
+        duration: durationText,
+        url: clockOutUrl,
+      },
+    }).catch(() => {});
+
+    void emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.ClockOut,
+      actor: { id: userId, name: userName },
+      payload: {
+        teamId,
+        teamName: team.name,
+        durationSeconds: pub.accumulatedTime ?? undefined,
+      },
+    });
+  }
+
+  return pub;
+}
 
 /**
  * Reactive live-shift stream for one or more teams ("who is clocked in now").
