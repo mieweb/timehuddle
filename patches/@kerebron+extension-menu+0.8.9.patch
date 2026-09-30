@@ -1,0 +1,118 @@
+diff --git a/node_modules/@kerebron/extension-menu/esm/CustomMenuPlugin.js b/node_modules/@kerebron/extension-menu/esm/CustomMenuPlugin.js
+index d630c68..8ec5cf9 100644
+--- a/node_modules/@kerebron/extension-menu/esm/CustomMenuPlugin.js
++++ b/node_modules/@kerebron/extension-menu/esm/CustomMenuPlugin.js
+@@ -893,6 +893,9 @@ export class CustomMenuView {
+         // Clear toolbar and overflow menu
+         this.toolbar.innerHTML = '';
+         this.overflowMenu.innerHTML = '';
++        // PATCH: the per-item update() functions for the buttons now on screen,
++        // so update() below can refresh them instead of re-rendering.
++        this.itemUpdates = [];
+         // Get available width for toolbar items
+         const toolbarWidth = this.toolbar.offsetWidth || this.wrapper.offsetWidth;
+         const availableWidth = toolbarWidth - OVERFLOW_BUTTON_WIDTH - 16; // Reserve space for overflow button + padding
+@@ -905,16 +908,32 @@ export class CustomMenuView {
+             wrapper.setAttribute('draggable', 'false');
+             const isDropdown = tool.element.content !== undefined;
+             if (isDropdown) {
+-                const { dom } = tool.element.render(this.editorView);
++                const { dom, update } = tool.element.render(this.editorView);
+                 const dropdownMenu = dom.querySelector('.kb-dropdown__content');
+                 if (dropdownMenu) {
+                     dropdownMenu.style.display = 'none';
+                 }
+                 wrapper.appendChild(dom);
++                // PATCH: keep the updater, and apply it once so the first paint
++                // already reflects the current selection.
++                if (update) {
++                    this.itemUpdates.push(update);
++                    try {
++                        update(this.editorView.state);
++                    }
++                    catch { /* a broken item must not take the toolbar down */ }
++                }
+             }
+             else {
+-                const { dom } = tool.element.render(this.editorView);
++                const { dom, update } = tool.element.render(this.editorView);
+                 wrapper.appendChild(dom);
++                if (update) {
++                    this.itemUpdates.push(update);
++                    try {
++                        update(this.editorView.state);
++                    }
++                    catch { /* a broken item must not take the toolbar down */ }
++                }
+             }
+             // Temporarily add to toolbar to measure
+             this.toolbar.appendChild(wrapper);
+@@ -1514,10 +1533,20 @@ export class CustomMenuView {
+         }
+     }
+     update(view, prevState) {
+-        // Re-render tools to update their state (original approach)
+-        // Note: This is less efficient but more reliable than storing update functions
+-        this.tools.forEach((tool) => {
+-            tool.element.render(this.editorView);
++        // PATCH: was `this.tools.forEach((tool) => tool.element.render(...))`,
++        // which built a fresh DOM node per tool on every transaction and threw
++        // both it and its update() away — so the buttons actually on screen were
++        // never refreshed. `enable` and `active` therefore never ran: the link
++        // button stayed clickable with nothing selected (opening a dialog whose
++        // OK could do nothing, and arming a stored link mark for the next thing
++        // typed), and Bold never lit up inside bold text. It also rebuilt every
++        // icon on every keystroke.
++        const state = view.state;
++        (this.itemUpdates || []).forEach((update) => {
++            try {
++                update(state);
++            }
++            catch { /* one bad item must not stop the rest updating */ }
+         });
+     }
+     destroy() {
+diff --git a/node_modules/@kerebron/extension-menu/esm/buildMenu.js b/node_modules/@kerebron/extension-menu/esm/buildMenu.js
+index 85b1f47..c04ece0 100644
+--- a/node_modules/@kerebron/extension-menu/esm/buildMenu.js
++++ b/node_modules/@kerebron/extension-menu/esm/buildMenu.js
+@@ -220,6 +220,10 @@ export function buildMenu(editor, schema) {
+             title: 'Toggle bold',
+             run: () => editor.chain().toggleStrong().run(),
+             enable: (state) => editor.can().toggleStrong().run(),
++            // PATCH: these two were the only marks built without an `active`,
++            // so they alone never lit up when the caret sat inside bold or
++            // italic text — strike and code use markItem(), which supplies one.
++            active: (state) => markActive(state, schema.marks.strong),
+             icon: icons.strong,
+         }));
+     }
+@@ -229,6 +233,7 @@ export function buildMenu(editor, schema) {
+             title: 'Toggle italic',
+             run: () => editor.chain().toggleItalic().run(),
+             enable: (state) => editor.can().toggleItalic().run(),
++            active: (state) => markActive(state, schema.marks.em),
+             icon: icons.em,
+         }));
+     }
+@@ -366,6 +371,20 @@ export function buildMenu(editor, schema) {
+                     state.selection.node.type == nodeType) {
+                     attrs = state.selection.node.attrs;
+                 }
++                // PATCH: offer the host its own uploader first. The built-in
++                // prompt below embeds the file as a base64 data URL, which never
++                // reaches a media store and pushes a screenshot-sized post past
++                // any request-body limit. A host that handles this event (and
++                // calls preventDefault) uploads the file properly instead; one
++                // that does not still gets the original dialog.
++                const request = new CustomEvent('kb:insert-image', {
++                    bubbles: true,
++                    cancelable: true,
++                });
++                editor.view.dom.dispatchEvent(request);
++                if (request.defaultPrevented) {
++                    return true;
++                }
+                 openPrompt({
+                     title: 'Insert image',
+                     fields: {

@@ -43,6 +43,7 @@ import {
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
+import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import {
@@ -102,9 +103,14 @@ export const ClockPage: React.FC = () => {
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-  // Bumped to remount the (uncontrolled) editor — clears it after posting and
-  // re-seeds it when a draft loads.
-  const [editorKey, setEditorKey] = useState(0);
+  // Bumped only when the composer switches purpose (plan <-> wrap-up), to give
+  // the editor a clean document. Seeding no longer remounts: the editor reads
+  // `text`, so a draft or plan arriving late is picked up by the reload the
+  // `value` change triggers, and a remount would have discarded whatever the
+  // user had already typed.
+  const [editorKey] = useState(0);
+  // Read on submit instead of trusting `text` — see {@link composerText}.
+  const editorRef = useRef<RichEditorHandle>(null);
 
   // ── Drafts — save a plan without publishing/clocking in ──
   type DraftRef = Pick<HuddlePost, 'id' | 'content'>;
@@ -164,9 +170,15 @@ export const ClockPage: React.FC = () => {
     onUploadProgress: reporterFor('paste'),
     onError: setComposerError,
   });
-  // The editor strips alt text off image nodes as it serializes, so every path
-  // that persists this composer's text restores the filenames first.
-  const composerText = () => restoreImageAltText(text.trim(), attachments);
+  // The editor is the source of truth for what was typed; `text` mirrors it
+  // through an async serialization that can lag the last keystroke, so every
+  // path that persists this composer reads the editor and falls back to the
+  // mirror only while it is still mounting. The editor also strips alt text off
+  // image nodes as it serializes, so the filenames go back on here.
+  const composerText = async () => {
+    const latest = (await editorRef.current?.getContent().catch(() => undefined)) ?? text;
+    return restoreImageAltText(latest.trim(), attachments);
+  };
 
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
@@ -307,7 +319,6 @@ export const ClockPage: React.FC = () => {
     if (seededTokenRef.current === token) return;
     seededTokenRef.current = token;
     setText((current) => (current.trim() ? current : seedText));
-    setEditorKey((k) => k + 1);
   }, [composerMode, seedText]);
 
   // Clear attach/ticket/mention selections whenever the composer opens fresh
@@ -319,7 +330,7 @@ export const ClockPage: React.FC = () => {
   }, [composerMode]);
 
   async function saveDraft() {
-    const trimmed = composerText();
+    const trimmed = await composerText();
     if (!gateTeamId || !trimmed || savingDraft || posting || uploadInFlight) return;
     setSavingDraft(true);
     setPostError(null);
@@ -356,7 +367,7 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postPlanAndClockIn() {
-    const trimmed = composerText();
+    const trimmed = await composerText();
     if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
@@ -408,7 +419,7 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postWrapUpAndClockOut() {
-    const trimmed = composerText();
+    const trimmed = await composerText();
     if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
@@ -638,8 +649,19 @@ export const ClockPage: React.FC = () => {
             ) : (
               <MarkdownEditor
                 key={`${composerMode}-${editorKey}`}
-                value={seedText}
+                ref={editorRef}
+                // `text`, not `seedText`: a pasted or dropped image is appended
+                // to `text`, and the editor only shows it if that is what it is
+                // reading. Seeding still works — the effect above puts the plan
+                // into `text` before this mounts.
+                value={text}
                 onChange={setText}
+                placeholder={
+                  composerMode === 'plan'
+                    ? 'What are you planning to work on?'
+                    : 'How did the session go?'
+                }
+                aria-label={composerMode === 'plan' ? 'Session plan' : 'Session wrap-up'}
                 onSubmit={() =>
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
                 }

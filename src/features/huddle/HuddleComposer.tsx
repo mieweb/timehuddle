@@ -15,6 +15,7 @@ import { Button } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
+import { useSession } from '@lib/useSession';
 import { attachmentApi } from '@lib/api';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
@@ -108,7 +109,28 @@ export function HuddleComposer({
   // than an `alert()`; see {@link ComposerError}.
   const [error, setError] = useState<string | null>(null);
   const clearError = useCallback(() => setError(null), []);
+  /**
+   * True when the editor was given a post to edit and came up empty.
+   *
+   * Saving replaces a post's whole body with the editor's contents, which is
+   * safe only while the editor faithfully loaded it. When loading fails the
+   * composer looks like an empty post, and the next keystroke plus Update
+   * destroys everything that was there — silently, because the save is doing
+   * exactly what it was asked to.
+   *
+   * Loading can fail for reasons this component cannot anticipate (today:
+   * markdown carrying inline HTML, which empties the document — see #564), so
+   * the guard is on the symptom rather than any one cause: if there was a post
+   * and the editor has nothing, refuse to overwrite it.
+   *
+   * The Clock composer has kept the same guard for its wrap-up since the plan
+   * post could be overwritten the same way; this is that idea applied to
+   * editing a post from the feed.
+   */
+  const [seedFailed, setSeedFailed] = useState(false);
   const { selectedTeamId } = useTeam();
+  // Names this peer's cursor for everyone else in the room.
+  const { user } = useSession();
   const composerRef = useRef<HTMLDivElement>(null);
   // Read on submit instead of trusting `text`: RichEditor mirrors its content
   // out through an async serialization, so `text` can lag the last keystroke.
@@ -131,12 +153,15 @@ export function HuddleComposer({
     if (!expanded || editing) return;
     const onDocMouseDown = (e: MouseEvent) => {
       if (composerRef.current?.contains(e.target as Node)) return;
-      // Kerebron popovers (toolbar dropdowns) and the Pulse upload modal
-      // (portaled outside composerRef) must not trigger a collapse — closing
-      // either one is not "clicking away" from the composer.
+      // Kerebron's popovers and prompts, and the Pulse upload modal, all portal
+      // outside composerRef — working in one of them is not "clicking away"
+      // from the composer. `.kb-prompt` is listed explicitly because Kerebron's
+      // prompt (the link dialog) sets no `role="dialog"`, so the role match
+      // below never catches it: picking a link target collapsed the composer
+      // out from under the dialog that was still open.
       if (
         (e.target as HTMLElement).closest?.(
-          '.kb-custom-menu__wrapper, [role="menu"], [role="dialog"]',
+          '.kb-custom-menu__wrapper, .kb-prompt, .kb-prompt-backdrop, [role="menu"], [role="dialog"]',
         )
       )
         return;
@@ -148,6 +173,25 @@ export function HuddleComposer({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [expanded, text, attachments.length, pulsePending]);
+
+  // `getContent()` resolves only after the editor's own setup and initial
+  // load, so one read is enough — no polling, no arbitrary delay.
+  useEffect(() => {
+    if (!initialText.trim()) return;
+    let cancelled = false;
+    void editorRef.current
+      ?.getContent()
+      .then((loaded) => {
+        if (!cancelled && !loaded.trim()) setSeedFailed(true);
+      })
+      .catch(() => {
+        // A handle that never arrived is the same failure from here.
+        if (!cancelled) setSeedFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialText]);
 
   // Fetch videos attached to the selected ticket
   useEffect(() => {
@@ -195,7 +239,8 @@ export function HuddleComposer({
   // orphan the clip — so the button stays closed until both have settled. The
   // Cancel beside the "Waiting for your Pulse video…" status abandons the
   // recording if the user would rather post without it.
-  const canSubmit = hasContent && !posting && uploadFraction === null && !pulsePending;
+  const canSubmit =
+    hasContent && !posting && uploadFraction === null && !pulsePending && !seedFailed;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -368,8 +413,12 @@ export function HuddleComposer({
         onChange={setText}
         onSubmit={handleSubmit}
         onFiles={uploadDroppedMedia}
-        collab={huddlePostCollab(collabRoom)}
+        collab={huddlePostCollab(collabRoom, user ? { id: user.id, name: user.name } : undefined)}
         placeholder="What's on your mind?"
+        aria-label={editing ? 'Edit post' : 'Write a post'}
+        // The collapsed bar is the only way in, so expanding it is a deliberate
+        // "I want to write now" — put the caret where the user just asked for it.
+        autoFocus
       />
 
       {/* ── Ticket / mention / attachment chips ── */}
@@ -449,7 +498,16 @@ export function HuddleComposer({
            uploads (determinate, real bytes) and the post itself. ── */}
       <ComposerProgress uploadFraction={uploadFraction} posting={posting} postDone={postDone} />
 
-      <ComposerError message={error} onDismiss={clearError} />
+      <ComposerError
+        message={
+          seedFailed
+            ? 'This post could not be loaded for editing, so saving is turned off to ' +
+              'protect it. Your post has not been changed — close this and try again, ' +
+              'or report it if it keeps happening.'
+            : error
+        }
+        onDismiss={seedFailed ? undefined : clearError}
+      />
     </div>
   );
 }

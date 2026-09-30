@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -65,6 +69,10 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -140,6 +148,13 @@ jobs:
             git fetch origin
             git checkout main
             git reset --hard origin/main
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
             git clean -fd
             
             echo "✓ Now at: $(git log -1 --oneline)"
@@ -212,6 +227,13 @@ jobs:
             git fetch origin
             git checkout main
             git reset --hard origin/main
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
             git clean -fd
             
             echo "✓ Now at: $(git log -1 --oneline)"
@@ -342,6 +364,13 @@ jobs:
             git fetch origin
             git checkout main
             git reset --hard origin/main
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
             git clean -fd
             
             echo "✓ Now at: $(git log -1 --oneline)"
@@ -415,6 +444,13 @@ jobs:
             git fetch origin
             git checkout main
             git reset --hard origin/main
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
             git clean -fd
             
             echo "✓ Now at: $(git log -1 --oneline)"

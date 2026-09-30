@@ -30,6 +30,10 @@ jobs:
     if: github.event.inputs.environment == 'dev'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -72,6 +76,10 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:

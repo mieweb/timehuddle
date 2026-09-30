@@ -125,9 +125,18 @@ export function PostCard({
 
   const handleEditPost = async (content: ComposerContent) => {
     try {
+      // Union, not replacement. The composer shows mention chips only for
+      // mentions added during this edit — a post's existing ones are not loaded
+      // into it (they live in the text as `@name`), so submitting what the
+      // composer holds would unmention everyone already on the post and drop
+      // their notifications. The chat-view edit path preserves them the same
+      // way; see handleMessageEdited in pages/Huddle.tsx.
+      const mentionUserIds = Array.from(
+        new Set([...(post.content.mentions ?? []), ...content.mentions.map((m) => m.userId)]),
+      );
       await huddleApi.updatePost(
         post.id,
-        { text: content.text, mentions: content.mentions.map((m) => m.userId) },
+        { text: content.text, mentions: mentionUserIds },
         {
           attachments: content.attachments.map(toPostAttachment),
           ticketId: content.ticketId ?? null,
