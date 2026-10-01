@@ -220,7 +220,28 @@ File: [src/lib/api.ts](../src/lib/api.ts)
 
 # Phase 2: Refresh and Reload Are Fast
 
-Start only after the Phase 1 PR is merged. Branch each milestone from fresh `main`.
+Branch: `perf/599-phase2-fast-refresh`, stacked on the Phase 1 branch because it builds on the
+`RefreshContext` changes in #619. Retarget the PR to `main` once #619 merges.
+
+## Where the time actually goes (measured 2026-10-01)
+
+The frontend and backend containers are **not** a hop in the API path. Both hostnames resolve to
+the same `os.mieweb.org` nginx proxy (`184.175.182.248`); the browser and the iOS app call the
+backend directly, and the frontend container only serves static files (the iOS app doesn't use it
+at all). The cost is **sequential round trips**: about 70 ms each on Wi-Fi from here, 150–300 ms on
+cellular.
+
+- **Startup waterfall:** WebSocket open → DDP connect → resume login → `users.getCurrentUser` →
+  new HTTPS connection (+ CORS preflight on web) → `orgs.list` → app layout renders →
+  `teams.byUser` → page data. That's about 10–12 round trips before content, and `main.tsx` renders
+  nothing until the session check finishes.
+- **About 18 REST calls at startup, about 5 of them duplicates** (`tickets.list` ×3, `orgs.list` ×2,
+  `timers.getRunning` ×2, `teams.getMembers` ×2).
+- **No device cache:** every reload and tab switch starts from an empty screen.
+- **Meteor runs a client's DDP calls one at a time** unless a method calls `this.unblock()` (only one
+  method does today), so moving reads onto the open WebSocket would queue them.
+- **Proxy-side costs** (two domains forcing CORS preflights on web, `no-cache` on hashed JS files, no
+  brotli) are owned by the `os.mieweb.org` maintainers and tracked separately in **#621**.
 
 ## Milestone 7: Add React Query and Move Huddle Over
 
@@ -232,6 +253,9 @@ Start only after the Phase 1 PR is merged. Branch each milestone from fresh `mai
   - [ ] Full-page spinner only when there's **no** cached data (`isPending`), not on background refetch
   - [ ] DDP live updates still apply (update the query cache via `queryClient.setQueryData` or invalidate)
 - [ ] `useRefresh` on Huddle calls the query's `refetch`; existing content stays on screen
+- [ ] Show the last known user immediately on startup instead of rendering nothing while
+      `fetchSession` runs (`if (loading && !user) return null` in `main.tsx`), then confirm in the
+      background
 - [ ] Huddle e2e specs still pass
 
 ## Milestone 8: Move Tickets Over
@@ -249,18 +273,25 @@ Start only after the Phase 1 PR is merged. Branch each milestone from fresh `mai
 - [ ] Test: sign in as user A → sign out → sign in as user B → B never sees A's data, even briefly
 - [ ] Cold start / reload shows cached content immediately, then updates
 
-## Milestone 10: Parallel Start-Up Loading
+## Milestone 10: Fewer Start-Up Round Trips
 
-File: [src/lib/useSession.tsx](../src/lib/useSession.tsx) and the teams/clock loaders
+Files: [src/lib/useSession.tsx](../src/lib/useSession.tsx), [src/lib/TeamContext.tsx](../src/lib/TeamContext.tsx), a new Meteor method in `meteor-backend/server/`
 
-- [ ] Draw the current start-up chain (DDP connect → login → user → orgs → teams → page data)
-- [ ] Once the user id is known, start organizations, teams and clock status **together** (`Promise.all`/`allSettled`)
-- [ ] Don't change what each request returns — only when it starts
-- [ ] Verify no request now fires before auth is ready (watch the Network tab)
+- [ ] Remove the duplicate startup calls (`tickets.list` ×3, `orgs.list` ×2, `timers.getRunning` ×2,
+      `teams.getMembers` ×2) — mostly free once those loaders use shared React Query keys
+- [ ] Add one `app.bootstrap` Meteor method that returns user, organizations, teams, active clock and
+      running timer in a single response, and call it once after login instead of separate requests
+- [ ] Anything that can't go into the bootstrap call: once the user id is known, start it in parallel
+      (`Promise.allSettled`) instead of one after another
+- [ ] Add `this.unblock()` to the read-only Meteor methods the startup path calls over DDP, so they
+      don't queue behind each other
+- [ ] Verify no request fires before auth is ready (watch the Network tab)
 
 ## Milestone 11: Measure Before and After
 
-- [ ] Repeat Milestone 0's timings on the same device and network
+- [ ] Repeat Milestone 0's timings on the same device and network, **on cellular as well as Wi-Fi**
+- [ ] Add `performance.mark` timings for "first content" and a `Server-Timing` header on the bootstrap
+      call, so the numbers separate network time from server time
 - [ ] Post a before/after table on #599:
 
 | Metric (iOS app)                 | Before | After |
@@ -293,20 +324,21 @@ gitGraph
     commit id: "M4 foreground ping"
     commit id: "M5 token timeout"
     commit id: "M6 e2e"
-    checkout main
-    merge fix/599-pull-to-refresh-stuck-spinner id: "PR 1 (Phase 1)"
-    branch perf/599-react-query-huddle-tickets
+    branch perf/599-phase2-fast-refresh
     commit id: "M7 Huddle"
     commit id: "M8 Tickets"
-    checkout main
-    merge perf/599-react-query-huddle-tickets id: "PR 2"
-    branch perf/599-persist-and-parallel
     commit id: "M9 persist"
-    commit id: "M10 parallel"
+    commit id: "M10 fewer round trips"
     commit id: "M11 timings"
     checkout main
-    merge perf/599-persist-and-parallel id: "PR 3 (Fixes #599)"
+    merge fix/599-pull-to-refresh-stuck-spinner id: "PR #619 (Phase 1)"
+    merge perf/599-phase2-fast-refresh id: "PR 2 (Fixes #599)"
 ```
+
+Proxy and hosting changes on `os.mieweb.org` (same-domain API routing, asset caching, brotli,
+WebSocket timeouts) are tracked in **#621** and handled separately by the platform maintainers.
+Once #621's routing is live, a small follow-up in this repo stops baking `VITE_TIMECORE_URL` into
+web builds and makes `src/lib/ddp.ts` build its WebSocket URL from the page's own address.
 
 ## Out of Scope (don't do these here)
 
