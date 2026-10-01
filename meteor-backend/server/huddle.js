@@ -86,6 +86,9 @@ async function enrichPost(post) {
 
   const id = post._id?.toHexString ? post._id.toHexString() : String(post._id);
 
+  // List call sites batch this in attachEnrichment; single posts look it up here.
+  if (!post.videoThumbnailsAttached) await attachVideoThumbnails([post]);
+
   // Clock-in/out times are read off the linked ClockEvent rather than copied
   // onto the post, so the session stays the single source of truth. Scoped to
   // the post's own author/team — clockEventId is client-supplied on write, so
@@ -179,6 +182,54 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** The PulseVault artifact id a stored attachment URL points at, if any. */
+function pulseArtifactId(url) {
+  return String(url ?? '').match(/\/pulsevault\/artifacts\/([A-Za-z0-9._-]+)/)?.[1] ?? null;
+}
+
+/**
+ * Fill in each Pulse video attachment's poster frame at read time.
+ *
+ * The thumbnail belongs to the video, not the post (PulseVault links Pulse's
+ * uploaded poster frame to it — see linkThumbnail in pulsevault.js), so it is
+ * joined here rather than copied onto posts. A video posted from Huddle or
+ * Clock keeps it on its media item; a ticket or session video pulled into a
+ * post keeps it on that attachment. One query each for a whole batch; marks
+ * the posts so enrichPost doesn't look again.
+ */
+async function attachVideoThumbnails(posts) {
+  const pending = posts.flatMap((post) =>
+    (post.attachments ?? []).filter(
+      (att) => att.type === 'video' && !att.thumbnailUrl && pulseArtifactId(att.url),
+    ),
+  );
+  for (const post of posts) post.videoThumbnailsAttached = true;
+  if (pending.length === 0) return;
+  const ids = [...new Set(pending.map((att) => pulseArtifactId(att.url)))];
+  const withThumbnail = { thumbnail: { $ne: null } };
+  const [items, attached] = await Promise.all([
+    rawDb()
+      .collection('mediaitems')
+      .find({ videoid: { $in: ids }, ...withThumbnail }, { projection: { videoid: 1, thumbnail: 1 } })
+      .toArray(),
+    rawDb()
+      .collection('attachments')
+      .find(
+        { url: { $in: ids.map((id) => `/pulsevault/artifacts/${id}`) }, ...withThumbnail },
+        { projection: { url: 1, thumbnail: 1 } },
+      )
+      .toArray(),
+  ]);
+  const byVideo = new Map([
+    ...attached.map((a) => [pulseArtifactId(a.url), a.thumbnail]),
+    ...items.map((m) => [m.videoid, m.thumbnail]),
+  ]);
+  for (const att of pending) {
+    const thumbnail = byVideo.get(pulseArtifactId(att.url));
+    if (thumbnail) att.thumbnailUrl = thumbnail;
+  }
+}
+
 /**
  * Batch lookups for a list of posts — one `$in` query each for sessions,
  * authors and ticket titles instead of one per post, since
@@ -202,6 +253,7 @@ async function attachEnrichment(posts) {
           .toArray()
       : [],
     attachSessions(posts),
+    attachVideoThumbnails(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   const titlesById = new Map(tickets.map((t) => [String(t._id), t.title]));

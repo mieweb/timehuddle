@@ -14,6 +14,7 @@ import {
 import { SuperChatInbox } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
+  createGenUIPlugin,
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
@@ -24,6 +25,7 @@ import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
+import { PULSE_VIDEO_WIDGET, pulseVideoWidget } from '../features/huddle/pulseVideoBlock';
 import {
   postsToConversations,
   searchConversations,
@@ -72,6 +74,9 @@ const imagePlugin = {
   ...baseImagePlugin,
   components: { ...baseImagePlugin.components, img: BackendImage },
 };
+
+/** Host widgets for fenced ```genui blocks: Pulse videos (see pulseVideoBlock.ts). */
+const genUIPlugin = createGenUIPlugin({ [PULSE_VIDEO_WIDGET]: pulseVideoWidget });
 
 /** Reserves the check's slot on unselected items so every label lines up. */
 function SelectedCheck({ selected }: { selected: boolean }) {
@@ -459,7 +464,10 @@ export default function Huddle() {
     () => searchConversations(allConversations, activePosts, searchQuery, getTeamName),
     [allConversations, activePosts, searchQuery, getTeamName],
   );
-  const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  const renderPlugins = useMemo(
+    () => [createCodePlugin(), imagePlugin, createMermaidPlugin(), genUIPlugin],
+    [],
+  );
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
   // portaled into it; re-found whenever the inbox mounts or re-renders.
