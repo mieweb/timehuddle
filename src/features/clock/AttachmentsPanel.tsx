@@ -2,7 +2,8 @@
  * AttachmentsPanel — Add, list, and remove attachments for a clock entry or
  * ticket. Two chips add to it: **Link** (a pasted URL — a YouTube Short, a
  * Loom, any page) and **Pulse** (a video from the Pulse app, which the server
- * attaches here when it lands; videos come from Pulse only).
+ * attaches here when it lands; videos come from Pulse only). A Pulse video
+ * plays inline; anything else is a link.
  *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
@@ -22,7 +23,9 @@ import {
 } from '../../lib/api';
 import { LinkAttachButton } from './LinkAttachButton';
 import type { AddedLink } from './linkAttach';
+import { pulseArtifactId } from '../huddle/pulseVideoBlock';
 import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -123,25 +126,31 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             key={a.id}
             className="attachment-item flex items-center justify-between gap-2 text-sm"
           >
-            {/* Backend-hosted attachments (Pulse videos) are stored by path
-                and bound to the current origin here; user-entered links pass
-                through resolveMediaUrl untouched. */}
-            <a
-              href={resolveMediaUrl(a.url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="attachment-link truncate text-primary hover:underline"
-              aria-label={a.title ?? a.url}
-            >
-              {a.title ?? a.url}
-            </a>
+            {pulseArtifactId(a.url) ? (
+              <PulseVideoPlayer
+                video={pulseArtifactId(a.url)!}
+                poster={pulseArtifactId(a.thumbnail) ?? undefined}
+              />
+            ) : (
+              // User-entered links pass through resolveMediaUrl untouched;
+              // backend-hosted paths are bound to the current origin.
+              <a
+                href={resolveMediaUrl(a.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="attachment-link truncate text-primary hover:underline"
+                aria-label={a.title ?? a.url}
+              >
+                {a.title ?? a.url}
+              </a>
+            )}
             {currentUserId && currentUserId === a.addedBy && (
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => handleRemove(a.id)}
                 isLoading={deletingId === a.id}
-                aria-label="Remove link"
+                aria-label={pulseArtifactId(a.url) ? 'Remove video' : 'Remove link'}
               >
                 <FontAwesomeIcon icon={faTrash} className="text-destructive" />
               </Button>
