@@ -88,11 +88,13 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
+import { persistOptions, queryClient } from './lib/queryClient';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
 import { InstallerModal } from './ui/InstallerModal';
@@ -391,6 +393,19 @@ const App: React.FC = () => {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
+const AppRoot: React.FC = () => (
+  <OtaUpdateGate>
+    <ToastProvider>
+      <AppToastContainer />
+      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </PersistQueryClientProvider>
+    </ToastProvider>
+  </OtaUpdateGate>
+);
+
 let _root: ReturnType<typeof createRoot> | null = null;
 
 function renderRoot() {
@@ -405,16 +420,7 @@ function renderRoot() {
       if (Capacitor.isNativePlatform()) {
         _log('native platform detected — mounting SessionProvider + App');
         _root = createRoot(el);
-        _root.render(
-          <OtaUpdateGate>
-            <ToastProvider>
-              <AppToastContainer />
-              <SessionProvider>
-                <App />
-              </SessionProvider>
-            </ToastProvider>
-          </OtaUpdateGate>,
-        );
+        _root.render(<AppRoot />);
         return;
       }
       _root = createRoot(el);
@@ -435,16 +441,7 @@ function renderRoot() {
     _root = createRoot(el);
   }
 
-  _root.render(
-    <OtaUpdateGate>
-      <ToastProvider>
-        <AppToastContainer />
-        <SessionProvider>
-          <App />
-        </SessionProvider>
-      </ToastProvider>
-    </OtaUpdateGate>,
-  );
+  _root.render(<AppRoot />);
 }
 
 renderRoot();

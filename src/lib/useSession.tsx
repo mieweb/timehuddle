@@ -5,10 +5,11 @@
  *   wrap root with <SessionProvider>
  *   read auth state anywhere with useSession()
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { authApi, orgApi, type TimecoreUser } from './api';
-import { getDdpClient } from './ddp';
+import { DdpTransportError, getDdpClient } from './ddp';
+import { clearCachedData } from './queryClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,10 +45,38 @@ const SessionContext = createContext<SessionState>({
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+const LAST_USER_KEY = 'app:lastUser';
+
+/** The last signed-in user, shown while fetchSession confirms it — only if a session token still exists. */
+function loadLastUser(): TimecoreUser | null {
+  try {
+    if (!localStorage.getItem('meteor_resume_token')) return null;
+    const raw = localStorage.getItem(LAST_USER_KEY);
+    return raw ? (JSON.parse(raw) as TimecoreUser) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<TimecoreUser | null>(null);
+  const [user, setUser] = useState<TimecoreUser | null>(loadLastUser);
   const [loading, setLoading] = useState(true);
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
+
+  const cachedUserIdRef = useRef(user?.id ?? null);
+  useEffect(() => {
+    // Cached responses belong to one account — never let them outlive it on this device.
+    const previousId = cachedUserIdRef.current;
+    cachedUserIdRef.current = user?.id ?? null;
+    if (!user || (previousId && previousId !== user.id)) void clearCachedData().catch(() => {});
+
+    try {
+      if (user) localStorage.setItem(LAST_USER_KEY, JSON.stringify(user));
+      else localStorage.removeItem(LAST_USER_KEY);
+    } catch {
+      // Storage unavailable — the app still works, it just won't start instantly.
+    }
+  }, [user]);
 
   const fetchSession = useCallback(async () => {
     setLoading(true);
@@ -114,6 +143,9 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
       );
+      // Unreachable server, not a rejected session: keep whoever is signed in.
+      // The onReconnect hook below re-runs this once the connection recovers.
+      if (err instanceof DdpTransportError) return;
       // Check if it's a blocking error
       const errMessage = err instanceof Error ? err.message : String(err);
       if (errMessage.includes('suspended') || errMessage.includes('blocked')) {

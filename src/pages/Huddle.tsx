@@ -19,6 +19,7 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { toPostAttachment } from '../features/huddle/api';
 import { ComposerError } from '../features/huddle/ComposerError';
@@ -37,6 +38,7 @@ import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
+import { queryKeys } from '@lib/queryKeys';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 import styles from './Huddle.module.css';
@@ -89,8 +91,7 @@ function loadStoredThreadBy(): ThreadBy {
 
 export default function Huddle() {
   const { search, replace } = useRouter();
-  const [posts, setPosts] = useState<HuddlePost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   // A failed inbox send or inline edit. Separate from `error` above, which is
   // a feed-load failure and takes the feed's place on screen.
@@ -168,26 +169,26 @@ export default function Huddle() {
     setShowMe(false);
     setSelectedTeamId(value);
   };
-  const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
-  const [myPostsLoading, setMyPostsLoading] = useState(false);
-  const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  const userId = user?.id ?? '';
+  // Cached across visits; a background refetch runs on entry without hiding it.
+  const myPostsQuery = useQuery({
+    queryKey: queryKeys.huddleMyPosts(userId),
+    queryFn: () => huddleApi.getMyPosts(),
+    enabled: scope === 'me' && !!userId,
+  });
+  const myPosts = useMemo(() => myPostsQuery.data ?? [], [myPostsQuery.data]);
+  const myPostsLoading = myPostsQuery.data === undefined && !myPostsQuery.isError;
+  const myPostsError =
+    myPostsQuery.data === undefined && myPostsQuery.isError ? 'Failed to load your posts.' : null;
+  const { refetch: refetchMyPosts } = myPostsQuery;
   const refreshMyPosts = useCallback(async () => {
     try {
-      setMyPosts(await huddleApi.getMyPosts());
-      setMyPostsError(null);
+      await refetchMyPosts({ throwOnError: true });
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
-      setMyPostsError('Failed to load your posts.');
       throw err;
     }
-  }, []);
-  useEffect(() => {
-    if (scope !== 'me') return;
-    setMyPostsLoading(true);
-    refreshMyPosts()
-      .catch(() => {})
-      .finally(() => setMyPostsLoading(false));
-  }, [scope, refreshMyPosts]);
+  }, [refetchMyPosts]);
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
@@ -237,11 +238,6 @@ export default function Huddle() {
     setSearchQuery('');
   }, [targetPostId]);
 
-  // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
-  // change event, and depending on it tore down the effect below (cancelling its
-  // rAF) faster than a frame could elapse, so the scroll never ran.
-  const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
-
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open
@@ -252,19 +248,26 @@ export default function Huddle() {
   );
   const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
 
-  // Last REST snapshot for the team, replaced wholesale on every refetch (not
-  // merged) so an edit or delete that happened while DDP was disconnected is
-  // reflected, and a post absent from a later snapshot doesn't linger forever.
-  const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
+  // Last REST snapshot for the team, cached per user and team (and persisted
+  // across reloads), replaced wholesale on every refetch so an edit or delete
+  // that happened while DDP was disconnected is reflected.
+  const teamPostsQuery = useQuery({
+    queryKey: queryKeys.huddleTeamPosts(userId, selectedTeamId ?? ''),
+    queryFn: () => huddleApi.getPosts(selectedTeamId!),
+    enabled: !!userId && !!selectedTeamId,
+  });
+  const restPosts = teamPostsQuery.data;
 
-  // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
-  // component scope so addPost and pull-to-refresh can trigger
-  // an immediate re-sync.
-  const syncPosts = useCallback(() => {
-    if (!selectedTeamId) return;
-    const ddp = getDdpClient();
+  // Bumped on every live DDP change so the merged feed below recomputes.
+  const [ddpVersion, setDdpVersion] = useState(0);
+  const [subReady, setSubReady] = useState(false);
+  const [loadingFallbackElapsed, setLoadingFallbackElapsed] = useState(false);
+
+  // The feed is the DDP cache merged with the REST snapshot.
+  const posts = useMemo(() => {
+    if (!selectedTeamId) return [];
     const byId = new Map<string, HuddlePost>();
-    for (const p of ddp.docs('huddlePosts')) {
+    for (const p of getDdpClient().docs('huddlePosts')) {
       if (p.teamId !== selectedTeamId) continue;
       const post = { ...p, id: (p.id ?? p._id) as string } as unknown as HuddlePost;
       byId.set(post.id, post);
@@ -273,39 +276,52 @@ export default function Huddle() {
     // holding a stale copy while the socket is disconnected (e.g. backgrounded
     // for a Pulse recording), so a plain "DDP always wins" merge would hide
     // REST-only edits indefinitely.
-    for (const [id, restPost] of restPostsRef.current) {
-      const ddpPost = byId.get(id);
+    for (const restPost of restPosts ?? []) {
+      const ddpPost = byId.get(restPost.id);
       if (
         !ddpPost ||
         new Date(restPost.updatedAt).getTime() > new Date(ddpPost.updatedAt).getTime()
       ) {
-        byId.set(id, restPost);
+        byId.set(restPost.id, restPost);
       } else if (restPost.session?.endTime != null && ddpPost.session?.endTime == null) {
         // Clock-out doesn't touch the post, so the DDP copy keeps its open
         // session snapshot; take the closed one from the post-clock-out refetch.
-        byId.set(id, { ...ddpPost, session: restPost.session });
+        byId.set(restPost.id, { ...ddpPost, session: restPost.session });
       }
     }
-    const teamPosts = [...byId.values()].sort(
+    return [...byId.values()].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
-    setPosts(teamPosts);
-  }, [selectedTeamId]);
+    // ddpVersion stands in for the mutable DDP store.
+  }, [selectedTeamId, restPosts, ddpVersion]);
 
-  // Fetch the feed over REST and overlay it. Used by pull-to-refresh and as a
-  // fallback when the live DDP socket is down (dropped while backgrounded for a
-  // Pulse recording), so the feed still updates without a reconnect.
+  // Spinner only until there's something to show: cached or fetched REST
+  // data, the live subscription, or the fallback timeout.
+  const loading =
+    !!selectedTeamId &&
+    restPosts === undefined &&
+    !teamPostsQuery.isFetched &&
+    !subReady &&
+    !loadingFallbackElapsed;
+
+  // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
+  // change event, and depending on it tore down the effect below (cancelling its
+  // rAF) faster than a frame could elapse, so the scroll never ran.
+  const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
+
+  // Refetch the feed over REST. Used by pull-to-refresh and as a fallback when
+  // the live DDP socket is down (dropped while backgrounded for a Pulse
+  // recording), so the feed still updates without a reconnect.
+  const { refetch: refetchTeamPosts } = teamPostsQuery;
   const refreshFeed = useCallback(async () => {
     if (!selectedTeamId) return;
     try {
-      const fresh = await huddleApi.getPosts(selectedTeamId);
-      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
-      syncPosts();
+      await refetchTeamPosts({ throwOnError: true });
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
       throw err;
     }
-  }, [selectedTeamId, syncPosts]);
+  }, [selectedTeamId, refetchTeamPosts]);
 
   // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
   // is active.
@@ -339,45 +355,29 @@ export default function Huddle() {
     const previous = openSessionsRef.current;
     openSessionsRef.current = open;
     const closed = [...previous].some(([id, teamId]) => inScope.has(teamId) && !open.has(id));
-    if (closed) void refreshActiveScopeRef.current();
+    if (closed) void refreshActiveScopeRef.current().catch(() => {});
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
-  // Subscribe to live DDP publication for huddle posts
+  // Subscribe to live DDP publication for huddle posts. The initial REST load
+  // and its cache are handled by `teamPostsQuery` above.
   useEffect(() => {
-    if (!selectedTeamId) {
-      setPosts([]);
-      setLoading(false);
-      return;
-    }
+    setSubReady(false);
+    setLoadingFallbackElapsed(false);
+    if (!selectedTeamId) return;
 
-    setLoading(true);
     setError(null);
 
     const ddp = getDdpClient();
-    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
-
-    // Sync immediately in case data is already cached
-    syncPosts();
-
-    // REST fallback: populate the feed even if the DDP socket is down (it's
-    // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed()
-      .catch(() => {})
-      .finally(() => setLoading(false));
-
-    // Then keep syncing on every change
-    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
-
-    const loadingFallback = setTimeout(() => setLoading(false), 3000);
+    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setSubReady(true));
+    const offChange = ddp.onCollectionChange('huddlePosts', () => setDdpVersion((v) => v + 1));
+    const loadingFallback = setTimeout(() => setLoadingFallbackElapsed(true), 3000);
 
     return () => {
       clearTimeout(loadingFallback);
       unsub();
       offChange();
-      setPosts([]);
-      restPostsRef.current.clear();
     };
-  }, [selectedTeamId, syncPosts, refreshFeed]);
+  }, [selectedTeamId]);
 
   // Posting from the composer above the feed (team scope only — see its JSX
   // below). A post lands in `posts` via the same DDP/REST sync as any other
@@ -411,8 +411,8 @@ export default function Huddle() {
 
     // Show the new post without waiting on the live DDP socket, which may be
     // down (dropped while the app was backgrounded for a Pulse recording):
-    // refreshFeed refetches over REST and overlays the result, and syncPosts
-    // drops the overlay once the subscription catches up.
+    // refreshFeed refetches over REST and updates the cached snapshot, which
+    // the merged feed picks up alongside the subscription once it catches up.
     //
     // The retry condition is "not in the feed by *either* route". Waiting on
     // the DDP cache specifically would stall the full backoff on every post
@@ -420,8 +420,10 @@ export default function Huddle() {
     // exists to cover, and where the post is already on screen after the first
     // refresh.
     const ddp = getDdpClient();
+    const restKey = queryKeys.huddleTeamPosts(userId, postingTeamId);
     const inFeed = () =>
-      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+      !!queryClient.getQueryData<HuddlePost[]>(restKey)?.some((p) => p.id === id) ||
+      ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
 
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
@@ -452,7 +454,7 @@ export default function Huddle() {
   }, [scope, allTeams]);
 
   // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
-  // Keyed on the post arrays themselves: syncPosts/refreshMyPosts replace them
+  // Keyed on the post arrays themselves: the merged feed and the Personal query replace them
   // on every change, including ones that don't bump `updatedAt` (clock-in
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.

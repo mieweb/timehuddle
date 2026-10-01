@@ -49,6 +49,7 @@ import { AppModal } from '@ui/AppModal';
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   teamApi,
@@ -62,6 +63,7 @@ import {
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
 import { toLocalDateStr } from '../../lib/date';
+import { queryKeys } from '../../lib/queryKeys';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
@@ -653,30 +655,25 @@ export const TicketsPage: React.FC = () => {
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { isClockedIn, clockIn } = useClockToggle();
   const { navigate, pathname } = useRouter();
+  const queryClient = useQueryClient();
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [ticketsLoading, setTicketsLoading] = useState(true);
-  // Map from teamId → members for cross-team member lookups
-  const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
+  // Stable key derived from sorted team IDs — the subscription and the cache
+  // only change when the actual set of teams changes, not on every new array
+  // reference from context.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
 
-  // Timer state — which ticket has the open timer (shared overnight-safe hook)
-  const runningTicket = useRunningTicket(true);
-  const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
-  const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
-  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
-  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    if (!teams.length) {
-      // Don't clear loading state until teams have finished loading — prevents
-      // a flash of empty-state between "teams ready" and first ticket fetch.
-      if (teamsReady) {
-        setTickets([]);
-        setTicketsLoading(false);
-      }
-      return;
-    }
-    try {
+  // Cached per user and team set, so a revisit or reload renders the last
+  // list immediately while it refetches in the background.
+  const ticketsQuery = useQuery({
+    queryKey: queryKeys.tickets(userId ?? '', teamIdsKey),
+    queryFn: async () => {
       const results = await Promise.all(teams.map((t) => ticketApi.getTickets(t.id)));
       // Deduplicate by id in case a ticket appears in multiple team responses
       const seen = new Set<string>();
@@ -689,17 +686,41 @@ export const TicketsPage: React.FC = () => {
           }
         }
       }
-      setTickets(merged);
-    } finally {
-      // Previous tickets are kept on error; rejection still propagates to
-      // callers (e.g. pull-to-refresh) so a failure isn't reported as success.
-      setTicketsLoading(false);
-    }
-  }, [teams, teamsReady]);
+      return merged;
+    },
+    enabled: !!userId && !!teamIdsKey,
+  });
+  const tickets = useMemo(() => ticketsQuery.data ?? [], [ticketsQuery.data]);
+  // Wait for the team list before showing an empty state; previous tickets
+  // stay on screen if a refetch fails.
+  const ticketsLoading = teamIdsKey
+    ? ticketsQuery.data === undefined && !ticketsQuery.isError
+    : !teamsReady;
+  const setTickets = useCallback(
+    (update: (prev: Ticket[]) => Ticket[]) =>
+      queryClient.setQueryData<Ticket[]>(queryKeys.tickets(userId ?? '', teamIdsKey), (prev) =>
+        update(prev ?? []),
+      ),
+    [queryClient, userId, teamIdsKey],
+  );
 
-  useEffect(() => {
-    void refetch().catch(() => {});
-  }, [refetch]);
+  // Map from teamId → members for cross-team member lookups
+  const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
+
+  // Timer state — which ticket has the open timer (shared overnight-safe hook)
+  const runningTicket = useRunningTicket(true);
+  const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
+  const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
+  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
+  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
+
+  const { refetch: refetchTickets } = ticketsQuery;
+  // Rejection propagates to callers (e.g. pull-to-refresh) so a failure isn't
+  // reported as success.
+  const refetch = useCallback(async () => {
+    if (!teamIdsKey) return;
+    await refetchTickets({ throwOnError: true });
+  }, [teamIdsKey, refetchTickets]);
 
   // When the user switches team in the header, follow the new team in the filter.
   useEffect(() => {
@@ -710,17 +731,6 @@ export const TicketsPage: React.FC = () => {
   // stays mounted (hidden) behind other routes, so registering unconditionally
   // would hijack the visible page's refresh handler.
   useRefresh(refetch, pathname === '/app/tickets');
-
-  // Stable key derived from sorted team IDs — the WS only reconnects when the
-  // actual set of teams changes, not on every new array reference from context.
-  const teamIdsKey = useMemo(
-    () =>
-      teams
-        .map((t) => t.id)
-        .sort()
-        .join(','),
-    [teams],
-  );
 
   // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
   // Replaces the hand-rolled /v1/tickets/ws WebSocket: any write to the shared
@@ -749,7 +759,7 @@ export const TicketsPage: React.FC = () => {
       offChange();
       unsubscribe();
     };
-  }, [teamIdsKey, userId]);
+  }, [teamIdsKey, userId, setTickets]);
 
   // ── Real-time timer updates live inside useRunningTicket ──
 

@@ -245,33 +245,38 @@ cellular.
 
 ## Milestone 7: Add React Query and Move Huddle Over
 
-- [ ] Get approval before adding the dependency, then install `@tanstack/react-query`
-- [ ] Create one `QueryClient` and mount `QueryClientProvider` at the app root
-- [ ] Pick sensible defaults (`staleTime`, `gcTime`, `retry`) and document why in one-line comments
-- [ ] Define query keys in one place (e.g. `src/lib/queryKeys.ts`) — include `userId`/`teamId` so users/teams never share cache
-- [ ] Convert [src/pages/Huddle.tsx](../src/pages/Huddle.tsx) data loading to `useQuery`
-  - [ ] Full-page spinner only when there's **no** cached data (`isPending`), not on background refetch
-  - [ ] DDP live updates still apply (update the query cache via `queryClient.setQueryData` or invalidate)
-- [ ] `useRefresh` on Huddle calls the query's `refetch`; existing content stays on screen
-- [ ] Show the last known user immediately on startup instead of rendering nothing while
+- [x] Get approval before adding the dependency, then install `@tanstack/react-query`
+- [x] Create one `QueryClient` and mount `QueryClientProvider` at the app root
+- [x] Pick sensible defaults (`staleTime`, `gcTime`, `retry`) and document why in one-line comments
+- [x] Define query keys in one place (e.g. `src/lib/queryKeys.ts`) — include `userId`/`teamId` so users/teams never share cache
+- [x] Convert [src/pages/Huddle.tsx](../src/pages/Huddle.tsx) data loading to `useQuery`
+  - [x] Full-page spinner only when there's **no** cached data (`isPending`), not on background refetch
+  - [x] DDP live updates still apply (update the query cache via `queryClient.setQueryData` or invalidate)
+- [x] `useRefresh` on Huddle calls the query's `refetch`; existing content stays on screen
+- [x] Show the last known user immediately on startup instead of rendering nothing while
       `fetchSession` runs (`if (loading && !user) return null` in `main.tsx`), then confirm in the
       background
-- [ ] Huddle e2e specs still pass
+- [x] Huddle e2e specs still pass
 
 ## Milestone 8: Move Tickets Over
 
-- [ ] Same steps as Milestone 7 for [src/features/tickets/TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx)
-- [ ] Keep the "always mounted, refresh only when visible" behavior (`useRefresh(refetch, pathname === '/app/tickets')`)
-- [ ] Ticket e2e specs still pass
+- [x] Same steps as Milestone 7 for [src/features/tickets/TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx)
+- [x] Keep the "always mounted, refresh only when visible" behavior (`useRefresh(refetch, pathname === '/app/tickets')`)
+- [x] Ticket e2e specs still pass (Huddle + Tickets: 81 passed, 0 failed)
 
 ## Milestone 9: Persist the Cache
 
-- [ ] Add the React Query persister (`@tanstack/react-query-persist-client` + a storage persister)
-- [ ] Persist only Huddle and Tickets queries (`dehydrateOptions.shouldDehydrateQuery`)
-- [ ] Set a `buster` (app version) and `maxAge` so stale/old-shape caches are dropped
-- [ ] **Clear the persisted cache on sign-out and on user switch** (hook into `useSession` logout)
-- [ ] Test: sign in as user A → sign out → sign in as user B → B never sees A's data, even briefly
-- [ ] Cold start / reload shows cached content immediately, then updates
+- [x] Add the React Query persister (`@tanstack/react-query-persist-client` + a storage persister)
+      — `@tanstack/query-async-storage-persister` over `localStorage` (the sync one is deprecated)
+- [x] Persist only Huddle and Tickets queries (`dehydrateOptions.shouldDehydrateQuery`)
+- [x] Set a `buster` (app version) and `maxAge` so stale/old-shape caches are dropped
+- [x] **Clear the persisted cache on sign-out and on user switch** (hook into `useSession` logout)
+- [x] Test: sign in as user A → sign out → sign in as user B → B never sees A's data, even briefly
+      (`src/lib/useSession.test.tsx`; every query key also starts with the user id)
+- [ ] Cold start / reload shows cached content immediately, then updates — needs a device check
+- [x] A slow or dropped connection at startup no longer signs the user out: only a server
+      rejection clears the saved login token, and the session keeps the signed-in user until the
+      connection recovers (found via a flaky e2e run; Phase 1's 8s call timeout made it reachable)
 
 ## Milestone 10: Fewer Start-Up Round Trips
 
