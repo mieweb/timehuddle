@@ -32,6 +32,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isValidId, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, getTeam, isTeamMember, POST_DATE_RE } from './huddle.js';
+import { requireTeamMembership } from './permissions.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -230,7 +231,8 @@ const DESTINATIONS = {
         .collection('tickets')
         .findOne({ _id: new ObjectId(id), status: { $ne: 'deleted' } }, { projection: { teamId: 1 } });
       if (!ticket) throw new Meteor.Error('not-found', 'That ticket no longer exists.');
-      await assertTeamMember(userId, String(ticket.teamId));
+      // Whoever can see the team's tickets (tickets.list's own check).
+      await requireTeamMembership(userId, String(ticket.teamId));
       return { id };
     },
     deliver: attachVideo,

@@ -44,6 +44,8 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
   };
 
   const handleAdd = async () => {
+    // Enter can fire again while the first add is still saving.
+    if (adding) return;
     const url = normalizeLink(value);
     if (!url) {
       setError('Paste a full link, like https://youtube.com/shorts/…');
