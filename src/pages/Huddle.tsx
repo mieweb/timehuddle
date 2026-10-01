@@ -178,12 +178,15 @@ export default function Huddle() {
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
       setMyPostsError('Failed to load your posts.');
+      throw err;
     }
   }, []);
   useEffect(() => {
     if (scope !== 'me') return;
     setMyPostsLoading(true);
-    refreshMyPosts().finally(() => setMyPostsLoading(false));
+    refreshMyPosts()
+      .catch(() => {})
+      .finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
@@ -300,6 +303,7 @@ export default function Huddle() {
       syncPosts();
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
+      throw err;
     }
   }, [selectedTeamId, syncPosts]);
 
@@ -357,7 +361,9 @@ export default function Huddle() {
 
     // REST fallback: populate the feed even if the DDP socket is down (it's
     // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed().finally(() => setLoading(false));
+    refreshFeed()
+      .catch(() => {})
+      .finally(() => setLoading(false));
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
@@ -396,8 +402,10 @@ export default function Huddle() {
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
+    // The post itself already succeeded above, so a refresh failure here
+    // (already surfaced via myPostsError) must not read as the post failing.
     if (scope === 'me') {
-      await refreshMyPosts();
+      await refreshMyPosts().catch(() => {});
       return;
     }
 
@@ -417,7 +425,7 @@ export default function Huddle() {
 
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-      await refreshFeed();
+      await refreshFeed().catch(() => {});
       if (inFeed()) break;
     }
   }

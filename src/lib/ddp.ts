@@ -594,10 +594,8 @@ class DdpClient {
     } catch {
       // Already closing/closed.
     }
-    if (this.status === 'connected') {
-      this.status = 'failed';
-      this.handleDisconnect();
-    }
+    this.status = 'failed';
+    this.handleDisconnect();
   }
 
   /**

@@ -196,8 +196,8 @@ File: [src/lib/api.ts](../src/lib/api.ts)
 
 ### Phase 1 Done Checklist (from the issue)
 
-- [x] Root cause confirmed on a device and written up in #599 — confirmed on a physical iOS device;
-      write-up included in the PR description
+- [ ] Root cause confirmed on a device and written up in #599 — confirmed on a physical iOS device;
+      dedicated issue write-up still pending
 - [x] Pull-to-refresh on any page ends within a bounded time (iOS app + mobile browser, incl. after
       backgrounding) — verified on device
 - [x] Switching tabs never leaves a "Refreshing..." spinner behind (the spinner now clears on its own

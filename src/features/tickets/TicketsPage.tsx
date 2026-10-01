@@ -690,15 +690,15 @@ export const TicketsPage: React.FC = () => {
         }
       }
       setTickets(merged);
-    } catch {
-      // keep previous tickets on error
     } finally {
+      // Previous tickets are kept on error; rejection still propagates to
+      // callers (e.g. pull-to-refresh) so a failure isn't reported as success.
       setTicketsLoading(false);
     }
   }, [teams, teamsReady]);
 
   useEffect(() => {
-    void refetch();
+    void refetch().catch(() => {});
   }, [refetch]);
 
   // When the user switches team in the header, follow the new team in the filter.
@@ -756,7 +756,7 @@ export const TicketsPage: React.FC = () => {
   // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
   useEffect(() => {
     const onRefetch = () => {
-      void refetch();
+      void refetch().catch(() => {});
     };
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
@@ -1093,7 +1093,7 @@ export const TicketsPage: React.FC = () => {
       setCreateTitle('');
       setCreateGithub('');
       setShowCreate(false);
-      void refetch();
+      void refetch().catch(() => {});
     } finally {
       setCreateLoading(false);
     }
@@ -1130,7 +1130,7 @@ export const TicketsPage: React.FC = () => {
         });
       }
       setEditTicket(null);
-      void refetch();
+      void refetch().catch(() => {});
     } finally {
       setEditSaving(false);
     }
@@ -1142,7 +1142,7 @@ export const TicketsPage: React.FC = () => {
     try {
       await ticketApi.updateStatusPriority(changeStatusTicket.id, { status: changeStatusValue });
       setChangeStatusTicket(null);
-      void refetch();
+      void refetch().catch(() => {});
     } finally {
       setChangeStatusSaving(false);
     }
@@ -1154,7 +1154,7 @@ export const TicketsPage: React.FC = () => {
     try {
       await ticketApi.deleteTicket(deleteId);
       setDeleteId(null);
-      void refetch();
+      void refetch().catch(() => {});
     } finally {
       setDeleteLoading(false);
     }
@@ -1815,7 +1815,7 @@ export const TicketsPage: React.FC = () => {
                     const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
                     await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
                     setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
-                    void refetch();
+                    void refetch().catch(() => {});
                   }}
                 >
                   Assign to me
