@@ -10,11 +10,12 @@ function toId(id) {
   return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 
-async function findUserById(id) {
-  // Query Meteor users collection
-  const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
-  if (!meteorUser) return null;
-  
+/**
+ * Flattens a Meteor user document into the shape the rest of this file works
+ * with. The display name lives at `profile.name` — the same field the session
+ * and every other server module read.
+ */
+function fromMeteorUser(meteorUser) {
   return {
     _id: meteorUser._id,
     name: meteorUser.profile?.name ?? null,
@@ -25,6 +26,11 @@ async function findUserById(id) {
     website: meteorUser.website ?? '',
     reportsToUserId: meteorUser.reportsToUserId ?? null,
   };
+}
+
+async function findUserById(id) {
+  const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
+  return meteorUser ? fromMeteorUser(meteorUser) : null;
 }
 
 const BLOCKED_USERNAMES = new Set([
@@ -113,8 +119,11 @@ Meteor.methods({
     if (typeof username !== 'string' || !username.trim()) {
       throw new Meteor.Error('bad-request', 'username is required');
     }
-    const user = await rawDb().collection('users').findOne({ username: username.toLowerCase() });
-    if (!user) throw new Meteor.Error('not-found', 'User not found');
+    const meteorUser = await rawDb()
+      .collection('users')
+      .findOne({ username: username.toLowerCase() });
+    if (!meteorUser) throw new Meteor.Error('not-found', 'User not found');
+    const user = fromMeteorUser(meteorUser);
 
     const targetId = String(user._id);
     const sharedTeamDocs = userId !== targetId
@@ -140,16 +149,7 @@ Meteor.methods({
     if (validIds.length === 0) return { users: [] };
 
     const meteorUsers = await rawDb().collection('users').find({ _id: { $in: validIds.map(String) } }).toArray();
-    const users = meteorUsers.map(u => ({
-      _id: u._id,
-      name: u.profile?.name ?? null,
-      email: u.emails?.[0]?.address ?? null,
-      username: u.username ?? null,
-      image: u.image ?? null,
-      bio: u.bio ?? '',
-      website: u.website ?? '',
-      reportsToUserId: u.reportsToUserId ?? null,
-    }));
+    const users = meteorUsers.map(fromMeteorUser);
     const userIds = users.map((u) => String(u._id));
     const profiles = await rawDb()
       .collection('profiles')
@@ -181,7 +181,7 @@ Meteor.methods({
     }
 
     const $set = { updatedAt: new Date() };
-    if (name !== undefined) $set.name = name;
+    if (name !== undefined) $set['profile.name'] = name;
     if (bio !== undefined) $set.bio = bio;
     if (website !== undefined) $set.website = website;
     if (reportsToUserId !== undefined) $set.reportsToUserId = reportsToUserId;
