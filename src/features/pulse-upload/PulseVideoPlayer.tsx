@@ -39,8 +39,16 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
   // No poster (yet), or it failed to load: the same plain box with the ▶.
   const [posterFailed, setPosterFailed] = useState(false);
   const name = title || 'Pulse video';
-  // The play button unmounts on click; keep keyboard focus on what replaced it.
-  const focusOnMount = useCallback((el: HTMLVideoElement | null) => el?.focus(), []);
+  // The play button unmounts on click: keep keyboard focus on what replaced it.
+  // A card that goes away (navigating off, say) stops its video with it.
+  const attachPlayer = useCallback((el: HTMLVideoElement | null) => {
+    if (!el) return;
+    el.focus();
+    return () => {
+      el.pause();
+      if (playingNow === el) playingNow = null;
+    };
+  }, []);
 
   return (
     // Fixed width so the card isn't squeezed to the bubble's text width; the
@@ -48,7 +56,7 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
     <div className="pulse-video-card relative my-1 w-72 max-w-full overflow-hidden rounded-xl bg-neutral-900">
       {playing ? (
         <video
-          ref={focusOnMount}
+          ref={attachPlayer}
           className="pulse-video-player block max-h-[28rem] w-full bg-black object-contain"
           src={resolveMediaUrl(artifactPath(video))}
           poster={posterFailed ? undefined : resolveMediaUrl(posterPath(video))}
