@@ -171,10 +171,10 @@ Files: [src/lib/ddp.ts](../src/lib/ddp.ts), one hook/effect mounted once (e.g. i
 
 File: [src/lib/api.ts](../src/lib/api.ts)
 
-- [ ] Give the `/api/auth/token` fetch in `getAccessToken()` an `AbortController` timeout
+- [x] Give the `/api/auth/token` fetch in `getAccessToken()` an `AbortController` timeout
       matching `request()` (8s). Extract the 8000 into a shared constant used by both
-- [ ] On timeout, return `null` (current catch behavior) and make sure `jwtFetch` is reset
-- [ ] Unit test: a `fetch` that never resolves → `getAccessToken()` resolves `null` after the timeout
+- [x] On timeout, return `null` (current catch behavior) and make sure `jwtFetch` is reset
+- [x] Unit test: a `fetch` that never resolves → `getAccessToken()` resolves `null` after the timeout
 
 ## Milestone 6: End-to-End Coverage and Device Verification
 
