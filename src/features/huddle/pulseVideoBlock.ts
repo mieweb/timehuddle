@@ -22,8 +22,11 @@ export const PULSE_VIDEO_WIDGET = 'pulse_video';
 export const pulseVideoSchema = z.object({
   /** The video artifact; its poster is looked up by this id. */
   video: z.string().regex(ARTIFACT_ID),
-  /** What to call it (the Pulse draft's name), for its accessible label. */
-  title: z.string().max(200).optional(),
+  /**
+   * What to call it (the Pulse draft's name), for its accessible label.
+   * PulseVault caps a name at 512 code points, at most 1024 UTF-16 units.
+   */
+  title: z.string().max(1024).optional(),
 });
 
 export type PulseVideoProps = z.infer<typeof pulseVideoSchema>;
