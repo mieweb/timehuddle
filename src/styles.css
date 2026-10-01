@@ -52,16 +52,20 @@ html[data-theme='dark'] {
 
 /* Kerebron leaves headings, lists, links and code to browser defaults, which
    Tailwind's preflight strips (headings `inherit`, lists `list-style: none`,
-   links `color: inherit`) — so formatting applied from the toolbar rendered as
-   plain text. `revert` hands these back to the browser. Deliberately layered in
-   `base`: it beats preflight (same layer, later, more specific) but still loses
+   links `color: inherit`) — so they rendered as plain text while editing.
+   `revert` hands these back to the browser. Deliberately layered in `base`:
+   it beats preflight (same layer, later, more specific) but still loses
    to Kerebron's unlayered rules, so its own margins/padding stay in charge. */
 @layer base {
   .kb-editor :where(h1, h2, h3, h4, h5, h6, ol, ul, a, code, pre) {
     all: revert;
   }
-  /* The browser's default link blue is unreadable on the dark editor surface. */
+  /* The browser's default link blue is unreadable on the dark editor surface,
+     and the brand blue fails 4.5:1 on white, so each theme gets its own shade. */
   .kb-editor :where(a) {
+    color: var(--mieweb-primary-800, #0f749c);
+  }
+  [data-theme='dark'] .kb-editor :where(a) {
     color: var(--kb-color-primary);
   }
 }
