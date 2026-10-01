@@ -70,24 +70,23 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
             role="status"
             aria-live="polite"
           >
-            {status?.state === 'done' ? (
-              <>
-                <span className="pulse-modal-landed flex items-center gap-2">
-                  <FontAwesomeIcon
-                    icon={faCircleCheck}
-                    className="text-green-600 dark:text-green-500"
-                    aria-hidden="true"
-                  />
-                  <Text size="sm" weight="medium">
-                    {landedLabel(destination)}
-                  </Text>
-                </span>
-                {status.note && (
-                  <Text size="xs" variant="muted" className="max-w-xs text-center">
-                    {status.note}
-                  </Text>
-                )}
-              </>
+            {status?.state === 'done' && status.note ? (
+              // Delivered, but a step after it failed: the note says both, so
+              // the usual "you're clocked in" line would contradict it.
+              <Text size="sm" className="max-w-xs text-center">
+                {status.note}
+              </Text>
+            ) : status?.state === 'done' ? (
+              <span className="pulse-modal-landed flex items-center gap-2">
+                <FontAwesomeIcon
+                  icon={faCircleCheck}
+                  className="text-green-600 dark:text-green-500"
+                  aria-hidden="true"
+                />
+                <Text size="sm" weight="medium">
+                  {landedLabel(destination)}
+                </Text>
+              </span>
             ) : status?.state === 'kept' ? (
               <Text size="xs" variant="muted" className="max-w-xs text-center">
                 {keptMessage(status.reason)}

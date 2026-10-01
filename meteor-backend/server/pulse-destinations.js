@@ -131,15 +131,18 @@ async function attachVideo(userId, destination, video) {
 /**
  * A step that follows a delivery that already happened (clocking in after the
  * plan is posted). Its failure can't un-deliver the video, so it comes back as
- * a note for the popup instead of keeping the video.
+ * a note for the popup instead of keeping the video: what didn't happen, then
+ * why — or, when there's no reason to give, what to do instead.
  */
-async function followUp(failure, step) {
+async function followUp(failure, instead, step) {
   try {
     await step();
     return undefined;
   } catch (err) {
     console.warn('[pulse-destinations] delivered, but the follow-up failed:', err);
-    return `${failure}: ${reasonOf(err).replace(/\.$/, '')}.`;
+    return err instanceof Meteor.Error
+      ? `${failure}: ${err.reason.replace(/\.$/, '')}.`
+      : `${failure}. ${instead}`;
   }
 }
 
@@ -187,7 +190,7 @@ const DESTINATIONS = {
     },
     async deliver(userId, { teamId, postDate }, video) {
       const { id: planPostId } = await postVideo(userId, video, { teamId, postDate });
-      return followUp("Plan posted, but you weren't clocked in", () =>
+      return followUp("Plan posted, but you weren't clocked in", 'Clock in from the Clock page.', () =>
         clockInWithPlan(userId, teamId, planPostId),
       );
     },
@@ -217,7 +220,7 @@ const DESTINATIONS = {
         attachment: postAttachment(mediaId, video),
       });
       if (session.endTime != null) return undefined;
-      return followUp("Wrap-up posted, but you weren't clocked out", async () => {
+      return followUp("Wrap-up posted, but you weren't clocked out", 'Clock out from the Clock page.', async () => {
         const { clockStop } = await clockModule();
         await clockStop(userId, { teamId });
       });
