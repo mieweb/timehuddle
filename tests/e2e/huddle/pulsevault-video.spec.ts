@@ -36,6 +36,7 @@ import {
   findLibraryVideo,
   findOpenClockEventId,
   findTeamIdByName,
+  removeFromTeam,
   openComposer,
   openPostInInbox,
   setSharedTeamPlanGate,
@@ -161,6 +162,49 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
         .toEqual({ state: 'kept', reason: 'That clock session no longer exists.' });
       const kept = await findLibraryVideo(wrapUp.videoid);
       expect(kept?.recordedFor).toMatchObject({ kind: 'clock-wrapup', clockEventId });
+    });
+
+    test('delivery rechecks the destination: leaving the team, or a deleted session, keeps the video', async ({
+      page,
+    }) => {
+      test.setTimeout(90000);
+      await loginAs(page, TEST_USERS.owner1);
+      const teamName = `Test Team Recheck ${Date.now()}`;
+      await createFreshTeam(page, teamName);
+      const teamId = await findTeamIdByName(teamName);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-plan', teamId, postDate: today },
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+
+      // Both reserved while everything is valid…
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-wrapup', clockEventId, postDate: today },
+      });
+      const sessionVideo = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock', id: clockEventId },
+      });
+
+      // …then the uploader leaves the team before the wrap-up lands,
+      await removeFromTeam(teamId, TEST_USERS.owner1.email);
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+      await expect
+        .poll(() => pulseStatus(page, token, wrapUp.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'Not a member of this team' });
+
+      // …and the session is deleted before the session video lands.
+      await deleteClockEvent(clockEventId);
+      await uploadVideoAsPulse(page.request, sessionVideo.videoid, sessionVideo.uploadToken);
+      await expect
+        .poll(() => pulseStatus(page, token, sessionVideo.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'Clock session not found' });
     });
   });
 });

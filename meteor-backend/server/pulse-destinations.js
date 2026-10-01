@@ -215,6 +215,9 @@ async function deliverTo(userId, destination, video) {
         .collection('clockevents')
         .findOne({ _id: new ObjectId(destination.clockEventId), userId });
       if (!session) throw new Meteor.Error('not-found', 'That clock session no longer exists.');
+      // The session's post is written directly below, so check here that the
+      // uploader is still on the team (createHuddlePost checks it for itself).
+      await assertTeamMember(userId, String(session.teamId));
       const mediaId = await addToLibrary(userId, video);
       const attachment = postAttachment(mediaId, video);
       const wrapUpLine = video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**';
@@ -257,6 +260,8 @@ async function deliverTo(userId, destination, video) {
 
     case 'ticket':
     case 'clock':
+      // The ticket or session may have gone while the video was recorded.
+      await resolvePulseDestination(userId, destination);
       await createAttachment({
         url: video.url,
         type: 'video',

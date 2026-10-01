@@ -67,6 +67,16 @@ export async function deleteClockEvent(clockEventId: string): Promise<void> {
   await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
 }
 
+/** Take `email`'s user off a team, as a member and as an admin. */
+export async function removeFromTeam(teamId: string, email: string): Promise<void> {
+  const userId = await getUserIdByEmail(email);
+  await withDb((db) =>
+    db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(teamId) }, { $pull: { members: userId, admins: userId } }),
+  );
+}
+
 /** The media library item for a Pulse video, if there is one. */
 export async function findLibraryVideo(
   videoid: string,

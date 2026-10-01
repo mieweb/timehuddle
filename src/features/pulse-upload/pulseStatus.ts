@@ -4,6 +4,7 @@
  * and `reason` says why — e.g. the change was reviewed while they recorded.
  */
 export function keptMessage(reason?: string): string {
-  const why = reason ? ` ${reason}` : '';
+  // Server reasons aren't always full sentences ("Not a team member").
+  const why = reason ? ` ${reason.replace(/\.?$/, '.')}` : '';
   return `Couldn't add your video here.${why} It's saved in your Media library.`;
 }

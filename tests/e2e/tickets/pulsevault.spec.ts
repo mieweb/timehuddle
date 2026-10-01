@@ -297,6 +297,30 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(qr).toBeVisible();
   });
 
+  test('pressing Pulse again while its link is live reopens it instead of minting another', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
+    await page.waitForTimeout(600);
+
+    let reserves = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/pulsevault_reserve')) reserves += 1;
+    });
+    const pulse = page.getByRole('button', { name: 'Record a video with Pulse' });
+    // The button and the modal share an accessible name, so find the modal by its QR code.
+    const qr = page.getByLabel('QR code to open the Pulse upload screen');
+
+    await pulse.click();
+    await expect(qr).toBeVisible({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Close' }).last().click();
+    await expect(qr).toBeHidden();
+
+    await pulse.click();
+    await expect(qr).toBeVisible({ timeout: 8000 });
+    expect(reserves).toBe(1);
+  });
+
   // The deep-link protocol itself (v=1, artifactId, server, token) is
   // asserted at the unit level in pulseLinks.test.ts —
   // qrcode.react renders to a plain <svg> with no way to read back the

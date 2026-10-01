@@ -33,6 +33,17 @@ const STATUS_POLL_MS = 3000;
 /** A Pulse link works for 30 minutes (UPLOAD_LINK_SECONDS on the server). */
 const LINK_LIFETIME_MS = 30 * 60 * 1000;
 
+/** The link this button handed out, and what it was for. */
+interface PulseUpload {
+  videoid: string;
+  uploadToken: string;
+  scanLink: string;
+  /** When it was reserved; the link works for LINK_LIFETIME_MS from then. */
+  at: number;
+  /** The destination it was reserved for, as a comparable key. */
+  destinationKey: string;
+}
+
 interface PulseButtonProps {
   destination: PulseDestination;
   /** What landing did, shown in the modal: "Posted", "Added", "Clocked in". */
@@ -56,9 +67,7 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
 
   const [reserving, setReserving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [upload, setUpload] = useState<{ videoid: string; scanLink: string; at: number } | null>(
-    null,
-  );
+  const [upload, setUpload] = useState<PulseUpload | null>(null);
   const [status, setStatus] = useState<PulseUploadStatus>({ state: 'waiting' });
   const { state } = status;
   const [modalOpen, setModalOpen] = useState(false);
@@ -106,7 +115,29 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
     return () => clearTimeout(t);
   }, [state, modalOpen]);
 
+  // Phone: straight into the Pulse app (or its store listing). Computer: QR.
+  const openLink = async ({ videoid, uploadToken }: PulseUpload) => {
+    const storeOS = getStoreOS();
+    const deepLink = buildUploadDeepLink(videoid, uploadToken);
+    if (storeOS && isNativeApp()) await openNativePulseOrStore(deepLink, storeOS);
+    else if (storeOS) openPulseAppOrStore(deepLink, storeOS);
+    else setModalOpen(true);
+  };
+
   const handleClick = async () => {
+    // One link, one upload: while the last link is still live and waiting,
+    // open it again rather than minting a second one that could also land.
+    const destinationKey = JSON.stringify(destination);
+    const live =
+      upload &&
+      state === 'waiting' &&
+      upload.destinationKey === destinationKey &&
+      Date.now() - upload.at < LINK_LIFETIME_MS;
+    if (live) {
+      await openLink(upload);
+      return;
+    }
+
     setReserving(true);
     setError(null);
     let reservation: { videoid: string; uploadToken: string };
@@ -120,15 +151,16 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
     }
 
     const { videoid, uploadToken } = reservation;
-    setUpload({ videoid, scanLink: buildScanLink(videoid, uploadToken), at: Date.now() });
+    const next: PulseUpload = {
+      videoid,
+      uploadToken,
+      scanLink: buildScanLink(videoid, uploadToken),
+      at: Date.now(),
+      destinationKey,
+    };
+    setUpload(next);
     setStatus({ state: 'waiting' });
-
-    // Phone: straight into the Pulse app (or its store listing). Computer: QR.
-    const storeOS = getStoreOS();
-    const deepLink = buildUploadDeepLink(videoid, uploadToken);
-    if (storeOS && isNativeApp()) await openNativePulseOrStore(deepLink, storeOS);
-    else if (storeOS) openPulseAppOrStore(deepLink, storeOS);
-    else setModalOpen(true);
+    await openLink(next);
   };
 
   return (

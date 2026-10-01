@@ -107,16 +107,12 @@ export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecre
 });
 
 /**
- * artifactId -> { userId, ticketId } | { userId, target: 'library' }
- * Backed by a Mongo collection so reservations survive server restarts —
- * meteor hot-reloads on every server file change, and a restart between
- * upload-finish and `onUploadComplete` would otherwise wipe the context,
- * leaving the file on disk as `ready` but never attached to anything (and
- * the client retrying the same artifactId into permanent 409s). The
- * in-memory Map is kept as an L1 cache so sync `.has()` calls in logging
- * stay cheap; it is rehydrated from Mongo on startup.
+ * artifactId -> the reservation `{ userId, destination }`, in Mongo so it
+ * survives server restarts — meteor hot-reloads on every server file change,
+ * and a restart between upload-finish and `onUploadComplete` would otherwise
+ * lose where the video goes. Mongo's TTL monitor expires a reservation with
+ * its link, so an abandoned one simply disappears.
  */
-const reservationContext = new Map();
 const RESERVATIONS_COLL = 'pulsevault_reservations';
 /**
  * Where each finished upload ended up — `{ kept, reason }` from
@@ -125,8 +121,14 @@ const RESERVATIONS_COLL = 'pulsevault_reservations';
  */
 const DELIVERIES_COLL = 'pulsevault_deliveries';
 
+/** A stored reservation without its Mongo bookkeeping, or null. */
+function reservationOf(doc) {
+  if (!doc) return null;
+  const { _id, createdAt, ...reservation } = doc;
+  return reservation;
+}
+
 async function persistReservation(videoid, reservation) {
-  reservationContext.set(videoid, reservation);
   await rawDb().collection(RESERVATIONS_COLL).updateOne(
     { _id: videoid },
     { $set: { ...reservation, createdAt: new Date() } },
@@ -134,33 +136,21 @@ async function persistReservation(videoid, reservation) {
   );
 }
 
-/** Fetch AND consume the reservation for an artifactId (Map first, Mongo fallback). */
+/**
+ * Fetch AND consume the reservation for an artifactId, in one step: if two
+ * paths finish the same upload at once, only one of them gets to deliver it.
+ */
 async function takeReservation(artifactId) {
-  let reservation = reservationContext.get(artifactId) ?? null;
-  reservationContext.delete(artifactId);
-  const coll = rawDb().collection(RESERVATIONS_COLL);
-  if (!reservation) {
-    const doc = await coll.findOne({ _id: artifactId });
-    if (doc) {
-      const { _id, createdAt, ...rest } = doc;
-      reservation = rest;
-    }
-  }
-  await coll.deleteOne({ _id: artifactId }).catch(() => {});
-  return reservation;
+  const doc = await rawDb().collection(RESERVATIONS_COLL).findOneAndDelete({ _id: artifactId });
+  return reservationOf(doc);
 }
 
 /**
- * Look up the reservation for an artifactId WITHOUT consuming it (Map first,
- * Mongo fallback) — used to check who reserved an id before trusting it.
+ * Look up the reservation for an artifactId WITHOUT consuming it — used to
+ * check who reserved an id before trusting it.
  */
 async function peekReservation(artifactId) {
-  const cached = reservationContext.get(artifactId);
-  if (cached) return cached;
-  const doc = await rawDb().collection(RESERVATIONS_COLL).findOne({ _id: artifactId });
-  if (!doc) return null;
-  const { _id, createdAt, ...rest } = doc;
-  return rest;
+  return reservationOf(await rawDb().collection(RESERVATIONS_COLL).findOne({ _id: artifactId }));
 }
 
 /**
@@ -209,11 +199,6 @@ Meteor.startup(async () => {
     .catch((err) => {
       console.warn('[pulsevault] deliveries TTL index failed:', err.message);
     });
-  for await (const doc of coll.find({})) {
-    const { _id, createdAt, ...rest } = doc;
-    if (!reservationContext.has(_id)) reservationContext.set(_id, rest);
-  }
-  console.log('[pulsevault] rehydrated', reservationContext.size, 'reservation(s) from Mongo');
 });
 
 /**
@@ -365,7 +350,6 @@ const core = createPulseVaultCore({
       kind: ctx.kind,
       relatedTo: ctx.relatedTo ?? null,
       hasToken: !!(ctx.token || request.headers.authorization),
-      reservationExists: reservationContext.has(ctx.artifactId),
     });
     if (ctx.phase === 'resolve') {
       // Artifact playback is public — no auth required.
@@ -520,7 +504,6 @@ Wormhole.use({
         logCtx['meta.filename'] = meta.filename ?? '(missing)';
         logCtx['meta.kind'] = meta.kind ?? 'video (default)';
         logCtx['meta.relatedTo'] = meta.relatedTo ?? null;
-        logCtx['reservationExists'] = reservationContext.has(artifactId);
         console.log('[pulsevault][POST] decoded Upload-Metadata:', logCtx);
       }
 
