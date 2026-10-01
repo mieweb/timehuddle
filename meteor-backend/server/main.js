@@ -1848,7 +1848,7 @@ Meteor.startup(async() => {
   // ── Attachments ────────────────────────────────────────────────────────────
 
   Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
-  Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, thumbnail: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
+  Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
   Wormhole.expose('attachments.remove', { description: 'Delete attachment (owner only)', inputSchema: { type: 'object', properties: { attachmentId: { type: 'string' } }, required: ['attachmentId'] } });
 
   // ── Media CRUD ────────────────────────────────────────────────────────────

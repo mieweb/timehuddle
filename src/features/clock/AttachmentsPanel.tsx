@@ -23,7 +23,7 @@ import {
 } from '../../lib/api';
 import { LinkAttachButton } from './LinkAttachButton';
 import type { AddedLink } from './linkAttach';
-import { pulseArtifactId } from '../huddle/pulseVideoBlock';
+import { pulseArtifactId } from '../pulse-upload/artifact';
 import { PulseButton } from '../pulse-upload/PulseButton';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 
@@ -121,42 +121,51 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       )}
 
       <ul className="attachment-list flex flex-col gap-1" aria-label="Attached links">
-        {attachments.map((a) => (
-          <li
-            key={a.id}
-            className="attachment-item flex items-center justify-between gap-2 text-sm"
-          >
-            {pulseArtifactId(a.url) ? (
-              <PulseVideoPlayer
-                video={pulseArtifactId(a.url)!}
-                poster={pulseArtifactId(a.thumbnail) ?? undefined}
-              />
-            ) : (
-              // User-entered links pass through resolveMediaUrl untouched;
-              // backend-hosted paths are bound to the current origin.
-              <a
-                href={resolveMediaUrl(a.url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="attachment-link truncate text-primary hover:underline"
-                aria-label={a.title ?? a.url}
-              >
-                {a.title ?? a.url}
-              </a>
-            )}
-            {currentUserId && currentUserId === a.addedBy && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRemove(a.id)}
-                isLoading={deletingId === a.id}
-                aria-label={pulseArtifactId(a.url) ? 'Remove video' : 'Remove link'}
-              >
-                <FontAwesomeIcon icon={faTrash} className="text-destructive" />
-              </Button>
-            )}
-          </li>
-        ))}
+        {attachments.map((a) => {
+          // Same rule as the Huddle feed: a video attachment pointing at a
+          // PulseVault artifact plays inline; anything else is a link.
+          const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
+          return (
+            <li
+              key={a.id}
+              className="attachment-item flex items-center justify-between gap-2 text-sm"
+            >
+              {videoId ? (
+                <figure className="attachment-video min-w-0">
+                  <PulseVideoPlayer video={videoId} title={a.title ?? undefined} />
+                  {a.title && (
+                    <figcaption className="attachment-video-title truncate text-xs text-muted-foreground">
+                      {a.title}
+                    </figcaption>
+                  )}
+                </figure>
+              ) : (
+                // User-entered links pass through resolveMediaUrl untouched;
+                // backend-hosted paths are bound to the current origin.
+                <a
+                  href={resolveMediaUrl(a.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="attachment-link truncate text-primary hover:underline"
+                  aria-label={a.title ?? a.url}
+                >
+                  {a.title ?? a.url}
+                </a>
+              )}
+              {currentUserId && currentUserId === a.addedBy && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRemove(a.id)}
+                  isLoading={deletingId === a.id}
+                  aria-label={videoId ? 'Remove video' : 'Remove link'}
+                >
+                  <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden="true" />
+                </Button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

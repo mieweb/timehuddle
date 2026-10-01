@@ -15,8 +15,9 @@
  *     the Huddle page shows it just for a team's first post — so this one runs
  *     on a freshly created, empty team.
  *
- * The cross-post asserts against the real backend: the post must link to the
- * actual /pulsevault/artifacts/:id URL, not just "some video exists".
+ * The cross-post asserts against the real backend: the post must show the
+ * Pulse video card with its poster, and playing it must load the actual
+ * /pulsevault/artifacts/:id URL, not just "some video exists".
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -30,11 +31,15 @@ import {
   removeFromTeam,
 } from '../fixtures/db';
 import {
+  expectImageLoaded,
   getSessionToken,
+  posterLocation,
   pulseStatus,
   reservePulseUpload,
   sendPulseVideo,
+  uploadPosterAsPulse,
   uploadVideoAsPulse,
+  waitForPulseOutcome,
 } from '../fixtures/pulse';
 import { createTicket, deleteTicket, uploadVideoToTicket } from '../tickets/helpers';
 import {
@@ -99,9 +104,30 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
     expect(status).toEqual({ state: 'done' });
 
     await page.reload();
-    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible({
-      timeout: 20000,
+    const card = page.getByRole('button', { name: `Play Video ${videoid.slice(0, 8)}` });
+    await expect(card).toBeVisible({ timeout: 20000 });
+    await expectImageLoaded(card.locator('img'));
+  });
+
+  test('a poster frame that lands after its video still reaches the card', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    const token = await getSessionToken(page);
+    const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
+      kind: 'huddle',
+      teamId,
     });
+    // Pulse normally sends the poster first; this covers one that's late.
+    await uploadVideoAsPulse(page.request, videoid, uploadToken);
+    await waitForPulseOutcome(page.request, token, videoid);
+    expect(await posterLocation(page.request, videoid)).toBeNull();
+    const posterId = await uploadPosterAsPulse(page.request, videoid, uploadToken);
+    expect(await posterLocation(page.request, videoid)).toContain(posterId);
+
+    await page.goto('/app/huddle');
+    const card = page.getByRole('button', { name: `Play Video ${videoid.slice(0, 8)}` });
+    await expect(card).toBeVisible({ timeout: 20000 });
+    await expectImageLoaded(card.locator('img'));
   });
 
   test('removing a video from the media library leaves it playing where it was posted', async ({
@@ -343,8 +369,13 @@ test.describe('Huddle — ticket video cross-posting', () => {
     await page.getByRole('button', { name: 'Post', exact: true }).click();
 
     const post = await openPostInInbox(page, postText);
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
-      timeout: 10000,
-    });
+    const play = post.getByRole('button', { name: /^Play / });
+    await expect(play).toBeVisible({ timeout: 10000 });
+    // The ticket video's poster comes with it: it belongs to the video.
+    await expectImageLoaded(play.locator('img'));
+
+    // Playing swaps the poster for an inline player on the real artifact URL.
+    await play.click();
+    await expect(post.locator('video[src*="/pulsevault/artifacts/"]')).toBeVisible();
   });
 });
