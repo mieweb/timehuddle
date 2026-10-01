@@ -14,11 +14,21 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { withTimeout } from './withTimeout';
+
 const meteorBase =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:3100';
 const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
+
+/**
+ * No in-flight DDP method call waits longer than this before the connection
+ * is treated as dead. Matches the REST request timeout (src/lib/api.ts); no
+ * method called directly via DdpClient.call() (huddle actions, auth, invites,
+ * logout) legitimately runs longer than that.
+ */
+const DDP_METHOD_TIMEOUT_MS = 8000;
 
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
@@ -65,7 +75,11 @@ class DdpClient {
   private nextId = 1;
   private pendingMethods = new Map<
     string,
-    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+    {
+      resolve: (v: unknown) => void;
+      reject: (e: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
   private readySubs = new Set<string>();
   private subReadyListeners = new Map<string, () => void>();
@@ -223,6 +237,7 @@ class DdpClient {
    */
   private handleDisconnect(): void {
     for (const pending of this.pendingMethods.values()) {
+      clearTimeout(pending.timer);
       pending.reject(new Error('DDP connection lost'));
     }
     this.pendingMethods.clear();
@@ -414,12 +429,7 @@ class DdpClient {
     releaseNotesSeenVersion: string | null;
   } | null> {
     try {
-      // Use a timeout to prevent hanging
-      const authedWithTimeout = Promise.race([
-        this.ensureAuthed(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-      ]);
-      await authedWithTimeout;
+      await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
 
       const resumeToken = localStorage.getItem('meteor_resume_token');
       if (!resumeToken) return null;
@@ -463,6 +473,7 @@ class DdpClient {
         const pending = data.id ? this.pendingMethods.get(data.id) : undefined;
         if (pending && data.id) {
           this.pendingMethods.delete(data.id);
+          clearTimeout(pending.timer);
           if (data.error) pending.reject(new Error(data.error.reason ?? data.error.message));
           else pending.resolve(data.result);
         }
@@ -516,9 +527,42 @@ class DdpClient {
     await this.ensureConnected();
     const id = String(this.nextId++);
     return new Promise((resolve, reject) => {
-      this.pendingMethods.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
+        if (!this.pendingMethods.delete(id)) return;
+        reject(new Error(`DDP method "${method}" timed out`));
+        this.killSocket();
+      }, DDP_METHOD_TIMEOUT_MS);
+      this.pendingMethods.set(id, { resolve, reject, timer });
       this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
     });
+  }
+
+  /**
+   * Treat the current socket as dead and run the normal disconnect/reconnect
+   * path. A half-open socket (readyState still OPEN, no reply, no close event
+   * — the iOS background-resume case) won't fire `onclose` promptly on its
+   * own, so this is triggered explicitly by a timed-out method call or a
+   * failed foreground ping rather than waiting for the browser to notice.
+   * Idempotent: once `handleDisconnect` has run, `this.ws` is null and a
+   * second caller for the same dead socket is a no-op.
+   */
+  private killSocket(): void {
+    const ws = this.ws;
+    if (!ws) return;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    try {
+      ws.close();
+    } catch {
+      // Already closing/closed.
+    }
+    if (this.status === 'connected') {
+      this.status = 'failed';
+      this.handleDisconnect();
+    }
   }
 
   /** Subscribe after auth; returns an unsubscribe function. */

@@ -124,24 +124,26 @@ The app has no toast system mounted yet. `@mieweb/ui` exports `ToastProvider` / 
 
 File: [src/lib/ddp.ts](../src/lib/ddp.ts)
 
-- [ ] In `call()`, start a timer after `send()`. On timeout:
-  - [ ] Delete the entry from `pendingMethods`
-  - [ ] Reject with a clear error (e.g. `DDP method "<name>" timed out`)
-  - [ ] Treat the socket as dead (next bullet)
-- [ ] Clear the timer when the `result` message arrives (store the timer alongside
+- [x] In `call()`, start a timer after `send()`. On timeout:
+  - [x] Delete the entry from `pendingMethods`
+  - [x] Reject with a clear error (e.g. `DDP method "<name>" timed out`)
+  - [x] Treat the socket as dead (next bullet)
+- [x] Clear the timer when the `result` message arrives (store the timer alongside
       `resolve`/`reject` in `pendingMethods`, and clear it in `handleMessage` and `handleDisconnect`)
-- [ ] "Socket is dead" path: on a half-open socket `ws.close()` may **not** fire `onclose`
+- [x] "Socket is dead" path: on a half-open socket `ws.close()` may **not** fire `onclose`
       promptly, so don't rely on it. Detach the handlers, close, mark `status = 'failed'`,
       and call the existing `handleDisconnect()` directly. Make sure this can't run twice
       for the same socket (e.g. two calls time out together)
-- [ ] Remove the now-redundant inline `Promise.race` in `getCurrentUser()` and use `withTimeout`
-- [ ] Before picking `DDP_METHOD_TIMEOUT_MS`, grep for slow methods (reports, uploads, exports).
+- [x] Remove the now-redundant inline `Promise.race` in `getCurrentUser()` and use `withTimeout`
+- [x] Before picking `DDP_METHOD_TIMEOUT_MS`, grep for slow methods (reports, uploads, exports).
       If any legitimately exceed the default, note them in the PR — don't silently break them
-- [ ] Unit tests in `src/lib/ddp.test.ts` with a fake `WebSocket` (`vi.stubGlobal`):
-  - [ ] `call()` rejects after `DDP_METHOD_TIMEOUT_MS` when no `result` arrives
-  - [ ] The pending entry is removed
-  - [ ] A timeout triggers `handleDisconnect` (pending calls rejected, reconnect scheduled)
-  - [ ] A reply that arrives in time resolves normally and its timer is cleared
+      (checked: every direct `ddp.call()` site is huddle actions, auth, invites or logout —
+      none are bulk/report/export; chose 8000ms to match the REST request timeout)
+- [x] Unit tests in `src/lib/ddp.test.ts` with a fake `WebSocket` (`vi.stubGlobal`):
+  - [x] `call()` rejects after `DDP_METHOD_TIMEOUT_MS` when no `result` arrives
+  - [x] The pending entry is removed
+  - [x] A timeout triggers `handleDisconnect` (pending calls rejected, reconnect scheduled)
+  - [x] A reply that arrives in time resolves normally and its timer is cleared
 
 ## Milestone 4: Re-check the Socket When the App Returns to the Foreground
 
