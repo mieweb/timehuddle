@@ -35,7 +35,7 @@ const ARTIFACT_ID_PARAM = {
   name: 'artifactId',
   in: 'path',
   required: true,
-  description: 'UUID minted by `pulsevault.reserve` / `pulsevault.reserveForLibrary`.',
+  description: 'UUID minted by `pulsevault.reserve`.',
   schema: { type: 'string', format: 'uuid' },
 };
 

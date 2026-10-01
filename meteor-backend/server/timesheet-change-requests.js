@@ -105,25 +105,6 @@ export function toPublicChangeRequest(doc, extras = {}) {
 const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([A-Za-z0-9._-]+)$/;
 
 /**
- * Whether a recording is the evidence behind a change nobody has ruled on yet.
- *
- * Ownership is checked when the request is submitted, but the requester still
- * owns the recording afterwards: without this they could delete it while the
- * request sits in the queue and leave the reviewer an unplayable URL.
- */
-export async function artifactIsEvidenceUnderReview(artifactId) {
-  if (!artifactId) return false;
-  const cited = await TimesheetChangeRequests.findOneAsync(
-    {
-      videoUrl: `/pulsevault/artifacts/${artifactId}`,
-      status: { $in: ['pending', 'processing'] },
-    },
-    { fields: { _id: 1 } }
-  );
-  return Boolean(cited);
-}
-
-/**
  * Check the video is a recording the requester actually made.
  *
  * Without this a `videoUrl` is just a string the client asserts: it could name
@@ -191,7 +172,6 @@ export async function submitChangeRequest({
     );
   }
   const { text: trimmed, video } = await assertJustification({
-    action,
     description,
     videoUrl,
     requesterId,

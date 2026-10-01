@@ -1,6 +1,6 @@
 /**
  * ComposerChipButton — the one pill used by every control in the composer's
- * attach bar (Photo, Video, Doc, Pulse, Ticket, @Mention).
+ * attach bar (Photo, Doc, Ticket, @Mention) and the Pulse and Link pills.
  *
  * It exists because `@mieweb/ui`'s `Button` has no neutral bordered variant:
  * `outline` is hard-wired to the brand primary (`border-primary-800

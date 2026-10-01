@@ -3,8 +3,6 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
-import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
-import { removeArtifact } from './pulsevault';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -493,7 +491,7 @@ async function onTeams(docs, teamIds) {
   const db = rawDb();
   const idsOf = (kind) =>
     docs
-      .filter((d) => d.attachedTo?.kind === kind && isValidId(d.attachedTo.id))
+      .filter((d) => d.attachedTo?.kind === kind && /^[a-f0-9]{24}$/i.test(d.attachedTo.id))
       .map((d) => new ObjectId(d.attachedTo.id));
   const [tickets, sessions] = await Promise.all([
     db.collection('tickets').find({ _id: { $in: idsOf('ticket') } }, { projection: { teamId: 1 } }).toArray(),
@@ -539,11 +537,16 @@ async function attachedPulseVideos(ownerId, viewerId, limit) {
  * files and Pulse videos from Huddle/Clock posts, and Pulse videos kept when
  * they couldn't reach their destination (media items), plus Pulse videos on
  * tickets and clock sessions (attachments), newest first. Timesheet
- * walkthroughs stay between the uploader and the approver.
+ * walkthroughs stay between the uploader and the approver — including one
+ * kept here because its change was reviewed first.
  */
 async function libraryFor(ownerId, viewerId, limit) {
+  const mediaQuery =
+    viewerId === ownerId
+      ? { userId: ownerId }
+      : { userId: ownerId, 'recordedFor.kind': { $ne: 'timesheet-request' } };
   const [media, attached] = await Promise.all([
-    rawDb().collection('mediaitems').find({ userId: ownerId }).sort({ uploadedAt: -1 }).limit(limit).toArray(),
+    rawDb().collection('mediaitems').find(mediaQuery).sort({ uploadedAt: -1 }).limit(limit).toArray(),
     attachedPulseVideos(ownerId, viewerId, limit),
   ]);
   return [...media.map(toPublicMediaItem), ...attached]
@@ -602,24 +605,31 @@ Meteor.methods({
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
-    if (await artifactIsEvidenceUnderReview(doc.videoid)) {
-      throw new Meteor.Error(
-        'evidence-in-review',
-        'This video backs a timesheet change awaiting review. Withdraw that request first.'
-      );
-    }
     await db.collection('mediaitems').deleteOne({ _id: doc._id });
 
-    unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
-    unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
-    // A Pulse video: remove it (and its poster frame) through PulseVault, which
-    // owns the storage layout — bytes, sidecar and all.
-    if (doc.videoid) {
-      await removeArtifact(doc.videoid);
-      await removeArtifact(doc.thumbnail);
+    // A Pulse video only leaves the library: it's team knowledge, and the
+    // post, plan or wrap-up it was delivered to still plays it.
+    if (!doc.videoid) {
+      unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
+      unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
     }
     return { ok: true };
   },
+});
+
+Meteor.startup(async () => {
+  const db = rawDb();
+  await Promise.all([
+    // The media library reads a user's Pulse video attachments, newest first.
+    db.collection('attachments').createIndex({ addedBy: 1, addedAt: -1 }),
+    // One library item per Pulse video (see addToLibrary in pulse-destinations.js).
+    db
+      .collection('mediaitems')
+      .createIndex(
+        { userId: 1, videoid: 1 },
+        { unique: true, partialFilterExpression: { videoid: { $type: 'string' } } },
+      ),
+  ]).catch((err) => console.warn('[uploads] index creation failed:', err.message));
 });
 
 // ─── Publications ─────────────────────────────────────────────────────────────

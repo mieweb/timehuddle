@@ -20,11 +20,19 @@
  *     attachment, or timesheet walkthrough (see pulse-destinations.js).
  *  2. The Pulse app uploads the bytes via TUS to `/pulsevault/upload`,
  *     authenticated by that token (and identified by `Pulse-Client`).
- *  3. `onUploadComplete` takes the reservation and delivers the video to its
+ *  3. `onUploadComplete` claims the upload and delivers the video to its
  *     destination; the web app has nothing left to do.
+ *
+ * Each upload is one `pulse_uploads` document, from reservation to outcome:
+ *
+ *   reserved ──claim──▶ delivering ──▶ done | kept
+ *
+ * Only `reserved` expires (with its link). Claiming is atomic, so an upload is
+ * delivered once; a claim abandoned by a crash is swept into the uploader's
+ * library rather than retried, since a half-done delivery can't be repeated
+ * safely (it might post twice).
  */
 import { Meteor } from 'meteor/meteor';
-import { MongoInternals } from 'meteor/mongo';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 import {
   createPulseVaultCore,
@@ -36,16 +44,14 @@ import {
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
-import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
+import { deliverPulseVideo, keepPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { stat } from 'fs/promises';
 
-const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
-
 // Where PulseVault keeps Pulse uploads (video, thumbnail, captions, beat
-// manifest). Removal goes through `removeArtifact` below, never raw paths.
+// manifest). Pulse videos are never deleted: they're team knowledge.
 const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
 
 const CAPABILITY_KEY_ID = 'v1';
@@ -107,50 +113,36 @@ export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecre
 });
 
 /**
- * artifactId -> the reservation `{ userId, destination }`, in Mongo so it
- * survives server restarts — meteor hot-reloads on every server file change,
- * and a restart between upload-finish and `onUploadComplete` would otherwise
- * lose where the video goes. Mongo's TTL monitor expires a reservation with
- * its link, so an abandoned one simply disappears.
+ * One document per Pulse upload, keyed by its artifactId:
+ * `{ userId, destination, state, reason?, note?, expiresAt?, claimedAt? }`.
+ * In Mongo so it survives restarts — meteor hot-reloads on every server file
+ * change, and a restart mid-upload would otherwise lose where the video goes.
  */
-const RESERVATIONS_COLL = 'pulsevault_reservations';
+const UPLOADS_COLL = 'pulse_uploads';
+
+const uploads = () => rawDb().collection(UPLOADS_COLL);
+
 /**
- * Where each finished upload ended up — `{ kept, reason }` from
- * deliverPulseVideo — so the Pulse popup can say so. Kept as long as a
- * reservation would have been, then Mongo's TTL monitor clears it.
+ * A claim older than this was abandoned (the server stopped mid-delivery).
+ * Generous, because a claim covers the web-ready transcode, which waits its
+ * turn behind other uploads.
  */
-const DELIVERIES_COLL = 'pulsevault_deliveries';
+const ABANDONED_CLAIM_MS = 30 * 60 * 1000;
 
-/** A stored reservation without its Mongo bookkeeping, or null. */
-function reservationOf(doc) {
-  if (!doc) return null;
-  const { _id, createdAt, ...reservation } = doc;
-  return reservation;
-}
+/** This process's deliveries in flight, which the sweep must leave alone. */
+const delivering = new Set();
 
-async function persistReservation(videoid, reservation) {
-  await rawDb().collection(RESERVATIONS_COLL).updateOne(
-    { _id: videoid },
-    { $set: { ...reservation, createdAt: new Date() } },
-    { upsert: true },
+/**
+ * Claim a finished upload for delivery: only one path that finishes the same
+ * upload gets it. Returns the upload, or null when there's nothing to deliver
+ * (never reserved, expired, or already claimed).
+ */
+async function claimUpload(artifactId) {
+  return uploads().findOneAndUpdate(
+    { _id: artifactId, state: 'reserved' },
+    { $set: { state: 'delivering', claimedAt: new Date() }, $unset: { expiresAt: '' } },
+    { returnDocument: 'after' },
   );
-}
-
-/**
- * Fetch AND consume the reservation for an artifactId, in one step: if two
- * paths finish the same upload at once, only one of them gets to deliver it.
- */
-async function takeReservation(artifactId) {
-  const doc = await rawDb().collection(RESERVATIONS_COLL).findOneAndDelete({ _id: artifactId });
-  return reservationOf(doc);
-}
-
-/**
- * Look up the reservation for an artifactId WITHOUT consuming it — used to
- * check who reserved an id before trusting it.
- */
-async function peekReservation(artifactId) {
-  return reservationOf(await rawDb().collection(RESERVATIONS_COLL).findOne({ _id: artifactId }));
 }
 
 /**
@@ -158,48 +150,66 @@ async function peekReservation(artifactId) {
  *
  * For any caller that takes an artifact id from the client and stores it as
  * evidence: without this, a `videoid` is just a string the client asserts, so
- * one user could cite another's recording — or one that doesn't exist.
- *
- * Falls back to the reservation because `onUploadComplete` writes the media
- * record asynchronously, and the client can legitimately submit in the window
- * before it lands. A reservation only proves an id was minted, though, so that
- * path also has to see bytes on disk — otherwise reserving and never uploading
- * would mint citable evidence for a video that does not exist.
+ * one user could cite another's recording — or one that doesn't exist. A
+ * reservation only proves an id was minted, so this also has to see bytes on
+ * disk — otherwise reserving and never uploading would mint citable evidence
+ * for a video that does not exist.
  */
 export async function artifactBelongsTo(artifactId, userId) {
   if (!artifactId || !userId) return false;
-  const media = await rawDb()
-    .collection('mediaitems')
-    .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
-  if (media) return media.userId === userId;
-
-  const reservation = await peekReservation(artifactId);
-  if (reservation?.userId !== userId) return false;
+  const upload = await uploads().findOne({ _id: artifactId }, { projection: { userId: 1 } });
+  // Videos from before pulse_uploads existed are known by their media item.
+  const owner =
+    upload?.userId ??
+    (await rawDb().collection('mediaitems').findOne({ videoid: artifactId }, { projection: { userId: 1 } }))
+      ?.userId;
+  if (owner !== userId) return false;
   return Boolean(await storage.getLocalPath(artifactId).catch(() => null));
 }
 
 Meteor.startup(async () => {
-  const coll = rawDb().collection(RESERVATIONS_COLL);
-  // Reservations expire with their link (plus a margin); Mongo's TTL monitor
-  // clears the dead ones. An index made with an older TTL is updated in place.
-  await coll
-    .createIndex({ createdAt: 1 }, { expireAfterSeconds: RESERVATION_TTL_SECONDS })
-    .catch(() =>
-      rawDb().command({
-        collMod: RESERVATIONS_COLL,
-        index: { keyPattern: { createdAt: 1 }, expireAfterSeconds: RESERVATION_TTL_SECONDS },
-      }),
-    )
-    .catch((err) => {
-      console.warn('[pulsevault] reservations TTL index failed:', err.message);
-    });
-  await rawDb()
-    .collection(DELIVERIES_COLL)
-    .createIndex({ createdAt: 1 }, { expireAfterSeconds: RESERVATION_TTL_SECONDS })
-    .catch((err) => {
-      console.warn('[pulsevault] deliveries TTL index failed:', err.message);
-    });
+  // A reservation expires with its link (plus a margin) — `expiresAt` is set
+  // only while `reserved`, so the TTL monitor never touches an outcome.
+  await uploads()
+    .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+    .catch((err) => console.warn('[pulsevault] uploads TTL index failed:', err.message));
+  await uploads()
+    .createIndex({ state: 1, claimedAt: 1 })
+    .catch((err) => console.warn('[pulsevault] uploads claim index failed:', err.message));
+  await migrateReservations().catch((err) =>
+    console.warn('[pulsevault] reservation migration failed:', err.message),
+  );
+  await sweepAbandonedClaims();
+  Meteor.setInterval(() => void sweepAbandonedClaims(), 5 * 60 * 1000);
 });
+
+/**
+ * Move live reservations from the collections pulse_uploads replaced, so a
+ * link handed out before this deploy still delivers. Remove once deployed.
+ */
+async function migrateReservations() {
+  const db = rawDb();
+  const legacy = await db.collection('pulsevault_reservations').find().toArray();
+  for (const { _id, userId, createdAt, destination, target, attachedTo, ticketId } of legacy) {
+    const resolved =
+      destination ??
+      (target === 'library' ? { kind: 'library' } : (attachedTo ?? { kind: 'ticket', id: ticketId }));
+    await uploads().updateOne(
+      { _id },
+      {
+        $setOnInsert: {
+          userId,
+          destination: resolved,
+          state: 'reserved',
+          expiresAt: new Date((createdAt ?? new Date()).getTime() + RESERVATION_TTL_SECONDS * 1000),
+        },
+      },
+      { upsert: true },
+    );
+  }
+  await db.collection('pulsevault_reservations').drop().catch(() => {});
+  await db.collection('pulsevault_deliveries').drop().catch(() => {});
+}
 
 /**
  * Playback path for an artifact — stored path-only, never host-qualified.
@@ -249,28 +259,13 @@ async function artifactExt(artifactId) {
   return VIDEO_CONTENT_TYPES[ext] ? ext : DEFAULT_VIDEO_EXT;
 }
 
-/**
- * The destination a reservation was made for. Reservations from before
- * destinations existed carry `target: 'library'`, `attachedTo` or a bare
- * `ticketId` instead.
- */
-function destinationOf(reservation) {
-  if (reservation.destination) return reservation.destination;
-  if (reservation.target === 'library') return { kind: 'library' };
-  return reservation.attachedTo ?? { kind: 'ticket', id: reservation.ticketId };
-}
-
-/**
- * Deliver a finished upload to wherever its reservation said it goes (or keep
- * it in the uploader's library), and note which for `pulsevault.status`.
- */
-async function attachUploadedVideo(artifactId, reservation, size = 0) {
+/** The video an upload delivers, as pulse-destinations.js takes it. */
+async function describeVideo(artifactId, size) {
   const ext = await artifactExt(artifactId);
   // Pulse sends the draft's title as `Upload-Metadata.name` (PROTOCOL.md §4.1);
   // it becomes the post text / attachment title. A short id when there's none.
   const name = (await storage.getName?.(artifactId).catch(() => null)) || null;
-  const destination = destinationOf(reservation);
-  const outcome = await deliverPulseVideo(reservation.userId, destination, {
+  return {
     artifactId,
     url: artifactPath(artifactId),
     name,
@@ -278,30 +273,93 @@ async function attachUploadedVideo(artifactId, reservation, size = 0) {
     filename: `${artifactId}${ext}`,
     mimeType: VIDEO_CONTENT_TYPES[ext],
     size,
-    thumbnail: null,
-  });
-  await rawDb()
-    .collection(DELIVERIES_COLL)
-    .updateOne(
-      { _id: artifactId },
-      { $set: { userId: reservation.userId, ...outcome, createdAt: new Date() } },
-      { upsert: true },
-    );
-  console.log('[pulsevault]', outcome.kept ? 'kept' : 'delivered', artifactId, 'for', destination.kind);
+  };
+}
+
+/** Record where an upload ended up, for `pulsevault.status`. */
+async function settleUpload(artifactId, { kept, reason, note }) {
+  await uploads().updateOne(
+    { _id: artifactId },
+    {
+      $set: {
+        state: kept ? 'kept' : 'done',
+        settledAt: new Date(),
+        ...(reason ? { reason } : {}),
+        ...(note ? { note } : {}),
+      },
+      $unset: { claimedAt: '' },
+    },
+  );
 }
 
 /**
- * Delete an artifact's bytes and PulseVault record (e.g. when its media item is
- * removed). Accepts an id or a `/pulsevault/artifacts/<id>` path; anything
- * else is ignored.
+ * Web-playability backstop: phones routinely upload MP4s with the moov atom at
+ * the end (a stall before frame one) or HEVC video (undecodable in Firefox and
+ * most Chrome). Fix it once, before the video is delivered: a lossless
+ * faststart remux, or a one-time H.264 transcode for a hostile codec. Atomic
+ * (tmp + rename) and fail-open — without ffmpeg on PATH it logs and keeps the
+ * original bytes. One at a time: a transcode is CPU-bound.
  */
-export async function removeArtifact(idOrPath) {
-  if (!idOrPath) return;
-  const match = String(idOrPath).match(/^(?:\/pulsevault\/artifacts\/)?([A-Za-z0-9._-]+)$/);
-  if (!match) return;
-  await storage.remove(match[1]).catch((err) => {
-    console.warn('[pulsevault] remove failed:', match[1], err.message);
+let webReadyQueue = Promise.resolve();
+function makeWebReady(artifactId) {
+  const run = webReadyQueue.then(async () => {
+    const localPath = await storage.getLocalPath(artifactId);
+    if (!localPath) return;
+    const result = await ensureWebReady(localPath, { logger: console });
+    if (result.action !== 'none') console.log('[pulsevault] web-ready', artifactId, result);
   });
+  webReadyQueue = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Deliver a claimed upload to wherever it was reserved for (or keep it in the
+ * uploader's library), and record which. On failure the claim stays, and the
+ * sweep keeps the video once the claim is abandoned.
+ */
+async function finishUpload(artifactId, upload, size = 0) {
+  delivering.add(artifactId);
+  try {
+    await makeWebReady(artifactId).catch((err) =>
+      console.warn('[pulsevault] web-ready failed, keeping original:', artifactId, err.message),
+    );
+    const video = await describeVideo(artifactId, size);
+    const outcome = await deliverPulseVideo(upload.userId, upload.destination, video);
+    await settleUpload(artifactId, outcome);
+    console.log('[pulsevault]', outcome.kept ? 'kept' : 'delivered', artifactId, 'for', upload.destination.kind);
+    notifySseClients(artifactId, { size });
+  } catch (err) {
+    console.error('[pulsevault] delivery failed; the sweep will keep it:', artifactId, err);
+  } finally {
+    delivering.delete(artifactId);
+  }
+}
+
+/**
+ * Keep every video whose claim was abandoned — the server stopped between
+ * claiming an upload and recording where it went — in its uploader's library.
+ * Not delivered again: a half-done delivery may already have posted.
+ */
+async function sweepAbandonedClaims() {
+  try {
+    const stale = await uploads()
+      .find({ state: 'delivering', claimedAt: { $lt: new Date(Date.now() - ABANDONED_CLAIM_MS) } })
+      .toArray();
+    for (const upload of stale) {
+      if (delivering.has(upload._id)) continue;
+      const video = await describeVideo(upload._id, 0);
+      const outcome = await keepPulseVideo(
+        upload.userId,
+        upload.destination,
+        video,
+        'The upload was interrupted before it reached its destination.',
+      );
+      await settleUpload(upload._id, outcome);
+      console.log('[pulsevault] kept abandoned upload', upload._id);
+    }
+  } catch (err) {
+    console.warn('[pulsevault] sweep failed (will retry):', err.message);
+  }
 }
 
 const localStorage_ = createLocalStorage({ workspaceDir: VIDEOS_DIR });
@@ -392,28 +450,14 @@ const core = createPulseVaultCore({
     }
   },
   onUploadComplete: async (_request, ctx) => {
-    console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
-    // Web-playability backstop: phones routinely upload MP4s with the moov atom
-    // at the end (a stall before frame one) or HEVC video (undecodable in
-    // Firefox and most Chrome). Fix it once, before the video is attached, so
-    // Huddle never shows an unplayable clip: a lossless faststart remux, or a
-    // one-time H.264 transcode for a hostile codec. Atomic (tmp + rename) and
-    // fail-open — without ffmpeg on PATH it logs and keeps the original bytes.
-    if (ctx.kind === 'video') {
-      const localPath = await storage.getLocalPath(ctx.artifactId);
-      if (localPath) {
-        const result = await ensureWebReady(localPath, { logger: console });
-        if (result.action !== 'none') console.log('[pulsevault] web-ready', ctx.artifactId, result);
-      }
-    }
-    const reservation = await takeReservation(ctx.artifactId);
-    if (!reservation) {
-      console.log('[pulsevault][hook] onUploadComplete: NO reservation context for', ctx.artifactId);
-      return;
-    }
-    console.log('[pulsevault][hook] onUploadComplete: found reservation', JSON.stringify(reservation));
-    await attachUploadedVideo(ctx.artifactId, reservation, ctx.size ?? 0);
-    notifySseClients(ctx.artifactId, ctx);
+    console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind);
+    // Only a reserved video has somewhere to go; its captions, manifest and
+    // thumbnail are separate artifacts with no reservation of their own.
+    const upload = await claimUpload(ctx.artifactId);
+    if (!upload) return;
+    // Delivered after Pulse gets its response: the final PATCH shouldn't wait
+    // on a transcode. The claim keeps it safe if the server stops meanwhile.
+    void finishUpload(ctx.artifactId, upload, ctx.size ?? 0);
   },
 });
 
@@ -558,10 +602,10 @@ Wormhole.use({
       // sidecar behind. pulsevault's reserveUpload uses exclusive file create,
       // so every retry with the same artifactId would 409 forever. If the
       // artifact isn't `ready` (resolve() returns null), remove the stale state
-      // so the retry can succeed. If it IS `ready` but still has an unconsumed
-      // reservation, the upload finished but `onUploadComplete` never ran (e.g.
-      // restart in between) — finalize the attachment now so the video isn't
-      // orphaned; the retry still 409s, correctly, since the bytes are on disk.
+      // so the retry can succeed. If it IS `ready` but still unclaimed, the
+      // upload finished but `onUploadComplete` never ran (e.g. restart in
+      // between) — deliver it now so the video isn't orphaned; the retry still
+      // 409s, correctly, since the bytes are on disk.
       const staleCleanup = (async () => {
         if (req.method !== 'POST') return;
         const meta = decodeUploadMetadata(req.headers['upload-metadata']);
@@ -597,12 +641,11 @@ Wormhole.use({
             if (removed) console.log('[pulsevault] cleared stale unfinished upload for retry:', artifactId);
             return;
           }
-          const reservation = await takeReservation(artifactId);
-          if (reservation) {
+          const upload = await claimUpload(artifactId);
+          if (upload) {
             console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
-            await attachUploadedVideo(artifactId, reservation);
+            void finishUpload(artifactId, upload, ready.size ?? 0);
           }
-          notifySseClients(artifactId, ready);
         } catch (err) {
           console.warn('[pulsevault] stale-upload cleanup failed (continuing):', artifactId, err.message);
         }
@@ -635,60 +678,51 @@ Meteor.methods({
    * Reserve one Pulse upload: a fresh video id, a link token for it, and where
    * the finished video goes (`destination`, see pulse-destinations.js). The
    * server delivers it there when the upload completes — nothing else to do.
-   *
-   * Older callers pass `target` ('ticket' | 'clock' | 'library') with
-   * `ticketId` / `clockEventId` instead of `destination`.
    */
-  async 'pulsevault.reserve'({ destination, target, ticketId, clockEventId } = {}) {
+  async 'pulsevault.reserve'({ destination } = {}) {
     const identity = await requireIdentity(this);
-    const requested =
-      destination ??
-      (target === 'clock'
-        ? { kind: 'clock', id: clockEventId }
-        : target === 'ticket' || (target !== 'library' && ticketId)
-          ? { kind: 'ticket', id: ticketId }
-          : { kind: 'library' });
-    const resolved = await resolvePulseDestination(identity.userId, requested);
+    const resolved = await resolvePulseDestination(identity.userId, destination);
 
     // Always a fresh id: one link is one upload (a failed or cancelled upload
     // is deleted, never resumed), and a UUID can't clash with another.
     const videoid = randomUUID();
     const uploadToken = mintUploadToken(videoid);
-    await persistReservation(videoid, { userId: identity.userId, destination: resolved });
-    return { videoid, uploadToken };
-  },
-
-  async 'pulsevault.reserveForLibrary'() {
-    const identity = await requireIdentity(this);
-    const videoid = randomUUID();
-    const uploadToken = mintUploadToken(videoid);
-    await persistReservation(videoid, { userId: identity.userId, destination: { kind: 'library' } });
+    await uploads().insertOne({
+      _id: videoid,
+      userId: identity.userId,
+      destination: resolved,
+      state: 'reserved',
+      expiresAt: new Date(Date.now() + RESERVATION_TTL_SECONDS * 1000),
+    });
     return { videoid, uploadToken };
   },
 
   /**
    * Where one of the caller's Pulse uploads stands, for the Pulse popup:
-   * `waiting` (reserved, not delivered yet), `done` (delivered), `kept` (it
-   * couldn't go where it was meant to, so it's in the uploader's media
-   * library; `reason` says why) or `expired` (the link ran out, or the id is
-   * unknown).
+   * `waiting` (reserved or being delivered), `done` (delivered; `note` when a
+   * step after delivery failed), `kept` (it couldn't go where it was meant
+   * to, so it's in the uploader's media library; `reason` says why) or
+   * `expired` (the link ran out, or the id is unknown).
    */
   async 'pulsevault.status'({ videoid } = {}) {
     const identity = await requireIdentity(this);
     if (typeof videoid !== 'string' || !videoid) {
       throw new Meteor.Error('bad-request', 'videoid is required');
     }
-    const reservation = await peekReservation(videoid);
-    const delivery =
-      reservation ?? (await rawDb().collection(DELIVERIES_COLL).findOne({ _id: videoid }));
-    if (delivery && delivery.userId !== identity.userId) {
-      throw new Meteor.Error('forbidden', 'Not yours');
+    const upload = await uploads().findOne({ _id: videoid });
+    if (!upload?.state) return { state: 'expired' };
+    if (upload.userId !== identity.userId) throw new Meteor.Error('forbidden', 'Not yours');
+    switch (upload.state) {
+      case 'done':
+        return upload.note ? { state: 'done', note: upload.note } : { state: 'done' };
+      case 'kept':
+        return { state: 'kept', reason: upload.reason };
+      case 'reserved':
+        // The TTL monitor removes it a little after this.
+        return { state: upload.expiresAt < new Date() ? 'expired' : 'waiting' };
+      default:
+        return { state: 'waiting' };
     }
-    if (reservation) return { state: 'waiting' };
-    if (delivery) return delivery.kept ? { state: 'kept', reason: delivery.reason } : { state: 'done' };
-    // Landed but not delivered yet (the moment between the two).
-    const landed = await storage.resolve(videoid).catch(() => null);
-    return { state: landed ? 'waiting' : 'expired' };
   },
 
   /**

@@ -39,6 +39,7 @@ import {
   ApiError,
   clockApi,
   isPendingChange,
+  timesheetApprovalApi,
   type ClockEvent,
   type TimesheetChangeRequest,
 } from '../../lib/api';
@@ -136,9 +137,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
-  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
   // The change just queued for another admin, so its walkthrough can be added.
-  const [pendingRequest, setPendingRequest] = useState<TimesheetChangeRequest | null>(null);
+  const [sentForApproval, setSentForApproval] = useState<TimesheetChangeRequest | null>(null);
 
   // An admin's own edit is reviewed too, by one of the *other* admins — so this
   // panel needs the same justification the member-facing one collects, or every
@@ -149,13 +149,16 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const editTeam = fullTeams.find((t) => t.id === activeSession?.teamId);
   const editNeedsApproval = timesheetApprovalRequired(editTeam, userId);
   const editApproverCount = timesheetApproversFor(editTeam, userId).length;
-  const justification = editNeedsApproval
-    ? {
-        description: editJustification.description,
-      }
-    : undefined;
-  const saveBlocked = editNeedsApproval && !isJustificationComplete(editJustification);
-  const deleteBlocked = editNeedsApproval && !isJustificationComplete(editJustification);
+  const justification = editNeedsApproval ? editJustification : undefined;
+  const justificationBlocked = editNeedsApproval && !isJustificationComplete(editJustification);
+
+  // Re-read the queued change once its walkthrough lands, so the notice shows
+  // what the approver will see.
+  const refreshSentForApproval = async (request: TimesheetChangeRequest) => {
+    const mine = await timesheetApprovalApi.listMine({ teamId: request.teamId }).catch(() => []);
+    const latest = mine.find((r) => r.id === request.id);
+    if (latest) setSentForApproval((current) => (current?.id === latest.id ? latest : current));
+  };
 
   // When the team changes, reset member selection (but keep initialMemberId if still valid)
   useEffect(() => {
@@ -343,8 +346,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         },
         justification,
       );
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
-      setPendingRequest(isPendingChange(result) ? result.request : null);
+      setSentForApproval(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -364,8 +366,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionSaveError(null);
     try {
       const result = await clockApi.deleteEvent(activeSession.id, justification);
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
-      setPendingRequest(isPendingChange(result) ? result.request : null);
+      setSentForApproval(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -515,24 +516,15 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
-      {pendingNotice && (
-        <Alert
-          variant="info"
-          dismissible
-          onDismiss={() => {
-            setPendingNotice(null);
-            setPendingRequest(null);
-          }}
-        >
+      {sentForApproval && (
+        <Alert variant="info" dismissible onDismiss={() => setSentForApproval(null)}>
           <AlertDescription>
-            <span className="flex flex-wrap items-center gap-2">
-              {pendingNotice}
-              {pendingRequest && (
-                <ChangeRequestWalkthrough
-                  request={pendingRequest}
-                  onAdded={() => setPendingRequest((r) => (r ? { ...r, videoUrl: 'added' } : r))}
-                />
-              )}
+            <span className="sent-for-approval-notice flex flex-wrap items-center gap-2">
+              Sent to another admin for approval.
+              <ChangeRequestWalkthrough
+                request={sentForApproval}
+                onAdded={() => void refreshSentForApproval(sentForApproval)}
+              />
             </span>
           </AlertDescription>
         </Alert>
@@ -655,7 +647,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
               variant="primary"
               onClick={handleSaveSession}
               isLoading={sessionSaveLoading}
-              disabled={sessionDeleteLoading || saveBlocked}
+              disabled={sessionDeleteLoading || justificationBlocked}
             >
               {editNeedsApproval ? 'Submit for approval' : 'Save'}
             </Button>
@@ -672,7 +664,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
                 className="ml-auto"
                 onClick={handleDeleteSession}
                 isLoading={sessionDeleteLoading}
-                disabled={sessionSaveLoading || deleteBlocked}
+                disabled={sessionSaveLoading || justificationBlocked}
               >
                 Delete
               </Button>

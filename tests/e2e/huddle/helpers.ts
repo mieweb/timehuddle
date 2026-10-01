@@ -11,12 +11,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Locator, type Page } from '@playwright/test';
-import { MongoClient, ObjectId } from 'mongodb';
+import { getUserIdByEmail, withDb } from '../fixtures/db';
 import { ClockPage } from '../pages/ClockPage';
 
+export { getUserIdByEmail };
+
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
-const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 /** Real fixture files, uploaded through the actual backend endpoints. */
 export const FIXTURE = {
@@ -33,57 +33,6 @@ export function composerEditor(page: Page) {
   return page.locator('.markdown-editor .ProseMirror').first();
 }
 
-async function withDb<T>(fn: (db: import('mongodb').Db) => Promise<T>): Promise<T> {
-  const client = await MongoClient.connect(MONGO_URL);
-  try {
-    return await fn(client.db());
-  } finally {
-    await client.close();
-  }
-}
-
-/** The user's open clock session in `teamId`, if they're clocked in there. */
-export async function findOpenClockEventId(email: string, teamId: string): Promise<string | null> {
-  const userId = await getUserIdByEmail(email);
-  return withDb(async (db) => {
-    const event = await db
-      .collection('clockevents')
-      .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
-    return event ? String(event._id) : null;
-  });
-}
-
-/** The `_id` of the team called `name`. */
-export async function findTeamIdByName(name: string): Promise<string> {
-  const team = await withDb((db) =>
-    db.collection('teams').findOne({ name }, { projection: { _id: 1 } }),
-  );
-  if (!team) throw new Error(`Team ${name} not found`);
-  return String(team._id);
-}
-
-/** Delete a clock session outright (as an admin cleaning up timesheets might). */
-export async function deleteClockEvent(clockEventId: string): Promise<void> {
-  await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
-}
-
-/** Take `email`'s user off a team, as a member and as an admin. */
-export async function removeFromTeam(teamId: string, email: string): Promise<void> {
-  const userId = await getUserIdByEmail(email);
-  await withDb((db) =>
-    db
-      .collection('teams')
-      .updateOne({ _id: new ObjectId(teamId) }, { $pull: { members: userId, admins: userId } }),
-  );
-}
-
-/** The media library item for a Pulse video, if there is one. */
-export async function findLibraryVideo(
-  videoid: string,
-): Promise<{ recordedFor?: Record<string, string> } | null> {
-  return withDb((db) => db.collection('mediaitems').findOne({ videoid }));
-}
-
 /**
  * Turn the shared team's (TEST01) "require a plan" setting on or off. On, the
  * Clock tab replaces its plain Clock in button with the plan composer. Call it
@@ -95,15 +44,6 @@ export async function setSharedTeamPlanGate(enabled: boolean): Promise<void> {
       .collection('teams')
       .updateOne({ code: 'TEST01' }, { $set: { 'settings.requirePlanForClock': enabled } }),
   );
-}
-
-/** The seed user's `_id`. */
-export async function getUserIdByEmail(email: string): Promise<string> {
-  const user = await withDb((db) =>
-    db.collection('users').findOne({ 'emails.address': email }, { projection: { _id: 1 } }),
-  );
-  if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
-  return String(user._id);
 }
 
 /** The stored huddle post whose body contains `text`. */

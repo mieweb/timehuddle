@@ -417,11 +417,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           endTime: parsedEnd,
           breaks: parsedBreaks,
         },
-        editNeedsApproval
-          ? {
-              description: editJustification.description,
-            }
-          : undefined,
+        editNeedsApproval ? editJustification : undefined,
       );
       if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setSessionDialogOpen(false);
@@ -456,11 +452,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     try {
       const result = await clockApi.deleteEvent(
         activeSession.id,
-        editNeedsApproval
-          ? {
-              description: editJustification.description,
-            }
-          : undefined,
+        editNeedsApproval ? editJustification : undefined,
       );
       if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setSessionDialogOpen(false);
@@ -521,11 +513,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           startTime: parsedStart,
           endTime: parsedEnd,
         },
-        addNeedsApproval
-          ? {
-              description: addJustification.description,
-            }
-          : undefined,
+        addNeedsApproval ? addJustification : undefined,
       );
       if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setAddEntryOpen(false);

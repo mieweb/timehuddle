@@ -17,7 +17,10 @@ import { PulseButton } from '../pulse-upload/PulseButton';
 
 interface ChangeRequestWalkthroughProps {
   request: Pick<TimesheetChangeRequest, 'id' | 'status' | 'videoUrl'>;
-  /** Called once the walkthrough has been added (hosts refetch the request). */
+  /**
+   * Called once the walkthrough has been added (hosts refetch the request).
+   * Not when it was kept in the library instead: the button stays, saying why.
+   */
   onAdded?: () => void;
 }
 
@@ -43,9 +46,8 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
   return (
     <PulseButton
       destination={{ kind: 'timesheet-request', id: request.id }}
-      landedLabel="Walkthrough added — the approver will see it"
       ariaLabel="Add a Pulse video walkthrough for the approver"
-      onLanded={onAdded}
+      onSettled={(status) => status.state === 'done' && onAdded?.()}
     />
   );
 };

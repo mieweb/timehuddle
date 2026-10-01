@@ -535,11 +535,7 @@ export const WorkPage: React.FC = () => {
         const result = await timerApi.deleteEntry(
           entryId,
           { notifyAdmins: false },
-          deleteNeedsApproval
-            ? {
-                description: editJustification.description,
-              }
-            : undefined,
+          deleteNeedsApproval ? editJustification : undefined,
         );
         if (!isPendingChange(result)) {
           setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
@@ -608,11 +604,7 @@ export const WorkPage: React.FC = () => {
         },
         // Only a duration change is a time claim; the server gates on the same
         // condition, so a note-only edit must not send a justification.
-        durationChanged && entryNeedsApproval
-          ? {
-              description: editJustification.description,
-            }
-          : undefined,
+        durationChanged && entryNeedsApproval ? editJustification : undefined,
       );
       if (isPendingChange(result)) {
         setMyRequests((prev) => [result.request, ...prev]);
@@ -944,7 +936,8 @@ export const WorkPage: React.FC = () => {
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
-                const awaitingApproval = pendingByEntry.has(de.entry.id);
+                const pendingRequest = pendingByEntry.get(de.entry.id);
+                const awaitingApproval = Boolean(pendingRequest);
                 const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
                 const disabledReason = isOnBreak
                   ? 'Timers are paused while you are on break.'
@@ -1014,9 +1007,9 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2 text-right">
-                      {awaitingApproval && (
+                      {pendingRequest && (
                         <ChangeRequestWalkthrough
-                          request={pendingByEntry.get(de.entry.id)!}
+                          request={pendingRequest}
                           onAdded={loadMyRequests}
                         />
                       )}

@@ -1869,10 +1869,13 @@ export type PulseDestination =
 /**
  * Where a reserved Pulse upload stands. `kept`: it couldn't go where it was
  * meant to, so it's in the uploader's media library; `reason` says why.
+ * `done` with a `note`: delivered, but a step after it failed (posted the
+ * plan, didn't clock in).
  */
 export interface PulseUploadStatus {
   state: 'waiting' | 'done' | 'kept' | 'expired';
   reason?: string;
+  note?: string;
 }
 
 export const videoApi = {

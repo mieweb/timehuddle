@@ -1,3 +1,19 @@
+import type { PulseDestination } from '../../lib/api';
+
+/** What a delivered Pulse video did, by where it was sent. */
+const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
+  huddle: 'Posted to Huddle',
+  'clock-plan': "Plan posted — you're clocked in",
+  'clock-wrapup': "Wrap-up posted — you're clocked out",
+  ticket: 'Added',
+  clock: 'Added',
+  'timesheet-request': 'Walkthrough added — the approver will see it',
+};
+
+export function landedLabel(destination: PulseDestination): string {
+  return LANDED_LABELS[destination.kind];
+}
+
 /**
  * What to tell someone whose Pulse video couldn't go where they recorded it
  * for: the server kept it in their media library instead (never thrown away),

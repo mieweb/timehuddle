@@ -21,7 +21,9 @@ import { ComposerAttachButtons, ComposerChips, type MentionRef } from './Compose
 import { ComposerProgress } from './ComposerProgress';
 import { ComposerError } from './ComposerError';
 import { useAttachmentUpload, useUploadProgress } from './useAttachmentUpload';
-import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseChip } from '../pulse-upload/PulseButton';
+import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { huddlePostCollab } from './collab';
 import { appendImageMarkdown, isInlineImage, restoreImageAltText } from './api';
 import { composerErrorMessage } from './composerErrors';
@@ -70,7 +72,7 @@ interface HuddleComposerProps {
    */
   pulseTeamId?: string | null;
   /** Called once a Pulse video has landed, so the feed can show its post. */
-  onPulseLanded?: () => void;
+  onPulseSettled?: () => void;
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -88,9 +90,16 @@ export function HuddleComposer({
   initialMentions,
   collabRoom,
   pulseTeamId,
-  onPulseLanded,
+  onPulseSettled,
 }: HuddleComposerProps) {
   const [expanded, setExpanded] = useState(editing);
+  // Owned here, not by the button: opening the composer replaces the button,
+  // and the video it handed out is still on its way.
+  const pulse = usePulseUpload(
+    { kind: 'huddle', teamId: pulseTeamId ?? '' },
+    { onSettled: () => onPulseSettled?.() },
+  );
+  const pulseModal = pulseTeamId ? <PulseUploadModal pulse={pulse} /> : null;
   const [text, setText] = useState(initialText);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(initialTicketId);
   const [attachments, setAttachments] = useState<MediaItem[]>(initialAttachments ?? []);
@@ -328,14 +337,10 @@ export function HuddleComposer({
         {pulseTeamId && (
           // shrink-0: the full-width Share button beside it would squeeze it.
           <div className="huddle-composer-pulse flex shrink-0 items-center gap-2">
-            <PulseButton
-              destination={{ kind: 'huddle', teamId: pulseTeamId }}
-              landedLabel="Posted to Huddle"
-              ariaLabel="Post a video with Pulse"
-              onLanded={onPulseLanded}
-            />
+            <PulseChip pulse={pulse} ariaLabel="Post a video with Pulse" />
           </div>
         )}
+        {pulseModal}
       </div>
     );
   }
@@ -437,6 +442,7 @@ export function HuddleComposer({
       <ComposerProgress uploadFraction={uploadFraction} posting={posting} postDone={postDone} />
 
       <ComposerError message={error} onDismiss={clearError} />
+      {pulseModal}
     </div>
   );
 }

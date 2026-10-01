@@ -11,11 +11,11 @@
 import { Text, Textarea } from '@mieweb/ui';
 import React from 'react';
 
+import type { TimesheetJustification } from '../../lib/api';
 import { TIMESHEET_DESCRIPTION_MIN } from '../../lib/timesheetApproval';
 
-export interface TimesheetJustificationState {
-  description: string;
-}
+/** What the fields collect — exactly what a change sends to the server. */
+export type TimesheetJustificationState = TimesheetJustification;
 
 interface TimesheetJustificationFieldsProps {
   value: TimesheetJustificationState;

@@ -52,7 +52,9 @@ import {
   restoreImageAltText,
   toPostAttachment,
 } from '../huddle/api';
-import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseChip } from '../pulse-upload/PulseButton';
+import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -202,6 +204,25 @@ export const ClockPage: React.FC = () => {
     : wrapUpMissing
       ? 'wrapup'
       : null;
+
+  // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
+  // (clocks you out) — the server does both when the upload lands. Owned here,
+  // not by the buttons: clocking in or out swaps the composer, and with it the
+  // button, while the modal still has to say the video landed.
+  const today = toDateString(new Date());
+  const refreshClock = () => void refreshAfterClockChange().catch(() => {});
+  const planPulse = usePulseUpload(
+    { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate: today },
+    { onSettled: refreshClock },
+  );
+  const wrapUpPulse = usePulseUpload(
+    { kind: 'clock-wrapup', clockEventId: activeClockEvent?.id ?? '', postDate: today },
+    { onSettled: refreshClock },
+  );
+  // A Pulse plan or wrap-up on its way already does this step: posting one by
+  // hand too would post twice.
+  const pulseOnItsWay =
+    (composerMode === 'plan' ? planPulse : wrapUpPulse).status?.state === 'waiting';
 
   // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
   // Its initial subscription sync is slow over a mobile/LAN connection, so the
@@ -549,9 +570,10 @@ export const ClockPage: React.FC = () => {
                 // from its own last output, which is how a pasted image shows inline.
                 value={text}
                 onChange={setText}
-                onSubmit={() =>
-                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
-                }
+                onSubmit={() => {
+                  if (pulseOnItsWay) return;
+                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut());
+                }}
                 onFiles={uploadDroppedMedia}
               />
             )}
@@ -590,44 +612,29 @@ export const ClockPage: React.FC = () => {
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
                 }
                 isLoading={posting || clockInLoading || clockOutLoading}
-                disabled={!text.trim() || uploadInFlight}
+                disabled={!text.trim() || uploadInFlight || pulseOnItsWay}
                 className="w-full sm:w-auto"
               >
                 {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
               </Button>
-              {/* Or record it: the Pulse video *is* the plan (clocks you in) or
-                  the wrap-up (clocks you out) — the server does both when the
-                  upload lands, so nothing typed above goes with it. */}
+              {/* Nothing typed above goes with a Pulse video. */}
               {composerMode === 'plan' && gateTeamId && (
-                <PulseButton
-                  destination={{
-                    kind: 'clock-plan',
-                    teamId: gateTeamId,
-                    postDate: toDateString(new Date()),
-                  }}
-                  landedLabel="Plan posted — you're clocked in"
-                  ariaLabel="Record your plan with Pulse and clock in"
-                  onLanded={refreshAfterClockChange}
-                />
+                <PulseChip pulse={planPulse} ariaLabel="Record your plan with Pulse and clock in" />
               )}
               {composerMode === 'wrapup' && activeClockEvent && (
-                <PulseButton
-                  destination={{
-                    kind: 'clock-wrapup',
-                    clockEventId: activeClockEvent.id,
-                    postDate: toDateString(new Date()),
-                  }}
-                  landedLabel="Wrap-up posted — you're clocked out"
+                <PulseChip
+                  pulse={wrapUpPulse}
                   ariaLabel="Record your wrap-up with Pulse and clock out"
-                  onLanded={refreshAfterClockChange}
                 />
               )}
               <Text variant="muted" size="sm" className="font-mono">
-                {!text.trim()
-                  ? composerMode === 'plan'
-                    ? 'Write a plan first · '
-                    : 'Write a wrap-up first · '
-                  : ''}
+                {pulseOnItsWay
+                  ? 'Your Pulse video is on its way · '
+                  : !text.trim()
+                    ? composerMode === 'plan'
+                      ? 'Write a plan first · '
+                      : 'Write a wrap-up first · '
+                    : ''}
                 ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
               </Text>
             </div>
@@ -717,6 +724,8 @@ export const ClockPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+      <PulseUploadModal pulse={planPulse} />
+      <PulseUploadModal pulse={wrapUpPulse} />
     </AppPage>
   );
 };

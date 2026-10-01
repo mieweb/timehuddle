@@ -18,7 +18,7 @@ function toId(id) {
 }
 
 // postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
-const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Drafts (status: 'draft') can no longer be created, but rows saved before
 // they were removed still exist — keep them out of every feed. Absent status =
@@ -26,7 +26,7 @@ const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLISHED = { status: { $ne: 'draft' } };
 
 // Permission helpers
-async function getTeam(teamId) {
+export async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
   let team = await rawDb().collection('teams').findOne({ _id: teamId });
   if (team) return team;
@@ -35,6 +35,11 @@ async function getTeam(teamId) {
     team = await rawDb().collection('teams').findOne({ _id: new ObjectId(teamId) });
   }
   return team ?? null;
+}
+
+/** Whether `userId` is on `team`, as a member or an admin. */
+export function isTeamMember(team, userId) {
+  return (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
 }
 
 async function getOrgRole(userId, team) {
@@ -354,15 +359,7 @@ export async function createHuddlePost(
     throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
   }
   
-  const team = await getTeam(teamId);
-  if (!team) {
-    throw new Meteor.Error('not-found', 'Team not found');
-  }
-  
-  const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-  if (!isMember) {
-    throw new Meteor.Error('forbidden', 'Not a team member');
-  }
+  await requireTeamMember(userId, teamId);
 
   // Validate ticketId if provided
   if (ticketId) {
@@ -428,6 +425,56 @@ export async function createHuddlePost(
   await rawDb().collection('huddlePosts').insertOne(doc);
   
   return { id: doc._id.toHexString() };
+}
+
+/** The team, if `userId` is on it; throws otherwise. */
+async function requireTeamMember(userId, teamId) {
+  const team = await getTeam(teamId);
+  if (!team) {
+    throw new Meteor.Error('not-found', 'Team not found');
+  }
+  if (!isTeamMember(team, userId)) {
+    throw new Meteor.Error('forbidden', 'Not a team member');
+  }
+  return team;
+}
+
+/**
+ * Add a wrap-up to `userId`'s post for a clock session: `line` goes under the
+ * plan text and `attachment` joins its attachments. A session with no post
+ * yet gets one, stamped as the wrap-up. Shared with server-side callers — a
+ * Pulse wrap-up video that lands on its own.
+ */
+export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment }) {
+  await requireTeamMember(userId, teamId);
+  const posts = rawDb().collection('huddlePosts');
+  const sessionPost = await posts.findOne(
+    { teamId, userId, clockEventId, ...PUBLISHED },
+    { sort: SESSION_POST_SORT },
+  );
+  if (!sessionPost) {
+    await createHuddlePost(userId, {
+      teamId,
+      content: { text: line, mentions: [] },
+      attachments: [attachment],
+      postDate,
+      clockEventId,
+      wrapUp: true,
+    });
+    return;
+  }
+  const planText = sessionPost.content?.text ?? '';
+  await posts.updateOne(
+    { _id: sessionPost._id },
+    {
+      $push: { attachments: attachment },
+      $set: {
+        'content.text': planText ? `${planText}\n\n${line}` : line,
+        wrapUpAt: new Date(),
+        updatedAt: new Date(),
+      },
+    },
+  );
 }
 
 Meteor.methods({

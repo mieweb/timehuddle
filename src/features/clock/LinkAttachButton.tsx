@@ -76,7 +76,7 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
         <ModalHeader>
           <ModalTitle>
             <span className="flex items-center gap-2">
-              <FontAwesomeIcon icon={faLink} />
+              <FontAwesomeIcon icon={faLink} aria-hidden="true" />
               Add a Link
             </span>
           </ModalTitle>
@@ -115,8 +115,8 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
         </ModalBody>
 
         <ModalFooter>
-          <Button size="sm" variant="ghost" onClick={close} aria-label="Close without adding">
-            <FontAwesomeIcon icon={faXmark} className="mr-1.5" />
+          <Button size="sm" variant="ghost" onClick={close}>
+            <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
             Close
           </Button>
           <Button size="sm" onClick={handleAdd} isLoading={adding} disabled={!value.trim()}>

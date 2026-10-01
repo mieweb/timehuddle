@@ -35,6 +35,7 @@ import './team-join-requests';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+import { PULSE_DESTINATION_KINDS } from './pulse-destinations';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
@@ -1855,7 +1856,7 @@ Meteor.startup(async() => {
   Wormhole.expose('media.list', { description: 'List media library items', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } });
   Wormhole.expose('media.listForUser', { description: 'List media for a user profile', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, limit: { type: 'integer' } }, required: ['userId'] } });
   Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
-  Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
+  Wormhole.expose('media.remove', { description: 'Remove an item from your media library (owner); a Pulse video stays where it was posted', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
 
   // ── PulseVault ────────────────────────────────────────────────────────────
 
@@ -1872,10 +1873,7 @@ Meteor.startup(async() => {
             '{ kind: clock-wrapup, clockEventId, postDate } | { kind: ticket | clock | timesheet-request, id } | ' +
             '{ kind: library }',
           properties: {
-            kind: {
-              type: 'string',
-              enum: ['huddle', 'clock-plan', 'clock-wrapup', 'ticket', 'clock', 'timesheet-request', 'library'],
-            },
+            kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
             teamId: { type: 'string' },
             clockEventId: { type: 'string' },
             postDate: { type: 'string' },
@@ -1883,10 +1881,8 @@ Meteor.startup(async() => {
           },
           required: ['kind'],
         },
-        ticketId: { type: 'string', description: 'Legacy: use destination' },
-        clockEventId: { type: 'string', description: 'Legacy: use destination' },
-        target: { type: 'string', enum: ['ticket', 'clock', 'library'], description: 'Legacy: use destination' },
       },
+      required: ['destination'],
     },
     outputSchema: {
       type: 'object',
@@ -1898,7 +1894,7 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('pulsevault.status', {
     description:
-      "Where one of the caller's Pulse uploads stands: waiting, done, kept (in their media library instead, with the reason) or expired",
+      "Where one of the caller's Pulse uploads stands: waiting, done (with a note when a step after delivery failed), kept (in their media library instead, with the reason) or expired",
     inputSchema: {
       type: 'object',
       properties: { videoid: { type: 'string' } },
@@ -1909,17 +1905,7 @@ Meteor.startup(async() => {
       properties: {
         state: { type: 'string', enum: ['waiting', 'done', 'kept', 'expired'] },
         reason: { type: 'string' },
-      },
-    },
-  });
-  Wormhole.expose('pulsevault.reserveForLibrary', {
-    description: 'Reserve a videoid for media library TUS upload',
-    inputSchema: { type: 'object', properties: {} },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        videoid: { type: 'string' },
-        uploadToken: { type: 'string' },
+        note: { type: 'string' },
       },
     },
   });
