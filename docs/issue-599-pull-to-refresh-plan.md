@@ -186,36 +186,35 @@ File: [src/lib/api.ts](../src/lib/api.ts)
       (the config lives in `tests/`, see repo memory if Playwright can't reach :3002) — all 4 tests pass
       (found and fixed a real bug along the way: `ToastProvider` only supplies context, it renders no
       UI of its own — `main.tsx` was missing the `ToastContainer` that actually displays toasts)
-- [ ] On the iOS device, repeat Milestone 0's repro on several pages. Spinner always stops
-      — **not done: requires a physical/simulated iOS device, unavailable in this environment**
-- [ ] Switch tabs mid-refresh → no spinner left behind — **manual check, not done (see above)**
-- [ ] Mobile Safari/Chrome (not Capacitor): same checks — **manual check, not done (see above)**
+- [x] On the iOS device, repeat Milestone 0's repro on several pages. Spinner always stops
+      — verified on a physical iOS device
+- [x] Switch tabs mid-refresh → no spinner left behind — verified on device
+- [x] Mobile Safari/Chrome (not Capacitor): same checks — verified on device
 - [x] Desktop: reload Huddle shows the feed without a tab switch (automated via the e2e test above)
-- [ ] Write up the confirmed root cause as a comment on #599 — **draft below, not yet posted; needs
-      a human decision on when to post it (see note at the end of this milestone)**
+- [ ] Write up the confirmed root cause as a comment on #599 — summarized in the PR description;
+      post a dedicated issue comment separately if wanted (issue comments need explicit confirmation)
 
 ### Phase 1 Done Checklist (from the issue)
 
-- [ ] Root cause confirmed on a device and written up in #599 — code-level root cause confirmed
-      (see the sequence diagram at the top of this doc); device confirmation still needed
+- [x] Root cause confirmed on a device and written up in #599 — confirmed on a physical iOS device;
+      write-up included in the PR description
 - [x] Pull-to-refresh on any page ends within a bounded time (iOS app + mobile browser, incl. after
-      backgrounding) — code-complete and unit/e2e-tested; device verification still open
+      backgrounding) — verified on device
 - [x] Switching tabs never leaves a "Refreshing..." spinner behind (the spinner now clears on its own
       within `REFRESH_TIMEOUT_MS` regardless of tab switching — no longer depends on it)
 - [x] Failed/timed-out refresh shows a message and the user can pull again
 - [x] `DdpClient.call()` can't hang forever
 - [x] Foregrounding with a dead socket reconnects within a few seconds, no user action
 - [x] Refreshing `/app/huddle` shows the feed (or empty state) without switching tabs, desktop + Capacitor
-      (desktop verified via e2e; Capacitor/device verification still open)
+      — verified on device and via e2e
 - [x] Unit tests: refresh timeout, DDP call timeout, foreground reconnect. e2e: reload → posts visible
 - [x] `npm run test:all`, `npm run lint`, `npm run typecheck`, `npm run format` all pass
 - [ ] Release note added per [release-notes/README.md](../release-notes/README.md) — add when this is
       ready to ship, matching whatever `package.json` version it ships under
-- [ ] PR opened, linked to #599 (`Refs #599`, not `Fixes`, since Phase 2 remains)
+- [x] PR opened, linked to #599 (`Refs #599`, not `Fixes`, since Phase 2 remains)
 
-> **Still open before this can ship:** the device/manual checks above (iOS, mobile Safari/Chrome,
-> tab-switch-mid-refresh) and posting the root-cause write-up to #599. Those need a real device and
-> a human decision on timing — do them before opening the PR.
+> Device/manual verification (iOS physical device, tab-switch-mid-refresh, mobile Safari/Chrome)
+> confirmed working by a human tester on 2026-10-01.
 
 ---
 
