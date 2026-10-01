@@ -87,6 +87,8 @@ _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.message
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
 import { InboxPage } from './features/inbox/InboxPage';
+import { ToastProvider } from '@mieweb/ui';
+
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
@@ -390,9 +392,11 @@ function renderRoot() {
         _root = createRoot(el);
         _root.render(
           <OtaUpdateGate>
-            <SessionProvider>
-              <App />
-            </SessionProvider>
+            <ToastProvider>
+              <SessionProvider>
+                <App />
+              </SessionProvider>
+            </ToastProvider>
           </OtaUpdateGate>,
         );
         return;
@@ -417,9 +421,11 @@ function renderRoot() {
 
   _root.render(
     <OtaUpdateGate>
-      <SessionProvider>
-        <App />
-      </SessionProvider>
+      <ToastProvider>
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </ToastProvider>
     </OtaUpdateGate>,
   );
 }

@@ -3,22 +3,35 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef } from 'react';
 
+import { withTimeout } from './withTimeout';
+
 type RefreshHandler = () => Promise<void> | void;
+
+/** A failing or hung handler must never strand the pull-to-refresh spinner past this. */
+export const REFRESH_TIMEOUT_MS = 10_000;
+
+/** 'ok' = every page handler settled; 'failed' = one rejected; 'timeout' = the bound above was hit. */
+export type RefreshOutcome = 'ok' | 'failed' | 'timeout';
 
 interface RefreshContextValue {
   /** Register a refresh handler; returns an unregister function. */
   registerRefreshHandler: (handler: RefreshHandler) => () => void;
-  triggerRefresh: () => Promise<void>;
+  triggerRefresh: () => Promise<RefreshOutcome>;
 }
 
 const RefreshContext = createContext<RefreshContextValue>({
   registerRefreshHandler: () => () => {},
-  triggerRefresh: async () => {},
+  triggerRefresh: async () => 'ok',
 });
 
 interface RefreshProviderProps {
   children: React.ReactNode;
   globalRefreshHandlers?: Array<() => Promise<void> | void>;
+}
+
+/** Runs a handler, catching both async rejection and a synchronous throw. */
+function runHandler(handler: RefreshHandler): Promise<void> {
+  return Promise.resolve().then(() => handler());
 }
 
 export const RefreshProvider: React.FC<RefreshProviderProps> = ({
@@ -37,24 +50,27 @@ export const RefreshProvider: React.FC<RefreshProviderProps> = ({
     };
   }, []);
 
-  const triggerRefresh = useCallback(async () => {
-    const promises: Promise<void>[] = [];
-
-    for (const handler of handlersRef.current) {
-      const result = handler();
-      if (result instanceof Promise) {
-        promises.push(result);
-      }
-    }
-
+  const triggerRefresh = useCallback(async (): Promise<RefreshOutcome> => {
+    // Global handlers (session/teams/clock) refresh in the background — they
+    // must never hold up the visible page's spinner.
     for (const handler of globalRefreshHandlers) {
-      const result = handler();
-      if (result instanceof Promise) {
-        promises.push(result);
-      }
+      runHandler(handler).catch((err: unknown) => {
+        console.error('[RefreshContext] global handler failed:', err);
+      });
     }
 
-    await Promise.all(promises);
+    const pageResults = Array.from(handlersRef.current, runHandler);
+
+    try {
+      const settled = await withTimeout(
+        Promise.allSettled(pageResults),
+        REFRESH_TIMEOUT_MS,
+        'Refresh timed out',
+      );
+      return settled.some((r) => r.status === 'rejected') ? 'failed' : 'ok';
+    } catch {
+      return 'timeout';
+    }
   }, [globalRefreshHandlers]);
 
   return (
@@ -78,7 +94,7 @@ export const useRefresh = (handler: RefreshHandler, enabled = true): void => {
   }, [handler, enabled, registerRefreshHandler]);
 };
 
-export const useRefreshTrigger = (): (() => Promise<void>) => {
+export const useRefreshTrigger = (): (() => Promise<RefreshOutcome>) => {
   const { triggerRefresh } = useContext(RefreshContext);
   return triggerRefresh;
 };
