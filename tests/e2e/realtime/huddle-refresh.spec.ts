@@ -107,4 +107,48 @@ test.describe('Huddle Feed Refresh', () => {
     // ...and the REST refetch confirms the feed actually reloaded.
     await refreshRequest;
   });
+
+  test('pull-to-refresh spinner clears and shows an error toast when the refresh hangs', async () => {
+    // Simulate the bug this issue is about: the handler the refresh waits on
+    // never settles (e.g. a half-open DDP socket after backgrounding). The
+    // route is simply never fulfilled, so the page's refetch hangs forever.
+    await page.route(/huddle_getPosts/, () => {
+      // Intentionally never calls route.continue()/fulfill().
+    });
+
+    await pullToRefresh(page);
+    await expect(page.getByText('Refreshing...')).toBeVisible({ timeout: 5000 });
+
+    // RefreshContext's REFRESH_TIMEOUT_MS is 10s — the spinner must clear
+    // within a short margin of that, not hang alongside the request.
+    await expect(page.getByText('Refreshing...')).toBeHidden({ timeout: 13000 });
+    await expect(page.getByText(/Couldn't refresh/)).toBeVisible({ timeout: 2000 });
+
+    // The failed refresh must not leave pull-to-refresh blocked.
+    await pullToRefresh(page);
+    await expect(page.getByText('Refreshing...')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('reload shows the feed (or empty state) without switching tabs', async () => {
+    await page.reload();
+    // The page's own loading spinner (distinct from pull-to-refresh's) must
+    // clear on its own — via the DDP subscription becoming ready, the
+    // loadingFallback timeout, or refreshFeed()'s REST fallback — without the
+    // user having to switch tabs to unstick it.
+    await expect(page.locator('.huddle-loading')).toHaveCount(0, { timeout: 15000 });
+
+    // Either real posts (the pull-to-refresh container they render inside) or
+    // the explicit empty state — poll briefly since the feed can mount a beat
+    // after the spinner itself disappears.
+    await expect
+      .poll(
+        async () => {
+          const hasEmptyState = await page.getByText(/No posts/).count();
+          const hasFeed = await page.locator('[data-testid="pull-to-refresh"]').count();
+          return hasEmptyState > 0 || hasFeed > 0;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
+  });
 });

@@ -87,7 +87,7 @@ _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.message
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
 import { InboxPage } from './features/inbox/InboxPage';
-import { ToastProvider } from '@mieweb/ui';
+import { ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
 
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
@@ -205,6 +205,13 @@ if (Capacitor.isNativePlatform()) {
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
+
+// ToastProvider only supplies context — it renders no UI of its own, so the
+// container that actually displays toasts has to be mounted separately.
+const AppToastContainer: React.FC = () => {
+  const { toasts, position, dismiss } = useToast();
+  return <ToastContainer toasts={toasts} position={position} onDismiss={dismiss} />;
+};
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim, refetch } = useSession();
@@ -401,6 +408,7 @@ function renderRoot() {
         _root.render(
           <OtaUpdateGate>
             <ToastProvider>
+              <AppToastContainer />
               <SessionProvider>
                 <App />
               </SessionProvider>
@@ -430,6 +438,7 @@ function renderRoot() {
   _root.render(
     <OtaUpdateGate>
       <ToastProvider>
+        <AppToastContainer />
         <SessionProvider>
           <App />
         </SessionProvider>
