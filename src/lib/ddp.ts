@@ -33,6 +33,9 @@ const DDP_METHOD_TIMEOUT_MS = 8000;
 /** How long a foreground re-check (see DdpClient.checkConnection) waits for a pong. */
 const DDP_PING_TIMEOUT_MS = 2000;
 
+/** The connection timed out or dropped — the server never answered, so nothing was rejected. */
+export class DdpTransportError extends Error {}
+
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
 type Listener = () => void;
@@ -259,7 +262,7 @@ class DdpClient {
   private handleDisconnect(): void {
     for (const pending of this.pendingMethods.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('DDP connection lost'));
+      pending.reject(new DdpTransportError('DDP connection lost'));
     }
     this.pendingMethods.clear();
     for (const pending of this.pendingPings.values()) {
@@ -321,8 +324,9 @@ class DdpClient {
         localStorage.setItem('meteor_resume_token', loginResult.token);
       }
       return true;
-    } catch {
-      localStorage.removeItem('meteor_resume_token');
+    } catch (err) {
+      // Only a server rejection means the token is bad; a timeout says nothing about it.
+      if (!(err instanceof DdpTransportError)) localStorage.removeItem('meteor_resume_token');
       return false;
     }
   }
@@ -444,6 +448,7 @@ class DdpClient {
     }
   }
 
+  /** Null when signed out; throws DdpTransportError when the server couldn't be reached. */
   async getCurrentUser(): Promise<{
     id: string;
     email: string;
@@ -455,7 +460,11 @@ class DdpClient {
     releaseNotesSeenVersion: string | null;
   } | null> {
     try {
-      await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
+      try {
+        await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
+      } catch (err) {
+        throw new DdpTransportError(err instanceof Error ? err.message : String(err));
+      }
 
       const resumeToken = localStorage.getItem('meteor_resume_token');
       if (!resumeToken) return null;
@@ -471,7 +480,8 @@ class DdpClient {
         createdAt: string | null;
         releaseNotesSeenVersion: string | null;
       } | null;
-    } catch {
+    } catch (err) {
+      if (err instanceof DdpTransportError) throw err;
       return null;
     }
   }
@@ -565,7 +575,7 @@ class DdpClient {
       const timer = setTimeout(() => {
         // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
         if (!this.pendingMethods.delete(id)) return;
-        reject(new Error(`DDP method "${method}" timed out`));
+        reject(new DdpTransportError(`DDP method "${method}" timed out`));
         this.killSocket();
       }, DDP_METHOD_TIMEOUT_MS);
       this.pendingMethods.set(id, { resolve, reject, timer });

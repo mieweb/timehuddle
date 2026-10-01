@@ -144,6 +144,52 @@ describe('DdpClient.call timeout', () => {
   });
 });
 
+describe('DdpClient resume login', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function startResumeLogin() {
+    localStorage.setItem('meteor_resume_token', 'saved-token');
+    const { getDdpClient } = await freshDdpModule();
+    const authed = getDdpClient().ensureAuthed();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+    const login = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string; method: string };
+    expect(login.method).toBe('login');
+    return { authed, ws, login };
+  }
+
+  it('keeps the saved token when the login call times out', async () => {
+    const { authed } = await startResumeLogin();
+
+    await vi.advanceTimersByTimeAsync(8000);
+    await authed;
+
+    expect(localStorage.getItem('meteor_resume_token')).toBe('saved-token');
+  });
+
+  it('removes the saved token when the server rejects it', async () => {
+    const { authed, ws, login } = await startResumeLogin();
+
+    ws.onmessage?.({
+      data: JSON.stringify({ msg: 'result', id: login.id, error: { reason: 'Login expired' } }),
+    });
+    await authed;
+
+    expect(localStorage.getItem('meteor_resume_token')).toBeNull();
+  });
+});
+
 describe('DdpClient.checkConnection (foreground reconnect)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
