@@ -8,39 +8,25 @@
  * needs that) and the feed can build blocks without loading the card.
  *
  * Post text is written by users, so anyone can type a `genui` block by hand.
- * The payload therefore carries PulseVault artifact **ids**, never URLs: the
- * card builds every URL itself, so a hand-written block can only point at an
- * artifact on this backend's own `/pulsevault/artifacts` route.
+ * The payload therefore carries the PulseVault artifact **id**, never a URL:
+ * the card builds every URL itself (see pulse-upload/artifact.ts), so a
+ * hand-written block can only point at an artifact on this backend.
  */
 import type { GenUIWidgetEntry } from '@mieweb/ui/components/SuperChat';
 import { z } from 'zod';
 
+import { ARTIFACT_ID, pulseArtifactId } from '../pulse-upload/artifact';
+
 export const PULSE_VIDEO_WIDGET = 'pulse_video';
 
-/** A PulseVault artifact id: a UUID (the only shape PulseVault accepts). */
-const artifactId = z
-  .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-
 export const pulseVideoSchema = z.object({
-  /** The video artifact. */
-  video: artifactId,
-  /** Its poster frame (Pulse's uploaded thumbnail), when there is one. */
-  poster: artifactId.optional(),
+  /** The video artifact; its poster is looked up by this id. */
+  video: z.string().regex(ARTIFACT_ID),
+  /** What to call it (the Pulse draft's name), for its accessible label. */
+  title: z.string().max(200).optional(),
 });
 
 export type PulseVideoProps = z.infer<typeof pulseVideoSchema>;
-
-/** The artifact id in a `/pulsevault/artifacts/<id>` URL or path, if any. */
-export function pulseArtifactId(url: string | undefined | null): string | null {
-  const id = String(url ?? '').match(/\/pulsevault\/artifacts\/([^/?#]+)/)?.[1] ?? null;
-  return id && artifactId.safeParse(id).success ? id : null;
-}
-
-/** The playback / poster path for an artifact id. */
-export function artifactPath(id: string): string {
-  return `/pulsevault/artifacts/${id}`;
-}
 
 /**
  * The message markdown for a Pulse video, or `null` when the URL isn't a
@@ -48,11 +34,10 @@ export function artifactPath(id: string): string {
  * of JSON, so the block holds no blank line — the inbox splits a message's
  * decorations on blank lines (see stripInboxDecorations).
  */
-export function pulseVideoMarkdown(videoUrl: string, thumbnailUrl?: string): string | null {
+export function pulseVideoMarkdown(videoUrl: string, title?: string): string | null {
   const video = pulseArtifactId(videoUrl);
   if (!video) return null;
-  const poster = pulseArtifactId(thumbnailUrl) ?? undefined;
-  const block = { widget: PULSE_VIDEO_WIDGET, props: { video, ...(poster ? { poster } : {}) } };
+  const block = { widget: PULSE_VIDEO_WIDGET, props: { video, ...(title ? { title } : {}) } };
   return '```genui\n' + JSON.stringify(block) + '\n```';
 }
 

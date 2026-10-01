@@ -4,11 +4,14 @@
  * `Pulse-Client`. The camera scan is the one step that isn't automatable, and
  * the web app has no upload of its own (videos come from Pulse only).
  */
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 export const TEST_MP4 = path.join(__dirname, 'test-video.mp4');
+/** Stands in for the poster frame Pulse uploads with every video. */
+export const TEST_POSTER = path.join(__dirname, 'test-image.png');
 
 /**
  * What Pulse 2.1+ sends on every request (PROTOCOL.md §7.2). The backend only
@@ -74,21 +77,32 @@ export function pulseStatus(
 }
 
 /**
- * Full TUS create + single-chunk PATCH of the real test-video.mp4 fixture, as
- * the Pulse app sends it (`Pulse-Client` header included). Returns once the
- * upload is complete (Upload-Offset === file size); the server delivers it
- * just after — see {@link waitForPulseOutcome}.
+ * Full TUS create + single-chunk PATCH of `file`, as the Pulse app sends it
+ * (`Pulse-Client` header included). `kind` and `relatedTo` mark a companion
+ * artifact (a thumbnail, say) of the video the token was minted for. Returns
+ * once the upload is complete (Upload-Offset === file size).
  */
-export async function uploadVideoAsPulse(
+export async function uploadAsPulse(
   request: APIRequestContext,
-  videoid: string,
-  uploadToken: string,
+  {
+    artifactId,
+    uploadToken,
+    file,
+    kind,
+    relatedTo,
+  }: { artifactId: string; uploadToken: string; file: string; kind?: string; relatedTo?: string },
 ): Promise<void> {
-  const bytes = fs.readFileSync(TEST_MP4);
-  const metadata = [
-    `artifactId ${Buffer.from(videoid).toString('base64')}`,
-    `filename ${Buffer.from('test-video.mp4').toString('base64')}`,
-  ].join(',');
+  const bytes = fs.readFileSync(file);
+  const fields: Record<string, string | undefined> = {
+    artifactId,
+    filename: path.basename(file),
+    kind,
+    relatedTo,
+  };
+  const metadata = Object.entries(fields)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key} ${Buffer.from(value!).toString('base64')}`)
+    .join(',');
 
   const created = await request.post('/pulsevault/upload', {
     headers: {
@@ -117,6 +131,55 @@ export async function uploadVideoAsPulse(
   expect(patched.headers()['upload-offset']).toBe(String(bytes.length));
 }
 
+/**
+ * Upload the real test-video.mp4 fixture as the reserved Pulse video. The
+ * server delivers it just after — see {@link waitForPulseOutcome}.
+ */
+export function uploadVideoAsPulse(
+  request: APIRequestContext,
+  videoid: string,
+  uploadToken: string,
+): Promise<void> {
+  return uploadAsPulse(request, { artifactId: videoid, uploadToken, file: TEST_MP4 });
+}
+
+/** Upload a poster frame for a reserved video, as Pulse does; returns its id. */
+export async function uploadPosterAsPulse(
+  request: APIRequestContext,
+  videoid: string,
+  uploadToken: string,
+): Promise<string> {
+  const posterId = randomUUID();
+  await uploadAsPulse(request, {
+    artifactId: posterId,
+    uploadToken,
+    file: TEST_POSTER,
+    kind: 'thumbnail',
+    relatedTo: videoid,
+  });
+  return posterId;
+}
+
+/** Where `GET /pulsevault/posters/:videoid` sends the browser, or null on 404. */
+export async function posterLocation(
+  request: APIRequestContext,
+  videoid: string,
+): Promise<string | null> {
+  const res = await request.get(`/pulsevault/posters/${videoid}`, { maxRedirects: 0 });
+  if (res.status() === 404) return null;
+  expect(res.status()).toBe(302);
+  return res.headers()['location'] ?? null;
+}
+
+/** Wait until an `<img>` has actually loaded (a poster, not the fallback box). */
+export async function expectImageLoaded(img: Locator): Promise<void> {
+  await expect
+    .poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), {
+      timeout: 10000,
+    })
+    .toBe(true);
+}
+
 /** Wait until the server has delivered (or kept) an upload; returns where it went. */
 export async function waitForPulseOutcome(
   request: APIRequestContext,
@@ -136,13 +199,17 @@ export async function waitForPulseOutcome(
   return status;
 }
 
-/** Reserve, upload as Pulse, and wait for the outcome: one Pulse video, start to end. */
+/**
+ * Reserve, upload as Pulse — its poster frame first, as Pulse sends it — and
+ * wait for the outcome: one Pulse video, start to end.
+ */
 export async function sendPulseVideo(
   request: APIRequestContext,
   token: string,
   destination: PulseDestination,
-): Promise<{ videoid: string; status: PulseStatus }> {
+): Promise<{ videoid: string; posterId: string; status: PulseStatus }> {
   const { videoid, uploadToken } = await reservePulseUpload(request, token, destination);
+  const posterId = await uploadPosterAsPulse(request, videoid, uploadToken);
   await uploadVideoAsPulse(request, videoid, uploadToken);
-  return { videoid, status: await waitForPulseOutcome(request, token, videoid) };
+  return { videoid, posterId, status: await waitForPulseOutcome(request, token, videoid) };
 }

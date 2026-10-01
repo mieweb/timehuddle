@@ -23,7 +23,7 @@ function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
   // A Pulse video becomes the `pulse_video` card (poster + play); anything that
   // isn't a PulseVault artifact falls through to a plain link.
   if (att.type === 'video') {
-    const card = pulseVideoMarkdown(att.url, att.thumbnailUrl);
+    const card = pulseVideoMarkdown(att.url, att.filename);
     if (card) return card;
   }
   // Posts store attachment URLs by path — bind them to the current backend
