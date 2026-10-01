@@ -156,6 +156,42 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
         .toBeNull();
     });
 
+    test('the Clock page says the Pulse plan and wrap-up landed, through clocking in and out', async ({
+      page,
+    }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      await page.goto('/app/clock');
+
+      // Press Pulse as a person would, then send the video Pulse would.
+      const recordWithPulse = async (name: string) => {
+        const reserved = page.waitForResponse((res) =>
+          res.url().includes('/api/pulsevault_reserve'),
+        );
+        await page.getByRole('button', { name }).click();
+        const { result } = await (await reserved).json();
+        const dialog = page.getByRole('dialog', { name: 'Record with Pulse' });
+        await expect(dialog).toBeVisible();
+        await uploadVideoAsPulse(page.request, result.videoid, result.uploadToken);
+        return dialog;
+      };
+
+      // Each step changes the page under the popup (clocking in swaps the
+      // composer; clocking out ends the session the wrap-up was for), and the
+      // popup still has to say it worked.
+      const plan = await recordWithPulse('Record your plan with Pulse and clock in');
+      await expect(plan.getByText("Plan posted — you're clocked in")).toBeVisible({
+        timeout: 20000,
+      });
+      await expect(plan).toBeHidden({ timeout: 5000 });
+
+      const wrapUp = await recordWithPulse('Record your wrap-up with Pulse and clock out');
+      await expect(wrapUp.getByText("Wrap-up posted — you're clocked out")).toBeVisible({
+        timeout: 20000,
+      });
+      expect(await findOpenClockEventId(TEST_USERS.owner1.email, teamId)).toBeNull();
+    });
+
     test('a Pulse plan recorded while already clocked in becomes that session’s plan', async ({
       page,
     }) => {

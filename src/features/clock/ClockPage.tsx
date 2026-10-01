@@ -215,8 +215,14 @@ export const ClockPage: React.FC = () => {
     { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate: today },
     { onSettled: refreshClock },
   );
+  // The session a wrap-up is for, kept after it ends: the wrap-up landing is
+  // what clocks you out, and its link must still be the one being watched.
+  const [wrapUpSessionId, setWrapUpSessionId] = useState(activeClockEvent?.id ?? '');
+  if (activeClockEvent && activeClockEvent.id !== wrapUpSessionId) {
+    setWrapUpSessionId(activeClockEvent.id);
+  }
   const wrapUpPulse = usePulseUpload(
-    { kind: 'clock-wrapup', clockEventId: activeClockEvent?.id ?? '', postDate: today },
+    { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate: today },
     { onSettled: refreshClock },
   );
   // A Pulse plan or wrap-up on its way already does this step: posting one by

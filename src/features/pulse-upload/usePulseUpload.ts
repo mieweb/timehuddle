@@ -11,8 +11,11 @@
  * Call it where its state has to outlive the button: a host that swaps the
  * button out (the Clock page clocking in, the Huddle composer expanding) keeps
  * the watch and the modal by owning the hook, and renders {@link PulseChip} and
- * {@link PulseUploadModal} from it.
+ * {@link PulseUploadModal} from it. A button that goes away anyway while its
+ * video is on its way (a timesheet change reviewed meanwhile drops its row)
+ * hands the watch off, and the outcome is shown as a toast instead.
  */
+import { useOptionalToast } from '@mieweb/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
@@ -23,6 +26,7 @@ import {
   openPulseAppOrStore,
 } from '../../lib/device';
 import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
+import { keptMessage, landedLabel } from './pulseStatus';
 
 /** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
@@ -68,6 +72,28 @@ interface Options {
 const isSettled = (status: PulseUploadStatus | null) =>
   status?.state === 'done' || status?.state === 'kept';
 
+type Toasts = NonNullable<ReturnType<typeof useOptionalToast>>;
+
+/**
+ * Keep watching a link whose button has gone, and say where its video ended
+ * up with a toast — the person pressed Pulse here, so they still hear back.
+ */
+async function watchAfterUnmount(link: PulseLink, toasts: Toasts) {
+  const destination = JSON.parse(link.destinationKey) as PulseDestination;
+  while (Date.now() - link.at < LINK_LIFETIME_MS) {
+    await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
+    if (document.hidden) continue;
+    const status = await videoApi.status(link.videoid).catch(() => null);
+    if (!status || status.state === 'waiting') continue;
+    if (status.state === 'done') {
+      toasts.success(status.note ?? landedLabel(destination), { title: 'Pulse video' });
+    } else if (status.state === 'kept') {
+      toasts.warning(keptMessage(status.reason), { title: 'Pulse video' });
+    }
+    return;
+  }
+}
+
 export function usePulseUpload(
   destination: PulseDestination,
   { onSettled }: Options = {},
@@ -82,6 +108,23 @@ export function usePulseUpload(
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const notifiedFor = useRef<string | null>(null);
+
+  // A link still on its way when this host unmounts is watched on, and its
+  // outcome toasted. Read through a ref: the cleanup runs once, at unmount.
+  const toasts = useOptionalToast();
+  const inFlight = useRef<{ link: PulseLink | null; waiting: boolean; toasts: Toasts | null }>({
+    link: null,
+    waiting: false,
+    toasts: null,
+  });
+  inFlight.current = { link, waiting: status?.state === 'waiting', toasts };
+  useEffect(
+    () => () => {
+      const { link: pending, waiting, toasts: notify } = inFlight.current;
+      if (pending && waiting && notify) void watchAfterUnmount(pending, notify);
+    },
+    [],
+  );
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket, the next day's plan), this hook starts afresh;

@@ -16,6 +16,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { ToastProvider } from '@mieweb/ui';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
@@ -36,6 +37,7 @@ import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPa
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
+import { AppToasts } from './AppToasts';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
@@ -404,97 +406,102 @@ const AppLayoutContent: React.FC = () => {
           <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
           <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
           <ShiftReminderProvider>
-            <AppFeedbackContext.Provider
-              value={{
-                openReportIssue: () => setReportIssueOpen(true),
-                openFeedback: () => setFeedbackOpen(true),
-              }}
-            >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+            {/* Toasts: for now only a Pulse video that lands after its
+                button is gone (see usePulseUpload). */}
+            <ToastProvider position="bottom-center">
+              <AppToasts />
+              <AppFeedbackContext.Provider
+                value={{
+                  openReportIssue: () => setReportIssueOpen(true),
+                  openFeedback: () => setFeedbackOpen(true),
+                }}
               >
-                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                  {/* Mobile backdrop */}
-                  {isMobileOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                        onClick={closeMobile}
-                        aria-hidden
-                      />,
-                      document.body,
-                    )}
+                <SidebarContext.Provider
+                  value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+                >
+                  <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                    {/* Mobile backdrop */}
+                    {isMobileOpen &&
+                      createPortal(
+                        <div
+                          className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                          onClick={closeMobile}
+                          aria-hidden
+                        />,
+                        document.body,
+                      )}
 
-                  {/* Foreground push notification banner (native iOS/Android) */}
-                  {foregroundNotif &&
-                    createPortal(
-                      <div
-                        onClick={() => {
-                          handleNotificationData(foregroundNotif.data);
-                          console.log(
-                            '[Banner] tapped, data:',
-                            JSON.stringify(foregroundNotif.data),
-                          );
-                          setForegroundNotif(null);
-                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                        }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
+                    {/* Foreground push notification banner (native iOS/Android) */}
+                    {foregroundNotif &&
+                      createPortal(
+                        <div
+                          onClick={() => {
+                            handleNotificationData(foregroundNotif.data);
+                            console.log(
+                              '[Banner] tapped, data:',
+                              JSON.stringify(foregroundNotif.data),
+                            );
+                            setForegroundNotif(null);
+                            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                          }}
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
-                        role="alert"
-                      >
-                        <span className="font-semibold text-sm leading-tight">
-                          {foregroundNotif.title}
-                        </span>
-                        <span className="text-xs text-neutral-300 leading-snug">
-                          {foregroundNotif.body}
-                        </span>
-                      </div>,
-                      document.body,
-                    )}
+                          role="alert"
+                        >
+                          <span className="font-semibold text-sm leading-tight">
+                            {foregroundNotif.title}
+                          </span>
+                          <span className="text-xs text-neutral-300 leading-snug">
+                            {foregroundNotif.body}
+                          </span>
+                        </div>,
+                        document.body,
+                      )}
 
-                  <Sidebar />
+                    <Sidebar />
 
-                  {/* Content column */}
-                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
-                      <PullToRefresh>
-                        {/* TicketsPage stays mounted to preserve its state, and
+                    {/* Content column */}
+                    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                      <AppHeader />
+                      <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                        <PullToRefresh>
+                          {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. It must
                             not render a page title while hidden — it isn't the
                             page — so the title is withheld from that instance. */}
-                        <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            <TicketsPage />
-                          </div>
-                        </PageTitleContext.Provider>
-                        {profileUserId ? (
-                          <ProfilePage key={profileUserId} userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage key={profileUsername} username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
-                        )}
-                      </PullToRefresh>
-                    </main>
-                  </div>
+                          <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              <TicketsPage />
+                            </div>
+                          </PageTitleContext.Provider>
+                          {profileUserId ? (
+                            <ProfilePage key={profileUserId} userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage key={profileUsername} username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            React.createElement(route.component)
+                          )}
+                        </PullToRefresh>
+                      </main>
+                    </div>
 
-                  <BottomNav />
-                </div>
-              </SidebarContext.Provider>
-            </AppFeedbackContext.Provider>
+                    <BottomNav />
+                  </div>
+                </SidebarContext.Provider>
+              </AppFeedbackContext.Provider>
+            </ToastProvider>
           </ShiftReminderProvider>
         </RefreshProvider>
       </PageTitleContext.Provider>
