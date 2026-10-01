@@ -1866,19 +1866,22 @@ export type PulseDestination =
   | { kind: AttachmentKind; id: string }
   | { kind: 'timesheet-request'; id: string };
 
-/** Where a reserved Pulse upload stands. */
-export type PulseUploadState = 'waiting' | 'done' | 'expired';
+/**
+ * Where a reserved Pulse upload stands. `kept`: it couldn't go where it was
+ * meant to, so it's in the uploader's media library; `reason` says why.
+ */
+export interface PulseUploadStatus {
+  state: 'waiting' | 'done' | 'kept' | 'expired';
+  reason?: string;
+}
 
 export const videoApi = {
   /** Reserve one Pulse upload for `destination`: a fresh videoid and its link token. */
   reserve: (destination: PulseDestination) =>
     wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserve', { destination }),
 
-  /** Whether a reserved upload has landed (and been delivered) yet. */
-  status: (videoid: string) =>
-    wormholeCall<{ state: PulseUploadState }>('pulsevault.status', { videoid }).then(
-      (r) => r.state,
-    ),
+  /** Whether a reserved upload has landed, and where it ended up. */
+  status: (videoid: string) => wormholeCall<PulseUploadStatus>('pulsevault.status', { videoid }),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────

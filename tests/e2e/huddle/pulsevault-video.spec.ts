@@ -5,7 +5,8 @@
  *  1. The composer (driven through the Clock tab's plan composer) offers
  *     Pulse beside Post, and no raw "Video" file picker.
  *  1b. A Pulse upload lands where it was reserved for, with no client step:
- *     a Huddle post, a plan that clocks in, a wrap-up that clocks out.
+ *     a Huddle post, a plan that clocks in, a wrap-up that clocks out — and
+ *     one whose destination is gone by then is kept in the library instead.
  *  2. Cross-posting: a ticket that already has a Pulse video attached is
  *     picked via the composer's TicketPicker, and that video is
  *     automatically pulled into the post (HuddleComposer.tsx's `ticketVideos`
@@ -31,7 +32,10 @@ import {
   attachTicket,
   clockOut,
   composerEditor,
+  deleteClockEvent,
+  findLibraryVideo,
   findOpenClockEventId,
+  findTeamIdByName,
   openComposer,
   openPostInInbox,
   setSharedTeamPlanGate,
@@ -121,8 +125,54 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
         .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
         .toBeNull();
     });
+
+    test("a video that can't reach its destination is kept in the library, and status says why", async ({
+      page,
+    }) => {
+      test.setTimeout(90000);
+      await loginAs(page, TEST_USERS.owner1);
+      // A team of its own ("Test Team" prefix: global teardown removes it), so
+      // deleting this session can't disturb the shared team's clock state.
+      const teamName = `Test Team Kept ${Date.now()}`;
+      await createFreshTeam(page, teamName);
+      const teamId = await findTeamIdByName(teamName);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-plan', teamId, postDate: today },
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+
+      // The wrap-up is reserved while the session exists, then the session is
+      // deleted before the video lands.
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        destination: { kind: 'clock-wrapup', clockEventId, postDate: today },
+      });
+      await deleteClockEvent(clockEventId);
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+
+      await expect
+        .poll(() => pulseStatus(page, token, wrapUp.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'That clock session no longer exists.' });
+      const kept = await findLibraryVideo(wrapUp.videoid);
+      expect(kept?.recordedFor).toMatchObject({ kind: 'clock-wrapup', clockEventId });
+    });
   });
 });
+
+/** Where a Pulse upload stands, as the Pulse popup asks for it. */
+async function pulseStatus(page: Page, token: string, videoid: string): Promise<unknown> {
+  const res = await page.request.post('/api/pulsevault_status', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { videoid },
+  });
+  return (await res.json()).result;
+}
 
 test.describe('Huddle — ticket video cross-posting', () => {
   test.setTimeout(120000);

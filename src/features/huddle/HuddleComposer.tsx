@@ -69,6 +69,8 @@ interface HuddleComposerProps {
    * composer — text typed here couldn't go with it.
    */
   pulseTeamId?: string | null;
+  /** Called once a Pulse video has landed, so the feed can show its post. */
+  onPulseLanded?: () => void;
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ export function HuddleComposer({
   initialMentions,
   collabRoom,
   pulseTeamId,
+  onPulseLanded,
 }: HuddleComposerProps) {
   const [expanded, setExpanded] = useState(editing);
   const [text, setText] = useState(initialText);
@@ -329,6 +332,7 @@ export function HuddleComposer({
               destination={{ kind: 'huddle', teamId: pulseTeamId }}
               landedLabel="Posted to Huddle"
               ariaLabel="Post a video with Pulse"
+              onLanded={onPulseLanded}
             />
           </div>
         )}

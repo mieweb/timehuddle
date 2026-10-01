@@ -16,7 +16,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Text } from '@mieweb/ui';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { videoApi, type PulseDestination, type PulseUploadState } from '../../lib/api';
+import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
 import {
   getStoreOS,
   isNativeApp,
@@ -25,9 +25,10 @@ import {
 } from '../../lib/device';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
 import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
+import { keptMessage } from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
 
-/** How often to ask whether the upload landed, while the modal is open. */
+/** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
 /** A Pulse link works for 30 minutes (UPLOAD_LINK_SECONDS on the server). */
 const LINK_LIFETIME_MS = 30 * 60 * 1000;
@@ -38,7 +39,7 @@ interface PulseButtonProps {
   landedLabel?: string;
   /** Accessible name; the visible label is always "Pulse". */
   ariaLabel?: string;
-  /** Called once the video has been delivered to `destination`. */
+  /** Called once the video has landed: delivered, or kept in the library. */
   onLanded?: () => void;
   disabled?: boolean;
 }
@@ -58,26 +59,28 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   const [upload, setUpload] = useState<{ videoid: string; scanLink: string; at: number } | null>(
     null,
   );
-  const [state, setState] = useState<PulseUploadState>('waiting');
+  const [status, setStatus] = useState<PulseUploadStatus>({ state: 'waiting' });
+  const { state } = status;
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Watch the reserved upload: on a timer while the modal is open, and when
-  // the page comes back from the Pulse app (phone). Stops once it's done or
-  // the link has run out — the video goes where it belongs either way.
+  // Watch the reserved upload until it lands or the link runs out: on a timer
+  // while the page is visible (a phone often comes back from the Pulse app
+  // before the upload finishes), and at once when it's shown again. The video
+  // goes where it belongs either way; this is only to say so.
   useEffect(() => {
     if (!upload || state !== 'waiting') return;
     let cancelled = false;
     const check = async () => {
       if (cancelled || document.hidden) return;
       if (Date.now() - upload.at > LINK_LIFETIME_MS) {
-        setState('expired');
+        setStatus({ state: 'expired' });
         return;
       }
       try {
         const next = await videoApi.status(upload.videoid);
-        if (cancelled || next === 'waiting') return;
-        setState(next);
-        if (next === 'done') onLandedRef.current?.();
+        if (cancelled || next.state === 'waiting') return;
+        setStatus(next);
+        if (next.state === 'done' || next.state === 'kept') onLandedRef.current?.();
       } catch {
         // transient: try again next tick
       }
@@ -85,16 +88,16 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
     const onVisible = () => {
       if (!document.hidden) void check();
     };
-    const interval = modalOpen ? setInterval(() => void check(), STATUS_POLL_MS) : undefined;
+    const interval = setInterval(() => void check(), STATUS_POLL_MS);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
     return () => {
       cancelled = true;
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
-  }, [upload, state, modalOpen]);
+  }, [upload, state]);
 
   // Once it has landed, let the modal show it for a moment, then close it.
   useEffect(() => {
@@ -118,7 +121,7 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
 
     const { videoid, uploadToken } = reservation;
     setUpload({ videoid, scanLink: buildScanLink(videoid, uploadToken), at: Date.now() });
-    setState('waiting');
+    setStatus({ state: 'waiting' });
 
     // Phone: straight into the Pulse app (or its store listing). Computer: QR.
     const storeOS = getStoreOS();
@@ -145,12 +148,18 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
           {error}
         </Text>
       )}
+      {/* Phones have no modal: say it here when the video went elsewhere. */}
+      {state === 'kept' && !modalOpen && (
+        <Text as="span" size="xs" variant="muted" role="status">
+          {keptMessage(status.reason)}
+        </Text>
+      )}
 
       <PulseUploadModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         scanLink={upload?.scanLink ?? null}
-        state={state}
+        status={status}
         landedLabel={landedLabel}
       />
     </>

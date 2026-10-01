@@ -14,7 +14,8 @@ import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React from 'react';
 
-import type { PulseUploadState } from '../../lib/api';
+import type { PulseUploadStatus } from '../../lib/api';
+import { keptMessage } from './pulseStatus';
 
 export interface PulseUploadModalProps {
   open: boolean;
@@ -26,8 +27,8 @@ export interface PulseUploadModalProps {
    * Pulse, and to the App Store / Play Store listing on one that doesn't.
    */
   scanLink: string | null;
-  /** Where the upload stands: waiting, landed (`done`), or the link ran out. */
-  state: PulseUploadState;
+  /** Where the upload stands: waiting, delivered, kept elsewhere, or expired. */
+  status: PulseUploadStatus;
   /** What landing did: "Posted", "Added", "Clocked in". */
   landedLabel: string;
 }
@@ -42,7 +43,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   open,
   onClose,
   scanLink,
-  state,
+  status,
   landedLabel,
 }) => (
   <AppModal
@@ -87,7 +88,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
           role="status"
           aria-live="polite"
         >
-          {state === 'done' ? (
+          {status.state === 'done' ? (
             <>
               <FontAwesomeIcon
                 icon={faCircleCheck}
@@ -98,7 +99,11 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
                 {landedLabel}
               </Text>
             </>
-          ) : state === 'expired' ? (
+          ) : status.state === 'kept' ? (
+            <Text size="xs" variant="muted">
+              {keptMessage(status.reason)}
+            </Text>
+          ) : status.state === 'expired' ? (
             <Text size="xs" variant="muted">
               This link has expired. Close this and press Pulse again for a new one.
             </Text>

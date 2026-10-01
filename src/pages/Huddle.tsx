@@ -662,6 +662,9 @@ export default function Huddle() {
                   key={postingTeamId}
                   onPost={addPost}
                   pulseTeamId={postingTeamId}
+                  // The server makes a Pulse post, not addPost: refetch in case
+                  // the live feed missed it (DDP dropped while in the Pulse app).
+                  onPulseLanded={refreshActiveScope}
                   userInitials={user ? getUserInitials(user.name) : 'U'}
                   userColor={user ? getUserColor(user.id) : 'indigo'}
                 />

@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Locator, type Page } from '@playwright/test';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import { ClockPage } from '../pages/ClockPage';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
@@ -51,6 +51,27 @@ export async function findOpenClockEventId(email: string, teamId: string): Promi
       .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
     return event ? String(event._id) : null;
   });
+}
+
+/** The `_id` of the team called `name`. */
+export async function findTeamIdByName(name: string): Promise<string> {
+  const team = await withDb((db) =>
+    db.collection('teams').findOne({ name }, { projection: { _id: 1 } }),
+  );
+  if (!team) throw new Error(`Team ${name} not found`);
+  return String(team._id);
+}
+
+/** Delete a clock session outright (as an admin cleaning up timesheets might). */
+export async function deleteClockEvent(clockEventId: string): Promise<void> {
+  await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
+}
+
+/** The media library item for a Pulse video, if there is one. */
+export async function findLibraryVideo(
+  videoid: string,
+): Promise<{ recordedFor?: Record<string, string> } | null> {
+  return withDb((db) => db.collection('mediaitems').findOne({ videoid }));
 }
 
 /**

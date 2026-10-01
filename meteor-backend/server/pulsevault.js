@@ -118,6 +118,12 @@ export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecre
  */
 const reservationContext = new Map();
 const RESERVATIONS_COLL = 'pulsevault_reservations';
+/**
+ * Where each finished upload ended up — `{ kept, reason }` from
+ * deliverPulseVideo — so the Pulse popup can say so. Kept as long as a
+ * reservation would have been, then Mongo's TTL monitor clears it.
+ */
+const DELIVERIES_COLL = 'pulsevault_deliveries';
 
 async function persistReservation(videoid, reservation) {
   reservationContext.set(videoid, reservation);
@@ -197,6 +203,12 @@ Meteor.startup(async () => {
     .catch((err) => {
       console.warn('[pulsevault] reservations TTL index failed:', err.message);
     });
+  await rawDb()
+    .collection(DELIVERIES_COLL)
+    .createIndex({ createdAt: 1 }, { expireAfterSeconds: RESERVATION_TTL_SECONDS })
+    .catch((err) => {
+      console.warn('[pulsevault] deliveries TTL index failed:', err.message);
+    });
   for await (const doc of coll.find({})) {
     const { _id, createdAt, ...rest } = doc;
     if (!reservationContext.has(_id)) reservationContext.set(_id, rest);
@@ -263,14 +275,17 @@ function destinationOf(reservation) {
   return reservation.attachedTo ?? { kind: 'ticket', id: reservation.ticketId };
 }
 
-/** Deliver a finished upload to wherever its reservation said it goes. */
+/**
+ * Deliver a finished upload to wherever its reservation said it goes (or keep
+ * it in the uploader's library), and note which for `pulsevault.status`.
+ */
 async function attachUploadedVideo(artifactId, reservation, size = 0) {
   const ext = await artifactExt(artifactId);
   // Pulse sends the draft's title as `Upload-Metadata.name` (PROTOCOL.md §4.1);
   // it becomes the post text / attachment title. A short id when there's none.
   const name = (await storage.getName?.(artifactId).catch(() => null)) || null;
   const destination = destinationOf(reservation);
-  await deliverPulseVideo(reservation.userId, destination, {
+  const outcome = await deliverPulseVideo(reservation.userId, destination, {
     artifactId,
     url: artifactPath(artifactId),
     name,
@@ -280,7 +295,14 @@ async function attachUploadedVideo(artifactId, reservation, size = 0) {
     size,
     thumbnail: null,
   });
-  console.log('[pulsevault] delivered', artifactId, 'to', destination.kind);
+  await rawDb()
+    .collection(DELIVERIES_COLL)
+    .updateOne(
+      { _id: artifactId },
+      { $set: { userId: reservation.userId, ...outcome, createdAt: new Date() } },
+      { upsert: true },
+    );
+  console.log('[pulsevault]', outcome.kept ? 'kept' : 'delivered', artifactId, 'for', destination.kind);
 }
 
 /**
@@ -662,9 +684,11 @@ Meteor.methods({
   },
 
   /**
-   * Where one of the caller's Pulse uploads stands, for the QR modal:
-   * `waiting` (reserved, not landed), `done` (landed and delivered) or
-   * `expired` (the link ran out, or the id is unknown).
+   * Where one of the caller's Pulse uploads stands, for the Pulse popup:
+   * `waiting` (reserved, not delivered yet), `done` (delivered), `kept` (it
+   * couldn't go where it was meant to, so it's in the uploader's media
+   * library; `reason` says why) or `expired` (the link ran out, or the id is
+   * unknown).
    */
   async 'pulsevault.status'({ videoid } = {}) {
     const identity = await requireIdentity(this);
@@ -672,12 +696,16 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'videoid is required');
     }
     const reservation = await peekReservation(videoid);
-    if (reservation) {
-      if (reservation.userId !== identity.userId) throw new Meteor.Error('forbidden', 'Not yours');
-      return { state: 'waiting' };
+    const delivery =
+      reservation ?? (await rawDb().collection(DELIVERIES_COLL).findOne({ _id: videoid }));
+    if (delivery && delivery.userId !== identity.userId) {
+      throw new Meteor.Error('forbidden', 'Not yours');
     }
+    if (reservation) return { state: 'waiting' };
+    if (delivery) return delivery.kept ? { state: 'kept', reason: delivery.reason } : { state: 'done' };
+    // Landed but not delivered yet (the moment between the two).
     const landed = await storage.resolve(videoid).catch(() => null);
-    return { state: landed ? 'done' : 'expired' };
+    return { state: landed ? 'waiting' : 'expired' };
   },
 
   /**

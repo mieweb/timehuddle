@@ -74,6 +74,7 @@ export const ClockPage: React.FC = () => {
   const {
     clockIn,
     clockOut,
+    refreshAfterClockChange,
     pauseClock,
     resumeClock,
     clockInLoading,
@@ -606,6 +607,7 @@ export const ClockPage: React.FC = () => {
                   }}
                   landedLabel="Plan posted — you're clocked in"
                   ariaLabel="Record your plan with Pulse and clock in"
+                  onLanded={refreshAfterClockChange}
                 />
               )}
               {composerMode === 'wrapup' && activeClockEvent && (
@@ -617,6 +619,7 @@ export const ClockPage: React.FC = () => {
                   }}
                   landedLabel="Wrap-up posted — you're clocked out"
                   ariaLabel="Record your wrap-up with Pulse and clock out"
+                  onLanded={refreshAfterClockChange}
                 />
               )}
               <Text variant="muted" size="sm" className="font-mono">

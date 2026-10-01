@@ -488,41 +488,58 @@ async function teamIdsOf(userId) {
   return new Set(teams.map((t) => (t._id.toHexString ? t._id.toHexString() : String(t._id))));
 }
 
-/**
- * Pulse videos `ownerId` attached to tickets and clock sessions. A viewer who
- * isn't the owner only sees the ones on a ticket or session belonging to a team
- * they're in — the same people who can see that ticket or session anyway.
- */
-async function attachedPulseVideos(ownerId, viewerId, limit) {
+/** The docs among `docs` on a ticket or clock session in one of `teamIds`. */
+async function onTeams(docs, teamIds) {
   const db = rawDb();
-  const docs = await db
-    .collection('attachments')
-    .find({ addedBy: ownerId, type: 'video', url: PULSE_VIDEO_URL })
-    .sort({ addedAt: -1 })
-    .limit(limit)
-    .toArray();
-  if (docs.length === 0 || viewerId === ownerId) return docs.map(toLibraryItemFromAttachment);
-
   const idsOf = (kind) =>
     docs
       .filter((d) => d.attachedTo?.kind === kind && isValidId(d.attachedTo.id))
       .map((d) => new ObjectId(d.attachedTo.id));
-  const [viewerTeams, tickets, sessions] = await Promise.all([
-    teamIdsOf(viewerId),
+  const [tickets, sessions] = await Promise.all([
     db.collection('tickets').find({ _id: { $in: idsOf('ticket') } }, { projection: { teamId: 1 } }).toArray(),
     db.collection('clockevents').find({ _id: { $in: idsOf('clock') } }, { projection: { teamId: 1 } }).toArray(),
   ]);
   const teamOf = new Map([...tickets, ...sessions].map((d) => [d._id.toHexString(), String(d.teamId)]));
-  return docs
-    .filter((d) => viewerTeams.has(teamOf.get(d.attachedTo?.id)))
-    .map(toLibraryItemFromAttachment);
+  return docs.filter((d) => teamIds.has(teamOf.get(d.attachedTo?.id)));
+}
+
+/** Up to `size` more documents from `cursor`. */
+async function nextBatch(cursor, size) {
+  const batch = [];
+  while (batch.length < size && (await cursor.hasNext())) batch.push(await cursor.next());
+  return batch;
+}
+
+/**
+ * Pulse videos `ownerId` attached to tickets and clock sessions. A viewer who
+ * isn't the owner only sees the ones on a ticket or session belonging to a team
+ * they're in — the same people who can see that ticket or session anyway.
+ * That filter runs before the limit: the owner's newest videos may all be on
+ * teams the viewer isn't in, so it reads on until it has `limit` they can see.
+ */
+async function attachedPulseVideos(ownerId, viewerId, limit) {
+  const cursor = rawDb()
+    .collection('attachments')
+    .find({ addedBy: ownerId, type: 'video', url: PULSE_VIDEO_URL })
+    .sort({ addedAt: -1 });
+  if (viewerId === ownerId) {
+    return (await cursor.limit(limit).toArray()).map(toLibraryItemFromAttachment);
+  }
+  const viewerTeams = await teamIdsOf(viewerId);
+  const visible = [];
+  for (let batch; visible.length < limit && (batch = await nextBatch(cursor, limit)).length > 0; ) {
+    visible.push(...(await onTeams(batch, viewerTeams)));
+  }
+  await cursor.close();
+  return visible.slice(0, limit).map(toLibraryItemFromAttachment);
 }
 
 /**
  * A user's media library: everything they uploaded, wherever it was used —
- * files and Pulse videos from Huddle/Clock posts and timesheet walkthroughs
- * (media items), plus Pulse videos on tickets and clock sessions (attachments),
- * newest first.
+ * files and Pulse videos from Huddle/Clock posts, and Pulse videos kept when
+ * they couldn't reach their destination (media items), plus Pulse videos on
+ * tickets and clock sessions (attachments), newest first. Timesheet
+ * walkthroughs stay between the uploader and the approver.
  */
 async function libraryFor(ownerId, viewerId, limit) {
   const [media, attached] = await Promise.all([

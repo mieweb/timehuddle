@@ -18,6 +18,12 @@
  * `resolvePulseDestination` validates a destination at reserve time (so a bad
  * one fails before anyone records anything); `deliverPulseVideo` carries it
  * out from PulseVault's onUploadComplete.
+ *
+ * A video is never thrown away. If its destination stopped being valid while
+ * it was recorded (the session was deleted, the change was reviewed, the
+ * uploader left the team), it's kept in the uploader's media library with the
+ * destination it was recorded for, and the reason goes back to the Pulse
+ * popup.
  */
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
@@ -115,24 +121,33 @@ export async function resolvePulseDestination(userId, destination = {}) {
   }
 }
 
-/** Record the upload in the uploader's media library; returns its id. */
-async function addToLibrary(userId, video) {
-  const _id = new ObjectId();
-  await rawDb().collection('mediaitems').insertOne({
-    _id,
-    userId,
-    type: 'video',
-    mimeType: video.mimeType,
-    url: video.url,
-    videoid: video.artifactId,
-    filename: video.filename,
-    size: video.size,
-    title: video.title,
-    caption: null,
-    altText: null,
-    thumbnail: video.thumbnail,
-    uploadedAt: new Date(),
-  });
+/**
+ * Record the upload in the uploader's media library; returns its id. One item
+ * per video, so keeping a video after a half-finished delivery can't add a
+ * second. `recordedFor` is the destination a kept video never reached.
+ */
+async function addToLibrary(userId, video, recordedFor = null) {
+  const items = rawDb().collection('mediaitems');
+  await items.updateOne(
+    { userId, videoid: video.artifactId },
+    {
+      $setOnInsert: {
+        type: 'video',
+        mimeType: video.mimeType,
+        url: video.url,
+        filename: video.filename,
+        size: video.size,
+        title: video.title,
+        caption: null,
+        altText: null,
+        thumbnail: video.thumbnail,
+        uploadedAt: new Date(),
+      },
+      ...(recordedFor ? { $set: { recordedFor } } : {}),
+    },
+    { upsert: true },
+  );
+  const { _id } = await items.findOne({ userId, videoid: video.artifactId }, { projection: { _id: 1 } });
   return _id.toHexString();
 }
 
@@ -142,13 +157,30 @@ function postAttachment(mediaId, video) {
 }
 
 /**
- * Carry out a reservation's destination for a finished Pulse video.
+ * Carry out a reservation's destination for a finished Pulse video, keeping
+ * it in the uploader's library if that's no longer possible.
  *
  * `video` is `{ artifactId, url, name, title, filename, mimeType, size,
  * thumbnail }`: `name` is the Pulse draft's title (Upload-Metadata `name`) or
  * null, `title` the display title (the name, or a short fallback).
+ *
+ * Returns `{ kept: false }` once delivered, or `{ kept: true, reason }` when
+ * the video went to the library instead.
  */
 export async function deliverPulseVideo(userId, destination, video) {
+  try {
+    await deliverTo(userId, destination, video);
+    return { kept: false };
+  } catch (err) {
+    if (destination.kind === 'library') throw err;
+    console.warn('[pulse-destinations] kept in library, not delivered to', destination.kind, err);
+    await addToLibrary(userId, video, destination);
+    const reason = err instanceof Meteor.Error ? err.reason : 'Something went wrong adding it there.';
+    return { kept: true, reason };
+  }
+}
+
+async function deliverTo(userId, destination, video) {
   const db = rawDb();
   switch (destination.kind) {
     case 'huddle': {
@@ -182,7 +214,7 @@ export async function deliverPulseVideo(userId, destination, video) {
       const session = await db
         .collection('clockevents')
         .findOne({ _id: new ObjectId(destination.clockEventId), userId });
-      if (!session) return;
+      if (!session) throw new Meteor.Error('not-found', 'That clock session no longer exists.');
       const mediaId = await addToLibrary(userId, video);
       const attachment = postAttachment(mediaId, video);
       const wrapUpLine = video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**';
@@ -235,21 +267,23 @@ export async function deliverPulseVideo(userId, destination, video) {
       });
       return;
 
-    case 'timesheet-request':
+    case 'timesheet-request': {
       // Only while still pending: a walkthrough can't change a decided request.
-      await db
+      const { matchedCount } = await db
         .collection('timesheetchangerequests')
         .updateOne(
           { _id: new ObjectId(destination.id), userId, status: 'pending' },
           { $set: { videoUrl: video.url } },
         );
+      if (!matchedCount) throw new Meteor.Error('bad-request', 'That change has already been reviewed.');
       return;
+    }
 
     case 'library':
       await addToLibrary(userId, video);
       return;
 
     default:
-      console.warn('[pulse-destinations] unknown destination, upload kept but not delivered:', destination);
+      throw new Meteor.Error('bad-request', 'Unknown Pulse destination.');
   }
 }

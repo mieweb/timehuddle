@@ -1897,7 +1897,8 @@ Meteor.startup(async() => {
     },
   });
   Wormhole.expose('pulsevault.status', {
-    description: "Where one of the caller's Pulse uploads stands: waiting, done or expired",
+    description:
+      "Where one of the caller's Pulse uploads stands: waiting, done, kept (in their media library instead, with the reason) or expired",
     inputSchema: {
       type: 'object',
       properties: { videoid: { type: 'string' } },
@@ -1905,7 +1906,10 @@ Meteor.startup(async() => {
     },
     outputSchema: {
       type: 'object',
-      properties: { state: { type: 'string', enum: ['waiting', 'done', 'expired'] } },
+      properties: {
+        state: { type: 'string', enum: ['waiting', 'done', 'kept', 'expired'] },
+        reason: { type: 'string' },
+      },
     },
   });
   Wormhole.expose('pulsevault.reserveForLibrary', {
