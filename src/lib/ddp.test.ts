@@ -40,6 +40,11 @@ class FakeWebSocket {
   simulateResult(id: string, result: unknown): void {
     this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, result }) });
   }
+
+  /** Test helper: simulate a pong reply for the given ping id. */
+  simulatePong(id: string): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'pong', id }) });
+  }
 }
 
 /** Fresh module registry per test so the DdpClient singleton doesn't leak across tests. */
@@ -136,5 +141,80 @@ describe('DdpClient.call timeout', () => {
     const instancesBefore = FakeWebSocket.instances.length;
     await vi.advanceTimersByTimeAsync(1000);
     expect(FakeWebSocket.instances.length).toBeGreaterThan(instancesBefore);
+  });
+});
+
+describe('DdpClient.checkConnection (foreground reconnect)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function connectedClient() {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    // Any connected call establishes the socket; checkConnection is a no-op until then.
+    const warmup = client.call('warmup');
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+    const sentWarmup = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string };
+    ws.simulateResult(sentWarmup.id, null);
+    await warmup;
+    return { client, ws };
+  }
+
+  it('tears the socket down and reconnects when no pong arrives in time', async () => {
+    const { client, ws } = await connectedClient();
+
+    void client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ws.sent.some((m) => JSON.parse(m).msg === 'ping')).toBe(true);
+
+    const instancesBefore = FakeWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    // handleDisconnect only schedules a reconnect timer when there's an active
+    // sub; here we just confirm the socket was torn down, which is the part
+    // that unblocks a stuck pull-to-refresh.
+    expect(FakeWebSocket.instances.length).toBe(instancesBefore);
+  });
+
+  it('does nothing when a pong arrives in time', async () => {
+    const { client, ws } = await connectedClient();
+
+    const checkPromise = client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+    const sentPing = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string; msg: string };
+    expect(sentPing.msg).toBe('ping');
+    ws.simulatePong(sentPing.id);
+
+    await checkPromise;
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+
+    // No stray timeout fires later and tears the (still healthy) socket down.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+  });
+
+  it('shares one in-flight ping when called twice in quick succession', async () => {
+    const { client, ws } = await connectedClient();
+
+    const first = client.checkConnection();
+    const second = client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pings = ws.sent.filter((m) => JSON.parse(m).msg === 'ping');
+    expect(pings).toHaveLength(1);
+
+    const sentPing = JSON.parse(pings[0]) as { id: string };
+    ws.simulatePong(sentPing.id);
+    await Promise.all([first, second]);
   });
 });

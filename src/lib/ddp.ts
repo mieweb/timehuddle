@@ -30,6 +30,9 @@ const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
  */
 const DDP_METHOD_TIMEOUT_MS = 8000;
 
+/** How long a foreground re-check (see DdpClient.checkConnection) waits for a pong. */
+const DDP_PING_TIMEOUT_MS = 2000;
+
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
 type Listener = () => void;
@@ -81,6 +84,12 @@ class DdpClient {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
+  private pendingPings = new Map<
+    string,
+    { resolve: () => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  /** Shares one in-flight foreground check across visibilitychange + Capacitor appStateChange. */
+  private inFlightCheck: Promise<void> | null = null;
   private readySubs = new Set<string>();
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
@@ -97,6 +106,18 @@ class DdpClient {
   private reconnectListeners = new Set<Listener>();
   private disconnectListeners = new Set<Listener>();
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
+
+  constructor() {
+    // Re-validate the socket whenever the tab/app comes back to the
+    // foreground — a half-open socket (iOS background-resume) looks
+    // connected but never replies otherwise. Capacitor's appStateChange is
+    // wired up separately in main.tsx (it needs the @capacitor/app plugin).
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') void this.checkConnection();
+      });
+    }
+  }
 
   /**
    * Notified whenever the connection is re-established after having failed —
@@ -241,6 +262,11 @@ class DdpClient {
       pending.reject(new Error('DDP connection lost'));
     }
     this.pendingMethods.clear();
+    for (const pending of this.pendingPings.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
+    this.pendingPings.clear();
     this.readySubs.clear();
     this.connectPromise = null;
     this.authPromise = null;
@@ -469,6 +495,15 @@ class DdpClient {
       case 'ping':
         this.ws?.send(JSON.stringify({ msg: 'pong', ...(data.id ? { id: data.id } : {}) }));
         break;
+      case 'pong': {
+        const pending = data.id ? this.pendingPings.get(data.id) : undefined;
+        if (pending && data.id) {
+          this.pendingPings.delete(data.id);
+          clearTimeout(pending.timer);
+          pending.resolve();
+        }
+        break;
+      }
       case 'result': {
         const pending = data.id ? this.pendingMethods.get(data.id) : undefined;
         if (pending && data.id) {
@@ -563,6 +598,36 @@ class DdpClient {
       this.status = 'failed';
       this.handleDisconnect();
     }
+  }
+
+  /**
+   * Re-validate the socket after the app returns to the foreground. If the
+   * socket isn't connected there's nothing to check — the normal connect path
+   * handles it. Otherwise sends a DDP ping and, if no pong arrives within
+   * DDP_PING_TIMEOUT_MS, tears the (likely half-open) socket down and lets
+   * the existing reconnect path take over. Multiple callers in quick
+   * succession (visibilitychange and Capacitor's appStateChange often both
+   * fire on iOS resume) share the same in-flight check instead of each
+   * sending their own ping.
+   */
+  public checkConnection(): Promise<void> {
+    if (this.status !== 'connected' || !this.ws) return Promise.resolve();
+    if (this.inFlightCheck) return this.inFlightCheck;
+
+    const ws = this.ws;
+    const id = String(this.nextId++);
+    this.inFlightCheck = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.pendingPings.delete(id)) return;
+        this.killSocket();
+        resolve();
+      }, DDP_PING_TIMEOUT_MS);
+      this.pendingPings.set(id, { resolve, timer });
+      ws.send(JSON.stringify({ msg: 'ping', id }));
+    }).finally(() => {
+      this.inFlightCheck = null;
+    });
+    return this.inFlightCheck;
   }
 
   /** Subscribe after auth; returns an unsubscribe function. */

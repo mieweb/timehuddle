@@ -177,6 +177,14 @@ if (Capacitor.isNativePlatform()) {
       // Malformed URL — ignore
     }
   });
+
+  // Re-check the DDP socket when the native app returns to the foreground —
+  // a half-open socket (background for a while, e.g. recording a Pulse video)
+  // looks connected but never replies otherwise. No-op if already connected
+  // and healthy; see DdpClient.checkConnection.
+  void CapApp.addListener('appStateChange', ({ isActive }) => {
+    if (isActive) void getDdpClient().checkConnection();
+  });
 }
 
 // ─── OAuth callback handler (synchronous, before session check) ───────────────

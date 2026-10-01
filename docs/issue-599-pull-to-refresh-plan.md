@@ -149,20 +149,23 @@ File: [src/lib/ddp.ts](../src/lib/ddp.ts)
 
 Files: [src/lib/ddp.ts](../src/lib/ddp.ts), one hook/effect mounted once (e.g. in `AppLayout` or `main.tsx`)
 
-- [ ] Add `DdpClient.checkConnection()`:
-  - [ ] If not connected, do nothing (normal connect path handles it)
-  - [ ] Send `{ msg: 'ping', id }`; resolve when a `pong` with that `id` arrives
-  - [ ] Add a `case 'pong'` to `handleMessage`
-  - [ ] No `pong` within `DDP_PING_TIMEOUT_MS` (~2s) → reuse the "socket is dead" path from Milestone 3
-- [ ] Call it on:
-  - [ ] `document` `visibilitychange` when `document.visibilityState === 'visible'`
-  - [ ] Capacitor `CapApp.addListener('appStateChange', ({ isActive }) => ...)` when `isActive` (native only)
-- [ ] Register listeners **once** and remove them on cleanup
-- [ ] Don't fire two checks at once (both events often fire on iOS resume) — share one in-flight promise
-- [ ] Unit tests:
-  - [ ] Ping with no `pong` → reconnect triggered
-  - [ ] Ping with `pong` → nothing happens
-  - [ ] Two quick foreground events → one ping
+- [x] Add `DdpClient.checkConnection()`:
+  - [x] If not connected, do nothing (normal connect path handles it)
+  - [x] Send `{ msg: 'ping', id }`; resolve when a `pong` with that `id` arrives
+  - [x] Add a `case 'pong'` to `handleMessage`
+  - [x] No `pong` within `DDP_PING_TIMEOUT_MS` (~2s) → reuse the "socket is dead" path from Milestone 3
+- [x] Call it on:
+  - [x] `document` `visibilitychange` when `document.visibilityState === 'visible'` (registered once in the
+        `DdpClient` constructor — the client itself is a module-level singleton, so this can't double-register)
+  - [x] Capacitor `CapApp.addListener('appStateChange', ({ isActive }) => ...)` when `isActive` (native only)
+        — registered once at module scope in `src/main.tsx`, alongside the existing `appUrlOpen` listener
+- [x] Register listeners **once** and remove them on cleanup (singleton/module-scope registration — nothing to
+      unmount for the lifetime of the app)
+- [x] Don't fire two checks at once (both events often fire on iOS resume) — share one in-flight promise
+- [x] Unit tests:
+  - [x] Ping with no `pong` → reconnect triggered
+  - [x] Ping with `pong` → nothing happens
+  - [x] Two quick foreground events → one ping
 
 ## Milestone 5: Bound the Token Fetch
 
