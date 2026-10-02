@@ -348,10 +348,12 @@ export const ClockPage: React.FC = () => {
     setPosting(true);
     setPostError(null);
     try {
-      // Use sessionPost from DDP if available, otherwise fall back to the
-      // cached post ID (handles the race where the plan post was just created
-      // but hasn't arrived via DDP subscription yet).
-      const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
+      // Use sessionPost from DDP if available, otherwise the post fetched over
+      // REST for the seed (a plan Pulse posted server-side, while DDP is down),
+      // otherwise the cached post ID (handles the race where the plan post was
+      // just created here but hasn't arrived via DDP subscription yet).
+      const effectivePostId =
+        sessionPost?.id ?? sessionPostFetch?.id ?? cachedPlanPostIdRef.current;
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
       const postAttachments = attachments.map(toPostAttachment);
       if (effectivePostId) {
