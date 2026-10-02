@@ -766,28 +766,28 @@ export default function Huddle() {
                       // composer clears before `onSend` (gap 4.14).
                       isSending: sending || ticketVideos.loading,
                       mentionOptions: mentions.options,
+                      // Pulse is the composer's record button, on the right by Send.
+                      // A Pulse video posts itself when it lands, so nothing typed
+                      // here goes with it — hence the "/" (or). Refetch in case the
+                      // live feed missed it (DDP dropped while in the Pulse app).
+                      micSlot: postingTeamId ? (
+                        <div className="huddle-composer-pulse flex items-center gap-1.5">
+                          <span
+                            className="huddle-composer-or px-0.5 text-sm text-neutral-300 dark:text-neutral-600"
+                            aria-hidden="true"
+                          >
+                            /
+                          </span>
+                          <PulseButton
+                            destination={{ kind: 'huddle', teamId: postingTeamId }}
+                            ariaLabel="Post a video with Pulse"
+                            onSettled={() => void refreshActiveScope()}
+                          />
+                        </div>
+                      ) : undefined,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* A Pulse video posts itself when it lands, so nothing
-                              typed here goes with it; refetch in case the live
-                              feed missed it (DDP dropped while in the Pulse app). */}
-                          {postingTeamId && (
-                            <>
-                              <PulseButton
-                                destination={{ kind: 'huddle', teamId: postingTeamId }}
-                                ariaLabel="Post a video with Pulse"
-                                onSettled={() => void refreshActiveScope()}
-                              />
-                              {/* "Or": a Pulse is a post of its own, not part of the one being typed. */}
-                              <span
-                                className="huddle-composer-or px-0.5 text-sm text-neutral-300 dark:text-neutral-600"
-                                aria-hidden="true"
-                              >
-                                /
-                              </span>
-                            </>
-                          )}
                           {postingTeamId && (
                             <TicketPicker
                               teamId={postingTeamId}

@@ -56,7 +56,6 @@ import {
   toPostAttachment,
 } from '../huddle/api';
 import { PulseChip } from '../pulse-upload/PulseButton';
-import { PoweredByPulse } from '../pulse-upload/PoweredByPulse';
 import { PulseLogo } from '../pulse-upload/PulseLogo';
 import { titleHint } from '../pulse-upload/pulseStatus';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
@@ -497,7 +496,6 @@ export const ClockPage: React.FC = () => {
               <Text variant="muted" size="xs" className="mt-1">
                 {titleHint(clockPulse.destination)}
               </Text>
-              <PoweredByPulse className="mt-2" />
             </div>
             <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
               <PulseChip

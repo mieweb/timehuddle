@@ -14,7 +14,6 @@ import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
 
-import { PoweredByPulse } from './PoweredByPulse';
 import { PulseLogo } from './PulseLogo';
 import { keptMessage, landedLabel, titleHint } from './pulseStatus';
 import type { PulseUpload } from './usePulseUpload';
@@ -115,8 +114,7 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
         </div>
       </ModalBody>
 
-      <ModalFooter className="justify-between">
-        <PoweredByPulse />
+      <ModalFooter>
         <Button size="sm" variant="ghost" onClick={closeModal}>
           <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
           Close
