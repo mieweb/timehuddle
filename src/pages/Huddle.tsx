@@ -207,12 +207,31 @@ export default function Huddle() {
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
   /** True once a load has succeeded — including one that returned no posts. */
   const myPostsLoadedRef = useRef(false);
+  const myPostsUserId = user?.id;
+  const myPostsUserIdRef = useRef(myPostsUserId);
+  myPostsUserIdRef.current = myPostsUserId;
+  const myPostsRequestGenerationRef = useRef(0);
   const refreshMyPosts = useCallback(async () => {
+    const requestUserId = myPostsUserIdRef.current;
+    const requestGeneration = ++myPostsRequestGenerationRef.current;
     try {
-      setMyPosts(await huddleApi.getMyPosts());
+      const nextPosts = await huddleApi.getMyPosts();
+      if (
+        requestUserId !== myPostsUserIdRef.current ||
+        requestGeneration !== myPostsRequestGenerationRef.current
+      ) {
+        return;
+      }
+      setMyPosts(nextPosts);
       myPostsLoadedRef.current = true;
       setMyPostsError(null);
     } catch (err) {
+      if (
+        requestUserId !== myPostsUserIdRef.current ||
+        requestGeneration !== myPostsRequestGenerationRef.current
+      ) {
+        return;
+      }
       console.error('[Huddle] refreshMyPosts failed:', err);
       // The error replaces whatever the last successful load produced — a list
       // or the empty state — so only show it when there has been no such load;
@@ -225,8 +244,8 @@ export default function Huddle() {
   // to drop them and the baseline that decides whether a failure is shown —
   // otherwise the new user sees the previous one's posts, and a failed reload
   // stays silent behind their loaded flag.
-  const myPostsUserId = user?.id;
   useEffect(() => {
+    myPostsRequestGenerationRef.current += 1;
     setMyPosts([]);
     setMyPostsError(null);
     myPostsLoadedRef.current = false;
@@ -236,7 +255,9 @@ export default function Huddle() {
     setMyPostsLoading(true);
     refreshMyPosts()
       .catch(() => {})
-      .finally(() => setMyPostsLoading(false));
+      .finally(() => {
+        if (myPostsUserIdRef.current === myPostsUserId) setMyPostsLoading(false);
+      });
   }, [scope, refreshMyPosts, myPostsUserId]);
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
