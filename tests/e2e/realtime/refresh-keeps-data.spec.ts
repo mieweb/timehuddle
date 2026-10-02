@@ -104,6 +104,33 @@ test.describe('Pull-to-refresh keeps the screen when it fails', () => {
     await expect(page.locator('main li')).toHaveCount(entries);
   });
 
+  // The counterpart to the Profile case above: "keep what's on screen" must not
+  // outrank the server revoking access, or a removed teammate goes on seeing a
+  // profile they can no longer load.
+  test('Profile: a refresh that comes back 403 takes the profile down', async () => {
+    await SCREENS[2].open(page);
+    await expect(SCREENS[2].content(page)).toBeVisible({ timeout: 15000 });
+
+    await page.route('**/api/users_get*', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ reason: 'Not a teammate' }),
+      }),
+    );
+    await page.route('**/api/users_getByUsername*', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ reason: 'Not a teammate' }),
+      }),
+    );
+    await pullToRefresh(page);
+
+    await expect(page.getByText('Profile Unavailable')).toBeVisible({ timeout: 13000 });
+    await expect(SCREENS[2].content(page)).toHaveCount(0);
+  });
+
   test('Settings: a refresh keeps unsaved edits in the profile form', async () => {
     await page.goto(`${APP}/app/settings`);
     const displayName = page.getByLabel('Display name');

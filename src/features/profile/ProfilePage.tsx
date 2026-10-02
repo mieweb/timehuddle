@@ -115,25 +115,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     setBackgroundUrl(p.backgroundUrl ?? null);
   }, [userId, username]);
 
+  // 403/404 are the server's verdict on whether this profile may be shown at
+  // all, so they take it down wherever they arrive. Every other failure is
+  // transient and leaves what's already rendered alone.
+  const applyVerdict = React.useCallback((err: unknown) => {
+    if (!(err instanceof ApiError)) return;
+    if (err.status !== 403 && err.status !== 404) return;
+    if (err.status === 403) setIsForbidden(true);
+    else setIsNotFound(true);
+    setProfile(null);
+  }, []);
+
   useEffect(() => {
     setIsReady(false);
     setIsForbidden(false);
     setIsNotFound(false);
     loadProfile()
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 403) {
-          setIsForbidden(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setIsNotFound(true);
-        }
+      .catch((err: unknown) => {
+        applyVerdict(err);
+        // Nothing to keep on a first load, so any failure clears the profile.
         setProfile(null);
       })
       .finally(() => setIsReady(true));
-  }, [loadProfile]);
+  }, [loadProfile, applyVerdict]);
 
-  // A failed refresh keeps the profile on screen; the rejection reaches
-  // pull-to-refresh, which reports it.
-  useRefresh(loadProfile);
+  // A failed refresh keeps the profile on screen unless the server revoked
+  // access or the user is gone. The rejection still reaches pull-to-refresh,
+  // which reports it.
+  const refreshProfile = React.useCallback(async () => {
+    try {
+      await loadProfile();
+    } catch (err) {
+      applyVerdict(err);
+      throw err;
+    }
+  }, [loadProfile, applyVerdict]);
+  useRefresh(refreshProfile);
 
   if (!isReady) {
     return (
