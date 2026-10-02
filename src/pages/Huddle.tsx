@@ -765,7 +765,10 @@ export default function Huddle() {
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
-                      placeholder: 'Share an update…',
+                      // Pulse sits in this row; say it's the other way to post.
+                      placeholder: postingTeamId
+                        ? 'Share an update, or post a Pulse…'
+                        : 'Share an update…',
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: !!selectedTicketId,
