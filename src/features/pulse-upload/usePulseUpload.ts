@@ -86,11 +86,15 @@ async function watchDetached(
   onSettled?: (status: PulseUploadStatus) => void,
 ) {
   const destination = JSON.parse(link.destinationKey) as PulseDestination;
-  while (Date.now() - link.at < LINK_LIFETIME_MS) {
+  // Until the server says it's settled: a video claimed just before its link
+  // expired can still be converting, and `status` reports `expired` once a
+  // link that never landed is gone.
+  for (;;) {
     await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
     if (document.hidden) continue;
     const status = await videoApi.status(link.videoid).catch(() => null);
     if (!status || status.state === 'waiting') continue;
+    if (status.state === 'expired') return;
     onSettled?.(status);
     if (status.state === 'done') {
       toasts.success(status.note ?? landedLabel(destination), { title: 'Pulse video' });
