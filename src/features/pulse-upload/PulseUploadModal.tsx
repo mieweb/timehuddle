@@ -6,7 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
 
 import { PulseLogo } from './PulseLogo';
-import { keptMessage, landedLabel, titleHint } from './pulseStatus';
+import { keptMessage, landedLabel, titleHint, uploadHint } from './pulseStatus';
 import type { PulseUpload } from './usePulseUpload';
 
 /**
@@ -51,17 +51,17 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
             </div>
           )}
 
-          <Text size="sm" className="max-w-xs text-center text-muted-foreground">
-            Scan with your phone&rsquo;s camera to open the{' '}
-            <strong className="text-foreground">Pulse camera</strong> and record. Once it&rsquo;s
-            uploaded, the video ends up right where you started, with nothing to attach. No app yet?
-            The scan takes you to the App Store or Play Store.
-          </Text>
-          {titleHint(destination) && (
-            <Text size="xs" variant="muted" className="max-w-xs text-center">
-              {titleHint(destination)}
+          <div className="pulse-modal-copy flex max-w-xs flex-col gap-1 text-center">
+            <Text size="sm" weight="medium">
+              Scan with your phone to record in Pulse.
             </Text>
-          )}
+            <Text size="sm" variant="muted">
+              {uploadHint(destination)} {titleHint(destination)}
+            </Text>
+            <Text size="xs" variant="muted">
+              No Pulse app yet? The scan opens the App Store or Play Store.
+            </Text>
+          </div>
 
           <div
             className="pulse-modal-status flex flex-col items-center gap-1"
@@ -97,7 +97,7 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
               <span className="pulse-modal-waiting flex items-center gap-2">
                 <Spinner size="xs" />
                 <Text size="xs" variant="muted">
-                  Waiting for your video to upload.
+                  Waiting for your upload…
                 </Text>
               </span>
             )}
