@@ -26,7 +26,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const db = await getDb();
   await db.collection('attachments').deleteMany({ addedBy: userId });
-  await db.collection('pulsevault_reservations').deleteMany({ userId });
+  await db.collection('pulse_uploads').deleteMany({ userId });
   await purgeUser(USER.email);
   await closeDb();
 });
@@ -56,20 +56,20 @@ describe('attachments on a Redmine issue (wormhole)', () => {
     expect(stored).toBeNull();
   });
 
-  it('refuses to reserve a Pulse upload for the issue, and records no reservation', async () => {
+  it('refuses to reserve a Pulse upload for the issue, and records no upload', async () => {
     const res = await wormhole(
       'pulsevault.reserve',
-      { target: 'redmine', ticketId: ISSUE_ID },
+      { destination: { kind: 'redmine', id: ISSUE_ID } },
       jwt,
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Redmine/i);
 
     const db = await getDb();
-    const reservation = await db
-      .collection('pulsevault_reservations')
-      .findOne({ userId, ticketId: ISSUE_ID });
-    expect(reservation).toBeNull();
+    const upload = await db
+      .collection('pulse_uploads')
+      .findOne({ userId, 'destination.id': ISSUE_ID });
+    expect(upload).toBeNull();
   });
 
   it('rejects a numeric issue id, which list would never match', async () => {

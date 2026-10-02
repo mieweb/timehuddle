@@ -68,7 +68,7 @@ export async function uploadVideoToTicket(
 
   // Sent behind the page's back (no Pulse button pressed), so reload for it.
   await page.reload();
-  const linksList = page.locator('ul[aria-label="Attached links"]');
+  const linksList = page.locator('ul[aria-label="Attachments"]');
   await expect(linksList.getByRole('button', { name: /^Play / }).first()).toBeVisible({
     timeout: 30000,
   });

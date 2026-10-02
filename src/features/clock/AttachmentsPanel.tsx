@@ -11,7 +11,7 @@
  */
 import { faLink, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
+import { Button, ButtonGroup, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -103,14 +103,14 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           <FontAwesomeIcon icon={faLink} size="sm" />
           Links and videos
         </Text>
-        <div className="attachments-actions flex items-center gap-2">
+        <ButtonGroup orientation="horizontal" className="attachments-actions">
           <LinkAttachButton onAdd={handleAddLink} />
           <PulseButton
             destination={{ kind, id: entityId }}
             ariaLabel="Add a video with Pulse"
             onSettled={(status) => status.state === 'done' && void fetchAttachments()}
           />
-        </div>
+        </ButtonGroup>
       </div>
 
       {loading && <Spinner size="sm" />}
@@ -121,7 +121,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
         </Text>
       )}
 
-      <ul className="attachment-list flex flex-col gap-1" aria-label="Attached links">
+      <ul className="attachment-list flex flex-col gap-1" aria-label="Attachments">
         {attachments.map((a) => {
           // Same rule as the Huddle feed: a video attachment pointing at a
           // PulseVault artifact plays inline; anything else is a link.

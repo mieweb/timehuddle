@@ -331,7 +331,7 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     // Persisted (in Mongo), not just held in component state.
     await page.reload();
-    const linksList = page.locator('ul[aria-label="Attached links"]');
+    const linksList = page.locator('ul[aria-label="Attachments"]');
     const play = linksList.getByRole('button', { name: /^Play / }).first();
     await expect(play).toBeVisible({ timeout: 8000 });
     // The poster is found by the video's id, and is the frame Pulse sent.
@@ -386,7 +386,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     // The modal's own status check finds it — no reload.
     await expect(modal.getByText('Added', { exact: true })).toBeVisible({ timeout: 20000 });
     await expect(modal).toBeHidden({ timeout: 5000 });
-    const linksList = page.locator('ul[aria-label="Attached links"]');
+    const linksList = page.locator('ul[aria-label="Attachments"]');
     await expect(linksList.getByRole('button', { name: /^Play / })).toHaveCount(1);
   });
 
@@ -408,7 +408,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     ).toBeVisible({ timeout: 20000 });
     // Kept, so it stays open until closed — and nothing was attached.
     await modal.getByRole('button', { name: 'Close' }).last().click();
-    await expect(page.locator('ul[aria-label="Attached links"]').getByRole('button')).toHaveCount(
+    await expect(page.locator('ul[aria-label="Attachments"]').getByRole('button')).toHaveCount(
       0,
     );
   });
