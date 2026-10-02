@@ -334,9 +334,12 @@ class DdpClient {
       // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
       this.authPromise = this.tryResumeLogin()
         .then(() => {})
-        .catch(() => {
-          // Reset so next call can retry
+        .catch((err: unknown) => {
+          // Not cached as authenticated: callers would otherwise query an
+          // unauthenticated socket and read its empty answer as a sign-out.
+          // Cleared so the next call retries on this same socket.
           this.authPromise = null;
+          throw err;
         });
     }
     return this.authPromise ?? Promise.resolve();
@@ -361,8 +364,12 @@ class DdpClient {
       // a reload.
       if (err instanceof DdpServerError && err.code === RESUME_TOKEN_REJECTED) {
         localStorage.removeItem('meteor_resume_token');
+        return false;
       }
-      return false;
+      // Anything else leaves the socket unauthenticated, which is not the same
+      // as "no user" — report it rather than letting ensureAuthed cache it as a
+      // successful login.
+      throw err;
     }
   }
 

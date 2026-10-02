@@ -424,6 +424,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [userId]);
 
+  // The active event belongs to one account. An in-place sign-in (the
+  // timehuddle://auth deep link) swaps `userId` without unmounting this
+  // provider, so without this the previous user's session would stay visible
+  // — and read as authoritative — if the new user's first fetch fails.
+  useEffect(() => {
+    setActiveClockEvent(null);
+    // No account means there is nothing to load and the clock is already
+    // settled; leaving it unready would stall everything waiting on it.
+    setClockReady(!userId);
+  }, [userId]);
+
   // Initial fetch (fallback if the DDP connection fails)
   useEffect(() => {
     // Wait for token to be available before fetching

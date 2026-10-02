@@ -391,6 +391,44 @@ describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
 
     expect(localStorage.getItem('meteor_resume_token')).toBe('resume-token');
   });
+
+  it('rejects rather than querying an unauthenticated socket when the resume login fails', async () => {
+    const { ws, userPromise } = await connect();
+    const outcome = userPromise.then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Reporting success here would send users.getCurrentUser on a socket that
+    // was never logged in; its null answer reads as a sign-out.
+    await expect(outcome).resolves.toBe('rejected');
+    expect(
+      ws.sent.some((m) => (JSON.parse(m) as { method?: string }).method === 'users.getCurrentUser'),
+    ).toBe(false);
+  });
+
+  it('retries the resume login on the next call instead of caching the failure', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loginsBefore = ws.sent.filter(
+      (m) => (JSON.parse(m) as { method?: string }).method === 'login',
+    ).length;
+    const { getDdpClient } = await import('./ddp');
+    getDdpClient()
+      .getCurrentUser()
+      .catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loginsAfter = ws.sent.filter(
+      (m) => (JSON.parse(m) as { method?: string }).method === 'login',
+    ).length;
+    expect(loginsAfter).toBeGreaterThan(loginsBefore);
+  });
 });
 
 describe('DdpClient reconnect notification', () => {

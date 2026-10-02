@@ -221,13 +221,23 @@ export default function Huddle() {
       throw err;
     }
   }, []);
+  // Personal posts belong to the signed-in account, so an in-place sign-in has
+  // to drop them and the baseline that decides whether a failure is shown —
+  // otherwise the new user sees the previous one's posts, and a failed reload
+  // stays silent behind their loaded flag.
+  const myPostsUserId = user?.id;
+  useEffect(() => {
+    setMyPosts([]);
+    setMyPostsError(null);
+    myPostsLoadedRef.current = false;
+  }, [myPostsUserId]);
   useEffect(() => {
     if (scope !== 'me') return;
     setMyPostsLoading(true);
     refreshMyPosts()
       .catch(() => {})
       .finally(() => setMyPostsLoading(false));
-  }, [scope, refreshMyPosts]);
+  }, [scope, refreshMyPosts, myPostsUserId]);
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
