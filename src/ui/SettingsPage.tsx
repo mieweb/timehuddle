@@ -338,13 +338,28 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
   const loadedFieldsRef = useRef<string | null>(null);
+  /** Which account the baseline and the fields on screen belong to. */
+  const loadedUserIdRef = useRef<string | null>(null);
 
   // Load current profile values
   useEffect(() => {
-    if (!user?.id) return;
+    const id = user?.id;
+    if (!id) return;
     let cancelled = false;
 
-    void userApi.getUser(user.id).then((p) => {
+    // An in-place sign-in swaps the account under this form. The edits on
+    // screen are the previous user's, so they're dropped rather than carried
+    // over — otherwise they'd be saved onto the new account.
+    if (loadedUserIdRef.current !== null && loadedUserIdRef.current !== id) {
+      setName('');
+      setBio('');
+      setWebsite('');
+      setReportsToUserId('');
+      loadedFieldsRef.current = null;
+    }
+    loadedUserIdRef.current = id;
+
+    void userApi.getUser(id).then((p) => {
       if (cancelled) return;
       if (loadedFieldsRef.current !== null && fieldsRef.current !== loadedFieldsRef.current) {
         return; // unsaved edits — keep them

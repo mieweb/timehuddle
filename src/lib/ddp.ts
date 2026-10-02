@@ -582,19 +582,30 @@ class DdpClient {
   }
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
-    await this.ensureConnected();
+    // One deadline for the whole call. Starting the timer after ensureConnected()
+    // left a stalled handshake — up to four 15s attempts plus backoff — outside
+    // the timeout entirely, so a "bounded" call could still hang for a minute.
+    const deadline = Date.now() + DDP_METHOD_TIMEOUT_MS;
+    await withTimeout(
+      this.ensureConnected(),
+      DDP_METHOD_TIMEOUT_MS,
+      `DDP method "${method}" timed out connecting`,
+    );
     const ws = this.ws;
     if (!ws) throw new Error('DDP connection lost');
     const id = String(this.nextId++);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
-        if (!this.pendingMethods.delete(id)) return;
-        reject(new Error(`DDP method "${method}" timed out`));
-        // Only the socket this call was sent on; a reconnect that happened in
-        // the meantime has its own healthy one.
-        if (this.ws === ws) this.killSocket();
-      }, DDP_METHOD_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
+          if (!this.pendingMethods.delete(id)) return;
+          reject(new Error(`DDP method "${method}" timed out`));
+          // Only the socket this call was sent on; a reconnect that happened in
+          // the meantime has its own healthy one.
+          if (this.ws === ws) this.killSocket();
+        },
+        Math.max(0, deadline - Date.now()),
+      );
       this.pendingMethods.set(id, { resolve, reject, timer });
       try {
         ws.send(JSON.stringify({ msg: 'method', id, method, params }));

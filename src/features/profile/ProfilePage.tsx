@@ -113,6 +113,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     const p = await (userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!));
     setProfile(p);
     setBackgroundUrl(p.backgroundUrl ?? null);
+    // Access is back. The screens below early-return on these, so leaving one
+    // set would keep an error page up over a profile that just loaded fine.
+    setIsForbidden(false);
+    setIsNotFound(false);
   }, [userId, username]);
 
   // 403/404 are the server's verdict on whether this profile may be shown at

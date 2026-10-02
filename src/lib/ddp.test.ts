@@ -108,6 +108,33 @@ describe('DdpClient.call timeout', () => {
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
 
+  it('rejects within the method timeout when the socket never completes the handshake', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+
+    // Socket opens but no `connected` ever arrives, so ensureConnected() sits
+    // through its own 15s-per-attempt retries. The deadline covers that too.
+    const callPromise = client.call('some.method');
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0].readyState = FakeWebSocket.OPEN;
+
+    let settled = false;
+    callPromise.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2);
+    await expect(callPromise).rejects.toThrow(/timed out connecting/);
+  });
+
   it('resolves normally when a result arrives before the timeout, and clears the pending timer', async () => {
     const { getDdpClient } = await freshDdpModule();
     const client = getDdpClient();
