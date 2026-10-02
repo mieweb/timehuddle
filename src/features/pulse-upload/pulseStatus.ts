@@ -15,6 +15,21 @@ export function landedLabel(destination: PulseDestination): string {
   return LANDED_LABELS[destination.kind];
 }
 
+/** Where a Pulse video goes once it uploads, said before recording. */
+const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
+  huddle: "It's posted to Huddle as soon as it uploads.",
+  'clock-plan': "It's posted as your plan, and you're clocked in, as soon as it uploads.",
+  'clock-wrapup': "It's posted as your wrap-up, and you're clocked out, as soon as it uploads.",
+  ticket: "It's added to this ticket as soon as it uploads.",
+  redmine: "It's added to this issue as soon as it uploads.",
+  clock: "It's added to this session as soon as it uploads.",
+  'timesheet-request': 'It goes to your approver as soon as it uploads.',
+};
+
+export function uploadHint(destination: PulseDestination): string {
+  return UPLOAD_HINTS[destination.kind];
+}
+
 /**
  * Where a Pulse draft's name shows up, said before recording: the server uses
  * it as the post's text, the wrap-up line, or the attachment's title. A
@@ -23,7 +38,7 @@ export function landedLabel(destination: PulseDestination): string {
 export function titleHint(destination: PulseDestination): string | null {
   return destination.kind === 'timesheet-request'
     ? null
-    : "The name you give your draft in Pulse becomes the video's title.";
+    : "Your Pulse draft's name becomes the video's title.";
 }
 
 /**
