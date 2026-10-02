@@ -773,11 +773,20 @@ export default function Huddle() {
                               typed here goes with it; refetch in case the live
                               feed missed it (DDP dropped while in the Pulse app). */}
                           {postingTeamId && (
-                            <PulseButton
-                              destination={{ kind: 'huddle', teamId: postingTeamId }}
-                              ariaLabel="Post a video with Pulse"
-                              onSettled={() => void refreshActiveScope()}
-                            />
+                            <>
+                              <PulseButton
+                                destination={{ kind: 'huddle', teamId: postingTeamId }}
+                                ariaLabel="Post a video with Pulse"
+                                onSettled={() => void refreshActiveScope()}
+                              />
+                              {/* "Or": a Pulse is a post of its own, not part of the one being typed. */}
+                              <span
+                                className="huddle-composer-or px-0.5 text-sm text-neutral-300 dark:text-neutral-600"
+                                aria-hidden="true"
+                              >
+                                /
+                              </span>
+                            </>
                           )}
                           {postingTeamId && (
                             <TicketPicker
