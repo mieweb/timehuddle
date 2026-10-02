@@ -1,15 +1,6 @@
-import { faCircleCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faCircleCheck } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Button,
-  ModalBody,
-  ModalClose,
-  ModalFooter,
-  ModalHeader,
-  ModalTitle,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
+import { ModalBody, ModalClose, ModalHeader, ModalTitle, Spinner, Text } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
@@ -113,13 +104,6 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
           </div>
         </div>
       </ModalBody>
-
-      <ModalFooter>
-        <Button size="sm" variant="ghost" onClick={closeModal}>
-          <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
-          Close
-        </Button>
-      </ModalFooter>
     </AppModal>
   );
 };
