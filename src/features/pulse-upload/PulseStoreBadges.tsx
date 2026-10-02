@@ -1,7 +1,7 @@
 import React from 'react';
 
-import appStoreBadge from '../../../vendor/pulsevault/assets/badge-app-store.svg';
-import googlePlayBadge from '../../../vendor/pulsevault/assets/badge-google-play.png';
+import appStoreBadge from '@mieweb/pulsevault/assets/badge-app-store.svg';
+import googlePlayBadge from '@mieweb/pulsevault/assets/badge-google-play.png';
 import { PULSE_STORE_URLS } from '../../lib/device';
 
 /**

@@ -55,12 +55,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Only init meteor-wormhole and pulsevault — @mieweb/ui is installed
-          # from npm, no submodule needed for it.
+          # Only init meteor-wormhole — @mieweb/ui is installed from npm, no
+          # submodule needed for it.
           submodules: false
 
-      - name: Init meteor-wormhole and pulsevault submodules
-        run: git submodule update --init vendor/meteor-wormhole vendor/pulsevault
+      - name: Init meteor-wormhole submodule
+        run: git submodule update --init vendor/meteor-wormhole
 
       - id: container
         name: Compute container name

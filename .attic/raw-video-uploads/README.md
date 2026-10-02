@@ -3,7 +3,7 @@
 **Archived on**: 2026-09-30
 
 **Reason**: Videos now come into TimeHuddle through the Pulse app only.
-PulseVault (`@mieweb/pulsevault`, vendored at `vendor/pulsevault`) is built for
+PulseVault (`@mieweb/pulsevault`) is built for
 Pulse's pairing-link upload protocol, not as a general file-upload endpoint, and
 the web app's own "pick a video file" paths were borrowing it. A proper video
 upload API will be designed separately. Until then there is no browser-side

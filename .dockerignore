@@ -1,9 +1,6 @@
 # Dependencies
 node_modules/
 vendor/ui/node_modules/
-# Built inside the image by scripts/build-pulsevault.sh — never copy the host's.
-vendor/pulsevault/node_modules/
-vendor/pulsevault/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

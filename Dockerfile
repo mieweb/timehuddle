@@ -33,11 +33,6 @@ COPY packages/ota-version ./packages/ota-version
 COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts
-# @mieweb/pulsevault is the vendor/pulsevault submodule, which meteor-backend
-# takes as a file: dependency — so, like ota-version, it has to be present (and,
-# unlike it, built) before the meteor-backend install below.
-COPY vendor/pulsevault ./vendor/pulsevault
-RUN bash scripts/build-pulsevault.sh
 
 # @mieweb/ui installs from the committed tarball (package.json:
 # "@mieweb/ui": "file:vendor/mieweb-ui.tgz", built from the vendor/ui
