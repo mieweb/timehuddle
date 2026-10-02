@@ -362,7 +362,8 @@ test.describe('PulseVault — Ticket video upload', () => {
         attachedTo: { kind: 'ticket', id: ticketId },
       },
     });
-    if (res.ok()) expect((await res.json()).result.attachment.thumbnail).toBeNull();
+    expect(res.ok()).toBe(true);
+    expect((await res.json()).result.attachment.thumbnail ?? null).toBeNull();
     expect(await posterLocation(page.request, videoid)).toBe(before);
   });
 

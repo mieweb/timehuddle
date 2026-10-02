@@ -371,6 +371,15 @@ function normalizeForSearch(text: string): string {
 
 /** Everything a post can be found by: body, author, ticket, attachments, team
  *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+/**
+ * Text as a reader sees it: no markdown link targets and no GenUI card
+ * payloads (one line or pretty-printed), so media URLs, widget names and
+ * artifact ids don't match every query.
+ */
+function searchableText(text: string): string {
+  return text.replace(/\]\([^)]*\)/g, ']').replace(/```genui[\s\S]*?```/g, '');
+}
+
 function postSearchText(post: HuddlePost, teamName?: string): string {
   const dateKey = getPostDateKey(post);
   const [year, month, day] = dateKey.split('-').map(Number);
@@ -381,7 +390,7 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
     year: 'numeric',
   });
   return [
-    post.content.text,
+    searchableText(post.content.text),
     post.userName,
     post.ticketTitle,
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
@@ -420,11 +429,7 @@ export function searchConversations(
         conversation.title,
         ...conversation.participants.map((p) => p.name),
         ...conversation.thread.map((message) => {
-          // Drop markdown link targets and GenUI card payloads so media URLs
-          // and artifact ids don't match every query.
-          const shown = (message.text ?? '')
-            .replace(/\]\([^)]*\)/g, ']')
-            .replace(/```genui\n[^\n]*\n```/g, '');
+          const shown = searchableText(message.text ?? '');
           const post = postsById.get(message.id);
           return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
         }),

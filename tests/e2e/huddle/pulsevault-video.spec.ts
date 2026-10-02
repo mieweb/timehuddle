@@ -337,13 +337,14 @@ test.describe('Huddle — ticket video cross-posting', () => {
   test.setTimeout(120000);
 
   const TICKET_TITLE = `Huddle Cross-post Ticket ${Date.now()}`;
+  let ticketVideoId: string;
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     // "Test Team" prefix: global teardown only removes orphaned teams named that way.
     await createFreshTeam(page, `Test Team Cross-post ${Date.now()}`);
     await createTicket(page, TICKET_TITLE);
-    await uploadVideoToTicket(page, TICKET_TITLE);
+    ({ videoid: ticketVideoId } = await uploadVideoToTicket(page, TICKET_TITLE));
   });
 
   test.afterEach(async ({ page }) => {
@@ -374,8 +375,11 @@ test.describe('Huddle — ticket video cross-posting', () => {
     // The ticket video's poster comes with it: it belongs to the video.
     await expectImageLoaded(play.locator('img'));
 
-    // Playing swaps the poster for an inline player on the real artifact URL.
+    // Playing swaps the poster for an inline player on the ticket video's own
+    // artifact URL — the same video, not just some video.
     await play.click();
-    await expect(post.locator('video[src*="/pulsevault/artifacts/"]')).toBeVisible();
+    await expect(
+      post.locator(`video[src*="/pulsevault/artifacts/${ticketVideoId}"]`),
+    ).toBeVisible();
   });
 });
