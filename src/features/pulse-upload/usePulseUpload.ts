@@ -137,19 +137,26 @@ export function usePulseUpload(
     [],
   );
 
+  // Let go of the current link while its video may still be on its way: it's
+  // watched on, and its outcome toasted and reported to the host.
+  const handOff = useCallback(() => {
+    const { link: pending, waiting, toasts: notify } = inFlight.current;
+    if (pending && waiting && notify) {
+      void watchDetached(pending, notify, (s) => onSettledRef.current?.(s));
+    }
+  }, []);
+
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket, the next day's plan), this hook starts afresh;
-  // the earlier link still delivers where it was meant to, and is watched on
-  // the same way.
+  // the earlier link still delivers where it was meant to, and is watched on.
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
-    const { link: pending, waiting, toasts: notify } = inFlight.current;
-    if (!pending || pending.destinationKey === destinationKey) return;
-    if (waiting && notify) void watchDetached(pending, notify, (s) => onSettledRef.current?.(s));
+    if (!inFlight.current.link || inFlight.current.link.destinationKey === destinationKey) return;
+    handOff();
     setLink(null);
     setStatus(null);
     setModalOpen(false);
-  }, [destinationKey]);
+  }, [destinationKey, handOff]);
 
   // Watch the link until its video lands or it expires: on a timer while the
   // page is visible (a phone often comes back from the Pulse app before the
@@ -232,10 +239,12 @@ export function usePulseUpload(
       at: Date.now(),
       destinationKey,
     };
+    // An expired link's video can still be converting: watch it on.
+    handOff();
     setLink(next);
     setStatus({ state: 'waiting' });
     await openLink(next);
-  }, [current, status?.state, destinationKey, openLink]);
+  }, [current, status?.state, destinationKey, openLink, handOff]);
 
   const closeModal = useCallback(() => setModalOpen(false), []);
 
