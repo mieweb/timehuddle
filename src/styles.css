@@ -21,15 +21,22 @@ html[data-theme='dark'] {
   padding-top: max(env(safe-area-inset-top), 0px);
 }
 
+/* One height for the bottom nav and the space reserved for it, so content
+   (e.g. the Huddle chat input) sits flush on the bar with no gap. */
+:root {
+  --bottom-nav-height: 4rem;
+}
+
 /* Bottom nav safe area — sits above the iPhone home indicator */
 .bottom-nav {
+  height: calc(var(--bottom-nav-height) + max(env(safe-area-inset-bottom), 0px));
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
 
 /* Main scroll area on mobile — clears bottom nav + home indicator */
 @media not (min-width: 768px) {
   .app-main-scroll {
-    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--bottom-nav-height) + max(env(safe-area-inset-bottom), 0px));
   }
 }
 

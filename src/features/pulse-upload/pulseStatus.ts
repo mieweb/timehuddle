@@ -6,6 +6,7 @@ const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   'clock-plan': "Plan posted — you're clocked in",
   'clock-wrapup': "Wrap-up posted — you're clocked out",
   ticket: 'Added',
+  redmine: 'Added',
   clock: 'Added',
   'timesheet-request': 'Walkthrough added — the approver will see it',
 };

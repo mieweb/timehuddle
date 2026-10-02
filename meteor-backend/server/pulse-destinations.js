@@ -11,7 +11,9 @@
  *   clock-plan         → a new plan post, then clock in to that team
  *   clock-wrapup       → the session's post gets the video as its wrap-up,
  *                        then clock out
- *   ticket | clock     → an attachment on that ticket / clock session
+ *   ticket | redmine | clock
+ *                      → an attachment on that ticket / Redmine issue / clock
+ *                        session
  *   timesheet-request  → the walkthrough on the caller's pending change request
  *   library            → the caller's media library (API clients)
  *
@@ -33,6 +35,7 @@ import { createAttachment } from './attachments.js';
 import { isValidId, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, getTeam, isTeamMember, POST_DATE_RE } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
+import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -236,6 +239,17 @@ const DESTINATIONS = {
       if (!ticket) throw new Meteor.Error('not-found', 'That ticket no longer exists.');
       // Whoever can see the team's tickets (tickets.list's own check).
       await requireTeamMembership(userId, String(ticket.teamId));
+      return { id };
+    },
+    deliver: attachVideo,
+  },
+
+  // A Redmine issue's attachments live only in TimeHuddle, on an issue the
+  // uploader's own Redmine key can see (attachments.add's own check).
+  [REDMINE]: {
+    async resolve(userId, { id }) {
+      if (typeof id !== 'string' || !id) throw badRequest('Invalid Redmine issue id');
+      await resolveTicketRef(userId, REDMINE, id);
       return { id };
     },
     deliver: attachVideo,

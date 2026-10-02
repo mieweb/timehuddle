@@ -17,6 +17,18 @@
   methods. Draft rows already in `huddlePosts` (`status: 'draft'`) are left in place and still
   filtered out of every feed.
 
+- `HuddleComposer.tsx` — the Huddle page's "Share an update…" composer (Kerebron rich editor, attach
+  bar, Pulse, ticket picker, @mentions). Archived 2026-10-01: posting moved into the inbox's own
+  message box (SuperChat's `ChatComposer`, configured through `composerProps`), so a conversation
+  is where you write. Its `ComposerContent` type went with it; the ticket-video pull-in it did now
+  lives in `src/features/huddle/useTicketVideos.ts`.
+- `collab.ts` — the Yjs room config (`huddlePostCollab`) that let two people edit one post live.
+  Only `HuddleComposer`'s edit mode used it, and inline edit in the inbox is SuperChat's plain
+  text box, so nothing opens a collaborative editor any more. The `/yjs/<postId>` relay on the
+  backend is untouched.
+- `yjs-collab-editing.spec.ts` — the e2e test for that live co-editing. It already drove the
+  removed card view (`Switch to card view`, `Post actions`), so it could not pass on `main` either.
+
 ## Why They're Archived, Not Deleted
 
 `SuperChatInbox` has no per-message reply/thread concept, so comments have no equivalent surface in

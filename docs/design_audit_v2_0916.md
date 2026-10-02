@@ -157,12 +157,12 @@ Three of these (`InstallerModal`, `UsernameClaimModal`, `OtaUpdateGate`) are the
 
 ### 4.4 Hand-rolled progress and spinners
 
-| File                                                                                                  | Line     | Markup                                                       | Should be           |
-| ----------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------ | ------------------- |
-| [src/ui/OtaUpdateGate.tsx](../src/ui/OtaUpdateGate.tsx)                                               | ~108     | `<div role="progressbar">` + inline width                    | `Progress`          |
-| [src/features/pulse-upload/PulseUploadButton.tsx](../src/features/pulse-upload/PulseUploadButton.tsx) | 253, 261 | `role="progressbar"` + `style={{ width: \`${progress}%\` }}` | `Progress`          |
-| [src/features/huddle/AttachmentBar.tsx](../src/features/huddle/AttachmentBar.tsx)                     | ~33      | inline `<svg className="animate-spin">`                      | `Spinner`           |
-| `CommandPalette.tsx`, `Timer.tsx`, `WorkPage.tsx`, `Huddle.tsx`                                       | —        | `animate-spin` usages                                        | Review case-by-case |
+| File                                                                                                  | Line     | Markup                                                      | Should be           |
+| ----------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------- | ------------------- |
+| [src/ui/OtaUpdateGate.tsx](../src/ui/OtaUpdateGate.tsx)                                               | ~108     | `<div role="progressbar">` + inline width                   | `Progress`          |
+| [src/features/pulse-upload/PulseUploadButton.tsx](../src/features/pulse-upload/PulseUploadButton.tsx) | 253, 261 | `role="progressbar"` + inline `style` width from `progress` | `Progress`          |
+| [src/features/huddle/AttachmentBar.tsx](../src/features/huddle/AttachmentBar.tsx)                     | ~33      | inline `<svg className="animate-spin">`                     | `Spinner`           |
+| `CommandPalette.tsx`, `Timer.tsx`, `WorkPage.tsx`, `Huddle.tsx`                                       | —        | `animate-spin` usages                                       | Review case-by-case |
 
 ---
 

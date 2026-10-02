@@ -2,10 +2,11 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { REDMINE, resolveTicketRef } from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
-const VALID_KINDS = ['clock', 'ticket'];
+const VALID_KINDS = ['clock', 'ticket', REDMINE];
 const VALID_TYPES = ['video', 'image', 'link'];
 
 function toPublic(a) {
@@ -48,7 +49,9 @@ async function fetchYouTubeTitle(url) {
 export async function createAttachment({ url, type, title, thumbnail, attachedTo, addedBy }) {
   if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
   if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
-  if (!attachedTo?.kind || !attachedTo?.id) throw new Meteor.Error('bad-request', 'attachedTo is required');
+  if (!attachedTo?.kind || typeof attachedTo.id !== 'string' || !attachedTo.id) {
+    throw new Meteor.Error('bad-request', 'attachedTo is required');
+  }
   if (!VALID_KINDS.includes(attachedTo.kind)) throw new Meteor.Error('bad-request', 'Invalid attachedTo.kind');
 
   const resolvedTitle = title ?? (isYouTubeUrl(url) ? await fetchYouTubeTitle(url) : undefined);
@@ -67,12 +70,22 @@ export async function createAttachment({ url, type, title, thumbnail, attachedTo
   return toPublic(doc);
 }
 
+/**
+ * A Redmine issue's attachments live only in TimeHuddle, but they belong to an
+ * issue the caller's own key must be able to see — `resolveTicketRef` throws
+ * when it cannot. Huddle tickets and clock entries are not gated here.
+ */
+async function assertCanReach(userId, attachedTo) {
+  if (attachedTo.kind === REDMINE) await resolveTicketRef(userId, REDMINE, attachedTo.id);
+}
+
 Meteor.methods({
   async 'attachments.list'({ kind, id }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!VALID_KINDS.includes(kind)) throw new Meteor.Error('bad-request', 'Invalid kind');
     if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', 'id is required');
+    await assertCanReach(userId, { kind, id });
 
     const docs = await rawDb().collection('attachments')
       .find({ 'attachedTo.kind': kind, 'attachedTo.id': id })
@@ -83,6 +96,10 @@ Meteor.methods({
 
   async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
     const identity = await requireIdentity(this);
+    // A string id, as `list` matches it: a numeric one would pass the Redmine
+    // check but be stored where no list ever finds it.
+    if (typeof attachedTo?.id !== 'string') throw new Meteor.Error('bad-request', 'attachedTo is required');
+    await assertCanReach(identity.userId, attachedTo);
     const attachment = await createAttachment({ url, type, title, thumbnail, attachedTo, addedBy: identity.userId });
     return { attachment };
   },

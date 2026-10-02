@@ -24,6 +24,33 @@ export const TimesheetChangeRequests = new Mongo.Collection('timesheetchangerequ
   idGeneration: 'MONGO',
 });
 
+// One row per TimeHuddle user who has linked a personal Redmine account.
+// The personal API key is stored encrypted at rest (see redmine-crypto.js) and
+// is never returned to the client.
+export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration: 'MONGO' });
+// One row per (user, ticket) a user has added to their personal "My Board".
+// Identity only — { userId, sourceId, ticketId, addedAt } — no title/status
+// snapshot. Display fields are resolved client-side against already-fetched
+// unified tickets (Core Model Data Discipline).
+export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' });
+// One row per time entry TimeHuddle has created in Redmine, or per stretch of
+// time the user chose never to send (row shape: redmine-time-sync.js).
+//
+// Deliberately NOT a field on WorkItems: `timers.copyPrevious` dedupes on a
+// signature that includes `note` and `sortOrder`, so sibling WorkItem rows for
+// the same user + source + ticket + date legitimately exist, and what has been
+// sent has to be totalled per ticket-day across them.
+export const RedmineTimeSyncs = new Mongo.Collection('redmine_time_syncs', { idGeneration: 'MONGO' });
+// One row per (user, Redmine issue) the user has pinned or dismissed — TimeHuddle's
+// own opinion about a Redmine issue, which Redmine has no field for.
+//
+// Ids, a state, a boolean and a date — never a subject or description: issue
+// content must not land in TimeHuddle, and a cached title here would be both a
+// PHI store and a stale one (row shape and expiry: redmine-prefs.js).
+export const RedmineIssuePrefs = new Mongo.Collection('redmine_issue_prefs', {
+  idGeneration: 'MONGO',
+});
+
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {
   return Tickets.rawDatabase();
@@ -33,3 +60,6 @@ export function isValidId(id) {
   if (typeof id !== 'string') return false;
   return /^[0-9a-f]{24}$/i.test(id) || /^[a-zA-Z0-9]{7,32}$/.test(id);
 }
+
+/** Mongo's error code for a write that violates a unique index. */
+export const DUPLICATE_KEY_ERROR_CODE = 11000;

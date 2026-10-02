@@ -31,6 +31,11 @@ _build
 # Local runtime secrets (never commit)
 settings.json
 
+# Personal Claude Code setup — local-only, machine-specific, never commit
+.claude/settings.local.json
+.claude/local/
+CLAUDE.local.md
+
 # Local PM2 process config (machine-specific paths, never commit)
 ecosystem.config.cjs
 
@@ -55,10 +60,9 @@ meteor-backend/.meteor/local-test/
 backend/nginx-apple-proxy.conf
 meteor-backend/start-rosetta.sh
 
-# Local working clone of github.com/mieweb/ui — has its own .git, so committing
-# it would record a gitlink with no matching .gitmodules entry. @mieweb/ui is
-# consumed from npm; nothing in this project reads vendor/ui.
-vendor/ui/
+# vendor/ui is a submodule (see .gitmodules); its build output is packed into
+# the committed vendor/mieweb-ui.tgz. Only the pack's leftovers are ignored.
+vendor/ui/*.tgz
 
 # Database backups (migration and production backups)
 backups/

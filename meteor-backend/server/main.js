@@ -22,6 +22,12 @@ import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
+import './redmine';
+import './redmine-issue-methods';
+import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
+// Imported for its Meteor.startup unique-index creation, not for a method.
+import './redmine-time-sync';
+import './my-board';
 import './clock';
 import './timers';
 import './timesheet-approvals';
@@ -916,7 +922,7 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('tickets.create', {
-    description: 'Create a ticket in a team (creator is auto-assigned)',
+    description: 'Create a ticket in a team (assigned to the creator unless assignedToUserIds is given)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -925,6 +931,11 @@ Meteor.startup(async() => {
         description: { type: 'string' },
         github: { type: 'string', description: 'GitHub issue/PR URL' },
         priority: { type: 'string', enum: ['none', 'low', 'medium', 'high', 'critical'] },
+        assignedToUserIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Team members to assign (defaults to the creator)',
+        },
       },
       required: ['teamId', 'title'],
     },
@@ -995,6 +1006,260 @@ Meteor.startup(async() => {
       },
       required: ['ticketIds', 'teamId', 'status'],
     },
+  });
+
+  // ── Redmine ──────────────────────────────────────────────────────────────
+
+  Wormhole.expose('redmine.connect', {
+    description: "Link the caller's personal Redmine account by validating an API key",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apiKey: { type: 'string', description: 'Personal Redmine API key' },
+        baseUrl: {
+          type: 'string',
+          description: 'Redmine instance URL; honoured only when REDMINE_ALLOW_CUSTOM_URL=true',
+        },
+      },
+      required: ['apiKey'],
+    },
+  });
+
+  Wormhole.expose('redmine.disconnect', {
+    description: "Remove the caller's Redmine account link",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.status', {
+    description: "The caller's Redmine connection status (never returns the API key)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.issues.relevant', {
+    description:
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running)",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeDismissed: {
+          type: 'boolean',
+          description: 'Keep issues the caller hid from their suggestions (the Tickets table does)',
+        },
+      },
+    },
+  });
+
+  Wormhole.expose('redmine.issues.search', {
+    description:
+      'Find Redmine issues by number, pasted link, @assignee or words matched against issue titles only (max 25)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: "What the user typed: '1234', '#1234', a Redmine issue URL, '@name', or words",
+        },
+      },
+      required: ['query'],
+    },
+  });
+
+  Wormhole.expose('redmine.prefs.set', {
+    description:
+      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine). Refused with 'too-many-pins' past the per-user pin cap",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueId: { type: 'integer' },
+        state: {
+          type: ['string', 'null'],
+          enum: ['pinned', 'dismissed', null],
+          description: 'null lifts a hide (Undo / Restore); a pin stays',
+        },
+      },
+      required: ['issueId', 'state'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.removeFromTable', {
+    description:
+      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueIds: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 1,
+          maxItems: MAX_REMOVE_PER_CALL,
+        },
+      },
+      required: ['issueIds'],
+    },
+  });
+
+  Wormhole.expose('redmine.prefs.listDismissed', {
+    description: 'Redmine issues the caller has hidden from their suggestions, for the Restore list',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.projects.list', {
+    description: "Redmine projects the caller's key can see (for creating an issue)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.projects.formOptions', {
+    description: "A Redmine project's trackers, assignable users and the instance's priorities",
+    inputSchema: {
+      type: 'object',
+      properties: { projectId: { type: 'integer' } },
+      required: ['projectId'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.get', {
+    description: 'One Redmine issue with its description, allowed status changes and Redmine history',
+    inputSchema: {
+      type: 'object',
+      properties: { issueId: { type: 'integer' } },
+      required: ['issueId'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.create', {
+    description: 'Create a Redmine issue as the caller, confirmed by read-back',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'integer' },
+        trackerId: { type: ['integer', 'null'] },
+        subject: { type: 'string' },
+        description: { type: 'string' },
+        assigneeId: { type: ['integer', 'null'] },
+        priorityId: { type: ['integer', 'null'] },
+      },
+      required: ['projectId', 'subject'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.update', {
+    description:
+      "Edit a Redmine issue's status, priority, assignee or description as the caller; refused if it changed since expectedUpdatedAt",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueId: { type: 'integer' },
+        expectedUpdatedAt: { type: 'string' },
+        edits: {
+          type: 'object',
+          properties: {
+            statusId: { type: 'integer' },
+            priorityId: { type: 'integer' },
+            assigneeId: { type: ['integer', 'null'] },
+            description: { type: 'string' },
+          },
+        },
+      },
+      required: ['issueId', 'expectedUpdatedAt', 'edits'],
+    },
+  });
+
+  Wormhole.expose('redmine.activities.list', {
+    description:
+      "The instance's time-entry activities plus which one the caller's time logs under",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.activities.setDefault', {
+    description: "Set the caller's default Redmine time-entry activity",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        activityId: { type: 'number', description: 'Redmine time-entry activity id' },
+      },
+      required: ['activityId'],
+    },
+  });
+
+  Wormhole.expose('redmine.timeEntries.preview', {
+    description:
+      'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.timeEntries.discard', {
+    description:
+      "Never send one ticket-day's unsent time to Redmine. Writes nothing to Redmine; the time stays in TimeHuddle.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+      },
+      required: ['ticketId', 'date'],
+    },
+  });
+
+  Wormhole.expose('redmine.timeEntries.push', {
+    description:
+      'Create one Redmine time entry per confirmed ticket-day. Irreversible: entries cannot be edited or deleted afterwards.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entries: {
+          type: 'array',
+          description: 'Ticket-days to send. Hours are recomputed server-side, never taken from here.',
+          items: {
+            type: 'object',
+            properties: {
+              ticketId: { type: 'string', description: 'Redmine issue id' },
+              date: { type: 'string', description: 'The day being logged, YYYY-MM-DD' },
+              activityId: {
+                type: 'number',
+                description: 'Optional override of the resolved activity',
+              },
+            },
+            required: ['ticketId', 'date'],
+          },
+        },
+      },
+      required: ['entries'],
+    },
+  });
+
+  // ── My Board ─────────────────────────────────────────────────────────────
+
+  Wormhole.expose('myBoard.list', {
+    description: "List the caller's My Board entries (identity only)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  const myBoardRefsSchema = {
+    type: 'object',
+    properties: {
+      refs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sourceId: { type: 'string' },
+            ticketId: { type: 'string' },
+          },
+          required: ['sourceId', 'ticketId'],
+        },
+      },
+    },
+    required: ['refs'],
+  };
+
+  Wormhole.expose('myBoard.addMany', {
+    description: "Add tickets to the caller's My Board (idempotent)",
+    inputSchema: myBoardRefsSchema,
+  });
+
+  Wormhole.expose('myBoard.removeMany', {
+    description: "Remove tickets from the caller's My Board",
+    inputSchema: myBoardRefsSchema,
   });
 
   Wormhole.expose('clock.active', {
@@ -1368,9 +1633,20 @@ Meteor.startup(async() => {
     description: 'Get all running timers for members of a team',
     inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
   });
+  Wormhole.expose('timers.getTicketSessions', {
+    description: "The caller's own timer sessions on one ticket, newest first",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        source: { type: 'string', enum: ['huddle', 'redmine'] },
+      },
+      required: ['ticketId'],
+    },
+  });
   Wormhole.expose('timers.getTicketTotal', {
-    description: 'Get total seconds for a ticket across all closed sessions',
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' } }, required: ['ticketId'] },
+    description: "Get the caller's own total seconds for a ticket across all closed sessions",
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, source: { type: 'string', enum: ['huddle', 'redmine'] } }, required: ['ticketId'] },
   });
   Wormhole.expose('timers.createEntry', {
     description: 'Create a WorkItem for a ticket on a given date',
@@ -1847,7 +2123,7 @@ Meteor.startup(async() => {
 
   // ── Attachments ────────────────────────────────────────────────────────────
 
-  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
+  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket', 'redmine'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
   Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, thumbnail: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
   Wormhole.expose('attachments.remove', { description: 'Delete attachment (owner only)', inputSchema: { type: 'object', properties: { attachmentId: { type: 'string' } }, required: ['attachmentId'] } });
 
@@ -1870,7 +2146,7 @@ Meteor.startup(async() => {
           type: 'object',
           description:
             'Where the video goes: { kind: huddle, teamId } | { kind: clock-plan, teamId, postDate } | ' +
-            '{ kind: clock-wrapup, clockEventId, postDate } | { kind: ticket | clock | timesheet-request, id } | ' +
+            '{ kind: clock-wrapup, clockEventId, postDate } | { kind: ticket | redmine | clock | timesheet-request, id } | ' +
             '{ kind: library }',
           properties: {
             kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },

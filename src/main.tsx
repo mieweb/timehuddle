@@ -354,17 +354,21 @@ const App: React.FC = () => {
     window.location.href = `/api/auth/oauth2/authorize?${oauthParams.toString()}`;
     return null;
   }
+  // Keyed by user: the shell keeps a lot mounted (the Tickets page, a ticket
+  // start waiting on a clock-in), and a session can change hands without passing
+  // through signed-out — another tab signs in, then this one's socket reconnects.
+  // A new key remounts the shell, so nothing one user left behind reaches the next.
   if (needsUsernameClaim)
     return (
       <>
-        <AppLayout />
+        <AppLayout key={user.id} />
         <UsernameClaimModal />
       </>
     );
 
   return (
     <>
-      <AppLayout />
+      <AppLayout key={user.id} />
       {ownershipChecked && showTakeOwnershipModal && (
         <InstallerModal onTaken={() => setShowTakeOwnershipModal(false)} />
       )}

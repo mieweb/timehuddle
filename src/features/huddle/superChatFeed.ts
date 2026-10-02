@@ -51,7 +51,7 @@ export interface InboxViewer {
   isAdmin: boolean;
 }
 
-const SYSTEM_PARTICIPANT_ID = 'system';
+export const SYSTEM_PARTICIPANT_ID = 'system';
 const OFF_THE_CLOCK = 'Off the clock';
 
 /** "YYYY-MM-DD" for the given epoch ms, based on the local calendar date. */
@@ -387,6 +387,48 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** Id of the {@link starterConversation}; it never matches a real post. */
+export const STARTER_CONVERSATION_ID = 'starter';
+
+/**
+ * The conversation the inbox shows when there are no posts at all. SuperChat
+ * only renders its chat input inside an open conversation, so with zero data
+ * the page still needs one for the user to post the first update from. It
+ * exists only on screen: the first real post replaces it.
+ */
+export function starterConversation(
+  viewer: { userId: string; name: string },
+  scope: 'team' | 'me',
+  now: number = Date.now(),
+): SuperChatConversation {
+  const hint =
+    scope === 'me'
+      ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
+      : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
+  return {
+    id: STARTER_CONVERSATION_ID,
+    title: 'Today',
+    participants: [
+      {
+        id: viewer.userId,
+        kind: 'human',
+        name: viewer.name,
+        color: avatarColorToCss(getUserColor(viewer.userId)),
+      },
+    ],
+    thread: [
+      {
+        id: `${STARTER_CONVERSATION_ID}:hint`,
+        type: 'system',
+        participantId: SYSTEM_PARTICIPANT_ID,
+        text: hint,
+        time: new Date(now),
+      },
+    ],
+    lastActivity: new Date(now),
+  };
 }
 
 /**

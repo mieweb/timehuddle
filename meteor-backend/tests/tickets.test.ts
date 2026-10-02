@@ -233,6 +233,37 @@ describe('tickets (wormhole)', () => {
     expect(res.error).toContain('All assignees must be team members');
   });
 
+  it('creates a ticket assigned to the chosen team members (M6 dialog)', async () => {
+    const res = await wormhole<{ assignedTo: string[] }>(
+      'tickets.create',
+      { teamId, title: 'Assigned at creation', assignedToUserIds: [memberId] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.assignedTo).toEqual([memberId]);
+  });
+
+  it('still assigns the creator when no assignees are given', async () => {
+    const res = await wormhole<{ assignedTo: string[] }>(
+      'tickets.create',
+      { teamId, title: 'Default assignee' },
+      memberJwt,
+    );
+    expect(res.result.assignedTo).toEqual([memberId]);
+  });
+
+  it('rejects creating a ticket assigned to someone outside the team', async () => {
+    const db = await getDb();
+    const outsiderDoc = await db.collection('users').findOne({ 'emails.address': OUTSIDER.email });
+    const res = await wormhole(
+      'tickets.create',
+      { teamId, title: 'Nope', assignedToUserIds: [String(outsiderDoc!._id)] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('All assignees must be team members');
+  });
+
   it('batch updates status', async () => {
     const res = await wormhole<{ modified: number }>(
       'tickets.batchStatus',

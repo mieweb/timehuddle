@@ -5,3 +5,7 @@
 [submodule "vendor/pulsevault"]
 	path = vendor/pulsevault
 	url = https://github.com/mieweb/pulsevault
+[submodule "vendor/ui"]
+	path = vendor/ui
+	url = https://github.com/Dharp02/ui.git
+	branch = feat/superchat-host-extension-points

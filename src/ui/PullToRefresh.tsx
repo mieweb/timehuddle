@@ -44,6 +44,14 @@ const INTERACTIVE_SELECTORS =
   // the WKWebView never gets a clean touch sequence to focus the editor.
   '[contenteditable="true"], .kb-custom-menu__editor';
 
+/** Whether any element from `target` up to (not including) `boundary` is scrolled down. */
+function scrolledAncestorBetween(target: Element | null, boundary: Element): boolean {
+  for (let node = target; node && node !== boundary; node = node.parentElement) {
+    if (node.scrollTop > 2) return true;
+  }
+  return false;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface PullToRefreshProps {
@@ -142,6 +150,14 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
 
       // Page is not at the top — allow normal scrolling
       if (getScrollTop() > 2) return;
+      // Same for a scroll area inside the page (a chat thread): pulling down
+      // there scrolls it back up instead of refreshing. Block the whole
+      // gesture, not just this move — otherwise reaching that area's top
+      // mid-drag hands the already-accumulated `dy` straight to the pull.
+      if (scrolledAncestorBetween(e.target as Element | null, el)) {
+        blockedRef.current = true;
+        return;
+      }
 
       // ─── Key fix: don't take over until the user has CLEARLY pulled ──────────
       // Taps involve < ACTIVATION_PX of movement and pass through unmodified,
@@ -222,11 +238,9 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
     // Flex-column layout: spacer expands to show the indicator, content fills
     // the rest. Using height instead of CSS transform avoids creating a new
     // stacking context, which would break position:fixed modal backdrops.
-    <div
-      ref={containerRef}
-      className="flex min-h-full w-full flex-col"
-      data-testid="pull-to-refresh"
-    >
+    // A definite height (not min-height) so `AppPage fill` pages can size to
+    // the screen; taller pages overflow it and <main> still scrolls them.
+    <div ref={containerRef} className="flex h-full w-full flex-col" data-testid="pull-to-refresh">
       {/* Pull indicator — spacer height grows to reveal spinner */}
       <div
         aria-hidden
@@ -251,7 +265,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
       </div>
 
       {/* Page content — normal document flow, no transform, no stacking context */}
-      <div>{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
 };

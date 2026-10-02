@@ -89,8 +89,8 @@ graph LR
 - **Clock in/out** — per-team shift tracking with breaks, and an 8-hour auto-clockout safety net
 - **Ticket timers** — start/stop timers per ticket per day, with multiple sessions rolled into a net total
 - **Unified ticket table** — Huddle tickets and Redmine issues in one sortable, filterable, paginated table
-- **My Board** — a personal priority board; the single place a ticket timer starts
-- **Redmine integration** — see assigned issues and push your logged hours back ([details](#redmine-integration))
+- **My Board** — a personal shortlist of the tickets and issues you are working on
+- **Redmine integration** — find, time, create and update Redmine issues, and send your hours back ([details](#redmine-integration))
 - **Timesheets** — shift sessions on the dashboard, with ticket sessions nested under their shift
 - **Huddle** — a team feed with markdown posts, mentions, comments, and attachments
 - **Team management** — create/join teams via join codes, invitations, role-based admin controls
@@ -189,114 +189,44 @@ VAPID_PRIVATE_KEY=your_vapid_private_key
 
 # Redmine integration (optional — see below)
 REDMINE_BASE_URL=https://redmine.example.org
-REDMINE_ENCRYPTION_KEY=a_long_random_secret
+REDMINE_ENCRYPTION_KEY=generate_with_openssl_rand_base64_32
+# Dev/test only: let each user link their own Redmine URL in Settings. The server
+# fetches whatever URL is linked, so never enable this in production.
+# REDMINE_ALLOW_CUSTOM_URL=true
 ```
 
 ---
 
 ## Redmine Integration
 
-TimeHuddle connects to an existing Redmine instance so that a user never has to open Redmine to
-**see the issues assigned to them**, or to **enter "Spent time" by hand after working**.
+Connect your Redmine account once, and you shouldn't need to open Redmine to do your day's work.
 
-### The rule that governs it
+- **Personal API key** — link your own account in **Settings → Redmine**. Every call runs as you, so Redmine applies your permissions and records you as the author. The key is stored encrypted and never returned to the browser.
+- **One ticket list** — the Redmine issues assigned to you sit beside Huddle tickets in `/app/tickets`, with source as a column and a filter rather than a mode.
+- **Search suggestions** — the Tickets search bar suggests the issues you are likely to want and finds any other by title, `#1234`, a pasted Redmine link or `@name`.
+- **Time tracking** — start a timer on a Redmine issue from My Board, a suggestion, the Work page or the issue's page. A timer needs an open shift; TimeHuddle offers to clock you in first.
+- **Confirmed push** — once clocked out, review a summary and send your hours to Redmine as "Spent time". Entries are created, never edited or deleted.
+- **Create and update issues** — new issues, plus status, priority, assignee and description, from a Redmine issue page inside TimeHuddle.
 
 > **TimeHuddle is the system of record for _how_ time was spent. Redmine's "Spent time" is a
-> derived, one-way daily projection of it — never an input.**
-
-Issues flow **Redmine → TimeHuddle, read-only**. Only **time entries** flow **TimeHuddle → Redmine**.
-Nothing else is ever written to Redmine, and nothing entered on the Redmine side flows back.
+> derived, one-way projection of it — never an input.**
 
 ### Setup
 
-1. **Configure the instance** (server-side, once) in `meteor-backend/.env.local`:
+Requires Redmine 5.0+ with the REST API enabled. Configure the instance once, server-side, in
+`meteor-backend/.env.local`:
 
-   | Variable                 | Purpose                                                                                           |
-   | ------------------------ | ------------------------------------------------------------------------------------------------- |
-   | `REDMINE_BASE_URL`       | The Redmine instance every user connects to. Without it, Redmine is simply absent — not an error. |
-   | `REDMINE_ENCRYPTION_KEY` | Secret used to encrypt each user's personal API key at rest (AES-256-GCM).                        |
+| Variable                 | Purpose                                                                                                                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDMINE_BASE_URL`       | The Redmine instance every user connects to. Without it, Redmine is simply absent — not an error.                                                                                 |
+| `REDMINE_ENCRYPTION_KEY` | Secret used to encrypt each user's personal API key at rest (AES-256-GCM). Must be random (`openssl rand -base64 32`), not a passphrase. Required when `REDMINE_BASE_URL` is set. |
 
-2. **Connect a personal account** (per user): **Settings → Redmine**, then paste your
-   Redmine personal API key. TimeHuddle validates it against `GET /users/current.json`, confirms your
-   Redmine login, and stores the key **encrypted** — it is never returned to the browser again.
+Each user then connects their own account in **Settings → Redmine**.
 
-   Every Redmine request is made with **your own key** (`X-Redmine-API-Key`), so you see exactly what
-   your Redmine account can see and time entries are attributed to you. No admin or switch-user access
-   is required. The only Redmine permission needed is **`log_time`**.
+### More
 
-### Day-to-day flow
-
-```mermaid
-flowchart TD
-    Connect["1 · Connect account<br/>Settings → personal API key"]
-    Tickets["2 · Tickets table<br/>Huddle tickets + Redmine issues, one sortable table"]
-    Board["3 · My Board<br/>move the issues you're working on"]
-    ClockIn["4 · Clock in<br/>a ticket timer requires an active shift"]
-    Timer["5 · Start / stop the timer<br/>▶ on the My Board row"]
-    Push["6 · Push to Redmine<br/>manual, confirmed from a summary"]
-    Spent[("Redmine → issue → Spent time<br/>one entry per issue per day")]
-
-    Connect --> Tickets --> Board --> ClockIn --> Timer --> Push --> Spent
-
-    classDef huddle fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
-    classDef redmine fill:#fee2e2,stroke:#b91c1c,color:#7f1d1d
-    class Connect,Tickets,Board,ClockIn,Timer,Push huddle
-    class Spent redmine
-```
-
-- **One unified ticket table.** `/app/tickets` shows the current team's Huddle tickets and your
-  Redmine issues together — source is a column and a filter, not a mode. Sorting, filtering, selection
-  and pagination are client-side. A user with no Redmine link just sees their Huddle tickets, with no error.
-  Redmine rows are read-only: clicking the title opens the issue in Redmine.
-- **My Board is the only place a ticket timer starts.** Select tickets on the Tickets tab, move them to
-  My Board, and use the row's ▶ / ⏸ button.
-- **A ticket timer requires an active shift.** Starting one while clocked out is blocked with a prompt.
-  This also means every ticket timer inherits the shift's existing 8-hour auto-clockout, so a forgotten
-  timer cannot run indefinitely.
-- **Breaks are handled structurally.** Taking a break closes the running session and resuming opens a new
-  one, so break time never appears in a session and nothing has to be subtracted.
-- **Switching tickets is silent by design** — starting a second ticket timer automatically stops the first.
-
-### Pushing time to Redmine
-
-The push is **manual and confirmed**: when your day is done, you approve a summary before anything is
-sent. It is only available while you are idle (clocked out, no timer running), which is re-checked
-server-side, and it covers **all unsynced time** — not just today — so a forgotten day is not lost.
-
-For each issue-day TimeHuddle `POST`s one time entry (`issue_id`, `hours`, `activity_id`, `spent_on`,
-`comments`), then **re-reads it** and compares the stored hours against what was sent. A mismatch,
-rejection, or unreachable instance is surfaced as a failed row you can retry. A unique index on
-`{userId, ticketId, date}` plus the stored entry id make a second press a no-op, so retries never
-duplicate.
-
-- **Create-only.** There is no edit and no delete, ever. Once time is logged it is permanent; changing
-  it is an administrative act performed in Redmine itself.
-- **`activity_id` is resolved at runtime**, never hardcoded — enumeration ids are instance-specific.
-  The order is: your Settings choice → the issue's Redmine tracker → the instance's `is_default` →
-  one named `Development` → the first available.
-- **Hours are rounded once**, to two decimal places, on the summed seconds — never per session, which
-  would let error accumulate.
-- **Only ticket timers are pushed.** The shift-clock total is never sent to Redmine.
-
-### Two clocks, two numbers
-
-TimeHuddle deliberately keeps two independent notions of time. They are different numbers and always
-will be — you can be clocked in without any ticket timer running — so they are never added together.
-
-| Surface                          | Shows                            | Granularity               | System                    |
-| -------------------------------- | -------------------------------- | ------------------------- | ------------------------- |
-| Clock page session timer         | Current **shift** elapsed        | live                      | A — shift clock, per team |
-| Dashboard → Me → Timesheet       | Shift sessions + breaks          | per shift                 | A — shift clock, per team |
-| Work page (`/app/work`)          | **Ticket** work items + sessions | per item per day          | B — ticket timers         |
-| Redmine → issue → **Spent time** | Rolled-up hours                  | one row per issue per day | B — ticket timers, pushed |
-
-### Current limitations
-
-- **No issue CRUD.** Creating or editing Redmine issues from TimeHuddle is out of scope, as is any
-  two-way issue sync or persisting Redmine issues in TimeHuddle's database.
-- **Redmine issues are not stored** — they are fetched per user, per session, and cached in memory only.
-- **A manual edit in Redmine's Spent time tab is not detected** and will not flow back.
-- **On small screens the ticket table scrolls horizontally** rather than switching to a card layout.
+- 📖 **[Redmine integration](docs/redmine-integration.md)** — what it does, how the flow works, every setting, and what is deliberately out of scope.
+- 🧭 **[Design notes](docs/redmine-design.md)** — why it behaves the way it does: the push rules, what is and isn't stored, security, and known limits.
 
 ---
 

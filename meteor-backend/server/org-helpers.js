@@ -1,6 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
-import { rawDb, isValidId } from './collections';
+import { DUPLICATE_KEY_ERROR_CODE, rawDb, isValidId } from './collections';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -11,7 +11,6 @@ const DEFAULT_ENTERPRISE_NAME = process.env.DEFAULT_ENTERPRISE_NAME || 'Default 
 
 const ROLE_RANK = { member: 1, admin: 2, owner: 3 };
 
-const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 // Upsert-by-slug relies on these unique indexes to make first-writer-wins
 // atomic across concurrent requests (e.g. two browsers hitting takeOwnership

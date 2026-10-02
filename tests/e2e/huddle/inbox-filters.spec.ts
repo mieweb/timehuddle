@@ -1,6 +1,6 @@
 /**
  * Huddle inbox — the filters in the conversation list header, Group by,
- * search, the "Off the clock" labelling and the Share an update composer.
+ * search, the "Off the clock" labelling and the inbox's own message box.
  *
  * Posts are seeded through the API (and clock sessions straight into the test
  * DB) so each test controls exactly what the inbox has to group and find; a
@@ -15,6 +15,7 @@ import {
   deleteClockSession,
   getUserIdByEmail,
   groupInboxBy,
+  inboxComposer,
   inboxMessage,
   inboxSearch,
   openPostInInbox,
@@ -49,7 +50,7 @@ test.describe('Huddle inbox filters', () => {
     userId = await getUserIdByEmail(TEST_USERS.owner1.email);
   });
 
-  test('filters sit in the conversation list header and the inbox has no message box', async ({
+  test('filters sit in the conversation list header and the inbox has its own message box', async ({
     page,
   }) => {
     const token = uniqueToken('layout');
@@ -69,15 +70,18 @@ test.describe('Huddle inbox filters', () => {
     await expect(header.getByText('Conversations', { exact: true })).toBeHidden();
     await expect(inboxSearch(page)).toHaveCount(1);
 
-    // No message box in the thread: posting happens in Share an update. Your
-    // own posts can still be edited inline.
+    // Posting happens in the conversation's own message box, with Pulse and
+    // Ticket beside it; there's no separate composer above the inbox any more.
+    // Your own posts can still be edited inline.
     await openPostInInbox(page, token);
-    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Share an update...' })).toBeVisible();
+    await expect(inboxComposer(page)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Pulse/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ticket', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Share an update...' })).toHaveCount(0);
     await inboxMessage(page, token).hover();
-    await expect(
-      inboxMessage(page, token).getByRole('button', { name: 'Edit message' }),
-    ).toBeVisible();
+    await inboxMessage(page, token).getByRole('button', { name: 'Message actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Edit message' })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   test('Group by defaults to Day, explains each option, and remembers the choice', async ({
@@ -236,14 +240,12 @@ test.describe('Huddle inbox filters', () => {
     await expect(page.getByRole('button', { name: 'Team: Test Team Alpha' })).toBeVisible();
   });
 
-  test('Share an update posts into the feed and collapses again', async ({ page }) => {
+  test('the message box posts into the feed and clears', async ({ page }) => {
     const token = uniqueToken('share');
     await page.goto('/app/huddle');
 
     await postFromHuddle(page, token);
-    await expect(page.getByRole('button', { name: 'Share an update...' })).toBeVisible({
-      timeout: 20000,
-    });
+    await expect(inboxComposer(page)).toHaveValue('', { timeout: 20000 });
     await openPostInInbox(page, token);
   });
 });

@@ -15,3 +15,6 @@ meteor-backend
 
 # Generated Playwright reports
 playwright-report
+
+# Vendored submodules format themselves.
+vendor/

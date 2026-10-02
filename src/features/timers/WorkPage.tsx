@@ -70,6 +70,9 @@ import { EmptyState } from '../../ui/EmptyState';
 import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
+import { useTicketStart } from './TicketStartProvider';
+import { timerLabel } from './ticketTimerStrings';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Format total seconds as "H:MM" for the duration input field. */
@@ -117,14 +120,11 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 
 export const WorkPage: React.FC = () => {
   const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
-  const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const { isClockedIn } = useClockToggle();
+  // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
+  const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
   const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
-  // When clock-in is immediately followed by startTimerForEntry, suppress the
-  // auto-fetchDay triggered by the isClockedIn change to avoid a race where
-  // the fetch response (stale — before the session started) overwrites the
-  // optimistic update made by startTimerForEntry.
-  const skipNextClockInFetchRef = useRef(false);
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -153,11 +153,6 @@ export const WorkPage: React.FC = () => {
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
   const [newEntryNote, setNewEntryNote] = useState('');
   const [newEntryLoading, setNewEntryLoading] = useState(false);
-
-  // Clock-in confirmation before starting timer
-  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
-  const [pendingStartEntryId, setPendingStartEntryId] = useState<string | null>(null);
-  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
 
   // Copy state
   const [copyLoading, setCopyLoading] = useState(false);
@@ -312,10 +307,15 @@ export const WorkPage: React.FC = () => {
 
   // ── Fetch day entries ──
 
+  // Several refreshes can overlap (clocking in, then the timer start that
+  // follows it, fire one each), and an older answer can land last. Only the
+  // newest request may write, so a pre-start snapshot never replaces a running row.
+  const fetchDaySeq = useRef(0);
   const fetchDay = useCallback(async () => {
+    const seq = ++fetchDaySeq.current;
     try {
       const entries = await timerApi.getDay(selectedDate);
-      setDayEntries(entries);
+      if (seq === fetchDaySeq.current) setDayEntries(entries);
     } catch {
       // keep previous
     }
@@ -365,11 +365,6 @@ export const WorkPage: React.FC = () => {
 
     if (previousClockedIn === isClockedIn || !isToday) return;
 
-    if (skipNextClockInFetchRef.current) {
-      skipNextClockInFetchRef.current = false;
-      return;
-    }
-
     void fetchDay();
     void fetchWeekTotals();
   }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
@@ -417,94 +412,6 @@ export const WorkPage: React.FC = () => {
   }, [fetchDay, fetchWeekTotals]);
 
   // ── Handlers ──
-
-  const startTimerForEntry = useCallback(
-    async (entryId: string) => {
-      try {
-        const { session, closedSessionId } = await timerApi.startSession(entryId, Date.now());
-        // Optimistic update
-        setDayEntries((prev) =>
-          prev.map((de) => {
-            if (de.entry.id !== entryId && !closedSessionId) return de;
-            return {
-              ...de,
-              sessions: de.sessions
-                .map((s) =>
-                  s.id === closedSessionId
-                    ? {
-                        ...s,
-                        endTime: session.startTime,
-                        durationSeconds: Math.floor((session.startTime - s.startTime) / 1000),
-                      }
-                    : s,
-                )
-                .concat(de.entry.id === entryId ? [session] : []),
-            };
-          }),
-        );
-      } catch {
-        void fetchDay();
-      }
-    },
-    [fetchDay],
-  );
-
-  const handleStart = useCallback(
-    async (entryId: string) => {
-      if (!isClockedIn) {
-        setPendingStartEntryId(entryId);
-        setClockInPromptError(null);
-        setShowClockInPrompt(true);
-        return;
-      }
-
-      await startTimerForEntry(entryId);
-    },
-    [isClockedIn, startTimerForEntry],
-  );
-
-  const handleClockInAndStart = useCallback(async () => {
-    if (!pendingStartEntryId) return;
-
-    if (!selectedTeamId) {
-      setClockInPromptError('Select a team before clocking in.');
-      return;
-    }
-
-    setClockInPromptError(null);
-    skipNextClockInFetchRef.current = true;
-    const clockedIn = await clockIn();
-    if (!clockedIn) {
-      // Plan-first gate: today's plan post is required before clocking in.
-      setClockInPromptError('Write today’s plan first — see the Clock page or Huddle.');
-      return;
-    }
-
-    const entryId = pendingStartEntryId;
-    setShowClockInPrompt(false);
-    setPendingStartEntryId(null);
-
-    await startTimerForEntry(entryId);
-  }, [pendingStartEntryId, selectedTeamId, clockIn, startTimerForEntry]);
-
-  const handleStop = useCallback(
-    async (sessionId: string) => {
-      try {
-        const closed = await timerApi.stopSession(sessionId, Date.now());
-        setDayEntries((prev) =>
-          prev.map((de) => ({
-            ...de,
-            sessions: de.sessions.map((s) => (s.id === sessionId ? closed : s)),
-          })),
-        );
-        void fetchWeekTotals();
-        void fetchDay();
-      } catch {
-        void fetchDay();
-      }
-    },
-    [fetchDay, fetchWeekTotals],
-  );
 
   const handleCreateEntry = useCallback(async () => {
     if (!newEntryTicketId) return;
@@ -583,7 +490,8 @@ export const WorkPage: React.FC = () => {
     if (!editEntry) return;
     const parsedSeconds = hhmmToSeconds(editDuration);
     const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
-    const ticketChanged = editTicketId !== editEntry.entry.ticketId;
+    const ticketChanged =
+      editEntry.entry.source !== 'redmine' && editTicketId !== editEntry.entry.ticketId;
     setEditLoading(true);
     setEditError(null);
     try {
@@ -671,10 +579,60 @@ export const WorkPage: React.FC = () => {
 
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
-      const ticket = ticketsById.get(entry.ticketId);
-      return entry.displayTitle || ticket?.title || '(untitled)';
+      // Redmine subjects only ever arrive resolved from the server; the local
+      // ticket cache holds Huddle tickets, so it is a Huddle-only fallback.
+      if (entry.displayTitle) return entry.displayTitle;
+      if (entry.source === 'redmine') return `#${entry.ticketId}`;
+      return ticketsById.get(entry.ticketId)?.title || '(untitled)';
     },
     [ticketsById],
+  );
+
+  /** How an entry's ticket is named in timer messages (`timerLabel`). */
+  const timerLabelFor = useCallback(
+    (entry: DayEntry['entry']) =>
+      timerLabel(
+        entry.source,
+        entry.ticketId,
+        entry.displayTitle ?? ticketsById.get(entry.ticketId)?.title,
+      ),
+    [ticketsById],
+  );
+
+  // Clocked out, `startTimer` opens the app-wide clock-in prompt. Both refresh
+  // this page through work:refetch, and the live timers subscription.
+  const handleStart = useCallback(
+    (entry: DayEntry['entry']) =>
+      void startTimer({
+        kind: 'entry',
+        entryId: entry.id,
+        ticketKey: `${entry.source}:${entry.ticketId}`,
+        label: timerLabelFor(entry),
+      }),
+    [startTimer, timerLabelFor],
+  );
+
+  const handleStop = useCallback(
+    (entry: DayEntry['entry'], sessionId: string) =>
+      void stopTimer({
+        sessionId,
+        ticketKey: `${entry.source}:${entry.ticketId}`,
+        label: timerLabelFor(entry),
+      }),
+    [stopTimer, timerLabelFor],
+  );
+
+  /** Open a work item's ticket — in-app for Huddle, the instance for Redmine. */
+  const openWorkItemTicket = useCallback(
+    (entry: DayEntry['entry']) => {
+      const url = entry.displayUrl ?? `/app/tickets/${entry.ticketId}`;
+      if (entry.source === 'redmine') {
+        if (entry.displayUrl) window.open(entry.displayUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      navigate(url);
+    },
+    [navigate],
   );
 
   const selectedDayLabel = useMemo(
@@ -870,58 +828,12 @@ export const WorkPage: React.FC = () => {
         </ModalFooter>
       </AppModal>
 
-      {/* ── Clock-In Prompt Modal ── */}
-      <AppModal
-        open={showClockInPrompt}
-        onOpenChange={(open) => {
-          setShowClockInPrompt(open);
-          if (!open) {
-            setPendingStartEntryId(null);
-            setClockInPromptError(null);
-          }
-        }}
-        aria-labelledby="clock-in-prompt-title"
-      >
-        <ModalHeader>
-          <Text weight="semibold" id="clock-in-prompt-title">
-            Clock In Required
-          </Text>
-        </ModalHeader>
-        <ModalBody className="flex flex-col gap-2">
-          <Text size="sm">
-            You must be clocked in before starting a timer. Do you want to clock in now?
-          </Text>
-          {clockInPromptError && (
-            <Text size="xs" className="text-danger">
-              {clockInPromptError}
-            </Text>
-          )}
-        </ModalBody>
-        <ModalFooter>
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={handleClockInAndStart} isLoading={clockInLoading}>
-              Clock In Now
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowClockInPrompt(false);
-                setPendingStartEntryId(null);
-                setClockInPromptError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </ModalFooter>
-      </AppModal>
-
       {/* ── Day View ── */}
       {dayEntries.length === 0 ? (
         <EmptyState title="No timers for this day" description='Create one with "+".' />
       ) : (
         <Card padding="none">
-          <Table>
+          <Table aria-label={`Work items for ${selectedDayLabel}`}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10" />
@@ -950,11 +862,13 @@ export const WorkPage: React.FC = () => {
                     <TableCell className="py-2 pr-0">
                       <TimerToggleButton
                         isRunning={isRunning}
-                        disabled={controlsDisabled}
+                        // One start or stop at a time, app-wide (TicketStartProvider).
+                        isLoading={timerBusyKey === `${de.entry.source}:${de.entry.ticketId}`}
+                        disabled={controlsDisabled || timerBusyKey !== null}
                         onClick={() =>
                           isRunning && runningSess
-                            ? handleStop(runningSess.id)
-                            : handleStart(de.entry.id)
+                            ? handleStop(de.entry, runningSess.id)
+                            : handleStart(de.entry)
                         }
                         title={disabledReason}
                       />
@@ -967,7 +881,7 @@ export const WorkPage: React.FC = () => {
                             type="button"
                             className="block max-w-full text-left hover:text-primary"
                             title={title}
-                            onClick={() => navigate(`/app/tickets/${de.entry.ticketId}`)}
+                            onClick={() => openWorkItemTicket(de.entry)}
                           >
                             <Text size="sm" weight="medium" truncate>
                               {title}
@@ -979,6 +893,11 @@ export const WorkPage: React.FC = () => {
                             </Text>
                           )}
                         </div>
+                        {de.entry.source === 'redmine' && (
+                          <Badge variant="outline" size="sm">
+                            Redmine
+                          </Badge>
+                        )}
                         {isRunning && (
                           <Badge variant="success" size="sm">
                             <FontAwesomeIcon
@@ -1086,17 +1005,28 @@ export const WorkPage: React.FC = () => {
                 </Text>
               </ModalHeader>
               <ModalBody className="flex flex-col gap-4">
-                <Select
-                  label="Ticket"
-                  searchable
-                  searchPlaceholder="Search tickets…"
-                  options={allTickets
-                    .filter((t) => t.status !== 'deleted')
-                    .map((t) => ({ value: t.id, label: t.title }))}
-                  value={editTicketId}
-                  onValueChange={(v) => setEditTicketId(v)}
-                  placeholder="Select a ticket…"
-                />
+                {/* Retargeting picks from Huddle tickets, so a Redmine-sourced
+                    entry shows its issue instead of an unusable picker. */}
+                {editEntry.entry.source === 'redmine' ? (
+                  <Input
+                    label="Issue"
+                    value={getWorkItemLabel(editEntry.entry)}
+                    readOnly
+                    disabled
+                  />
+                ) : (
+                  <Select
+                    label="Ticket"
+                    searchable
+                    searchPlaceholder="Search tickets…"
+                    options={allTickets
+                      .filter((t) => t.status !== 'deleted')
+                      .map((t) => ({ value: t.id, label: t.title }))}
+                    value={editTicketId}
+                    onValueChange={(v) => setEditTicketId(v)}
+                    placeholder="Select a ticket…"
+                  />
+                )}
                 <Input
                   label="Note (optional)"
                   value={editNote}

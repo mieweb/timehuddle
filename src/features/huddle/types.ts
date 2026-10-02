@@ -16,14 +16,6 @@ export interface MediaItem {
   mimeType?: string;
 }
 
-export interface ComposerContent {
-  text: string;
-  json: any; // Kerebron editor JSON output
-  ticketId?: string; // Changed from number to string to match API
-  attachments: MediaItem[];
-  mentions: Array<{ userId: string; name: string }>;
-}
-
 export interface MentionNode {
   type: 'mention';
   userId: string;

@@ -19,12 +19,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
+import { createTicket, deleteTicket } from '../tickets/helpers';
 import {
+  attachTicket,
   attachmentChipCount,
   composerEditor,
   dropFiles,
+  inboxComposer,
+  inboxMessage,
+  openPostInInbox,
   openComposer,
   postFromHuddle as send,
+  sendFromInbox,
   setSharedTeamPlanGate,
 } from './helpers';
 
@@ -68,13 +74,43 @@ test.describe('Huddle composer — attachment failures are visible', () => {
   });
 });
 
-test.describe('Huddle Share an update — post failures are visible', () => {
+test.describe('Huddle message box — post failures are visible', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
     await page.goto('/app/huddle');
+  });
+
+  test('rapid clicks on a ticket-backed send create only one post', async ({ page }) => {
+    const ticketTitle = `Duplicate send ticket ${Date.now()}`;
+    await createTicket(page, ticketTitle);
+    await page.goto('/app/huddle');
+    await attachTicket(page, ticketTitle);
+
+    const draft = `Duplicate send ${Date.now()}`;
+    await inboxComposer(page).fill(draft);
+
+    let postRequests = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/huddle_createPost')) postRequests++;
+    });
+
+    // Dispatch both clicks before React can render isSending; this exercises
+    // the synchronous re-entry guard with the ticket keeping send available.
+    await page.getByRole('button', { name: 'Send message' }).evaluate((button) => {
+      const click = () => button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      click();
+      click();
+    });
+
+    const post = await openPostInInbox(page, draft);
+    await expect(post).toContainText(ticketTitle);
+    await expect(inboxMessage(page, draft)).toHaveCount(1);
+    expect(postRequests).toBe(1);
+
+    await deleteTicket(page, ticketTitle);
   });
 
   test('a post rejected as too large says so, and keeps the draft', async ({ page }) => {
@@ -96,7 +132,7 @@ test.describe('Huddle Share an update — post failures are visible', () => {
     // The API's own byte arithmetic is not an instruction — the writer is told
     // what to do about it.
     await expect(errorRegion(page)).not.toContainText('4.2 MB');
-    await expect(composerEditor(page)).toContainText(draft);
+    await expect(inboxComposer(page)).toHaveValue(draft);
   });
 
   test('a post that cannot reach the server says so, and keeps the draft', async ({ page }) => {
@@ -107,7 +143,7 @@ test.describe('Huddle Share an update — post failures are visible', () => {
 
     // Not "Failed to fetch", which is what the transport actually threw.
     await expect(errorRegion(page)).toContainText(/connection/i, { timeout: 30000 });
-    await expect(composerEditor(page)).toContainText(draft);
+    await expect(inboxComposer(page)).toHaveValue(draft);
   });
 
   test('the notice clears once the post goes through', async ({ page }) => {
@@ -123,8 +159,8 @@ test.describe('Huddle Share an update — post failures are visible', () => {
     await expect(errorRegion(page)).toBeVisible({ timeout: 30000 });
 
     // Retrying from the draft the failure left intact is the whole point.
-    await expect(composerEditor(page)).toContainText(draft);
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await expect(inboxComposer(page)).toHaveValue(draft);
+    await sendFromInbox(page);
     await expect(errorRegion(page)).toHaveCount(0, { timeout: 30000 });
   });
 });
