@@ -134,10 +134,23 @@ export function toggleSort(current: SortSpec, field: SortField): SortSpec {
   return { field, direction: startsDescending ? 'desc' : 'asc' };
 }
 
-/** Match a query against the fields a user would reasonably search by. */
+/**
+ * Match a query against the fields a user would reasonably search by.
+ *
+ * Two prefixes narrow it, the same way for every source:
+ * - `@name` matches an assignee's name; `@` alone matches any assigned ticket
+ * - `#ref` matches the start of the row's reference, so `#9` is not `#19`
+ */
 export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
+
+  if (q.startsWith('@')) {
+    const name = q.slice(1).trim();
+    return ticket.assignees.some((assignee) => assignee.name.toLowerCase().includes(name));
+  }
+  if (q.startsWith('#')) return ticket.ref.toLowerCase().startsWith(q);
+
   return (
     ticket.title.toLowerCase().includes(q) ||
     ticket.ref.toLowerCase().includes(q) ||

@@ -31,6 +31,10 @@ dropdown of Redmine issues: **Suggested for you** on focus, narrowed as the
 user types, then **More from Redmine** from a server search. The rules behind
 it are in [`docs/redmine-design.md`](../../../../docs/redmine-design.md).
 
+The dropdown is Redmine-only, but the `@person` and `#ref` prefixes are not:
+the table filter (`matchesSearch` in [`../ticketFilters.ts`](../ticketFilters.ts))
+reads them too, for rows from every source.
+
 | File                           | Role                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `RedmineSuggestions.tsx`       | The search input and its dropdown: downshift's `useCombobox` around `@mieweb/ui` `Input`, rows, shortcuts  |
