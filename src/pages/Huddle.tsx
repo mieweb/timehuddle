@@ -205,20 +205,39 @@ export default function Huddle() {
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  /** True once a load has succeeded — including one that returned no posts. */
+  const myPostsLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
       setMyPosts(await huddleApi.getMyPosts());
+      myPostsLoadedRef.current = true;
       setMyPostsError(null);
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
-      setMyPostsError('Failed to load your posts.');
+      // The error replaces whatever the last successful load produced — a list
+      // or the empty state — so only show it when there has been no such load;
+      // a failed refresh leaves the page as it was and is reported by the caller.
+      if (!myPostsLoadedRef.current) setMyPostsError('Failed to load your posts.');
+      throw err;
     }
   }, []);
+  // Personal posts belong to the signed-in account, so an in-place sign-in has
+  // to drop them and the baseline that decides whether a failure is shown —
+  // otherwise the new user sees the previous one's posts, and a failed reload
+  // stays silent behind their loaded flag.
+  const myPostsUserId = user?.id;
+  useEffect(() => {
+    setMyPosts([]);
+    setMyPostsError(null);
+    myPostsLoadedRef.current = false;
+  }, [myPostsUserId]);
   useEffect(() => {
     if (scope !== 'me') return;
     setMyPostsLoading(true);
-    refreshMyPosts().finally(() => setMyPostsLoading(false));
-  }, [scope, refreshMyPosts]);
+    refreshMyPosts()
+      .catch(() => {})
+      .finally(() => setMyPostsLoading(false));
+  }, [scope, refreshMyPosts, myPostsUserId]);
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
@@ -339,6 +358,7 @@ export default function Huddle() {
       syncPosts();
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
+      throw err;
     }
   }, [selectedTeamId, syncPosts]);
 
@@ -374,7 +394,7 @@ export default function Huddle() {
     const previous = openSessionsRef.current;
     openSessionsRef.current = open;
     const closed = [...previous].some(([id, teamId]) => inScope.has(teamId) && !open.has(id));
-    if (closed) void refreshActiveScopeRef.current();
+    if (closed) void refreshActiveScopeRef.current().catch(() => {});
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
   // Subscribe to live DDP publication for huddle posts
@@ -396,7 +416,9 @@ export default function Huddle() {
 
     // REST fallback: populate the feed even if the DDP socket is down (it's
     // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed().finally(() => setLoading(false));
+    refreshFeed()
+      .catch(() => {})
+      .finally(() => setLoading(false));
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
@@ -667,8 +689,10 @@ export default function Huddle() {
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
+    // The post itself already succeeded above, so a refresh failure here
+    // (already surfaced via myPostsError) must not read as the post failing.
     if (scope === 'me') {
-      await refreshMyPosts();
+      await refreshMyPosts().catch(() => {});
       return;
     }
 
@@ -682,7 +706,7 @@ export default function Huddle() {
       restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-      await refreshFeed();
+      await refreshFeed().catch(() => {});
       if (inFeed()) break;
     }
   }
@@ -695,13 +719,15 @@ export default function Huddle() {
     const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
     try {
       await huddleApi.updatePost(messageId, { text: body, mentions: post.content.mentions });
-      // REST refresh too: with the DDP socket down (mobile, backgrounded) the
-      // saved edit would otherwise stay invisible until a manual refresh.
-      await refreshActiveScope();
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
       setInboxError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
+      return;
     }
+    // REST refresh too: with the DDP socket down (mobile, backgrounded) the
+    // saved edit would otherwise stay invisible until a manual refresh. Kept
+    // out of the save's try so a failed refresh isn't reported as a failed edit.
+    await refreshActiveScope().catch(() => {});
   }
 
   return (
@@ -816,7 +842,7 @@ export default function Huddle() {
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
-                    className={`h-full rounded-none border-0 ${styles.inbox}`}
+                    className={`huddle-inbox h-full rounded-none border-0 ${styles.inbox}`}
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}

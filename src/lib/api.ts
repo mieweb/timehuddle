@@ -12,6 +12,9 @@ import { getDdpClient } from './ddp.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
+/** No HTTP request to the backend (REST `request()` or the token fetch) waits longer than this. */
+const REQUEST_TIMEOUT_MS = 8000;
+
 export const TIMECORE_BASE_URL: string =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
@@ -222,9 +225,15 @@ export async function getAccessToken(): Promise<string | null> {
   if (!session) return null;
 
   jwtFetch ??= (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error('Token fetch timed out')),
+      REQUEST_TIMEOUT_MS,
+    );
     try {
       const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/token`, {
         credentials: 'include',
+        signal: controller.signal,
         headers: { Authorization: `Bearer ${session}` },
       });
       if (!res.ok) return null;
@@ -235,6 +244,7 @@ export async function getAccessToken(): Promise<string | null> {
     } catch {
       return null;
     } finally {
+      clearTimeout(timeoutId);
       jwtFetch = null;
     }
   })();
@@ -256,7 +266,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const timeoutId = setTimeout(
     () =>
       controller.abort(new Error('Request timed out. Please check your connection and try again.')),
-    8000,
+    REQUEST_TIMEOUT_MS,
   );
   // overwrite the merged headers object (which would drop Authorization).
   const { headers: optHeaders, ...restOptions } = options;

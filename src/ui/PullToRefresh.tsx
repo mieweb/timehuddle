@@ -15,10 +15,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
-import { Spinner } from '@mieweb/ui';
+import { Spinner, useOptionalToast } from '@mieweb/ui';
 
 import { useSidebar } from './AppLayout';
 import { useRefreshTrigger } from '@lib/RefreshContext';
+
+const REFRESH_FAILED_MESSAGE = "Couldn't refresh. Pull down to try again.";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,7 @@ interface PullToRefreshProps {
 export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
   const { isMobileOpen } = useSidebar();
   const triggerRefresh = useRefreshTrigger();
+  const toast = useOptionalToast();
 
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [pullY, setPullY] = useState(0);
@@ -70,6 +73,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
   // not be re-registered on every render to avoid listener accumulation.
   const isMobileOpenRef = useRef(isMobileOpen);
   const triggerRefreshRef = useRef(triggerRefresh);
+  const toastRef = useRef(toast);
   const isRefreshingRef = useRef(false);
   const startYRef = useRef(0);
   const startXRef = useRef(0);
@@ -85,6 +89,9 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
   useEffect(() => {
     triggerRefreshRef.current = triggerRefresh;
   }, [triggerRefresh]);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -198,7 +205,10 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
         }
 
         try {
-          await triggerRefreshRef.current();
+          const outcome = await triggerRefreshRef.current();
+          if (outcome !== 'ok') {
+            toastRef.current?.error(REFRESH_FAILED_MESSAGE);
+          }
         } finally {
           isRefreshingRef.current = false;
           setIsRefreshing(false);

@@ -1,0 +1,470 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/** Minimal fake WebSocket — enough surface for DdpClient's connect/call flow. */
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  readyState = FakeWebSocket.CONNECTING;
+  onopen: (() => void) | null = null;
+  onmessage: ((e: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  sent: string[] = [];
+
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return;
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.();
+  }
+
+  /** Test helper: simulate the server accepting the DDP handshake. */
+  simulateOpenAndConnect(): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.onopen?.();
+    this.onmessage?.({ data: JSON.stringify({ msg: 'connected' }) });
+  }
+
+  /** Test helper: simulate a method reply for the given method id. */
+  simulateResult(id: string, result: unknown): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, result }) });
+  }
+
+  /** Test helper: simulate the server answering a method call with an error. */
+  simulateError(id: string, reason: string, error: number | string = 500): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, error: { error, reason } }) });
+  }
+
+  /** Test helper: the id of the most recent call to `method`. */
+  lastCallId(method: string): string {
+    const call = this.sent
+      .map((m) => JSON.parse(m) as { msg: string; method?: string; id: string })
+      .filter((m) => m.msg === 'method' && m.method === method)
+      .pop();
+    if (!call) throw new Error(`no ${method} call sent`);
+    return call.id;
+  }
+
+  /** Test helper: simulate a pong reply for the given ping id. */
+  simulatePong(id: string): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'pong', id }) });
+  }
+}
+
+/** Fresh module registry per test so the DdpClient singleton doesn't leak across tests. */
+async function freshDdpModule() {
+  vi.resetModules();
+  FakeWebSocket.instances.length = 0;
+  vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
+  return import('./ddp');
+}
+
+describe('DdpClient.call timeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects after the method timeout when no result ever arrives, and tears down the socket', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+
+    const callPromise = client.call('some.method');
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    let settled = false;
+    callPromise.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2);
+    await expect(callPromise).rejects.toThrow(/timed out/);
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it('rejects within the method timeout when the socket never completes the handshake', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+
+    // Socket opens but no `connected` ever arrives, so ensureConnected() sits
+    // through its own 15s-per-attempt retries. The deadline covers that too.
+    const callPromise = client.call('some.method');
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0].readyState = FakeWebSocket.OPEN;
+
+    let settled = false;
+    callPromise.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2);
+    await expect(callPromise).rejects.toThrow(/timed out connecting/);
+  });
+
+  it('resolves normally when a result arrives before the timeout, and clears the pending timer', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+
+    const callPromise = client.call('some.method');
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const sentMethod = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string };
+    ws.simulateResult(sentMethod.id, { ok: true });
+
+    await expect(callPromise).resolves.toEqual({ ok: true });
+
+    // Advancing well past the timeout must not throw — the timer was cleared.
+    await vi.advanceTimersByTimeAsync(20_000);
+  });
+
+  it('propagates a timeout to other pending calls via handleDisconnect, and schedules a reconnect', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+
+    // An active subscription is required for handleDisconnect to schedule a reconnect.
+    client.subscribe('some.publication', []);
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const callA = client.call('method.a');
+    await vi.advanceTimersByTimeAsync(0);
+    const callB = client.call('method.b');
+    await vi.advanceTimersByTimeAsync(0);
+
+    callA.catch(() => {});
+    callB.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(8000);
+
+    await expect(callA).rejects.toThrow(/timed out/);
+    await expect(callB).rejects.toThrow(/connection lost/);
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+
+    // Reconnect is scheduled with backoff starting at 1000ms.
+    const instancesBefore = FakeWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(instancesBefore);
+  });
+});
+
+describe('DdpClient.subscribe during a dead-socket recovery', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.setItem('meteor_resume_token', 'resume-token');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('does not throw when the socket dies while its resume login is in flight', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+
+    // An existing sub keeps handleDisconnect scheduling a reconnect, which is
+    // what restores the subscription registered below.
+    client.subscribe('existing.publication', []);
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The login this subscribe waits on never gets answered, so its 8s timeout
+    // kills the socket; ensureAuthed still resolves (tryResumeLogin swallows).
+    client.subscribe('late.publication', []);
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    process.off('unhandledRejection', unhandled);
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+});
+
+describe('DdpClient.checkConnection (foreground reconnect)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function connectedClient() {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    // Any connected call establishes the socket; checkConnection is a no-op until then.
+    const warmup = client.call('warmup');
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+    const sentWarmup = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string };
+    ws.simulateResult(sentWarmup.id, null);
+    await warmup;
+    return { client, ws };
+  }
+
+  it('tears the socket down and reconnects when no pong arrives in time', async () => {
+    const { client, ws } = await connectedClient();
+
+    void client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ws.sent.some((m) => JSON.parse(m).msg === 'ping')).toBe(true);
+
+    const instancesBefore = FakeWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    // handleDisconnect only schedules a reconnect timer when there's an active
+    // sub; here we just confirm the socket was torn down, which is the part
+    // that unblocks a stuck pull-to-refresh.
+    expect(FakeWebSocket.instances.length).toBe(instancesBefore);
+  });
+
+  it('does nothing when a pong arrives in time', async () => {
+    const { client, ws } = await connectedClient();
+
+    const checkPromise = client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+    const sentPing = JSON.parse(ws.sent[ws.sent.length - 1]) as { id: string; msg: string };
+    expect(sentPing.msg).toBe('ping');
+    ws.simulatePong(sentPing.id);
+
+    await checkPromise;
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+
+    // No stray timeout fires later and tears the (still healthy) socket down.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+  });
+
+  it('tears the socket down when the ping cannot be sent on a socket still marked connected', async () => {
+    const { client, ws } = await connectedClient();
+    ws.send = () => {
+      throw new Error('InvalidStateError: socket is CLOSING');
+    };
+
+    await client.checkConnection();
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    // A later call opens a fresh socket instead of reusing the dead one.
+    void client.call('next').catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeWebSocket.instances.length).toBe(2);
+  });
+
+  it('shares one in-flight ping when called twice in quick succession', async () => {
+    const { client, ws } = await connectedClient();
+
+    const first = client.checkConnection();
+    const second = client.checkConnection();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pings = ws.sent.filter((m) => JSON.parse(m).msg === 'ping');
+    expect(pings).toHaveLength(1);
+
+    const sentPing = JSON.parse(pings[0]) as { id: string };
+    ws.simulatePong(sentPing.id);
+    await Promise.all([first, second]);
+  });
+});
+
+describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.setItem('meteor_resume_token', 'resume-token');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function connect() {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const userPromise = client.getCurrentUser();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+    return { ws, userPromise };
+  }
+
+  it('resolves null when the server answers that there is no user', async () => {
+    const { ws, userPromise } = await connect();
+    ws.simulateResult(ws.lastCallId('login'), { token: 'resume-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    ws.simulateResult(ws.lastCallId('users.getCurrentUser'), null);
+
+    await expect(userPromise).resolves.toBeNull();
+  });
+
+  it('rejects when the server answers with an error, so a server fault is not read as a sign-out', async () => {
+    const { ws, userPromise } = await connect();
+    ws.simulateResult(ws.lastCallId('login'), { token: 'resume-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    ws.simulateError(ws.lastCallId('users.getCurrentUser'), 'internal server error');
+
+    await expect(userPromise).rejects.toThrow(/internal server error/);
+  });
+
+  it('rejects when the server never answers, so a refresh offline is not read as a sign-out', async () => {
+    const { userPromise } = await connect();
+    const outcome = userPromise.then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(outcome).resolves.toBe('rejected');
+  });
+
+  it('keeps the resume token when login times out, so a slow reconnect is not a sign-out', async () => {
+    const { userPromise } = await connect();
+    userPromise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBe('resume-token');
+  });
+
+  it('discards the resume token only when the server rejects it', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'You’ve been logged out by the server.', 403);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBeNull();
+  });
+
+  it('keeps the resume token when login fails with a server fault, so it is not a sign-out', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBe('resume-token');
+  });
+
+  it('rejects rather than querying an unauthenticated socket when the resume login fails', async () => {
+    const { ws, userPromise } = await connect();
+    const outcome = userPromise.then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Reporting success here would send users.getCurrentUser on a socket that
+    // was never logged in; its null answer reads as a sign-out.
+    await expect(outcome).resolves.toBe('rejected');
+    expect(
+      ws.sent.some((m) => (JSON.parse(m) as { method?: string }).method === 'users.getCurrentUser'),
+    ).toBe(false);
+  });
+
+  it('retries the resume login on the next call instead of caching the failure', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loginsBefore = ws.sent.filter(
+      (m) => (JSON.parse(m) as { method?: string }).method === 'login',
+    ).length;
+    const { getDdpClient } = await import('./ddp');
+    getDdpClient()
+      .getCurrentUser()
+      .catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+
+    const loginsAfter = ws.sent.filter(
+      (m) => (JSON.parse(m) as { method?: string }).method === 'login',
+    ).length;
+    expect(loginsAfter).toBeGreaterThan(loginsBefore);
+  });
+});
+
+describe('DdpClient reconnect notification', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('notifies onReconnect listeners after the post-disconnect resubscribe', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const onReconnect = vi.fn();
+    client.onReconnect(onReconnect);
+
+    // An active subscription is what makes handleDisconnect schedule a reconnect.
+    client.subscribe('some.publication', []);
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    ws.close();
+    expect(onReconnect).not.toHaveBeenCalled();
+
+    // Backoff starts at 1000ms; the replacement socket then completes the handshake.
+    await vi.advanceTimersByTimeAsync(1000);
+    const next = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    next.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onReconnect).toHaveBeenCalled();
+    expect(next.sent.some((m) => JSON.parse(m).msg === 'sub')).toBe(true);
+  });
+});

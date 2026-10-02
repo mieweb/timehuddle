@@ -28,7 +28,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 
@@ -68,11 +68,14 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { ProfileActivityFeed } from './ProfileActivityFeed';
-import { ProfileFeed } from './ProfileFeed';
-import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
-import { WorkSummaryTags } from './WorkSummaryTags';
-import { TodayStatusCard } from '../timers/TodayStatusCard';
+import { lazyNamed } from '../../lib/lazyNamed';
+
+// Each tab's content is its own chunk, fetched the first time that tab opens.
+const ProfileActivityFeed = lazyNamed(() => import('./ProfileActivityFeed'), 'ProfileActivityFeed');
+const ProfileFeed = lazyNamed(() => import('./ProfileFeed'), 'ProfileFeed');
+const ProfileWorkSnapshot = lazyNamed(() => import('./ProfileWorkSnapshot'), 'ProfileWorkSnapshot');
+const WorkSummaryTags = lazyNamed(() => import('./WorkSummaryTags'), 'WorkSummaryTags');
+const TodayStatusCard = lazyNamed(() => import('../timers/TodayStatusCard'), 'TodayStatusCard');
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
@@ -106,40 +109,54 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     replace(pathname);
   }, [search, pathname, replace]);
 
+  const loadProfile = React.useCallback(async () => {
+    const p = await (userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!));
+    setProfile(p);
+    setBackgroundUrl(p.backgroundUrl ?? null);
+    // Access is back. The screens below early-return on these, so leaving one
+    // set would keep an error page up over a profile that just loaded fine.
+    setIsForbidden(false);
+    setIsNotFound(false);
+  }, [userId, username]);
+
+  // 403/404 are the server's verdict on whether this profile may be shown at
+  // all, so they take it down wherever they arrive. Every other failure is
+  // transient and leaves what's already rendered alone.
+  const applyVerdict = React.useCallback((err: unknown) => {
+    if (!(err instanceof ApiError)) return;
+    if (err.status !== 403 && err.status !== 404) return;
+    // Both set from this response: the 404 screen renders first, so leaving a
+    // previous verdict standing would show the wrong one.
+    setIsForbidden(err.status === 403);
+    setIsNotFound(err.status === 404);
+    setProfile(null);
+  }, []);
+
   useEffect(() => {
     setIsReady(false);
     setIsForbidden(false);
     setIsNotFound(false);
-    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-    fetch
-      .then((p) => {
-        setProfile(p);
-        setBackgroundUrl(p.backgroundUrl ?? null);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 403) {
-          setIsForbidden(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setIsNotFound(true);
-        }
+    loadProfile()
+      .catch((err: unknown) => {
+        applyVerdict(err);
+        // Nothing to keep on a first load, so any failure clears the profile.
         setProfile(null);
       })
       .finally(() => setIsReady(true));
-  }, [userId, username]);
+  }, [loadProfile, applyVerdict]);
 
-  useRefresh(
-    React.useCallback(async () => {
-      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-      fetch
-        .then((p) => {
-          setProfile(p);
-          setBackgroundUrl(p.backgroundUrl ?? null);
-        })
-        .catch(() => {
-          setProfile(null);
-        });
-    }, [userId, username]),
-  );
+  // A failed refresh keeps the profile on screen unless the server revoked
+  // access or the user is gone. The rejection still reaches pull-to-refresh,
+  // which reports it.
+  const refreshProfile = React.useCallback(async () => {
+    try {
+      await loadProfile();
+    } catch (err) {
+      applyVerdict(err);
+      throw err;
+    }
+  }, [loadProfile, applyVerdict]);
+  useRefresh(refreshProfile);
 
   if (!isReady) {
     return (
@@ -434,157 +451,173 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
             </TabsTrigger>
           </TabsList>
 
-          {/* Feed tab */}
-          <TabsContent value="feed">
-            <ProfileFeed userId={profile.id} isOwn={isOwn} />
-          </TabsContent>
+          <Suspense
+            fallback={
+              <div className="profile-tab-loading flex justify-center py-8">
+                <Spinner size="md" label="Loading…" />
+              </div>
+            }
+          >
+            {/* Feed tab */}
+            <TabsContent value="feed">
+              <ProfileFeed userId={profile.id} isOwn={isOwn} />
+            </TabsContent>
 
-          {/* Work tab */}
-          <TabsContent value="work" className="flex flex-col gap-4">
-            {/* Today's clock status — own profile or admin viewing team member */}
-            {(isOwn || (profile.sharedTeams ?? []).some((t) => t.isAdmin)) && (
-              <TodayStatusCard userId={profile.id} />
-            )}
+            {/* Work tab */}
+            <TabsContent value="work" className="flex flex-col gap-4">
+              {/* Today's clock status — own profile or admin viewing team member */}
+              {(isOwn || (profile.sharedTeams ?? []).some((t) => t.isAdmin)) && (
+                <TodayStatusCard userId={profile.id} />
+              )}
 
-            {/* 48 h work summary */}
-            <WorkSummaryTags userId={profile.id} />
+              {/* 48 h work summary */}
+              <WorkSummaryTags userId={profile.id} />
 
-            <ProfileWorkSnapshot
-              userId={profile.id}
-              teams={
-                isOwn
-                  ? profile.teamMemberships.map((t) => ({ id: t.id, name: t.name }))
-                  : (profile.sharedTeams ?? []).map((t) => ({ id: t.id, name: t.name }))
-              }
-            />
+              <ProfileWorkSnapshot
+                userId={profile.id}
+                teams={
+                  isOwn
+                    ? profile.teamMemberships.map((t) => ({ id: t.id, name: t.name }))
+                    : (profile.sharedTeams ?? []).map((t) => ({ id: t.id, name: t.name }))
+                }
+              />
 
-            {/* Working Context — own profile only, inside Work tab */}
-            {isOwn && (
-              <Card padding="lg">
-                <div className="mb-5 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
-                  <FontAwesomeIcon icon={faUser} className="text-neutral-400" aria-hidden="true" />
-                  <Text
-                    size="sm"
-                    weight="semibold"
-                    className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
-                  >
-                    Working Context
-                  </Text>
-                </div>
-                <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-                  <div>
+              {/* Working Context — own profile only, inside Work tab */}
+              {isOwn && (
+                <Card padding="lg">
+                  <div className="mb-5 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
+                    <FontAwesomeIcon
+                      icon={faUser}
+                      className="text-neutral-400"
+                      aria-hidden="true"
+                    />
                     <Text
-                      variant="muted"
-                      size="xs"
-                      className="mb-2 block uppercase tracking-widest"
+                      size="sm"
+                      weight="semibold"
+                      className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
                     >
-                      Reports To
+                      Working Context
                     </Text>
-                    {profile.reportsTo ? (
-                      <div className="flex items-center gap-3 rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-500 dark:bg-neutral-700">
-                          <FontAwesomeIcon
-                            icon={faArrowUpFromBracket}
-                            className="text-xs"
-                            aria-hidden="true"
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <Text size="sm" weight="medium" className="truncate">
-                            {profile.reportsTo.name}
-                          </Text>
-                          {profile.reportsTo.username && (
-                            <Text variant="muted" size="xs" className="truncate">
-                              @{profile.reportsTo.username}
-                            </Text>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <Text variant="muted" size="sm">
-                        Not set
-                      </Text>
-                    )}
                   </div>
-                  <div>
-                    <Text
-                      variant="muted"
-                      size="xs"
-                      className="mb-2 block uppercase tracking-widest"
-                    >
-                      Team Memberships
-                    </Text>
-                    {profile.teamMemberships.length > 0 ? (
-                      <ul className="flex flex-col gap-2">
-                        {profile.teamMemberships.map((team) => (
-                          <li
-                            key={team.id}
-                            className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
-                          >
-                            <Text size="sm" weight="medium">
-                              {team.name}
+                  <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                    <div>
+                      <Text
+                        variant="muted"
+                        size="xs"
+                        className="mb-2 block uppercase tracking-widest"
+                      >
+                        Reports To
+                      </Text>
+                      {profile.reportsTo ? (
+                        <div className="flex items-center gap-3 rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-500 dark:bg-neutral-700">
+                            <FontAwesomeIcon
+                              icon={faArrowUpFromBracket}
+                              className="text-xs"
+                              aria-hidden="true"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <Text size="sm" weight="medium" className="truncate">
+                              {profile.reportsTo.name}
                             </Text>
-                            <Badge
-                              variant={team.role === 'admin' ? 'warning' : 'secondary'}
-                              size="sm"
-                            >
-                              {team.role === 'admin' ? 'Admin' : 'Member'}
-                            </Badge>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <Text variant="muted" size="sm">
-                        No team memberships yet.
-                      </Text>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
-
-            {/* Shared teams — teammate view, inside Work tab */}
-            {!isOwn && profile.sharedTeams && profile.sharedTeams.length > 0 && (
-              <Card padding="lg">
-                <div className="mb-4 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
-                  <FontAwesomeIcon icon={faUsers} className="text-neutral-400" aria-hidden="true" />
-                  <Text
-                    size="sm"
-                    weight="semibold"
-                    className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
-                  >
-                    Shared Teams
-                  </Text>
-                </div>
-                <ul className="flex flex-col gap-2">
-                  {profile.sharedTeams.map((team) => (
-                    <li
-                      key={team.id}
-                      className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
-                    >
-                      <Text size="sm" weight="medium">
-                        {team.name}
-                      </Text>
-                      {team.isAdmin && (
-                        <Badge
-                          variant="warning"
-                          size="sm"
-                          icon={<FontAwesomeIcon icon={faCrown} />}
-                        >
-                          Admin
-                        </Badge>
+                            {profile.reportsTo.username && (
+                              <Text variant="muted" size="xs" className="truncate">
+                                @{profile.reportsTo.username}
+                              </Text>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <Text variant="muted" size="sm">
+                          Not set
+                        </Text>
                       )}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            )}
-          </TabsContent>
+                    </div>
+                    <div>
+                      <Text
+                        variant="muted"
+                        size="xs"
+                        className="mb-2 block uppercase tracking-widest"
+                      >
+                        Team Memberships
+                      </Text>
+                      {profile.teamMemberships.length > 0 ? (
+                        <ul className="flex flex-col gap-2">
+                          {profile.teamMemberships.map((team) => (
+                            <li
+                              key={team.id}
+                              className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
+                            >
+                              <Text size="sm" weight="medium">
+                                {team.name}
+                              </Text>
+                              <Badge
+                                variant={team.role === 'admin' ? 'warning' : 'secondary'}
+                                size="sm"
+                              >
+                                {team.role === 'admin' ? 'Admin' : 'Member'}
+                              </Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <Text variant="muted" size="sm">
+                          No team memberships yet.
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              )}
 
-          {/* Activity tab */}
-          <TabsContent value="activity">
-            <ProfileActivityFeed userId={profile.id} />
-          </TabsContent>
+              {/* Shared teams — teammate view, inside Work tab */}
+              {!isOwn && profile.sharedTeams && profile.sharedTeams.length > 0 && (
+                <Card padding="lg">
+                  <div className="mb-4 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
+                    <FontAwesomeIcon
+                      icon={faUsers}
+                      className="text-neutral-400"
+                      aria-hidden="true"
+                    />
+                    <Text
+                      size="sm"
+                      weight="semibold"
+                      className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
+                    >
+                      Shared Teams
+                    </Text>
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {profile.sharedTeams.map((team) => (
+                      <li
+                        key={team.id}
+                        className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
+                      >
+                        <Text size="sm" weight="medium">
+                          {team.name}
+                        </Text>
+                        {team.isAdmin && (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            icon={<FontAwesomeIcon icon={faCrown} />}
+                          >
+                            Admin
+                          </Badge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* Activity tab */}
+            <TabsContent value="activity">
+              <ProfileActivityFeed userId={profile.id} />
+            </TabsContent>
+          </Suspense>
         </Tabs>
       )}
     </AppPage>

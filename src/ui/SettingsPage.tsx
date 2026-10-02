@@ -32,7 +32,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -332,17 +332,44 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // What the form last loaded (or saved) — a refresh only replaces the fields
+  // when they still match it, so unsaved edits survive a pull-to-refresh.
+  const fields = `${name}\n${bio}\n${website}\n${reportsToUserId}`;
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  const loadedFieldsRef = useRef<string | null>(null);
+  /** Which account the baseline and the fields on screen belong to. */
+  const loadedUserIdRef = useRef<string | null>(null);
+
   // Load current profile values
   useEffect(() => {
-    if (!user?.id) return;
+    const id = user?.id;
+    if (!id) return;
     let cancelled = false;
 
-    void userApi.getUser(user.id).then((p) => {
+    // An in-place sign-in swaps the account under this form. The edits on
+    // screen are the previous user's, so they're dropped rather than carried
+    // over — otherwise they'd be saved onto the new account.
+    if (loadedUserIdRef.current !== null && loadedUserIdRef.current !== id) {
+      setName('');
+      setBio('');
+      setWebsite('');
+      setReportsToUserId('');
+      loadedFieldsRef.current = null;
+    }
+    loadedUserIdRef.current = id;
+
+    void userApi.getUser(id).then((p) => {
       if (cancelled) return;
-      setName(p.name ?? '');
-      setBio(p.bio ?? '');
-      setWebsite(p.website ?? '');
-      setReportsToUserId(p.reportsTo?.id ?? '');
+      if (loadedFieldsRef.current !== null && fieldsRef.current !== loadedFieldsRef.current) {
+        return; // unsaved edits — keep them
+      }
+      const next = [p.name ?? '', p.bio ?? '', p.website ?? '', p.reportsTo?.id ?? ''];
+      setName(next[0]);
+      setBio(next[1]);
+      setWebsite(next[2]);
+      setReportsToUserId(next[3]);
+      loadedFieldsRef.current = next.join('\n');
     });
 
     return () => {
@@ -409,6 +436,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
         website,
         reportsToUserId: reportsToUserId || null,
       });
+      loadedFieldsRef.current = fields;
       await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
     } catch (err: unknown) {

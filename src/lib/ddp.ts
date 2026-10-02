@@ -14,11 +14,52 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { withTimeout } from './withTimeout';
+
 const meteorBase =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:3100';
 const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
+
+/**
+ * No in-flight DDP method call waits longer than this before the connection
+ * is treated as dead. Matches the REST request timeout (src/lib/api.ts); no
+ * method called directly via DdpClient.call() (huddle actions, auth, invites,
+ * logout) legitimately runs longer than that.
+ */
+const DDP_METHOD_TIMEOUT_MS = 8000;
+
+/**
+ * How long a foreground re-check (see DdpClient.checkConnection) waits for a
+ * pong. Generous enough for a cellular radio still waking from an iOS resume,
+ * where a healthy socket can take a few seconds to answer — killing one costs
+ * a reconnect that clears every collection.
+ */
+const DDP_PING_TIMEOUT_MS = 5000;
+
+/**
+ * A method call the server answered with an error — as opposed to one that
+ * never got an answer (timeout, dropped socket). Lets callers tell "the server
+ * said no" apart from "the server couldn't be reached".
+ */
+export class DdpServerError extends Error {
+  constructor(
+    message: string | undefined,
+    /** The Meteor.Error `error` code, e.g. 403 or 'not-found'. */
+    public readonly code?: number | string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Meteor's code for a resume token the server doesn't recognise or has
+ * expired ("You've been logged out by the server", "Your session has
+ * expired"). Any other server error — e.g. a 500 — says nothing about the
+ * token, so it must not be discarded for one.
+ */
+const RESUME_TOKEN_REJECTED = 403;
 
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
@@ -55,7 +96,7 @@ interface DdpMessage {
   fields?: Record<string, unknown>;
   cleared?: string[];
   result?: unknown;
-  error?: { reason?: string; message?: string };
+  error?: { error?: number | string; reason?: string; message?: string };
   subs?: string[];
   session?: string;
 }
@@ -65,8 +106,18 @@ class DdpClient {
   private nextId = 1;
   private pendingMethods = new Map<
     string,
-    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+    {
+      resolve: (v: unknown) => void;
+      reject: (e: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
+  private pendingPings = new Map<
+    string,
+    { resolve: () => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  /** Shares one in-flight foreground check across visibilitychange + Capacitor appStateChange. */
+  private inFlightCheck: Promise<void> | null = null;
   private readySubs = new Set<string>();
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
@@ -83,6 +134,18 @@ class DdpClient {
   private reconnectListeners = new Set<Listener>();
   private disconnectListeners = new Set<Listener>();
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
+
+  constructor() {
+    // Re-validate the socket whenever the tab/app comes back to the
+    // foreground — a half-open socket (iOS background-resume) looks
+    // connected but never replies otherwise. Capacitor's appStateChange is
+    // wired up separately in main.tsx (it needs the @capacitor/app plugin).
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') void this.checkConnection();
+      });
+    }
+  }
 
   /**
    * Notified whenever the connection is re-established after having failed —
@@ -223,9 +286,15 @@ class DdpClient {
    */
   private handleDisconnect(): void {
     for (const pending of this.pendingMethods.values()) {
+      clearTimeout(pending.timer);
       pending.reject(new Error('DDP connection lost'));
     }
     this.pendingMethods.clear();
+    for (const pending of this.pendingPings.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
+    this.pendingPings.clear();
     this.readySubs.clear();
     this.connectPromise = null;
     this.authPromise = null;
@@ -238,14 +307,19 @@ class DdpClient {
       this.reconnectTimer = null;
       void this.ensureAuthed()
         .then(() => {
+          if (this.status !== 'connected' || !this.ws) return;
           // Drop stale docs — the server re-sends `added` for everything below.
           for (const [collection, store] of this.collections) {
             store.clear();
             this.notify(collection);
           }
           for (const [id, sub] of this.activeSubs) {
-            this.ws!.send(JSON.stringify({ msg: 'sub', id, name: sub.name, params: sub.params }));
+            this.ws.send(JSON.stringify({ msg: 'sub', id, name: sub.name, params: sub.params }));
           }
+          // Same contract as scheduleBackgroundRetry: callers holding state we
+          // gave up on while the socket was dead (the session refetch in
+          // useSession) only recover if this path tells them too.
+          for (const fn of this.reconnectListeners) fn();
         })
         .catch(() => {
           // ensureConnected's onclose fires handleDisconnect again → next backoff.
@@ -260,9 +334,12 @@ class DdpClient {
       // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
       this.authPromise = this.tryResumeLogin()
         .then(() => {})
-        .catch(() => {
-          // Reset so next call can retry
+        .catch((err: unknown) => {
+          // Not cached as authenticated: callers would otherwise query an
+          // unauthenticated socket and read its empty answer as a sign-out.
+          // Cleared so the next call retries on this same socket.
           this.authPromise = null;
+          throw err;
         });
     }
     return this.authPromise ?? Promise.resolve();
@@ -280,9 +357,19 @@ class DdpClient {
         localStorage.setItem('meteor_resume_token', loginResult.token);
       }
       return true;
-    } catch {
-      localStorage.removeItem('meteor_resume_token');
-      return false;
+    } catch (err) {
+      // Only the server rejecting the token itself means it's invalid.
+      // Discarding it on a timeout, a dropped socket or a transient server
+      // error would turn a slow reconnect into a real sign-out that survives
+      // a reload.
+      if (err instanceof DdpServerError && err.code === RESUME_TOKEN_REJECTED) {
+        localStorage.removeItem('meteor_resume_token');
+        return false;
+      }
+      // Anything else leaves the socket unauthenticated, which is not the same
+      // as "no user" — report it rather than letting ensureAuthed cache it as a
+      // successful login.
+      throw err;
     }
   }
 
@@ -403,6 +490,12 @@ class DdpClient {
     }
   }
 
+  /**
+   * The signed-in user, or null when there is none. `users.getCurrentUser`
+   * answers with null rather than an error for an unauthenticated connection,
+   * so every error here — transport or server-side — propagates; a refresh
+   * that runs offline or hits a server fault is not mistaken for a sign-out.
+   */
   async getCurrentUser(): Promise<{
     id: string;
     email: string;
@@ -413,31 +506,22 @@ class DdpClient {
     createdAt: string | null;
     releaseNotesSeenVersion: string | null;
   } | null> {
-    try {
-      // Use a timeout to prevent hanging
-      const authedWithTimeout = Promise.race([
-        this.ensureAuthed(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-      ]);
-      await authedWithTimeout;
+    await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
 
-      const resumeToken = localStorage.getItem('meteor_resume_token');
-      if (!resumeToken) return null;
+    const resumeToken = localStorage.getItem('meteor_resume_token');
+    if (!resumeToken) return null;
 
-      const result = await this.call('users.getCurrentUser', {});
-      return result as {
-        id: string;
-        email: string;
-        name: string;
-        username: string | null;
-        image: string | null;
-        emailVerified: boolean;
-        createdAt: string | null;
-        releaseNotesSeenVersion: string | null;
-      } | null;
-    } catch {
-      return null;
-    }
+    const result = await this.call('users.getCurrentUser', {});
+    return result as {
+      id: string;
+      email: string;
+      name: string;
+      username: string | null;
+      image: string | null;
+      emailVerified: boolean;
+      createdAt: string | null;
+      releaseNotesSeenVersion: string | null;
+    } | null;
   }
 
   /** Records the newest release note the user has read. Never moves backwards. */
@@ -459,11 +543,24 @@ class DdpClient {
       case 'ping':
         this.ws?.send(JSON.stringify({ msg: 'pong', ...(data.id ? { id: data.id } : {}) }));
         break;
+      case 'pong': {
+        const pending = data.id ? this.pendingPings.get(data.id) : undefined;
+        if (pending && data.id) {
+          this.pendingPings.delete(data.id);
+          clearTimeout(pending.timer);
+          pending.resolve();
+        }
+        break;
+      }
       case 'result': {
         const pending = data.id ? this.pendingMethods.get(data.id) : undefined;
         if (pending && data.id) {
           this.pendingMethods.delete(data.id);
-          if (data.error) pending.reject(new Error(data.error.reason ?? data.error.message));
+          clearTimeout(pending.timer);
+          if (data.error)
+            pending.reject(
+              new DdpServerError(data.error.reason ?? data.error.message, data.error.error),
+            );
           else pending.resolve(data.result);
         }
         break;
@@ -513,12 +610,106 @@ class DdpClient {
   }
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
-    await this.ensureConnected();
+    // One deadline for the whole call. Starting the timer after ensureConnected()
+    // left a stalled handshake — up to four 15s attempts plus backoff — outside
+    // the timeout entirely, so a "bounded" call could still hang for a minute.
+    const deadline = Date.now() + DDP_METHOD_TIMEOUT_MS;
+    await withTimeout(
+      this.ensureConnected(),
+      DDP_METHOD_TIMEOUT_MS,
+      `DDP method "${method}" timed out connecting`,
+    );
+    const ws = this.ws;
+    if (!ws) throw new Error('DDP connection lost');
     const id = String(this.nextId++);
     return new Promise((resolve, reject) => {
-      this.pendingMethods.set(id, { resolve, reject });
-      this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
+      const timer = setTimeout(
+        () => {
+          // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
+          if (!this.pendingMethods.delete(id)) return;
+          reject(new Error(`DDP method "${method}" timed out`));
+          // Only the socket this call was sent on; a reconnect that happened in
+          // the meantime has its own healthy one.
+          if (this.ws === ws) this.killSocket();
+        },
+        Math.max(0, deadline - Date.now()),
+      );
+      this.pendingMethods.set(id, { resolve, reject, timer });
+      try {
+        ws.send(JSON.stringify({ msg: 'method', id, method, params }));
+      } catch (err) {
+        // The socket dropped between ensureConnected and here — drop the entry
+        // so its timer can't fire against whatever socket replaces this one.
+        this.pendingMethods.delete(id);
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
+  }
+
+  /**
+   * Treat the current socket as dead and run the normal disconnect/reconnect
+   * path. A half-open socket (readyState still OPEN, no reply, no close event
+   * — the iOS background-resume case) won't fire `onclose` promptly on its
+   * own, so this is triggered explicitly by a timed-out method call or a
+   * failed foreground ping rather than waiting for the browser to notice.
+   * Idempotent: once `handleDisconnect` has run, `this.ws` is null and a
+   * second caller for the same dead socket is a no-op.
+   */
+  private killSocket(): void {
+    const ws = this.ws;
+    if (!ws) return;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    try {
+      ws.close();
+    } catch {
+      // Already closing/closed.
+    }
+    this.status = 'failed';
+    this.handleDisconnect();
+  }
+
+  /**
+   * Re-validate the socket after the app returns to the foreground. If the
+   * socket isn't connected there's nothing to check — the normal connect path
+   * handles it. Otherwise sends a DDP ping and, if no pong arrives within
+   * DDP_PING_TIMEOUT_MS, tears the (likely half-open) socket down and lets
+   * the existing reconnect path take over. Multiple callers in quick
+   * succession (visibilitychange and Capacitor's appStateChange often both
+   * fire on iOS resume) share the same in-flight check instead of each
+   * sending their own ping.
+   */
+  public checkConnection(): Promise<void> {
+    if (this.status !== 'connected' || !this.ws) return Promise.resolve();
+    if (this.inFlightCheck) return this.inFlightCheck;
+
+    const ws = this.ws;
+    const id = String(this.nextId++);
+    this.inFlightCheck = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.pendingPings.delete(id)) return;
+        if (this.ws === ws) this.killSocket();
+        resolve();
+      }, DDP_PING_TIMEOUT_MS);
+      this.pendingPings.set(id, { resolve, timer });
+      try {
+        ws.send(JSON.stringify({ msg: 'ping', id }));
+      } catch {
+        // The socket is unusable (e.g. CLOSING before `onclose` ran) while
+        // still recorded as connected — tear it down like a missed pong, or
+        // later calls would keep reusing it instead of reconnecting.
+        this.pendingPings.delete(id);
+        clearTimeout(timer);
+        if (this.ws === ws) this.killSocket();
+        resolve();
+      }
+    }).finally(() => {
+      this.inFlightCheck = null;
+    });
+    return this.inFlightCheck;
   }
 
   /** Subscribe after auth; returns an unsubscribe function. */
@@ -526,11 +717,21 @@ class DdpClient {
     const id = String(this.nextId++);
     let stopped = false;
     this.activeSubs.set(id, { name, params });
-    void this.ensureAuthed().then(() => {
-      if (stopped) return;
-      if (onReady) this.subReadyListeners.set(id, onReady);
-      this.ws!.send(JSON.stringify({ msg: 'sub', id, name, params }));
-    });
+    void this.ensureAuthed()
+      .then(() => {
+        if (stopped) return;
+        // Registered before the send so a reconnect-driven resubscribe, which
+        // doesn't come back through here, still reports ready.
+        if (onReady) this.subReadyListeners.set(id, onReady);
+        // ensureAuthed resolves even when the socket died during auth (a
+        // timed-out resume login tears it down), leaving `ws` null. The entry
+        // is already in activeSubs, so the reconnect handleDisconnect
+        // scheduled re-sends it — nothing to do here but not crash.
+        this.ws?.send(JSON.stringify({ msg: 'sub', id, name, params }));
+      })
+      .catch(() => {
+        // Couldn't connect at all; the retry loops own recovery from here.
+      });
     return () => {
       stopped = true;
       this.activeSubs.delete(id);

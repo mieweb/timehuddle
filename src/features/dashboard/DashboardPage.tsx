@@ -45,7 +45,7 @@ import {
   TabsTrigger,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ticketApi,
@@ -67,10 +67,23 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
-import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
+import { lazyNamed } from '../../lib/lazyNamed';
 import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
-import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
-import { TimesheetApprovalsPanel } from '../teams/TimesheetApprovalsPanel';
+
+// The Timesheet view's panels are only fetched once that tab is opened — the
+// default Overview never needs them, and non-admins never see the admin two.
+const PersonalTimesheetPanel = lazyNamed(
+  () => import('../clock/PersonalTimesheetPanel'),
+  'PersonalTimesheetPanel',
+);
+const AdminTimesheetPanel = lazyNamed(
+  () => import('../teams/AdminTimesheetPanel'),
+  'AdminTimesheetPanel',
+);
+const TimesheetApprovalsPanel = lazyNamed(
+  () => import('../teams/TimesheetApprovalsPanel'),
+  'TimesheetApprovalsPanel',
+);
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
@@ -200,22 +213,24 @@ export const DashboardPage: React.FC = () => {
   // Claimed per call: switching team re-fires this, and a slower response for
   // the team just left would otherwise badge the new one with its count.
   const approvalCountSeqRef = useRef(0);
-  const fetchPendingApprovals = useCallback(() => {
+  const fetchPendingApprovals = useCallback(async () => {
     const seq = ++approvalCountSeqRef.current;
     if (!selectedTeamId || !canViewTimesheet) {
       setPendingApprovalCount(0);
       return;
     }
-    timesheetApprovalApi
-      .listPending(selectedTeamId)
-      .then((requests) => {
-        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
-      })
-      .catch(() => {
-        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(0);
-      });
+    // A failure keeps the badge as it was and rejects to the caller, so
+    // pull-to-refresh reports it instead of silently showing zero waiting.
+    const requests = await timesheetApprovalApi.listPending(selectedTeamId);
+    if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
   }, [selectedTeamId, canViewTimesheet]);
-  useEffect(fetchPendingApprovals, [fetchPendingApprovals]);
+  useEffect(() => {
+    // A team switch starts from no badge, so a failed load for the new team
+    // can't leave the previous team's count sitting on it. Pull-to-refresh
+    // calls fetchPendingApprovals directly and keeps the count it already has.
+    setPendingApprovalCount(0);
+    fetchPendingApprovals().catch(() => {});
+  }, [fetchPendingApprovals]);
   useRefresh(fetchPendingApprovals);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
@@ -223,8 +238,9 @@ export const DashboardPage: React.FC = () => {
   // one jumps straight to that post in the feed. Teams only — a personal
   // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
+  const isOverview = view === 'overview';
   useEffect(() => {
-    if (!selectedTeamId || isPersonalWorkspace) {
+    if (!selectedTeamId || isPersonalWorkspace || !isOverview) {
       setRecentPosts([]);
       return;
     }
@@ -246,7 +262,7 @@ export const DashboardPage: React.FC = () => {
       unsubscribe();
       setRecentPosts([]);
     };
-  }, [selectedTeamId, isPersonalWorkspace]);
+  }, [selectedTeamId, isPersonalWorkspace, isOverview]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
 
@@ -262,30 +278,54 @@ export const DashboardPage: React.FC = () => {
     return new Date(date).toLocaleDateString();
   };
 
+  const userId = user?.id;
+  // Claimed per call, like approvalCountSeqRef above: clearing state on a team
+  // switch doesn't cancel the previous team's requests, so they are discarded
+  // here rather than allowed to repopulate the new team's cards.
+  const overviewSeqRef = useRef(0);
   const fetchData = useCallback(async () => {
-    if (!user || !selectedTeamId) return;
+    // Claimed before the guard: leaving a team has to invalidate whatever its
+    // request was about to write, not just skip starting a new one.
+    const seq = ++overviewSeqRef.current;
+    if (!userId || !selectedTeamId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const [t, m, r] = await Promise.all([
-        ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
-        teamDashboardApi
-          .getTeamClockStatus(selectedTeamId)
-          .catch(() => [] as TeamMemberClockStatus[]),
-        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
+      const [t, m, r] = await Promise.allSettled([
+        ticketApi.getTickets(selectedTeamId),
+        teamDashboardApi.getTeamClockStatus(selectedTeamId),
+        teamDashboardApi.getTeamRunningTimers(selectedTeamId),
       ]);
-      setTickets(t);
-      setMemberStatuses(m);
-      setRunningTimers(r);
+      if (overviewSeqRef.current !== seq) return;
+      // Apply what loaded; a failed request keeps its card's previous data
+      // rather than emptying it, and the failure reaches pull-to-refresh.
+      if (t.status === 'fulfilled') setTickets(t.value);
+      if (m.status === 'fulfilled') setMemberStatuses(m.value);
+      if (r.status === 'fulfilled') setRunningTimers(r.value);
+      const failed = [t, m, r].find((result) => result.status === 'rejected');
+      if (failed) throw failed.reason;
     } finally {
-      setLoading(false);
+      if (overviewSeqRef.current === seq) setLoading(false);
     }
-  }, [user, selectedTeamId]);
+  }, [userId, selectedTeamId]);
 
+  // Another team's numbers must never show under this one, even when this
+  // team's load fails — so a team switch starts from empty.
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    setTickets([]);
+    setMemberStatuses([]);
+    setRunningTimers([]);
+  }, [selectedTeamId]);
 
-  useRefresh(fetchData);
+  // Overview data loads (and pull-to-refresh reloads it) only while Overview
+  // is the open tab; the Timesheet panels register their own refresh.
+  useEffect(() => {
+    if (isOverview) fetchData().catch(() => {});
+  }, [fetchData, isOverview]);
+
+  useRefresh(fetchData, isOverview);
 
   // ─── Derived stats ───────────────────────────────────────────────────────────
 
@@ -424,26 +464,35 @@ export const DashboardPage: React.FC = () => {
       </Tabs>
 
       {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
-      {view === 'timesheet' &&
-        (showAdminTimesheet && selectedTeamId ? (
-          <div className="space-y-4">
-            <TimesheetApprovalsPanel
-              teamId={selectedTeamId}
-              focusRequestId={focusRequestId}
-              onFocusHandled={clearFocusRequest}
-              onPendingCountChange={setPendingApprovalCount}
-            />
-            <AdminTimesheetPanel
-              members={teamMembers}
-              selectedTeamId={selectedTeamId}
-              teams={teams}
-              initialMemberId={initialMemberId}
-              initialMemberRequestId={memberRequestId}
-            />
-          </div>
-        ) : (
-          <PersonalTimesheetPanel />
-        ))}
+      {view === 'timesheet' && (
+        <Suspense
+          fallback={
+            <div className="timesheet-loading flex justify-center py-8">
+              <Spinner size="md" label="Loading timesheet…" />
+            </div>
+          }
+        >
+          {showAdminTimesheet && selectedTeamId ? (
+            <div className="space-y-4">
+              <TimesheetApprovalsPanel
+                teamId={selectedTeamId}
+                focusRequestId={focusRequestId}
+                onFocusHandled={clearFocusRequest}
+                onPendingCountChange={setPendingApprovalCount}
+              />
+              <AdminTimesheetPanel
+                members={teamMembers}
+                selectedTeamId={selectedTeamId}
+                teams={teams}
+                initialMemberId={initialMemberId}
+                initialMemberRequestId={memberRequestId}
+              />
+            </div>
+          ) : (
+            <PersonalTimesheetPanel />
+          )}
+        </Suspense>
+      )}
 
       {view === 'overview' && (
         <>

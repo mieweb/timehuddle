@@ -24,6 +24,7 @@ vi.mock('@capacitor/haptics', () => ({
 
 vi.mock('@mieweb/ui', () => ({
   Spinner: () => null,
+  useOptionalToast: () => null,
 }));
 
 import { PullToRefresh } from './PullToRefresh';

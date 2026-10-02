@@ -54,7 +54,7 @@ import {
   Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -157,24 +157,34 @@ export const TeamsPage: React.FC = () => {
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  // Claimed per call: clearing the list on a team switch doesn't cancel the
+  // previous team's request, so a late response is discarded here rather than
+  // allowed to list one team's members under another.
+  const membersSeqRef = useRef(0);
   const fetchMembers = useCallback(async (teamId: string | null) => {
+    const seq = ++membersSeqRef.current;
     if (!teamId) {
       setMembers([]);
+      // Claiming the sequence above stops any in-flight request from clearing
+      // this, so leaving a team mid-load has to clear it here.
+      setMembersLoading(false);
       return;
     }
     setMembersLoading(true);
     try {
-      const data = await teamApi.getMembers(teamId);
-      setMembers(data);
-    } catch {
-      setMembers([]);
+      // A failure keeps the members already shown and rejects to the caller.
+      const next = await teamApi.getMembers(teamId);
+      if (membersSeqRef.current === seq) setMembers(next);
     } finally {
-      setMembersLoading(false);
+      if (membersSeqRef.current === seq) setMembersLoading(false);
     }
   }, []);
 
+  // A team switch starts from empty, so another team's members never show
+  // under this one when its load fails.
   useEffect(() => {
-    void fetchMembers(selectedTeamId);
+    setMembers([]);
+    fetchMembers(selectedTeamId).catch(() => {});
   }, [selectedTeamId, fetchMembers]);
 
   // ── Real-time team updates (Meteor DDP, oplog-backed) ──
@@ -186,7 +196,7 @@ export const TeamsPage: React.FC = () => {
     const ddp = getDdpClient();
 
     const offChange = ddp.onCollectionChange('teams', () => {
-      void fetchMembers(selectedTeamId);
+      fetchMembers(selectedTeamId).catch(() => {});
     });
 
     return () => {
@@ -382,7 +392,7 @@ export const TeamsPage: React.FC = () => {
         setModal({ type: 'invite-sent', email: formValue.trim() });
       } else {
         closeModal();
-        await fetchMembers(selectedTeamId);
+        await fetchMembers(selectedTeamId).catch(() => {});
       }
     } catch (e: any) {
       setFormError(e.message || 'Failed to invite');
@@ -453,7 +463,7 @@ export const TeamsPage: React.FC = () => {
         await teamApi.removeMember(selectedTeamId, memberId);
         closeModal();
         refetchTeams();
-        await fetchMembers(selectedTeamId);
+        await fetchMembers(selectedTeamId).catch(() => {});
       } catch (e: any) {
         setFormError(e.message || 'Failed to remove member');
       } finally {
@@ -736,7 +746,7 @@ export const TeamsPage: React.FC = () => {
                                     .setMemberRole(selectedTeamId!, memberId, 'admin')
                                     .then(() => {
                                       refetchTeams();
-                                      void fetchMembers(selectedTeamId);
+                                      fetchMembers(selectedTeamId).catch(() => {});
                                     });
                                 }}
                               >
@@ -750,7 +760,7 @@ export const TeamsPage: React.FC = () => {
                                     .setMemberRole(selectedTeamId!, memberId, 'member')
                                     .then(() => {
                                       refetchTeams();
-                                      void fetchMembers(selectedTeamId);
+                                      fetchMembers(selectedTeamId).catch(() => {});
                                     });
                                 }}
                               >

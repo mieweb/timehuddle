@@ -690,16 +690,23 @@ export const TicketsPage: React.FC = () => {
         }
       }
       setTickets(merged);
-    } catch {
-      // keep previous tickets on error
     } finally {
+      // Previous tickets are kept on error; rejection still propagates to
+      // callers (e.g. pull-to-refresh) so a failure isn't reported as success.
       setTicketsLoading(false);
     }
   }, [teams, teamsReady]);
 
-  useEffect(() => {
-    void refetch();
+  /**
+   * `refetch` for the in-page callers below, which have nowhere to report a
+   * failure — only pull-to-refresh registers the throwing one, so only it
+   * raises the toast.
+   */
+  const refetchQuietly = useCallback(() => {
+    void refetch().catch(() => {});
   }, [refetch]);
+
+  useEffect(refetchQuietly, [refetchQuietly]);
 
   // When the user switches team in the header, follow the new team in the filter.
   useEffect(() => {
@@ -756,11 +763,11 @@ export const TicketsPage: React.FC = () => {
   // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
   useEffect(() => {
     const onRefetch = () => {
-      void refetch();
+      refetchQuietly();
     };
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [refetch]);
+  }, [refetchQuietly]);
 
   // Fetch members for all teams
   useEffect(() => {
@@ -1093,11 +1100,11 @@ export const TicketsPage: React.FC = () => {
       setCreateTitle('');
       setCreateGithub('');
       setShowCreate(false);
-      void refetch();
+      refetchQuietly();
     } finally {
       setCreateLoading(false);
     }
-  }, [createTitle, createGithub, refetch, selectedTeam]);
+  }, [createTitle, createGithub, refetchQuietly, selectedTeam]);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
@@ -1130,11 +1137,19 @@ export const TicketsPage: React.FC = () => {
         });
       }
       setEditTicket(null);
-      void refetch();
+      refetchQuietly();
     } finally {
       setEditSaving(false);
     }
-  }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
+  }, [
+    editTicket,
+    editTitle,
+    editDescription,
+    editGithub,
+    editAssignees,
+    editPriority,
+    refetchQuietly,
+  ]);
 
   const handleSaveStatus = useCallback(async () => {
     if (!changeStatusTicket || !changeStatusValue) return;
@@ -1142,11 +1157,11 @@ export const TicketsPage: React.FC = () => {
     try {
       await ticketApi.updateStatusPriority(changeStatusTicket.id, { status: changeStatusValue });
       setChangeStatusTicket(null);
-      void refetch();
+      refetchQuietly();
     } finally {
       setChangeStatusSaving(false);
     }
-  }, [changeStatusTicket, changeStatusValue, refetch]);
+  }, [changeStatusTicket, changeStatusValue, refetchQuietly]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -1154,11 +1169,11 @@ export const TicketsPage: React.FC = () => {
     try {
       await ticketApi.deleteTicket(deleteId);
       setDeleteId(null);
-      void refetch();
+      refetchQuietly();
     } finally {
       setDeleteLoading(false);
     }
-  }, [deleteId, refetch]);
+  }, [deleteId, refetchQuietly]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
@@ -1815,7 +1830,7 @@ export const TicketsPage: React.FC = () => {
                     const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
                     await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
                     setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
-                    void refetch();
+                    refetchQuietly();
                   }}
                 >
                   Assign to me

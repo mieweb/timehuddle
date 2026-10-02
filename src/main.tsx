@@ -73,10 +73,13 @@ const t0 = performance.now();
 const _log = (msg: string) =>
   console.log(`[TimeHuddle] +${(performance.now() - t0).toFixed(0)}ms ${msg}`);
 _log('main.tsx evaluated');
+_log(
+  `build v${import.meta.env.VITE_APP_VERSION} (${import.meta.env.VITE_GIT_SHA}, ${import.meta.env.MODE})`,
+);
 
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
-import React from 'react';
+import React, { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 
 // Debug: check Capacitor bridge detection
@@ -86,18 +89,34 @@ _log(
 _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.messageHandlers?.bridge}`);
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
-import { InboxPage } from './features/inbox/InboxPage';
-import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
+import { Spinner, ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
+
 import { enterpriseApi } from './lib/api';
+import { lazyNamed } from './lib/lazyNamed';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
-import { AppLayout } from './ui/AppLayout';
-import { InstallerModal } from './ui/InstallerModal';
-import { LandingPage } from './ui/LandingPage';
-import { LoginForm } from './ui/LoginForm';
 import { OtaUpdateGate } from './ui/OtaUpdateGate';
-import { UsernameClaimModal } from './ui/UsernameClaimModal';
+
+// Every screen is its own chunk: the entry carries only bootstrapping, and a
+// visitor downloads the landing page, login, or app shell — whichever they see.
+const AppLayout = lazyNamed(() => import('./ui/AppLayout'), 'AppLayout');
+const InboxPage = lazyNamed(() => import('./features/inbox/InboxPage'), 'InboxPage');
+const InstallerModal = lazyNamed(() => import('./ui/InstallerModal'), 'InstallerModal');
+const LandingPage = lazyNamed(() => import('./ui/LandingPage'), 'LandingPage');
+const LoginForm = lazyNamed(() => import('./ui/LoginForm'), 'LoginForm');
+const PublicReleaseNotesPage = lazyNamed(
+  () => import('./features/release-notes/PublicReleaseNotesPage'),
+  'PublicReleaseNotesPage',
+);
+const UsernameClaimModal = lazyNamed(() => import('./ui/UsernameClaimModal'), 'UsernameClaimModal');
+
+/** Fallback while a top-level screen's chunk downloads. */
+const ScreenLoading: React.FC = () => (
+  <div className="screen-loading flex h-dvh items-center justify-center">
+    <Spinner size="lg" label="Loading…" />
+  </div>
+);
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -175,6 +194,14 @@ if (Capacitor.isNativePlatform()) {
       // Malformed URL — ignore
     }
   });
+
+  // Re-check the DDP socket when the native app returns to the foreground —
+  // a half-open socket (background for a while, e.g. recording a Pulse video)
+  // looks connected but never replies otherwise. No-op if already connected
+  // and healthy; see DdpClient.checkConnection.
+  void CapApp.addListener('appStateChange', ({ isActive }) => {
+    if (isActive) void getDdpClient().checkConnection();
+  });
 }
 
 // ─── OAuth callback handler (synchronous, before session check) ───────────────
@@ -195,6 +222,27 @@ if (Capacitor.isNativePlatform()) {
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
+
+// ToastProvider only supplies context — it renders no UI of its own, so the
+// container that actually displays toasts has to be mounted separately.
+const AppToastContainer: React.FC = () => {
+  const { toasts, position, dismiss } = useToast();
+  return <ToastContainer toasts={toasts} position={position} onDismiss={dismiss} />;
+};
+
+/** The full app tree. Shared by both branches of renderRoot so they can't drift. */
+const Root: React.FC = () => (
+  <OtaUpdateGate>
+    <ToastProvider>
+      <AppToastContainer />
+      <SessionProvider>
+        <Suspense fallback={<ScreenLoading />}>
+          <App />
+        </Suspense>
+      </SessionProvider>
+    </ToastProvider>
+  </OtaUpdateGate>
+);
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim, refetch } = useSession();
@@ -388,40 +436,40 @@ function renderRoot() {
       if (Capacitor.isNativePlatform()) {
         _log('native platform detected — mounting SessionProvider + App');
         _root = createRoot(el);
-        _root.render(
-          <OtaUpdateGate>
-            <SessionProvider>
-              <App />
-            </SessionProvider>
-          </OtaUpdateGate>,
-        );
+        _root.render(<Root />);
         return;
       }
       _root = createRoot(el);
-      _root.render(<LandingPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <LandingPage />
+        </Suspense>,
+      );
       return;
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
-      _root.render(<InboxPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <InboxPage />
+        </Suspense>,
+      );
       return;
     } else if (window.location.pathname === '/release-notes') {
       // Public on purpose: linked from the landing page, so someone deciding
       // whether to sign up can read what shipped without an account.
       _root = createRoot(el);
-      _root.render(<PublicReleaseNotesPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <PublicReleaseNotesPage />
+        </Suspense>,
+      );
       return;
     }
 
     _root = createRoot(el);
   }
 
-  _root.render(
-    <OtaUpdateGate>
-      <SessionProvider>
-        <App />
-      </SessionProvider>
-    </OtaUpdateGate>,
-  );
+  _root.render(<Root />);
 }
 
 renderRoot();

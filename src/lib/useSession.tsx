@@ -63,15 +63,9 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`,
         );
 
-        // Fetch organizations for the user
-        let organizations: Array<{
-          id: string;
-          name: string;
-          slug: string;
-          enterpriseId: string | null;
-          role: 'owner' | 'admin' | 'member';
-          allowAutoJoin: boolean;
-        }> = [];
+        // Fetch organizations for the user. Null when the fetch fails, so a
+        // failed refresh keeps the organizations already loaded.
+        let organizations: TimecoreUser['organizations'] | null = null;
         try {
           console.log('[TimeHuddle] fetchSession: calling orgApi.listOrganizations()...');
           const orgs = await orgApi.listOrganizations();
@@ -91,18 +85,24 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           );
         }
 
-        setUser({
-          id: meteorUser.id,
-          email: meteorUser.email,
-          name: meteorUser.name,
-          createdAt: meteorUser.createdAt ?? new Date().toISOString(),
-          emailVerified: meteorUser.emailVerified ?? true,
-          image: meteorUser.image ?? null,
-          backgroundUrl: null,
-          username: meteorUser.username ?? null,
-          releaseNotesSeenVersion: meteorUser.releaseNotesSeenVersion ?? null,
-          organizationMembership: null,
-          organizations,
+        setUser((prev) => {
+          const same = prev?.id === meteorUser.id ? prev : null;
+          const next: TimecoreUser = {
+            id: meteorUser.id,
+            email: meteorUser.email,
+            name: meteorUser.name,
+            createdAt: meteorUser.createdAt ?? same?.createdAt ?? new Date().toISOString(),
+            emailVerified: meteorUser.emailVerified ?? true,
+            image: meteorUser.image ?? null,
+            backgroundUrl: null,
+            username: meteorUser.username ?? null,
+            releaseNotesSeenVersion: meteorUser.releaseNotesSeenVersion ?? null,
+            organizationMembership: null,
+            organizations: organizations ?? same?.organizations ?? [],
+          };
+          // Keep the same object when nothing changed: every hook keyed on
+          // `user` would otherwise re-run (and refetch) on each pull-to-refresh.
+          return same && JSON.stringify(same) === JSON.stringify(next) ? same : next;
         });
       } else {
         console.log(
@@ -118,8 +118,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const errMessage = err instanceof Error ? err.message : String(err);
       if (errMessage.includes('suspended') || errMessage.includes('blocked')) {
         setBlockMessage(errMessage);
+        setUser(null);
       }
-      setUser(null);
+      // Otherwise the server couldn't be reached (offline, timeout): keep the
+      // signed-in user. A real sign-out comes back from getCurrentUser as null.
     } finally {
       setLoading(false);
     }

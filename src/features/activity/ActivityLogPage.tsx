@@ -163,34 +163,28 @@ export const ActivityLogPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    setLoading(true);
+  const userId = user?.id;
+  const loadLog = React.useCallback(async () => {
+    const { events, nextCursor: cursor } = await activityApi.getLog({ limit: 50 });
+    setItems(events);
+    setNextCursor(cursor);
     setError(null);
-    activityApi
-      .getLog({ limit: 50 })
-      .then(({ events, nextCursor: cursor }) => {
-        setItems(events);
-        setNextCursor(cursor);
-      })
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+    loadLog()
       .catch(() => setError('Failed to load activity log.'))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [userId, loadLog]);
 
+  // Pull-to-refresh keeps the list on screen: no loading state, and a failure
+  // leaves the current entries in place and reaches pull-to-refresh instead.
   useRefresh(
     React.useCallback(async () => {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const { events, nextCursor: cursor } = await activityApi.getLog({ limit: 50 });
-        setItems(events);
-        setNextCursor(cursor);
-      } catch {
-        setError('Failed to load activity log.');
-      } finally {
-        setLoading(false);
-      }
-    }, [user]),
+      if (userId) await loadLog();
+    }, [userId, loadLog]),
   );
 
   const loadMore = useCallback(async () => {
