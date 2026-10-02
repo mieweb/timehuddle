@@ -71,13 +71,6 @@ export default defineConfig({
     },
   },
 
-  // Scan only the app's own entry for dependencies. Left to its default, Vite
-  // crawls every .html file in the repo — including the example apps inside
-  // vendor/pulsevault — and fails on their imports.
-  optimizeDeps: {
-    entries: ['index.html'],
-  },
-
   server: {
     port: 3000,
     host: true,

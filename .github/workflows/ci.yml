@@ -27,8 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The frontend's Pulse logo comes from vendor/pulsevault's asset pack.
-      - run: git submodule update --init vendor/pulsevault
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -82,8 +80,6 @@ jobs:
     needs: [checks_frontend, checks_backend]
     steps:
       - uses: actions/checkout@v4
-      # The frontend's Pulse logo comes from vendor/pulsevault's asset pack.
-      - run: git submodule update --init vendor/pulsevault
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -131,9 +127,6 @@ jobs:
 
             echo "=== sudo npm install ==="
             sudo npm install --no-audit --no-fund
-
-            echo "=== vendor/pulsevault (the frontend's Pulse logo) ==="
-            git submodule update --init vendor/pulsevault
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -184,10 +177,6 @@ jobs:
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
-
-            echo "=== build vendored PulseVault (meteor-backend file: dependency) ==="
-            git submodule update --init vendor/pulsevault
-            sudo bash scripts/build-pulsevault.sh
 
             echo "=== sudo npm install (meteor-backend) ==="
             cd meteor-backend
@@ -292,9 +281,6 @@ jobs:
 
             echo "=== sudo npm install ==="
             sudo npm install --no-audit --no-fund
-
-            echo "=== vendor/pulsevault (the frontend's Pulse logo) ==="
-            git submodule update --init vendor/pulsevault
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -455,9 +441,6 @@ jobs:
 
             echo "=== sudo npm install ==="
             sudo npm install --no-audit --no-fund
-
-            echo "=== vendor/pulsevault (the frontend's Pulse logo) ==="
-            git submodule update --init vendor/pulsevault
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist

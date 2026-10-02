@@ -1,8 +1,8 @@
 import { cn } from '@mieweb/ui';
 import React from 'react';
 
-import pulseLogoMono from '../../../vendor/pulsevault/assets/pulse-logo-mono.svg';
-import pulseLogo from '../../../vendor/pulsevault/assets/pulse-logo.svg';
+import pulseLogoMono from '@mieweb/pulsevault/assets/pulse-logo-mono.svg';
+import pulseLogo from '@mieweb/pulsevault/assets/pulse-logo.svg';
 
 interface PulseLogoProps {
   className?: string;
@@ -11,7 +11,7 @@ interface PulseLogoProps {
 }
 
 /**
- * The Pulse logo, from PulseVault's asset pack (vendor/pulsevault/assets).
+ * The Pulse logo, from PulseVault's asset pack (`@mieweb/pulsevault/assets`).
  * Decorative: whatever it sits beside says "Pulse" in words.
  */
 export const PulseLogo: React.FC<PulseLogoProps> = ({ className, inverse }) => (

@@ -2,9 +2,6 @@
 [submodule "vendor/meteor-wormhole"]
 	path = vendor/meteor-wormhole
 	url = https://github.com/mieweb/meteor-wormhole
-[submodule "vendor/pulsevault"]
-	path = vendor/pulsevault
-	url = https://github.com/mieweb/pulsevault
 [submodule "vendor/ui"]
 	path = vendor/ui
 	url = https://github.com/Dharp02/ui.git
