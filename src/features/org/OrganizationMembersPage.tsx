@@ -35,6 +35,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { useSearchParam } from '../../ui/router';
 import { getDdpClient } from '../../lib/ddp';
 
 function invitationStatusVariant(
@@ -69,7 +70,7 @@ export const OrganizationMembersPage: React.FC = () => {
   const [memberRole, setMemberRole] = useState<DefaultOrganizationRole>('member');
   const [savingMember, setSavingMember] = useState(false);
   const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [memberSearch, setMemberSearch] = useState('');
+  const [memberSearch, setMemberSearch] = useSearchParam('q');
   const [blockUserId, setBlockUserId] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
   const [blockingSaving, setBlockingSaving] = useState(false);

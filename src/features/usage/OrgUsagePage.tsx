@@ -36,6 +36,7 @@ import { hasOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
 import { AppPage } from '../../ui/AppPage';
+import { useQueryParams } from '../../ui/router';
 import {
   CADENCE_META,
   CADENCE_ORDER,
@@ -50,6 +51,8 @@ const DEFAULT_PERIOD: UsagePeriodDays = 7;
 
 /** Picker value for "every organization I administer" — never sent to the server. */
 const ALL_ORGS = 'all';
+
+const PERIODS = Object.keys(PERIOD_LABEL).map(Number) as UsagePeriodDays[];
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
@@ -127,11 +130,22 @@ export const OrgUsagePage: React.FC = () => {
   const rolesLoaded = organizations.length > 0;
   const canAccess = rolesLoaded && hasOrganizationAdminAccess(organizations) && !denied;
 
-  const [periodDays, setPeriodDays] = useState<UsagePeriodDays>(DEFAULT_PERIOD);
+  // In the URL as `?period=` and `?usageOrg=` (see src/ui/ROUTING.md). Not
+  // `?org=`: that's the app-wide org scope, and this is a report filter with
+  // an "all organizations" choice.
+  const { params, setParams } = useQueryParams();
+  const periodParam = Number(params.get('period'));
+  const periodDays = PERIODS.includes(periodParam as UsagePeriodDays)
+    ? (periodParam as UsagePeriodDays)
+    : DEFAULT_PERIOD;
+  const setPeriodDays = (next: UsagePeriodDays) =>
+    setParams({ period: next === DEFAULT_PERIOD ? null : String(next) });
   // Select renders its placeholder for an empty value, so the all-orgs choice
   // carries a sentinel. The server takes a missing orgId to mean the same
   // thing, so the sentinel never leaves this file.
-  const [orgId, setOrgId] = useState(ALL_ORGS);
+  const orgParam = params.get('usageOrg');
+  const orgId = orgParam && organizations.some((o) => o.id === orgParam) ? orgParam : ALL_ORGS;
+  const setOrgId = (next: string) => setParams({ usageOrg: next === ALL_ORGS ? null : next });
   const [report, setReport] = useState<OrgUsageReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

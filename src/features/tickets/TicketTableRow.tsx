@@ -12,6 +12,7 @@ import {
   faEllipsisVertical,
   faExternalLink,
   faEye,
+  faLink,
   faPen,
   faCircleCheck,
   faCircleDot,
@@ -36,6 +37,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { timeAgo } from '../../lib/date';
+import { useCopyLink } from '../../lib/useCopyLink';
 import { OverflowTooltip } from '../../ui/OverflowTooltip';
 import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
@@ -101,6 +103,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onChangeStatusRequest,
 }) => {
   const { navigate } = useRouter();
+  const copyLink = useCopyLink();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -352,6 +355,15 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                   }}
                 >
                   Ticket Details
+                </DropdownItem>
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faLink} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void copyLink(ticketDetailPath(ticket));
+                  }}
+                >
+                  Copy Link
                 </DropdownItem>
                 {capabilities.openExternal && externalUrl && (
                   <DropdownItem

@@ -9,10 +9,10 @@ import React from 'react';
 
 import { useRouter } from '../../../ui/router';
 
-export const BackToTicketsButton: React.FC = () => {
+export const BackToTicketsButton: React.FC<{ actions?: React.ReactNode }> = ({ actions }) => {
   const { navigate } = useRouter();
   return (
-    <div className="ticket-detail-back mb-4">
+    <div className="ticket-detail-back mb-4 flex items-center justify-between gap-2">
       <Button
         variant="secondary"
         size="sm"
@@ -23,6 +23,7 @@ export const BackToTicketsButton: React.FC = () => {
       >
         TICKETS
       </Button>
+      {actions}
     </div>
   );
 };

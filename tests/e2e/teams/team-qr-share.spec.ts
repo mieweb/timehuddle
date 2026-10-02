@@ -57,7 +57,7 @@ async function completeSignup(page: Page, opts: { first: string; last: string; e
 
   const usernameDialog = page.getByRole('dialog', { name: 'Username Required' });
   await Promise.race([
-    page.waitForURL(/\/app\/(dashboard)?$/, { timeout: 20000 }).catch(() => {}),
+    page.waitForURL(/\/app\/(dashboard)?(\?|$)/, { timeout: 20000 }).catch(() => {}),
     usernameDialog.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {}),
   ]);
   if (await usernameDialog.isVisible().catch(() => false)) {
@@ -69,7 +69,7 @@ async function completeSignup(page: Page, opts: { first: string; last: string; e
     await usernameDialog.getByRole('button', { name: 'Claim username' }).click();
     await usernameDialog.waitFor({ state: 'hidden', timeout: 10000 });
   }
-  await page.waitForURL(/\/app\/(dashboard)?$/, { timeout: 20000 });
+  await page.waitForURL(/\/app\/(dashboard)?(\?|$)/, { timeout: 20000 });
 }
 
 test.describe('Team QR Share & Join', () => {
@@ -218,7 +218,7 @@ test.describe('Team QR Share & Join', () => {
       await page.fill('input[type="email"]', member.email);
       await page.fill('input[type="password"]', member.password);
       await page.click('button:has-text("Sign in")');
-      await page.waitForURL('**/dashboard', { timeout: 45000 });
+      await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 45000 });
 
       const memberUser = await db.collection('users').findOne({ 'emails.address': member.email });
       const memberId = String(memberUser!._id);

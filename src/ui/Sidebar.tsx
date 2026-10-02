@@ -45,7 +45,7 @@ const isReload = (() => {
 
 import { useSidebar } from './AppLayout';
 import { Logo } from './Logo';
-import { useRouter } from './router';
+import { isActivePath, useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 
@@ -241,7 +241,11 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.label}>
-                  <NavLink item={item} active={pathname === item.href} expanded={expanded} />
+                  <NavLink
+                    item={item}
+                    active={isActivePath(pathname, item.href)}
+                    expanded={expanded}
+                  />
                 </li>
               ))}
             </ul>

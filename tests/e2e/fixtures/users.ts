@@ -104,7 +104,7 @@ export async function loginAs(page: Page, user: TestUser): Promise<void> {
   // budget and the failure surfaced as a bare "Test timeout exceeded" with no
   // hint that login was the thing that stalled.
   try {
-    await page.waitForURL('**/dashboard', { timeout: 30000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 30000 });
   } catch (err) {
     // Distinguish "the backend is down" from "the app failed to navigate".
     // A crashed Meteor backend makes every spec fail identically at this line,

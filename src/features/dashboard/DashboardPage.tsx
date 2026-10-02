@@ -63,7 +63,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
-import { useRouter } from '../../ui/router';
+import { useQueryParams, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
@@ -79,18 +79,9 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate, search, replace } = useRouter();
-  const {
-    teams,
-    allTeams,
-    teamsReady,
-    activeClockEvent,
-    currentTime,
-    selectedTeamId,
-    setSelectedTeamId,
-    setSelectedOrgId,
-    isAdmin,
-  } = useTeam();
+  const { navigate } = useRouter();
+  const { params, setParams } = useQueryParams();
+  const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId, isAdmin } = useTeam();
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
   const teamAdminIds = new Set(selectedTeam?.admins ?? []);
@@ -102,75 +93,57 @@ export const DashboardPage: React.FC = () => {
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [storedTab, _setTab] = useState<'me' | 'team'>(() => {
-    if (typeof window === 'undefined') return 'me';
-    return localStorage.getItem('app:dashboardTab') === 'team' ? 'team' : 'me';
-  });
-  const setTab = useCallback((next: 'me' | 'team') => {
-    _setTab(next);
-    if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
-  }, []);
+  // ── View state lives in the URL (see src/ui/ROUTING.md) ──
+  //   ?tab=me|team            Me/Team toggle (falls back to the last one used)
+  //   ?view=overview|timesheet
+  //   ?member=                admin timesheet: whose timesheet
+  //   ?request=               open that timesheet approval for review
+  // Notification links from before #618 use ?tab=timesheet, ?memberId= and
+  // ?requestId=; they're normalised below.
+  const tabParam = params.get('tab');
+  const storedTab = (): 'me' | 'team' =>
+    typeof window !== 'undefined' && localStorage.getItem('app:dashboardTab') === 'team'
+      ? 'team'
+      : 'me';
+  const urlTab = tabParam === 'me' || tabParam === 'team' ? tabParam : null;
+  const setTab = useCallback(
+    (next: 'me' | 'team') => {
+      if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
+      setParams({ tab: next }, 'push');
+    },
+    [setParams],
+  );
   // Personal workspaces hide the Me/Team toggle — both views would be identical.
-  const tab = isPersonalWorkspace ? 'me' : storedTab;
+  const tab = isPersonalWorkspace ? 'me' : (urlTab ?? storedTab());
   // The admin timesheet (member picker, everyone's entries) belongs to the Team
   // tab only. Me → Timesheet is always the signed-in user's own timesheet.
   const showAdminTimesheet = canViewTimesheet && tab === 'team';
 
-  const [view, setView] = useState<'overview' | 'timesheet'>('overview');
-  const [initialMemberId, setInitialMemberId] = useState<string>('');
-  // Bumped per deep-link so the panel reapplies the target even when the id is
-  // unchanged — e.g. re-tapping member A's notification after manually
-  // selecting member B.
-  const [memberRequestId, setMemberRequestId] = useState(0);
+  const view = params.get('view') === 'timesheet' ? 'timesheet' : 'overview';
+  const setView = (next: 'overview' | 'timesheet') =>
+    setParams({ view: next === 'overview' ? null : next }, 'push');
+
+  const memberId = params.get('member');
+  const setMemberId = (id: string) => setParams({ member: id });
+
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
+  const focusRequestId = params.get('request');
   // Dropped once the approvals panel has opened it, so returning to this view
   // later doesn't reopen a request the reviewer has already dealt with.
-  const clearFocusRequest = useCallback(() => setFocusRequestId(null), []);
+  const clearFocusRequest = useCallback(() => setParams({ request: null }), [setParams]);
 
-  // ── Deep-link support ──
-  //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
-  //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
-  //   ?requestId=                       → open that timesheet approval for review
-  // Depends on `search` (not just mount) so re-tapping a notification for a
-  // different member while the Dashboard is already open is honored.
+  // Old notification links → the current scheme, in place (no history entry).
   useEffect(() => {
-    if (!teamsReady) return;
-    const params = new URLSearchParams(search);
-    const deepTab = params.get('tab');
-    const deepView = params.get('view');
-    const memberId = params.get('memberId');
-    const teamId = params.get('teamId');
-    const requestId = params.get('requestId');
-
-    if (deepTab === 'timesheet' || requestId) {
-      setTab('team');
-      setView('timesheet');
-    }
-    if (deepView === 'timesheet') {
-      setView('timesheet');
-    }
-    if (requestId) setFocusRequestId(requestId);
-    if (memberId) {
-      setInitialMemberId(memberId);
-      setMemberRequestId((n) => n + 1);
-    }
-    if (teamId) {
-      const inScope = teams.find((t) => t.id === teamId);
-      const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
-      if (inScope) {
-        setSelectedTeamId(teamId);
-      } else if (crossOrg) {
-        // Team is in a different org — switch org first so the team becomes visible
-        setSelectedOrgId(crossOrg.orgId);
-        setSelectedTeamId(teamId);
-      }
-    }
-
-    if (deepTab || deepView || memberId || teamId || requestId) {
-      replace('/app/dashboard');
-    }
-  }, [teamsReady, teams, allTeams, setTab, setSelectedTeamId, setSelectedOrgId, search, replace]);
+    const legacyTimesheet = tabParam === 'timesheet';
+    const legacyMember = params.get('memberId');
+    const legacyRequest = params.get('requestId');
+    if (!legacyTimesheet && !legacyMember && !legacyRequest) return;
+    setParams({
+      ...(legacyTimesheet || legacyRequest ? { tab: 'team', view: 'timesheet' } : {}),
+      ...(legacyMember ? { member: legacyMember, memberId: null } : {}),
+      ...(legacyRequest ? { request: legacyRequest, requestId: null } : {}),
+    });
+  }, [tabParam, params, setParams]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {
@@ -248,7 +221,7 @@ export const DashboardPage: React.FC = () => {
     };
   }, [selectedTeamId, isPersonalWorkspace]);
 
-  const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
+  const goToPost = (postId: string) => navigate(`/app/huddle?post=${postId}`);
 
   const formatPostTimestamp = (date: string) => {
     const diffMs = Date.now() - new Date(date).getTime();
@@ -437,8 +410,8 @@ export const DashboardPage: React.FC = () => {
               members={teamMembers}
               selectedTeamId={selectedTeamId}
               teams={teams}
-              initialMemberId={initialMemberId}
-              initialMemberRequestId={memberRequestId}
+              memberId={memberId}
+              onMemberChange={setMemberId}
             />
           </div>
         ) : (

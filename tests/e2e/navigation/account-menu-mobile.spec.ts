@@ -45,7 +45,7 @@ test.describe('Account menu on a phone-width screen', () => {
     }
 
     await page.getByRole('menuitem', { name: 'Usage' }).click();
-    await page.waitForURL('**/app/org/usage');
+    await page.waitForURL(/\/app\/org\/usage(\?|$)/);
   });
 
   test('More sheet Admin section lists Members and Usage for an org owner', async ({ page }) => {
@@ -57,7 +57,7 @@ test.describe('Account menu on a phone-width screen', () => {
     await expect(sheet.getByRole('button', { name: 'Members' })).toBeVisible();
 
     await sheet.getByRole('button', { name: 'Usage' }).click();
-    await page.waitForURL('**/app/org/usage');
+    await page.waitForURL(/\/app\/org\/usage(\?|$)/);
     await expect(sheet).toBeHidden();
   });
 

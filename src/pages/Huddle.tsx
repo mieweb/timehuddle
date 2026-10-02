@@ -38,7 +38,8 @@ import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
-import { useRouter } from '../ui/router';
+import { NoAccessState } from '../ui/NoAccessState';
+import { useQueryParams, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
@@ -95,8 +96,21 @@ function loadStoredThreadBy(): ThreadBy {
   }
 }
 
+/** The grouping a conversation id belongs to — ids are `${threadBy}:${key}`. */
+function threadByOf(conversationId: string | null): ThreadBy | null {
+  const prefix = conversationId?.split(':')[0] ?? '';
+  return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as ThreadBy) : null;
+}
+
 export default function Huddle() {
-  const { search, replace } = useRouter();
+  // View state in the URL (see src/ui/ROUTING.md):
+  //   ?conversation=  the open conversation (opening one pushes, so Back closes it)
+  //   ?post=          a post to open (alias ?postId=, from notifications); it
+  //                   resolves to the ?conversation= that contains it
+  //   ?q=             search
+  const { params, setParams } = useQueryParams();
+  const conversationParam = params.get('conversation');
+  const postParam = params.get('post') || params.get('postId');
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,31 +119,31 @@ export default function Huddle() {
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useSearchParam('q');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
-  // function below, it never refetches.
-  const [threadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
-  const setThreadBy = useCallback((next: ThreadBy) => {
-    _setThreadBy(next);
-    try {
-      localStorage.setItem(THREAD_BY_KEY, next);
-    } catch {
-      // Storage may be unavailable (private mode, embedded webview) — the
-      // in-memory choice for this session still works.
-    }
-  }, []);
+  // function below, it never refetches. A linked conversation or post brings
+  // its own grouping without overwriting the saved one (posts are found by
+  // session).
+  const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  const threadBy =
+    threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
+  const setThreadBy = useCallback(
+    (next: ThreadBy) => {
+      _setThreadBy(next);
+      // The open conversation belongs to the old grouping.
+      setParams({ conversation: null });
+      try {
+        localStorage.setItem(THREAD_BY_KEY, next);
+      } catch {
+        // Storage may be unavailable (private mode, embedded webview) — the
+        // in-memory choice for this session still works.
+      }
+    },
+    [setParams],
+  );
   const { user } = useSession();
-  const {
-    selectedTeamId,
-    setSelectedTeamId,
-    teams,
-    allTeams,
-    setSelectedOrgId,
-    teamsReady,
-    isAdmin,
-    currentTime,
-  } = useTeam();
+  const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime } = useTeam();
 
   // Personal is a view, not a team selection: entering it leaves the selected
   // team and org alone, so the team picker stays put. It shows the caller's own
@@ -172,20 +186,6 @@ export default function Huddle() {
     clearComposerPulseUpload(pulseScope);
   }
 
-  // A team outside the selected org is filtered out of `teams` and would be
-  // reset straight back by TeamContext, so switch the org along with it.
-  // Only deep links need this; the team picker only lists the selected org.
-  const selectTeamAcrossOrgs = useCallback(
-    (teamId: string) => {
-      const crossOrg = teams.some((t) => t.id === teamId)
-        ? undefined
-        : allTeams.find((t) => t.id === teamId);
-      if (crossOrg) setSelectedOrgId(crossOrg.orgId);
-      setSelectedTeamId(teamId);
-    },
-    [teams, allTeams, setSelectedOrgId, setSelectedTeamId],
-  );
-
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
   const teamPickerLabel =
@@ -220,58 +220,12 @@ export default function Huddle() {
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
-  // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
-  // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
-  // notification) — switch to the post's team, set Thread by to session, and
-  // open the conversation containing it once loaded, then strip the query
-  // params. Re-derived from `search` (not just mount) so tapping a second
-  // notification while already on this page is honored.
-  const [targetPostId, setTargetPostId] = useState<string | null>(() =>
-    new URLSearchParams(search).get('postId'),
-  );
-  const [pendingTeamId, setPendingTeamId] = useState<string | null>(
-    () => new URLSearchParams(search).get('teamId') ?? null,
-  );
-  useEffect(() => {
-    const params = new URLSearchParams(search);
-    const postId = params.get('postId');
-    if (!postId) return;
-    setTargetPostId(postId);
-    setPendingTeamId(params.get('teamId'));
-  }, [search]);
-
-  // The feed only ever holds the selected team's posts, so a post from another
-  // team can't resolve until the team is switched. Kept pending until the team
-  // list has actually loaded.
-  useEffect(() => {
-    if (!pendingTeamId) return;
-    if (pendingTeamId === selectedTeamId) {
-      setShowMe(false);
-      setPendingTeamId(null);
-      return;
-    }
-    if (!teamsReady) return;
-    // Not a member of that team — nothing to switch to.
-    if (allTeams.some((t) => t.id === pendingTeamId)) {
-      setShowMe(false);
-      selectTeamAcrossOrgs(pendingTeamId);
-    }
-    setPendingTeamId(null);
-  }, [pendingTeamId, selectedTeamId, allTeams, teamsReady, selectTeamAcrossOrgs]);
-
-  // In memory only: opening one notification shouldn't overwrite the reader's
-  // saved Group by. A search that excludes the post would keep its
-  // conversation from ever appearing, so it's cleared too.
-  useEffect(() => {
-    if (!targetPostId) return;
-    _setThreadBy('session');
-    setSearchQuery('');
-  }, [targetPostId]);
-
-  // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
-  // change event, and depending on it tore down the effect below (cancelling its
-  // rAF) faster than a frame could elapse, so the scroll never ran.
-  const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
+  // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
+  // notifications) opens the conversation containing it once loaded. Its team
+  // comes in the link's ?team= (TeamContext switches to it); a search that
+  // would hide it is cleared when it resolves. A boolean, not `posts` itself:
+  // the array gets a fresh identity on every DDP change event.
+  const targetPostLoaded = postParam !== null && posts.some((p) => p.id === postParam);
 
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
@@ -575,28 +529,61 @@ export default function Huddle() {
   );
 
   // The conversation the inbox has open (controlled — see onConversationOpened
-  // below). Resetting it when the grouping/scope changes avoids pointing at an
-  // id from the previous Thread by option, which would just show nothing open.
-  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    setActiveConversationId(undefined);
-  }, [threadBy, selectedTeamId, scope]);
-  // Same fallback SuperChatInbox uses for an unknown id.
-  const activeConversation =
-    conversations.find((c) => c.id === activeConversationId) ?? conversations[0];
+  // below).
+  //
+  // A linked id is resolved against every conversation, not the search-filtered
+  // list, so the search box can't hide what the link points at. The starter
+  // conversation is the one id that exists only in the rendered list. An id
+  // that resolves to nothing is a dead link rather than a reason to open
+  // someone else's conversation, so it gets the not-found state instead of
+  // silently falling back to the first one.
+  const linkedConversation = conversationParam
+    ? (allConversations.find((c) => c.id === conversationParam) ??
+      conversations.find((c) => c.id === conversationParam) ??
+      null)
+    : null;
+  const activeConversation = conversationParam ? linkedConversation : conversations[0];
+  const openConversation = (conversationId: string) =>
+    setParams({ conversation: conversationId }, 'push');
 
-  // Deep link (see the targetPostId/threadBy effect above): once the post has
-  // loaded and the grouping has switched to session, open the conversation
-  // that contains it.
+  // Switching team or view leaves the open conversation behind. Compared with
+  // the previous value so a linked conversation survives the first render.
+  const scopeKey = `${selectedTeamId}|${scope}`;
+  const scopeKeyRef = useRef(scopeKey);
   useEffect(() => {
-    if (!targetPostId || !targetPostLoaded) return;
-    if (threadBy !== 'session') return;
-    const match = conversations.find((c) => c.thread.some((m) => m.id === targetPostId));
+    if (scopeKeyRef.current === scopeKey) return;
+    scopeKeyRef.current = scopeKey;
+    setParams({ conversation: null });
+  }, [scopeKey, setParams]);
+
+  const feedLoading = scope === 'me' ? myPostsLoading : loading;
+  const feedError = scope === 'me' ? myPostsError : error;
+
+  // The link points at a conversation we have, but the search box is hiding
+  // it — the link wins, so the search goes.
+  useEffect(() => {
+    if (!linkedConversation || !searchQuery.trim()) return;
+    if (conversations.some((c) => c.id === linkedConversation.id)) return;
+    setSearchQuery('');
+  }, [linkedConversation, conversations, searchQuery, setSearchQuery]);
+
+  // Only once the posts are in, and not across a scope change, where the
+  // effect above clears the param a render later.
+  const conversationUnavailable =
+    !!conversationParam &&
+    !linkedConversation &&
+    scopeKeyRef.current === scopeKey &&
+    !feedLoading &&
+    !feedError;
+
+  // Post link → the conversation that holds it (see `targetPostLoaded`).
+  // Searched in every conversation, not just the ones the search box shows.
+  useEffect(() => {
+    if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
+    const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
     if (!match) return;
-    setActiveConversationId(match.id);
-    setTargetPostId(null);
-    replace('/app/huddle');
-  }, [targetPostId, targetPostLoaded, threadBy, conversations, replace]);
+    setParams({ conversation: match.id, post: null, postId: null, q: null });
+  }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
 
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
@@ -732,18 +719,22 @@ export default function Huddle() {
 
           {(scope === 'me' || selectedTeamId) && (
             <>
-              {(scope === 'me' ? myPostsLoading : loading) && (
+              {feedLoading && (
                 <div className="huddle-loading flex items-center justify-center py-16">
                   <Spinner size="lg" label="Loading posts" />
                 </div>
               )}
 
-              {(scope === 'me' ? myPostsError : error) && (
+              {feedError && (
                 <div className="huddle-load-error flex items-center justify-center py-16 px-4">
                   <p role="alert" className="text-sm text-red-500 dark:text-red-400">
-                    {scope === 'me' ? myPostsError : error}
+                    {feedError}
                   </p>
                 </div>
+              )}
+
+              {conversationUnavailable && (
+                <NoAccessState kind="not-found" resource="conversation" />
               )}
 
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
@@ -753,72 +744,68 @@ export default function Huddle() {
                   Stays mounted through an empty search so the filters in its
                   list header don't vanish mid-typing, and with no posts at all
                   it opens the starter conversation (see `conversations`). */}
-              {!(scope === 'me' ? myPostsLoading : loading) &&
-                !(scope === 'me' ? myPostsError : error) &&
-                user && (
-                  <SuperChatInbox
-                    conversations={conversations}
-                    activeConversationId={activeConversation?.id}
-                    onConversationOpened={(conversation) =>
-                      setActiveConversationId(conversation.id)
-                    }
-                    currentParticipantId={user.id}
-                    virtualized
-                    renderPlugins={renderPlugins}
-                    acceptedFileTypes={['image', 'video', 'pdf']}
-                    onMessageSent={(text, { mentions: sentMentions, attachments }) =>
-                      handleMessageSent(text, sentMentions, attachments)
-                    }
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                    composerProps={{
-                      // Input on its own row, labelled buttons underneath.
-                      layout: 'stacked',
-                      placeholder: 'Share an update…',
-                      maxFileSize: COMPOSER_MAX_FILE_BYTES,
-                      // A Pulse video or ticket is a post on its own.
-                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
-                      // Also busy while staged content is still settling: a send
-                      // rejected then would lose the picked files, which the
-                      // composer clears before `onSend` (gap 4.14).
-                      isSending: sending || pulsePending || ticketVideos.loading,
-                      mentionOptions: mentions.options,
-                      leadingSlot: (
-                        // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* Keyed by scope: it reads its pending reservation only on mount. */}
-                          <PulseAttachButton
-                            key={pulseScope}
-                            scope={pulseScope}
-                            onAttach={(media) =>
-                              setPulseVideos((prev) =>
-                                prev.some((m) => m.id === media.id) ? prev : [...prev, media],
-                              )
-                            }
-                            onPendingChange={setPulsePending}
+              {!feedLoading && !feedError && !conversationUnavailable && user && (
+                <SuperChatInbox
+                  conversations={conversations}
+                  activeConversationId={activeConversation?.id}
+                  onConversationOpened={(conversation) => openConversation(conversation.id)}
+                  currentParticipantId={user.id}
+                  virtualized
+                  renderPlugins={renderPlugins}
+                  acceptedFileTypes={['image', 'video', 'pdf']}
+                  onMessageSent={(text, { mentions: sentMentions, attachments }) =>
+                    handleMessageSent(text, sentMentions, attachments)
+                  }
+                  onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                  composerProps={{
+                    // Input on its own row, labelled buttons underneath.
+                    layout: 'stacked',
+                    placeholder: 'Share an update…',
+                    maxFileSize: COMPOSER_MAX_FILE_BYTES,
+                    // A Pulse video or ticket is a post on its own.
+                    canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                    // Also busy while staged content is still settling: a send
+                    // rejected then would lose the picked files, which the
+                    // composer clears before `onSend` (gap 4.14).
+                    isSending: sending || pulsePending || ticketVideos.loading,
+                    mentionOptions: mentions.options,
+                    leadingSlot: (
+                      // ChatComposer's leadingSlot wrapper has no gap of its own.
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        {/* Keyed by scope: it reads its pending reservation only on mount. */}
+                        <PulseAttachButton
+                          key={pulseScope}
+                          scope={pulseScope}
+                          onAttach={(media) =>
+                            setPulseVideos((prev) =>
+                              prev.some((m) => m.id === media.id) ? prev : [...prev, media],
+                            )
+                          }
+                          onPendingChange={setPulsePending}
+                        />
+                        {postingTeamId && (
+                          <TicketPicker
+                            teamId={postingTeamId}
+                            onSelect={setSelectedTicketId}
+                            selectedId={selectedTicketId}
                           />
-                          {postingTeamId && (
-                            <TicketPicker
-                              teamId={postingTeamId}
-                              onSelect={setSelectedTicketId}
-                              selectedId={selectedTicketId}
-                            />
-                          )}
-                          <TicketVideoChips videos={ticketVideos.videos} />
-                          <ComposerChips
-                            selectedTicketId={selectedTicketId}
-                            onTicketRemove={() => setSelectedTicketId(undefined)}
-                            mentions={[]}
-                            onMentionRemove={() => {}}
-                            attachments={pulseVideos}
-                            onAttachmentRemove={removePulseVideo}
-                          />
-                        </div>
-                      ),
-                    }}
-                    // No outer border or rounding: the inbox sits on the page as the page.
-                    className={`h-full rounded-none border-0 ${styles.inbox}`}
-                  />
-                )}
+                        )}
+                        <TicketVideoChips videos={ticketVideos.videos} />
+                        <ComposerChips
+                          selectedTicketId={selectedTicketId}
+                          onTicketRemove={() => setSelectedTicketId(undefined)}
+                          mentions={[]}
+                          onMentionRemove={() => {}}
+                          attachments={pulseVideos}
+                          onAttachmentRemove={removePulseVideo}
+                        />
+                      </div>
+                    ),
+                  }}
+                  // No outer border or rounding: the inbox sits on the page as the page.
+                  className={`h-full rounded-none border-0 ${styles.inbox}`}
+                />
+              )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
             </>
           )}

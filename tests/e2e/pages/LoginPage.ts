@@ -96,7 +96,7 @@ export class LoginPage extends BasePage {
   async waitForLoginSuccess(timeout = 15000) {
     // Wait for URL change away from /app OR for dashboard content
     await Promise.race([
-      this.page.waitForURL('**/dashboard', { timeout }),
+      this.page.waitForURL(/\/dashboard(\?|$)/, { timeout }),
       this.page.waitForURL(/\/app\/(?!$)/, { timeout }), // Any /app/* route except /app alone
     ]);
   }

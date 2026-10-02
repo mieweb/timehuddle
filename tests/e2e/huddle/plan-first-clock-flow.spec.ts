@@ -36,7 +36,7 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Login as an owner who can create teams
     await loginAs(page, TEST_USERS.owner1);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Start every test from a known clock state — see ensureClockedOut().
     await clockPage.ensureClockedOut();

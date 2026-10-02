@@ -92,6 +92,7 @@ import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
+import { rememberReturnTo, restoreReturnTo } from './lib/returnTo';
 import { AppLayout } from './ui/AppLayout';
 import { InstallerModal } from './ui/InstallerModal';
 import { LandingPage } from './ui/LandingPage';
@@ -327,12 +328,18 @@ const App: React.FC = () => {
 
   if (!user) {
     // Ensure we're on root path when showing login — fixes issue where
-    // logout from /app/teams would show login form but keep /app/teams URL
+    // logout from /app/teams would show login form but keep /app/teams URL.
+    // The link is kept so signing in returns to it (see lib/returnTo).
     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app/')) {
+      rememberReturnTo();
       window.history.replaceState(null, '', '/');
     }
     return <LoginForm />;
   }
+
+  // First signed-in render after a deep link: put the URL back before
+  // AppLayout's router reads it.
+  restoreReturnTo();
 
   // If the user is already authenticated and there are OAuth 2.0 authorization
   // params in the URL (e.g. redirected here from TimeHarbor), forward them

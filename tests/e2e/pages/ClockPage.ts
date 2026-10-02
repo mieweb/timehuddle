@@ -114,7 +114,7 @@ export class ClockPage extends BasePage {
   async openHuddleFromClockPage() {
     await this.openHuddleLink.waitFor({ state: 'visible', timeout: 10000 });
     await this.openHuddleLink.click();
-    await this.page.waitForURL('**/huddle', { timeout: 10000 });
+    await this.page.waitForURL(/\/huddle(\?|$)/, { timeout: 10000 });
   }
 
   /** Clock in (legacy method for non-plan-first flow) */

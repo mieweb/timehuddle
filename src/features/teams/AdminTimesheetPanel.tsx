@@ -33,7 +33,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/timeUtils';
@@ -85,10 +85,12 @@ interface Props {
   members: TeamMember[];
   selectedTeamId: string | null;
   teams: SimpleTeam[];
-  /** Pre-select this member when navigating from a notification deep-link. */
-  initialMemberId?: string;
-  /** Bumped per deep-link, so an unchanged `initialMemberId` still reapplies. */
-  initialMemberRequestId?: number;
+  /**
+   * The member whose timesheet is shown — the Dashboard's `?member=`. Falls
+   * back to the first member when it's unset or not in this team.
+   */
+  memberId: string | null;
+  onMemberChange: (memberId: string) => void;
 }
 
 function getSessionWorkSeconds(session: ClockEvent, now: number): number {
@@ -110,11 +112,13 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   members,
   selectedTeamId,
   teams,
-  initialMemberId,
-  initialMemberRequestId = 0,
+  memberId,
+  onMemberChange,
 }) => {
-  // Seed state with initialMemberId if provided, otherwise empty (auto-selects first member below)
-  const [selectedMemberId, setSelectedMemberId] = useState<string>(initialMemberId ?? '');
+  // Mid team-switch `members` is still the previous team's, so a linked member
+  // simply waits until the list it belongs to arrives.
+  const selectedMemberId =
+    (memberId && members.some((m) => m.id === memberId) ? memberId : members[0]?.id) ?? '';
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
@@ -157,36 +161,10 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     editNeedsApproval &&
     !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
 
-  // When the team changes, reset member selection (but keep initialMemberId if still valid)
+  // A different team's timesheet must not linger while the new one loads.
   useEffect(() => {
-    setSelectedMemberId('');
     setData(null);
   }, [selectedTeamId]);
-
-  // Tracks the last deep-link request this panel actually applied. Keyed on the
-  // request id rather than the member id so re-tapping the same member's
-  // notification still reapplies, and only consumed once the member is known to
-  // be in the rendered list — mid-team-switch `members` is still the previous
-  // team's, and consuming there would drop the request.
-  const appliedRequestIdRef = useRef(0);
-
-  // Auto-select: use initialMemberId if it's a valid member of this team, else fall back to first member
-  useEffect(() => {
-    if (members.length === 0) return;
-
-    if (
-      initialMemberId &&
-      initialMemberRequestId !== appliedRequestIdRef.current &&
-      members.some((m) => m.id === initialMemberId)
-    ) {
-      appliedRequestIdRef.current = initialMemberRequestId;
-      setSelectedMemberId(initialMemberId);
-      return;
-    }
-
-    if (selectedMemberId) return; // already set (either by user or the branch above)
-    setSelectedMemberId(members[0].id);
-  }, [members, selectedMemberId, initialMemberId, initialMemberRequestId]);
 
   const fetchData = useCallback(async () => {
     if (!selectedMemberId) return;
@@ -402,7 +380,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
           <Select
             label="Member"
             value={selectedMemberId}
-            onValueChange={(val) => setSelectedMemberId(val)}
+            onValueChange={onMemberChange}
             options={memberOptions}
           />
         </div>

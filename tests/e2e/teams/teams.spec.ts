@@ -9,7 +9,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
-import { gotoTeamsPage } from '../fixtures/team';
+import { gotoTeamsPage, selectTeamById } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const MONGO_URL =
@@ -78,13 +78,7 @@ test.describe('Teams', () => {
     // Ensure Test Team Alpha is selected via localStorage
     const teamId = await getTestTeamId();
     if (teamId) {
-      await page.evaluate((id) => {
-        Object.keys(localStorage)
-          .filter((k) => k.startsWith('app:selectedTeamId'))
-          .forEach((k) => localStorage.setItem(k, id));
-        localStorage.setItem('app:selectedTeamId', id);
-      }, teamId);
-      await page.reload();
+      await selectTeamById(page, teamId);
       await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({
         timeout: 20000,
       });
