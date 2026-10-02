@@ -102,6 +102,13 @@ export function inboxMessage(page: Page, uniqueText: string): Locator {
   return page.locator('[data-slot="superchat-message"]').filter({ hasText: uniqueText });
 }
 
+/** Start editing an own message; SuperChat folds Copy + Edit into its ⋯ menu. */
+export async function editInboxMessage(page: Page, message: Locator): Promise<void> {
+  await message.hover();
+  await message.getByRole('button', { name: 'Message actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit message' }).click();
+}
+
 /** The inbox's conversation list, whose header carries the page's filters. */
 export function conversationList(page: Page): Locator {
   return page.locator('[data-slot="superchat-conversations"]');
@@ -152,15 +159,21 @@ export async function groupInboxBy(
   await expect(page.getByRole('button', { name: `Group by: ${option}` })).toBeVisible();
 }
 
-/**
- * Post through the Huddle page's "Share an update…" composer — the only place
- * to post there, since the inbox itself is read-only.
- */
+/** The message box at the bottom of the open inbox conversation. */
+export function inboxComposer(page: Page): Locator {
+  return page.getByRole('textbox', { name: 'Message', exact: true });
+}
+
+/** Send what's in the inbox's message box. */
+export async function sendFromInbox(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Send message' }).click();
+}
+
+/** Post through the Huddle inbox's message box. */
 export async function postFromHuddle(page: Page, text: string): Promise<void> {
   if (!new URL(page.url()).pathname.endsWith('/app/huddle')) await page.goto('/app/huddle');
-  await page.getByRole('button', { name: 'Share an update...' }).click();
-  await composerEditor(page).fill(text);
-  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  await inboxComposer(page).fill(text);
+  await sendFromInbox(page);
 }
 
 /**

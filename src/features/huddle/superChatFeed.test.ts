@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import { postsToConversations, searchConversations, stripInboxDecorations } from './superChatFeed';
+import {
+  postsToConversations,
+  searchConversations,
+  starterConversation,
+  stripInboxDecorations,
+} from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -420,5 +425,28 @@ describe('searchConversations', () => {
       expect(idsFor('off the clock')).toContain('p2');
       expect(idsFor('live')).toContain('p3');
     }
+  });
+});
+
+describe('starterConversation', () => {
+  const viewer = { userId: 'u1', name: 'Test User' };
+
+  it('lists only the viewer, so no system avatar shows in the header', () => {
+    const conversation = starterConversation(viewer, 'team', NOW);
+    expect(conversation.participants.map((p) => p.id)).toEqual(['u1']);
+    expect(conversation.participants[0]).toMatchObject({ kind: 'human', name: 'Test User' });
+  });
+
+  it('holds a single system hint pointing at the input and Clock In', () => {
+    const { thread } = starterConversation(viewer, 'team', NOW);
+    expect(thread).toHaveLength(1);
+    expect(thread[0]).toMatchObject({ type: 'system' });
+    expect(thread[0].text).toMatch(/share what you.re working on below/i);
+    expect(thread[0].text).toMatch(/clock in/i);
+  });
+
+  it('words the hint for the Personal view', () => {
+    const { thread } = starterConversation(viewer, 'me', NOW);
+    expect(thread[0].text).toMatch(/last 30 days/);
   });
 });

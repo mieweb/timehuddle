@@ -386,6 +386,8 @@ Pin the version in that command to whatever `@mieweb/ui` the app is on, so the r
 
 **The 0.7.3 hold is over.** The project sat on 0.7.3 because 0.8.0+ regressed the Kerebron `RichEditor` seeding the clock composer depends on. That regression is fixed as of **0.9.0** — verified by editing an existing Huddle post and confirming the editor seeds with its content, plus a full clock in/out cycle. The app is now on 0.10.0. The `SuperChat`/`SuperChatInbox` public type surface (`node_modules/@mieweb/ui/dist/components/SuperChat/index.d.ts`) is unchanged between 0.9.0 and 0.10.0 — no new reactions, replies, composer slots, or date separators — so [`docs/superchat-inbox-gaps.md`](docs/superchat-inbox-gaps.md) still applies as written.
 
+**The app runs a vendored `@mieweb/ui`.** It installs `vendor/mieweb-ui.tgz`, built from the `vendor/ui` submodule — a branch of mieweb/ui where the library changes TimeHuddle needs are made as an upstream PR instead of being worked around here. Build with `npm run ui:build`, pull upstream with `npm run ui:sync`; the workflow is in [`vendor/README.md`](vendor/README.md).
+
 **Before marking any page complete, verify: does it import from `@mieweb/ui`? If not, it's not done.**
 
 ### Code Quality Checklist

@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { inboxMessage, openPostInInbox, seedPost } from './helpers';
+import { editInboxMessage, inboxMessage, openPostInInbox, seedPost } from './helpers';
 
 test.describe('Huddle — inline edit seeds from the message being edited', () => {
   test.slow();
@@ -32,16 +32,12 @@ test.describe('Huddle — inline edit seeds from the message being edited', () =
     await openPostInInbox(page, String(stamp));
     const editBox = page.getByRole('textbox', { name: 'Edit message' });
 
-    const messageA = inboxMessage(page, postAText);
-    await messageA.hover();
-    await messageA.getByRole('button', { name: 'Edit message' }).click();
+    await editInboxMessage(page, inboxMessage(page, postAText));
     await expect(editBox).toHaveValue(new RegExp(postAText));
 
     // Cancel without saving, then immediately edit post B.
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    const messageB = inboxMessage(page, postBText);
-    await messageB.hover();
-    await messageB.getByRole('button', { name: 'Edit message' }).click();
+    await editInboxMessage(page, inboxMessage(page, postBText));
     await expect(editBox).toHaveValue(new RegExp(postBText));
     await expect(editBox).not.toHaveValue(new RegExp(postAText));
 

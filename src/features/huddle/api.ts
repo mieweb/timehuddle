@@ -54,6 +54,20 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
 }
 
 /**
+ * Turn a file staged in SuperChat's chat input back into a `File`. The input
+ * hands attachments over as base64 `data:` URLs; uploading goes through
+ * {@link uploadMedia}, which takes a `File`.
+ */
+export async function composerAttachmentToFile(attachment: {
+  name: string;
+  type: string;
+  dataUrl: string;
+}): Promise<File> {
+  const blob = await (await fetch(attachment.dataUrl)).blob();
+  return new File([blob], attachment.name, { type: attachment.type });
+}
+
+/**
  * Whether this attachment can be previewed inline in the editor.
  *
  * Images only. Markdown has no video syntax, and Kerebron's video node does not

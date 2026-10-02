@@ -6,11 +6,10 @@
  *     file-picker path through PulseVault TUS, independent of any ticket.
  *     Driven through the Clock tab's plan composer.
  *  2. Cross-posting: a ticket that already has a Pulse video attached is
- *     picked via the composer's TicketPicker, and that video is
- *     automatically pulled into the post (HuddleComposer.tsx's `ticketVideos`
- *     state) without any extra upload step. Only HuddleComposer does this, and
- *     the Huddle page shows it just for a team's first post — so this one runs
- *     on a freshly created, empty team.
+ *     picked with the Huddle message box's Ticket button, and that video is
+ *     automatically pulled into the post (useTicketVideos) without any extra
+ *     upload step. Runs on a freshly created, empty team, so the inbox opens
+ *     on its starter conversation.
  *
  * Both assert against the real backend — the post must link to the actual
  * /pulsevault/artifacts/:id playback URL (the inbox renders video attachments
@@ -24,8 +23,10 @@ import {
   attachTicket,
   clockOut,
   composerEditor,
+  inboxComposer,
   openComposer,
   openPostInInbox,
+  sendFromInbox,
   setSharedTeamPlanGate,
   submitPost,
 } from './helpers';
@@ -99,11 +100,10 @@ test.describe('Huddle — ticket video cross-posting', () => {
     page,
   }) => {
     await page.goto('/app/huddle');
-    await page.getByRole('button', { name: 'Share an update...' }).click();
-    await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
+    await inboxComposer(page).waitFor({ state: 'visible', timeout: 20000 });
 
     const postText = `Huddle Cross-post Test ${Date.now()}`;
-    await composerEditor(page).fill(postText);
+    await inboxComposer(page).fill(postText);
 
     await attachTicket(page, TICKET_TITLE);
 
@@ -111,7 +111,7 @@ test.describe('Huddle — ticket video cross-posting', () => {
     // this is the behavior under test, and it must be visible before posting.
     await expect(page.getByText('(from ticket)')).toBeVisible({ timeout: 10000 });
 
-    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await sendFromInbox(page);
 
     const post = await openPostInInbox(page, postText);
     await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({

@@ -1,8 +1,7 @@
 /**
- * Shared attach/ticket/mention controls for post composers — the action bar
- * and chip rows factored out of HuddleComposer so other composers (e.g. the
- * Clock page's plan/wrap-up composer) can offer the same Photo/Video/Doc/
- * Pulse/Ticket/@Mention affordances without duplicating the markup.
+ * Shared attach/ticket/mention controls and chips for post composers — the
+ * Clock page's plan/wrap-up composer and the Huddle inbox's message box offer
+ * the same Photo/Video/Doc/Pulse/Ticket/@Mention affordances from here.
  */
 import { Badge } from '@mieweb/ui';
 import { AttachmentBar } from './AttachmentBar';
@@ -158,19 +157,21 @@ export function ComposerChips({
       )}
 
       {attachments.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
           {attachments.map((media) => (
             /* `rounded-lg` overrides Badge's pill shape — file chips are square. */
             <Badge
               key={media.id}
               size="sm"
-              className="relative gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+              className="relative max-w-full min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
             >
-              {media.filename}
+              <span className="truncate" title={media.filename}>
+                {media.filename}
+              </span>
               <button
                 type="button"
                 onClick={() => onAttachmentRemove(media.id)}
-                className="text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
+                className="shrink-0 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
                 aria-label={`Remove attachment ${media.filename}`}
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -187,5 +188,45 @@ export function ComposerChips({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Videos pulled in from the post's ticket (see useTicketVideos). Not removable:
+ * they come with the ticket, so removing the ticket removes them.
+ */
+export function TicketVideoChips({ videos }: { videos: MediaItem[] }) {
+  if (videos.length === 0) return null;
+  return (
+    <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+      {videos.map((video) => (
+        <Badge
+          key={video.id}
+          size="sm"
+          className="max-w-full min-w-0 gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300"
+        >
+          <svg
+            className="h-3.5 w-3.5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+            />
+          </svg>
+          <span className="truncate" title={video.filename}>
+            {video.filename}
+          </span>
+          <span className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400">
+            (from ticket)
+          </span>
+        </Badge>
+      ))}
+    </div>
   );
 }

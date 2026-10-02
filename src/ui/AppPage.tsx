@@ -10,7 +10,8 @@
  *   fill                       content owns the remaining height and scrolls
  *                              itself (chat, board, canvas)
  *   flush                      content runs edge-to-edge; the title keeps the
- *                              standard padding and alignment (canvases)
+ *                              standard padding and alignment (canvases). With
+ *                              no visible title it starts at the very top too.
  *
  * The title is deliberately outside the `flush` escape hatch: a full-bleed
  * canvas should not drag the page heading to the viewport edge with it.
@@ -77,7 +78,7 @@ export const AppPage: React.FC<AppPageProps> = ({
       <div
         className={cn(
           'w-full space-y-6',
-          hasHeader ? 'pt-6' : 'pt-4 md:pt-6',
+          hasHeader ? 'pt-6' : !flush && 'pt-4 md:pt-6',
           // A filling page's children size themselves against this column, so
           // it has to be the flex context they stretch inside.
           fill && 'flex min-h-0 flex-1 flex-col',
