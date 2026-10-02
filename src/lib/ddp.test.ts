@@ -192,7 +192,7 @@ describe('DdpClient.checkConnection (foreground reconnect)', () => {
     expect(ws.sent.some((m) => JSON.parse(m).msg === 'ping')).toBe(true);
 
     const instancesBefore = FakeWebSocket.instances.length;
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(5000);
 
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
     // handleDisconnect only schedules a reconnect timer when there's an active
@@ -214,7 +214,7 @@ describe('DdpClient.checkConnection (foreground reconnect)', () => {
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
 
     // No stray timeout fires later and tears the (still healthy) socket down.
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
   });
 
@@ -261,9 +261,18 @@ describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
     const { ws, userPromise } = await connect();
     ws.simulateResult(ws.lastCallId('login'), { token: 'resume-token' });
     await vi.advanceTimersByTimeAsync(0);
-    ws.simulateError(ws.lastCallId('users.getCurrentUser'), 'not-authorized');
+    ws.simulateResult(ws.lastCallId('users.getCurrentUser'), null);
 
     await expect(userPromise).resolves.toBeNull();
+  });
+
+  it('rejects when the server answers with an error, so a server fault is not read as a sign-out', async () => {
+    const { ws, userPromise } = await connect();
+    ws.simulateResult(ws.lastCallId('login'), { token: 'resume-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    ws.simulateError(ws.lastCallId('users.getCurrentUser'), 'internal server error');
+
+    await expect(userPromise).rejects.toThrow(/internal server error/);
   });
 
   it('rejects when the server never answers, so a refresh offline is not read as a sign-out', async () => {
@@ -275,5 +284,61 @@ describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     await expect(outcome).resolves.toBe('rejected');
+  });
+
+  it('keeps the resume token when login times out, so a slow reconnect is not a sign-out', async () => {
+    const { userPromise } = await connect();
+    userPromise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBe('resume-token');
+  });
+
+  it('discards the resume token only when the server rejects it', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'You’ve been logged out by the server.');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBeNull();
+  });
+});
+
+describe('DdpClient reconnect notification', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('notifies onReconnect listeners after the post-disconnect resubscribe', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const onReconnect = vi.fn();
+    client.onReconnect(onReconnect);
+
+    // An active subscription is what makes handleDisconnect schedule a reconnect.
+    client.subscribe('some.publication', []);
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    ws.close();
+    expect(onReconnect).not.toHaveBeenCalled();
+
+    // Backoff starts at 1000ms; the replacement socket then completes the handshake.
+    await vi.advanceTimersByTimeAsync(1000);
+    const next = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+    next.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onReconnect).toHaveBeenCalled();
+    expect(next.sent.some((m) => JSON.parse(m).msg === 'sub')).toBe(true);
   });
 });

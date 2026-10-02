@@ -213,22 +213,20 @@ export const DashboardPage: React.FC = () => {
   // Claimed per call: switching team re-fires this, and a slower response for
   // the team just left would otherwise badge the new one with its count.
   const approvalCountSeqRef = useRef(0);
-  const fetchPendingApprovals = useCallback(() => {
+  const fetchPendingApprovals = useCallback(async () => {
     const seq = ++approvalCountSeqRef.current;
     if (!selectedTeamId || !canViewTimesheet) {
       setPendingApprovalCount(0);
       return;
     }
-    timesheetApprovalApi
-      .listPending(selectedTeamId)
-      .then((requests) => {
-        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
-      })
-      .catch(() => {
-        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(0);
-      });
+    // A failure keeps the badge as it was and rejects to the caller, so
+    // pull-to-refresh reports it instead of silently showing zero waiting.
+    const requests = await timesheetApprovalApi.listPending(selectedTeamId);
+    if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
   }, [selectedTeamId, canViewTimesheet]);
-  useEffect(fetchPendingApprovals, [fetchPendingApprovals]);
+  useEffect(() => {
+    fetchPendingApprovals().catch(() => {});
+  }, [fetchPendingApprovals]);
   useRefresh(fetchPendingApprovals);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
@@ -277,8 +275,13 @@ export const DashboardPage: React.FC = () => {
   };
 
   const userId = user?.id;
+  // Claimed per call, like approvalCountSeqRef above: clearing state on a team
+  // switch doesn't cancel the previous team's requests, so they are discarded
+  // here rather than allowed to repopulate the new team's cards.
+  const overviewSeqRef = useRef(0);
   const fetchData = useCallback(async () => {
     if (!userId || !selectedTeamId) return;
+    const seq = ++overviewSeqRef.current;
     setLoading(true);
     try {
       const [t, m, r] = await Promise.allSettled([
@@ -286,6 +289,7 @@ export const DashboardPage: React.FC = () => {
         teamDashboardApi.getTeamClockStatus(selectedTeamId),
         teamDashboardApi.getTeamRunningTimers(selectedTeamId),
       ]);
+      if (overviewSeqRef.current !== seq) return;
       // Apply what loaded; a failed request keeps its card's previous data
       // rather than emptying it, and the failure reaches pull-to-refresh.
       if (t.status === 'fulfilled') setTickets(t.value);
@@ -294,7 +298,7 @@ export const DashboardPage: React.FC = () => {
       const failed = [t, m, r].find((result) => result.status === 'rejected');
       if (failed) throw failed.reason;
     } finally {
-      setLoading(false);
+      if (overviewSeqRef.current === seq) setLoading(false);
     }
   }, [userId, selectedTeamId]);
 

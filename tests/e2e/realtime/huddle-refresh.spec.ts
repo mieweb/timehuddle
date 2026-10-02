@@ -95,14 +95,15 @@ test.describe('Huddle Feed Refresh', () => {
     // user having to switch tabs to unstick it.
     await expect(page.locator('.huddle-loading')).toHaveCount(0, { timeout: 15000 });
 
-    // Either real posts (the pull-to-refresh container they render inside) or
-    // the explicit empty state — poll briefly since the feed can mount a beat
-    // after the spinner itself disappears.
+    // Either the populated inbox or the explicit empty state — poll briefly
+    // since the feed can mount a beat after the spinner itself disappears.
+    // Both are rendered by Huddle only once a load settled, so neither can
+    // pass on the app shell alone.
     await expect
       .poll(
         async () => {
           const hasEmptyState = await page.getByText(/No posts/).count();
-          const hasFeed = await page.locator('[data-testid="pull-to-refresh"]').count();
+          const hasFeed = await page.locator('.huddle-inbox').count();
           return hasEmptyState > 0 || hasFeed > 0;
         },
         { timeout: 5000 },

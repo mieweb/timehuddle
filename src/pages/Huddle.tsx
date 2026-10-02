@@ -171,17 +171,19 @@ export default function Huddle() {
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
-  const hasMyPostsRef = useRef(false);
-  hasMyPostsRef.current = myPosts.length > 0;
+  /** True once a load has succeeded — including one that returned no posts. */
+  const myPostsLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
       setMyPosts(await huddleApi.getMyPosts());
+      myPostsLoadedRef.current = true;
       setMyPostsError(null);
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
-      // The error replaces the list, so only show it when there's no list to
-      // keep; a failed refresh leaves the posts up and is reported by the caller.
-      if (!hasMyPostsRef.current) setMyPostsError('Failed to load your posts.');
+      // The error replaces whatever the last successful load produced — a list
+      // or the empty state — so only show it when there has been no such load;
+      // a failed refresh leaves the page as it was and is reported by the caller.
+      if (!myPostsLoadedRef.current) setMyPostsError('Failed to load your posts.');
       throw err;
     }
   }, []);
@@ -343,7 +345,7 @@ export default function Huddle() {
     const previous = openSessionsRef.current;
     openSessionsRef.current = open;
     const closed = [...previous].some(([id, teamId]) => inScope.has(teamId) && !open.has(id));
-    if (closed) void refreshActiveScopeRef.current();
+    if (closed) void refreshActiveScopeRef.current().catch(() => {});
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
   // Subscribe to live DDP publication for huddle posts
@@ -636,13 +638,15 @@ export default function Huddle() {
     const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
     try {
       await huddleApi.updatePost(messageId, { text: body, mentions: post.content.mentions });
-      // REST refresh too: with the DDP socket down (mobile, backgrounded) the
-      // saved edit would otherwise stay invisible until a manual refresh.
-      await refreshActiveScope();
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
       setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
+      return;
     }
+    // REST refresh too: with the DDP socket down (mobile, backgrounded) the
+    // saved edit would otherwise stay invisible until a manual refresh. Kept
+    // out of the save's try so a failed refresh isn't reported as a failed edit.
+    await refreshActiveScope().catch(() => {});
   }
 
   return (
@@ -742,7 +746,7 @@ export default function Huddle() {
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
                     // Not `readOnly`: in @mieweb/ui that also disables inline edit. With no
                     // onMessageSent the composer can't post; it's hidden until the library can omit it.
-                    className={`h-full [&_[data-slot=chat-composer]]:hidden ${styles.inbox}`}
+                    className={`huddle-inbox h-full [&_[data-slot=chat-composer]]:hidden ${styles.inbox}`}
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}

@@ -30,8 +30,13 @@ const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
  */
 const DDP_METHOD_TIMEOUT_MS = 8000;
 
-/** How long a foreground re-check (see DdpClient.checkConnection) waits for a pong. */
-const DDP_PING_TIMEOUT_MS = 2000;
+/**
+ * How long a foreground re-check (see DdpClient.checkConnection) waits for a
+ * pong. Generous enough for a cellular radio still waking from an iOS resume,
+ * where a healthy socket can take a few seconds to answer — killing one costs
+ * a reconnect that clears every collection.
+ */
+const DDP_PING_TIMEOUT_MS = 5000;
 
 /**
  * A method call the server answered with an error — as opposed to one that
@@ -286,14 +291,19 @@ class DdpClient {
       this.reconnectTimer = null;
       void this.ensureAuthed()
         .then(() => {
+          if (this.status !== 'connected' || !this.ws) return;
           // Drop stale docs — the server re-sends `added` for everything below.
           for (const [collection, store] of this.collections) {
             store.clear();
             this.notify(collection);
           }
           for (const [id, sub] of this.activeSubs) {
-            this.ws!.send(JSON.stringify({ msg: 'sub', id, name: sub.name, params: sub.params }));
+            this.ws.send(JSON.stringify({ msg: 'sub', id, name: sub.name, params: sub.params }));
           }
+          // Same contract as scheduleBackgroundRetry: callers holding state we
+          // gave up on while the socket was dead (the session refetch in
+          // useSession) only recover if this path tells them too.
+          for (const fn of this.reconnectListeners) fn();
         })
         .catch(() => {
           // ensureConnected's onclose fires handleDisconnect again → next backoff.
@@ -328,8 +338,11 @@ class DdpClient {
         localStorage.setItem('meteor_resume_token', loginResult.token);
       }
       return true;
-    } catch {
-      localStorage.removeItem('meteor_resume_token');
+    } catch (err) {
+      // Only a rejection from the server means the token is actually invalid.
+      // Discarding it on a timeout or a dropped socket would turn a slow
+      // reconnect into a real sign-out that survives a reload.
+      if (err instanceof DdpServerError) localStorage.removeItem('meteor_resume_token');
       return false;
     }
   }
@@ -452,9 +465,10 @@ class DdpClient {
   }
 
   /**
-   * The signed-in user, or null when the server says there is none. Throws
-   * when the server can't be reached, so a refresh that runs offline is not
-   * mistaken for a sign-out.
+   * The signed-in user, or null when there is none. `users.getCurrentUser`
+   * answers with null rather than an error for an unauthenticated connection,
+   * so every error here — transport or server-side — propagates; a refresh
+   * that runs offline or hits a server fault is not mistaken for a sign-out.
    */
   async getCurrentUser(): Promise<{
     id: string;
@@ -466,27 +480,22 @@ class DdpClient {
     createdAt: string | null;
     releaseNotesSeenVersion: string | null;
   } | null> {
-    try {
-      await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
+    await withTimeout(this.ensureAuthed(), 5000, 'ensureAuthed timed out');
 
-      const resumeToken = localStorage.getItem('meteor_resume_token');
-      if (!resumeToken) return null;
+    const resumeToken = localStorage.getItem('meteor_resume_token');
+    if (!resumeToken) return null;
 
-      const result = await this.call('users.getCurrentUser', {});
-      return result as {
-        id: string;
-        email: string;
-        name: string;
-        username: string | null;
-        image: string | null;
-        emailVerified: boolean;
-        createdAt: string | null;
-        releaseNotesSeenVersion: string | null;
-      } | null;
-    } catch (err) {
-      if (err instanceof DdpServerError) return null;
-      throw err;
-    }
+    const result = await this.call('users.getCurrentUser', {});
+    return result as {
+      id: string;
+      email: string;
+      name: string;
+      username: string | null;
+      image: string | null;
+      emailVerified: boolean;
+      createdAt: string | null;
+      releaseNotesSeenVersion: string | null;
+    } | null;
   }
 
   /** Records the newest release note the user has read. Never moves backwards. */
@@ -574,16 +583,28 @@ class DdpClient {
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
+    const ws = this.ws;
+    if (!ws) throw new Error('DDP connection lost');
     const id = String(this.nextId++);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         // Already resolved/rejected by handleMessage or handleDisconnect — no-op.
         if (!this.pendingMethods.delete(id)) return;
         reject(new Error(`DDP method "${method}" timed out`));
-        this.killSocket();
+        // Only the socket this call was sent on; a reconnect that happened in
+        // the meantime has its own healthy one.
+        if (this.ws === ws) this.killSocket();
       }, DDP_METHOD_TIMEOUT_MS);
       this.pendingMethods.set(id, { resolve, reject, timer });
-      this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
+      try {
+        ws.send(JSON.stringify({ msg: 'method', id, method, params }));
+      } catch (err) {
+        // The socket dropped between ensureConnected and here — drop the entry
+        // so its timer can't fire against whatever socket replaces this one.
+        this.pendingMethods.delete(id);
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -631,11 +652,18 @@ class DdpClient {
     this.inFlightCheck = new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (!this.pendingPings.delete(id)) return;
-        this.killSocket();
+        if (this.ws === ws) this.killSocket();
         resolve();
       }, DDP_PING_TIMEOUT_MS);
       this.pendingPings.set(id, { resolve, timer });
-      ws.send(JSON.stringify({ msg: 'ping', id }));
+      try {
+        ws.send(JSON.stringify({ msg: 'ping', id }));
+      } catch {
+        // Socket already gone — the normal connect path handles it.
+        this.pendingPings.delete(id);
+        clearTimeout(timer);
+        resolve();
+      }
     }).finally(() => {
       this.inFlightCheck = null;
     });

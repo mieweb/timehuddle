@@ -54,7 +54,7 @@ import {
   Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -157,7 +157,12 @@ export const TeamsPage: React.FC = () => {
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  // Claimed per call: clearing the list on a team switch doesn't cancel the
+  // previous team's request, so a late response is discarded here rather than
+  // allowed to list one team's members under another.
+  const membersSeqRef = useRef(0);
   const fetchMembers = useCallback(async (teamId: string | null) => {
+    const seq = ++membersSeqRef.current;
     if (!teamId) {
       setMembers([]);
       return;
@@ -165,9 +170,10 @@ export const TeamsPage: React.FC = () => {
     setMembersLoading(true);
     try {
       // A failure keeps the members already shown and rejects to the caller.
-      setMembers(await teamApi.getMembers(teamId));
+      const next = await teamApi.getMembers(teamId);
+      if (membersSeqRef.current === seq) setMembers(next);
     } finally {
-      setMembersLoading(false);
+      if (membersSeqRef.current === seq) setMembersLoading(false);
     }
   }, []);
 

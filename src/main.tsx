@@ -230,6 +230,20 @@ const AppToastContainer: React.FC = () => {
   return <ToastContainer toasts={toasts} position={position} onDismiss={dismiss} />;
 };
 
+/** The full app tree. Shared by both branches of renderRoot so they can't drift. */
+const Root: React.FC = () => (
+  <OtaUpdateGate>
+    <ToastProvider>
+      <AppToastContainer />
+      <SessionProvider>
+        <Suspense fallback={<ScreenLoading />}>
+          <App />
+        </Suspense>
+      </SessionProvider>
+    </ToastProvider>
+  </OtaUpdateGate>
+);
+
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim, refetch } = useSession();
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
@@ -422,18 +436,7 @@ function renderRoot() {
       if (Capacitor.isNativePlatform()) {
         _log('native platform detected — mounting SessionProvider + App');
         _root = createRoot(el);
-        _root.render(
-          <OtaUpdateGate>
-            <ToastProvider>
-              <AppToastContainer />
-              <SessionProvider>
-                <Suspense fallback={<ScreenLoading />}>
-                  <App />
-                </Suspense>
-              </SessionProvider>
-            </ToastProvider>
-          </OtaUpdateGate>,
-        );
+        _root.render(<Root />);
         return;
       }
       _root = createRoot(el);
@@ -466,18 +469,7 @@ function renderRoot() {
     _root = createRoot(el);
   }
 
-  _root.render(
-    <OtaUpdateGate>
-      <ToastProvider>
-        <AppToastContainer />
-        <SessionProvider>
-          <Suspense fallback={<ScreenLoading />}>
-            <App />
-          </Suspense>
-        </SessionProvider>
-      </ToastProvider>
-    </OtaUpdateGate>,
-  );
+  _root.render(<Root />);
 }
 
 renderRoot();
