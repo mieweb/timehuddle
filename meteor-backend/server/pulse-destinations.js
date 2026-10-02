@@ -150,13 +150,18 @@ async function followUp(failure, instead, step) {
 }
 
 /**
- * Clock in with the plan that was just posted. Clocked in some other way
- * meanwhile: no second session, but the plan still becomes that session's.
+ * Clock in with the plan that was just posted. Clocked in to this team some
+ * other way meanwhile: no second session, but the plan still becomes that
+ * session's. Clocked in to another team: no clock-in at all (one shift at a
+ * time), and the plan stays posted.
  */
 async function clockInWithPlan(userId, teamId, planPostId) {
   const open = await rawDb()
     .collection('clockevents')
-    .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
+    .findOne({ userId, endTime: null }, { projection: { _id: 1, teamId: 1 } });
+  if (open && String(open.teamId) !== String(teamId)) {
+    throw new Meteor.Error('already-clocked-in', "You're clocked in to another team.");
+  }
   if (open) {
     // Not `updatedAt` — linking a session isn't an edit (see clockStart).
     await rawDb()
