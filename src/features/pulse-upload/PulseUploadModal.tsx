@@ -51,14 +51,14 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
             </div>
           )}
 
-          <div className="pulse-modal-copy flex max-w-xs flex-col gap-1 text-center">
-            <Text size="sm" weight="medium">
+          <div className="pulse-modal-copy flex max-w-xs flex-col gap-1">
+            <Text size="sm" weight="medium" className="text-center">
               Scan with your phone to record in Pulse.
             </Text>
-            <Text size="sm" variant="muted">
+            <Text size="sm" variant="muted" className="text-center">
               {uploadHint(destination)} {titleHint(destination)}
             </Text>
-            <Text size="xs" variant="muted">
+            <Text size="xs" variant="muted" className="text-center">
               No Pulse app yet? The scan opens the App Store or Play Store.
             </Text>
           </div>
