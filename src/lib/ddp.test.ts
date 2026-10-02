@@ -42,8 +42,8 @@ class FakeWebSocket {
   }
 
   /** Test helper: simulate the server answering a method call with an error. */
-  simulateError(id: string, reason: string): void {
-    this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, error: { reason } }) });
+  simulateError(id: string, reason: string, error: number | string = 500): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, error: { error, reason } }) });
   }
 
   /** Test helper: the id of the most recent call to `method`. */
@@ -282,6 +282,21 @@ describe('DdpClient.checkConnection (foreground reconnect)', () => {
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
   });
 
+  it('tears the socket down when the ping cannot be sent on a socket still marked connected', async () => {
+    const { client, ws } = await connectedClient();
+    ws.send = () => {
+      throw new Error('InvalidStateError: socket is CLOSING');
+    };
+
+    await client.checkConnection();
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    // A later call opens a fresh socket instead of reusing the dead one.
+    void client.call('next').catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeWebSocket.instances.length).toBe(2);
+  });
+
   it('shares one in-flight ping when called twice in quick succession', async () => {
     const { client, ws } = await connectedClient();
 
@@ -362,10 +377,19 @@ describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
   it('discards the resume token only when the server rejects it', async () => {
     const { ws, userPromise } = await connect();
     userPromise.catch(() => {});
-    ws.simulateError(ws.lastCallId('login'), 'You’ve been logged out by the server.');
+    ws.simulateError(ws.lastCallId('login'), 'You’ve been logged out by the server.', 403);
     await vi.advanceTimersByTimeAsync(0);
 
     expect(localStorage.getItem('meteor_resume_token')).toBeNull();
+  });
+
+  it('keeps the resume token when login fails with a server fault, so it is not a sign-out', async () => {
+    const { ws, userPromise } = await connect();
+    userPromise.catch(() => {});
+    ws.simulateError(ws.lastCallId('login'), 'Internal server error', 500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(localStorage.getItem('meteor_resume_token')).toBe('resume-token');
   });
 });
 

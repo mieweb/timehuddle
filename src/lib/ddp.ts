@@ -43,7 +43,23 @@ const DDP_PING_TIMEOUT_MS = 5000;
  * never got an answer (timeout, dropped socket). Lets callers tell "the server
  * said no" apart from "the server couldn't be reached".
  */
-export class DdpServerError extends Error {}
+export class DdpServerError extends Error {
+  constructor(
+    message: string | undefined,
+    /** The Meteor.Error `error` code, e.g. 403 or 'not-found'. */
+    public readonly code?: number | string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Meteor's code for a resume token the server doesn't recognise or has
+ * expired ("You've been logged out by the server", "Your session has
+ * expired"). Any other server error — e.g. a 500 — says nothing about the
+ * token, so it must not be discarded for one.
+ */
+const RESUME_TOKEN_REJECTED = 403;
 
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
@@ -80,7 +96,7 @@ interface DdpMessage {
   fields?: Record<string, unknown>;
   cleared?: string[];
   result?: unknown;
-  error?: { reason?: string; message?: string };
+  error?: { error?: number | string; reason?: string; message?: string };
   subs?: string[];
   session?: string;
 }
@@ -339,10 +355,13 @@ class DdpClient {
       }
       return true;
     } catch (err) {
-      // Only a rejection from the server means the token is actually invalid.
-      // Discarding it on a timeout or a dropped socket would turn a slow
-      // reconnect into a real sign-out that survives a reload.
-      if (err instanceof DdpServerError) localStorage.removeItem('meteor_resume_token');
+      // Only the server rejecting the token itself means it's invalid.
+      // Discarding it on a timeout, a dropped socket or a transient server
+      // error would turn a slow reconnect into a real sign-out that survives
+      // a reload.
+      if (err instanceof DdpServerError && err.code === RESUME_TOKEN_REJECTED) {
+        localStorage.removeItem('meteor_resume_token');
+      }
       return false;
     }
   }
@@ -532,7 +551,9 @@ class DdpClient {
           this.pendingMethods.delete(data.id);
           clearTimeout(pending.timer);
           if (data.error)
-            pending.reject(new DdpServerError(data.error.reason ?? data.error.message));
+            pending.reject(
+              new DdpServerError(data.error.reason ?? data.error.message, data.error.error),
+            );
           else pending.resolve(data.result);
         }
         break;
@@ -670,9 +691,12 @@ class DdpClient {
       try {
         ws.send(JSON.stringify({ msg: 'ping', id }));
       } catch {
-        // Socket already gone — the normal connect path handles it.
+        // The socket is unusable (e.g. CLOSING before `onclose` ran) while
+        // still recorded as connected — tear it down like a missed pong, or
+        // later calls would keep reusing it instead of reconnecting.
         this.pendingPings.delete(id);
         clearTimeout(timer);
+        if (this.ws === ws) this.killSocket();
         resolve();
       }
     }).finally(() => {
