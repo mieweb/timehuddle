@@ -408,8 +408,6 @@ test.describe('PulseVault — Ticket video upload', () => {
     ).toBeVisible({ timeout: 20000 });
     // Kept, so it stays open until closed — and nothing was attached.
     await modal.getByRole('button', { name: 'Close' }).last().click();
-    await expect(page.locator('ul[aria-label="Attachments"]').getByRole('button')).toHaveCount(
-      0,
-    );
+    await expect(page.locator('ul[aria-label="Attachments"]').getByRole('button')).toHaveCount(0);
   });
 });
