@@ -46,7 +46,7 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
   return (
     <PulseButton
       destination={{ kind: 'timesheet-request', id: request.id }}
-      label="Add walkthrough with Pulse"
+      ariaLabel="Add a walkthrough with Pulse"
       onSettled={(status) => status.state === 'done' && onAdded?.()}
     />
   );

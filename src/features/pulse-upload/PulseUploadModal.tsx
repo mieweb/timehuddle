@@ -14,6 +14,7 @@ import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
 
+import { PoweredByPulse } from './PoweredByPulse';
 import { PulseLogo } from './PulseLogo';
 import { keptMessage, landedLabel, titleHint } from './pulseStatus';
 import type { PulseUpload } from './usePulseUpload';
@@ -62,8 +63,9 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
 
           <Text size="sm" className="max-w-xs text-center text-muted-foreground">
             Scan with your phone&rsquo;s camera to open the{' '}
-            <strong className="text-foreground">Pulse app</strong>, then record and upload. No app
-            yet? The scan takes you to the App Store or Play Store.
+            <strong className="text-foreground">Pulse camera</strong> and record. Once it&rsquo;s
+            uploaded, the video ends up right where you started, with nothing to attach. No app yet?
+            The scan takes you to the App Store or Play Store.
           </Text>
           {titleHint(destination) && (
             <Text size="xs" variant="muted" className="max-w-xs text-center">
@@ -105,7 +107,7 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
               <span className="pulse-modal-waiting flex items-center gap-2">
                 <Spinner size="xs" />
                 <Text size="xs" variant="muted">
-                  Waiting for your video. Once it uploads, it goes straight where it belongs.
+                  Waiting for your video to upload.
                 </Text>
               </span>
             )}
@@ -113,7 +115,8 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
         </div>
       </ModalBody>
 
-      <ModalFooter>
+      <ModalFooter className="justify-between">
+        <PoweredByPulse />
         <Button size="sm" variant="ghost" onClick={closeModal}>
           <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
           Close

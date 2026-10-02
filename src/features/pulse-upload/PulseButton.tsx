@@ -1,7 +1,8 @@
 /**
- * PulseButton — the one way to add a video anywhere in TimeHuddle: the page's
- * primary pill with the Pulse logo and what it does ("Post with Pulse"),
- * the same everywhere. It reserves an upload for a `destination`, then shows
+ * PulseButton — the one way to add a video anywhere in TimeHuddle: a "Pulse"
+ * chip with the Pulse logo, styled like the chips beside it (Ticket, Link).
+ * Where Pulse is the page's main way in (the Clock page) it's the page's
+ * primary pill instead. It reserves an upload for a `destination`, then shows
  * the QR code (computer) or opens the Pulse app (phone). See
  * {@link usePulseUpload}.
  *
@@ -14,6 +15,7 @@ import { Button, cn, Text } from '@mieweb/ui';
 import React from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
+import { ComposerChipButton } from '../huddle/ComposerChipButton';
 import { PulseLogo } from './PulseLogo';
 import { keptMessage } from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
@@ -21,23 +23,18 @@ import { usePulseUpload, type PulseUpload } from './usePulseUpload';
 
 interface PulseChipProps {
   pulse: PulseUpload;
-  /** What pressing it does, ending "with Pulse": "Post with Pulse". */
-  label: string;
-  /** `md` beside a full-size field, `lg` where Pulse is a main way in (the Clock page). */
-  size?: 'sm' | 'md' | 'lg';
+  /** What pressing it does, for screen readers: "Post a video with Pulse". */
+  ariaLabel: string;
+  /**
+   * Where Pulse is the page's main way in (the Clock page): the page's primary
+   * pill with this label. Otherwise it's a "Pulse" chip like the ones beside it.
+   */
+  main?: { label: string; className: string };
   disabled?: boolean;
-  /** Extra classes, to match the page's other main buttons. */
-  className?: string;
 }
 
 /** The Pulse button, with what went wrong or where the video went beside it. */
-export const PulseChip: React.FC<PulseChipProps> = ({
-  pulse,
-  label,
-  size = 'sm',
-  disabled,
-  className,
-}) => {
+export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, main, disabled }) => {
   const { reserving, error, status, modalOpen } = pulse;
   // Phones have no modal: say it here when the video went elsewhere, or when
   // a step after delivery failed.
@@ -48,20 +45,30 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       : status?.state === 'done'
         ? (status.note ?? '')
         : '';
+  const shared = {
+    onClick: () => void pulse.start(),
+    disabled: disabled || reserving,
+    'aria-busy': reserving,
+    'aria-label': ariaLabel,
+  };
   return (
     <>
-      <Button
-        type="button"
-        variant="primary"
-        size={size}
-        onClick={() => void pulse.start()}
-        disabled={disabled || reserving}
-        aria-busy={reserving}
-        leftIcon={<PulseLogo inverse className={size === 'lg' ? 'h-5' : 'h-4'} />}
-        className={cn('pulse-button shrink-0 gap-2 rounded-full font-semibold', className)}
-      >
-        {reserving ? 'Opening Pulse…' : label}
-      </Button>
+      {main ? (
+        <Button
+          type="button"
+          variant="primary"
+          size="lg"
+          leftIcon={<PulseLogo inverse className="h-5" />}
+          className={cn('pulse-button', main.className)}
+          {...shared}
+        >
+          {reserving ? 'Opening Pulse…' : main.label}
+        </Button>
+      ) : (
+        <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
+          Pulse
+        </ComposerChipButton>
+      )}
 
       {error && (
         <Text as="span" size="xs" className="text-red-500 dark:text-red-400" role="alert">
@@ -86,7 +93,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
 
 interface PulseButtonProps {
   destination: PulseDestination;
-  label: string;
+  ariaLabel: string;
   /** Called once the video has landed: `done`, or `kept` in the library. */
   onSettled?: (status: PulseUploadStatus) => void;
   disabled?: boolean;
@@ -94,14 +101,14 @@ interface PulseButtonProps {
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
   destination,
-  label,
+  ariaLabel,
   onSettled,
   disabled,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
     <>
-      <PulseChip pulse={pulse} label={label} disabled={disabled} />
+      <PulseChip pulse={pulse} ariaLabel={ariaLabel} disabled={disabled} />
       <PulseUploadModal pulse={pulse} />
     </>
   );

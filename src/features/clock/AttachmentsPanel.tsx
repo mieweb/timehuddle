@@ -104,7 +104,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           <LinkAttachButton onAdd={handleAddLink} />
           <PulseButton
             destination={{ kind, id: entityId }}
-            label="Add video with Pulse"
+            ariaLabel="Add a video with Pulse"
             onSettled={(status) => status.state === 'done' && void fetchAttachments()}
           />
         </div>
