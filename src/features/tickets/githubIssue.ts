@@ -93,3 +93,9 @@ export async function createTicketFromGithub({
 
   return { id: ticket.id };
 }
+
+/** Just the title of a GitHub issue or PR, or null when it can't be fetched. */
+export async function fetchGithubIssueTitle(url: string): Promise<string | null> {
+  const issue = await fetchGithubIssue(url);
+  return issue?.title ?? null;
+}

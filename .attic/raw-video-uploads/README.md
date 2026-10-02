@@ -7,7 +7,7 @@ PulseVault (`@mieweb/pulsevault`, vendored at `vendor/pulsevault`) is built for
 Pulse's pairing-link upload protocol, not as a general file-upload endpoint, and
 the web app's own "pick a video file" paths were borrowing it. A proper video
 upload API will be designed separately. Until then there is no browser-side
-video upload anywhere in the app. See release note `release-notes/1.0.5.md`.
+video upload anywhere in the app. See release note `release-notes/1.0.6.md`.
 
 ## What Was Here
 

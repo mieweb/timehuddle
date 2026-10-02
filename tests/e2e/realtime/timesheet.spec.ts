@@ -1,68 +1,97 @@
 /**
- * Real-time Timesheet Synchronization Tests
+ * Real-time personal timesheet synchronization.
  *
- * Verifies that both sessions see the same timesheet page state.
+ * `PersonalTimesheetPanel` subscribes to `clock.liveForUser` for the signed-in
+ * user, so a shift started in one tab must appear in that user's timesheet in
+ * another tab without a reload.
+ *
+ * Both tabs are therefore the *same* user in one browser context. The old
+ * version of this file logged in as two different users and asserted that both
+ * could see a heading — which would pass with the subscription deleted, and
+ * could never have observed a sync in any case, since the publication is
+ * scoped to `this.userId`.
+ *
+ * Session rows are counted through their per-row "Edit session" button, the
+ * only accessible handle the row exposes.
  */
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
-import { test, expect } from '@playwright/test';
-import type { BrowserContext, Page } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
+import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 
-const BASE_URL = 'http://localhost:3002';
+const sessionRows = (page: Page) => page.getByRole('button', { name: 'Edit session' });
+
+/** Rows still running: the Clock Out column renders an em dash until clock-out. */
+const openSessionRows = (page: Page) =>
+  page
+    .locator('tbody tr')
+    .filter({ has: sessionRows(page) })
+    .filter({ hasText: '—' });
+
+async function openTimesheet(page: Page): Promise<void> {
+  await page.goto('/app/timesheet');
+  await expect(page.getByRole('button', { name: 'Add Entry' })).toBeVisible({ timeout: 20000 });
+  // "Add Entry" renders before the sessions load, so a row count read here
+  // would be a premature zero. Wait for the list to resolve either way.
+  await expect
+    .poll(
+      async () =>
+        (await sessionRows(page).count()) > 0 ||
+        (await page.getByText('No clock events in this date range.').count()) > 0,
+      { timeout: 20000 },
+    )
+    .toBe(true);
+}
 
 test.describe('Timesheet Real-time Sync', () => {
-  let context1: BrowserContext;
-  let context2: BrowserContext;
-  let page1: Page;
-  let page2: Page;
+  let context: BrowserContext;
+  let session1: Page;
+  let session2: Page;
+  let clock1: ClockPage;
 
   test.beforeEach(async ({ browser }) => {
-    context1 = await browser.newContext();
-    context2 = await browser.newContext();
-    page1 = await context1.newPage();
-    page2 = await context2.newPage();
+    context = await browser.newContext();
+    session1 = await context.newPage();
+    await loginAs(session1, TEST_USERS.admin3);
 
-    const loginPage1 = new LoginPage(page1);
-    const loginPage2 = new LoginPage(page2);
+    clock1 = new ClockPage(session1);
+    await clock1.ensureClockedOut();
 
-    await loginPage1.goto();
-    await loginPage1.login('admin1@test.local', 'TestPass1!');
-    // 15s tolerates a warming backend; default 5s occasionally times out and
-    // subsequent navigations bounce back to the login screen.
-    await loginPage1.waitForLoginSuccess();
-
-    await loginPage2.goto();
-    await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await loginPage2.waitForLoginSuccess();
+    session2 = await context.newPage();
+    await openTimesheet(session2);
   });
 
   test.afterEach(async () => {
-    await context1.close();
-    await context2.close();
+    await clock1?.ensureClockedOut().catch(() => {});
+    await context?.close();
   });
 
-  test('personal timesheet shows same data in both sessions', async () => {
-    await page1.goto(`${BASE_URL}/app/timesheet`);
-    await page2.goto(`${BASE_URL}/app/timesheet`);
+  test('a shift started in one tab appears in the timesheet open in another', async () => {
+    const before = await sessionRows(session2).count();
 
-    await page1.waitForLoadState('networkidle');
-    await page2.waitForLoadState('networkidle');
+    await clock1.ensureClockedIn('Plan for a timesheet sync test');
 
-    // /app/timesheet redirects to Dashboard -> Me -> Timesheet, so both
-    // sessions land on the dashboard showing the personal timesheet panel.
-    await expect(page1.getByRole('button', { name: 'Add Entry' })).toBeVisible();
-    await expect(page2.getByRole('button', { name: 'Add Entry' })).toBeVisible();
+    await expect(sessionRows(session2)).toHaveCount(before + 1, { timeout: 15000 });
+    await expect(openSessionRows(session2)).toHaveCount(1, { timeout: 15000 });
   });
 
-  test('clock page shows same state in both sessions', async () => {
-    await page1.goto(`${BASE_URL}/app/clock`);
-    await page2.goto(`${BASE_URL}/app/clock`);
+  test('clocking out closes the row in the other tab', async () => {
+    await clock1.ensureClockedIn('Plan for a timesheet close test');
+    await expect(openSessionRows(session2)).toHaveCount(1, { timeout: 15000 });
 
-    await page1.waitForLoadState('networkidle');
-    await page2.waitForLoadState('networkidle');
+    await clock1.ensureClockedOut();
 
-    // Both sessions should see the Clock heading
-    await expect(page1.getByRole('heading', { level: 1, name: /Clock/i })).toBeVisible();
-    await expect(page2.getByRole('heading', { level: 1, name: /Clock/i })).toBeVisible();
+    await expect(openSessionRows(session2)).toHaveCount(0, { timeout: 15000 });
+  });
+
+  test('the synced row survives a reload of the observing tab', async () => {
+    // A live update that never reached the server would vanish on refetch.
+    const before = await sessionRows(session2).count();
+    await clock1.ensureClockedIn('Plan for a timesheet persistence test');
+    await expect(sessionRows(session2)).toHaveCount(before + 1, { timeout: 15000 });
+
+    await openTimesheet(session2);
+
+    await expect(sessionRows(session2)).toHaveCount(before + 1, { timeout: 15000 });
   });
 });

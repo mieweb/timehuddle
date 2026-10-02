@@ -2,17 +2,17 @@
  * ClockPage — plan-first shift screen.
  *
  * Reads top-to-bottom as a gate rather than a dashboard:
- *   1. Status — eyebrow + a big bold session timer (elapsed time this
+ *   1. Pulse — the other way in or out: a Pulse video *is* the plan (clocks
+ *      in) or wrap-up (clocks out), delivered by the server. Shown whether or
+ *      not the team requires a plan.
+ *   2. Status — eyebrow + a big bold session timer (elapsed time this
  *      shift, not the wall clock) + either the active ticket badge (when a
  *      ticket timer is running) or a "plan required" badge when the team
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
- *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
+ *   3. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Doc/Ticket/@Mention bar as the Huddle composer (⌘/Ctrl+↵
  *      submits).
- *   3. Pulse — the other way in or out: a Pulse video *is* the plan (clocks
- *      in) or wrap-up (clocks out), delivered by the server. Shown whether or
- *      not the team requires a plan.
  *   4. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
@@ -46,6 +46,7 @@ import {
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
+import { ticketDetailPath } from '../tickets/sources/types';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import {
@@ -67,11 +68,18 @@ import {
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
+import { useTicketStart } from '../timers/TicketStartProvider';
+import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
+import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
+
+/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
+const MAIN_ACTION_PILL =
+  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
@@ -105,6 +113,8 @@ export const ClockPage: React.FC = () => {
 
   // Active ticket under the session timer — shared hook (getRunning + getDay).
   const runningTicket = useRunningTicket(isClockedIn);
+  // A timer started while clocked out, waiting for this clock-in (#586).
+  const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -462,6 +472,41 @@ export const ClockPage: React.FC = () => {
           }
         />
 
+        {/* ── Pulse — the other way to clock in or out: a video plan or
+             wrap-up, posted to Huddle by the server, which then clocks you
+             in or out. First on the page, and offered whether or not the
+             team requires a plan. Nothing typed in the composer below goes
+             with it. ── */}
+        {clockPulse && (
+          <section
+            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
+            aria-labelledby="clock-pulse-title"
+          >
+            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
+            <div className="clock-pulse-copy flex-1">
+              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+              </Text>
+              <Text variant="muted" size="sm" className="mt-1">
+                {isClockedIn
+                  ? "Sum up your session in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked out."
+                  : "Say what you'll work on in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked in."}
+              </Text>
+              <Text variant="muted" size="xs" className="mt-1">
+                {titleHint(clockPulse.destination)}
+              </Text>
+            </div>
+            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
+              <PulseChip
+                pulse={clockPulse}
+                label={isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'}
+                size="lg"
+                className={MAIN_ACTION_PILL}
+              />
+            </div>
+          </section>
+        )}
+
         {/* ── Status — eyebrow + big bold session timer ──
              The surface is tinted by state rather than being a fixed dark slab
              with a red underline: that read as an error banner on a light page
@@ -527,7 +572,11 @@ export const ClockPage: React.FC = () => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate(`/app/tickets/${runningTicket.id}`)}
+                onClick={() =>
+                  navigate(
+                    ticketDetailPath({ sourceId: runningTicket.source, id: runningTicket.id }),
+                  )
+                }
                 aria-label={`Open ticket: ${runningTicket.title}`}
                 className="h-auto max-w-full rounded-full p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
               >
@@ -552,6 +601,25 @@ export const ClockPage: React.FC = () => {
             )
           )}
         </div>
+
+        {/* ── A ticket timer waiting for this clock-in (see TicketStartProvider) ── */}
+        {!isClockedIn && pendingStart && (
+          <div
+            className="clock-pending-start flex shrink-0 flex-wrap items-center gap-2"
+            role="status"
+          >
+            <FontAwesomeIcon icon={faTicket} className="text-neutral-500" aria-hidden />
+            <Text size="sm">{timerText.pendingStart(pendingStart.request.label)}</Text>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={cancelPendingStart}
+              aria-label={timerText.cancelPendingStartLabel(pendingStart.request.label)}
+            >
+              {timerText.cancelPendingStart}
+            </Button>
+          </div>
+        )}
 
         {/* ── Composer — plan before clock-in / wrap-up before clock-out ── */}
         {composerMode && (
@@ -664,7 +732,7 @@ export const ClockPage: React.FC = () => {
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock in
               </Button>
@@ -676,7 +744,7 @@ export const ClockPage: React.FC = () => {
                 isLoading={clockOutLoading}
                 aria-label="Clock out"
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock out
               </Button>
@@ -684,37 +752,13 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Pulse — the other way to clock in or out: a video plan or
-             wrap-up, posted to Huddle by the server, which then clocks you
-             in or out. Offered whether or not the team requires a plan.
-             Nothing typed in the composer above goes with it. ── */}
-        {clockPulse && (
-          <section
-            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
-            aria-labelledby="clock-pulse-title"
-          >
-            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
-            <div className="clock-pulse-copy flex-1">
-              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
-                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
-              </Text>
-              <Text variant="muted" size="sm" className="mt-1">
-                {isClockedIn
-                  ? "Sum up your session in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked out."
-                  : "Say what you'll work on in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked in."}
-              </Text>
-              <Text variant="muted" size="xs" className="mt-1">
-                {titleHint(clockPulse.destination)}
-              </Text>
-            </div>
-            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
-              <PulseChip
-                pulse={clockPulse}
-                label={isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'}
-                size="lg"
-              />
-            </div>
-          </section>
+        {/* Clocking out closes every ticket timer (clock.stop), so say so first. */}
+        {isClockedIn && runningTicket && (
+          <Text variant="muted" size="sm" className="clock-out-stops-timer shrink-0 text-center">
+            {timerText.clockOutStopsTimer(
+              timerLabel(runningTicket.source, runningTicket.id, runningTicket.title),
+            )}
+          </Text>
         )}
 
         {clockOutBlockedReason && (
@@ -722,6 +766,9 @@ export const ClockPage: React.FC = () => {
             {clockOutBlockedReason}
           </Text>
         )}
+
+        {/* ── Redmine push — renders itself away when there is nothing to send ── */}
+        <RedminePushPanel isClockedIn={isClockedIn} />
 
         {/* ── Recent sessions ── */}
         <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">

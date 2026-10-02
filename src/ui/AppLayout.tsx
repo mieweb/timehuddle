@@ -14,9 +14,9 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
-import { ToastProvider } from '@mieweb/ui';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
@@ -26,7 +26,9 @@ import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
 import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
+import { RedmineIssueDetailPage } from '../features/tickets/detail/RedmineIssueDetailPage';
+import { TicketDetailPage } from '../features/tickets/detail/TicketDetailPage';
+import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
@@ -37,8 +39,8 @@ import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPa
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
-import { AppToasts } from './AppToasts';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
+import { AppToasts } from './AppToasts';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
@@ -345,12 +347,20 @@ const AppLayoutContent: React.FC = () => {
       : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
+  // A Redmine issue lives under its own prefix; Huddle ticket ids are 24-char
+  // hex, so the two can never collide.
+  const redmineIssueMatch = !profileSegment
+    ? /^\/app\/tickets\/redmine\/(\d+)$/.exec(pathname)
+    : null;
+  const redmineIssueId = redmineIssueMatch ? Number(redmineIssueMatch[1]) : null;
+
   const ticketDetailId =
-    !profileSegment && pathname.startsWith('/app/tickets/')
+    !profileSegment && !redmineIssueMatch && pathname.startsWith('/app/tickets/')
       ? pathname.slice('/app/tickets/'.length)
       : null;
 
-  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+  const route =
+    profileUserId || profileUsername || ticketDetailId || redmineIssueId ? null : match(pathname);
 
   // Shown in the browser tab. Covers the dynamic routes too, which have no
   // registry entry.
@@ -359,7 +369,9 @@ const AppLayoutContent: React.FC = () => {
       ? 'Profile'
       : ticketDetailId
         ? 'Ticket'
-        : (route?.title ?? 'App');
+        : redmineIssueId
+          ? 'Issue'
+          : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
   // Rendered in the body by <PageTitle />. Null on profile and ticket detail
@@ -367,7 +379,11 @@ const AppLayoutContent: React.FC = () => {
   const pageTitle = route?.title ?? null;
 
   const isTicketsRoute =
-    !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
+    !profileUserId &&
+    !profileUsername &&
+    !ticketDetailId &&
+    !redmineIssueId &&
+    pathname === '/app/tickets';
 
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -405,11 +421,8 @@ const AppLayoutContent: React.FC = () => {
           <CommandPalette />
           <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
           <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-          <ShiftReminderProvider>
-            {/* Toasts: for now only a Pulse video that lands after its
-                button is gone (see usePulseUpload). */}
-            <ToastProvider position="bottom-center">
-              <AppToasts />
+          <TicketStartProvider>
+            <ShiftReminderProvider>
               <AppFeedbackContext.Provider
                 value={{
                   openReportIssue: () => setReportIssueOpen(true),
@@ -468,10 +481,11 @@ const AppLayoutContent: React.FC = () => {
                       <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                         <PullToRefresh>
                           {/* TicketsPage stays mounted to preserve its state, and
-                            is only hidden when another route is showing. It must
-                            not render a page title while hidden — it isn't the
-                            page — so the title is withheld from that instance. */}
-                          <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            is only hidden when another route is showing. The
+                            tickets page renders its own heading, so the registry
+                            title is always withheld from this instance to avoid
+                            a duplicate h1. */}
+                          <PageTitleContext.Provider value={null}>
                             <div
                               className={
                                 isTicketsRoute
@@ -488,6 +502,8 @@ const AppLayoutContent: React.FC = () => {
                             <ProfilePage key={profileUsername} username={profileUsername} />
                           ) : ticketDetailId ? (
                             <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : redmineIssueId ? (
+                            <RedmineIssueDetailPage issueId={redmineIssueId} />
                           ) : (
                             route &&
                             route.component !== TicketsPage &&
@@ -501,8 +517,8 @@ const AppLayoutContent: React.FC = () => {
                   </div>
                 </SidebarContext.Provider>
               </AppFeedbackContext.Provider>
-            </ToastProvider>
-          </ShiftReminderProvider>
+            </ShiftReminderProvider>
+          </TicketStartProvider>
         </RefreshProvider>
       </PageTitleContext.Provider>
     </RouterContext.Provider>
@@ -514,7 +530,10 @@ const AppLayoutContent: React.FC = () => {
 export const AppLayout: React.FC = () => {
   return (
     <TeamProvider>
-      <AppLayoutContent />
+      <ToastProvider>
+        <AppLayoutContent />
+        <AppToasts />
+      </ToastProvider>
     </TeamProvider>
   );
 };

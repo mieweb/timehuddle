@@ -15,7 +15,7 @@
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { inboxMessage, openPostInInbox, seedPost } from './helpers';
+import { editInboxMessage, inboxMessage, openPostInInbox, seedPost } from './helpers';
 
 test.describe('Huddle — editing a post', () => {
   test.slow();
@@ -35,9 +35,7 @@ test.describe('Huddle — editing a post', () => {
     const teamId = await selectSharedTestTeam(page);
     await seedPost(page, { teamId, text: seed });
 
-    const message = await openPostInInbox(page, seed);
-    await message.hover();
-    await message.getByRole('button', { name: 'Edit message' }).click();
+    await editInboxMessage(page, await openPostInInbox(page, seed));
 
     const editor = page.getByRole('textbox', { name: 'Edit message' });
     await expect(editor).toHaveValue(seed);

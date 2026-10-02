@@ -14,6 +14,8 @@
 import { expect, type Page } from '@playwright/test';
 import { MongoClient } from 'mongodb';
 
+import { TeamSettingsPage } from '../pages/TeamSettingsPage';
+
 import { TEST_USERS, loginAs, type TestUser } from './users';
 
 const MONGO_URL =
@@ -111,4 +113,21 @@ export async function gotoTeamsPage(page: Page, user: TestUser = TEST_USERS.owne
   }
 
   await expect(createTeam).toBeVisible({ timeout: 20000 });
+}
+
+/**
+ * Create a team, which becomes the selected one, and turn on the plan gate.
+ * Named `Test Team …` so global teardown removes it with the other test teams.
+ */
+export async function createPlanRequiredTeam(page: Page): Promise<void> {
+  await page.goto('/app/teams');
+  await page.getByRole('button', { name: 'Create Team' }).click();
+  await page.getByPlaceholder('Team name').fill(`Test Team PlanTimer-${Date.now()}`);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+  const settings = new TeamSettingsPage(page);
+  await settings.waitForModal();
+  await settings.enableRequirePlan();
+  await settings.close();
 }

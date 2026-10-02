@@ -147,3 +147,79 @@ describe('break pauses and resumes the running ticket timer', () => {
     expect(runningAfterClockOut).toBeNull();
   });
 });
+
+describe('ticket titles follow the viewer', () => {
+  const ADMIN = { name: 'Clock Timer Admin', email: 'wh-clock-timer-admin@test.dev', password: 'Password1!' };
+  let adminJwt: string;
+  let adminId: string;
+
+  type Timesheet = { sessions: { ticketSessions: { ticketId: string; title: string | null }[] }[] };
+
+  const titlesSeenBy = async (viewerJwt: string) => {
+    const res = await wormhole<Timesheet>(
+      'clock.timesheet',
+      { userId, startMs: Date.now() - 24 * 60 * 60 * 1000, endMs: Date.now() + 60 * 1000 },
+      viewerJwt,
+    );
+    expect(res.ok).toBe(true);
+    const rows = res.result.sessions.flatMap((s) => s.ticketSessions);
+    expect(rows.length).toBeGreaterThan(0);
+    return rows.map((row) => row.title);
+  };
+
+  const todayTitlesSeenBy = async (viewerJwt: string) => {
+    const res = await wormhole<{ entries: { entry: { displayTitle: string | null } }[] }>(
+      'timers.getToday',
+      { userId },
+      viewerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.entries.length).toBeGreaterThan(0);
+    return res.result.entries.map(({ entry }) => entry.displayTitle);
+  };
+
+  beforeAll(async () => {
+    await purgeUser(ADMIN.email);
+    adminJwt = (await createUserAndGetJwt(ADMIN)).jwt;
+    const db = await getDb();
+    adminId = String((await db.collection('users').findOne({ 'emails.address': ADMIN.email }))!._id);
+    // The admin shares this team with the user, but not the ticket's team.
+    await db.collection('teams').insertOne({
+      _id: new ObjectId(),
+      name: 'WH Clock Timer Shared Team',
+      members: [userId],
+      admins: [adminId],
+      code: 'WHCLKSHR',
+      isPersonal: false,
+      createdAt: new Date(),
+    });
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teams').deleteMany({ code: 'WHCLKSHR' });
+    await db.collection('teams').updateOne({ code: 'WHCLKTMR' }, { $pull: { members: adminId } as never });
+    await purgeUser(ADMIN.email);
+  });
+
+  it('shows the owner their own ticket titles', async () => {
+    expect(await titlesSeenBy(jwt)).toContain('Clock Timer Test Ticket');
+  });
+
+  it('hides a title from an admin who is not in the ticket\u2019s team', async () => {
+    const titles = await titlesSeenBy(adminJwt);
+    expect(titles.every((title) => title === null)).toBe(true);
+  });
+
+  it('hides a title from an admin reading the member\u2019s day, too', async () => {
+    const titles = await todayTitlesSeenBy(adminJwt);
+    expect(titles.every((title) => title === null)).toBe(true);
+  });
+
+  it('shows the title once the admin belongs to the ticket\u2019s team', async () => {
+    const db = await getDb();
+    await db.collection('teams').updateOne({ code: 'WHCLKTMR' }, { $push: { members: adminId } as never });
+    expect(await titlesSeenBy(adminJwt)).toContain('Clock Timer Test Ticket');
+    expect(await todayTitlesSeenBy(adminJwt)).toContain('Clock Timer Test Ticket');
+  });
+});

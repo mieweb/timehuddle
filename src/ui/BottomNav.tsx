@@ -158,7 +158,7 @@ export const BottomNav: React.FC = () => {
   return (
     <MotionConfig transition={{ type: 'spring', damping: 26, stiffness: 300 }}>
       <nav
-        className="bottom-nav fixed bottom-0 left-0 right-0 z-40 flex items-end justify-around border-t border-neutral-200 bg-white px-2 dark:border-neutral-800 dark:bg-neutral-900 md:hidden"
+        className="bottom-nav fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-neutral-200 bg-white px-2 dark:border-neutral-800 dark:bg-neutral-900 md:hidden"
         aria-label="Bottom navigation"
       >
         {/* The FAB and tab buttons stay raw: `Button` wraps its children in a
@@ -184,7 +184,7 @@ export const BottomNav: React.FC = () => {
                       : 'Clock In'
                 }
                 aria-pressed={isClockedIn}
-                className="relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"
+                className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"
                 style={{
                   background: isClockedIn
                     ? 'linear-gradient(135deg, #f87171, #dc2626)'

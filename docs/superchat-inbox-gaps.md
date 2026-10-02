@@ -5,6 +5,12 @@
 `SuperChatMessage` public type surface is byte-for-byte unchanged between 0.9.0 and 0.10.0, so every gap
 below still applies)
 
+**Updated 2026-10-01** (branch `feat/huddle-superchat-composer`, `@mieweb/ui` 0.10.0): Huddle now
+posts from SuperChat's own chat input instead of a separate composer, which surfaced more gaps
+(3.14–3.17, 4.7–4.12). Each gap TimeHuddle currently works around is listed under
+[TimeHuddle Workarounds to Remove](#timehuddle-workarounds-to-remove), and the library work is
+grouped into one [parent PR](#parent-pr-superchat-host-extension-points).
+
 ## Overview
 
 TimeHuddle is replacing its Huddle feed (the hand-built card feed plus the SuperChat panel) with
@@ -54,13 +60,13 @@ this request.
 
 ## Where to Look in @mieweb/ui
 
-| Area                                                       | Source file                                           |
-| ---------------------------------------------------------- | ----------------------------------------------------- |
-| Conversation list                                          | `src/components/SuperChat/SuperChatConversations.tsx` |
-| Inbox wrapper                                              | `src/components/SuperChat/SuperChatInbox.tsx`         |
-| Thread header, message box wiring                          | `src/components/SuperChat/SuperChat.tsx`              |
-| Message rows, `formatTime`, system messages, `sidebarItem` | `src/components/SuperChat/parts.tsx`                  |
-| Message box                                                | `src/components/Messaging/MessageComposer`            |
+| Area                                                             | Source file                                           |
+| ---------------------------------------------------------------- | ----------------------------------------------------- |
+| Conversation list                                                | `src/components/SuperChat/SuperChatConversations.tsx` |
+| Inbox wrapper                                                    | `src/components/SuperChat/SuperChatInbox.tsx`         |
+| Thread header, message box wiring                                | `src/components/SuperChat/SuperChat.tsx`              |
+| Message rows, `formatTime`, system messages, `sidebarItem`       | `src/components/SuperChat/parts.tsx`                  |
+| Message box (`ChatComposer`, rendered by SuperChat since 0.10.0) | `src/components/ChatComposer/ChatComposer.tsx`        |
 
 ## Gap List
 
@@ -71,24 +77,24 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 
 ### 1. Conversation List (Sidebar)
 
-| #    | What the mockup does                                                                                                                                     | 0.9.0 today                                                                                                                            | Priority |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1.1  | An avatar on every row: the person's colored initials, or an icon for day (date number), ticket (🎫) and milestone (◆)                                   | ❌ Rows have no avatar                                                                                                                 | P1       |
-| 1.2  | A clean second line with the author ("Priya: Reviewed…")                                                                                                 | ⚠️ Shows the last message's raw text: markdown symbols show up as-is, a system line (clock-out) can become the preview, no author name | P1       |
-| 1.3  | Status pills on rows: **LIVE** (red dot), hours ("8h 18m"), ticket IDs (`#398`), Pulse video count ("▶ 2"), reply count ("💬 3"), **No wrap-up** warning | ❌ Only a numeric unread badge                                                                                                         | P1       |
-| 1.4  | Time span on the right of each row (`08:58–now`, monospaced)                                                                                             | ❌ No timestamp on rows                                                                                                                | P1       |
-| 1.5  | Section headers that stay visible while scrolling ("Today · Tue, Sep 29", "Mon, Sep 28", milestone names, "ADMIN ONLY")                                  | ❌ One flat list                                                                                                                       | P1       |
-| 1.6  | Custom sort order (by day, then by start time)                                                                                                           | ❌ Always sorted by `lastActivity`, and this can't be changed                                                                          | P1       |
-| 1.7  | Sidebar title changes with the grouping ("Work sessions", "Days", "People", "Tickets", "Milestones")                                                     | ❌ Always "Conversations"                                                                                                              | P2       |
-| 1.8  | Extra content in the sidebar header, such as the date range "Sep 23 – Sep 29"                                                                            | ❌ No slot                                                                                                                             | P2       |
-| 1.9  | Per-section totals for admins ("3 sessions · 12h 45m")                                                                                                   | ❌                                                                                                                                     | P2       |
-| 1.10 | Small overlapping avatars of the people in a thread (day, ticket and milestone threads)                                                                  | ❌                                                                                                                                     | P2       |
-| 1.11 | Empty state ("No sessions match this filter")                                                                                                            | ❌ The list just shows nothing; the panel always says "No conversation selected"                                                       | P2       |
-| 1.12 | Labeled "+ New DM" button                                                                                                                                | ⚠️ Only an unlabeled "+" icon                                                                                                          | P3       |
-| 1.13 | Filter chips (Everyone / Only mine / each person / Missing wrap-up)                                                                                      | ❌ Could live in the host app if the header slot (1.8) exists                                                                          | P3       |
-| 1.14 | Search box                                                                                                                                               | ❌                                                                                                                                     | P3       |
-| 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ⚠️ Fixed at `w-64` (256px), with no prop                                                                                               | P3       |
-| 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                     | —        |
+| #    | What the mockup does                                                                                                                                     | 0.9.0 today                                                                                                                                                                  | Priority |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 1.1  | An avatar on every row: the person's colored initials, or an icon for day (date number), ticket (🎫) and milestone (◆)                                   | ❌ Rows have no avatar                                                                                                                                                       | P1       |
+| 1.2  | A clean second line with the author ("Priya: Reviewed…")                                                                                                 | ⚠️ Shows the last message's raw text: markdown symbols show up as-is, a system line (clock-out) can become the preview, no author name                                       | P1       |
+| 1.3  | Status pills on rows: **LIVE** (red dot), hours ("8h 18m"), ticket IDs (`#398`), Pulse video count ("▶ 2"), reply count ("💬 3"), **No wrap-up** warning | ❌ Only a numeric unread badge                                                                                                                                               | P1       |
+| 1.4  | Time span on the right of each row (`08:58–now`, monospaced)                                                                                             | ❌ No timestamp on rows                                                                                                                                                      | P1       |
+| 1.5  | Section headers that stay visible while scrolling ("Today · Tue, Sep 29", "Mon, Sep 28", milestone names, "ADMIN ONLY")                                  | ❌ One flat list                                                                                                                                                             | P1       |
+| 1.6  | Custom sort order (by day, then by start time)                                                                                                           | ❌ Always sorted by `lastActivity`, and this can't be changed                                                                                                                | P1       |
+| 1.7  | Sidebar title changes with the grouping ("Work sessions", "Days", "People", "Tickets", "Milestones")                                                     | ❌ Always "Conversations"                                                                                                                                                    | P2       |
+| 1.8  | Extra content in the sidebar header, such as the date range "Sep 23 – Sep 29"                                                                            | ❌ No slot                                                                                                                                                                   | P2       |
+| 1.9  | Per-section totals for admins ("3 sessions · 12h 45m")                                                                                                   | ❌                                                                                                                                                                           | P2       |
+| 1.10 | Small overlapping avatars of the people in a thread (day, ticket and milestone threads)                                                                  | ❌                                                                                                                                                                           | P2       |
+| 1.11 | Empty state with a usable message box, so a team with no posts can post the first one                                                                    | ❌ The list shows nothing and the panel shows a fixed "No conversation selected" with **no message box**. Huddle works around it with an on-screen-only starter conversation | P1       |
+| 1.12 | Labeled "+ New DM" button                                                                                                                                | ⚠️ Only an unlabeled "+" icon                                                                                                                                                | P3       |
+| 1.13 | Filter chips (Everyone / Only mine / each person / Missing wrap-up)                                                                                      | ❌ Could live in the host app if the header slot (1.8) exists                                                                                                                | P3       |
+| 1.14 | Search box                                                                                                                                               | ❌                                                                                                                                                                           | P3       |
+| 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ⚠️ Fixed at `w-64` (256px), with no prop                                                                                                                                     | P3       |
+| 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                                                           | —        |
 
 ### 2. Thread Header
 
@@ -117,17 +123,29 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 3.11 | Per-person color                                                                                            | ✅ `participant.color`                                                                                                           | —        |
 | 3.12 | Copy and edit on messages                                                                                   | ✅                                                                                                                               | —        |
 | 3.13 | Delete a message, and per-message edit/delete rights for moderators (team admins, org owners)               | ❌ No delete action or callback, and edit is offered on own messages only. Huddle has no way to delete a published post today    | P1       |
+| 3.14 | Enter adds a new line in the edit box; Ctrl/Cmd+Enter or Save saves                                         | ⚠️ Plain Enter saved and closed the edit mid-sentence. **Fixed in mieweb/ui#524** (open)                                         | P1       |
+| 3.15 | Inline edit stays available when the message box is hidden or read-only                                     | ❌ `readOnly` also turns off Edit                                                                                                | P2       |
+| 3.16 | Edit opens the host's own editor (e.g. TimeHuddle's rich editor)                                            | ❌ Edit always opens SuperChat's plain textarea; no `onEditRequest`-style hook                                                   | P3       |
+| 3.17 | Long URLs and wide images wrap inside the bubble                                                            | ❌ They push the bubble past the thread; Huddle caps it with CSS                                                                 | P2       |
 
 ### 4. Message Box (Composer)
 
-| #   | What the mockup does                                                                                                  | 0.9.0 today                                                                  | Priority |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------- |
-| 4.1 | Placeholder that fits the thread ("Reply to Priya's session…", "Post an update to your session…", "Post about #398…") | ❌ Always "Type a message… use @ to address an agent"                        | P1       |
-| 4.2 | 🎥 Pulse video button and 🎫 Ticket picker button in the toolbar                                                      | ❌ No slot for custom buttons (`showCameraButton` is forced off)             | P1       |
-| 4.3 | Reply to a specific post                                                                                              | ❌ `replyTo` isn't passed through (see 3.4)                                  | P1       |
-| 4.4 | Ticket already filled in when posting in a ticket thread                                                              | ❌ No way to pass context to the message box or back through `onMessageSent` | P2       |
-| 4.5 | 📎 Attach                                                                                                             | ✅                                                                           | —        |
-| 4.6 | Send                                                                                                                  | ✅                                                                           | —        |
+| #    | What the mockup does                                                                                                                                        | 0.9.0 today                                                                                                                                                                                                                                                                                                                   | Priority |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 4.1  | Placeholder that fits the thread ("Reply to Priya's session…", "Post an update to your session…", "Post about #398…")                                       | ❌ Always "Type a message… use @ to address an agent"                                                                                                                                                                                                                                                                         | P1       |
+| 4.2  | 🎥 Pulse video button and 🎫 Ticket picker button in the toolbar                                                                                            | ❌ No slot for custom buttons (`showCameraButton` is forced off)                                                                                                                                                                                                                                                              | P1       |
+| 4.3  | Reply to a specific post                                                                                                                                    | ❌ `replyTo` isn't passed through (see 3.4)                                                                                                                                                                                                                                                                                   | P1       |
+| 4.4  | Ticket already filled in when posting in a ticket thread                                                                                                    | ❌ No way to pass context to the message box or back through `onMessageSent`                                                                                                                                                                                                                                                  | P2       |
+| 4.5  | 📎 Attach                                                                                                                                                   | ✅                                                                                                                                                                                                                                                                                                                            | —        |
+| 4.6  | Send                                                                                                                                                        | ✅                                                                                                                                                                                                                                                                                                                            | —        |
+| 4.7  | Host can turn @mentions off                                                                                                                                 | ❌ `mentionOptions` is always built from participants                                                                                                                                                                                                                                                                         | P3       |
+| 4.8  | Attachments handed over as `File`s, with a host-set size limit (Huddle allows 100 MB)                                                                       | ⚠️ Base64 `dataUrl`s only. Huddle converts them back to files to upload, one at a time, and caps the composer at 25 MB until `File`s are passed — a 100 MB file is ~133 MB of base64 plus the decoded blob, enough to exhaust a mobile WebView                                                                                | P2       |
+| 4.9  | Document types (.doc, .docx, .txt)                                                                                                                          | ❌ `AttachmentKind` is image / video / audio / pdf only                                                                                                                                                                                                                                                                       | P2       |
+| 4.10 | Chips for attachments that aren't local files (a Pulse video already on the server), counted as content so the message can send with no text                | ❌ Chips only for picked files; Send stays disabled with only a Pulse video                                                                                                                                                                                                                                                   | P2       |
+| 4.11 | Hide the message box entirely, without turning off Edit                                                                                                     | ❌ `readOnly` leaves a "Read-only conversation" bar and disables Edit (see 3.15)                                                                                                                                                                                                                                              | P3       |
+| 4.12 | Pass any `ChatComposer` prop through SuperChat and SuperChatInbox (`placeholder`, `leadingSlot`, `micSlot`, `addMenuItems`, `submitOnEnter`, `maxFileSize`) | ✅ **Built on the PR branch** (`composerProps`, plus `ChatComposer` `layout="stacked"`); Huddle uses it via `vendor/ui`                                                                                                                                                                                                       | P1       |
+| 4.13 | Mentions resolved against the host's own list, by the id of the option picked                                                                               | ❌ `composerProps.mentionOptions` sets the suggestions, but `onMessageSent`'s `mentions` is still matched against the conversation's participants only. Huddle re-resolves the text against the team roster and unions the result, skipping first names two teammates share (only the picked option's id would say which one) | P2       |
+| 4.14 | Picked files kept (or restored) when the host rejects a send                                                                                                | ❌ `ChatComposer` clears attachments before `onSend`, and SuperChat restores only the text on rejection. Huddle keeps Send busy while a Pulse upload or ticket videos are settling, but a failed upload or create still drops the files                                                                                       | P2       |
 
 ### 5. Already Better Than the Mockup (Keep)
 
@@ -177,8 +195,9 @@ interface SuperChatInboxProps {
   renderConversationItem?: (c: SuperChatConversation, active: boolean) => React.ReactNode; // escape hatch for all of section 1
   formatTime?: (time: Date) => string; // 3.9
   showDateSeparators?: boolean; // 3.1, 3.2
-  composerPlaceholder?: string | ((c: SuperChatConversation) => string); // 4.1
-  composerActions?: React.ReactNode | ((c: SuperChatConversation) => React.ReactNode); // 4.2
+  composerProps?: Partial<ChatComposerProps>; // 4.1, 4.2, 4.7, 4.8, 4.12 – forwarded to ChatComposer
+  composerHidden?: boolean; // 4.11 – no message box, Edit still works (3.15)
+  onEditRequest?: (message: SuperChatMessage) => void; // 3.16 – host opens its own editor
   onReply?: (message: SuperChatMessage) => void; // 3.4, 4.3
 }
 ```
@@ -196,6 +215,61 @@ interface SuperChatMessage {
   systemIcon?: React.ReactNode; // 3.3
 }
 ```
+
+## TimeHuddle Workarounds to Remove
+
+Code in TimeHuddle that exists only because of a gap above. When the gap closes in a
+`@mieweb/ui` release, delete the workaround and use the new prop.
+
+| Gap      | Workaround                                                                                               | Where                                                                            |
+| -------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1.7, 1.8 | Filters portaled into the list header; the "Conversations" heading hidden with CSS                       | `useInboxSlot` + `findListHeader` in `src/pages/Huddle.tsx`, `Huddle.module.css` |
+| 1.11     | `starterConversation()`: an on-screen-only "Today" conversation so the message box renders with no posts | `src/features/huddle/superChatFeed.ts`, `conversations` in `Huddle.tsx`          |
+| 3.17     | Bubble row capped at 100% width with `overflow-wrap: anywhere`                                           | `src/pages/Huddle.module.css`                                                    |
+| 4.8      | `composerAttachmentToFile()` turns base64 attachments back into `File`s before upload                    | `src/features/huddle/api.ts`                                                     |
+| 4.10     | Pulse videos kept in page state beside SuperChat's attachments and added to the post on send             | `pulseVideos` in `Huddle.tsx`                                                    |
+| 4.13     | `useTeamMentions().detect` re-resolves the sent text against the team roster                             | `src/features/huddle/useTeamMentions.ts`                                         |
+| 4.14     | Send held busy while `pulsePending` or ticket videos are loading                                         | `isSending` in `Huddle.tsx` composerProps                                        |
+
+## Parent PR: SuperChat Host Extension Points
+
+**Where it's built:** the `vendor/ui` submodule, branch `feat/superchat-host-extension-points` on
+the fork `Dharp02/ui`. TimeHuddle runs that branch before it's released — see
+[`vendor/README.md`](../vendor/README.md). Each item below is done there, then the matching
+TimeHuddle workaround is deleted.
+
+One `@mieweb/ui` PR that adds the hooks a host app needs, without changing how SuperChat
+looks for anyone who doesn't use them. Every prop is optional. Ordered by what unblocks
+Huddle first.
+
+- [x] **`composerProps` on `SuperChat` and `SuperChatInbox`** — built on the branch, with
+      `ChatComposer` `layout="stacked"` (text box on its own row, buttons underneath) (4.12; closes 4.1, 4.2, 4.7, most of 4.8)
+      — spread onto the `ChatComposer` SuperChat renders, after SuperChat's own defaults, so the
+      host can set `placeholder`, `leadingSlot` (a button beside `+`), `micSlot`, `addMenuItems`,
+      `submitOnEnter`, `maxFileSize` and `mentionOptions={[]}` (mentions off).
+- [ ] **`emptyState` on `SuperChatInbox`** (1.11) — shown in the panel when there are no
+      conversations, **with the message box still rendered**, so the first post can be written.
+      `onMessageSent` then gets `conversation: undefined`.
+- [ ] **Skip `kind: 'system'` participants in the header face-pile** (2.3) — a system speaker
+      (Huddle's "Clock") isn't a person and shouldn't get an avatar.
+- [ ] **`composerHidden`, and Edit independent of `readOnly`** (3.15, 4.11).
+- [ ] **External attachment chips** (4.10) — e.g. `composerAttachments?: { id; label; onRemove }[]`
+      shown as chips in the message box and counted as content, so Send works with only a Pulse video.
+- [ ] **Mention ids and attachments through the send path** (4.13, 4.14) — `onMessageSent`'s
+      `mentions` carry the ids of the `mentionOptions` actually picked, and picked files survive a
+      rejected send alongside the text.
+- [ ] **Document attachment kinds** (4.9) — `AttachmentKind` gains `document` (doc/docx/txt), or
+      `acceptedFileTypes` takes raw MIME types / extensions.
+- [ ] **Wrap long content in bubbles** (3.17) — `overflow-wrap: anywhere` and a capped bubble row
+      in the library, so hosts don't need the CSS.
+- [ ] **List header slot and title** (1.7, 1.8) — `sidebarTitle` and `sidebarHeaderExtra`.
+- [ ] **`onEditRequest`** (3.16) — when set, Edit calls it instead of opening the plain textarea.
+- [ ] Stories: the Inbox playground uses each new prop; existing stories render unchanged.
+- [ ] Tests: one per prop, including "no props passed renders exactly as before".
+
+Already raised separately: **mieweb/ui#524** (3.14, Enter in the edit box). The rest of the list
+above (sections 1–3: avatars, badges, sections, date separators, replies…) is larger design work
+and stays out of this PR.
 
 ## Acceptance Criteria
 
