@@ -159,6 +159,43 @@ describe('DdpClient.call timeout', () => {
   });
 });
 
+describe('DdpClient.subscribe during a dead-socket recovery', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.setItem('meteor_resume_token', 'resume-token');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it('does not throw when the socket dies while its resume login is in flight', async () => {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+
+    // An existing sub keeps handleDisconnect scheduling a reconnect, which is
+    // what restores the subscription registered below.
+    client.subscribe('existing.publication', []);
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The login this subscribe waits on never gets answered, so its 8s timeout
+    // kills the socket; ensureAuthed still resolves (tryResumeLogin swallows).
+    client.subscribe('late.publication', []);
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    process.off('unhandledRejection', unhandled);
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+});
+
 describe('DdpClient.checkConnection (foreground reconnect)', () => {
   beforeEach(() => {
     vi.useFakeTimers();

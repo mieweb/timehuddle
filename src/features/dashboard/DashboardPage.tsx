@@ -225,6 +225,10 @@ export const DashboardPage: React.FC = () => {
     if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
   }, [selectedTeamId, canViewTimesheet]);
   useEffect(() => {
+    // A team switch starts from no badge, so a failed load for the new team
+    // can't leave the previous team's count sitting on it. Pull-to-refresh
+    // calls fetchPendingApprovals directly and keeps the count it already has.
+    setPendingApprovalCount(0);
     fetchPendingApprovals().catch(() => {});
   }, [fetchPendingApprovals]);
   useRefresh(fetchPendingApprovals);

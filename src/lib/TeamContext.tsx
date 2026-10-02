@@ -414,8 +414,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const event = await clockApi.getActive();
       setActiveClockEvent(event);
-    } catch {
-      setActiveClockEvent(null);
+    } catch (err) {
+      // Only a successful response clears the event. Clearing here showed an
+      // actively clocked-in user as clocked out whenever a refresh ran
+      // offline, and nothing restored it until the next successful fetch.
+      console.error('[TeamContext] refetchClock failed:', err);
     } finally {
       setClockReady(true);
     }

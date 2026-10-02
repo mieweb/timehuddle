@@ -675,11 +675,21 @@ class DdpClient {
     const id = String(this.nextId++);
     let stopped = false;
     this.activeSubs.set(id, { name, params });
-    void this.ensureAuthed().then(() => {
-      if (stopped) return;
-      if (onReady) this.subReadyListeners.set(id, onReady);
-      this.ws!.send(JSON.stringify({ msg: 'sub', id, name, params }));
-    });
+    void this.ensureAuthed()
+      .then(() => {
+        if (stopped) return;
+        // Registered before the send so a reconnect-driven resubscribe, which
+        // doesn't come back through here, still reports ready.
+        if (onReady) this.subReadyListeners.set(id, onReady);
+        // ensureAuthed resolves even when the socket died during auth (a
+        // timed-out resume login tears it down), leaving `ws` null. The entry
+        // is already in activeSubs, so the reconnect handleDisconnect
+        // scheduled re-sends it — nothing to do here but not crash.
+        this.ws?.send(JSON.stringify({ msg: 'sub', id, name, params }));
+      })
+      .catch(() => {
+        // Couldn't connect at all; the retry loops own recovery from here.
+      });
     return () => {
       stopped = true;
       this.activeSubs.delete(id);
