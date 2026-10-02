@@ -2,17 +2,17 @@
  * ClockPage — plan-first shift screen.
  *
  * Reads top-to-bottom as a gate rather than a dashboard:
- *   1. Status — eyebrow + a big bold session timer (elapsed time this
+ *   1. Pulse — the other way in or out: a Pulse video *is* the plan (clocks
+ *      in) or wrap-up (clocks out), delivered by the server. Shown whether or
+ *      not the team requires a plan.
+ *   2. Status — eyebrow + a big bold session timer (elapsed time this
  *      shift, not the wall clock) + either the active ticket badge (when a
  *      ticket timer is running) or a "plan required" badge when the team
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
- *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
+ *   3. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Doc/Ticket/@Mention bar as the Huddle composer (⌘/Ctrl+↵
  *      submits).
- *   3. Pulse — the other way in or out: a Pulse video *is* the plan (clocks
- *      in) or wrap-up (clocks out), delivered by the server. Shown whether or
- *      not the team requires a plan.
  *   4. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
@@ -72,6 +72,10 @@ import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
+
+/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
+const MAIN_ACTION_PILL =
+  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
@@ -462,6 +466,41 @@ export const ClockPage: React.FC = () => {
           }
         />
 
+        {/* ── Pulse — the other way to clock in or out: a video plan or
+             wrap-up, posted to Huddle by the server, which then clocks you
+             in or out. First on the page, and offered whether or not the
+             team requires a plan. Nothing typed in the composer below goes
+             with it. ── */}
+        {clockPulse && (
+          <section
+            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
+            aria-labelledby="clock-pulse-title"
+          >
+            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
+            <div className="clock-pulse-copy flex-1">
+              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+              </Text>
+              <Text variant="muted" size="sm" className="mt-1">
+                {isClockedIn
+                  ? "Sum up your session in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked out."
+                  : "Say what you'll work on in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked in."}
+              </Text>
+              <Text variant="muted" size="xs" className="mt-1">
+                {titleHint(clockPulse.destination)}
+              </Text>
+            </div>
+            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
+              <PulseChip
+                pulse={clockPulse}
+                label={isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'}
+                size="lg"
+                className={MAIN_ACTION_PILL}
+              />
+            </div>
+          </section>
+        )}
+
         {/* ── Status — eyebrow + big bold session timer ──
              The surface is tinted by state rather than being a fixed dark slab
              with a red underline: that read as an error banner on a light page
@@ -664,7 +703,7 @@ export const ClockPage: React.FC = () => {
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock in
               </Button>
@@ -676,45 +715,12 @@ export const ClockPage: React.FC = () => {
                 isLoading={clockOutLoading}
                 aria-label="Clock out"
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock out
               </Button>
             )}
           </div>
-        )}
-
-        {/* ── Pulse — the other way to clock in or out: a video plan or
-             wrap-up, posted to Huddle by the server, which then clocks you
-             in or out. Offered whether or not the team requires a plan.
-             Nothing typed in the composer above goes with it. ── */}
-        {clockPulse && (
-          <section
-            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
-            aria-labelledby="clock-pulse-title"
-          >
-            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
-            <div className="clock-pulse-copy flex-1">
-              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
-                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
-              </Text>
-              <Text variant="muted" size="sm" className="mt-1">
-                {isClockedIn
-                  ? "Sum up your session in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked out."
-                  : "Say what you'll work on in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked in."}
-              </Text>
-              <Text variant="muted" size="xs" className="mt-1">
-                {titleHint(clockPulse.destination)}
-              </Text>
-            </div>
-            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
-              <PulseChip
-                pulse={clockPulse}
-                label={isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'}
-                size="lg"
-              />
-            </div>
-          </section>
         )}
 
         {clockOutBlockedReason && (
