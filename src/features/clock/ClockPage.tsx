@@ -56,6 +56,7 @@ import {
   toPostAttachment,
 } from '../huddle/api';
 import { PulseChip } from '../pulse-upload/PulseButton';
+import { PoweredByPulse } from '../pulse-upload/PoweredByPulse';
 import { PulseLogo } from '../pulse-upload/PulseLogo';
 import { titleHint } from '../pulse-upload/pulseStatus';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
@@ -242,6 +243,7 @@ export const ClockPage: React.FC = () => {
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
+  const clockPulseLabel = isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse';
   // A Pulse plan or wrap-up on its way already does this step: posting one by
   // hand too would post twice.
   const pulseOnItsWay = !!composerMode && clockPulse?.status?.state === 'waiting';
@@ -489,19 +491,19 @@ export const ClockPage: React.FC = () => {
               </Text>
               <Text variant="muted" size="sm" className="mt-1">
                 {isClockedIn
-                  ? "Sum up your session in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked out."
-                  : "Say what you'll work on in a Pulse video. Once it uploads, it's posted to Huddle and you're clocked in."}
+                  ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
+                  : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
               </Text>
               <Text variant="muted" size="xs" className="mt-1">
                 {titleHint(clockPulse.destination)}
               </Text>
+              <PoweredByPulse className="mt-2" />
             </div>
             <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
               <PulseChip
                 pulse={clockPulse}
-                label={isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'}
-                size="lg"
-                className={MAIN_ACTION_PILL}
+                ariaLabel={clockPulseLabel}
+                main={{ label: clockPulseLabel, className: MAIN_ACTION_PILL }}
               />
             </div>
           </section>

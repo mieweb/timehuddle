@@ -94,7 +94,7 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
     await page.goto('/app/huddle');
-    await expect(page.getByRole('button', { name: 'Post with Pulse' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Post a video with Pulse' })).toBeVisible();
 
     const token = await getSessionToken(page);
     const { videoid, status } = await sendPulseVideo(page.request, token, {

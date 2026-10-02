@@ -281,7 +281,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   test('the Pulse button opens the QR modal with a valid pulsecam deep link', async ({ page }) => {
     await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
     const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -297,7 +297,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     page.on('request', (req) => {
       if (req.url().includes('/api/pulsevault_reserve')) reserves += 1;
     });
-    const pulse = page.getByRole('button', { name: 'Add video with Pulse' });
+    const pulse = page.getByRole('button', { name: 'Add a video with Pulse' });
     const qr = page.getByLabel('QR code to open the Pulse upload screen');
 
     await pulse.click();
@@ -318,7 +318,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   test('the QR modal offers no device upload — videos come from Pulse only', async ({ page }) => {
     await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
     const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -370,7 +370,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   /** Press Pulse on the open ticket, as a person would; returns the link it handed out. */
   async function pressPulse(page: import('@playwright/test').Page) {
     const reserved = page.waitForResponse((res) => res.url().includes('/api/pulsevault_reserve'));
-    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
     const { result } = await (await reserved).json();
     return result as { videoid: string; uploadToken: string };
   }

@@ -756,7 +756,7 @@ export default function Huddle() {
                     currentParticipantId={user.id}
                     virtualized
                     renderPlugins={renderPlugins}
-                    // No video files: videos come from Pulse only (Post with Pulse).
+                    // No video files: videos come from Pulse only (the Pulse button).
                     acceptedFileTypes={['image', 'pdf']}
                     onMessageSent={(text, { mentions: sentMentions, attachments }) =>
                       handleMessageSent(text, sentMentions, attachments)
@@ -783,7 +783,7 @@ export default function Huddle() {
                           {postingTeamId && (
                             <PulseButton
                               destination={{ kind: 'huddle', teamId: postingTeamId }}
-                              label="Post with Pulse"
+                              ariaLabel="Post a video with Pulse"
                               onSettled={() => void refreshActiveScope()}
                             />
                           )}
