@@ -12,46 +12,103 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Spinner } from '@mieweb/ui';
+import React, {
+  createContext,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
-import { ClockPage } from '../features/clock/ClockPage';
-import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { NotificationsPage } from '../features/notifications/NotificationsPage';
-import { ProfilePage } from '../features/profile/ProfilePage';
-import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
-import { SeederPage } from '../features/seeder/SeederPage';
-import { TeamsPage } from '../features/teams/TeamsPage';
-import { TicketsPage } from '../features/tickets/TicketsPage';
-import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
-import { WorkPage } from '../features/timers/WorkPage';
-import { ActivityLogPage } from '../features/activity/ActivityLogPage';
-import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
-import { OrgUsagePage } from '../features/usage/OrgUsagePage';
-import Huddle from '../pages/Huddle';
-import { HiPage } from '../pages/HiPage';
-import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
-import { OrganizationPage } from '../features/org/OrganizationPage';
-import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
+import { lazyNamed } from '../lib/lazyNamed';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
-import { FeedbackModal } from '../features/feedback/FeedbackModal';
-import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { RouterContext } from './router';
-import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
+
+// ─── Pages (lazy) ────────────────────────────────────────────────────────────
+// Each page is its own chunk, fetched the first time its route is opened, so
+// the initial load carries only the shell rather than every page in the app.
+
+const ActivityLogPage = lazyNamed(
+  () => import('../features/activity/ActivityLogPage'),
+  'ActivityLogPage',
+);
+const ClockPage = lazyNamed(() => import('../features/clock/ClockPage'), 'ClockPage');
+const DashboardPage = lazyNamed(
+  () => import('../features/dashboard/DashboardPage'),
+  'DashboardPage',
+);
+const EnterprisePage = lazyNamed(
+  () => import('../features/enterprise/EnterprisePage'),
+  'EnterprisePage',
+);
+const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
+const Huddle = lazyNamed(() => import('../pages/Huddle'), 'default');
+const NotificationsPage = lazyNamed(
+  () => import('../features/notifications/NotificationsPage'),
+  'NotificationsPage',
+);
+const OrganizationMembersPage = lazyNamed(
+  () => import('../features/org/OrganizationMembersPage'),
+  'OrganizationMembersPage',
+);
+const OrganizationOverviewPage = lazyNamed(
+  () => import('../features/org/OrganizationOverviewPage'),
+  'OrganizationOverviewPage',
+);
+const OrganizationPage = lazyNamed(
+  () => import('../features/org/OrganizationPage'),
+  'OrganizationPage',
+);
+const OrgUsagePage = lazyNamed(() => import('../features/usage/OrgUsagePage'), 'OrgUsagePage');
+const ProfilePage = lazyNamed(() => import('../features/profile/ProfilePage'), 'ProfilePage');
+const ReleaseNotesPage = lazyNamed(
+  () => import('../features/release-notes/ReleaseNotesPage'),
+  'ReleaseNotesPage',
+);
+const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'SeederPage');
+const SettingsPage = lazyNamed(() => import('./SettingsPage'), 'SettingsPage');
+const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
+const TicketDetailPage = lazyNamed(
+  () => import('../features/tickets/TicketDetailPage'),
+  'TicketDetailPage',
+);
+const TicketsPage = lazyNamed(() => import('../features/tickets/TicketsPage'), 'TicketsPage');
+const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
+
+// Account-menu modals — fetched the first time one is opened.
+const FeedbackModal = lazyNamed(
+  () => import('../features/feedback/FeedbackModal'),
+  'FeedbackModal',
+);
+const ReportIssueModal = lazyNamed(
+  () => import('../features/feedback/ReportIssueModal'),
+  'ReportIssueModal',
+);
+
+/** Shown while a page's chunk downloads — first visit only; it is cached after. */
+const PageLoading: React.FC = () => (
+  <div className="page-loading flex items-center justify-center p-12">
+    <Spinner size="lg" label="Loading…" />
+  </div>
+);
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 export type { RouterCtx } from './router';
@@ -61,7 +118,7 @@ export { RouterContext, useRouter } from './router';
 
 interface RouteConfig {
   title: string;
-  component: React.FC;
+  component: React.ComponentType;
 }
 
 const ROUTES: Record<string, RouteConfig> = {
@@ -366,6 +423,11 @@ const AppLayoutContent: React.FC = () => {
 
   const isTicketsRoute =
     !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
+  // TicketsPage is kept alive behind other routes once opened (to preserve its
+  // state), but not mounted before the first visit — mounting it up front
+  // would download its chunk on every app start.
+  const [ticketsOpened, setTicketsOpened] = useState(isTicketsRoute);
+  if (isTicketsRoute && !ticketsOpened) setTicketsOpened(true);
 
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -401,8 +463,10 @@ const AppLayoutContent: React.FC = () => {
       <PageTitleContext.Provider value={pageTitle}>
         <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
           <CommandPalette />
-          <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
-          <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+          <Suspense fallback={null}>
+            {reportIssueOpen && <ReportIssueModal open onClose={() => setReportIssueOpen(false)} />}
+            {feedbackOpen && <FeedbackModal open onClose={() => setFeedbackOpen(false)} />}
+          </Suspense>
           <ShiftReminderProvider>
             <AppFeedbackContext.Provider
               value={{
@@ -461,32 +525,39 @@ const AppLayoutContent: React.FC = () => {
                     <AppHeader />
                     <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                       <PullToRefresh>
-                        {/* TicketsPage stays mounted to preserve its state, and
-                            is only hidden when another route is showing. It must
-                            not render a page title while hidden — it isn't the
-                            page — so the title is withheld from that instance. */}
-                        <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            <TicketsPage />
-                          </div>
-                        </PageTitleContext.Provider>
-                        {profileUserId ? (
-                          <ProfilePage key={profileUserId} userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage key={profileUsername} username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
+                        {/* TicketsPage stays mounted after its first visit to
+                            preserve its state, and is only hidden when another
+                            route is showing. It must not render a page title
+                            while hidden — it isn't the page — so the title is
+                            withheld from that instance. */}
+                        {ticketsOpened && (
+                          <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              <Suspense fallback={isTicketsRoute ? <PageLoading /> : null}>
+                                <TicketsPage />
+                              </Suspense>
+                            </div>
+                          </PageTitleContext.Provider>
                         )}
+                        <Suspense fallback={<PageLoading />}>
+                          {profileUserId ? (
+                            <ProfilePage key={profileUserId} userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage key={profileUsername} username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            React.createElement(route.component)
+                          )}
+                        </Suspense>
                       </PullToRefresh>
                     </main>
                   </div>

@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
@@ -53,11 +54,23 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 
   version: string;
 };
 
+/** Short commit the bundle was built from — logged at startup to confirm which build is running. */
+function gitSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown'; // e.g. a Docker build without .git
+  }
+}
+
 export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha()),
   },
 
   resolve: {

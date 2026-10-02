@@ -39,6 +39,7 @@ import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import {
@@ -214,6 +215,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       setLoading(false);
     }
   }, [selectedMemberId, preset, customStart, customEnd]);
+
+  useRefresh(fetchData);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {

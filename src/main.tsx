@@ -73,10 +73,13 @@ const t0 = performance.now();
 const _log = (msg: string) =>
   console.log(`[TimeHuddle] +${(performance.now() - t0).toFixed(0)}ms ${msg}`);
 _log('main.tsx evaluated');
+_log(
+  `build v${import.meta.env.VITE_APP_VERSION} (${import.meta.env.VITE_GIT_SHA}, ${import.meta.env.MODE})`,
+);
 
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
-import React from 'react';
+import React, { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 
 // Debug: check Capacitor bridge detection
@@ -86,20 +89,34 @@ _log(
 _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.messageHandlers?.bridge}`);
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
-import { InboxPage } from './features/inbox/InboxPage';
-import { ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
+import { Spinner, ToastContainer, ToastProvider, useToast } from '@mieweb/ui';
 
-import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
+import { lazyNamed } from './lib/lazyNamed';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
-import { AppLayout } from './ui/AppLayout';
-import { InstallerModal } from './ui/InstallerModal';
-import { LandingPage } from './ui/LandingPage';
-import { LoginForm } from './ui/LoginForm';
 import { OtaUpdateGate } from './ui/OtaUpdateGate';
-import { UsernameClaimModal } from './ui/UsernameClaimModal';
+
+// Every screen is its own chunk: the entry carries only bootstrapping, and a
+// visitor downloads the landing page, login, or app shell — whichever they see.
+const AppLayout = lazyNamed(() => import('./ui/AppLayout'), 'AppLayout');
+const InboxPage = lazyNamed(() => import('./features/inbox/InboxPage'), 'InboxPage');
+const InstallerModal = lazyNamed(() => import('./ui/InstallerModal'), 'InstallerModal');
+const LandingPage = lazyNamed(() => import('./ui/LandingPage'), 'LandingPage');
+const LoginForm = lazyNamed(() => import('./ui/LoginForm'), 'LoginForm');
+const PublicReleaseNotesPage = lazyNamed(
+  () => import('./features/release-notes/PublicReleaseNotesPage'),
+  'PublicReleaseNotesPage',
+);
+const UsernameClaimModal = lazyNamed(() => import('./ui/UsernameClaimModal'), 'UsernameClaimModal');
+
+/** Fallback while a top-level screen's chunk downloads. */
+const ScreenLoading: React.FC = () => (
+  <div className="screen-loading flex h-dvh items-center justify-center">
+    <Spinner size="lg" label="Loading…" />
+  </div>
+);
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -410,7 +427,9 @@ function renderRoot() {
             <ToastProvider>
               <AppToastContainer />
               <SessionProvider>
-                <App />
+                <Suspense fallback={<ScreenLoading />}>
+                  <App />
+                </Suspense>
               </SessionProvider>
             </ToastProvider>
           </OtaUpdateGate>,
@@ -418,17 +437,29 @@ function renderRoot() {
         return;
       }
       _root = createRoot(el);
-      _root.render(<LandingPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <LandingPage />
+        </Suspense>,
+      );
       return;
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
-      _root.render(<InboxPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <InboxPage />
+        </Suspense>,
+      );
       return;
     } else if (window.location.pathname === '/release-notes') {
       // Public on purpose: linked from the landing page, so someone deciding
       // whether to sign up can read what shipped without an account.
       _root = createRoot(el);
-      _root.render(<PublicReleaseNotesPage />);
+      _root.render(
+        <Suspense fallback={<ScreenLoading />}>
+          <PublicReleaseNotesPage />
+        </Suspense>,
+      );
       return;
     }
 
@@ -440,7 +471,9 @@ function renderRoot() {
       <ToastProvider>
         <AppToastContainer />
         <SessionProvider>
-          <App />
+          <Suspense fallback={<ScreenLoading />}>
+            <App />
+          </Suspense>
         </SessionProvider>
       </ToastProvider>
     </OtaUpdateGate>,

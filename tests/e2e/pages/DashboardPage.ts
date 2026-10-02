@@ -32,14 +32,19 @@ export class DashboardPage extends BasePage {
    * Check if we're on the dashboard
    */
   async isOnDashboard(): Promise<boolean> {
-    return await this.sidebar.isVisible();
+    return await this.hasSidebar();
   }
 
   /**
-   * Check if sidebar is visible (indicates authenticated state)
+   * Check if sidebar is visible (indicates authenticated state). Waits for it
+   * rather than checking once: the app shell is lazy-loaded, so right after
+   * login the page briefly shows a loading spinner before the sidebar mounts.
    */
-  async hasSidebar(): Promise<boolean> {
-    return await this.sidebar.isVisible();
+  async hasSidebar(timeout = 10000): Promise<boolean> {
+    return this.waitForLoad(timeout).then(
+      () => true,
+      () => false,
+    );
   }
 
   /**

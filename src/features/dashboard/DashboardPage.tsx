@@ -45,7 +45,7 @@ import {
   TabsTrigger,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ticketApi,
@@ -67,10 +67,23 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
-import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
+import { lazyNamed } from '../../lib/lazyNamed';
 import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
-import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
-import { TimesheetApprovalsPanel } from '../teams/TimesheetApprovalsPanel';
+
+// The Timesheet view's panels are only fetched once that tab is opened — the
+// default Overview never needs them, and non-admins never see the admin two.
+const PersonalTimesheetPanel = lazyNamed(
+  () => import('../clock/PersonalTimesheetPanel'),
+  'PersonalTimesheetPanel',
+);
+const AdminTimesheetPanel = lazyNamed(
+  () => import('../teams/AdminTimesheetPanel'),
+  'AdminTimesheetPanel',
+);
+const TimesheetApprovalsPanel = lazyNamed(
+  () => import('../teams/TimesheetApprovalsPanel'),
+  'TimesheetApprovalsPanel',
+);
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
@@ -223,8 +236,9 @@ export const DashboardPage: React.FC = () => {
   // one jumps straight to that post in the feed. Teams only — a personal
   // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
+  const isOverview = view === 'overview';
   useEffect(() => {
-    if (!selectedTeamId || isPersonalWorkspace) {
+    if (!selectedTeamId || isPersonalWorkspace || !isOverview) {
       setRecentPosts([]);
       return;
     }
@@ -246,7 +260,7 @@ export const DashboardPage: React.FC = () => {
       unsubscribe();
       setRecentPosts([]);
     };
-  }, [selectedTeamId, isPersonalWorkspace]);
+  }, [selectedTeamId, isPersonalWorkspace, isOverview]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
 
@@ -281,11 +295,13 @@ export const DashboardPage: React.FC = () => {
     }
   }, [user, selectedTeamId]);
 
+  // Overview data loads (and pull-to-refresh reloads it) only while Overview
+  // is the open tab; the Timesheet panels register their own refresh.
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (isOverview) fetchData();
+  }, [fetchData, isOverview]);
 
-  useRefresh(fetchData);
+  useRefresh(fetchData, isOverview);
 
   // ─── Derived stats ───────────────────────────────────────────────────────────
 
@@ -424,26 +440,35 @@ export const DashboardPage: React.FC = () => {
       </Tabs>
 
       {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
-      {view === 'timesheet' &&
-        (showAdminTimesheet && selectedTeamId ? (
-          <div className="space-y-4">
-            <TimesheetApprovalsPanel
-              teamId={selectedTeamId}
-              focusRequestId={focusRequestId}
-              onFocusHandled={clearFocusRequest}
-              onPendingCountChange={setPendingApprovalCount}
-            />
-            <AdminTimesheetPanel
-              members={teamMembers}
-              selectedTeamId={selectedTeamId}
-              teams={teams}
-              initialMemberId={initialMemberId}
-              initialMemberRequestId={memberRequestId}
-            />
-          </div>
-        ) : (
-          <PersonalTimesheetPanel />
-        ))}
+      {view === 'timesheet' && (
+        <Suspense
+          fallback={
+            <div className="timesheet-loading flex justify-center py-8">
+              <Spinner size="md" label="Loading timesheet…" />
+            </div>
+          }
+        >
+          {showAdminTimesheet && selectedTeamId ? (
+            <div className="space-y-4">
+              <TimesheetApprovalsPanel
+                teamId={selectedTeamId}
+                focusRequestId={focusRequestId}
+                onFocusHandled={clearFocusRequest}
+                onPendingCountChange={setPendingApprovalCount}
+              />
+              <AdminTimesheetPanel
+                members={teamMembers}
+                selectedTeamId={selectedTeamId}
+                teams={teams}
+                initialMemberId={initialMemberId}
+                initialMemberRequestId={memberRequestId}
+              />
+            </div>
+          ) : (
+            <PersonalTimesheetPanel />
+          )}
+        </Suspense>
+      )}
 
       {view === 'overview' && (
         <>
