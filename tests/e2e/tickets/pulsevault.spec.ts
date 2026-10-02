@@ -373,7 +373,7 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     await expect(
       modal.getByText(
-        "Couldn't add your video here. That ticket no longer exists. It's saved in your Media library.",
+        "Couldn't add your video here. That ticket no longer exists. It's saved, not lost.",
       ),
     ).toBeVisible({ timeout: 20000 });
     // Kept, so it stays open until closed — and nothing was attached.

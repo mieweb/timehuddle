@@ -1903,11 +1903,6 @@ export interface MediaItem {
   altText: string | null;
   thumbnail: string | null;
   uploadedAt: string;
-  /**
-   * Where the item lives when it isn't a library upload: a Pulse video attached
-   * to a ticket or clock session. Managed there, not from the library.
-   */
-  source?: { kind: AttachmentKind; id: string } | null;
 }
 
 function withAbsoluteMediaItem(item: MediaItem): MediaItem {
