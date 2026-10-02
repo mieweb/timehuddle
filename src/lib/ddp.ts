@@ -33,6 +33,13 @@ const DDP_METHOD_TIMEOUT_MS = 8000;
 /** How long a foreground re-check (see DdpClient.checkConnection) waits for a pong. */
 const DDP_PING_TIMEOUT_MS = 2000;
 
+/**
+ * A method call the server answered with an error — as opposed to one that
+ * never got an answer (timeout, dropped socket). Lets callers tell "the server
+ * said no" apart from "the server couldn't be reached".
+ */
+export class DdpServerError extends Error {}
+
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
 type Listener = () => void;
@@ -444,6 +451,11 @@ class DdpClient {
     }
   }
 
+  /**
+   * The signed-in user, or null when the server says there is none. Throws
+   * when the server can't be reached, so a refresh that runs offline is not
+   * mistaken for a sign-out.
+   */
   async getCurrentUser(): Promise<{
     id: string;
     email: string;
@@ -471,8 +483,9 @@ class DdpClient {
         createdAt: string | null;
         releaseNotesSeenVersion: string | null;
       } | null;
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof DdpServerError) return null;
+      throw err;
     }
   }
 
@@ -509,7 +522,8 @@ class DdpClient {
         if (pending && data.id) {
           this.pendingMethods.delete(data.id);
           clearTimeout(pending.timer);
-          if (data.error) pending.reject(new Error(data.error.reason ?? data.error.message));
+          if (data.error)
+            pending.reject(new DdpServerError(data.error.reason ?? data.error.message));
           else pending.resolve(data.result);
         }
         break;

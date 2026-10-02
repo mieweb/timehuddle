@@ -162,11 +162,10 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
     const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
+      // A failure keeps the requests already shown and rejects to the caller.
       const next = await timesheetApprovalApi.listPending(teamId);
       if (loadSeqRef.current !== seq) return;
       setRequests(next);
-    } catch {
-      if (loadSeqRef.current === seq) setRequests([]);
     } finally {
       if (loadSeqRef.current === seq) setLoading(false);
     }
@@ -178,8 +177,11 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
     if (!loading) onPendingCountChange?.(requests.length);
   }, [requests.length, loading, onPendingCountChange]);
 
+  // A team switch starts from empty, so another team's requests never show
+  // under this one when its load fails.
   useEffect(() => {
-    void load();
+    setRequests([]);
+    load().catch(() => {});
   }, [load]);
 
   useRefresh(load);
@@ -203,7 +205,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
         .join(',');
       if (next === prompts) return;
       prompts = next;
-      void load();
+      load().catch(() => {});
     });
     const unsubscribe = ddp.subscribe('notifications.liveForUser', []);
     return () => {

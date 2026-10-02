@@ -41,6 +41,21 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, result }) });
   }
 
+  /** Test helper: simulate the server answering a method call with an error. */
+  simulateError(id: string, reason: string): void {
+    this.onmessage?.({ data: JSON.stringify({ msg: 'result', id, error: { reason } }) });
+  }
+
+  /** Test helper: the id of the most recent call to `method`. */
+  lastCallId(method: string): string {
+    const call = this.sent
+      .map((m) => JSON.parse(m) as { msg: string; method?: string; id: string })
+      .filter((m) => m.msg === 'method' && m.method === method)
+      .pop();
+    if (!call) throw new Error(`no ${method} call sent`);
+    return call.id;
+  }
+
   /** Test helper: simulate a pong reply for the given ping id. */
   simulatePong(id: string): void {
     this.onmessage?.({ data: JSON.stringify({ msg: 'pong', id }) });
@@ -216,5 +231,49 @@ describe('DdpClient.checkConnection (foreground reconnect)', () => {
     const sentPing = JSON.parse(pings[0]) as { id: string };
     ws.simulatePong(sentPing.id);
     await Promise.all([first, second]);
+  });
+});
+
+describe('DdpClient.getCurrentUser (signed out vs. unreachable)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.setItem('meteor_resume_token', 'resume-token');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function connect() {
+    const { getDdpClient } = await freshDdpModule();
+    const client = getDdpClient();
+    const userPromise = client.getCurrentUser();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpenAndConnect();
+    await vi.advanceTimersByTimeAsync(0);
+    return { ws, userPromise };
+  }
+
+  it('resolves null when the server answers that there is no user', async () => {
+    const { ws, userPromise } = await connect();
+    ws.simulateResult(ws.lastCallId('login'), { token: 'resume-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    ws.simulateError(ws.lastCallId('users.getCurrentUser'), 'not-authorized');
+
+    await expect(userPromise).resolves.toBeNull();
+  });
+
+  it('rejects when the server never answers, so a refresh offline is not read as a sign-out', async () => {
+    const { userPromise } = await connect();
+    const outcome = userPromise.then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(outcome).resolves.toBe('rejected');
   });
 });

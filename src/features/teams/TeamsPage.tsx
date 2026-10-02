@@ -164,17 +164,18 @@ export const TeamsPage: React.FC = () => {
     }
     setMembersLoading(true);
     try {
-      const data = await teamApi.getMembers(teamId);
-      setMembers(data);
-    } catch {
-      setMembers([]);
+      // A failure keeps the members already shown and rejects to the caller.
+      setMembers(await teamApi.getMembers(teamId));
     } finally {
       setMembersLoading(false);
     }
   }, []);
 
+  // A team switch starts from empty, so another team's members never show
+  // under this one when its load fails.
   useEffect(() => {
-    void fetchMembers(selectedTeamId);
+    setMembers([]);
+    fetchMembers(selectedTeamId).catch(() => {});
   }, [selectedTeamId, fetchMembers]);
 
   // ── Real-time team updates (Meteor DDP, oplog-backed) ──
@@ -186,7 +187,7 @@ export const TeamsPage: React.FC = () => {
     const ddp = getDdpClient();
 
     const offChange = ddp.onCollectionChange('teams', () => {
-      void fetchMembers(selectedTeamId);
+      fetchMembers(selectedTeamId).catch(() => {});
     });
 
     return () => {
@@ -382,7 +383,7 @@ export const TeamsPage: React.FC = () => {
         setModal({ type: 'invite-sent', email: formValue.trim() });
       } else {
         closeModal();
-        await fetchMembers(selectedTeamId);
+        await fetchMembers(selectedTeamId).catch(() => {});
       }
     } catch (e: any) {
       setFormError(e.message || 'Failed to invite');
@@ -453,7 +454,7 @@ export const TeamsPage: React.FC = () => {
         await teamApi.removeMember(selectedTeamId, memberId);
         closeModal();
         refetchTeams();
-        await fetchMembers(selectedTeamId);
+        await fetchMembers(selectedTeamId).catch(() => {});
       } catch (e: any) {
         setFormError(e.message || 'Failed to remove member');
       } finally {
@@ -736,7 +737,7 @@ export const TeamsPage: React.FC = () => {
                                     .setMemberRole(selectedTeamId!, memberId, 'admin')
                                     .then(() => {
                                       refetchTeams();
-                                      void fetchMembers(selectedTeamId);
+                                      fetchMembers(selectedTeamId).catch(() => {});
                                     });
                                 }}
                               >
@@ -750,7 +751,7 @@ export const TeamsPage: React.FC = () => {
                                     .setMemberRole(selectedTeamId!, memberId, 'member')
                                     .then(() => {
                                       refetchTeams();
-                                      void fetchMembers(selectedTeamId);
+                                      fetchMembers(selectedTeamId).catch(() => {});
                                     });
                                 }}
                               >

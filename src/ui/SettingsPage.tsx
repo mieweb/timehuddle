@@ -32,7 +32,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -332,6 +332,13 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // What the form last loaded (or saved) — a refresh only replaces the fields
+  // when they still match it, so unsaved edits survive a pull-to-refresh.
+  const fields = `${name}\n${bio}\n${website}\n${reportsToUserId}`;
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  const loadedFieldsRef = useRef<string | null>(null);
+
   // Load current profile values
   useEffect(() => {
     if (!user?.id) return;
@@ -339,10 +346,15 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
 
     void userApi.getUser(user.id).then((p) => {
       if (cancelled) return;
-      setName(p.name ?? '');
-      setBio(p.bio ?? '');
-      setWebsite(p.website ?? '');
-      setReportsToUserId(p.reportsTo?.id ?? '');
+      if (loadedFieldsRef.current !== null && fieldsRef.current !== loadedFieldsRef.current) {
+        return; // unsaved edits — keep them
+      }
+      const next = [p.name ?? '', p.bio ?? '', p.website ?? '', p.reportsTo?.id ?? ''];
+      setName(next[0]);
+      setBio(next[1]);
+      setWebsite(next[2]);
+      setReportsToUserId(next[3]);
+      loadedFieldsRef.current = next.join('\n');
     });
 
     return () => {
@@ -409,6 +421,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
         website,
         reportsToUserId: reportsToUserId || null,
       });
+      loadedFieldsRef.current = fields;
       await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
     } catch (err: unknown) {

@@ -276,29 +276,40 @@ export const DashboardPage: React.FC = () => {
     return new Date(date).toLocaleDateString();
   };
 
+  const userId = user?.id;
   const fetchData = useCallback(async () => {
-    if (!user || !selectedTeamId) return;
+    if (!userId || !selectedTeamId) return;
     setLoading(true);
     try {
-      const [t, m, r] = await Promise.all([
-        ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
-        teamDashboardApi
-          .getTeamClockStatus(selectedTeamId)
-          .catch(() => [] as TeamMemberClockStatus[]),
-        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
+      const [t, m, r] = await Promise.allSettled([
+        ticketApi.getTickets(selectedTeamId),
+        teamDashboardApi.getTeamClockStatus(selectedTeamId),
+        teamDashboardApi.getTeamRunningTimers(selectedTeamId),
       ]);
-      setTickets(t);
-      setMemberStatuses(m);
-      setRunningTimers(r);
+      // Apply what loaded; a failed request keeps its card's previous data
+      // rather than emptying it, and the failure reaches pull-to-refresh.
+      if (t.status === 'fulfilled') setTickets(t.value);
+      if (m.status === 'fulfilled') setMemberStatuses(m.value);
+      if (r.status === 'fulfilled') setRunningTimers(r.value);
+      const failed = [t, m, r].find((result) => result.status === 'rejected');
+      if (failed) throw failed.reason;
     } finally {
       setLoading(false);
     }
-  }, [user, selectedTeamId]);
+  }, [userId, selectedTeamId]);
+
+  // Another team's numbers must never show under this one, even when this
+  // team's load fails — so a team switch starts from empty.
+  useEffect(() => {
+    setTickets([]);
+    setMemberStatuses([]);
+    setRunningTimers([]);
+  }, [selectedTeamId]);
 
   // Overview data loads (and pull-to-refresh reloads it) only while Overview
   // is the open tab; the Timesheet panels register their own refresh.
   useEffect(() => {
-    if (isOverview) fetchData();
+    if (isOverview) fetchData().catch(() => {});
   }, [fetchData, isOverview]);
 
   useRefresh(fetchData, isOverview);

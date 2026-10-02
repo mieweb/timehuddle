@@ -109,16 +109,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     replace(pathname);
   }, [search, pathname, replace]);
 
+  const loadProfile = React.useCallback(async () => {
+    const p = await (userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!));
+    setProfile(p);
+    setBackgroundUrl(p.backgroundUrl ?? null);
+  }, [userId, username]);
+
   useEffect(() => {
     setIsReady(false);
     setIsForbidden(false);
     setIsNotFound(false);
-    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-    fetch
-      .then((p) => {
-        setProfile(p);
-        setBackgroundUrl(p.backgroundUrl ?? null);
-      })
+    loadProfile()
       .catch((err) => {
         if (err instanceof ApiError && err.status === 403) {
           setIsForbidden(true);
@@ -128,21 +129,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         setProfile(null);
       })
       .finally(() => setIsReady(true));
-  }, [userId, username]);
+  }, [loadProfile]);
 
-  useRefresh(
-    React.useCallback(async () => {
-      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-      fetch
-        .then((p) => {
-          setProfile(p);
-          setBackgroundUrl(p.backgroundUrl ?? null);
-        })
-        .catch(() => {
-          setProfile(null);
-        });
-    }, [userId, username]),
-  );
+  // A failed refresh keeps the profile on screen; the rejection reaches
+  // pull-to-refresh, which reports it.
+  useRefresh(loadProfile);
 
   if (!isReady) {
     return (
