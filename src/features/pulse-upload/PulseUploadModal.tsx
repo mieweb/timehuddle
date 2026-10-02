@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
 
 import { PulseLogo } from './PulseLogo';
+import { PulseStoreBadges } from './PulseStoreBadges';
 import { keptMessage, landedLabel, titleHint, uploadHint } from './pulseStatus';
 import type { PulseUpload } from './usePulseUpload';
 
@@ -58,9 +59,13 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
             <Text size="sm" variant="muted" className="text-center">
               {uploadHint(destination)} {titleHint(destination)}
             </Text>
-            <Text size="xs" variant="muted" className="text-center">
-              No Pulse app yet? The scan opens the App Store or Play Store.
+          </div>
+
+          <div className="pulse-modal-stores flex flex-col items-center gap-1.5">
+            <Text size="xs" variant="muted">
+              No Pulse app yet?
             </Text>
+            <PulseStoreBadges />
           </div>
 
           <div
