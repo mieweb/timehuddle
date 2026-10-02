@@ -329,7 +329,7 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     // Persisted (in Mongo), not just held in component state.
     await page.reload();
-    const linksList = page.locator('ul[aria-label="Attached links"]');
+    const linksList = page.locator('ul[aria-label="Attachments"]');
     await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
       timeout: 8000,
     });
@@ -354,7 +354,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     // The modal's own status check finds it — no reload.
     await expect(modal.getByText('Added', { exact: true })).toBeVisible({ timeout: 20000 });
     await expect(modal).toBeHidden({ timeout: 5000 });
-    const linksList = page.locator('ul[aria-label="Attached links"]');
+    const linksList = page.locator('ul[aria-label="Attachments"]');
     await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible();
   });
 

@@ -64,7 +64,7 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
 
   // Sent behind the page's back (no Pulse button pressed), so reload for it.
   await page.reload();
-  const linksList = page.locator('ul[aria-label="Attached links"]');
+  const linksList = page.locator('ul[aria-label="Attachments"]');
   await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
     timeout: 30000,
   });

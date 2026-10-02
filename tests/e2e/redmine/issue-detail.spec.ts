@@ -134,7 +134,7 @@ test.describe('Redmine issue detail', () => {
 
     await openIssue(page, { 'issues.get': detailResponse() });
 
-    const links = page.getByRole('list', { name: 'Attached links' });
+    const links = page.getByRole('list', { name: 'Attachments' });
     await expect(links.getByRole('link', { name: 'Intake spec' })).toBeVisible();
     expect(listed[0]).toEqual({ kind: 'redmine', id: String(ISSUE_ID) });
     await expect(page.getByRole('button', { name: 'Upload video to this ticket' })).toBeVisible();
