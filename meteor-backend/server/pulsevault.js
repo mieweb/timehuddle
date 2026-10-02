@@ -362,6 +362,21 @@ async function sweepAbandonedClaims() {
   }
 }
 
+/**
+ * Pulse videos are never deleted: once one has landed (claimed for delivery,
+ * then posted, attached or kept), the link's token can no longer delete it or
+ * a file sent with it, since a post or attachment now plays it. Cancelling an
+ * upload that hasn't landed yet still works.
+ */
+async function assertNotLanded({ artifactId, relatedTo }) {
+  const upload = await uploads().findOne({ _id: relatedTo ?? artifactId }, { projection: { state: 1 } });
+  if (upload && upload.state !== 'reserved') {
+    throw Object.assign(new Error("This video has already been added, so it can't be deleted."), {
+      statusCode: 409,
+    });
+  }
+}
+
 const localStorage_ = createLocalStorage({ workspaceDir: VIDEOS_DIR });
 
 // The package's ext→MIME map only knows `.mp4`, so every other video container
@@ -425,6 +440,7 @@ const core = createPulseVaultCore({
           statusCode: 403,
         });
       }
+      if (ctx.phase === 'delete') await assertNotLanded(ctx);
       console.log('[pulsevault][hook] authorize PASSED', ctx.phase, ctx.artifactId);
     } catch (err) {
       console.error('[pulsevault][hook] authorize REJECTED', ctx.phase, ctx.artifactId, {

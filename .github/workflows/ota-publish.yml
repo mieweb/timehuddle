@@ -42,6 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The frontend's Pulse logo comes from vendor/pulsevault's asset pack.
+      - run: git submodule update --init vendor/pulsevault
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

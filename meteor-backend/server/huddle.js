@@ -463,18 +463,22 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
     });
     return;
   }
-  const planText = sessionPost.content?.text ?? '';
-  await posts.updateOne(
-    { _id: sessionPost._id },
+  // Appended to the post as stored at write time (an update pipeline), so an
+  // edit to the plan made meanwhile isn't overwritten. `$literal`: text
+  // starting with `$` would otherwise read as a field path.
+  const text = { $ifNull: ['$content.text', ''] };
+  await posts.updateOne({ _id: sessionPost._id }, [
     {
-      $push: { attachments: attachment },
       $set: {
-        'content.text': planText ? `${planText}\n\n${line}` : line,
-        wrapUpAt: new Date(),
-        updatedAt: new Date(),
+        'content.text': {
+          $cond: [{ $eq: [text, ''] }, { $literal: line }, { $concat: [text, '\n\n', { $literal: line }] }],
+        },
+        attachments: { $concatArrays: [{ $ifNull: ['$attachments', []] }, [{ $literal: attachment }]] },
+        wrapUpAt: '$$NOW',
+        updatedAt: '$$NOW',
       },
     },
-  );
+  ]);
 }
 
 Meteor.methods({

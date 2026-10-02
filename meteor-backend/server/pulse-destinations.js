@@ -261,11 +261,21 @@ const DESTINATIONS = {
       return { id };
     },
     async deliver(userId, { id }, video) {
-      // Only while still pending: a walkthrough can't change a decided request.
-      const { matchedCount } = await rawDb()
-        .collection('timesheetchangerequests')
-        .updateOne({ _id: new ObjectId(id), userId, status: 'pending' }, { $set: { videoUrl: video.url } });
-      if (!matchedCount) throw badRequest('That change has already been reviewed.');
+      // Only while still pending (a walkthrough can't change a decided
+      // request), and only the first: a second never replaces it — the
+      // video that lost the race is kept in the library instead.
+      const requests = rawDb().collection('timesheetchangerequests');
+      const { matchedCount } = await requests.updateOne(
+        { _id: new ObjectId(id), userId, status: 'pending', videoUrl: { $in: [null, ''] } },
+        { $set: { videoUrl: video.url } },
+      );
+      if (matchedCount) return;
+      const request = await requests.findOne({ _id: new ObjectId(id) }, { projection: { status: 1 } });
+      throw badRequest(
+        request?.status === 'pending'
+          ? 'That change already has a walkthrough.'
+          : 'That change has already been reviewed.',
+      );
     },
   },
 

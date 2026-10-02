@@ -15,6 +15,17 @@ export function landedLabel(destination: PulseDestination): string {
 }
 
 /**
+ * Where a Pulse draft's name shows up, said before recording: the server uses
+ * it as the post's text, the wrap-up line, or the attachment's title. A
+ * timesheet walkthrough only goes to the approver as a video, so it has none.
+ */
+export function titleHint(destination: PulseDestination): string | null {
+  return destination.kind === 'timesheet-request'
+    ? null
+    : "The name you give your draft in Pulse becomes the video's title.";
+}
+
+/**
  * What to tell someone whose Pulse video couldn't go where they recorded it
  * for: the server kept it instead (never thrown away),
  * and `reason` says why — e.g. the change was reviewed while they recorded.

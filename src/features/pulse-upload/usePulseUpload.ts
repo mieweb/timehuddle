@@ -75,16 +75,23 @@ const isSettled = (status: PulseUploadStatus | null) =>
 type Toasts = NonNullable<ReturnType<typeof useOptionalToast>>;
 
 /**
- * Keep watching a link whose button has gone, and say where its video ended
- * up with a toast — the person pressed Pulse here, so they still hear back.
+ * Keep watching a link its host has let go of (the button went away, or moved
+ * on to another destination), and say where its video ended up with a toast —
+ * the person pressed Pulse there, so they still hear back. `onSettled` is the
+ * host's own callback, when it's still around to refresh.
  */
-async function watchAfterUnmount(link: PulseLink, toasts: Toasts) {
+async function watchDetached(
+  link: PulseLink,
+  toasts: Toasts,
+  onSettled?: (status: PulseUploadStatus) => void,
+) {
   const destination = JSON.parse(link.destinationKey) as PulseDestination;
   while (Date.now() - link.at < LINK_LIFETIME_MS) {
     await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
     if (document.hidden) continue;
     const status = await videoApi.status(link.videoid).catch(() => null);
     if (!status || status.state === 'waiting') continue;
+    onSettled?.(status);
     if (status.state === 'done') {
       toasts.success(status.note ?? landedLabel(destination), { title: 'Pulse video' });
     } else if (status.state === 'kept') {
@@ -121,15 +128,24 @@ export function usePulseUpload(
   useEffect(
     () => () => {
       const { link: pending, waiting, toasts: notify } = inFlight.current;
-      if (pending && waiting && notify) void watchAfterUnmount(pending, notify);
+      if (pending && waiting && notify) void watchDetached(pending, notify);
     },
     [],
   );
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket, the next day's plan), this hook starts afresh;
-  // the earlier link still delivers where it was meant to.
+  // the earlier link still delivers where it was meant to, and is watched on
+  // the same way.
   const current = link?.destinationKey === destinationKey ? link : null;
+  useEffect(() => {
+    const { link: pending, waiting, toasts: notify } = inFlight.current;
+    if (!pending || pending.destinationKey === destinationKey) return;
+    if (waiting && notify) void watchDetached(pending, notify, (s) => onSettledRef.current?.(s));
+    setLink(null);
+    setStatus(null);
+    setModalOpen(false);
+  }, [destinationKey]);
 
   // Watch the link until its video lands or it expires: on a timer while the
   // page is visible (a phone often comes back from the Pulse app before the

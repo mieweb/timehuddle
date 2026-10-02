@@ -327,6 +327,9 @@ html[data-theme='dark'] {
   --color-chart-4: var(--mieweb-chart-4);
   --color-chart-5: var(--mieweb-chart-5);
 
+  /* Pulse red — the Pulse app's accent, for the buttons that open Pulse. */
+  --color-pulse: #ff383c;
+
   --font-sans: var(--mieweb-font-sans, ui-sans-serif);
   --font-mono: var(--mieweb-font-mono, ui-monospace);
 }

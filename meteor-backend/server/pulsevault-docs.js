@@ -185,7 +185,10 @@ export const pulsevaultOpenApiSpec = {
         operationId: 'pulsevault_upload_delete',
         tags: ['pulsevault'],
         parameters: [UPLOAD_ID_PARAM, AUTH_HEADER_PARAM],
-        responses: { 204: { description: 'Upload cancelled' } },
+        responses: {
+          204: { description: 'Upload cancelled' },
+          409: { description: 'The video has already landed (been added somewhere), so it is kept.' },
+        },
       },
     },
     '/artifacts/{artifactId}': {
@@ -211,11 +214,17 @@ export const pulsevaultOpenApiSpec = {
         },
       },
       delete: {
-        summary: 'Delete a finished artifact',
+        summary: 'Delete an artifact that has not landed',
+        description:
+          'Pulse videos are never deleted once they land: after a video is claimed for ' +
+          'delivery, deleting it (or a file sent with it) is refused with 409.',
         operationId: 'pulsevault_artifact_delete',
         tags: ['pulsevault'],
         parameters: [ARTIFACT_ID_PARAM, AUTH_HEADER_PARAM],
-        responses: { 204: { description: 'Artifact deleted' } },
+        responses: {
+          204: { description: 'Artifact deleted' },
+          409: { description: 'The video has already landed (been added somewhere), so it is kept.' },
+        },
       },
     },
   },

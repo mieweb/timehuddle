@@ -1958,16 +1958,6 @@ export const mediaApi = {
     }
     return withAbsoluteMediaItem(parsed.item);
   },
-
-  list: () =>
-    wormholeCall<{ items: MediaItem[] }>('media.list', {}).then((r) =>
-      r.items.map(withAbsoluteMediaItem),
-    ),
-
-  listForUser: (userId: string) =>
-    wormholeCall<{ items: MediaItem[] }>('media.listForUser', { userId }).then((r) =>
-      r.items.map(withAbsoluteMediaItem),
-    ),
 };
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────

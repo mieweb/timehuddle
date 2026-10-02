@@ -38,8 +38,8 @@ test.describe('Timer Deduplication', () => {
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(1000);
 
-    const clockInBtn = page.getByRole('button', { name: 'Clock in' });
-    const clockOutBtn = page.getByRole('button', { name: 'Clock out' });
+    const clockInBtn = page.getByRole('button', { name: 'Clock in', exact: true });
+    const clockOutBtn = page.getByRole('button', { name: 'Clock out', exact: true });
 
     // Clock in if needed
     const isClockedIn = await clockOutBtn.isVisible().catch(() => false);
@@ -141,8 +141,8 @@ test.describe('Timer Deduplication', () => {
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(1000);
 
-    const clockInBtn = page.getByRole('button', { name: 'Clock in' });
-    const clockOutBtn = page.getByRole('button', { name: 'Clock out' });
+    const clockInBtn = page.getByRole('button', { name: 'Clock in', exact: true });
+    const clockOutBtn = page.getByRole('button', { name: 'Clock out', exact: true });
     const isClockedIn = await clockOutBtn.isVisible().catch(() => false);
     if (!isClockedIn) {
       await clockInBtn.click();

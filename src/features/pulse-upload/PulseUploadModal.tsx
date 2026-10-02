@@ -1,4 +1,4 @@
-import { faCircleCheck, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faCircleCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
@@ -14,7 +14,8 @@ import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
 
-import { keptMessage, landedLabel } from './pulseStatus';
+import { PulseLogo } from './PulseLogo';
+import { keptMessage, landedLabel, titleHint } from './pulseStatus';
 import type { PulseUpload } from './usePulseUpload';
 
 /**
@@ -40,7 +41,7 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
       <ModalHeader>
         <ModalTitle id={titleId}>
           <span className="pulse-modal-title flex items-center gap-2">
-            <FontAwesomeIcon icon={faVideo} aria-hidden="true" />
+            <PulseLogo className="h-5" />
             Record with Pulse
           </span>
         </ModalTitle>
@@ -64,6 +65,11 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
             <strong className="text-foreground">Pulse app</strong>, then record and upload. No app
             yet? The scan takes you to the App Store or Play Store.
           </Text>
+          {titleHint(destination) && (
+            <Text size="xs" variant="muted" className="max-w-xs text-center">
+              {titleHint(destination)}
+            </Text>
+          )}
 
           <div
             className="pulse-modal-status flex flex-col items-center gap-1"

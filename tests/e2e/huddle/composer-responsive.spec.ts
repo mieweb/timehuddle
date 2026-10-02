@@ -4,7 +4,7 @@
  * The composer sits in a bounded flex column between the page header and the
  * fixed mobile bottom nav. Expanded, it is taller than that gap on a short
  * viewport, so unless its container can scroll the overflow the lower half
- * — Pulse, Ticket, @Mention and the post button — is clipped underneath the
+ * — Ticket, @Mention and the post button — is clipped underneath the
  * nav and unreachable. That regression is invisible on a desktop viewport and
  * on a tall phone, so it is pinned here at the narrowest size the app supports.
  *
@@ -18,8 +18,6 @@ import { composerEditor, openComposer, setSharedTeamPlanGate } from './helpers';
 
 const ACTION_BUTTONS: Array<string | RegExp> = [
   'Photo',
-  // The Pulse chip's accessible name (its visible text is just "Pulse").
-  'Record your plan with Pulse and clock in',
   'Doc',
   'Ticket',
   '@Mention',

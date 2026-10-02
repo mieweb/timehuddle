@@ -337,7 +337,7 @@ export function HuddleComposer({
         {pulseTeamId && (
           // shrink-0: the full-width Share button beside it would squeeze it.
           <div className="huddle-composer-pulse flex shrink-0 items-center gap-2">
-            <PulseChip pulse={pulse} ariaLabel="Post a video with Pulse" />
+            <PulseChip pulse={pulse} label="Post with Pulse" size="md" />
           </div>
         )}
         {pulseModal}

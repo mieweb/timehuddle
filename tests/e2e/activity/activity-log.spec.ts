@@ -34,16 +34,16 @@ test.describe('Activity Log', () => {
     await page.getByRole('heading', { level: 1, name: /Clock/i }).waitFor({ state: 'visible' });
 
     // If not already clocked in, clock in
-    const clockInBtn = page.getByRole('button', { name: 'Clock in' });
+    const clockInBtn = page.getByRole('button', { name: 'Clock in', exact: true });
     if (await clockInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await clockInBtn.click();
       await page
-        .getByRole('button', { name: 'Clock out' })
+        .getByRole('button', { name: 'Clock out', exact: true })
         .waitFor({ state: 'visible', timeout: 5000 });
       await page.waitForTimeout(1000);
-      await page.getByRole('button', { name: 'Clock out' }).click();
+      await page.getByRole('button', { name: 'Clock out', exact: true }).click();
       await page
-        .getByRole('button', { name: 'Clock in' })
+        .getByRole('button', { name: 'Clock in', exact: true })
         .waitFor({ state: 'visible', timeout: 5000 });
     }
 

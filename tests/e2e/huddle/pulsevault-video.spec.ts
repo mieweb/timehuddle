@@ -2,8 +2,8 @@
  * Huddle Feed — Pulse Video Tests
  *
  * Videos reach a huddle post only through Pulse:
- *  1. The composer (driven through the Clock tab's plan composer) offers
- *     Pulse beside Post, and no raw "Video" file picker.
+ *  1. The Clock tab offers "Clock in with Pulse" beside its plan composer,
+ *     and the composer has no raw "Video" file picker.
  *  1b. A Pulse upload lands where it was reserved for, with no client step:
  *     a Huddle post, a plan that clocks in, a wrap-up that clocks out — and
  *     one whose destination is gone by then is kept in the library instead.
@@ -71,10 +71,10 @@ test.describe('Huddle — videos come from Pulse only', () => {
     await clockOut(page);
   });
 
-  test('the plan composer offers Pulse beside Post, and no raw video upload', async ({ page }) => {
-    await expect(
-      page.getByRole('button', { name: 'Record your plan with Pulse and clock in' }),
-    ).toBeVisible();
+  test('the Clock page offers Pulse beside the plan composer, and no raw video upload', async ({
+    page,
+  }) => {
+    await expect(page.getByRole('button', { name: 'Clock in with Pulse' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Video', exact: true })).toHaveCount(0);
     await expect(page.locator('input[type="file"][accept*="video"]')).toHaveCount(0);
   });
@@ -89,7 +89,7 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
     await page.goto('/app/huddle');
-    await expect(page.getByRole('button', { name: 'Post a video with Pulse' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Post with Pulse' })).toBeVisible();
 
     const token = await getSessionToken(page);
     const { videoid, status } = await sendPulseVideo(page.request, token, {
@@ -179,13 +179,13 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
       // Each step changes the page under the popup (clocking in swaps the
       // composer; clocking out ends the session the wrap-up was for), and the
       // popup still has to say it worked.
-      const plan = await recordWithPulse('Record your plan with Pulse and clock in');
+      const plan = await recordWithPulse('Clock in with Pulse');
       await expect(plan.getByText("Plan posted — you're clocked in")).toBeVisible({
         timeout: 20000,
       });
       await expect(plan).toBeHidden({ timeout: 5000 });
 
-      const wrapUp = await recordWithPulse('Record your wrap-up with Pulse and clock out');
+      const wrapUp = await recordWithPulse('Clock out with Pulse');
       await expect(wrapUp.getByText("Wrap-up posted — you're clocked out")).toBeVisible({
         timeout: 20000,
       });

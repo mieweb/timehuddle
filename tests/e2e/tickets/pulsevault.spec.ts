@@ -204,7 +204,7 @@ test.describe('PulseVault — API contract', () => {
     ).toBe(true);
   });
 
-  test('GET/DELETE /pulsevault/artifacts/{id} serve and remove the finished video', async ({
+  test('GET /pulsevault/artifacts/{id} serves the finished video, and DELETE is refused once it landed', async ({
     page,
     request,
   }) => {
@@ -223,18 +223,16 @@ test.describe('PulseVault — API contract', () => {
     expect(getArtifact.status()).toBe(200);
     expect(getArtifact.headers()['content-type']).toContain('video/mp4');
 
-    // Artifact delete is authorized by the same capability token as the
-    // upload (the `authorize` hook only treats the `resolve`/GET phase as
-    // public — everything else, including delete, goes through
-    // verifyUploadToken against the artifact-scoped capability token, not a
-    // general Meteor session token).
+    // The upload's own capability token still authorizes a delete, but a
+    // video that has landed is never deleted: whatever it was added to plays it.
+    expect(await waitForPulseOutcome(request, token, videoid)).toEqual({ state: 'done' });
     const del = await request.delete(`/pulsevault/artifacts/${videoid}`, {
       headers: { Authorization: `Bearer ${uploadToken}` },
     });
-    expect([200, 204]).toContain(del.status());
+    expect(del.status()).toBe(409);
 
     const getAfterDelete = await request.get(`/pulsevault/artifacts/${videoid}`);
-    expect(getAfterDelete.status()).toBe(404);
+    expect(getAfterDelete.status()).toBe(200);
   });
 
   test('GET /pulsevault/docs and /pulsevault/openapi.json serve the standalone Swagger page', async ({
@@ -281,7 +279,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   test('the Pulse button opens the QR modal with a valid pulsecam deep link', async ({ page }) => {
     await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: 'Record a video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
 
     const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -297,7 +295,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     page.on('request', (req) => {
       if (req.url().includes('/api/pulsevault_reserve')) reserves += 1;
     });
-    const pulse = page.getByRole('button', { name: 'Record a video with Pulse' });
+    const pulse = page.getByRole('button', { name: 'Add video with Pulse' });
     const qr = page.getByLabel('QR code to open the Pulse upload screen');
 
     await pulse.click();
@@ -318,7 +316,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   test('the QR modal offers no device upload — videos come from Pulse only', async ({ page }) => {
     await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: 'Record a video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
 
     const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -340,7 +338,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   /** Press Pulse on the open ticket, as a person would; returns the link it handed out. */
   async function pressPulse(page: import('@playwright/test').Page) {
     const reserved = page.waitForResponse((res) => res.url().includes('/api/pulsevault_reserve'));
-    await page.getByRole('button', { name: 'Record a video with Pulse' }).click();
+    await page.getByRole('button', { name: 'Add video with Pulse' }).click();
     const { result } = await (await reserved).json();
     return result as { videoid: string; uploadToken: string };
   }

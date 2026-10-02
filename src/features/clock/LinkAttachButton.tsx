@@ -1,5 +1,5 @@
 /**
- * LinkAttachButton — the "Link" chip beside "Pulse" in ticket and clock-session
+ * LinkAttachButton — the "Link" chip beside the Pulse button in ticket and clock-session
  * attachments (AttachmentsPanel), so the two ways in look and behave alike: a
  * chip that opens a modal. Posts don't use it — a link goes in the post text.
  *
@@ -11,6 +11,7 @@ import { faLink, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
+  ButtonGroup,
   Input,
   ModalBody,
   ModalClose,
@@ -117,13 +118,15 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
         </ModalBody>
 
         <ModalFooter>
-          <Button size="sm" variant="ghost" onClick={close}>
-            <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
-            Close
-          </Button>
-          <Button size="sm" onClick={handleAdd} isLoading={adding} disabled={!value.trim()}>
-            Add link
-          </Button>
+          <ButtonGroup>
+            <Button size="sm" variant="ghost" onClick={close}>
+              <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
+              Close
+            </Button>
+            <Button size="sm" onClick={handleAdd} isLoading={adding} disabled={!value.trim()}>
+              Add link
+            </Button>
+          </ButtonGroup>
         </ModalFooter>
       </AppModal>
     </>
