@@ -165,6 +165,9 @@ export const TeamsPage: React.FC = () => {
     const seq = ++membersSeqRef.current;
     if (!teamId) {
       setMembers([]);
+      // Claiming the sequence above stops any in-flight request from clearing
+      // this, so leaving a team mid-load has to clear it here.
+      setMembersLoading(false);
       return;
     }
     setMembersLoading(true);

@@ -125,8 +125,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const applyVerdict = React.useCallback((err: unknown) => {
     if (!(err instanceof ApiError)) return;
     if (err.status !== 403 && err.status !== 404) return;
-    if (err.status === 403) setIsForbidden(true);
-    else setIsNotFound(true);
+    // Both set from this response: the 404 screen renders first, so leaving a
+    // previous verdict standing would show the wrong one.
+    setIsForbidden(err.status === 403);
+    setIsNotFound(err.status === 404);
     setProfile(null);
   }, []);
 

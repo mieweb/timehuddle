@@ -284,8 +284,13 @@ export const DashboardPage: React.FC = () => {
   // here rather than allowed to repopulate the new team's cards.
   const overviewSeqRef = useRef(0);
   const fetchData = useCallback(async () => {
-    if (!userId || !selectedTeamId) return;
+    // Claimed before the guard: leaving a team has to invalidate whatever its
+    // request was about to write, not just skip starting a new one.
     const seq = ++overviewSeqRef.current;
+    if (!userId || !selectedTeamId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [t, m, r] = await Promise.allSettled([
