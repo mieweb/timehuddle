@@ -18,7 +18,9 @@ import { markTicketDeleted } from '../fixtures/db';
 import {
   PULSE_CLIENT_HEADER,
   TEST_MP4,
+  expectImageLoaded,
   getSessionToken,
+  posterLocation,
   reservePulseUpload,
   uploadVideoAsPulse,
   waitForPulseOutcome,
@@ -324,15 +326,45 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
   });
 
-  test("a Pulse upload completes and appears in the ticket's attachments", async ({ page }) => {
-    const videoid = await uploadVideoToTicket(page, ticketTitle);
+  test("a Pulse upload completes and plays in the ticket's attachments", async ({ page }) => {
+    const { videoid, posterId } = await uploadVideoToTicket(page, ticketTitle);
 
     // Persisted (in Mongo), not just held in component state.
     await page.reload();
     const linksList = page.locator('ul[aria-label="Attachments"]');
-    await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
-      timeout: 8000,
+    const play = linksList.getByRole('button', { name: /^Play / }).first();
+    await expect(play).toBeVisible({ timeout: 8000 });
+    // The poster is found by the video's id, and is the frame Pulse sent.
+    expect(await posterLocation(page.request, videoid)).toContain(posterId);
+    await expectImageLoaded(play.locator('img'));
+
+    // Playing swaps the poster for an inline player on this video's artifact.
+    await play.click();
+    const player = linksList.locator(`video[src*="/pulsevault/artifacts/${videoid}"]`);
+    await expect(player).toBeVisible();
+    await expect(player).toBeFocused();
+  });
+
+  test('anyone attaching a video can’t choose its poster', async ({ page }) => {
+    const { videoid } = await uploadVideoToTicket(page, ticketTitle);
+    const ticketId = new URL(page.url()).pathname.split('/').pop()!;
+    const before = await posterLocation(page.request, videoid);
+    expect(before).not.toBeNull();
+
+    // A client-sent thumbnail is ignored: the poster comes from PulseVault only.
+    const token = await getSessionToken(page);
+    const res = await page.request.post('/api/attachments_add', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        url: `/pulsevault/artifacts/${videoid}`,
+        type: 'video',
+        thumbnail: '/pulsevault/artifacts/00000000-0000-4000-8000-000000000000',
+        attachedTo: { kind: 'ticket', id: ticketId },
+      },
     });
+    expect(res.ok()).toBe(true);
+    expect((await res.json()).result.attachment.thumbnail ?? null).toBeNull();
+    expect(await posterLocation(page.request, videoid)).toBe(before);
   });
 
   /** Press Pulse on the open ticket, as a person would; returns the link it handed out. */
@@ -355,7 +387,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(modal.getByText('Added', { exact: true })).toBeVisible({ timeout: 20000 });
     await expect(modal).toBeHidden({ timeout: 5000 });
     const linksList = page.locator('ul[aria-label="Attachments"]');
-    await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible();
+    await expect(linksList.getByRole('button', { name: /^Play / })).toHaveCount(1);
   });
 
   test('the open modal says when the video was kept instead — the ticket was deleted', async ({
@@ -376,6 +408,6 @@ test.describe('PulseVault — Ticket video upload', () => {
     ).toBeVisible({ timeout: 20000 });
     // Kept, so it stays open until closed — and nothing was attached.
     await modal.getByRole('button', { name: 'Close' }).last().click();
-    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toHaveCount(0);
+    await expect(page.locator('ul[aria-label="Attachments"]').getByRole('button')).toHaveCount(0);
   });
 });

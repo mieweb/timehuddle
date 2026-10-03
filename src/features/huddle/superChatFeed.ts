@@ -2,7 +2,8 @@
  * superChatFeed — map huddle posts onto SuperChatInbox conversations, grouped
  * by session, day, person, or ticket (`postsToConversations`). Image
  * attachments are embedded as markdown images (rendered by createImagePlugin
- * with a lightbox); other attachments become plain links. Comments have no
+ * with a lightbox), Pulse videos as `pulse_video` GenUI cards (see
+ * pulseVideoBlock.ts); other attachments become plain links. Comments have no
  * surface here — SuperChat has no per-message thread concept (see
  * .attic/huddle-superchat-inbox/README.md).
  */
@@ -10,6 +11,7 @@ import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
+import { pulseVideoMarkdown } from './pulseVideoBlock';
 import type {
   Participant,
   SuperChatConversation,
@@ -18,6 +20,12 @@ import type {
 
 function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
   const name = att.filename ?? 'attachment';
+  // A Pulse video becomes the `pulse_video` card (poster + play); anything that
+  // isn't a PulseVault artifact falls through to a plain link.
+  if (att.type === 'video') {
+    const card = pulseVideoMarkdown(att.url, att.filename);
+    if (card) return card;
+  }
   // Posts store attachment URLs by path — bind them to the current backend
   // origin.
   const url = resolveMediaUrl(att.url);
@@ -363,6 +371,15 @@ function normalizeForSearch(text: string): string {
 
 /** Everything a post can be found by: body, author, ticket, attachments, team
  *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+/**
+ * Text as a reader sees it: no markdown link targets and no GenUI card
+ * payloads (one line or pretty-printed), so media URLs, widget names and
+ * artifact ids don't match every query.
+ */
+function searchableText(text: string): string {
+  return text.replace(/\]\([^)]*\)/g, ']').replace(/```genui[\s\S]*?```/g, '');
+}
+
 function postSearchText(post: HuddlePost, teamName?: string): string {
   const dateKey = getPostDateKey(post);
   const [year, month, day] = dateKey.split('-').map(Number);
@@ -373,7 +390,7 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
     year: 'numeric',
   });
   return [
-    post.content.text,
+    searchableText(post.content.text),
     post.userName,
     post.ticketTitle,
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
@@ -454,8 +471,7 @@ export function searchConversations(
         conversation.title,
         ...conversation.participants.map((p) => p.name),
         ...conversation.thread.map((message) => {
-          // Drop markdown link targets so media URLs don't match every query.
-          const shown = (message.text ?? '').replace(/\]\([^)]*\)/g, ']');
+          const shown = searchableText(message.text ?? '');
           const post = postsById.get(message.id);
           return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
         }),
