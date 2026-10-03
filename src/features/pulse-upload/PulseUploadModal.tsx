@@ -30,7 +30,8 @@ export const PulseUploadModal: React.FC<{ pulse: PulseUpload }> = ({ pulse }) =>
       onOpenChange={(next) => !next && closeModal()}
       aria-labelledby={titleId}
     >
-      <ModalHeader>
+      {/* No divider under the title: the body has no sections to set apart. */}
+      <ModalHeader className="border-b-0">
         <ModalTitle id={titleId}>
           <span className="pulse-modal-title flex items-center gap-2">
             <PulseLogo className="h-5" />
