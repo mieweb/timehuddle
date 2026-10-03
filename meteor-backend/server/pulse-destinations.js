@@ -153,14 +153,18 @@ async function followUp(failure, instead, step) {
  * Clock in with the plan that was just posted. Clocked in to this team some
  * other way meanwhile: no second session, but the plan still becomes that
  * session's. Clocked in to another team: no clock-in at all (one shift at a
- * time), and the plan stays posted.
+ * time), and the plan stays posted. Clocked in and back out by hand since the
+ * link was made: that shift is over, so it isn't restarted.
  */
-async function clockInWithPlan(userId, teamId, planPostId) {
-  const open = await rawDb()
-    .collection('clockevents')
-    .findOne({ userId, endTime: null }, { projection: { _id: 1, teamId: 1 } });
+async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
+  const sessions = rawDb().collection('clockevents');
+  const open = await sessions.findOne({ userId, endTime: null }, { projection: { _id: 1, teamId: 1 } });
   if (open && String(open.teamId) !== String(teamId)) {
     throw new Meteor.Error('already-clocked-in', "You're clocked in to another team.");
+  }
+  // `reservedAt` is missing on links made before it was recorded.
+  if (!open && reservedAt && (await sessions.findOne({ userId, startTime: { $gte: reservedAt } }))) {
+    throw new Meteor.Error('already-clocked-out', 'You clocked in and out while it uploaded.');
   }
   if (open) {
     // Not `updatedAt` — linking a session isn't an edit (see clockStart).
@@ -194,12 +198,14 @@ const DESTINATIONS = {
     async resolve(userId, { teamId, postDate }) {
       await assertTeamMember(userId, teamId);
       assertPostDate(postDate);
-      return { teamId, postDate };
+      // When the link was made, so delivery can tell a shift worked by hand
+      // meanwhile (stored at reserve; the deliver-phase result is unused).
+      return { teamId, postDate, reservedAt: Date.now() };
     },
-    async deliver(userId, { teamId, postDate }, video) {
+    async deliver(userId, { teamId, postDate, reservedAt }, video) {
       const { id: planPostId } = await postVideo(userId, video, { teamId, postDate });
       return followUp("Plan posted, but you weren't clocked in", 'Clock in from the Clock page.', () =>
-        clockInWithPlan(userId, teamId, planPostId),
+        clockInWithPlan(userId, teamId, planPostId, reservedAt),
       );
     },
   },

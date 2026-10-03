@@ -46,6 +46,7 @@ import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { deliverPulseVideo, keepPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
+import { REDMINE } from './ticket-refs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { stat } from 'fs/promises';
@@ -193,9 +194,14 @@ async function migrateReservations() {
   const db = rawDb();
   const legacy = await db.collection('pulsevault_reservations').find().toArray();
   for (const { _id, userId, createdAt, destination, target, attachedTo, ticketId } of legacy) {
+    // A Redmine row keeps its issue id in `ticketId`, marked by `target`.
     const resolved =
       destination ??
-      (target === 'library' ? { kind: 'library' } : (attachedTo ?? { kind: 'ticket', id: ticketId }));
+      (target === 'library'
+        ? { kind: 'library' }
+        : target === REDMINE
+          ? { kind: REDMINE, id: String(ticketId) }
+          : (attachedTo ?? { kind: 'ticket', id: ticketId }));
     await uploads().updateOne(
       { _id },
       {
