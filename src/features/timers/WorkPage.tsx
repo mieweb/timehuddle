@@ -50,17 +50,14 @@ import {
   type Ticket,
   type TimesheetChangeRequest,
 } from '../../lib/api';
-import {
-  timesheetApprovalRequired,
-  timesheetApproversFor,
-  timesheetVideoRequired,
-} from '../../lib/timesheetApproval';
+import { timesheetApprovalRequired, timesheetApproversFor } from '../../lib/timesheetApproval';
 import {
   emptyJustification,
   isJustificationComplete,
   TimesheetJustificationFields,
   type TimesheetJustificationState,
 } from '../clock/TimesheetJustificationFields';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
@@ -445,12 +442,7 @@ export const WorkPage: React.FC = () => {
         const result = await timerApi.deleteEntry(
           entryId,
           { notifyAdmins: false },
-          deleteNeedsApproval
-            ? {
-                description: editJustification.description,
-                videoUrl: editJustification.videoUrl ?? undefined,
-              }
-            : undefined,
+          deleteNeedsApproval ? editJustification : undefined,
         );
         if (!isPendingChange(result)) {
           setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
@@ -520,12 +512,7 @@ export const WorkPage: React.FC = () => {
         },
         // Only a duration change is a time claim; the server gates on the same
         // condition, so a note-only edit must not send a justification.
-        durationChanged && entryNeedsApproval
-          ? {
-              description: editJustification.description,
-              videoUrl: editJustification.videoUrl ?? undefined,
-            }
-          : undefined,
+        durationChanged && entryNeedsApproval ? editJustification : undefined,
       );
       if (isPendingChange(result)) {
         setMyRequests((prev) => [result.request, ...prev]);
@@ -861,7 +848,8 @@ export const WorkPage: React.FC = () => {
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
-                const awaitingApproval = pendingByEntry.has(de.entry.id);
+                const pendingRequest = pendingByEntry.get(de.entry.id);
+                const awaitingApproval = Boolean(pendingRequest);
                 const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
                 const disabledReason = isOnBreak
                   ? 'Timers are paused while you are on break.'
@@ -938,6 +926,12 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2 text-right">
+                      {pendingRequest && (
+                        <ChangeRequestWalkthrough
+                          request={pendingRequest}
+                          onAdded={loadMyRequests}
+                        />
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -990,12 +984,8 @@ export const WorkPage: React.FC = () => {
             parsedSeconds !== null &&
             parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
           const editBlocked =
-            entryNeedsApproval &&
-            durationChanged &&
-            !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
-          const deleteBlocked =
-            deleteNeedsApproval &&
-            !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
+            entryNeedsApproval && durationChanged && !isJustificationComplete(editJustification);
+          const deleteBlocked = deleteNeedsApproval && !isJustificationComplete(editJustification);
           return (
             <AppModal
               open
@@ -1065,7 +1055,6 @@ export const WorkPage: React.FC = () => {
                   <TimesheetJustificationFields
                     value={editJustification}
                     onChange={setEditJustification}
-                    videoRequired={timesheetVideoRequired('update')}
                     disabled={editLoading}
                     approverCount={entryApproverCount}
                   />

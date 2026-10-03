@@ -3,7 +3,7 @@
  *
  * The feed is a SuperChatInbox, and the Huddle page only shows its own rich
  * composer for a team's very first post. The full composer (MarkdownEditor +
- * the Photo/Video/Doc/Pulse/Ticket/@Mention bar) lives on the Clock tab as the
+ * the Photo/Doc/Ticket/@Mention bar) lives on the Clock tab as the
  * plan-before-clock-in composer, so the composer specs drive that one: turn the
  * shared team's plan gate on, write the plan, post it (which clocks in), then
  * find the post in the inbox by its unique body text.
@@ -11,18 +11,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Locator, type Page } from '@playwright/test';
-import { MongoClient } from 'mongodb';
+import { getUserIdByEmail, withDb } from '../fixtures/db';
 import { ClockPage } from '../pages/ClockPage';
 
+export { getUserIdByEmail };
+
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
-const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 /** Real fixture files, uploaded through the actual backend endpoints. */
 export const FIXTURE = {
   image: path.join(FIXTURES_DIR, 'test-image.png'),
   doc: path.join(FIXTURES_DIR, 'test-doc.txt'),
-  video: path.join(FIXTURES_DIR, 'test-video.mp4'),
 };
 
 /**
@@ -32,15 +31,6 @@ export const FIXTURE = {
  */
 export function composerEditor(page: Page) {
   return page.locator('.markdown-editor .ProseMirror').first();
-}
-
-async function withDb<T>(fn: (db: import('mongodb').Db) => Promise<T>): Promise<T> {
-  const client = await MongoClient.connect(MONGO_URL);
-  try {
-    return await fn(client.db());
-  } finally {
-    await client.close();
-  }
 }
 
 /**
@@ -54,15 +44,6 @@ export async function setSharedTeamPlanGate(enabled: boolean): Promise<void> {
       .collection('teams')
       .updateOne({ code: 'TEST01' }, { $set: { 'settings.requirePlanForClock': enabled } }),
   );
-}
-
-/** The seed user's `_id`. */
-export async function getUserIdByEmail(email: string): Promise<string> {
-  const user = await withDb((db) =>
-    db.collection('users').findOne({ 'emails.address': email }, { projection: { _id: 1 } }),
-  );
-  if (!user) throw new Error(`Seed user ${email} not found — did global-setup run?`);
-  return String(user._id);
 }
 
 /** The stored huddle post whose body contains `text`. */
@@ -241,21 +222,16 @@ export async function deleteClockSession(clockEventId: string): Promise<void> {
  * first: the click only forwards to the same input, and a real OS file dialog
  * isn't drivable anyway.
  */
-export async function attachFile(page: Page, kind: 'image' | 'doc' | 'video'): Promise<void> {
+export async function attachFile(page: Page, kind: 'image' | 'doc'): Promise<void> {
   const accept = {
     image: 'input[type="file"][accept="image/*"]',
     doc: 'input[type="file"][accept=".pdf,.doc,.docx,.txt"]',
-    video: 'input[type="file"][accept="video/*"]',
   }[kind];
 
   const chipsBefore = await attachmentChipCount(page);
   await page.locator(accept).setInputFiles(FIXTURE[kind]);
 
-  // Video goes through a TUS upload of a ~770KB fixture, which is slower than
-  // the single multipart POST images and docs take.
-  await expect
-    .poll(() => attachmentChipCount(page), { timeout: kind === 'video' ? 60000 : 20000 })
-    .toBe(chipsBefore + 1);
+  await expect.poll(() => attachmentChipCount(page), { timeout: 20000 }).toBe(chipsBefore + 1);
 }
 
 /** How many attachment chips the composer is currently showing. */

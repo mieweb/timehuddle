@@ -10,10 +10,8 @@
  * ComposerAttachButtons bar the Huddle composer uses — with the shared team's
  * plan gate on; posting the plan clocks in, so each test clocks back out.
  *
- * Video gets its own file (pulsevault-video.spec.ts) — it goes through the TUS
- * upload path rather than the multipart media endpoint — but the combined post
- * here includes one, since "photo + video + mention in one post" is exactly the
- * case that exercises every branch of `toPostAttachment` at once.
+ * There is no video action: videos reach a post only through Pulse, covered
+ * in pulsevault-video.spec.ts.
  *
  * Assertions go against the real backend, read back through the Huddle inbox:
  * an attached image must come back as an <img> whose src actually resolves, not
@@ -26,7 +24,6 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import { createTicket, deleteTicket } from '../tickets/helpers';
 import {
-  FIXTURE,
   attachFile,
   attachTicket,
   attachmentChipCount,
@@ -164,7 +161,7 @@ test.describe('Huddle composer — combined actions', () => {
     await clockOut(page);
   });
 
-  test('posts photo + doc + video + mention + ticket in one post', async ({ page }) => {
+  test('posts photo + doc + mention + ticket in one post', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
 
@@ -177,13 +174,12 @@ test.describe('Huddle composer — combined actions', () => {
 
     await attachFile(page, 'image');
     await attachFile(page, 'doc');
-    await attachFile(page, 'video');
     await mentionMember(page, TEST_USERS.member1.name);
     await attachTicket(page, ticketTitle);
 
-    // All three uploads survived each other — an upload starting while another
-    // is settling used to clobber the earlier chip.
-    await expect(page.locator('button[aria-label^="Remove attachment"]')).toHaveCount(3);
+    // Both uploads survived each other — an upload starting while another is
+    // settling used to clobber the earlier chip.
+    await expect(page.locator('button[aria-label^="Remove attachment"]')).toHaveCount(2);
 
     await submitPost(page);
 
@@ -191,7 +187,6 @@ test.describe('Huddle composer — combined actions', () => {
 
     await expect(post.locator('img[src*="/uploads/media/"]')).toBeVisible({ timeout: 15000 });
     await expect(post.locator('a[href*="/uploads/media/"]')).toBeVisible();
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible();
     await expect(post).toContainText(ticketTitle);
     const stored = await findPostByText(postText);
     expect(stored?.content.mentions).toContain(await getUserIdByEmail(TEST_USERS.member1.email));
@@ -200,6 +195,17 @@ test.describe('Huddle composer — combined actions', () => {
     await deleteTicket(page, ticketTitle);
   });
 });
+
+const DOC_INPUT = 'input[type="file"][accept=".pdf,.doc,.docx,.txt"]';
+
+/** A document big enough (20 MB) that its upload is still in flight when checked. */
+function largeDoc() {
+  return {
+    name: 'long-notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.alloc(20 * 1024 * 1024, 'a'),
+  };
+}
 
 test.describe('Huddle composer — upload progress', () => {
   test.setTimeout(120000);
@@ -210,7 +216,7 @@ test.describe('Huddle composer — upload progress', () => {
     await openComposer(page);
   });
 
-  test('shows a progress bar while a video uploads and blocks posting until it lands', async ({
+  test('shows a progress bar while a document uploads and blocks posting until it lands', async ({
     page,
   }) => {
     await composerEditor(page).fill(`Upload progress ${Date.now()}`);
@@ -218,7 +224,7 @@ test.describe('Huddle composer — upload progress', () => {
     const progressBar = page.locator('[data-testid="post-progress-bar"]');
     const progressVisible = progressBar.waitFor({ state: 'visible', timeout: 20000 });
 
-    await page.locator('input[type="file"][accept="video/*"]').setInputFiles(FIXTURE.video);
+    await page.locator(DOC_INPUT).setInputFiles(largeDoc());
     await progressVisible;
 
     // Upload phase is determinate and labelled distinctly from the post phase.
@@ -234,9 +240,9 @@ test.describe('Huddle composer — upload progress', () => {
     await expect(postButton(page)).toBeEnabled();
   });
 
-  test('the Video button reports its own upload state', async ({ page }) => {
-    await composerEditor(page).fill(`Video button state ${Date.now()}`);
-    await page.locator('input[type="file"][accept="video/*"]').setInputFiles(FIXTURE.video);
+  test('the Doc button reports its own upload state', async ({ page }) => {
+    await composerEditor(page).fill(`Doc button state ${Date.now()}`);
+    await page.locator(DOC_INPUT).setInputFiles(largeDoc());
 
     // The pressed button becomes the busy one, so it's clear *which* attachment
     // is in flight when several kinds are available.

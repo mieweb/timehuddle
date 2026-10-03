@@ -1,16 +1,9 @@
 /**
  * Shared ticket helpers for E2E tests — ticket CRUD via the UI, and attaching
- * a real Pulse video to a ticket via PulseUploadButton's "Upload from this
- * device" fallback (the same TUS mechanics a real Pulse Cam app uses after
- * scanning the QR code, minus the literal camera scan — see
- * tests/e2e/tickets/pulsevault.spec.ts for why that's the accepted boundary
- * of what's automatable here).
+ * a real Pulse video to a ticket (see ../fixtures/pulse.ts).
  */
-import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
-
-const FIXTURES_DIR = path.join(__dirname, '../fixtures');
-export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
+import { getSessionToken, sendPulseVideo } from '../fixtures/pulse';
 
 export async function goToTickets(page: Page): Promise<void> {
   await page.goto('/app/tickets');
@@ -57,27 +50,31 @@ export async function deleteTicket(page: Page, title: string): Promise<void> {
 
 /**
  * Opens the given ticket (must already be on /app/tickets) and attaches the
- * real test-video.mp4 fixture via PulseUploadButton's "Upload from this
- * device" fallback. Waits for the resulting link to appear in the ticket's
- * "Links" list (AttachmentsPanel, src/features/clock/AttachmentsPanel.tsx).
+ * real test-video.mp4 fixture the way Pulse does after a QR scan, then waits
+ * for it in the ticket's attachments (AttachmentsPanel). Returns its videoid.
  */
-export async function uploadVideoToTicket(page: Page, ticketTitle: string): Promise<void> {
-  await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
-  await page.waitForTimeout(600);
+export async function uploadVideoToTicket(page: Page, ticketTitle: string): Promise<string> {
+  const ticketId = await openTicket(page, ticketTitle);
+  const token = await getSessionToken(page);
+  const { videoid, status } = await sendPulseVideo(page.request, token, {
+    kind: 'ticket',
+    id: ticketId,
+  });
+  expect(status.state).toBe('done');
 
-  await page.getByRole('button', { name: /upload video/i }).click();
-
-  const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
-  await expect(qrModal).toBeVisible({ timeout: 8000 });
-
-  // Closes the QR modal itself and opens the hidden file input.
-  await page.locator('button', { hasText: 'Upload from this device' }).click();
-
-  const fileInput = page.locator('input[type="file"][accept=".mp4,video/mp4"]');
-  await fileInput.setInputFiles(TEST_MP4);
-
-  const linksList = page.locator('ul[aria-label="Attached links"]');
-  await expect(linksList.locator('a[href*="/pulsevault/artifacts/"]').first()).toBeVisible({
+  // Sent behind the page's back (no Pulse button pressed), so reload for it.
+  await page.reload();
+  const linksList = page.locator('ul[aria-label="Attachments"]');
+  await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
     timeout: 30000,
   });
+  return videoid;
+}
+
+/** Open a ticket from the list (must already be on /app/tickets); returns its id. */
+export async function openTicket(page: Page, ticketTitle: string): Promise<string> {
+  await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
+  await page.waitForURL(/\/app\/tickets\/[^/]+$/);
+  await page.getByText('Links and videos').waitFor({ state: 'visible' });
+  return new URL(page.url()).pathname.split('/').pop()!;
 }

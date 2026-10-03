@@ -1,7 +1,7 @@
 /**
  * Pulse Cam scan interstitial.
  *
- *   GET /pulse/open?v=1&artifactId=…&server=…&token=…&uploadUnit=merged
+ *   GET /pulse/open?v=1&artifactId=…&server=…&token=…
  *
  * A phone camera scanning a raw `pulsecam://` QR code does nothing at all when
  * Pulse Cam isn't installed — most camera apps refuse to surface an unknown
@@ -24,7 +24,7 @@ const STORE_URLS = {
 const ANDROID_PACKAGE = 'com.mieweb.pulse';
 
 /** Deep-link params forwarded to Pulse Cam, per @mieweb/pulsevault PROTOCOL.md. */
-const ALLOWED_PARAMS = ['v', 'artifactId', 'server', 'token', 'uploadUnit'];
+const ALLOWED_PARAMS = ['v', 'artifactId', 'server', 'token'];
 const MAX_PARAM_LENGTH = 2048;
 // RFC 3986 unreserved + sub-delims + path/query chars — no quotes, angle
 // brackets, or control characters can reach the rendered page.

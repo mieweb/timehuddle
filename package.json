@@ -1,6 +1,6 @@
 {
   "name": "timehuddle",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -72,6 +72,7 @@
     "@kerebron/extension-yjs": "^0.8.9",
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/datavis": "^1.5.0",
+    "@mieweb/pulsevault": "^0.4.2",
     "@mieweb/ui": "file:vendor/mieweb-ui.tgz",
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",
@@ -95,7 +96,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "serve": "^14.2.4",
-    "tus-js-client": "^4.3.1",
     "y-protocols": "^1.0.7",
     "yaml": "^2.9.0",
     "yjs": "^13.6.30",
@@ -115,7 +115,6 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.1.0",
-    "@types/tus-js-client": "^1.8.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
     "@vitejs/plugin-react": "^6.0.4",

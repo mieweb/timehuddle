@@ -66,6 +66,17 @@ export function useClockToggle() {
     [selectedTeamId, planMissing, refetchClock],
   );
 
+  /**
+   * Bring the clock, and every page that shows a running timer, up to date
+   * after the clock changed — here, or on the server (a Pulse plan or wrap-up
+   * clocks in or out when its video lands).
+   */
+  const refreshAfterClockChange = useCallback(async () => {
+    await refetchClock();
+    window.dispatchEvent(new CustomEvent('work:refetch'));
+    window.dispatchEvent(new CustomEvent('tickets:refetch'));
+  }, [refetchClock]);
+
   const clockOut = useCallback(async () => {
     const teamId = activeClockEvent?.teamId ?? selectedTeamId;
     if (!teamId) return false;
@@ -73,10 +84,7 @@ export function useClockToggle() {
     setClockOutBlockedReason(null);
     try {
       await clockApi.stop(teamId);
-      await refetchClock();
-      // Notify all timer-displaying pages to refetch immediately
-      window.dispatchEvent(new CustomEvent('work:refetch'));
-      window.dispatchEvent(new CustomEvent('tickets:refetch'));
+      await refreshAfterClockChange();
       return true;
     } catch (err) {
       if (err instanceof ApiError && err.code === 'plan-required') {
@@ -88,12 +96,13 @@ export function useClockToggle() {
     } finally {
       setClockOutLoading(false);
     }
-  }, [activeClockEvent, selectedTeamId, refetchClock]);
+  }, [activeClockEvent, selectedTeamId, refreshAfterClockChange]);
 
   return {
     isClockedIn,
     clockIn,
     clockOut,
+    refreshAfterClockChange,
     pauseClock,
     resumeClock,
     clockInLoading,

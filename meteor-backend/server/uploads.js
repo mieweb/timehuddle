@@ -3,7 +3,6 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
-import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -16,7 +15,6 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uplo
 const PROFILE_DIR = path.join(UPLOADS_DIR, 'profile');
 const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
 
 // Incoming files land here first, then get renamed into place. Same volume as
 // the destinations, so the rename is atomic and free. Never served: the
@@ -25,7 +23,7 @@ const TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
 
 // Uploads stream straight to disk, so peak memory is one chunk regardless of
 // file size and this cap is about storage policy rather than heap safety.
-// Videos recorded in-app bypass this entirely via PulseVault's TUS endpoint.
+// No video types: videos come in through the Pulse app only (PulseVault), never here.
 const MAX_FILE_MB = Number(process.env.MAX_UPLOAD_MB) || 100;
 const MAX_FILE_SIZE = MAX_FILE_MB * 1024 * 1024;
 
@@ -37,11 +35,6 @@ const MIME_TO_EXT = {
   'image/gif': 'gif',
   'image/avif': 'avif',
   'image/svg+xml': 'svg',
-  // Videos
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'video/avi': 'avi',
   // Documents
   'application/pdf': 'pdf',
   'application/msword': 'doc',
@@ -392,13 +385,8 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
 
     const url = `/uploads/media/${filename}`;
     
-    // Classify file type based on MIME type
-    let type = 'image';
-    if (file.mimeType.startsWith('video/')) {
-      type = 'video';
-    } else if (!file.mimeType.startsWith('image/')) {
-      type = 'document';
-    }
+    // Classify file type based on MIME type (videos never reach this route).
+    const type = file.mimeType.startsWith('image/') ? 'image' : 'document';
     
     const doc = {
       _id: new ObjectId(),
@@ -428,70 +416,6 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
         altText: null,
         thumbnail: null,
         uploadedAt: doc.uploadedAt.toISOString(),
-      },
-    });
-  } catch (err) {
-    unlinkSafe(file?.path);
-    return sendJson(res, err.statusCode ?? 400, { error: err.message });
-  }
-});
-
-// ── Media thumbnail upload (/api/media-thumbnail/:id) ─────────────────────────
-
-WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
-  setCors(req, res);
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
-  const match = req.url.match(/^\/?([0-9a-f]{24})$/);
-  if (!match || req.method !== 'POST') return next();
-
-  const mediaId = match[1];
-  const identity = await authenticateRequest(req);
-  if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
-
-  const db = rawDb();
-  const item = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
-  if (!item) return sendJson(res, 404, { error: 'Not found' });
-  if (item.userId !== identity.userId) return sendJson(res, 403, { error: 'Forbidden' });
-
-  let file;
-  try {
-    file = await parseMultipart(req, ['image/jpeg', 'image/png', 'image/webp']);
-    if (file.size === 0) throw new Error('Empty file');
-
-    await fsp.mkdir(THUMBNAILS_DIR, { recursive: true });
-    const hex = randomBytes(8).toString('hex');
-    const filename = `${identity.userId}-${hex}.jpg`;
-    await fsp.rename(file.path, path.join(THUMBNAILS_DIR, filename));
-
-    const previousPath = resolveUploadPath(item.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR);
-    const thumbnailUrl = `/uploads/thumbnails/${filename}`;
-
-    const updated = await db.collection('mediaitems').findOneAndUpdate(
-      { _id: new ObjectId(mediaId) },
-      { $set: { thumbnail: thumbnailUrl } },
-      { returnDocument: 'after' },
-    );
-
-    if (previousPath && previousPath !== path.join(THUMBNAILS_DIR, filename)) {
-      unlinkSafe(previousPath);
-    }
-
-    return sendJson(res, 200, {
-      item: {
-        id: updated._id.toHexString(),
-        userId: updated.userId,
-        type: updated.type,
-        mimeType: updated.mimeType,
-        url: updated.url,
-        videoid: updated.videoid ?? null,
-        filename: updated.filename,
-        size: updated.size,
-        title: updated.title ?? null,
-        caption: updated.caption ?? null,
-        altText: updated.altText ?? null,
-        thumbnail: updated.thumbnail ?? null,
-        uploadedAt: updated.uploadedAt instanceof Date ? updated.uploadedAt.toISOString() : String(updated.uploadedAt),
       },
     });
   } catch (err) {
@@ -583,21 +507,29 @@ Meteor.methods({
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
-    if (await artifactIsEvidenceUnderReview(doc.videoid)) {
-      throw new Meteor.Error(
-        'evidence-in-review',
-        'This video backs a timesheet change awaiting review. Withdraw that request first.'
-      );
-    }
     await db.collection('mediaitems').deleteOne({ _id: doc._id });
 
-    unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
-    unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
-    if (doc.videoid) {
-      fsp.rm(path.join(VIDEOS_DIR, doc.videoid), { recursive: true, force: true }).catch(() => {});
+    // A Pulse video only leaves the library: it's team knowledge, and the
+    // post, plan or wrap-up it was delivered to still plays it.
+    if (!doc.videoid) {
+      unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
+      unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
     }
     return { ok: true };
   },
+});
+
+Meteor.startup(async () => {
+  const db = rawDb();
+  await Promise.all([
+    // One library item per Pulse video (see addToLibrary in pulse-destinations.js).
+    db
+      .collection('mediaitems')
+      .createIndex(
+        { userId: 1, videoid: 1 },
+        { unique: true, partialFilterExpression: { videoid: { $type: 'string' } } },
+      ),
+  ]).catch((err) => console.warn('[uploads] index creation failed:', err.message));
 });
 
 // ─── Publications ─────────────────────────────────────────────────────────────

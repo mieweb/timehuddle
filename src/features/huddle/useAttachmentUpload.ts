@@ -1,12 +1,12 @@
 /**
- * One upload path for everything the composer can attach — the Photo/Video/Doc
+ * One upload path for everything the composer can attach — the Photo/Doc
  * pickers and screenshots pasted or dropped straight into the editor — so all
  * of them report progress, surface failures, and hand back a {@link MediaItem}
  * identically.
  */
 import { useCallback, useRef, useState } from 'react';
 import { uploadMedia } from './api';
-import { composerErrorMessage } from './composerErrors';
+import { VIDEO_VIA_PULSE_MESSAGE, composerErrorMessage } from './composerErrors';
 import type { MediaItem } from './types';
 
 /**
@@ -17,6 +17,8 @@ import type { MediaItem } from './types';
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 const formatMb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
+
+const isVideoFile = (file: File) => file.type.startsWith('video/');
 
 interface UseAttachmentUploadOptions {
   onAttachmentAdd: (media: MediaItem) => void;
@@ -56,14 +58,23 @@ export function useAttachmentUpload({
       if (files.length === 0) return;
       onError?.(null);
 
-      const oversize = files.filter((file) => file.size > MAX_ATTACHMENT_BYTES);
+      // Videos come in through Pulse only — PulseVault is built for the Pulse
+      // app and there is no general video upload endpoint yet. A video dropped
+      // or pasted into the editor is turned away here with the way to do it.
+      const videos = files.filter(isVideoFile);
+      if (videos.length > 0) {
+        onError?.(`${videos.map((f) => f.name).join(', ')} — ${VIDEO_VIA_PULSE_MESSAGE}`);
+      }
+      const candidates = files.filter((file) => !isVideoFile(file));
+
+      const oversize = candidates.filter((file) => file.size > MAX_ATTACHMENT_BYTES);
       if (oversize.length > 0) {
         onError?.(
           `${oversize.map((f) => f.name).join(', ')} — too large to attach ` +
             `(limit ${formatMb(MAX_ATTACHMENT_BYTES)}).`,
         );
       }
-      const accepted = files.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+      const accepted = candidates.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
       if (accepted.length === 0) return;
 
       setUploading(true);

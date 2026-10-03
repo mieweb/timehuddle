@@ -52,9 +52,6 @@ Meteor.startup(async () => {
   ).catch(() => {});
 });
 
-/** Only adding brand-new time needs a video; editing or deleting is explained in writing alone. */
-const VIDEO_REQUIRED_ACTIONS = ['create'];
-
 /**
  * Who can sign off on `requesterId`'s change to this team's timesheet.
  *
@@ -108,25 +105,6 @@ export function toPublicChangeRequest(doc, extras = {}) {
 const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([A-Za-z0-9._-]+)$/;
 
 /**
- * Whether a recording is the evidence behind a change nobody has ruled on yet.
- *
- * Ownership is checked when the request is submitted, but the requester still
- * owns the recording afterwards: without this they could delete it while the
- * request sits in the queue and leave the reviewer an unplayable URL.
- */
-export async function artifactIsEvidenceUnderReview(artifactId) {
-  if (!artifactId) return false;
-  const cited = await TimesheetChangeRequests.findOneAsync(
-    {
-      videoUrl: `/pulsevault/artifacts/${artifactId}`,
-      status: { $in: ['pending', 'processing'] },
-    },
-    { fields: { _id: 1 } }
-  );
-  return Boolean(cited);
-}
-
-/**
  * Check the video is a recording the requester actually made.
  *
  * Without this a `videoUrl` is just a string the client asserts: it could name
@@ -143,16 +121,18 @@ async function assertVideoIsOwnEvidence(videoUrl, requesterId) {
   return videoUrl;
 }
 
-async function assertJustification({ action, description, videoUrl, requesterId }) {
+/**
+ * A change is justified in writing. A video walkthrough is optional — the app
+ * records one with Pulse (videos come in through Pulse only) — and when given
+ * must be the requester's own recording.
+ */
+async function assertJustification({ description, videoUrl, requesterId }) {
   const text = typeof description === 'string' ? description.trim() : '';
   if (text.length < 10) {
     throw new Meteor.Error(
       'description-required',
       'Explain the change in at least 10 characters so the reviewer has context.'
     );
-  }
-  if (VIDEO_REQUIRED_ACTIONS.includes(action) && !videoUrl) {
-    throw new Meteor.Error('video-required', 'Attach a video walking through this change.');
   }
   return { text, video: await assertVideoIsOwnEvidence(videoUrl, requesterId) };
 }
@@ -192,7 +172,6 @@ export async function submitChangeRequest({
     );
   }
   const { text: trimmed, video } = await assertJustification({
-    action,
     description,
     videoUrl,
     requesterId,

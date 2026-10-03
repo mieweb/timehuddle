@@ -41,6 +41,7 @@ import './team-join-requests';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+import { PULSE_DESTINATION_KINDS } from './pulse-destinations';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
@@ -1353,7 +1354,7 @@ Meteor.startup(async() => {
         endTime: { type: ['number', 'null'] },
         breaks: { type: 'array', items: { type: 'object' } },
         description: { type: 'string', description: 'Justification, required on teams with admins' },
-        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
+        videoUrl: { type: 'string', description: 'Optional supporting video' },
       },
       required: ['clockEventId'],
     },
@@ -1381,7 +1382,7 @@ Meteor.startup(async() => {
         startTime: { type: 'number' },
         endTime: { type: 'number' },
         description: { type: 'string', description: 'Justification, required on teams with admins' },
-        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
+        videoUrl: { type: 'string', description: 'Optional supporting video' },
       },
       required: ['teamId', 'startTime', 'endTime'],
     },
@@ -2131,19 +2132,33 @@ Meteor.startup(async() => {
   Wormhole.expose('media.list', { description: 'List media library items', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } });
   Wormhole.expose('media.listForUser', { description: 'List media for a user profile', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, limit: { type: 'integer' } }, required: ['userId'] } });
   Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
-  Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
+  Wormhole.expose('media.remove', { description: 'Remove an item from your media library (owner); a Pulse video stays where it was posted', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
 
   // ── PulseVault ────────────────────────────────────────────────────────────
 
   Wormhole.expose('pulsevault.reserve', {
-    description: 'Reserve a videoid for TUS video upload',
+    description:
+      'Reserve one Pulse upload: a fresh videoid, its link token, and where the finished video goes',
     inputSchema: {
       type: 'object',
       properties: {
-        ticketId: { type: 'string' },
-        existingVideoid: { type: 'string' },
-        target: { type: 'string', enum: ['ticket', 'redmine', 'library'] },
+        destination: {
+          type: 'object',
+          description:
+            'Where the video goes: { kind: huddle, teamId } | { kind: clock-plan, teamId, postDate } | ' +
+            '{ kind: clock-wrapup, clockEventId, postDate } | { kind: ticket | redmine | clock | timesheet-request, id } | ' +
+            '{ kind: library }',
+          properties: {
+            kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
+            teamId: { type: 'string' },
+            clockEventId: { type: 'string' },
+            postDate: { type: 'string' },
+            id: { type: 'string' },
+          },
+          required: ['kind'],
+        },
       },
+      required: ['destination'],
     },
     outputSchema: {
       type: 'object',
@@ -2153,14 +2168,20 @@ Meteor.startup(async() => {
       },
     },
   });
-  Wormhole.expose('pulsevault.reserveForLibrary', {
-    description: 'Reserve a videoid for media library TUS upload',
-    inputSchema: { type: 'object', properties: {} },
+  Wormhole.expose('pulsevault.status', {
+    description:
+      "Where one of the caller's Pulse uploads stands: waiting, done (with a note when a step after delivery failed), kept (in their media library instead, with the reason) or expired",
+    inputSchema: {
+      type: 'object',
+      properties: { videoid: { type: 'string' } },
+      required: ['videoid'],
+    },
     outputSchema: {
       type: 'object',
       properties: {
-        videoid: { type: 'string' },
-        uploadToken: { type: 'string' },
+        state: { type: 'string', enum: ['waiting', 'done', 'kept', 'expired'] },
+        reason: { type: 'string' },
+        note: { type: 'string' },
       },
     },
   });

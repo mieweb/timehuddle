@@ -69,12 +69,20 @@ import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
-import { ProfileFeed } from './ProfileFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 import { TodayStatusCard } from '../timers/TodayStatusCard';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
+
+/**
+ * The tabs a profile has. An old link to the removed Feed tab (`?tab=feed`) —
+ * or anything else unknown — opens Work.
+ */
+const PROFILE_TABS = ['work', 'activity'] as const;
+function profileTab(tab: string | null): string {
+  return tab && (PROFILE_TABS as readonly string[]).includes(tab) ? tab : 'work';
+}
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
@@ -96,13 +104,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   // (e.g. tapping a second notification while already on this profile page).
   // Consumed immediately: leaving `?tab=` in the URL would make a repeat tap a
   // no-op change to `search`, so the deep link would be silently ignored.
-  const [activeTab, setActiveTab] = useState(
-    () => new URLSearchParams(search).get('tab') ?? 'feed',
+  const [activeTab, setActiveTab] = useState(() =>
+    profileTab(new URLSearchParams(search).get('tab')),
   );
   useEffect(() => {
     const tab = new URLSearchParams(search).get('tab');
     if (!tab) return;
-    setActiveTab(tab);
+    setActiveTab(profileTab(tab));
     replace(pathname);
   }, [search, pathname, replace]);
 
@@ -419,13 +427,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         />
       )}
 
-      {/* Tab rail — Feed | Work | Activity */}
+      {/* Tab rail — Work | Activity */}
       {profile && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4 w-full">
-            <TabsTrigger value="feed" className="flex-1">
-              Feed
-            </TabsTrigger>
             <TabsTrigger value="work" className="flex-1">
               Work
             </TabsTrigger>
@@ -433,11 +438,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               Activity
             </TabsTrigger>
           </TabsList>
-
-          {/* Feed tab */}
-          <TabsContent value="feed">
-            <ProfileFeed userId={profile.id} isOwn={isOwn} />
-          </TabsContent>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">

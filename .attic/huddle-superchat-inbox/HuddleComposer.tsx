@@ -21,7 +21,9 @@ import { ComposerAttachButtons, ComposerChips, type MentionRef } from './Compose
 import { ComposerProgress } from './ComposerProgress';
 import { ComposerError } from './ComposerError';
 import { useAttachmentUpload, useUploadProgress } from './useAttachmentUpload';
-import { clearComposerPulseUpload } from './pulseComposerUpload';
+import { PulseChip } from '../pulse-upload/PulseButton';
+import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { huddlePostCollab } from './collab';
 import { appendImageMarkdown, isInlineImage, restoreImageAltText } from './api';
 import { composerErrorMessage } from './composerErrors';
@@ -63,12 +65,14 @@ interface HuddleComposerProps {
    */
   collabRoom?: string;
   /**
-   * Which composer this is, for hosts that mount more than one against the same
-   * team (the feed, the new-draft box, a draft being edited). It distinguishes
-   * their persisted Pulse reservations, so a recording started in one is never
-   * restored into another. Stable across remounts of the same composer.
+   * The team a Pulse video posts to. When set, the collapsed bar gets a Pulse
+   * button beside "Share an update…": the upload posts itself to this team
+   * (the server makes the post when it lands), so it isn't part of the
+   * composer — text typed here couldn't go with it.
    */
-  composerId?: string;
+  pulseTeamId?: string | null;
+  /** Called once a Pulse video has landed, so the feed can show its post. */
+  onPulseSettled?: () => void;
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -85,9 +89,17 @@ export function HuddleComposer({
   initialTicketId,
   initialMentions,
   collabRoom,
-  composerId = 'feed',
+  pulseTeamId,
+  onPulseSettled,
 }: HuddleComposerProps) {
   const [expanded, setExpanded] = useState(editing);
+  // Owned here, not by the button: opening the composer replaces the button,
+  // and the video it handed out is still on its way.
+  const pulse = usePulseUpload(
+    { kind: 'huddle', teamId: pulseTeamId ?? '' },
+    { onSettled: () => onPulseSettled?.() },
+  );
+  const pulseModal = pulseTeamId ? <PulseUploadModal pulse={pulse} /> : null;
   const [text, setText] = useState(initialText);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(initialTicketId);
   const [attachments, setAttachments] = useState<MediaItem[]>(initialAttachments ?? []);
@@ -100,9 +112,6 @@ export function HuddleComposer({
   // submitting the post read as one continuous operation. Aggregated across the
   // pickers and paste, which upload independently and can overlap.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // A Pulse recording reserved but not yet attached — in-flight work too, even
-  // though no bytes are moving through this client.
-  const [pulsePending, setPulsePending] = useState(false);
   // One failure notice for the whole composer, whichever step produced it —
   // an upload, or the post itself. Rendered in a `role="alert"` region rather
   // than an `alert()`; see {@link ComposerError}.
@@ -113,16 +122,6 @@ export function HuddleComposer({
   // Read on submit instead of trusting `text`: RichEditor mirrors its content
   // out through an async serialization, so `text` can lag the last keystroke.
   const editorRef = useRef<RichEditorHandle>(null);
-
-  // Stable localStorage scope for the Pulse upload button — also the key this
-  // composer clears once a post is submitted/cancelled so a finished video
-  // isn't re-attached to the next post. Scoped by team so switching teams while
-  // a recording is pending can't hand that video to the new team's post, and by
-  // `composerId` so the feed composer and the drafts composers (all non-editing,
-  // all on the same team) don't share one reservation.
-  const pulseScope = editing
-    ? `huddle-edit-${collabRoom ?? 'post'}`
-    : `huddle-${composerId}-${selectedTeamId ?? 'none'}`;
 
   // Click-outside → collapse (only when empty, so in-progress writing is never
   // lost). Frees up feed space when you're not actively composing. Disabled in
@@ -140,14 +139,12 @@ export function HuddleComposer({
         )
       )
         return;
-      // A pending Pulse recording counts as content: collapsing would clear the
-      // reservation and unmount the watcher while the phone is still uploading.
-      const hasContent = text.trim() || attachments.length > 0 || pulsePending;
+      const hasContent = text.trim() || attachments.length > 0;
       if (!hasContent) handleCancel();
     };
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [expanded, text, attachments.length, pulsePending]);
+  }, [expanded, text, attachments.length]);
 
   // Fetch videos attached to the selected ticket
   useEffect(() => {
@@ -195,7 +192,7 @@ export function HuddleComposer({
   // orphan the clip — so the button stays closed until both have settled. The
   // Cancel beside the "Waiting for your Pulse video…" status abandons the
   // recording if the user would rather post without it.
-  const canSubmit = hasContent && !posting && uploadFraction === null && !pulsePending;
+  const canSubmit = hasContent && !posting && uploadFraction === null;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -226,10 +223,6 @@ export function HuddleComposer({
         mentions,
       });
       setPostDone(true);
-      // Clear the reservation for every successful submit, before branching on
-      // `editing` — otherwise reopening the same post within the TTL reattaches
-      // the video that was just submitted.
-      clearComposerPulseUpload(pulseScope);
       // Hold at 100% briefly so the user sees the bar complete
       await new Promise<void>((r) => setTimeout(r, 400));
       // In edit mode the host closes the composer once the update resolves
@@ -252,9 +245,6 @@ export function HuddleComposer({
 
   const handleCancel = () => {
     setError(null);
-    // Clear before the editing early return — a recording that finishes after
-    // cancellation must not be restored the next time this post is edited.
-    clearComposerPulseUpload(pulseScope);
     if (editing) {
       onCancel?.();
       return;
@@ -276,10 +266,6 @@ export function HuddleComposer({
     [],
   );
   const handleAttachmentRemove = (mediaId: string) => {
-    // Removing the Pulse video chip also forgets its persisted upload, so it
-    // won't reappear when the composer remounts.
-    const removed = attachments.find((m) => m.id === mediaId);
-    if (removed?.type === 'video') clearComposerPulseUpload(pulseScope);
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
   };
 
@@ -348,6 +334,13 @@ export function HuddleComposer({
         >
           {collapsedLabel}
         </Button>
+        {pulseTeamId && (
+          // shrink-0: the full-width Share button beside it would squeeze it.
+          <div className="huddle-composer-pulse flex shrink-0 items-center gap-2">
+            <PulseChip pulse={pulse} label="Post with Pulse" size="md" />
+          </div>
+        )}
+        {pulseModal}
       </div>
     );
   }
@@ -410,14 +403,12 @@ export function HuddleComposer({
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <ComposerAttachButtons
           teamId={selectedTeamId}
-          pulseScope={pulseScope}
           onAttachmentAdd={handleAttachmentAdd}
           selectedTicketId={selectedTicketId}
           onTicketSelect={setSelectedTicketId}
           onMentionSelect={handleMentionSelect}
           onUploadProgress={reporterFor('picker')}
           onError={setError}
-          onPulsePendingChange={setPulsePending}
         />
         <Button variant="ghost" size="sm" onClick={handleCancel} className="ml-1">
           Cancel
@@ -451,6 +442,7 @@ export function HuddleComposer({
       <ComposerProgress uploadFraction={uploadFraction} posting={posting} postDone={postDone} />
 
       <ComposerError message={error} onDismiss={clearError} />
+      {pulseModal}
     </div>
   );
 }

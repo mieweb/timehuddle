@@ -3,91 +3,27 @@
  *
  * Verifies the @mieweb/pulsevault-backed video upload path on the Meteor
  * backend (meteor-backend/server/pulsevault.js):
- *  1. API-level contract — capabilities discovery, all 4 Wormhole-exposed
- *     methods (reserve, reserveForLibrary, getVideo, listVideos), the full
- *     raw TUS surface (POST/PATCH/HEAD/DELETE upload, GET/DELETE artifact),
- *     and the standalone /pulsevault/docs Swagger page.
- *  2. Ticket video upload flow — QR modal + deep link, device upload, the
- *     resulting attachment appearing in the ticket's "Links" list.
+ *  1. API-level contract — capabilities discovery, the Wormhole-exposed
+ *     methods (reserve, status, getVideo, listVideos), the full raw TUS
+ *     surface (POST/PATCH/HEAD/DELETE upload, GET/DELETE artifact), and the
+ *     standalone /pulsevault/docs Swagger page.
+ *  2. Ticket video upload flow — QR modal + deep link (and no device-upload
+ *     option: videos come from Pulse only), and what the open modal says when
+ *     the video lands: added (and listed), or kept in the library.
  */
 import fs from 'node:fs';
-import { expect, test, type Page, type APIRequestContext, type TestInfo } from '@playwright/test';
+import { expect, test, type TestInfo } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from './helpers';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getSessionToken(page: Page): Promise<string> {
-  // `meteor_resume_token` is the real Meteor-auth key getAccessToken() reads
-  // (src/lib/api.ts) — `timecore_session_token` is dead Fastify-era storage,
-  // never written to since the Meteor migration. It lands in localStorage
-  // once the app's DDP client finishes resuming its session, which happens
-  // slightly after the dashboard redirect loginAs() waits on — poll briefly
-  // instead of racing it.
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('meteor_resume_token')), {
-      timeout: 10000,
-    })
-    .toBeTruthy();
-  return (await page.evaluate(() => localStorage.getItem('meteor_resume_token'))) as string;
-}
-
-async function reserveLibraryUpload(
-  request: APIRequestContext,
-  token: string,
-): Promise<{ videoid: string; uploadToken: string }> {
-  const res = await request.post('/api/pulsevault_reserve', {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { target: 'library' },
-  });
-  expect(res.status()).toBe(200);
-  // Wormhole's REST bridge wraps every method's return value as { result }.
-  const body = await res.json();
-  return body.result;
-}
-
-/**
- * Full TUS create + single-chunk PATCH of the real test-video.mp4 fixture,
- * entirely at the API level (no browser UI). Used by tests that need a
- * genuinely completed video (passes the real MP4 sniffer, lands in
- * `mediaitems`) to exercise getVideo/listVideos/artifact-serving against.
- * Returns once the upload is complete (Upload-Offset === file size).
- */
-async function uploadRealVideoViaApi(
-  request: APIRequestContext,
-  videoid: string,
-  uploadToken: string,
-): Promise<void> {
-  const bytes = fs.readFileSync(TEST_MP4);
-  const metadata = [
-    `artifactId ${Buffer.from(videoid).toString('base64')}`,
-    `filename ${Buffer.from('test-video.mp4').toString('base64')}`,
-  ].join(',');
-
-  const created = await request.post('/pulsevault/upload', {
-    headers: {
-      'Tus-Resumable': '1.0.0',
-      'Upload-Length': String(bytes.length),
-      'Upload-Metadata': metadata,
-      Authorization: `Bearer ${uploadToken}`,
-    },
-  });
-  expect(created.status()).toBe(201);
-  const location = created.headers()['location'];
-  expect(location).toBeTruthy();
-
-  const patched = await request.patch(location, {
-    headers: {
-      'Tus-Resumable': '1.0.0',
-      'Upload-Offset': '0',
-      'Content-Type': 'application/offset+octet-stream',
-      Authorization: `Bearer ${uploadToken}`,
-    },
-    data: bytes,
-  });
-  expect(patched.status()).toBe(204);
-  expect(patched.headers()['upload-offset']).toBe(String(bytes.length));
-}
+import { markTicketDeleted } from '../fixtures/db';
+import {
+  PULSE_CLIENT_HEADER,
+  TEST_MP4,
+  getSessionToken,
+  reservePulseUpload,
+  uploadVideoAsPulse,
+  waitForPulseOutcome,
+} from '../fixtures/pulse';
+import { createTicket, deleteTicket, openTicket, uploadVideoToTicket } from './helpers';
 
 // ─── API-level contract checks ────────────────────────────────────────────────
 
@@ -99,7 +35,6 @@ test.describe('PulseVault — API contract', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body).toHaveProperty('protocolVersion');
-    expect(body).toHaveProperty('uploadUnit', 'merged');
   });
 
   test('POST /api/pulsevault_reserve requires auth', async ({ request }) => {
@@ -113,6 +48,19 @@ test.describe('PulseVault — API contract', () => {
     expect(body.error).toBe('not-authorized');
   });
 
+  test('reserve refuses a missing or unknown destination', async ({ page, request }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const token = await getSessionToken(page);
+    for (const data of [{}, { destination: { kind: 'nowhere' } }]) {
+      const res = await request.post('/api/pulsevault_reserve', {
+        headers: { Authorization: `Bearer ${token}` },
+        data,
+      });
+      expect(res.status()).toBe(500);
+      expect((await res.json()).error).toBe('bad-request');
+    }
+  });
+
   test('reserve mints a videoid + capability token, and TUS create is authorized by it', async ({
     page,
     request,
@@ -120,7 +68,7 @@ test.describe('PulseVault — API contract', () => {
     await loginAs(page, TEST_USERS.owner1);
     const token = await getSessionToken(page);
 
-    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+    const { videoid, uploadToken } = await reservePulseUpload(request, token, { kind: 'library' });
     expect(videoid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(typeof uploadToken).toBe('string');
 
@@ -135,9 +83,22 @@ test.describe('PulseVault — API contract', () => {
     });
     expect(unauthorized.status()).toBe(401);
 
+    // A valid token but no `Pulse-Client` header — not the Pulse app, so the
+    // create is refused (videos come from Pulse only).
+    const notPulse = await request.post('/pulsevault/upload', {
+      headers: {
+        'Tus-Resumable': '1.0.0',
+        'Upload-Length': '28',
+        'Upload-Metadata': metadata,
+        Authorization: `Bearer ${uploadToken}`,
+      },
+    });
+    expect(notPulse.status()).toBe(403);
+
     // Correct capability token — TUS create must succeed.
     const authorized = await request.post('/pulsevault/upload', {
       headers: {
+        ...PULSE_CLIENT_HEADER,
         'Tus-Resumable': '1.0.0',
         'Upload-Length': '28',
         'Upload-Metadata': metadata,
@@ -156,7 +117,7 @@ test.describe('PulseVault — API contract', () => {
 
     await loginAs(page, TEST_USERS.owner1);
     const token = await getSessionToken(page);
-    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+    const { videoid, uploadToken } = await reservePulseUpload(request, token, { kind: 'library' });
 
     const bytes = fs.readFileSync(TEST_MP4);
     const metadata = [
@@ -166,6 +127,7 @@ test.describe('PulseVault — API contract', () => {
 
     const created = await request.post('/pulsevault/upload', {
       headers: {
+        ...PULSE_CLIENT_HEADER,
         'Tus-Resumable': '1.0.0',
         'Upload-Length': String(bytes.length),
         'Upload-Metadata': metadata,
@@ -216,25 +178,11 @@ test.describe('PulseVault — API contract', () => {
   }) => {
     await loginAs(page, TEST_USERS.owner1);
     const token = await getSessionToken(page);
-    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+    const { videoid, uploadToken } = await reservePulseUpload(request, token, { kind: 'library' });
 
-    await uploadRealVideoViaApi(request, videoid, uploadToken);
-
-    // onUploadComplete writes the mediaitems doc synchronously within the
-    // completing PATCH's request lifecycle, but poll briefly to absorb any
-    // scheduling jitter rather than assuming exact timing.
-    await expect
-      .poll(
-        async () => {
-          const res = await request.post('/api/pulsevault_getVideo', {
-            headers: { Authorization: `Bearer ${token}` },
-            data: { artifactId: videoid },
-          });
-          return res.status();
-        },
-        { timeout: 10000 },
-      )
-      .toBe(200);
+    await uploadVideoAsPulse(request, videoid, uploadToken);
+    // Delivered just after the final PATCH is answered.
+    expect(await waitForPulseOutcome(request, token, videoid)).toEqual({ state: 'done' });
 
     const getRes = await request.post('/api/pulsevault_getVideo', {
       headers: { Authorization: `Bearer ${token}` },
@@ -256,14 +204,14 @@ test.describe('PulseVault — API contract', () => {
     ).toBe(true);
   });
 
-  test('GET/DELETE /pulsevault/artifacts/{id} serve and remove the finished video', async ({
+  test('GET /pulsevault/artifacts/{id} serves the finished video, and DELETE is refused once it landed', async ({
     page,
     request,
   }) => {
     await loginAs(page, TEST_USERS.owner1);
     const token = await getSessionToken(page);
-    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
-    await uploadRealVideoViaApi(request, videoid, uploadToken);
+    const { videoid, uploadToken } = await reservePulseUpload(request, token, { kind: 'library' });
+    await uploadVideoAsPulse(request, videoid, uploadToken);
 
     await expect
       .poll(async () => (await request.get(`/pulsevault/artifacts/${videoid}`)).status(), {
@@ -275,18 +223,16 @@ test.describe('PulseVault — API contract', () => {
     expect(getArtifact.status()).toBe(200);
     expect(getArtifact.headers()['content-type']).toContain('video/mp4');
 
-    // Artifact delete is authorized by the same capability token as the
-    // upload (the `authorize` hook only treats the `resolve`/GET phase as
-    // public — everything else, including delete, goes through
-    // verifyUploadToken against the artifact-scoped capability token, not a
-    // general Meteor session token).
+    // The upload's own capability token still authorizes a delete, but a
+    // video that has landed is never deleted: whatever it was added to plays it.
+    expect(await waitForPulseOutcome(request, token, videoid)).toEqual({ state: 'done' });
     const del = await request.delete(`/pulsevault/artifacts/${videoid}`, {
       headers: { Authorization: `Bearer ${uploadToken}` },
     });
-    expect([200, 204]).toContain(del.status());
+    expect(del.status()).toBe(409);
 
     const getAfterDelete = await request.get(`/pulsevault/artifacts/${videoid}`);
-    expect(getAfterDelete.status()).toBe(404);
+    expect(getAfterDelete.status()).toBe(200);
   });
 
   test('GET /pulsevault/docs and /pulsevault/openapi.json serve the standalone Swagger page', async ({
@@ -311,6 +257,8 @@ test.describe('PulseVault — API contract', () => {
 test.describe('PulseVault — Ticket video upload', () => {
   test.setTimeout(90000);
   let ticketTitle = '';
+  // Set by a test that deletes its ticket itself.
+  let ticketDeleted = false;
 
   function buildTicketTitle(testInfo: TestInfo): string {
     const safeTitle = testInfo.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 32);
@@ -319,62 +267,115 @@ test.describe('PulseVault — Ticket video upload', () => {
 
   test.beforeEach(async ({ page }, testInfo) => {
     ticketTitle = buildTicketTitle(testInfo);
+    ticketDeleted = false;
     await loginAs(page, TEST_USERS.owner1);
     await createTicket(page, ticketTitle);
   });
 
   test.afterEach(async ({ page }) => {
-    await deleteTicket(page, ticketTitle);
+    if (!ticketDeleted) await deleteTicket(page, ticketTitle);
   });
 
-  test('"Upload Video" button opens QR modal with a valid pulsecam deep link', async ({ page }) => {
-    await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
-    await page.waitForTimeout(600);
+  test('the Pulse button opens the QR modal with a valid pulsecam deep link', async ({ page }) => {
+    await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: /upload video/i }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
-    const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
+    const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
-
-    const qr = qrModal.locator('[aria-label="QR code to open the Pulse upload screen"]');
-    await expect(qr).toBeVisible();
+    await expect(qrModal.getByLabel('QR code to open the Pulse upload screen')).toBeVisible();
   });
 
-  // The deep-link protocol itself (v=1, artifactId, server, token,
-  // uploadUnit) is asserted at the unit level in PulseUploadButton.test.ts —
+  test('pressing Pulse again while its link is live reopens it instead of minting another', async ({
+    page,
+  }) => {
+    await openTicket(page, ticketTitle);
+
+    let reserves = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/pulsevault_reserve')) reserves += 1;
+    });
+    const pulse = page.getByRole('button', { name: 'Add a video with Pulse' });
+    const qr = page.getByLabel('QR code to open the Pulse upload screen');
+
+    await pulse.click();
+    await expect(qr).toBeVisible({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Close' }).last().click();
+    await expect(qr).toBeHidden();
+
+    await pulse.click();
+    await expect(qr).toBeVisible({ timeout: 8000 });
+    expect(reserves).toBe(1);
+  });
+
+  // The deep-link protocol itself (v=1, artifactId, server, token) is
+  // asserted at the unit level in pulseLinks.test.ts —
   // qrcode.react renders to a plain <svg> with no way to read back the
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.
-  test('device-upload fallback is offered alongside the QR code', async ({ page }) => {
-    // Ticket create + modal open + video-upload path is heavier than the
-    // default 30s allows once the DB has accumulated state late in the suite.
-    test.setTimeout(60000);
-    await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
-    await page.waitForTimeout(600);
+  test('the QR modal offers no device upload — videos come from Pulse only', async ({ page }) => {
+    await openTicket(page, ticketTitle);
 
-    await page.getByRole('button', { name: /upload video/i }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
-    const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
+    const qrModal = page.getByRole('dialog', { name: 'Record with Pulse' });
     await expect(qrModal).toBeVisible({ timeout: 8000 });
-    await expect(qrModal.getByText('Upload Video with Pulse')).toBeVisible();
-    await expect(page.locator('button', { hasText: 'Upload from this device' })).toBeVisible();
+    await expect(page.getByText('Upload from this device')).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
   });
 
-  test("direct MP4 upload from device completes and appears under the ticket's Links list", async ({
-    page,
-  }) => {
-    await uploadVideoToTicket(page, ticketTitle);
+  test("a Pulse upload completes and appears in the ticket's attachments", async ({ page }) => {
+    const videoid = await uploadVideoToTicket(page, ticketTitle);
 
-    // uploadVideoToTicket already waits for the link to appear and leaves us
-    // on the ticket's own detail page (URL-based route) — re-confirm after a
-    // reload that it was actually persisted (onUploadComplete wrote the
-    // attachment to Mongo), not just held in transient component state.
+    // Persisted (in Mongo), not just held in component state.
     await page.reload();
-    await page.waitForTimeout(1000);
-
-    const linksList = page.locator('ul[aria-label="Attached links"]');
-    await expect(linksList.locator('a[href*="/pulsevault/artifacts/"]').first()).toBeVisible({
+    const linksList = page.locator('ul[aria-label="Attachments"]');
+    await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
       timeout: 8000,
     });
+  });
+
+  /** Press Pulse on the open ticket, as a person would; returns the link it handed out. */
+  async function pressPulse(page: import('@playwright/test').Page) {
+    const reserved = page.waitForResponse((res) => res.url().includes('/api/pulsevault_reserve'));
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
+    const { result } = await (await reserved).json();
+    return result as { videoid: string; uploadToken: string };
+  }
+
+  test('the open modal says when the video is added, and the list shows it', async ({ page }) => {
+    await openTicket(page, ticketTitle);
+    const { videoid, uploadToken } = await pressPulse(page);
+    const modal = page.getByRole('dialog', { name: 'Record with Pulse' });
+    await expect(modal).toBeVisible();
+
+    await uploadVideoAsPulse(page.request, videoid, uploadToken);
+
+    // The modal's own status check finds it — no reload.
+    await expect(modal.getByText('Added', { exact: true })).toBeVisible({ timeout: 20000 });
+    await expect(modal).toBeHidden({ timeout: 5000 });
+    const linksList = page.locator('ul[aria-label="Attachments"]');
+    await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible();
+  });
+
+  test('the open modal says when the video was kept instead — the ticket was deleted', async ({
+    page,
+  }) => {
+    const ticketId = await openTicket(page, ticketTitle);
+    const { videoid, uploadToken } = await pressPulse(page);
+    const modal = page.getByRole('dialog', { name: 'Record with Pulse' });
+
+    await markTicketDeleted(ticketId);
+    ticketDeleted = true;
+    await uploadVideoAsPulse(page.request, videoid, uploadToken);
+
+    await expect(
+      modal.getByText(
+        "Couldn't add your video here. That ticket no longer exists. It's saved, not lost.",
+      ),
+    ).toBeVisible({ timeout: 20000 });
+    // Kept, so it stays open until closed — and nothing was attached.
+    await modal.getByRole('button', { name: 'Close' }).last().click();
+    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toHaveCount(0);
   });
 });

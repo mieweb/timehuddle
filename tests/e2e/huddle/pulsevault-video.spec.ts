@@ -1,34 +1,49 @@
 /**
  * Huddle Feed — Pulse Video Tests
  *
- * Verifies two ways a video ends up in a huddle post:
- *  1. Direct upload from the composer's attach bar ("Video" button) — a
- *     file-picker path through PulseVault TUS, independent of any ticket.
- *     Driven through the Clock tab's plan composer.
+ * Videos reach a huddle post only through Pulse:
+ *  1. The Clock tab offers "Clock in with Pulse" beside its plan composer,
+ *     and the composer has no raw "Video" file picker.
+ *  1b. A Pulse upload lands where it was reserved for, with no client step:
+ *     a Huddle post, a plan that clocks in, a wrap-up that clocks out — and
+ *     one whose destination is gone by then is kept in the library instead.
+ *     Removing it from the library leaves it playing where it was posted.
  *  2. Cross-posting: a ticket that already has a Pulse video attached is
  *     picked with the Huddle message box's Ticket button, and that video is
  *     automatically pulled into the post (useTicketVideos) without any extra
  *     upload step. Runs on a freshly created, empty team, so the inbox opens
  *     on its starter conversation.
  *
- * Both assert against the real backend — the post must link to the actual
- * /pulsevault/artifacts/:id playback URL (the inbox renders video attachments
- * as links), not just "some video exists".
+ * The cross-post asserts against the real backend: the post must link to the
+ * actual /pulsevault/artifacts/:id URL, not just "some video exists".
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
+import {
+  deleteClockEvent,
+  findLibraryVideo,
+  findOpenClockEventId,
+  findPostWithVideo,
+  findTeamIdByName,
+  removeFromTeam,
+} from '../fixtures/db';
+import {
+  getSessionToken,
+  pulseStatus,
+  reservePulseUpload,
+  sendPulseVideo,
+  uploadVideoAsPulse,
+} from '../fixtures/pulse';
+import { createTicket, deleteTicket, uploadVideoToTicket } from '../tickets/helpers';
 import {
   attachTicket,
   clockOut,
-  composerEditor,
   inboxComposer,
   openComposer,
   openPostInInbox,
   sendFromInbox,
   setSharedTeamPlanGate,
-  submitPost,
 } from './helpers';
 
 /** Create a team through the UI; the app switches to it. */
@@ -40,7 +55,7 @@ async function createFreshTeam(page: Page, name: string): Promise<void> {
   await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 }
 
-test.describe('Huddle — direct video upload', () => {
+test.describe('Huddle — videos come from Pulse only', () => {
   test.setTimeout(90000);
 
   test.beforeAll(() => setSharedTeamPlanGate(true));
@@ -56,25 +71,238 @@ test.describe('Huddle — direct video upload', () => {
     await clockOut(page);
   });
 
-  test("uploading a video via the composer's Video button posts a playable video", async ({
+  test('the Clock page offers Pulse beside the plan composer, and no raw video upload', async ({
     page,
   }) => {
-    const postText = `Huddle Video Post ${Date.now()}`;
+    await expect(page.getByRole('button', { name: 'Clock in with Pulse' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Video', exact: true })).toHaveCount(0);
+    await expect(page.locator('input[type="file"][accept*="video"]')).toHaveCount(0);
+  });
+});
 
-    await composerEditor(page).fill(postText);
+// One link, one upload, one destination: the server delivers a Pulse upload
+// where it was reserved for the moment it lands — nothing to attach or post.
+test.describe('Huddle — a Pulse upload goes straight to its destination', () => {
+  test.setTimeout(120000);
 
-    await page.getByRole('button', { name: 'Video', exact: true }).click();
-    const videoInput = page.locator('input[type="file"][accept="video/*"]');
-    await videoInput.setInputFiles(TEST_MP4);
+  test('a Pulse upload for Huddle posts itself to the team feed', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    await page.goto('/app/huddle');
+    await expect(page.getByRole('button', { name: 'Post a video with Pulse' })).toBeVisible();
 
-    // The attach bar shows the filename as a chip once uploadMedia() resolves.
-    await expect(page.getByText('test-video.mp4')).toBeVisible({ timeout: 20000 });
+    const token = await getSessionToken(page);
+    const { videoid, status } = await sendPulseVideo(page.request, token, {
+      kind: 'huddle',
+      teamId,
+    });
+    expect(status).toEqual({ state: 'done' });
 
-    await submitPost(page);
+    await page.reload();
+    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible({
+      timeout: 20000,
+    });
+  });
 
-    const post = await openPostInInbox(page, postText);
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
-      timeout: 10000,
+  test('removing a video from the media library leaves it playing where it was posted', async ({
+    page,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    const token = await getSessionToken(page);
+    const { videoid } = await sendPulseVideo(page.request, token, { kind: 'huddle', teamId });
+
+    const item = await findLibraryVideo(videoid);
+    const removed = await page.request.post('/api/media_remove', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { mediaId: String(item!._id) },
+    });
+    expect(removed.status()).toBe(200);
+
+    expect(await findLibraryVideo(videoid)).toBeNull();
+    expect(await findPostWithVideo(videoid)).not.toBeNull();
+    expect((await page.request.get(`/pulsevault/artifacts/${videoid}`)).status()).toBe(200);
+  });
+
+  test.describe('plan and wrap-up', () => {
+    test.beforeAll(() => setSharedTeamPlanGate(true));
+    test.afterAll(() => setSharedTeamPlanGate(false));
+
+    test('a Pulse plan clocks you in, and a Pulse wrap-up clocks you out', async ({ page }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        kind: 'clock-plan',
+        teamId,
+        postDate: today,
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        kind: 'clock-wrapup',
+        clockEventId,
+        postDate: today,
+      });
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .toBeNull();
+    });
+
+    test('the Clock page says the Pulse plan and wrap-up landed, through clocking in and out', async ({
+      page,
+    }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      await page.goto('/app/clock');
+
+      // Press Pulse as a person would, then send the video Pulse would.
+      const recordWithPulse = async (name: string) => {
+        const reserved = page.waitForResponse((res) =>
+          res.url().includes('/api/pulsevault_reserve'),
+        );
+        await page.getByRole('button', { name }).click();
+        const { result } = await (await reserved).json();
+        const dialog = page.getByRole('dialog', { name: 'Record with Pulse' });
+        await expect(dialog).toBeVisible();
+        await uploadVideoAsPulse(page.request, result.videoid, result.uploadToken);
+        return dialog;
+      };
+
+      // Each step changes the page under the popup (clocking in swaps the
+      // composer; clocking out ends the session the wrap-up was for), and the
+      // popup still has to say it worked.
+      const plan = await recordWithPulse('Clock in with Pulse');
+      await expect(plan.getByText("Plan posted — you're clocked in")).toBeVisible({
+        timeout: 20000,
+      });
+      await expect(plan).toBeHidden({ timeout: 5000 });
+
+      const wrapUp = await recordWithPulse('Clock out with Pulse');
+      await expect(wrapUp.getByText("Wrap-up posted — you're clocked out")).toBeVisible({
+        timeout: 20000,
+      });
+      expect(await findOpenClockEventId(TEST_USERS.owner1.email, teamId)).toBeNull();
+    });
+
+    test('a Pulse plan recorded while already clocked in becomes that session’s plan', async ({
+      page,
+    }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamName = `Test Team Second Plan ${Date.now()}`;
+      await createFreshTeam(page, teamName);
+      const teamId = await findTeamIdByName(teamName);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+      const plan = { kind: 'clock-plan', teamId, postDate: today };
+
+      await sendPulseVideo(page.request, token, plan);
+      const clockEventId = await findOpenClockEventId(TEST_USERS.owner1.email, teamId);
+      expect(clockEventId).not.toBeNull();
+
+      // Clocked in already: no second session, and this plan joins the open one.
+      const second = await sendPulseVideo(page.request, token, plan);
+      expect(second.status).toEqual({ state: 'done' });
+      expect(await findOpenClockEventId(TEST_USERS.owner1.email, teamId)).toBe(clockEventId);
+      expect((await findPostWithVideo(second.videoid))?.clockEventId).toBe(clockEventId);
+
+      await deleteClockEvent(clockEventId!);
+    });
+
+    test("a video that can't reach its destination is kept in the library, and status says why", async ({
+      page,
+    }) => {
+      test.setTimeout(90000);
+      await loginAs(page, TEST_USERS.owner1);
+      // A team of its own ("Test Team" prefix: global teardown removes it), so
+      // deleting this session can't disturb the shared team's clock state.
+      const teamName = `Test Team Kept ${Date.now()}`;
+      await createFreshTeam(page, teamName);
+      const teamId = await findTeamIdByName(teamName);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        kind: 'clock-plan',
+        teamId,
+        postDate: today,
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+
+      // The wrap-up is reserved while the session exists, then the session is
+      // deleted before the video lands.
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        kind: 'clock-wrapup',
+        clockEventId,
+        postDate: today,
+      });
+      await deleteClockEvent(clockEventId);
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+
+      await expect
+        .poll(() => pulseStatus(page.request, token, wrapUp.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'That clock session no longer exists.' });
+      const kept = await findLibraryVideo(wrapUp.videoid);
+      expect(kept?.recordedFor).toMatchObject({ kind: 'clock-wrapup', clockEventId });
+    });
+
+    test('delivery rechecks the destination: leaving the team, or a deleted session, keeps the video', async ({
+      page,
+    }) => {
+      test.setTimeout(90000);
+      await loginAs(page, TEST_USERS.owner1);
+      const teamName = `Test Team Recheck ${Date.now()}`;
+      await createFreshTeam(page, teamName);
+      const teamId = await findTeamIdByName(teamName);
+      const token = await getSessionToken(page);
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const plan = await reservePulseUpload(page.request, token, {
+        kind: 'clock-plan',
+        teamId,
+        postDate: today,
+      });
+      await uploadVideoAsPulse(page.request, plan.videoid, plan.uploadToken);
+      await expect
+        .poll(() => findOpenClockEventId(TEST_USERS.owner1.email, teamId), { timeout: 20000 })
+        .not.toBeNull();
+      const clockEventId = (await findOpenClockEventId(TEST_USERS.owner1.email, teamId))!;
+
+      // Both reserved while everything is valid…
+      const wrapUp = await reservePulseUpload(page.request, token, {
+        kind: 'clock-wrapup',
+        clockEventId,
+        postDate: today,
+      });
+      const sessionVideo = await reservePulseUpload(page.request, token, {
+        kind: 'clock',
+        id: clockEventId,
+      });
+
+      // …then the uploader leaves the team before the wrap-up lands,
+      await removeFromTeam(teamId, TEST_USERS.owner1.email);
+      await uploadVideoAsPulse(page.request, wrapUp.videoid, wrapUp.uploadToken);
+      await expect
+        .poll(() => pulseStatus(page.request, token, wrapUp.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'Not a member of this team' });
+
+      // …and the session is deleted before the session video lands.
+      await deleteClockEvent(clockEventId);
+      await uploadVideoAsPulse(page.request, sessionVideo.videoid, sessionVideo.uploadToken);
+      await expect
+        .poll(() => pulseStatus(page.request, token, sessionVideo.videoid), { timeout: 20000 })
+        .toEqual({ state: 'kept', reason: 'That clock session no longer exists.' });
     });
   });
 });

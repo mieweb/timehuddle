@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildScanLink, buildUploadDeepLink, pulseServerBase } from './PulseUploadButton';
+import { buildScanLink, buildUploadDeepLink, pulseServerBase } from './pulseLinks';
 
 describe('pulseServerBase', () => {
   it('appends the /pulsevault mount prefix to the backend origin', () => {
@@ -20,7 +20,6 @@ describe('buildUploadDeepLink', () => {
     expect(params.get('artifactId')).toBe(videoid);
     expect(params.get('server')).toBe(pulseServerBase());
     expect(params.get('token')).toBe(uploadToken);
-    expect(params.get('uploadUnit')).toBe('merged');
     // Legacy param names must not leak back in.
     expect(params.has('mode')).toBe(false);
     expect(params.has('videoid')).toBe(false);
@@ -39,7 +38,6 @@ describe('buildScanLink', () => {
     expect(url.searchParams.get('artifactId')).toBe(videoid);
     expect(url.searchParams.get('token')).toBe(uploadToken);
     expect(url.searchParams.get('server')).toBe(pulseServerBase());
-    expect(url.searchParams.get('uploadUnit')).toBe('merged');
   });
 
   it('carries the same params as the deep link', () => {

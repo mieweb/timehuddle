@@ -72,6 +72,9 @@ backups/
 
 # PulseVault + general uploaded files — written at runtime, never commit
 uploads/
+# Pulse videos (PulseVault's default VIDEOS_DIR) — ignored so `git clean -fd`
+# in a deploy can't remove them
+data/videos/
 
 # Published OTA bundles — written at runtime by /ota/publish
 ota-bundles/

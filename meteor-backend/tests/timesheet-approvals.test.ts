@@ -248,7 +248,7 @@ describe('timesheet approvals — what a submission must carry', () => {
     expect(res.error).toMatch(/describ|explain|10 characters/i);
   });
 
-  it('accepts an edit with an explanation and no video — only a new entry needs one', async () => {
+  it('accepts an edit with an explanation and no video', async () => {
     const session = await seedSession(teamId, memberUserId);
     const res = await wormhole<{ pending: boolean }>(
       'clock.updateTimes',
@@ -263,8 +263,8 @@ describe('timesheet approvals — what a submission must carry', () => {
     expect(res.result.pending).toBe(true);
   });
 
-  it('rejects a brand-new entry with no video', async () => {
-    const res = await wormhole(
+  it('accepts a brand-new entry with an explanation and no video', async () => {
+    const res = await wormhole<{ pending: boolean }>(
       'clock.createManual',
       {
         teamId,
@@ -274,8 +274,8 @@ describe('timesheet approvals — what a submission must carry', () => {
       },
       memberJwt,
     );
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/video/i);
+    expect(res.ok).toBe(true);
+    expect(res.result.pending).toBe(true);
   });
 
   it('accepts a delete with an explanation and no video', async () => {
