@@ -6,7 +6,7 @@
  */
 import { useCallback, useRef, useState } from 'react';
 import { uploadMedia } from './api';
-import { composerErrorMessage } from './composerErrors';
+import { VIDEO_VIA_PULSE_MESSAGE, composerErrorMessage } from './composerErrors';
 import type { MediaItem } from './types';
 
 /**
@@ -17,10 +17,6 @@ import type { MediaItem } from './types';
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 const formatMb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
-
-/** Shown when a video is picked, dropped or pasted: videos come from Pulse. */
-export const VIDEO_VIA_PULSE_MESSAGE =
-  'videos can only be added with Pulse. Use the Pulse button to record or send one.';
 
 const isVideoFile = (file: File) => file.type.startsWith('video/');
 

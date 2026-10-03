@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage } from '../features/huddle/composerErrors';
+import { composerErrorMessage, composerRejectionMessage } from '../features/huddle/composerErrors';
 import {
   postsToConversations,
   searchConversations,
@@ -762,6 +762,12 @@ export default function Huddle() {
                         ? 'Share an update, or post a Pulse…'
                         : 'Share an update…',
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
+                      // Files the composer turns away (a video, an oversize
+                      // file) say why, instead of silently vanishing.
+                      onError: (message, context) => {
+                        const shown = composerRejectionMessage(message, context);
+                        if (shown) setInboxError(shown);
+                      },
                       // A ticket is a post on its own.
                       canSendWhenEmpty: !!selectedTicketId,
                       // Also busy while staged content is still settling: a send
