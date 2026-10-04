@@ -18,6 +18,7 @@ import {
   AlertDescription,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
@@ -785,16 +786,18 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                     <Text size="sm" className="grow">
                       {describePendingAddition(r, teams)}
                     </Text>
-                    <ChangeRequestWalkthrough request={r} onAdded={loadMyRequests} />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      isLoading={withdrawing === r.id}
-                      onClick={() => void withdrawRequest(r.id)}
-                      aria-label={`Withdraw ${describePendingAddition(r, teams)}`}
-                    >
-                      Withdraw
-                    </Button>
+                    <ButtonGroup orientation="horizontal" className="pending-addition-actions">
+                      <ChangeRequestWalkthrough request={r} onAdded={loadMyRequests} />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isLoading={withdrawing === r.id}
+                        onClick={() => void withdrawRequest(r.id)}
+                        aria-label={`Withdraw ${describePendingAddition(r, teams)}`}
+                      >
+                        Withdraw
+                      </Button>
+                    </ButtonGroup>
                   </li>
                 ))}
               </ul>

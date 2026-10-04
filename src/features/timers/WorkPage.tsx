@@ -20,6 +20,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Input,
@@ -926,26 +927,31 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2 text-right">
-                      {pendingRequest && (
-                        <ChangeRequestWalkthrough
-                          request={pendingRequest}
-                          onAdded={loadMyRequests}
-                        />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEdit(de)}
-                        aria-label="Edit work item"
-                        title={
-                          awaitingApproval
-                            ? 'A change to this entry is already awaiting review.'
-                            : undefined
-                        }
-                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                      <ButtonGroup
+                        orientation="horizontal"
+                        className="work-item-actions justify-end"
                       >
-                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                      </Button>
+                        {pendingRequest && (
+                          <ChangeRequestWalkthrough
+                            request={pendingRequest}
+                            onAdded={loadMyRequests}
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEdit(de)}
+                          aria-label="Edit work item"
+                          title={
+                            awaitingApproval
+                              ? 'A change to this entry is already awaiting review.'
+                              : undefined
+                          }
+                          disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                        >
+                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                        </Button>
+                      </ButtonGroup>
                     </TableCell>
                   </TableRow>
                 );
