@@ -91,14 +91,14 @@ const linkedTicket = (params: Record<string, unknown>) => ({
 /** Tickets these specs created, deleted again so they do not crowd later specs' tables. */
 const createdTitles: string[] = [];
 
-/** Opens New Ticket, fills the title, and chooses "Tracked in → Redmine → Create a new issue". */
+/** Opens New Ticket, fills the title, and chooses "Tracked in → Redmine → New issue". */
 async function startNewRedmineTicket(page: Page): Promise<string> {
   const title = `Tracked in Redmine ${Date.now()}`;
   createdTitles.push(title);
   await page.getByRole('button', { name: 'New Ticket' }).click();
   await page.getByPlaceholder('Ticket title').fill(title);
   await page.getByRole('radio', { name: 'Redmine' }).check();
-  await page.getByRole('radio', { name: 'Create a new issue' }).check();
+  await page.getByRole('radio', { name: 'New issue', exact: true }).check();
   return title;
 }
 
@@ -124,7 +124,7 @@ test.describe('Creating a ticket tracked in Redmine', () => {
     await page.getByRole('button', { name: 'New Ticket' }).click();
 
     await expect(page.getByPlaceholder('Ticket title')).toBeVisible();
-    await expect(page.getByRole('radio', { name: 'TimeHuddle only' })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'TimeHuddle', exact: true })).toBeChecked();
     await expect(page.getByRole('radio', { name: 'GitHub' })).toBeVisible();
     await expect(page.getByRole('radio', { name: 'Redmine' })).toBeVisible();
   });

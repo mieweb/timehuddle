@@ -7,6 +7,10 @@
  * moving indicator and implies panels (searched: segment, toggle, switch, pill,
  * tabs). The options are the library's `Button`, given the radio role.
  *
+ * The options always sit on one row: wrapped onto two, they stop reading as one
+ * switcher. On a narrow screen they shrink and their labels truncate, so keep
+ * labels short.
+ *
  * Keyboard model is a radio group: one tab stop, and the arrow keys move the
  * selection, since choosing is the whole interaction.
  */
@@ -74,7 +78,7 @@ export function SegmentedSwitcher<T extends string>({
         aria-labelledby={`${name}-label`}
         aria-disabled={disabled || undefined}
         onKeyDown={onKeyDown}
-        className="segmented-switcher-track inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800"
+        className="segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg sm:gap-1 bg-neutral-100 p-1 dark:bg-neutral-800"
       >
         {options.map((option) => {
           const selected = option.value === value;
@@ -95,7 +99,7 @@ export function SegmentedSwitcher<T extends string>({
               onClick={() => select(option.value)}
               className={[
                 // `hover:bg-transparent`: the sliding highlight is the only fill.
-                'segmented-switcher-option relative h-auto rounded-md px-3 py-1.5 hover:bg-transparent dark:hover:bg-transparent',
+                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md px-2 py-1.5 sm:px-3 hover:bg-transparent dark:hover:bg-transparent',
                 selected
                   ? 'text-primary-700 dark:text-primary-300'
                   : 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100',

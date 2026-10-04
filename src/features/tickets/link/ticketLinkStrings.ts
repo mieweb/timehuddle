@@ -30,7 +30,7 @@ export const ticketLinkText = {
   goToSettings: 'Go to Settings',
 
   kindLabel: 'Tracked in',
-  kindNone: 'TimeHuddle only',
+  kindNone: 'TimeHuddle',
   kindGithub: 'GitHub',
   kindRedmine: 'Redmine',
 
@@ -38,8 +38,8 @@ export const ticketLinkText = {
   githubPlaceholder: 'https://github.com/…',
 
   redmineModeLabel: 'Redmine issue',
-  modeExisting: 'Link an existing issue',
-  modeNew: 'Create a new issue',
+  modeExisting: 'Existing issue',
+  modeNew: 'New issue',
   existingLabel: 'Issue number or link',
   existingPlaceholder: '#1234 or a Redmine issue link',
   find: 'Find',
