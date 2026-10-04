@@ -23,6 +23,7 @@ import {
   sourceSelector,
 } from './ticket-refs';
 import { pinIssueIfUnset } from './redmine-prefs';
+import { redmineStampFor } from './timer-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -220,6 +221,19 @@ export async function applyTimerUpdate(
   onCommit?.();
   await WorkItems.updateAsync(entry._id, updateDoc);
 
+  if ($set.ticketId) {
+    // Moving an entry to another ticket says its time was spent on that ticket,
+    // so its sessions now belong to whatever that ticket is linked to, if
+    // anything. Time already sent to the old issue stays in Redmine: entries
+    // there cannot be withdrawn.
+    const stamp = await redmineStampFor({ source: HUDDLE, ticketId: $set.ticketId });
+    await Timers.updateAsync(
+      { workItemId: entryId },
+      stamp.redmineIssueId ? { $set: stamp } : { $unset: { redmineIssueId: '' } },
+      { multi: true },
+    );
+  }
+
   if (durationSeconds !== undefined) {
     const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });
     if (!isRunning) {
@@ -291,6 +305,20 @@ async function callerWorkItemIds(userId, ticketId, source) {
     { fields: { _id: 1 } }
   ).fetchAsync();
   return items.map((e) => e._id.toHexString());
+}
+
+/**
+ * Selector for the caller's own sessions on one ticket. For a Redmine issue
+ * that is the time logged on the issue itself plus the time logged on
+ * TimeHuddle tickets while they were linked to it — the same time the push
+ * sends to that issue.
+ */
+async function callerSessionSelector(userId, ticketId, source) {
+  const entryIds = await callerWorkItemIds(userId, ticketId, source);
+  const onWorkItems = { workItemId: { $in: entryIds } };
+  return normalizeSource(source) === REDMINE
+    ? { userId, $or: [onWorkItems, { redmineIssueId: String(ticketId) }] }
+    : { userId, ...onWorkItems };
 }
 
 Meteor.methods({
@@ -424,11 +452,10 @@ Meteor.methods({
    */
   async 'timers.getTicketTotal'({ ticketId, source } = {}) {
     const { userId } = await requireIdentity(this);
-    const entryIds = await callerWorkItemIds(userId, ticketId, source);
-    if (!entryIds.length) return { totalSeconds: 0 };
+    const selector = await callerSessionSelector(userId, ticketId, source);
     const db = rawDb();
     const agg = await db.collection('timers').aggregate([
-      { $match: { workItemId: { $in: entryIds }, endTime: { $ne: null } } },
+      { $match: { ...selector, endTime: { $ne: null } } },
       { $group: { _id: null, total: { $sum: '$durationSeconds' } } },
     ]).toArray();
     return { totalSeconds: agg[0]?.total ?? 0 };
@@ -445,10 +472,8 @@ Meteor.methods({
     if (typeof ticketId !== 'string' || !ticketId) {
       throw new Meteor.Error('bad-request', 'ticketId is required');
     }
-    const entryIds = await callerWorkItemIds(userId, ticketId, source);
-    if (!entryIds.length) return { sessions: [] };
     const sessions = await Timers.find(
-      { userId, workItemId: { $in: entryIds } },
+      await callerSessionSelector(userId, ticketId, source),
       { sort: { startTime: -1 }, limit: TICKET_SESSIONS_LIMIT }
     ).fetchAsync();
     return {
@@ -519,6 +544,7 @@ Meteor.methods({
         startTime: Date.now(),
         endTime: null,
         createdAt: new Date(),
+        ...(await redmineStampFor(entry)),
       });
       session = toPublicSession(await Timers.findOneAsync(sessionId));
       pinTimedRedmineIssue(userId, ticketSource, ticketId);
@@ -552,6 +578,7 @@ Meteor.methods({
       startTime: now,
       endTime: null,
       createdAt: new Date(),
+      ...(await redmineStampFor(entry)),
     });
     const session = await Timers.findOneAsync(sessionId);
     pinTimedRedmineIssue(userId, entry.source, entry.ticketId);

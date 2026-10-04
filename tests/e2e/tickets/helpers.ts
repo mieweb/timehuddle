@@ -7,7 +7,7 @@
  * of what's automatable here).
  */
 import path from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
@@ -80,4 +80,43 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
   await expect(linksList.locator('a[href*="/pulsevault/artifacts/"]').first()).toBeVisible({
     timeout: 30000,
   });
+}
+
+/** What a stubbed ticket call answers: a result, or a refusal the app shows. */
+export type TicketCallAnswer = unknown | { error: string; reason: string };
+
+const isRefusal = (value: unknown): value is { error: string; reason: string } =>
+  typeof value === 'object' && value !== null && 'error' in value && 'reason' in value;
+
+/**
+ * Answers one `tickets.*` call from the spec instead of the backend, recording
+ * what was sent — the same seam `stubRedmine` uses for `redmine.*`.
+ *
+ * For the ticket-link calls: linking is checked against Redmine under the
+ * caller's own key, and the test backend has no Redmine account, so the real
+ * method can only ever answer "not connected". The server side of linking is
+ * covered by `meteor-backend/tests/tickets.test.ts`; these specs assert what the
+ * UI sends and how it reacts.
+ */
+export async function stubTicketCall(
+  page: Page,
+  method: string,
+  answer: (params: Record<string, unknown>) => TicketCallAnswer,
+): Promise<{ calls: Record<string, unknown>[] }> {
+  const calls: Record<string, unknown>[] = [];
+  await page.route(`**/api/${method.replace(/\./g, '_')}`, async (route: Route) => {
+    const params = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    calls.push(params);
+    const value = answer(params);
+    await route.fulfill(
+      isRefusal(value)
+        ? { status: 500, contentType: 'application/json', body: JSON.stringify(value) }
+        : {
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ result: value }),
+          },
+    );
+  });
+  return { calls };
 }

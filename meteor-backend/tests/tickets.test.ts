@@ -4,7 +4,7 @@
  * Fixture: OWNER (team admin), MEMBER (regular), OUTSIDER (not in team).
  * Tests exercise the full wormhole stack: REST → Meteor method → MongoDB.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import {
   createUserAndGetJwt,
   wormhole,
@@ -277,6 +277,320 @@ describe('tickets (wormhole)', () => {
   it('soft-deletes a ticket', async () => {
     const res = await wormhole<{ ok: boolean }>('tickets.delete', { ticketId }, ownerJwt);
     expect(res.ok).toBe(true);
+  });
+
+  describe('My Board on create (#636)', () => {
+    it('puts a new ticket on its creator\u2019s board, and nobody else\u2019s', async () => {
+      const res = await wormhole<{ id: string }>(
+        'tickets.create',
+        { teamId, title: 'Lands on my board' },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+
+      const db = await getDb();
+      const rows = await db.collection('my_board').find({ ticketId: res.result.id }).toArray();
+      expect(rows.map((row) => ({ userId: row.userId, sourceId: row.sourceId }))).toEqual([
+        { userId: ownerId, sourceId: 'huddle' },
+      ]);
+    });
+
+    it('still creates the ticket when the board is full', async () => {
+      const db = await getDb();
+      const filler = Array.from({ length: 500 }, (_, i) => ({
+        _id: new ObjectId(),
+        userId: memberId,
+        sourceId: 'redmine',
+        ticketId: String(900000 + i),
+        addedAt: new Date(),
+      }));
+      // Earlier tests in this file created tickets as the member too.
+      await db.collection('my_board').deleteMany({ userId: memberId });
+      await db.collection('my_board').insertMany(filler);
+      try {
+        const res = await wormhole<{ id: string }>(
+          'tickets.create',
+          { teamId, title: 'Board is full' },
+          memberJwt,
+        );
+        expect(res.ok).toBe(true);
+        expect(await db.collection('my_board').countDocuments({ userId: memberId })).toBe(500);
+      } finally {
+        await db.collection('my_board').deleteMany({ userId: memberId });
+      }
+    });
+  });
+
+  describe('linking to a Redmine issue (#636)', () => {
+    let linkTicketId: string;
+
+    const seedLink = async (id: string | null) => {
+      const db = await getDb();
+      await db
+        .collection('tickets')
+        .updateOne(
+          { _id: new ObjectId(linkTicketId) },
+          id
+            ? { $set: { linkedIssue: { source: 'redmine', id } } }
+            : { $unset: { linkedIssue: '' } },
+        );
+    };
+
+    beforeAll(async () => {
+      const res = await wormhole<{ id: string }>(
+        'tickets.create',
+        { teamId, title: 'Link me' },
+        ownerJwt,
+      );
+      linkTicketId = res.result.id;
+    });
+
+    it('refuses an outsider', async () => {
+      const res = await wormhole(
+        'tickets.link',
+        { ticketId: linkTicketId, issueId: 482, expectedIssueId: null },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/not allowed/i);
+    });
+
+    it('refuses something that is not an issue number', async () => {
+      for (const issueId of [0, -3, 'abc', null]) {
+        const res = await wormhole(
+          'tickets.link',
+          { ticketId: linkTicketId, issueId, expectedIssueId: null },
+          ownerJwt,
+        );
+        expect(res.ok).toBe(false);
+        expect(res.error).toMatch(/Redmine issue number/i);
+      }
+    });
+
+    it('needs the caller to have connected Redmine', async () => {
+      const res = await wormhole(
+        'tickets.link',
+        { ticketId: linkTicketId, issueId: 482, expectedIssueId: null },
+        memberJwt,
+      );
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/connect your Redmine account/i);
+    });
+
+    it('refuses a link made against a link someone else changed', async () => {
+      await seedLink('482');
+      const res = await wormhole(
+        'tickets.link',
+        { ticketId: linkTicketId, issueId: 500, expectedIssueId: null },
+        memberJwt,
+      );
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/changed by someone else/i);
+    });
+
+    it('refuses an unlink made against a different link', async () => {
+      await seedLink('482');
+      const res = await wormhole(
+        'tickets.unlink',
+        { ticketId: linkTicketId, expectedIssueId: '500' },
+        memberJwt,
+      );
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/changed by someone else/i);
+    });
+
+    it('lets any team member unlink, without a Redmine account, and records it', async () => {
+      await seedLink('482');
+      const res = await wormhole<{ id: string; linkedIssue?: unknown }>(
+        'tickets.unlink',
+        { ticketId: linkTicketId, expectedIssueId: '482' },
+        memberJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.linkedIssue).toBeUndefined();
+
+      const db = await getDb();
+      const stored = await db.collection('tickets').findOne({ _id: new ObjectId(linkTicketId) });
+      expect(stored?.linkedIssue).toBeUndefined();
+
+      // Ids only: the activity names the issue by number, never by subject.
+      const activity = await db
+        .collection('activities')
+        .findOne({ 'payload.ticketId': linkTicketId, 'payload.action': 'unlinked' });
+      expect(activity?.payload).toMatchObject({ previousIssueId: '482' });
+      expect(activity?.userId).toBe(memberId);
+    });
+
+    it('treats unlinking an unlinked ticket as nothing to do', async () => {
+      await seedLink(null);
+      const res = await wormhole(
+        'tickets.unlink',
+        { ticketId: linkTicketId, expectedIssueId: '482' },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+    });
+
+    describe('the lock while someone is timing it', () => {
+      /** A timer session on the link ticket, inside a shift that is open or already closed. */
+      const seedTimer = async (userId: string, { running = true, shiftOpen = true } = {}) => {
+        const db = await getDb();
+        const shiftId = new ObjectId();
+        const workItemId = new ObjectId();
+        const now = Date.now();
+        await db.collection('clockevents').insertOne({
+          _id: shiftId,
+          userId,
+          teamId,
+          startTime: now - 3_600_000,
+          endTime: shiftOpen ? null : now - 60_000,
+        });
+        await db.collection('workitems').insertOne({
+          _id: workItemId,
+          userId,
+          source: 'huddle',
+          ticketId: linkTicketId,
+          date: '2026-10-04',
+        });
+        await db.collection('timers').insertOne({
+          _id: new ObjectId(),
+          userId,
+          workItemId: workItemId.toHexString(),
+          clockEventId: shiftId.toHexString(),
+          date: '2026-10-04',
+          startTime: now - 600_000,
+          endTime: running ? null : now - 60_000,
+          ...(running ? {} : { durationSeconds: 540 }),
+        });
+      };
+
+      const clearTimers = async () => {
+        const db = await getDb();
+        const items = await db.collection('workitems').find({ ticketId: linkTicketId }).toArray();
+        await db
+          .collection('timers')
+          .deleteMany({ workItemId: { $in: items.map((item) => item._id.toHexString()) } });
+        await db.collection('workitems').deleteMany({ ticketId: linkTicketId });
+        await db.collection('clockevents').deleteMany({ teamId });
+      };
+
+      afterEach(clearTimers);
+
+      it('refuses every change to a linked ticket, and says whose timer it is', async () => {
+        await seedLink('482');
+        await seedTimer(memberId);
+
+        const attempts: Array<[string, Record<string, unknown>]> = [
+          ['tickets.update', { ticketId: linkTicketId, title: 'Renamed' }],
+          ['tickets.updateStatus', { ticketId: linkTicketId, status: 'closed' }],
+          ['tickets.assign', { ticketId: linkTicketId, assignedToUserIds: [ownerId] }],
+          ['tickets.delete', { ticketId: linkTicketId }],
+          ['tickets.unlink', { ticketId: linkTicketId, expectedIssueId: '482' }],
+        ];
+        for (const [method, params] of attempts) {
+          const res = await wormhole(method, params, ownerJwt);
+          expect(res.ok, method).toBe(false);
+          expect(res.error, method).toMatch(/Ticket Member is timing this ticket/);
+        }
+
+        const mine = await wormhole(
+          'tickets.update',
+          { ticketId: linkTicketId, title: 'Renamed' },
+          memberJwt,
+        );
+        expect(mine.error).toMatch(/You are timing this ticket. Stop your timer/);
+
+        const status = await wormhole<{ lock: { holders: Array<{ userId: string; name: string }> } }>(
+          'tickets.linkStatus',
+          { ticketId: linkTicketId },
+          ownerJwt,
+        );
+        expect(status.result.lock.holders).toEqual([{ userId: memberId, name: 'Ticket Member' }]);
+      });
+
+      it('leaves an unlinked ticket editable, but will not link it mid-timer', async () => {
+        await seedLink(null);
+        await seedTimer(memberId);
+
+        const edit = await wormhole(
+          'tickets.update',
+          { ticketId: linkTicketId, description: 'Still editable' },
+          ownerJwt,
+        );
+        expect(edit.ok).toBe(true);
+
+        const link = await wormhole(
+          'tickets.link',
+          { ticketId: linkTicketId, issueId: 482, expectedIssueId: null },
+          ownerJwt,
+        );
+        expect(link.error).toMatch(/is timing this ticket/);
+
+        const status = await wormhole<{ lock: unknown }>(
+          'tickets.linkStatus',
+          { ticketId: linkTicketId },
+          ownerJwt,
+        );
+        expect(status.result.lock).toBeNull();
+      });
+
+      it('ignores a timer left running after its shift ended', async () => {
+        await seedLink('482');
+        await seedTimer(memberId, { shiftOpen: false });
+        const res = await wormhole(
+          'tickets.update',
+          { ticketId: linkTicketId, description: 'Orphaned timer does not lock' },
+          ownerJwt,
+        );
+        expect(res.ok).toBe(true);
+      });
+
+      it('skips a locked ticket in a batch and reports it', async () => {
+        await seedLink('482');
+        await seedTimer(memberId);
+        const res = await wormhole<{ modified: number; lockedIds: string[] }>(
+          'tickets.batchStatus',
+          { ticketIds: [linkTicketId], teamId, status: 'closed' },
+          ownerJwt,
+        );
+        expect(res.result).toEqual({ modified: 0, lockedIds: [linkTicketId] });
+      });
+
+      it('tells teammates who logged time when the link changes, and not the person who changed it', async () => {
+        await seedLink('482');
+        await seedTimer(memberId, { running: false });
+        await seedTimer(ownerId, { running: false });
+        const db = await getDb();
+        await db.collection('notifications').deleteMany({ 'data.ticketId': linkTicketId });
+
+        const res = await wormhole(
+          'tickets.unlink',
+          { ticketId: linkTicketId, expectedIssueId: '482' },
+          ownerJwt,
+        );
+        expect(res.ok).toBe(true);
+
+        const sent = await db
+          .collection('notifications')
+          .find({ 'data.ticketId': linkTicketId, 'data.type': 'ticket-link-changed' })
+          .toArray();
+        expect(sent.map((n) => n.userId)).toEqual([memberId]);
+        expect(sent[0].body).toBe(
+          'Ticket Owner unlinked "Link me", a ticket you worked on, from Redmine #482',
+        );
+        expect(sent[0].data.url).toBe(`/app/tickets/${linkTicketId}`);
+      });
+    });
+
+    it('publishes the link on the ticket it reads back', async () => {
+      await seedLink('482');
+      const res = await wormhole<{ linkedIssue?: { source: string; id: string } }>(
+        'tickets.get',
+        { ticketId: linkTicketId },
+        memberJwt,
+      );
+      expect(res.result.linkedIssue).toEqual({ source: 'redmine', id: '482' });
+    });
   });
 
   describe('TimeHarbor integration', () => {

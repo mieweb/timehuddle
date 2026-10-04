@@ -105,6 +105,7 @@ export interface TicketTableProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  onConnectRequest: (ticket: UnifiedTicket) => void;
 }
 
 /** How many placeholder rows sit under the loaded ones while a source is still loading. */
@@ -158,6 +159,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  onConnectRequest,
 }) => {
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
@@ -337,6 +339,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   onEditRequest={onEditRequest}
                   onDeleteRequest={onDeleteRequest}
                   onChangeStatusRequest={onChangeStatusRequest}
+                  onConnectRequest={onConnectRequest}
                 />
               ))}
               {/* Sources load independently: Huddle rows arrive at once, Redmine can

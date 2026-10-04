@@ -14,6 +14,10 @@ import { Tickets, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
+import { addBoardEntryIfRoom } from './my-board';
+import { linkedIssueIdOf } from './ticket-link-core';
+import { assertUnlocked, findLockHolders } from './ticket-lock';
+import { HUDDLE } from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -33,7 +37,7 @@ async function getActor(userId) {
  * `activities` collection. Errors are swallowed — activity logging must never
  * break callers.
  */
-async function emitTicketActivity(userId, teamId, type, payload) {
+export async function emitTicketActivity(userId, teamId, type, payload) {
   try {
     const actor = await getActor(userId);
     await rawDb().collection('activities').insertOne({
@@ -52,7 +56,7 @@ async function emitTicketActivity(userId, teamId, type, payload) {
 }
 
 /** Convert a stored ticket document into the API/DDP shape (hex id). */
-function toPublicTicket(doc) {
+export function toPublicTicket(doc) {
   const { _id, ...rest } = doc;
   return { id: _id.toHexString ? _id.toHexString() : String(_id), ...rest };
 }
@@ -114,14 +118,6 @@ Meteor.methods({
     return docs.map(toPublicTicket);
   },
 
-  /** Get a single ticket by ID. */
-  async 'tickets.get'({ ticketId } = {}) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    const ticket = await requireTicketPermission(userId, ticketId, 'read');
-    return toPublicTicket(ticket);
-  },
-
   /**
    * Create a ticket. Mirrors TicketService.create: the creator is assigned
    * unless `assignedToUserIds` names the team members to assign instead.
@@ -152,6 +148,11 @@ Meteor.methods({
     });
     const doc = await Tickets.findOneAsync(_id);
     const createdTicketId = doc._id.toHexString();
+    // A new ticket starts on its creator's My Board. Best-effort: a full board,
+    // or a failed write, must not fail the create.
+    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId: createdTicketId }).catch((err) =>
+      console.error('[ticket] add to My Board failed:', err),
+    );
     await emitTicketActivity(identity.userId, teamId, 'ticket.created', {
       ticketId: createdTicketId,
       ticketTitle: doc.title,
@@ -170,6 +171,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
+    await assertUnlocked(ticket, userId);
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
     }
@@ -214,6 +216,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
+    await assertUnlocked(ticket, userId);
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) {
@@ -247,6 +250,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'delete');
+    await assertUnlocked(ticket, userId);
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { status: 'deleted', updatedAt: new Date() },
     });
@@ -268,6 +272,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'assign');
+    await assertUnlocked(ticket, userId);
     await requireTeamAssignees(ticket.teamId, assignedToUserIds);
 
     // Newly added assignees (not previously assigned) — notify these only.
@@ -320,8 +325,20 @@ Meteor.methods({
     if (!Array.isArray(ticketIds)) {
       throw new Meteor.Error('validation-error', 'ticketIds must be an array');
     }
-    const validIds = ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id));
-    if (validIds.length === 0) return { modified: 0 };
+    const requestedIds = ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id));
+    // A linked ticket someone is timing is left as it is and reported back,
+    // rather than failing the whole batch for the tickets that can change.
+    const linked = await Tickets.find(
+      { _id: { $in: requestedIds }, teamId, linkedIssue: { $exists: true } },
+      { fields: { linkedIssue: 1 } },
+    ).fetchAsync();
+    const lockedIds = [];
+    for (const candidate of linked.filter(linkedIssueIdOf)) {
+      const id = candidate._id.toHexString();
+      if ((await findLockHolders(id)).length) lockedIds.push(id);
+    }
+    const validIds = requestedIds.filter((id) => !lockedIds.includes(id.toHexString()));
+    if (validIds.length === 0) return { modified: 0, lockedIds };
     const $set = {
       status,
       ...(status === 'reviewed' ? { reviewedBy: identity.userId, reviewedAt: new Date() } : {}),
@@ -345,7 +362,7 @@ Meteor.methods({
         })
       )
     );
-    return { modified };
+    return { modified, lockedIds };
   },
 
   /** Get a single ticket by ID. Mirrors TicketService.findOne. */

@@ -12,6 +12,7 @@ import {
   faEllipsisVertical,
   faExternalLink,
   faEye,
+  faLink,
   faPen,
   faCircleCheck,
   faCircleDot,
@@ -41,6 +42,7 @@ import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
 
+import { ticketLinkText } from './link/ticketLinkStrings';
 import { SOURCE_LABELS, ticketDetailPath, type UnifiedTicket } from './sources';
 
 export interface TicketTableRowProps {
@@ -63,6 +65,8 @@ export interface TicketTableRowProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  /** Opens "Connect to…" for a Huddle ticket. */
+  onConnectRequest: (ticket: UnifiedTicket) => void;
 }
 
 function statusIconFor(status: UnifiedTicket['status']): {
@@ -99,6 +103,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  onConnectRequest,
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -207,6 +212,23 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
               {ticket.title}
             </Button>
           </OverflowTooltip>
+          {ticket.linked && (
+            <Tooltip
+              content={
+                ticket.linked.status
+                  ? ticketLinkText.linkedToWithStatus(
+                      ticket.linked.ref,
+                      ticket.linked.status.native,
+                    )
+                  : ticketLinkText.linkedTo(ticket.linked.ref)
+              }
+            >
+              <Badge variant="outline" size="sm" className="shrink-0">
+                <FontAwesomeIcon icon={faLink} className="mr-1 text-[10px]" aria-hidden="true" />
+                {ticket.linked.ref}
+              </Badge>
+            </Tooltip>
+          )}
           {ticket.sharedWithTimeharbor && (
             <Tooltip content="Shared with TimeHarbor">
               <Badge variant="default" size="sm">
@@ -373,6 +395,17 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                     }}
                   >
                     Edit Ticket
+                  </DropdownItem>
+                )}
+                {ticket.sourceId === 'huddle' && (
+                  <DropdownItem
+                    icon={<FontAwesomeIcon icon={faLink} />}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onConnectRequest(ticket);
+                    }}
+                  >
+                    {ticket.linked ? ticketLinkText.changeLinked : ticketLinkText.connect}
                   </DropdownItem>
                 )}
                 {capabilities.changeStatus && (

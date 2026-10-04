@@ -8,6 +8,8 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  Alert,
+  AlertDescription,
   Badge,
   type BadgeProps,
   Button,
@@ -20,8 +22,9 @@ import {
   Textarea,
   Input,
 } from '@mieweb/ui';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ApiError,
   activityApi,
   teamApi,
   ticketApi,
@@ -29,8 +32,10 @@ import {
   type ActivityLogItem,
   type TeamMember,
   type Ticket,
+  type TicketLinkStatus,
   type TicketSession,
 } from '../../../lib/api';
+import { useBackgroundRefresh } from '../../../lib/useBackgroundRefresh';
 import { useSession } from '../../../lib/useSession';
 import { useTeam } from '../../../lib/TeamContext';
 import { useRefresh } from '../../../lib/RefreshContext';
@@ -39,6 +44,7 @@ import { MarkdownContent } from '../../../ui/MarkdownContent';
 import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
+import { LinkedIssueCard } from '../link/LinkedIssueCard';
 import { huddleTicketRef } from '../sources';
 
 import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
@@ -123,6 +129,37 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Who is timing this ticket, if it is linked: while anyone is, the server
+  // refuses changes to it. The timer may be a teammate's, which nothing pushes
+  // to this page, so it is asked again in the background and after a refusal.
+  const [lock, setLock] = useState<TicketLinkStatus['lock']>(null);
+  const loadLock = useCallback(
+    () =>
+      ticketApi.linkStatus(ticketId).then(
+        (status) => {
+          setLock(status.lock);
+          return true;
+        },
+        () => false,
+      ),
+    [ticketId],
+  );
+  const linkedIssueId = ticket?.linkedIssue?.id ?? null;
+  useEffect(() => {
+    void loadLock();
+    const onRefetch = () => void loadLock();
+    // Fired when the viewer's own timer starts or stops.
+    window.addEventListener('tickets:refetch', onRefetch);
+    return () => window.removeEventListener('tickets:refetch', onRefetch);
+  }, [loadLock, linkedIssueId]);
+  useBackgroundRefresh(loadLock);
+
+  /** Show why a change was refused; a lock refusal also refreshes the banner. */
+  const showFailure = (err: unknown, fallback: string) => {
+    setActionError(err instanceof ApiError && err.message ? err.message : fallback);
+    if (err instanceof ApiError && err.code === 'ticket-locked') void loadLock();
+  };
+
   // Load ticket + activity
   useEffect(() => {
     setLoading(true);
@@ -155,12 +192,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         setTicket(t);
         setActivity(a.events);
         setSessions(s);
+        void loadLock();
       } catch {
         setError('Failed to refresh ticket.');
       } finally {
         setLoading(false);
       }
-    }, [ticketId]),
+    }, [ticketId, loadLock]),
   );
 
   // Load team members once we have the teamId
@@ -197,9 +235,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       return;
     }
     setSaving(true);
+    setActionError(null);
     try {
       const updated = await ticketApi.updateTicket(ticket.id, { title: titleDraft.trim() });
       setTicket(updated);
+    } catch (err) {
+      showFailure(err, 'Failed to save the title.');
     } finally {
       setSaving(false);
       setEditingTitle(false);
@@ -209,9 +250,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const saveDescription = async () => {
     if (!ticket) return;
     setSaving(true);
+    setActionError(null);
     try {
       const updated = await ticketApi.updateTicket(ticket.id, { description: descDraft });
       setTicket(updated);
+    } catch (err) {
+      showFailure(err, 'Failed to save the description.');
     } finally {
       setSaving(false);
       setEditingDesc(false);
@@ -220,8 +264,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   const handleStatusChange = async (status: string) => {
     if (!ticket) return;
-    const updated = await ticketApi.updateStatusPriority(ticket.id, { status });
-    setTicket(updated);
+    setActionError(null);
+    try {
+      const updated = await ticketApi.updateStatusPriority(ticket.id, { status });
+      setTicket(updated);
+    } catch (err) {
+      showFailure(err, 'Failed to update status.');
+    }
   };
 
   const handlePriorityChange = async (priority: string) => {
@@ -230,8 +279,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     try {
       const updated = await ticketApi.updateStatusPriority(ticket.id, { priority });
       setTicket(updated);
-    } catch {
-      setActionError('Failed to update priority.');
+    } catch (err) {
+      showFailure(err, 'Failed to update priority.');
     }
   };
 
@@ -246,15 +295,20 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           : [];
       const updated = await ticketApi.assignTicket(ticket.id, ids);
       setTicket(updated);
-    } catch {
-      setActionError('Failed to update assignees. You may not have permission.');
+    } catch (err) {
+      showFailure(err, 'Failed to update assignees. You may not have permission.');
     }
   };
 
   const handleDelete = async () => {
     if (!ticket || !confirm(`Delete "${ticket.title}"?`)) return;
-    await ticketApi.deleteTicket(ticket.id);
-    navigate('/app/tickets');
+    setActionError(null);
+    try {
+      await ticketApi.deleteTicket(ticket.id);
+      navigate('/app/tickets');
+    } catch (err) {
+      showFailure(err, 'Failed to delete the ticket.');
+    }
   };
 
   // ── Render ──
@@ -293,6 +347,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const canEdit =
     user?.id === ticket.createdBy ||
     members.some((m) => m.id === user?.id && (m as unknown as { role?: string }).role === 'admin');
+  const locked = lock !== null;
 
   return (
     <AppPage>
@@ -333,7 +388,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
               {ticket.title}
             </h1>
-            {canEdit && (
+            {canEdit && !locked && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -380,6 +435,19 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         </div>
       </div>
 
+      <div className="ticket-detail-notices mb-3 space-y-2" aria-live="polite">
+        {lock && (
+          <Alert variant="warning">
+            <AlertDescription>{lock.message}</AlertDescription>
+          </Alert>
+        )}
+        {actionError && (
+          <Alert variant="danger" role="alert">
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
+        )}
+      </div>
+
       {/* Main layout: 2/3 + 1/3 */}
       <div className="ticket-detail-layout flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* ── Left column: body ── */}
@@ -409,7 +477,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
                   Description
                 </Text>
-                {canEdit && !editingDesc && (
+                {canEdit && !locked && !editingDesc && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -490,6 +558,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   options={STATUS_OPTIONS}
                   value={ticket.status}
                   onValueChange={(val: string) => void handleStatusChange(val)}
+                  disabled={locked}
                 />
               </div>
 
@@ -507,6 +576,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   options={PRIORITY_OPTIONS}
                   value={ticket.priority ?? 'none'}
                   onValueChange={(val: string) => void handlePriorityChange(val)}
+                  disabled={locked}
                 />
               </div>
 
@@ -532,6 +602,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                         size="sm"
                         label={option.label}
                         checked={isChecked}
+                        disabled={locked}
                         onChange={(e) => {
                           if (isUnassigned) {
                             // When "Unassigned" is checked, clear all assignees.
@@ -550,7 +621,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     );
                   })}
                 </div>
-                {actionError && <p className="mt-1 text-xs text-red-500">{actionError}</p>}
               </div>
 
               {/* Created by */}
@@ -601,6 +671,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </CardContent>
           </Card>
 
+          <LinkedIssueCard ticket={ticket} onChanged={setTicket} locked={locked} />
+
           {/* Team badge */}
           {ticket.teamId && (
             <div className="ticket-sidebar-badges flex flex-wrap gap-1.5">
@@ -623,6 +695,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   className="w-full"
                   leftIcon={<FontAwesomeIcon icon={faTrash} size="sm" />}
                   onClick={() => void handleDelete()}
+                  disabled={locked}
                 >
                   Delete Ticket
                 </Button>

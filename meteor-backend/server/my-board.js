@@ -85,6 +85,19 @@ async function upsertEntry(userId, { sourceId, ticketId }) {
 }
 
 /**
+ * Put one ticket on a user's board unless the board is full. For adds the user
+ * did not make by hand (a ticket they just created): those must never fail the
+ * action that caused them, so a full board is skipped rather than refused.
+ * @returns {Promise<boolean>} whether the ticket is on the board afterwards
+ */
+export async function addBoardEntryIfRoom(userId, ref) {
+  const held = await MyBoard.find({ userId }).countAsync();
+  if (held >= MAX_BOARD_ENTRIES_PER_USER) return false;
+  await upsertEntry(userId, ref);
+  return true;
+}
+
+/**
  * Of these Huddle ticket ids, the ones this user can no longer see: deleted, or
  * in a team they are not in. The same visibility `tickets.byTeam` publishes, so
  * the Tickets page is told for certain — its live list can be momentarily

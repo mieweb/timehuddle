@@ -89,6 +89,15 @@ export const huddleSource: TicketSource<Ticket> = {
           }
         : null,
       sharedWithTimeharbor: ticket.sharedWithTimeharbor === true,
+      linked: ticket.linkedIssue
+        ? {
+            sourceId: ticket.linkedIssue.source,
+            id: ticket.linkedIssue.id,
+            ref: `#${ticket.linkedIssue.id}`,
+            status: null,
+            assignee: null,
+          }
+        : null,
       capabilities: CAPABILITIES,
     };
   },

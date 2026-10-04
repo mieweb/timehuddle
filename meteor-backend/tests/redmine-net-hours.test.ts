@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { sumClosedSessions } from '../server/redmine-net-hours';
+import { sumClosedSessions, ticketDayKey, ticketDayTotals } from '../server/redmine-net-hours';
 
 /** A closed session; `endTime` only has to be non-null to count. */
 const closed = (durationSeconds: number) => ({ endTime: 1, durationSeconds });
@@ -59,5 +59,53 @@ describe('sumClosedSessions', () => {
 
   it('tolerates a non-array input', () => {
     expect(sumClosedSessions(undefined as never)).toBe(0);
+  });
+});
+
+describe('ticketDayTotals', () => {
+  it('pools time timed on an issue with time on a ticket linked to it', () => {
+    // A timer on issue 482 itself, and one on a TimeHuddle ticket linked to 482.
+    type Session = {
+      workItemId?: string;
+      redmineIssueId?: string;
+      date?: string;
+      endTime: number;
+      durationSeconds: number;
+    };
+    const direct: Session = { workItemId: 'w1', endTime: 1, durationSeconds: 1200 };
+    const linked: Session = {
+      redmineIssueId: '482',
+      date: '2026-10-04',
+      endTime: 1,
+      durationSeconds: 600,
+    };
+    const keyByWorkItem = new Map([['w1', ticketDayKey('482', '2026-10-04')]]);
+
+    const totals = ticketDayTotals([direct, linked], (session) =>
+      session.redmineIssueId
+        ? ticketDayKey(session.redmineIssueId, session.date)
+        : (keyByWorkItem.get(session.workItemId ?? '') ?? null),
+    );
+    expect(totals).toEqual([{ ticketId: '482', date: '2026-10-04', seconds: 1800 }]);
+  });
+
+  it('keeps time logged under different issues apart, so a relink never moves it', () => {
+    const sessions = [
+      { redmineIssueId: '482', date: '2026-10-04', endTime: 1, durationSeconds: 900 },
+      { redmineIssueId: '500', date: '2026-10-04', endTime: 1, durationSeconds: 300 },
+    ];
+    const totals = ticketDayTotals(sessions, (s) => ticketDayKey(s.redmineIssueId, s.date));
+    expect(totals).toEqual([
+      { ticketId: '482', date: '2026-10-04', seconds: 900 },
+      { ticketId: '500', date: '2026-10-04', seconds: 300 },
+    ]);
+  });
+
+  it('leaves out sessions with no ticket-day, and days with no closed time', () => {
+    const sessions = [
+      { key: null, endTime: 1, durationSeconds: 900 },
+      { key: 'x|2026-10-04', endTime: null },
+    ];
+    expect(ticketDayTotals(sessions, (s) => s.key)).toEqual([]);
   });
 });

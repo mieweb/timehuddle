@@ -49,6 +49,54 @@ export function toId(value: string): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+/** Redmine's own limit for an issue `subject`. */
+export const MAX_SUBJECT_LENGTH = 255;
+
+/** What a TimeHuddle ticket carries over into a new Redmine issue. */
+export interface RedmineIssuePrefill {
+  subject: string;
+  description: string;
+  /** A TimeHuddle priority (`low`, `medium`, …), matched to a Redmine one by name. */
+  priority: string | null;
+}
+
+/**
+ * The create form's starting values for a ticket. A TimeHuddle title may be
+ * longer than Redmine allows, so it is cut to fit rather than refused later.
+ */
+export function prefillFromTicket(ticket: {
+  title: string;
+  description: string | null;
+  priority: string | null;
+}): RedmineIssuePrefill {
+  return {
+    subject: ticket.title.trim().slice(0, MAX_SUBJECT_LENGTH),
+    description: ticket.description ?? '',
+    priority: ticket.priority,
+  };
+}
+
+/** TimeHuddle's priorities under the names Redmine ships with. */
+const REDMINE_PRIORITY_NAME: Record<string, string> = {
+  low: 'low',
+  medium: 'normal',
+  high: 'high',
+  critical: 'urgent',
+};
+
+/**
+ * The Redmine priority matching a TimeHuddle one, or null when the instance
+ * has renamed it — the form then keeps its own default.
+ */
+export function matchPriorityId(
+  priorities: RedmineNamed[],
+  priority: string | null,
+): number | null {
+  const name = priority ? REDMINE_PRIORITY_NAME[priority] : undefined;
+  if (!name) return null;
+  return priorities.find((p) => p.name.toLowerCase() === name)?.id ?? null;
+}
+
 /** The user-facing message for a failed Redmine call. */
 export function redmineErrorMessage(err: unknown): string {
   if (err instanceof ApiError || err instanceof Error) return err.message;

@@ -26,6 +26,7 @@ type SharedTableProps = Pick<
   | 'onEditRequest'
   | 'onDeleteRequest'
   | 'onChangeStatusRequest'
+  | 'onConnectRequest'
 >;
 
 export interface TicketTablePanelProps extends SharedTableProps {
@@ -33,8 +34,7 @@ export interface TicketTablePanelProps extends SharedTableProps {
   loading: boolean;
   /** The leading toolbar content: this tab's search control and anything beside it. */
   search: React.ReactNode;
-  /** Notices rendered above and below the bulk action bar. */
-  beforeBulkBar?: React.ReactNode;
+  /** Notices rendered below the bulk action bar. */
   afterBulkBar?: React.ReactNode;
   canDeleteSelected: boolean;
   onBulkDelete: () => void;
@@ -50,7 +50,6 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
   view,
   loading,
   search,
-  beforeBulkBar,
   afterBulkBar,
   canDeleteSelected,
   onBulkDelete,
@@ -93,8 +92,6 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
           </div>
         </div>
       </div>
-
-      {beforeBulkBar}
 
       {view.selectedKeys.size > 0 && (
         <TicketBulkActionBar

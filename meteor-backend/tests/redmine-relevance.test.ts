@@ -394,6 +394,33 @@ describe('buildRelevantIssues', () => {
       expect(built.unavailableBoardIds).toEqual([51]);
     });
 
+    it('returns the issues tickets are linked to apart from the list, in the same fetch', async () => {
+      const answer = byIds([71]);
+      stubWithIds(answer);
+      const built = await buildRelevantIssues(account, {
+        redmineUserId: 7,
+        boardIds: [50],
+        linkedIds: [70, 71],
+        now: NOW,
+      });
+      expect(answer.requests[0]).toEqual([50, 70, 71]);
+      // 71 is not visible to the caller, so it is simply not returned.
+      expect(built.linkedIssues.map((issue) => issue.id)).toEqual([70]);
+      // A link is not a relevance signal: it never puts an issue in the list.
+      expect(built.issues.map((row) => row.id)).not.toContain(70);
+    });
+
+    it('still returns a linked issue the caller hid from their suggestions', async () => {
+      stubWithIds(byIds());
+      const built = await buildRelevantIssues(account, {
+        redmineUserId: 7,
+        linkedIds: [70],
+        now: NOW,
+        resolvePrefs: async () => ({ hiddenIds: [70] }),
+      });
+      expect(built.linkedIssues.map((issue) => issue.id)).toEqual([70]);
+    });
+
     it('names none as unavailable when the fetch failed', async () => {
       stubRedmine({ ...allSignalsUp(), 'issue_id=': undefined });
       const built = await buildRelevantIssues(account, { redmineUserId: 7, boardIds: [50, 51], now: NOW });

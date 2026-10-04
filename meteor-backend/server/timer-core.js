@@ -12,7 +12,8 @@
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { normalizeSource, refKey, resolveTicketRefs, sourceSelector } from './ticket-refs';
-import { sumClosedSessions, ticketDayKey } from './redmine-net-hours';
+import { sumClosedSessions, ticketDayKey, ticketDayTotals } from './redmine-net-hours';
+import { linkedIssueIdOf } from './ticket-link-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -73,42 +74,73 @@ export function findClosedAtTime(userId, endTime) {
  * duration, and a pushed entry can never be corrected, so partial time must not
  * reach Redmine.
  *
+ * `includeLinked: false` leaves out time logged on linked TimeHuddle tickets —
+ * for an account that is not on the deployment's own Redmine, where the issue
+ * number a link stores would mean a different issue.
+ *
  * @returns {Promise<Array<{ticketId: string, date: string, seconds: number}>>}
  */
-export async function redmineTicketDaysFor(userId) {
+export async function redmineTicketDaysFor(userId, { includeLinked = true } = {}) {
   const rows = await workItems()
     .find(
       { userId, ...sourceSelector('redmine') },
       { projection: { _id: 1, ticketId: 1, date: 1 } },
     )
     .toArray();
-  if (!rows.length) return [];
 
   // `timers.workItemId` is stored as a hex string, not an ObjectId.
   const keyByWorkItem = new Map(
     rows.map((row) => [row._id.toHexString(), ticketDayKey(row.ticketId, row.date)]),
   );
 
-  const sessions = await timers()
-    .find(
-      { workItemId: { $in: [...keyByWorkItem.keys()] }, endTime: { $ne: null } },
-      { projection: { workItemId: 1, endTime: 1, durationSeconds: 1 } },
-    )
-    .toArray();
+  const closed = { endTime: { $ne: null } };
+  const [direct, linked] = await Promise.all([
+    rows.length
+      ? timers()
+          .find(
+            { workItemId: { $in: [...keyByWorkItem.keys()] }, ...closed },
+            { projection: { workItemId: 1, endTime: 1, durationSeconds: 1 } },
+          )
+          .toArray()
+      : [],
+    // Time on a TimeHuddle ticket that was linked to a Redmine issue when the
+    // session started (`redmineStampFor`). It belongs to that issue's day.
+    includeLinked
+      ? timers()
+          .find(
+            { userId, redmineIssueId: { $type: 'string' }, ...closed },
+            { projection: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1 } },
+          )
+          .toArray()
+      : [],
+  ]);
 
-  const byKey = new Map();
-  for (const session of sessions) {
-    const key = keyByWorkItem.get(session.workItemId);
-    if (!key) continue;
-    const bucket = byKey.get(key) ?? [];
-    bucket.push(session);
-    byKey.set(key, bucket);
-  }
+  return ticketDayTotals([...direct, ...linked], (session) =>
+    session.redmineIssueId
+      ? ticketDayKey(session.redmineIssueId, session.date)
+      : (keyByWorkItem.get(session.workItemId) ?? null),
+  );
+}
 
-  return [...byKey.entries()].map(([key, bucket]) => {
-    const [ticketId, date] = key.split('|');
-    return { ticketId, date, seconds: sumClosedSessions(bucket) };
-  });
+/**
+ * The Redmine issue a new session on this work item is logged under: the issue
+ * its TimeHuddle ticket is linked to at this moment, as `{ redmineIssueId }`, or
+ * `{}` when there is none.
+ *
+ * Read at every session start and stored on the session, so time remembers the
+ * issue it was logged under: if the ticket is linked to a different issue
+ * later, hours already logged still belong to the one they were logged for.
+ * On the session, not the work item, because one work item spans a whole day
+ * and is reused after a break, and the link may change in between.
+ */
+export async function redmineStampFor(workItem) {
+  if (normalizeSource(workItem?.source) !== 'huddle') return {};
+  if (!ObjectId.isValid(workItem.ticketId)) return {};
+  const ticket = await rawDb()
+    .collection('tickets')
+    .findOne({ _id: new ObjectId(workItem.ticketId) }, { projection: { linkedIssue: 1 } });
+  const redmineIssueId = linkedIssueIdOf(ticket);
+  return redmineIssueId ? { redmineIssueId } : {};
 }
 
 /**
@@ -155,6 +187,7 @@ export async function restartTimerForWorkItem(userId, workItemId, now, clockEven
     startTime: now,
     endTime: null,
     createdAt: new Date(),
+    ...(await redmineStampFor(workItem)),
   };
   await timers().insertOne(session);
   return session;

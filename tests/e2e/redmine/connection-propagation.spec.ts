@@ -15,6 +15,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
 import { connectedStatus, redmineIssue, relevantList, stubRedmine } from '../fixtures/redmine';
+import { deleteTicket } from '../tickets/helpers';
 
 const REDMINE_USER_ID = 8;
 
@@ -98,21 +99,32 @@ test.describe('Redmine connection propagates without a reload', () => {
     await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
   });
 
-  test('New Ticket becomes the TimeHuddle/Redmine dropdown after connecting', async ({ page }) => {
+  test('"Connect to…" offers Redmine after connecting', async ({ page }) => {
     await stubLinkableRedmine(page);
     await tickets.goto();
+    const title = `Propagation ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.search(title);
 
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-    await expect(page.getByText('Redmine issue', { exact: true })).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    const openConnect = async () => {
+      await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
+      await page.getByRole('menuitem', { name: 'Connect to…' }).click();
+    };
+
+    // Unlinked: the dialog says to connect Redmine instead of offering a search.
+    await openConnect();
+    await expect(page.getByText(/Connect your Redmine account in Settings/)).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
 
     await openSettings(page);
     await connectInSettings(page);
     await goToTicketsWithoutReloading(page);
 
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-    await expect(page.getByText('TimeHuddle ticket', { exact: true })).toBeVisible();
-    await expect(page.getByText('Redmine issue', { exact: true })).toBeVisible();
+    await openConnect();
+    await expect(page.getByLabel('Redmine issue number or link')).toBeVisible();
+
+    // Leave the table as it was found for the specs that follow.
+    await deleteTicket(page, title);
   });
 
   test('the "Me" filter picks up the linked Redmine account', async ({ page }) => {

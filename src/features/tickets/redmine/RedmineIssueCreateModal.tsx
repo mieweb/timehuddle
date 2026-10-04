@@ -6,6 +6,9 @@
  * The assignee defaults to the user themself; anyone on the project can be
  * picked instead. Tracker and priority start on the project's first tracker
  * and the instance's default priority.
+ *
+ * Opened from a TimeHuddle ticket ("Connect to… → New Redmine issue"), it
+ * starts from that ticket's title, description and priority (`initialValues`).
  */
 import {
   Alert,
@@ -22,27 +25,29 @@ import {
   Spinner,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { redmineApi, type RedmineFormOptions, type RedmineNamed } from '../../../lib/api';
 
 import {
+  MAX_SUBJECT_LENGTH,
   UNASSIGNED,
   assigneeOptions,
+  matchPriorityId,
   mismatchWarning,
   redmineErrorMessage,
   toId,
   toOptions,
+  type RedmineIssuePrefill,
 } from './redmineForm';
-
-/** Redmine's own limit for `subject`. */
-const MAX_SUBJECT_LENGTH = 255;
 
 export interface RedmineIssueCreateModalProps {
   open: boolean;
   onClose: () => void;
   /** Called with the new issue id once Redmine has created it. */
   onCreated: (issueId: number, warning: string | null) => void;
+  /** Starting values, read each time the dialog opens. */
+  initialValues?: RedmineIssuePrefill;
 }
 
 interface FormState {
@@ -67,7 +72,12 @@ export function RedmineIssueCreateModal({
   open,
   onClose,
   onCreated,
+  initialValues,
 }: RedmineIssueCreateModalProps) {
+  // Read when the dialog opens or its options load, never as a reason to reset.
+  const initialRef = useRef(initialValues);
+  initialRef.current = initialValues;
+
   const [projects, setProjects] = useState<RedmineNamed[] | null>(null);
   const [options, setOptions] = useState<RedmineFormOptions | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -81,7 +91,12 @@ export function RedmineIssueCreateModal({
   // Fresh form and project list each time the dialog opens.
   useEffect(() => {
     if (!open) return;
-    setForm(EMPTY_FORM);
+    const initial = initialRef.current;
+    setForm({
+      ...EMPTY_FORM,
+      subject: initial?.subject ?? '',
+      description: initial?.description ?? '',
+    });
     setOptions(null);
     setError(null);
     setLoadingProjects(true);
@@ -108,10 +123,13 @@ export function RedmineIssueCreateModal({
         if (cancelled) return;
         setOptions(next);
         const meIsMember = next.assignees.some((a) => a.id === next.me);
+        const priorityId =
+          matchPriorityId(next.priorities, initialRef.current?.priority ?? null) ??
+          next.defaultPriorityId;
         setForm((f) => ({
           ...f,
           trackerId: next.trackers[0] ? String(next.trackers[0].id) : '',
-          priorityId: next.defaultPriorityId ? String(next.defaultPriorityId) : '',
+          priorityId: priorityId ? String(priorityId) : '',
           assigneeId: meIsMember ? String(next.me) : UNASSIGNED,
         }));
       })

@@ -1,6 +1,6 @@
 /**
- * Create a TimeHuddle ticket — laid out like `RedmineIssueCreateModal`, so
- * both "New Ticket" choices look and behave the same.
+ * Create a ticket. Every ticket starts as a TimeHuddle ticket; it can be
+ * connected to a Redmine issue or a GitHub URL afterwards ("Connect to…").
  *
  * Pasting a GitHub issue/PR URL into the title (or typing one into the GitHub
  * field) fills the title from GitHub. The assignee defaults to the creator; the
@@ -149,7 +149,7 @@ export function TicketCreateModal({
   return (
     <Modal open={open} onOpenChange={(next) => !next && onClose()} size="lg">
       <ModalHeader>
-        <ModalTitle>New TimeHuddle ticket</ModalTitle>
+        <ModalTitle>New ticket</ModalTitle>
         <ModalClose />
       </ModalHeader>
       <ModalBody>
@@ -157,7 +157,7 @@ export function TicketCreateModal({
           // Plain <form>: @mieweb/ui has no Form primitive, and this gives Enter-to-submit.
           <form
             className="ticket-create space-y-4"
-            aria-label="New TimeHuddle ticket"
+            aria-label="New ticket"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSubmit) void handleCreate();

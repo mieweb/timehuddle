@@ -6,11 +6,11 @@ from the Tickets search bar (MVP2 Part B).
 
 ## Issue dialogs (Milestone 6)
 
-| File                          | Role                                                                                                            |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `RedmineIssueCreateModal.tsx` | "New Ticket → Redmine issue": project, tracker, subject, description, assignee (defaults to the user), priority |
-| `RedmineIssueEditModal.tsx`   | Row ⋮ → "Edit Ticket" / "Change Status" on a Redmine row: status, priority, assignee, description               |
-| `redmineForm.ts`              | Pure helpers both dialogs share: `Select` options, id parsing, error and read-back messages                     |
+| File                          | Role                                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `RedmineIssueCreateModal.tsx` | A ticket's "Connect to… → New Redmine issue": project, tracker, subject, description, assignee, priority |
+| `RedmineIssueEditModal.tsx`   | Row ⋮ → "Edit Ticket" / "Change Status" on a Redmine row: status, priority, assignee, description        |
+| `redmineForm.ts`              | Pure helpers both dialogs share: `Select` options, id parsing, error and read-back messages              |
 
 **How writes work.** Every call runs on the server under the user's own
 personal Redmine API key (`meteor-backend/server/redmine-issue-methods.js`), so
