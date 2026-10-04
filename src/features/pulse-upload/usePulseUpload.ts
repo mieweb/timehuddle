@@ -30,6 +30,8 @@ import { keptMessage, landedLabel } from './pulseStatus';
 
 /** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
+/** A detached watcher stops after this many failed checks in a row (~10 min). */
+const MAX_FAILED_CHECKS = 200;
 /** A Pulse link works for 30 minutes (UPLOAD_LINK_SECONDS on the server). */
 const LINK_LIFETIME_MS = 30 * 60 * 1000;
 /** How long the modal shows a delivered video before closing itself. */
@@ -58,6 +60,11 @@ export interface PulseUpload {
   scanLink: string | null;
   modalOpen: boolean;
   closeModal: () => void;
+  /**
+   * Stop waiting on the current link — the person will do it another way. A
+   * video that still lands is delivered as usual, and watched on and toasted.
+   */
+  letGo: () => void;
 }
 
 interface Options {
@@ -88,11 +95,15 @@ async function watchDetached(
   const destination = JSON.parse(link.destinationKey) as PulseDestination;
   // Until the server says it's settled: a video claimed just before its link
   // expired can still be converting, and `status` reports `expired` once a
-  // link that never landed is gone.
+  // link that never landed is gone. A check that keeps failing (signed out,
+  // the account switched) gives up rather than polling for the tab's life.
+  let failedChecks = 0;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
     if (document.hidden) continue;
     const status = await videoApi.status(link.videoid).catch(() => null);
+    failedChecks = status ? 0 : failedChecks + 1;
+    if (failedChecks >= MAX_FAILED_CHECKS) return;
     if (!status || status.state === 'waiting') continue;
     if (status.state === 'expired') return;
     onSettled?.(status);
@@ -247,6 +258,12 @@ export function usePulseUpload(
   }, [current, status?.state, destinationKey, openLink, handOff]);
 
   const closeModal = useCallback(() => setModalOpen(false), []);
+  const letGo = useCallback(() => {
+    handOff();
+    setLink(null);
+    setStatus(null);
+    setModalOpen(false);
+  }, [handOff]);
 
   return {
     destination,
@@ -257,5 +274,6 @@ export function usePulseUpload(
     scanLink: current?.scanLink ?? null,
     modalOpen,
     closeModal,
+    letGo,
   };
 }

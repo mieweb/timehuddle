@@ -428,13 +428,16 @@ export async function createHuddlePost(
 }
 
 /** The team, if `userId` is on it; throws otherwise. */
-async function requireTeamMember(userId, teamId) {
+export async function requireTeamMember(userId, teamId) {
+  if (typeof teamId !== 'string' || !teamId) {
+    throw new Meteor.Error('bad-request', 'Invalid teamId');
+  }
   const team = await getTeam(teamId);
   if (!team) {
     throw new Meteor.Error('not-found', 'Team not found');
   }
   if (!isTeamMember(team, userId)) {
-    throw new Meteor.Error('forbidden', 'Not a team member');
+    throw new Meteor.Error('forbidden', 'Not a member of this team');
   }
   return team;
 }
@@ -623,6 +626,9 @@ Meteor.methods({
       }
     }
 
+    // A wrap-up adds its attachments to the plan's (a Pulse plan's video
+    // among them); an edit sends the whole list, so it replaces them.
+    const appendAttachments = wrapUp === true && Array.isArray(attachments) && attachments.length > 0;
     await rawDb().collection('huddlePosts').updateOne(
       { _id: toId(postId) },
       {
@@ -633,11 +639,12 @@ Meteor.methods({
           },
           // Only touch attachments/ticketId when the editor sends them, so the
           // plan-first clock flow (which omits them) leaves them untouched.
-          ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
+          ...(attachments !== undefined && wrapUp !== true ? { attachments: attachments ?? [] } : {}),
           ...(ticketId !== undefined ? { ticketId: ticketId ?? undefined } : {}),
           ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
           updatedAt: new Date(),
         },
+        ...(appendAttachments ? { $push: { attachments: { $each: attachments } } } : {}),
       }
     );
     
