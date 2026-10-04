@@ -8,7 +8,7 @@
  * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
  * assignment); rows gate those controls on each source's capabilities.
  */
-import { faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faBinoculars, faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
@@ -273,8 +273,8 @@ export const TicketsPage: React.FC = () => {
   // Controlled so picking an item closes the menu before its dialog opens.
   const [newTicketMenuOpen, setNewTicketMenuOpen] = useState(false);
 
-  // Tickets tab vs My Board tab — same URL, local state only.
-  const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('tickets');
+  // My Board tab vs All Sources tab — same URL, local state only.
+  const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('my-board');
 
   // My Board membership — identity only (`${sourceId}:${id}` keys, matching
   // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
@@ -691,11 +691,13 @@ export const TicketsPage: React.FC = () => {
           className="flex min-h-0 flex-1 flex-col"
         >
           <TabsList className="mb-3 w-fit shrink-0">
-            <TabsTrigger value="tickets">Tickets</TabsTrigger>
             <TabsTrigger value="my-board">My Board</TabsTrigger>
+            <TabsTrigger value="tickets" aria-label="All Sources" title="All Sources">
+              <FontAwesomeIcon icon={faBinoculars} aria-hidden="true" />
+            </TabsTrigger>
           </TabsList>
 
-          {/* ── Tickets tab ── */}
+          {/* ── All Sources tab ── */}
           <TabsContent
             value="tickets"
             forceMount
@@ -848,8 +850,18 @@ export const TicketsPage: React.FC = () => {
               emptyText={{
                 open: 'Your board is empty',
                 closed: 'No closed tickets on your board',
-                hint: 'Select tickets on the Tickets tab and click "Move to My Board".',
+                hint: 'Browse all sources, select tickets and click "Move to My Board".',
               }}
+              emptyAction={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<FontAwesomeIcon icon={faBinoculars} />}
+                  onClick={() => setActiveView('tickets')}
+                >
+                  Browse All Sources
+                </Button>
+              }
               emptyNotice={unresolvedBoardNotice}
             />
           </TabsContent>

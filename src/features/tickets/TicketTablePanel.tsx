@@ -2,7 +2,7 @@
  * TicketTablePanel — one tab's worth of the Tickets page: the toolbar, the bulk
  * action bar, the table card and its pagination footer.
  *
- * The Tickets tab and My Board render the same panel over their own
+ * The All Sources tab and My Board render the same panel over their own
  * `TicketTableView`; what differs between them (the search control, the notices
  * around the bulk bar, the labels) comes in as props.
  */
@@ -44,6 +44,8 @@ export interface TicketTablePanelProps extends SharedTableProps {
   emptyText: { open: string; closed: string; hint: string };
   /** Replaces the empty-state description when set. */
   emptyNotice?: string | null;
+  /** Call to action under the hint, shown only when the hint would be. */
+  emptyAction?: React.ReactNode;
 }
 
 export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
@@ -58,6 +60,7 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
   onPrimaryAction,
   emptyText,
   emptyNotice,
+  emptyAction,
   ...tableProps
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
@@ -141,6 +144,7 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
                 description={
                   emptyNotice ?? (!filtered && !view.showClosed ? emptyText.hint : undefined)
                 }
+                action={!filtered && !view.showClosed ? emptyAction : undefined}
               />
             }
           />

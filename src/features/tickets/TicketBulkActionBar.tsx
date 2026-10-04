@@ -4,7 +4,7 @@
  * out of TimeHuddle only (never out of Redmine); Archive and Close Issues are static
  * placeholders (no backend/model support yet, always disabled) reserved for
  * a later milestone. The primary action is context-sensitive: "Move to My
- * Board" on the Tickets tab, "Remove from My Board" on the My Board tab.
+ * Board" on the All Sources tab, "Remove from My Board" on the My Board tab.
  */
 import { faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
