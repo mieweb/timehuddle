@@ -12,8 +12,6 @@
  * dialog uses (`TicketLinkFields`). Before a change is saved, the viewer is
  * told what it means for time already logged (`linkWarnings`).
  */
-import { faExternalLink } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
@@ -21,6 +19,7 @@ import {
   Button,
   Card,
   CardContent,
+  ExternalLinkIcon,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -28,7 +27,7 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, redmineApi, type RedmineIssue, type Ticket } from '../../../lib/api';
 import { useRouter } from '../../../ui/router';
-import { ticketDetailPath } from '../sources';
+import { parseGithubIssueUrl } from '../githubIssue';
 
 import { IssueCreatedNotLinkedError, applyTicketLink } from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
@@ -54,11 +53,40 @@ export interface LinkedIssueSectionProps {
 
 type IssueState =
   | { kind: 'loading' }
-  | { kind: 'loaded'; issue: RedmineIssue }
+  | { kind: 'loaded'; issue: RedmineIssue; /** The issue's page in Redmine. */ url: string | null }
   | { kind: 'not-connected' }
   | { kind: 'unavailable' };
 
 type Mode = 'view' | 'edit' | 'remove';
+
+/** The linked issue reads as one hyperlink: its reference, its title, and an external-link mark. */
+const LINK_CLASS =
+  'ticket-linked-issue-link inline-flex max-w-full items-baseline gap-1.5 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400';
+
+/** `owner/repo#12` for a GitHub issue or pull request URL, else the URL itself. */
+function githubLabel(url: string): string {
+  const parts = parseGithubIssueUrl(url);
+  return parts ? `${parts.owner}/${parts.repo}#${parts.number}` : url;
+}
+
+/** Which system the link points at, as a filled badge so it does not read as a button. */
+function SourceLine({ source, detail }: { source: string; detail?: string }) {
+  return (
+    <div className="ticket-linked-issue-source flex flex-wrap items-center gap-1.5">
+      <Text size="sm" variant="muted">
+        {ticketLinkText.from}
+      </Text>
+      <Badge variant="secondary" size="sm">
+        {source}
+      </Badge>
+      {detail && (
+        <Text size="sm" variant="muted">
+          {detail}
+        </Text>
+      )}
+    </div>
+  );
+}
 
 /** What saving now would do to a Redmine link, for the warnings about time already logged. */
 function pendingChange(
@@ -90,7 +118,11 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
     setIssueState({ kind: 'loading' });
     redmineApi.issues
       .get(Number(linkedId))
-      .then(({ issue }) => !cancelled && setIssueState({ kind: 'loaded', issue }))
+      .then(({ issue, baseUrl }) => {
+        if (cancelled) return;
+        const url = baseUrl ? `${baseUrl}/issues/${issue.id}` : null;
+        setIssueState({ kind: 'loaded', issue, url });
+      })
       .catch((err) => {
         if (cancelled) return;
         const notConnected = err instanceof ApiError && err.code === 'not-connected';
@@ -141,23 +173,9 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
   return (
     <Card>
       <CardContent className="ticket-linked-issue space-y-3">
-        <div className="ticket-linked-issue-header flex flex-wrap items-center justify-between gap-2">
-          <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
-            {ticketLinkText.sectionTitle}
-          </Text>
-          {mode === 'view' && (
-            <div className="ticket-linked-issue-actions flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" disabled={locked} onClick={() => open('edit')}>
-                {currentKind === 'none' ? ticketLinkText.add : ticketLinkText.change}
-              </Button>
-              {currentKind !== 'none' && (
-                <Button variant="ghost" size="sm" disabled={locked} onClick={() => open('remove')}>
-                  {ticketLinkText.remove}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+        <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
+          {ticketLinkText.sectionTitle}
+        </Text>
 
         {mode !== 'edit' && currentKind === 'none' && (
           <Text size="sm" variant="muted">
@@ -166,61 +184,58 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
         )}
 
         {mode !== 'edit' && currentKind === 'github' && (
-          <div className="ticket-linked-github flex flex-wrap items-center gap-2">
-            <Badge variant="outline" size="sm">
-              {ticketLinkText.github}
-            </Badge>
+          <div className="ticket-linked-github space-y-1.5">
             <a
               href={ticket.github}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={ticketLinkText.openGithub(ticket.github)}
-              className="inline-flex min-w-0 items-center gap-1.5 break-all text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
+              className={LINK_CLASS}
             >
-              <FontAwesomeIcon icon={faExternalLink} className="h-3 w-3 shrink-0" />
-              {ticket.github}
+              <span className="ticket-linked-issue-title break-all">
+                {githubLabel(ticket.github)}
+              </span>
+              <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
             </a>
+            <SourceLine source={ticketLinkText.github} />
           </div>
         )}
 
         {mode !== 'edit' && linked && (
-          <div className="ticket-linked-redmine space-y-2" aria-live="polite">
-            <div className="ticket-linked-redmine-meta flex flex-wrap items-center gap-2">
-              <Badge variant="outline" size="sm">
-                {ticketLinkText.redmine}
-              </Badge>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 font-mono"
+          <div className="ticket-linked-redmine space-y-1.5" aria-live="polite">
+            {issueState.kind === 'loaded' && issueState.url ? (
+              <a
+                href={issueState.url}
+                target="_blank"
+                rel="noopener noreferrer"
                 aria-label={ticketLinkText.openIssue(ref)}
-                onClick={() =>
-                  navigate(ticketDetailPath({ sourceId: linked.source, id: linked.id }))
-                }
+                className={LINK_CLASS}
               >
+                <span className="ticket-linked-issue-ref font-mono">{ref}</span>
+                <span className="ticket-linked-issue-title">{issueState.issue.subject}</span>
+                <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              </a>
+            ) : (
+              <Text size="sm" className="font-mono font-medium">
                 {ref}
-              </Button>
-              {issueState.kind === 'loaded' && issueState.issue.status && (
-                <Badge
-                  size="sm"
-                  variant={issueState.issue.status.isClosed ? 'secondary' : 'success'}
-                >
-                  {issueState.issue.status.name}
-                </Badge>
-              )}
-              {issueState.kind === 'loaded' && (
-                <Text size="sm" variant="muted">
-                  {issueState.issue.assignedTo
-                    ? ticketLinkText.assignedTo(issueState.issue.assignedTo.name)
-                    : ticketLinkText.unassigned}
-                </Text>
-              )}
-            </div>
+                {issueState.kind === 'loaded' && ` ${issueState.issue.subject}`}
+              </Text>
+            )}
+            <SourceLine
+              source={ticketLinkText.redmine}
+              detail={
+                issueState.kind === 'loaded'
+                  ? ticketLinkText.statusAndAssignee(
+                      issueState.issue.status?.name ?? null,
+                      issueState.issue.assignedTo?.name ?? null,
+                    )
+                  : undefined
+              }
+            />
 
             {issueState.kind === 'loading' && (
               <Spinner size="sm" label={ticketLinkText.loadingIssue} />
             )}
-            {issueState.kind === 'loaded' && <Text size="sm">{issueState.issue.subject}</Text>}
             {issueState.kind === 'not-connected' && (
               <>
                 <Text size="sm" variant="muted">
@@ -263,6 +278,19 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
             </Alert>
           )}
         </div>
+
+        {mode === 'view' && (
+          <div className="ticket-linked-issue-actions flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" disabled={locked} onClick={() => open('edit')}>
+              {currentKind === 'none' ? ticketLinkText.add : ticketLinkText.change}
+            </Button>
+            {currentKind !== 'none' && (
+              <Button variant="ghost" size="sm" disabled={locked} onClick={() => open('remove')}>
+                {ticketLinkText.remove}
+              </Button>
+            )}
+          </div>
+        )}
 
         {mode !== 'view' && (
           <div className="ticket-linked-issue-confirm flex flex-wrap justify-end gap-2">

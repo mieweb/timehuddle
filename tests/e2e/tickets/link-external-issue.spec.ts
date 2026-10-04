@@ -105,28 +105,32 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
     await expect.poll(() => link.calls.length).toBe(1);
     expect(link.calls[0]).toMatchObject({ issueId: 482, expectedIssueId: null });
-    // The card now shows the issue, read live from Redmine.
-    await expect(card(page).getByRole('button', { name: 'Open Redmine issue #482' })).toBeVisible();
-    await expect(card(page)).toContainText('Export job times out');
-    await expect(card(page)).toContainText('In Progress');
-    await expect(card(page)).toContainText('Assigned to Test User');
+    // The section now shows the issue, read live from Redmine: its number and
+    // title as one link out to Redmine, and where it comes from.
+    const issueLink = card(page).getByRole('link', { name: 'Open issue #482 in Redmine' });
+    await expect(issueLink).toHaveAttribute('href', `${BASE_URL}/issues/482`);
+    await expect(issueLink).toContainText('#482');
+    await expect(issueLink).toContainText('Export job times out');
+    await expect(card(page)).toContainText('from');
+    await expect(card(page)).toContainText('Redmine');
+    await expect(card(page)).toContainText('In Progress · Assigned to Test User');
   });
 
-  test('removes a Redmine link after a confirmation', async ({ page }) => {
+  test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
     await openNewTicket(page, `Unlink ${Date.now()}`);
 
-    await card(page).getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(card(page)).toContainText('Remove this link?');
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
+    await expect(card(page)).toContainText('Unlink this issue?');
     expect(unlink.calls).toHaveLength(0);
-    await card(page).getByRole('button', { name: 'Remove link' }).click();
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
 
     await expect.poll(() => unlink.calls.length).toBe(1);
     expect(unlink.calls[0]).toMatchObject({ expectedIssueId: '482' });
     await expect(card(page)).toContainText('Not linked.');
   });
 
-  test('shows a GitHub link in the same section, and can remove it', async ({ page }) => {
+  test('shows a GitHub link in the same section, and can unlink it', async ({ page }) => {
     // Not an issue or pull request URL, so the dialog does not fetch a title for it.
     const url = 'https://github.com/mieweb/timehuddle/discussions/1';
     const tickets = new TicketsPage(page);
@@ -141,8 +145,8 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page).getByRole('link', { name: `Open GitHub link ${url}` })).toBeVisible({
       timeout: 20000,
     });
-    await card(page).getByRole('button', { name: 'Remove', exact: true }).click();
-    await card(page).getByRole('button', { name: 'Remove link' }).click();
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
 
     await expect(card(page)).toContainText('Not linked.');
     await page.reload();
@@ -158,7 +162,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     }));
     await openNewTicket(page, `Unlink warnings ${Date.now()}`);
 
-    await card(page).getByRole('button', { name: 'Remove', exact: true }).click();
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
 
     await expect(page.getByText(/2h 15m you logged on this ticket hasn't been sent/)).toBeVisible();
     await expect(page.getByText('1h 30m you already sent stays on Redmine #482.')).toBeVisible();
@@ -182,7 +186,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
     await expect(page.getByText(message)).toBeVisible();
     await expect(card(page).getByRole('button', { name: 'Change' })).toBeDisabled();
-    await expect(card(page).getByRole('button', { name: 'Remove', exact: true })).toBeDisabled();
+    await expect(card(page).getByRole('button', { name: 'Unlink' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Edit title' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
   });

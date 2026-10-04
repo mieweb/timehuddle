@@ -6,21 +6,23 @@
  * function so a translation can place it.
  */
 export const ticketLinkText = {
-  sectionTitle: 'Linked issue',
+  sectionTitle: 'Linked Issue',
   notLinked: 'Not linked. This ticket is tracked in TimeHuddle only.',
   add: 'Add link',
   change: 'Change',
-  remove: 'Remove',
+  remove: 'Unlink',
+  from: 'from',
   save: 'Save',
   saving: 'Saving…',
   cancel: 'Cancel',
   redmine: 'Redmine',
   github: 'GitHub',
-  unassigned: 'Unassigned',
   loadingIssue: 'Loading the linked issue from Redmine',
-  openIssue: (ref: string) => `Open Redmine issue ${ref}`,
+  openIssue: (ref: string) => `Open issue ${ref} in Redmine`,
   openGithub: (url: string) => `Open GitHub link ${url}`,
-  assignedTo: (name: string) => `Assigned to ${name}`,
+  /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
+  statusAndAssignee: (status: string | null, assignee: string | null) =>
+    [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
   linkedTo: (ref: string) => `Linked to Redmine ${ref}`,
   linkedToWithStatus: (ref: string, status: string) => `Linked to Redmine ${ref} · ${status}`,
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
@@ -62,9 +64,9 @@ export const ticketLinkText = {
   openTicketToLink: 'Open the ticket to link it.',
 
   removeConfirm:
-    'Remove this link? The ticket stays in TimeHuddle, and nothing changes in the linked system.',
-  removeAction: 'Remove link',
-  removing: 'Removing…',
+    'Unlink this issue? The ticket stays in TimeHuddle, and nothing changes in the linked system.',
+  removeAction: 'Unlink',
+  removing: 'Unlinking…',
   saveFailed: "Couldn't save the ticket. Please try again.",
 
   warnUnsent: (duration: string, ref: string) =>
