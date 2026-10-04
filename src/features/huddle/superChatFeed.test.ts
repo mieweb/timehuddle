@@ -437,6 +437,20 @@ describe('searchConversations', () => {
     for (const query of ['pulse_video', 'widget', videoId, typedId]) expect(hits(query)).toBe(0);
   });
 
+  it('still matches inside other GenUI blocks, which show as code', () => {
+    const withChart = [
+      makePost({
+        id: 'p5',
+        content: {
+          text: 'Numbers\n\n```genui\n{"widget":"chart","props":{"series":"latency"}}\n```',
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(withChart, 'session', VIEWER_MEMBER, NOW);
+    expect(searchConversations(grouped, withChart, 'latency')).toHaveLength(1);
+  });
+
   it('finds off-the-clock and live posts the same way in every view', () => {
     const livePost = makePost({
       id: 'p3',

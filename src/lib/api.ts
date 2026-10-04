@@ -1735,7 +1735,6 @@ export interface Attachment {
   url: string;
   type: AttachmentType;
   title: string | null;
-  thumbnail: string | null;
   attachedTo: { kind: AttachmentKind; id: string };
   addedBy: string;
   addedAt: string;

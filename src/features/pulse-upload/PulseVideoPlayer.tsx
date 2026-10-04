@@ -40,10 +40,13 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
   const [posterFailed, setPosterFailed] = useState(false);
   const name = title || 'Pulse video';
   // The play button unmounts on click: keep keyboard focus on what replaced it.
-  // A card that goes away (navigating off, say) stops its video with it.
+  // Played from here, still inside the tap's commit — iOS blocks `autoPlay`
+  // with sound once the gesture is over. A card that goes away (navigating
+  // off, say) stops its video with it.
   const attachPlayer = useCallback((el: HTMLVideoElement | null) => {
     if (!el) return;
     el.focus();
+    void el.play().catch(() => {});
     return () => {
       el.pause();
       if (playingNow === el) playingNow = null;
@@ -61,7 +64,6 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
           src={resolveMediaUrl(artifactPath(video))}
           poster={posterFailed ? undefined : resolveMediaUrl(posterPath(video))}
           controls
-          autoPlay
           playsInline
           onPlay={playAlone}
           aria-label={name}

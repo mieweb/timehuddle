@@ -182,6 +182,11 @@ Meteor.startup(async () => {
   await migrateReservations().catch((err) =>
     console.warn('[pulsevault] reservation migration failed:', err.message),
   );
+  // After the migration: a poster's upsert first would leave a migrated
+  // reservation without its state, so its video would never be delivered.
+  await backfillThumbnails().catch((err) =>
+    console.warn('[pulsevault] thumbnail backfill failed, runs again at next start:', err.message),
+  );
   await sweepAbandonedClaims();
   Meteor.setInterval(() => void sweepAbandonedClaims(), 5 * 60 * 1000);
 });
@@ -316,8 +321,8 @@ async function settleUpload(artifactId, { kept, reason, note }) {
  * failure throws, so the upload reports it; a thumbnail that isn't related to
  * a video is skipped.
  */
-async function linkThumbnail(thumbnailId) {
-  const videoId = await storage.getRelatedTo?.(thumbnailId);
+async function linkThumbnail(thumbnailId, relatedTo) {
+  const videoId = relatedTo ?? (await storage.getRelatedTo?.(thumbnailId));
   if (!videoId) return;
   await uploads().updateOne({ _id: videoId }, { $set: { thumbnailId } }, { upsert: true });
 }
@@ -338,7 +343,7 @@ async function backfillThumbnails() {
   for await (const record of storage.listArtifacts()) {
     if (record.kind !== 'thumbnail' || !record.ready || !record.relatedTo) continue;
     try {
-      await linkThumbnail(record.artifactId);
+      await linkThumbnail(record.artifactId, record.relatedTo);
       linked += 1;
     } catch (err) {
       failed += 1;
@@ -356,12 +361,6 @@ async function backfillThumbnails() {
   );
   console.log('[pulsevault] thumbnail backfill linked', linked, 'poster frame(s)');
 }
-
-Meteor.startup(() => {
-  backfillThumbnails().catch((err) =>
-    console.warn('[pulsevault] thumbnail backfill failed, runs again at next start:', err.message),
-  );
-});
 
 /** `GET /posters/<videoId>`: the video's poster frame, or 404 when it has none (yet). */
 async function servePoster(videoId, res) {
@@ -725,7 +724,8 @@ Wormhole.use({
           // Only act for callers holding a valid capability token for this
           // artifactId — otherwise an unauthenticated POST could delete
           // someone else's in-progress upload.
-          await verifyUploadToken(req, { artifactId, phase: 'create' });
+          // A poster frame carries its video's token: pass what it's for.
+          await verifyUploadToken(req, { artifactId, phase: 'create', kind: meta.kind, relatedTo: meta.relatedTo });
         } catch {
           return; // core.handler will reject it with the proper 401/403
         }

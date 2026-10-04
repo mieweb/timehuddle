@@ -11,7 +11,7 @@ import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
-import { pulseVideoMarkdown } from './pulseVideoBlock';
+import { PULSE_VIDEO_WIDGET, pulseVideoMarkdown } from './pulseVideoBlock';
 import type {
   Participant,
   SuperChatConversation,
@@ -369,17 +369,23 @@ function normalizeForSearch(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
-/** Everything a post can be found by: body, author, ticket, attachments, team
- *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+/** A `pulse_video` GenUI block, one line or pretty-printed — never past its own fence. */
+const PULSE_CARD_BLOCK = new RegExp(
+  `\`\`\`genui(?:(?!\`\`\`)[\\s\\S])*?"widget"\\s*:\\s*"${PULSE_VIDEO_WIDGET}"(?:(?!\`\`\`)[\\s\\S])*\`\`\``,
+  'g',
+);
+
 /**
- * Text as a reader sees it: no markdown link targets and no GenUI card
- * payloads (one line or pretty-printed), so media URLs, widget names and
- * artifact ids don't match every query.
+ * Text as a reader sees it: no markdown link targets and no Pulse card
+ * payloads, so media URLs, the widget name and artifact ids don't match every
+ * query. Other GenUI blocks show as code, so their text stays searchable.
  */
 function searchableText(text: string): string {
-  return text.replace(/\]\([^)]*\)/g, ']').replace(/```genui[\s\S]*?```/g, '');
+  return text.replace(/\]\([^)]*\)/g, ']').replace(PULSE_CARD_BLOCK, '');
 }
 
+/** Everything a post can be found by: body, author, ticket, attachments, team
+ *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
 function postSearchText(post: HuddlePost, teamName?: string): string {
   const dateKey = getPostDateKey(post);
   const [year, month, day] = dateKey.split('-').map(Number);

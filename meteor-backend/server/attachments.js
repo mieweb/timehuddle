@@ -15,7 +15,6 @@ function toPublic(a) {
     url: a.url,
     type: a.type,
     title: a.title ?? null,
-    thumbnail: a.thumbnail ?? null,
     attachedTo: a.attachedTo,
     addedBy: a.addedBy,
     addedAt: a.addedAt instanceof Date ? a.addedAt.toISOString() : String(a.addedAt),
