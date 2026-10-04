@@ -179,14 +179,21 @@ Meteor.startup(async () => {
   await uploads()
     .createIndex({ state: 1, claimedAt: 1 })
     .catch((err) => console.warn('[pulsevault] uploads claim index failed:', err.message));
-  await migrateReservations().catch((err) =>
-    console.warn('[pulsevault] reservation migration failed:', err.message),
+  const migrated = await migrateReservations().then(
+    () => true,
+    (err) => {
+      console.warn('[pulsevault] reservation migration failed:', err.message);
+      return false;
+    },
   );
-  // After the migration: a poster's upsert first would leave a migrated
-  // reservation without its state, so its video would never be delivered.
-  await backfillThumbnails().catch((err) =>
-    console.warn('[pulsevault] thumbnail backfill failed, runs again at next start:', err.message),
-  );
+  // Only once the migration has succeeded: a poster's upsert first would leave
+  // a reservation still to migrate without its state, so its video would never
+  // be delivered. A failed migration retries at the next start, then this.
+  if (migrated) {
+    await backfillThumbnails().catch((err) =>
+      console.warn('[pulsevault] thumbnail backfill failed, runs again at next start:', err.message),
+    );
+  }
   await sweepAbandonedClaims();
   Meteor.setInterval(() => void sweepAbandonedClaims(), 5 * 60 * 1000);
 });
@@ -207,18 +214,24 @@ async function migrateReservations() {
         : target === REDMINE
           ? { kind: REDMINE, id: String(ticketId) }
           : (attachedTo ?? { kind: 'ticket', id: ticketId }));
-    await uploads().updateOne(
-      { _id },
-      {
-        $setOnInsert: {
-          userId,
-          destination: resolved,
-          state: 'reserved',
-          expiresAt: new Date((createdAt ?? new Date()).getTime() + RESERVATION_TTL_SECONDS * 1000),
+    // Fills in a row a poster frame already started (`thumbnailId` only, no
+    // `state`); a row that has a state is already an upload, and is left be.
+    await uploads()
+      .updateOne(
+        { _id, state: { $exists: false } },
+        {
+          $set: {
+            userId,
+            destination: resolved,
+            state: 'reserved',
+            expiresAt: new Date((createdAt ?? new Date()).getTime() + RESERVATION_TTL_SECONDS * 1000),
+          },
         },
-      },
-      { upsert: true },
-    );
+        { upsert: true },
+      )
+      .catch((err) => {
+        if (err.code !== 11000) throw err;
+      });
   }
   await db.collection('pulsevault_reservations').drop().catch(() => {});
   await db.collection('pulsevault_deliveries').drop().catch(() => {});
