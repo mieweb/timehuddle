@@ -367,7 +367,7 @@ describe('timesheet approvals — what a submission must carry', () => {
     expect(res.error).toMatch(/overlap/i);
   });
 
-  it('keeps the evidence for a request nobody has ruled on yet', async () => {
+  it('keeps the evidence for a request nobody has ruled on yet, even out of the library', async () => {
     const session = await seedSession(teamId, memberUserId);
     expect(
       (
@@ -379,13 +379,18 @@ describe('timesheet approvals — what a submission must carry', () => {
       ).ok,
     ).toBe(true);
 
+    // Removing a Pulse video from the library only takes it out of the
+    // library: the artifact stays, so the request still plays its evidence.
     const db = await getDb();
     const media = (await db.collection('mediaitems').findOne({ videoid: VIDEO_ID }))!;
     const res = await wormhole('media.remove', { mediaId: String(media._id) }, memberJwt);
 
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/review/i);
-    expect(await db.collection('mediaitems').countDocuments({ videoid: VIDEO_ID })).toBe(1);
+    expect(res.ok).toBe(true);
+    expect(await db.collection('mediaitems').countDocuments({ videoid: VIDEO_ID })).toBe(0);
+    const request = await db
+      .collection('timesheetchangerequests')
+      .findOne({ targetId: session.id, status: 'pending' });
+    expect(request?.videoUrl).toBe(JUSTIFICATION.videoUrl);
   });
 });
 

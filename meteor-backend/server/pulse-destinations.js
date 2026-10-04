@@ -73,7 +73,8 @@ async function ownSession(userId, clockEventId) {
  * per video, so keeping a video after a half-finished delivery can't add a
  * second. `teamId` is the team it was posted to — the only teammates who may
  * list it (media.listForUser); without one it stays private to the uploader.
- * `recordedFor` is the destination a kept video never reached.
+ * `recordedFor` is the destination a kept video never reached: keeping it
+ * clears any `teamId` a half-done delivery wrote, since it was never posted.
  */
 async function addToLibrary(userId, video, { teamId, recordedFor } = {}) {
   const item = await rawDb()
@@ -93,9 +94,11 @@ async function addToLibrary(userId, video, { teamId, recordedFor } = {}) {
           thumbnail: null,
           uploadedAt: new Date(),
         },
-        ...(teamId || recordedFor
-          ? { $set: { ...(teamId ? { teamId } : {}), ...(recordedFor ? { recordedFor } : {}) } }
-          : {}),
+        ...(recordedFor
+          ? { $set: { recordedFor }, $unset: { teamId: '' } }
+          : teamId
+            ? { $set: { teamId } }
+            : {}),
       },
       { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
     );
