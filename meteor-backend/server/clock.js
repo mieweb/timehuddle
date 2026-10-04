@@ -13,7 +13,14 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
-import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
+import {
+  ClockEvents,
+  ClockBreaks,
+  DUPLICATE_KEY_ERROR_CODE,
+  Teams,
+  isValidId,
+  rawDb,
+} from './collections';
 import { requireIdentity, findUserById } from './auth-bridge';
 import { SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
@@ -55,9 +62,6 @@ const oid = (hex) => new Mongo.ObjectID(hex);
 // A shift is the person's working time, so they work one at a time across all
 // their teams: the `one_open_shift_per_user` index (created at startup) makes a
 // second open clock event impossible, whatever the timing or the caller.
-
-/** Mongo's duplicate-key code: the one-open-shift index refused a write. */
-const DUPLICATE_KEY = 11000;
 
 /** The refusal for clocking in while already on the clock, naming where. */
 async function alreadyClockedIn(userId, teamId) {
@@ -250,7 +254,7 @@ export async function applyClockUpdate(
 
   if (Object.keys($set).length > 0) {
     await ClockEvents.updateAsync(event._id, { $set }).catch(async (err) => {
-      if (err?.code === DUPLICATE_KEY) throw await alreadyClockedIn(event.userId, event.teamId);
+      if (err?.code === DUPLICATE_KEY_ERROR_CODE) throw await alreadyClockedIn(event.userId, event.teamId);
       throw err;
     });
   }
@@ -847,7 +851,7 @@ export async function clockStart(userId, { teamId, planPostId } = {}) {
     });
   } catch (err) {
     // Clocked in elsewhere since the check above: the index refused it.
-    if (err?.code === DUPLICATE_KEY) throw await alreadyClockedIn(userId, teamId);
+    if (err?.code === DUPLICATE_KEY_ERROR_CODE) throw await alreadyClockedIn(userId, teamId);
     throw err;
   }
   const created = await ClockEvents.findOneAsync(_id);

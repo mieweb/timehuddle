@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
+import { buildTeamAbility } from './permissions';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -465,16 +466,23 @@ Meteor.methods({
     if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
     const filter = { userId: targetUserId };
     if (userId !== targetUserId) {
-      const sharedTeams = await Teams.rawCollection()
-        .find({ members: { $all: [userId, targetUserId] }, isPersonal: { $ne: true } }, { projection: { _id: 1 } })
+      // The owner's teams the caller can see — as a member or admin, or
+      // through the org or enterprise (the same check as everywhere else).
+      const ownerTeams = await Teams.rawCollection()
+        .find(
+          { $or: [{ members: targetUserId }, { admins: targetUserId }], isPersonal: { $ne: true } },
+          { projection: { _id: 1 } }
+        )
         .toArray();
-      if (!sharedTeams.length) throw new Meteor.Error('forbidden', 'Not a teammate');
-      // A teammate sees profile photos, and only the videos posted to a team
-      // they share — not ones posted elsewhere, kept, or private to the owner.
-      filter.$or = [
-        { videoid: { $exists: false } },
-        { teamId: { $in: sharedTeams.map((team) => String(team._id)) } },
-      ];
+      const visibleTeamIds = [];
+      for (const team of ownerTeams) {
+        const teamId = String(team._id);
+        if ((await buildTeamAbility(userId, teamId))?.scoped) visibleTeamIds.push(teamId);
+      }
+      if (!visibleTeamIds.length) throw new Meteor.Error('forbidden', 'Not a teammate');
+      // Only what was posted to one of those teams. A row with no team — a
+      // composer image or document, a kept or private video — stays the owner's.
+      filter.teamId = { $in: visibleTeamIds };
     }
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
