@@ -257,6 +257,31 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
       expect(kept?.recordedFor).toMatchObject({ kind: 'clock-wrapup', clockEventId });
     });
 
+    test('"Write it instead" lets go of a Pulse plan nobody will record', async ({ page }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      const open = await findOpenClockEventId(TEST_USERS.owner1.email, teamId);
+      if (open) await deleteClockEvent(open);
+      await page.goto('/app/clock');
+
+      const post = page.getByRole('button', { name: 'Post plan and clock in' });
+      await page.locator('.ProseMirror').first().fill('Plan typed by hand');
+      await expect(post).toBeEnabled();
+
+      // Pressed Pulse, then closed it without recording: typed posting waits.
+      await page.getByRole('button', { name: 'Clock in with Pulse' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Record with Pulse' });
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(post).toBeDisabled();
+      await expect(page.getByText('Your Pulse video is on its way')).toBeVisible();
+
+      await page.getByRole('button', { name: 'Write the plan instead' }).click();
+      await expect(post).toBeEnabled();
+      await expect(page.getByText('Your Pulse video is on its way')).toBeHidden();
+    });
+
     test('delivery rechecks the destination: leaving the team, or a deleted session, keeps the video', async ({
       page,
     }) => {
