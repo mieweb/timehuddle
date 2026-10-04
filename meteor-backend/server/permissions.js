@@ -100,7 +100,12 @@ async function isEnterpriseElevatedForTeamOrg(userId, team) {
  */
 export async function buildTeamAbility(userId, teamId) {
   if (!isValidId(teamId)) return null;
-  const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+  // A team's `_id` is an ObjectId, or a string on older teams (as huddle.js's
+  // getTeam allows). Nearly every team is the first, so try it first.
+  const isHex = /^[0-9a-f]{24}$/i.test(teamId);
+  const team =
+    (isHex ? await Teams.findOneAsync(new Mongo.ObjectID(teamId)) : null) ??
+    (await Teams.findOneAsync({ _id: teamId }));
   if (!team) return null;
 
   const role = await resolveOrgRoleForTeam(userId, team);

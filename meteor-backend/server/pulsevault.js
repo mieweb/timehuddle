@@ -134,13 +134,27 @@ const ABANDONED_CLAIM_MS = 30 * 60 * 1000;
 const delivering = new Set();
 
 /**
+ * How long a delete's mark holds off a claim. A delete takes milliseconds; a
+ * mark left by one that failed stops counting after this.
+ */
+const DELETE_MARK_MS = 60 * 1000;
+
+/**
  * Claim a finished upload for delivery: only one path that finishes the same
  * upload gets it. Returns the upload, or null when there's nothing to deliver
- * (never reserved, expired, or already claimed).
+ * (never reserved, expired, already claimed, or being deleted — see
+ * assertNotLanded).
  */
 async function claimUpload(artifactId) {
   return uploads().findOneAndUpdate(
-    { _id: artifactId, state: 'reserved' },
+    {
+      _id: artifactId,
+      state: 'reserved',
+      $or: [
+        { deletingAt: { $exists: false } },
+        { deletingAt: { $lt: new Date(Date.now() - DELETE_MARK_MS) } },
+      ],
+    },
     { $set: { state: 'delivering', claimedAt: new Date() }, $unset: { expiresAt: '' } },
     { returnDocument: 'after' },
   );
@@ -379,9 +393,21 @@ async function sweepAbandonedClaims() {
  * then posted, attached or kept), the link's token can no longer delete it or
  * a file sent with it, since a post or attachment now plays it. Cancelling an
  * upload that hasn't landed yet still works.
+ *
+ * Deleting the video itself marks it `deletingAt` in the same write that finds
+ * it unlanded, and claimUpload skips a marked upload: a final chunk landing as
+ * it's deleted can't also deliver it. Uploading it again clears the mark.
  */
 async function assertNotLanded({ artifactId, relatedTo }) {
-  const upload = await uploads().findOne({ _id: relatedTo ?? artifactId }, { projection: { state: 1 } });
+  const marked = relatedTo
+    ? null
+    : await uploads().findOneAndUpdate(
+        { _id: artifactId, state: 'reserved' },
+        { $set: { deletingAt: new Date() } },
+        { projection: { state: 1 } },
+      );
+  const upload =
+    marked ?? (await uploads().findOne({ _id: relatedTo ?? artifactId }, { projection: { state: 1 } }));
   if (upload && upload.state !== 'reserved') {
     throw Object.assign(new Error("This video has already been added, so it can't be deleted."), {
       statusCode: 409,
@@ -451,6 +477,10 @@ const core = createPulseVaultCore({
         throw Object.assign(new Error('Uploads here come from the Pulse app only.'), {
           statusCode: 403,
         });
+      }
+      // Uploading the video again after cancelling it: it may land now.
+      if (ctx.phase === 'create' && !ctx.relatedTo) {
+        await uploads().updateOne({ _id: ctx.artifactId, state: 'reserved' }, { $unset: { deletingAt: '' } });
       }
       if (ctx.phase === 'delete') await assertNotLanded(ctx);
       console.log('[pulsevault][hook] authorize PASSED', ctx.phase, ctx.artifactId);
