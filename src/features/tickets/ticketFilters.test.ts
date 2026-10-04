@@ -107,6 +107,22 @@ describe('applyFilters', () => {
     expect(applyFilters(all, withFilters({ sources: ['redmine'] }), '')).toEqual([redmine]);
   });
 
+  it('counts a ticket linked to a Redmine issue as Redmine work, until it is unlinked', () => {
+    const linked = make({
+      key: 'huddle:9',
+      id: '9',
+      linked: { sourceId: 'redmine', id: '482', ref: '#482', status: null, assignee: null },
+    });
+    const unlinked = make({ key: 'huddle:9', id: '9', linked: null });
+    const redmineOnly = { ...EMPTY_FILTERS, sources: ['redmine' as const] };
+    const huddleOnly = { ...EMPTY_FILTERS, sources: ['huddle' as const] };
+
+    expect(applyFilters([linked], redmineOnly, '')).toEqual([linked]);
+    expect(applyFilters([linked], huddleOnly, '')).toEqual([]);
+    expect(applyFilters([unlinked], huddleOnly, '')).toEqual([unlinked]);
+    expect(applyFilters([unlinked], redmineOnly, '')).toEqual([]);
+  });
+
   it('searches title, ref and project', () => {
     expect(applyFilters(all, EMPTY_FILTERS, 'alpha')).toEqual([huddle]);
     expect(applyFilters(all, EMPTY_FILTERS, '#9')).toEqual([redmine]);

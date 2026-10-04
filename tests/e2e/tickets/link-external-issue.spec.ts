@@ -90,9 +90,12 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
     await card(page).getByRole('button', { name: 'Add link' }).click();
 
-    // Changed in place: the same choice as the New Ticket dialog, and no popup.
-    await card(page).getByRole('radio', { name: 'Redmine' }).check();
+    // Changed in place, with no popup. The choice is GitHub or Redmine only:
+    // "TimeHuddle" is not a link to add, and a link is removed with Unlink.
     await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(card(page).getByRole('radio', { name: 'GitHub' })).toBeVisible();
+    await expect(card(page).getByRole('radio', { name: 'TimeHuddle', exact: true })).toHaveCount(0);
+    await expect(card(page).getByRole('radio', { name: 'Redmine' })).toBeChecked();
     await card(page).getByLabel('Issue number or link').fill('#482');
     await card(page).getByRole('button', { name: 'Find', exact: true }).click();
 
@@ -151,6 +154,40 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
     await page.reload();
     await expect(card(page)).toContainText('Not linked.', { timeout: 20000 });
+  });
+
+  test('shows a linked GitHub issue by its title', async ({ page }) => {
+    const url = 'https://github.com/mieweb/timehuddle/issues/638';
+    const githubTitle = `Unify ticket creation ${Date.now()}`;
+    await page.route('https://api.github.com/repos/mieweb/timehuddle/issues/638', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ title: githubTitle, body: null }),
+      }),
+    );
+
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByRole('radio', { name: 'GitHub' }).check();
+    await page.getByLabel('GitHub issue or pull request link').fill(url);
+    // The dialog takes the ticket's title from the issue.
+    await expect(page.getByPlaceholder('Ticket title')).toHaveValue(githubTitle, {
+      timeout: 15000,
+    });
+    const created = page.waitForResponse('**/api/tickets_create');
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    const { result } = (await (await created).json()) as { result: { id: string } };
+
+    await page.goto(`/app/tickets/${result.id}`);
+    // The link reads as the issue, not as a raw URL, and still goes to GitHub.
+    const link = card(page).getByRole('link', { name: `Open GitHub link ${url}` });
+    await expect(link).toContainText(`#638`, { timeout: 20000 });
+    await expect(link).toContainText(githubTitle);
+    await expect(link).toHaveAttribute('href', url);
+    await expect(card(page)).toContainText('mieweb/timehuddle');
   });
 
   test('says what happens to logged time before the link is removed', async ({ page }) => {

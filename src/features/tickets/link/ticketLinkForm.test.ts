@@ -23,6 +23,10 @@ describe('linkFormFor', () => {
     const form = linkFormFor({ github: 'https://github.com/a/b/issues/1', linkedIssue: null });
     expect(form).toMatchObject({ kind: 'github', github: 'https://github.com/a/b/issues/1' });
   });
+
+  it('starts an unlinked ticket on Redmine, since "TimeHuddle" is not a link to add', () => {
+    expect(linkFormFor({ github: '', linkedIssue: null }).kind).toBe('redmine');
+  });
 });
 
 describe('linkFormReady', () => {

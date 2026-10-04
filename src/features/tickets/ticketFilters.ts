@@ -6,7 +6,7 @@
  * fixed vocabularies, because each source names its statuses and priorities
  * differently.
  */
-import type { TicketSourceId, UnifiedTicket } from './sources';
+import { displaySourceId, type TicketSourceId, type UnifiedTicket } from './sources';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
@@ -55,9 +55,11 @@ export interface FilterOption {
 export function statusOptions(tickets: UnifiedTicket[]): FilterOption[] {
   const grouped = new Map<TicketSourceId, Set<string>>();
   for (const ticket of tickets) {
-    const set = grouped.get(ticket.sourceId) ?? new Set<string>();
+    // A linked ticket carries its issue's status, so it groups with that source.
+    const sourceId = displaySourceId(ticket);
+    const set = grouped.get(sourceId) ?? new Set<string>();
     set.add(ticket.status.native);
-    grouped.set(ticket.sourceId, set);
+    grouped.set(sourceId, set);
   }
   return [...grouped.entries()].flatMap(([sourceId, statuses]) =>
     [...statuses].sort().map((status) => ({ value: status, label: status, group: sourceId })),
@@ -161,7 +163,9 @@ export function applyFilters(
   return tickets.filter((ticket) => {
     if (!matchesSearch(ticket, query)) return false;
     // An empty source selection means "every source", not "none".
-    if (filters.sources.length > 0 && !filters.sources.includes(ticket.sourceId)) return false;
+    if (filters.sources.length > 0 && !filters.sources.includes(displaySourceId(ticket))) {
+      return false;
+    }
     if (filters.status && ticket.status.native !== filters.status) return false;
 
     if (filters.priority === NO_PRIORITY) {
@@ -200,7 +204,7 @@ function compare(a: UnifiedTicket, b: UnifiedTicket, field: SortField): number {
     case 'ref':
       return a.ref.localeCompare(b.ref, undefined, { numeric: true });
     case 'source':
-      return a.sourceId.localeCompare(b.sourceId);
+      return displaySourceId(a).localeCompare(displaySourceId(b));
     case 'status':
       return a.status.native.localeCompare(b.status.native);
     case 'priority':

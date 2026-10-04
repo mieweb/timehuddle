@@ -27,6 +27,8 @@ const KIND_OPTIONS: readonly SegmentedOption<LinkKind>[] = [
   { value: 'redmine', label: ticketLinkText.kindRedmine },
 ];
 
+const LINKED_KIND_OPTIONS = KIND_OPTIONS.filter((option) => option.value !== 'none');
+
 const MODE_OPTIONS: readonly SegmentedOption<RedmineMode>[] = [
   { value: 'existing', label: ticketLinkText.modeExisting },
   { value: 'new', label: ticketLinkText.modeNew },
@@ -38,6 +40,11 @@ export interface TicketLinkFieldsProps {
   /** Distinguishes the radio groups when two of these controls are on one page. */
   name: string;
   disabled?: boolean;
+  /**
+   * Offer "TimeHuddle" (no link) as a choice. On for a new ticket; off when
+   * changing an existing ticket's link, where removing it is "Unlink".
+   */
+  allowNone?: boolean;
 }
 
 export function TicketLinkFields({
@@ -45,6 +52,7 @@ export function TicketLinkFields({
   onChange,
   name,
   disabled = false,
+  allowNone = true,
 }: TicketLinkFieldsProps) {
   const { navigate } = useRouter();
   const redmineMissing = useRedmineStatus()?.connected === false;
@@ -129,7 +137,7 @@ export function TicketLinkFields({
       <SegmentedSwitcher
         name={`${name}-kind`}
         label={ticketLinkText.kindLabel}
-        options={KIND_OPTIONS}
+        options={allowNone ? KIND_OPTIONS : LINKED_KIND_OPTIONS}
         value={value.kind}
         disabled={disabled}
         onValueChange={(kind) => {

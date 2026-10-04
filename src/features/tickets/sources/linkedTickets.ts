@@ -9,11 +9,22 @@
  * source explicitly, so `redmine:482` on a ticket and the Redmine issue 482 are
  * the same thing by construction, not by coincidence.
  */
-import { ticketKey, type UnifiedTicket } from './types';
+import { ticketKey, type TicketSourceId, type UnifiedTicket } from './types';
 
 /** The row key of the issue a ticket is linked to, e.g. `redmine:482`, or null. */
 export const linkedIssueKey = (ticket: UnifiedTicket): string | null =>
   ticket.linked ? ticketKey(ticket.linked.sourceId, ticket.linked.id) : null;
+
+/**
+ * The source a ticket is shown, filtered and sorted under: the system of the
+ * issue it is linked to, or its own. A TimeHuddle ticket linked to a Redmine
+ * issue is Redmine work, and reads as TimeHuddle again once unlinked.
+ *
+ * Display only. What a ticket *is* — its capabilities, its assignees, its page —
+ * still follows `sourceId`.
+ */
+export const displaySourceId = (ticket: UnifiedTicket): TicketSourceId =>
+  ticket.linked?.sourceId ?? ticket.sourceId;
 
 /**
  * Overlay each linked issue's live status and assignee onto the ticket that

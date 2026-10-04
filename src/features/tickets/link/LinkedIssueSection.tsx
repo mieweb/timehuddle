@@ -27,7 +27,7 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, redmineApi, type RedmineIssue, type Ticket } from '../../../lib/api';
 import { useRouter } from '../../../ui/router';
-import { parseGithubIssueUrl } from '../githubIssue';
+import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
 import { IssueCreatedNotLinkedError, applyTicketLink } from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
@@ -133,6 +133,21 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
     };
   }, [linkedId]);
 
+  // A GitHub issue's title is read from GitHub when the section is shown, like
+  // a Redmine issue's: only the link is stored. Private repositories answer
+  // nothing here, and the link then shows as `owner/repo#12`.
+  const githubParts = parseGithubIssueUrl(ticket.github);
+  const [githubTitle, setGithubTitle] = useState<string | null>(null);
+  useEffect(() => {
+    setGithubTitle(null);
+    if (!isGithubIssueUrl(ticket.github)) return;
+    let cancelled = false;
+    void fetchGithubIssueTitle(ticket.github).then((title) => !cancelled && setGithubTitle(title));
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket.github]);
+
   const open = (next: Mode) => {
     setError(null);
     setForm(linkFormFor(ticket));
@@ -192,12 +207,22 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
               aria-label={ticketLinkText.openGithub(ticket.github)}
               className={LINK_CLASS}
             >
-              <span className="ticket-linked-issue-title break-all">
-                {githubLabel(ticket.github)}
-              </span>
+              {githubTitle && githubParts ? (
+                <>
+                  <span className="ticket-linked-issue-ref font-mono">#{githubParts.number}</span>
+                  <span className="ticket-linked-issue-title">{githubTitle}</span>
+                </>
+              ) : (
+                <span className="ticket-linked-issue-title break-all">
+                  {githubLabel(ticket.github)}
+                </span>
+              )}
               <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
             </a>
-            <SourceLine source={ticketLinkText.github} />
+            <SourceLine
+              source={ticketLinkText.github}
+              detail={githubParts ? `${githubParts.owner}/${githubParts.repo}` : undefined}
+            />
           </div>
         )}
 
@@ -258,6 +283,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
           <TicketLinkFields
             name="ticket-link"
             value={form}
+            allowNone={false}
             disabled={saving}
             onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
           />

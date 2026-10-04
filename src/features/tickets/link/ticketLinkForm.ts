@@ -39,9 +39,14 @@ export function linkKindOf(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): Link
   return ticket.github ? 'github' : 'none';
 }
 
-/** The control's starting state for changing an existing ticket's link. */
+/**
+ * The control's starting state for changing an existing ticket's link. There
+ * is no "TimeHuddle" choice there (a link is removed with Unlink), so a ticket
+ * without a link starts on Redmine.
+ */
 export function linkFormFor(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): LinkFormState {
-  return { ...EMPTY_LINK_FORM, kind: linkKindOf(ticket), github: ticket.github };
+  const kind = linkKindOf(ticket);
+  return { ...EMPTY_LINK_FORM, kind: kind === 'none' ? 'redmine' : kind, github: ticket.github };
 }
 
 /** Whether the choice is complete enough to save. */
