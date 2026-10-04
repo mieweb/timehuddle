@@ -140,13 +140,19 @@ export function usePulseUpload(
     toasts: null,
   });
   inFlight.current = { link, waiting: status?.state === 'waiting', toasts };
-  useEffect(
-    () => () => {
+  // Where the host is now, and whether it's still here, for a reserve that
+  // returns after either changed (see `start`).
+  const latestKey = useRef(destinationKey);
+  latestKey.current = destinationKey;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       const { link: pending, waiting, toasts: notify } = inFlight.current;
       if (pending && waiting && notify) void watchDetached(pending, notify);
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Let go of the current link while its video may still be on its way: it's
   // watched on, and its outcome toasted and reported to the host.
@@ -243,6 +249,11 @@ export function usePulseUpload(
     } finally {
       setReserving(false);
     }
+
+    // The host moved on (another ticket, the next day) or went away while this
+    // was reserving: nobody has seen this link, so nothing can upload with it.
+    // Dropped (it expires unused) rather than opened for somewhere not on screen.
+    if (!mounted.current || latestKey.current !== destinationKey) return;
 
     const next: PulseLink = {
       ...reservation,

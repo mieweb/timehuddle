@@ -18,6 +18,7 @@
  * Pulse video card with its poster, and playing it must load the actual
  * /pulsevault/artifacts/:id URL, not just "some video exists".
  */
+import fs from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
@@ -28,8 +29,11 @@ import {
   findPostWithVideo,
   findTeamIdByName,
   removeFromTeam,
+  withDb,
 } from '../fixtures/db';
 import {
+  PULSE_CLIENT_HEADER,
+  TEST_MP4,
   expectImageLoaded,
   getSessionToken,
   posterLocation,
@@ -148,6 +152,87 @@ test.describe('Huddle — a Pulse upload goes straight to its destination', () =
     expect(await findLibraryVideo(videoid)).toBeNull();
     expect(await findPostWithVideo(videoid)).not.toBeNull();
     expect((await page.request.get(`/pulsevault/artifacts/${videoid}`)).status()).toBe(200);
+  });
+
+  test.describe('cancelling an upload', () => {
+    /** Start a Pulse upload and send its first half; returns the TUS location. */
+    const startUpload = async (page: Page, videoid: string, uploadToken: string) => {
+      const bytes = fs.readFileSync(TEST_MP4);
+      const auth = {
+        ...PULSE_CLIENT_HEADER,
+        'Tus-Resumable': '1.0.0',
+        Authorization: `Bearer ${uploadToken}`,
+      };
+      const created = await page.request.post('/pulsevault/upload', {
+        headers: {
+          ...auth,
+          'Upload-Length': String(bytes.length),
+          'Upload-Metadata': `artifactId ${Buffer.from(videoid).toString('base64')},filename ${Buffer.from('test-video.mp4').toString('base64')}`,
+        },
+      });
+      expect(created.status()).toBe(201);
+      const location = created.headers()['location'];
+      const half = Math.floor(bytes.length / 2);
+      const first = await page.request.patch(location, {
+        headers: {
+          ...auth,
+          'Upload-Offset': '0',
+          'Content-Type': 'application/offset+octet-stream',
+        },
+        data: bytes.subarray(0, half),
+      });
+      expect(first.status()).toBe(204);
+      const finish = () =>
+        page.request.patch(location, {
+          headers: {
+            ...auth,
+            'Upload-Offset': String(half),
+            'Content-Type': 'application/offset+octet-stream',
+          },
+          data: bytes.subarray(half),
+        });
+      const cancel = () => page.request.delete(location, { headers: auth });
+      return { finish, cancel };
+    };
+
+    test('a video being deleted as its last chunk lands is not delivered', async ({ page }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      const token = await getSessionToken(page);
+      const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
+        kind: 'huddle',
+        teamId,
+      });
+      const upload = await startUpload(page, videoid, uploadToken);
+
+      // What a DELETE's check marks, at the moment the final chunk lands.
+      await withDb((db) =>
+        db
+          .collection('pulse_uploads')
+          .updateOne({ _id: videoid as never }, { $set: { deletingAt: new Date() } }),
+      );
+      expect((await upload.finish()).status()).toBe(204);
+
+      await page.waitForTimeout(3000);
+      expect((await pulseStatus(page.request, token, videoid)).state).toBe('waiting');
+      expect(await findPostWithVideo(videoid)).toBeNull();
+    });
+
+    test('cancelling an upload and sending it again still delivers it', async ({ page }) => {
+      await loginAs(page, TEST_USERS.owner1);
+      const teamId = await selectSharedTestTeam(page);
+      const token = await getSessionToken(page);
+      const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
+        kind: 'huddle',
+        teamId,
+      });
+      const upload = await startUpload(page, videoid, uploadToken);
+      expect((await upload.cancel()).status()).toBe(204);
+
+      await uploadVideoAsPulse(page.request, videoid, uploadToken);
+      expect(await waitForPulseOutcome(page.request, token, videoid)).toEqual({ state: 'done' });
+      expect(await findPostWithVideo(videoid)).not.toBeNull();
+    });
   });
 
   test.describe('plan and wrap-up', () => {
