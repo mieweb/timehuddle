@@ -59,6 +59,15 @@ export function useClockToggle() {
         await clockApi.start(selectedTeamId, opts?.planPostId);
         await refetchClock();
         return true;
+      } catch (err) {
+        // On the clock already (another tab, device or team): show where, and
+        // bring this page up to date with that shift.
+        if (err instanceof ApiError && err.code === 'already-clocked-in') {
+          await refetchClock();
+          window.alert(err.message);
+          return false;
+        }
+        throw err;
       } finally {
         setClockInLoading(false);
       }
@@ -83,7 +92,8 @@ export function useClockToggle() {
     setClockOutLoading(true);
     setClockOutBlockedReason(null);
     try {
-      await clockApi.stop(teamId);
+      // The shift this page shows, not whatever is open in the team now.
+      await clockApi.stop(teamId, activeClockEvent?.id);
       await refreshAfterClockChange();
       return true;
     } catch (err) {

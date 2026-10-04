@@ -108,6 +108,29 @@ describe('useClockToggle', () => {
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
+    it('already on the clock elsewhere: says where and refreshes the clock', async () => {
+      setupTeam({ activeClockEvent: null, selectedTeamId: 'team-abc' });
+      mockStart.mockRejectedValueOnce(
+        new ApiError(
+          "You're clocked in to Team B. Clock out there first.",
+          403,
+          'already-clocked-in',
+        ),
+      );
+      const { result } = renderHook(() => useClockToggle());
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.clockIn();
+      });
+
+      expect(ok).toBe(false);
+      expect(mockRefetchClock).toHaveBeenCalledOnce();
+      expect(window.alert).toHaveBeenCalledWith(
+        "You're clocked in to Team B. Clock out there first.",
+      );
+    });
+
     it('does nothing if selectedTeamId is null', async () => {
       setupTeam({ activeClockEvent: null, selectedTeamId: null });
       const { result } = renderHook(() => useClockToggle());
@@ -144,7 +167,7 @@ describe('useClockToggle', () => {
   // ── clockOut() ──────────────────────────────────────────────────────────────
 
   describe('clockOut()', () => {
-    it("uses the active event's teamId (not selectedTeamId) to stop", async () => {
+    it('stops the active event, by its teamId (not selectedTeamId) and id', async () => {
       setupTeam({
         activeClockEvent: { id: 'evt1', teamId: 'team-from-event' },
         selectedTeamId: 'team-from-ui',
@@ -153,7 +176,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-from-event');
+      expect(mockStop).toHaveBeenCalledWith('team-from-event', 'evt1');
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
@@ -163,7 +186,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-fallback');
+      expect(mockStop).toHaveBeenCalledWith('team-fallback', undefined);
     });
 
     it('does nothing when both teamId sources are null', async () => {

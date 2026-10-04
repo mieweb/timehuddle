@@ -152,26 +152,25 @@ async function followUp(failure, instead, step) {
 /**
  * Clock in with the plan that was just posted. Clocked in to this team some
  * other way meanwhile: no second session, but the plan still becomes that
- * session's. Clocked in to another team: no clock-in at all (one shift at a
- * time), and the plan stays posted. Clocked in and back out by hand since the
- * link was made: that shift is over, so it isn't restarted.
+ * session's. Clocked in and back out by hand since the link was made: that
+ * shift is over, so it isn't restarted. Otherwise `clockStart`, which refuses
+ * while another team's shift is open (one shift at a time, enforced by its
+ * index — so a clock-in racing this one can't make a second), and the plan
+ * stays posted.
  */
 async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
   const sessions = rawDb().collection('clockevents');
   const open = await sessions.findOne({ userId, endTime: null }, { projection: { _id: 1, teamId: 1 } });
-  if (open && String(open.teamId) !== String(teamId)) {
-    throw new Meteor.Error('already-clocked-in', "You're clocked in to another team.");
-  }
-  // `reservedAt` is missing on links made before it was recorded.
-  if (!open && reservedAt && (await sessions.findOne({ userId, startTime: { $gte: reservedAt } }))) {
-    throw new Meteor.Error('already-clocked-out', 'You clocked in and out while it uploaded.');
-  }
-  if (open) {
+  if (open && String(open.teamId) === String(teamId)) {
     // Not `updatedAt` — linking a session isn't an edit (see clockStart).
     await rawDb()
       .collection('huddlePosts')
       .updateOne({ _id: new ObjectId(planPostId) }, { $set: { clockEventId: open._id.toHexString() } });
     return;
+  }
+  // `reservedAt` is missing on links made before it was recorded.
+  if (!open && reservedAt && (await sessions.findOne({ userId, startTime: { $gte: reservedAt } }))) {
+    throw new Meteor.Error('already-clocked-out', 'You clocked in and out while it uploaded.');
   }
   const { clockStart } = await clockModule();
   await clockStart(userId, { teamId, planPostId });
@@ -240,7 +239,8 @@ const DESTINATIONS = {
       }
       return followUp("Wrap-up posted, but you weren't clocked out", 'Clock out from the Clock page.', async () => {
         const { clockStop } = await clockModule();
-        await clockStop(userId, { teamId });
+        // This session only: a newer one in the same team isn't this wrap-up's.
+        await clockStop(userId, { teamId, clockEventId });
       });
     },
   },
