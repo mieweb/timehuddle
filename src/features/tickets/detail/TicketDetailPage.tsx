@@ -377,7 +377,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </Button>
           </div>
         ) : (
-          <div className="ticket-title-display flex items-center gap-2 group">
+          <div className="ticket-title-display flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
               {ticket.title}
             </h1>
@@ -386,7 +386,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 variant="ghost"
                 size="icon"
                 aria-label="Edit title"
-                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={() => setEditingTitle(true)}
               >
                 <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />

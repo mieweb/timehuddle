@@ -140,3 +140,31 @@ test.describe('Huddle ticket detail', () => {
     await expect(tickets.rowByTitle(title)).toHaveCount(0);
   });
 });
+
+test.describe('Huddle ticket detail on a phone', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('the title can be edited by touch', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    await page.goto('/app/tickets');
+    const title = `Phone rename ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(title);
+    const created = page.waitForResponse('**/api/tickets_create');
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    const { result } = (await (await created).json()) as { result: { id: string } };
+    await page.goto(`/app/tickets/${result.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+      timeout: 20000,
+    });
+
+    // There is no hover on a touch screen, so the control has to be visible as is.
+    const edit = page.getByRole('button', { name: 'Edit title' });
+    await expect(edit).toHaveCSS('opacity', '1');
+    await edit.tap();
+    await page.getByLabel('Ticket title').fill(`${title} renamed`);
+    await page.getByRole('button', { name: 'Save title' }).tap();
+
+    await expect(page.getByRole('heading', { level: 1, name: `${title} renamed` })).toBeVisible();
+  });
+});
