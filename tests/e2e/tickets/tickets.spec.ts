@@ -127,7 +127,8 @@ test.describe('Tickets', () => {
     await expect(editModal.getByRole('heading', { name: 'Edit Ticket' })).toBeVisible();
     await expect(editModal.getByRole('textbox', { name: 'Title' })).toBeVisible();
     await expect(editModal.getByRole('textbox', { name: /Description/i })).toBeVisible();
-    await expect(editModal.getByRole('textbox', { name: /GitHub URL/i })).toBeVisible();
+    // A ticket's link is managed on its own page, not in this dialog.
+    await expect(editModal.getByRole('textbox', { name: /GitHub/i })).toHaveCount(0);
     await expect(editModal.getByText('Assignees')).toBeVisible();
     await expect(editModal.getByLabel(/Priority/i)).toBeVisible();
     await expect(editModal.getByRole('button', { name: 'Cancel' })).toBeVisible();

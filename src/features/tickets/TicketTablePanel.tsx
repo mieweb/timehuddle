@@ -26,7 +26,6 @@ type SharedTableProps = Pick<
   | 'onEditRequest'
   | 'onDeleteRequest'
   | 'onChangeStatusRequest'
-  | 'onConnectRequest'
 >;
 
 export interface TicketTablePanelProps extends SharedTableProps {

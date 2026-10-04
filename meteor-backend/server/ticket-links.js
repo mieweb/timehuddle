@@ -136,8 +136,9 @@ async function writeLink(userId, ticket, nextId) {
       _id: ticket._id,
       ...(previousId ? { 'linkedIssue.id': previousId } : { linkedIssue: { $exists: false } }),
     },
+    // A ticket has one link: linking it to a Redmine issue replaces a GitHub URL.
     nextId
-      ? { $set: { linkedIssue: { source: REDMINE, id: nextId }, ...stamp } }
+      ? { $set: { linkedIssue: { source: REDMINE, id: nextId }, github: '', ...stamp } }
       : { $unset: { linkedIssue: '' }, $set: stamp },
   );
   if (!changed) throw new Meteor.Error('stale-link', STALE_LINK);

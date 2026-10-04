@@ -226,6 +226,15 @@ Meteor.methods({
     }
     if (github !== undefined) {
       if (typeof github !== 'string') throw new Meteor.Error('validation-error', 'github must be a string');
+      // A ticket has one link. The Redmine link is removed through
+      // `tickets.unlink`, which tells the people it affects; it is never
+      // dropped as a side effect of an edit.
+      if (github.trim() && linkedIssueIdOf(ticket)) {
+        throw new Meteor.Error(
+          'validation-error',
+          'This ticket is linked to a Redmine issue. Remove that link before adding a GitHub link.',
+        );
+      }
       $set.github = github;
     }
     if (description !== undefined) {

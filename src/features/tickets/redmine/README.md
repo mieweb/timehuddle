@@ -1,16 +1,16 @@
 # Redmine on the Tickets page
 
-Two things live here: the dialogs for creating and editing Redmine issues
-(Milestone 6), and the search suggestions that let a user find Redmine issues
-from the Tickets search bar (MVP2 Part B).
+Two things live here: the dialog for editing a Redmine issue (Milestone 6), and
+the search suggestions that let a user find Redmine issues from the Tickets
+search bar (MVP2 Part B). A new Redmine issue is created with a ticket, in the
+New Ticket dialog or from a ticket's "Linked issue" section (`../link/`).
 
-## Issue dialogs (Milestone 6)
+## Issue dialog (Milestone 6)
 
-| File                          | Role                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `RedmineIssueCreateModal.tsx` | A ticket's "Connect to… → New Redmine issue": project, tracker, subject, description, assignee, priority |
-| `RedmineIssueEditModal.tsx`   | Row ⋮ → "Edit Ticket" / "Change Status" on a Redmine row: status, priority, assignee, description        |
-| `redmineForm.ts`              | Pure helpers both dialogs share: `Select` options, id parsing, error and read-back messages              |
+| File                        | Role                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `RedmineIssueEditModal.tsx` | Row ⋮ → "Edit Ticket" / "Change Status" on a Redmine row: status, priority, assignee, description           |
+| `redmineForm.ts`            | Pure helpers for Redmine forms: `Select` options, id parsing, ticket pre-fill, error and read-back messages |
 
 **How writes work.** Every call runs on the server under the user's own
 personal Redmine API key (`meteor-backend/server/redmine-issue-methods.js`), so

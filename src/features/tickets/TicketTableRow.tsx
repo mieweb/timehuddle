@@ -65,8 +65,6 @@ export interface TicketTableRowProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
-  /** Opens "Connect to…" for a Huddle ticket. */
-  onConnectRequest: (ticket: UnifiedTicket) => void;
 }
 
 function statusIconFor(status: UnifiedTicket['status']): {
@@ -103,7 +101,6 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
-  onConnectRequest,
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -395,17 +392,6 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                     }}
                   >
                     Edit Ticket
-                  </DropdownItem>
-                )}
-                {ticket.sourceId === 'huddle' && (
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faLink} />}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onConnectRequest(ticket);
-                    }}
-                  >
-                    {ticket.linked ? ticketLinkText.changeLinked : ticketLinkText.connect}
                   </DropdownItem>
                 )}
                 {capabilities.changeStatus && (

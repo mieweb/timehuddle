@@ -421,6 +421,33 @@ describe('tickets (wormhole)', () => {
       expect(activity?.userId).toBe(memberId);
     });
 
+    it('keeps one link per ticket: no GitHub link while it is linked to Redmine', async () => {
+      await seedLink('482');
+      const refused = await wormhole(
+        'tickets.update',
+        { ticketId: linkTicketId, github: 'https://github.com/a/b/issues/1' },
+        memberJwt,
+      );
+      expect(refused.ok).toBe(false);
+      expect(refused.error).toMatch(/Remove that link before adding a GitHub link/);
+
+      // Clearing a GitHub link, and editing other fields, stay allowed.
+      const cleared = await wormhole(
+        'tickets.update',
+        { ticketId: linkTicketId, github: '', description: 'Edited while linked' },
+        memberJwt,
+      );
+      expect(cleared.ok).toBe(true);
+
+      await seedLink(null);
+      const allowed = await wormhole<{ github: string }>(
+        'tickets.update',
+        { ticketId: linkTicketId, github: 'https://github.com/a/b/issues/1' },
+        memberJwt,
+      );
+      expect(allowed.result.github).toBe('https://github.com/a/b/issues/1');
+    });
+
     it('treats unlinking an unlinked ticket as nothing to do', async () => {
       await seedLink(null);
       const res = await wormhole(
