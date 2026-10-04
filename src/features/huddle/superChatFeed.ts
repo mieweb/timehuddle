@@ -369,9 +369,13 @@ function normalizeForSearch(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
-/** A `pulse_video` GenUI block, one line or pretty-printed — never past its own fence. */
+const FENCE = '```';
+/**
+ * A `pulse_video` GenUI block, one line or pretty-printed. Fences are whole
+ * lines, as in Markdown, so backticks inside the JSON (a title) don't end it.
+ */
 const PULSE_CARD_BLOCK = new RegExp(
-  `\`\`\`genui(?:(?!\`\`\`)[\\s\\S])*?"widget"\\s*:\\s*"${PULSE_VIDEO_WIDGET}"(?:(?!\`\`\`)[\\s\\S])*\`\`\``,
+  `(^|\\n)${FENCE}genui\\n(?:(?!\\n${FENCE})[\\s\\S])*?"widget"\\s*:\\s*"${PULSE_VIDEO_WIDGET}"(?:(?!\\n${FENCE})[\\s\\S])*\\n${FENCE}(?=\\n|$)`,
   'g',
 );
 
@@ -381,7 +385,7 @@ const PULSE_CARD_BLOCK = new RegExp(
  * query. Other GenUI blocks show as code, so their text stays searchable.
  */
 function searchableText(text: string): string {
-  return text.replace(/\]\([^)]*\)/g, ']').replace(PULSE_CARD_BLOCK, '');
+  return text.replace(/\]\([^)]*\)/g, ']').replace(PULSE_CARD_BLOCK, '$1');
 }
 
 /** Everything a post can be found by: body, author, ticket, attachments, team

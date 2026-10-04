@@ -437,6 +437,27 @@ describe('searchConversations', () => {
     for (const query of ['pulse_video', 'widget', videoId, typedId]) expect(hits(query)).toBe(0);
   });
 
+  it('drops a typed Pulse card whose title has backticks, up to its closing fence line', () => {
+    const typedId = '5f0c9d2a-1b3e-4f6a-8c7d-9e0f1a2b3c4d';
+    const withCard = [
+      makePost({
+        id: 'p6',
+        content: {
+          text:
+            'Recap\n\n```genui\n{"widget":"pulse_video","props":{"video":"' +
+            typedId +
+            '","title":"a ``` b"}}\n```\n\nafter the card',
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(withCard, 'session', VIEWER_MEMBER, NOW);
+    const hits = (query: string) => searchConversations(grouped, withCard, query).length;
+    for (const query of ['pulse_video', typedId]) expect(hits(query)).toBe(0);
+    expect(hits('recap')).toBe(1);
+    expect(hits('after the card')).toBe(1);
+  });
+
   it('still matches inside other GenUI blocks, which show as code', () => {
     const withChart = [
       makePost({

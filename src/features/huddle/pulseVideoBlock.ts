@@ -41,7 +41,9 @@ export function pulseVideoMarkdown(videoUrl: string, title?: string): string | n
   const video = pulseArtifactId(videoUrl);
   if (!video) return null;
   const block = { widget: PULSE_VIDEO_WIDGET, props: { video, ...(title ? { title } : {}) } };
-  return '```genui\n' + JSON.stringify(block) + '\n```';
+  // A draft name is the person's own text: its backticks are encoded (JSON
+  // reads `\u0060` back as a backtick) so it can never close the fence.
+  return '```genui\n' + JSON.stringify(block).replace(/`/g, '\\u0060') + '\n```';
 }
 
 /**

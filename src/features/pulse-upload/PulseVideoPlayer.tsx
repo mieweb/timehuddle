@@ -87,10 +87,11 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
             />
           )}
           <span
-            className="pulse-video-play-icon absolute top-1/2 left-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition-transform group-hover:scale-105"
+            className="pulse-video-play-icon absolute inset-0 m-auto flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white transition-transform group-hover:scale-105"
             aria-hidden="true"
           >
-            <FontAwesomeIcon icon={faPlay} className="ml-1 text-xl" />
+            {/* ▶ points right in either reading direction, so its optical nudge does too. */}
+            <FontAwesomeIcon icon={faPlay} className="translate-x-0.5 text-xl" />
           </span>
         </Button>
       )}

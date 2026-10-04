@@ -42,7 +42,7 @@ import {
   createCapabilityAuthorize,
   ensureWebReady,
 } from '@mieweb/pulsevault/core';
-import { rawDb } from './collections.js';
+import { DUPLICATE_KEY_ERROR_CODE, rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { deliverPulseVideo, keepPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
@@ -230,7 +230,7 @@ async function migrateReservations() {
         { upsert: true },
       )
       .catch((err) => {
-        if (err.code !== 11000) throw err;
+        if (err.code !== DUPLICATE_KEY_ERROR_CODE) throw err;
       });
   }
   await db.collection('pulsevault_reservations').drop().catch(() => {});
