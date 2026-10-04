@@ -31,6 +31,7 @@ import {
 } from './clock-core';
 import {
   closeAllForUser,
+  closeRunningForShift,
   closeRunningForUser,
   findClosedAtTime,
   restartTimerForWorkItem,
@@ -49,6 +50,99 @@ import {
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const oid = (hex) => new Mongo.ObjectID(hex);
+
+// ─── One open shift per person ───────────────────────────────────────────────
+// A shift is the person's working time, so they work one at a time across all
+// their teams: the `one_open_shift_per_user` index (created at startup) makes a
+// second open clock event impossible, whatever the timing or the caller.
+
+/** Mongo's duplicate-key code: the one-open-shift index refused a write. */
+const DUPLICATE_KEY = 11000;
+
+/** The refusal for clocking in while already on the clock, naming where. */
+async function alreadyClockedIn(userId, teamId) {
+  const open = await ClockEvents.findOneAsync({ userId, endTime: null }, { fields: { teamId: 1 } });
+  if (!open || String(open.teamId) === String(teamId)) {
+    return new Meteor.Error('already-clocked-in', "You're already clocked in.");
+  }
+  const team = await findUserTeam(userId, String(open.teamId));
+  return new Meteor.Error(
+    'already-clocked-in',
+    `You're clocked in to ${team?.name ?? 'another team'}. Clock out there first.`
+  );
+}
+
+/**
+ * End an open shift at `endTime`: stop the ticket timers running inside it and
+ * its open break there, recompute its worked time, cancel its reminder jobs.
+ * No notifications — for closing shifts left open from before the one-shift
+ * rule.
+ */
+async function closeShiftAt(event, endTime) {
+  const eventId = event._id.toHexString();
+  await closeRunningForShift(eventId, endTime);
+  const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
+  if (openBreak) {
+    const end = Math.max(openBreak.startTime, endTime);
+    await ClockBreaks.updateAsync(openBreak._id, {
+      $set: { endTime: end, ...classifyBreak(Math.floor((end - openBreak.startTime) / 1000)) },
+    });
+  }
+  const breaks = await findBreaksForEvent(eventId);
+  const span = Math.floor((endTime - event.startTime) / 1000);
+  const accumulatedTime = Math.max(0, span - computeDeductedBreakSeconds(breaks, endTime));
+  await ClockEvents.updateAsync(event._id, { $set: { endTime, accumulatedTime } });
+  cancelClockJobs(eventId).catch(() => {});
+}
+
+/**
+ * Close extra open shifts left from before the rule, so the index can exist:
+ * each person's newest stays open, and each older one ends where the next one
+ * started, so no hours overlap. Runs at every start; finds nothing once done.
+ */
+async function closeExtraOpenShifts() {
+  const people = await ClockEvents.rawCollection()
+    .aggregate([
+      { $match: { endTime: null } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+    ])
+    .toArray();
+  for (const { _id: userId } of people) {
+    const open = await ClockEvents.find(
+      { userId, endTime: null },
+      { sort: { startTime: -1 } }
+    ).fetchAsync();
+    for (let i = 1; i < open.length; i += 1) {
+      const endTime = Math.max(open[i].startTime, open[i - 1].startTime);
+      await closeShiftAt(open[i], endTime);
+      console.warn(
+        '[clock] closed an extra open shift',
+        open[i]._id.toHexString(),
+        'for',
+        userId,
+        'at',
+        new Date(endTime).toISOString()
+      );
+    }
+  }
+}
+
+Meteor.startup(async () => {
+  try {
+    await closeExtraOpenShifts();
+    await ClockEvents.rawCollection().createIndex(
+      { userId: 1 },
+      {
+        name: 'one_open_shift_per_user',
+        unique: true,
+        partialFilterExpression: { endTime: { $type: 'null' } },
+      }
+    );
+  } catch (err) {
+    console.error('[clock] one-open-shift index failed:', err.message);
+  }
+});
 
 /** Load one team the user belongs to (member or admin), or null. */
 async function findUserTeam(userId, teamId) {
@@ -120,6 +214,11 @@ export async function applyClockUpdate(
 ) {
   const clockEventId = event._id.toHexString();
   const { effectiveStart, effectiveEnd } = effectiveRangeFor(event, { startTime, endTime });
+  // Reopening a closed shift is a clock-in: refused while another is open.
+  const reopens = effectiveEnd === null && event.endTime !== null;
+  if (reopens && (await ClockEvents.findOneAsync({ userId: event.userId, endTime: null }))) {
+    throw await alreadyClockedIn(event.userId, event.teamId);
+  }
 
   const existingBreaks = await findBreaksForEvent(clockEventId);
   const requestedBreaks = Array.isArray(breaks) ? toBreakEntries(breaks) : existingBreaks;
@@ -149,7 +248,12 @@ export async function applyClockUpdate(
     $set.accumulatedTime = Math.max(0, spanSeconds - deductedSeconds);
   }
 
-  if (Object.keys($set).length > 0) await ClockEvents.updateAsync(event._id, { $set });
+  if (Object.keys($set).length > 0) {
+    await ClockEvents.updateAsync(event._id, { $set }).catch(async (err) => {
+      if (err?.code === DUPLICATE_KEY) throw await alreadyClockedIn(event.userId, event.teamId);
+      throw err;
+    });
+  }
 
   if (typeof startTime === 'number' && event.endTime === null) {
     rescheduleClockJobs(
@@ -296,9 +400,9 @@ Meteor.methods({
   },
 
   /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
-  async 'clock.stop'({ teamId } = {}) {
+  async 'clock.stop'({ teamId, clockEventId } = {}) {
     const identity = await requireIdentity(this);
-    return clockStop(identity.userId, { teamId });
+    return clockStop(identity.userId, { teamId, clockEventId });
   },
 
   /** Pause (break start): close running timer, open a break. */
@@ -718,29 +822,34 @@ Meteor.methods({
 });
 
 /**
- * Clock `userId` in to `teamId`: close any dangling open events, open a new
- * one, link the just-posted plan (plan-first flow), fire side-effects. Shared
- * by the `clock.start` method and server-side callers (a Pulse plan upload).
+ * Clock `userId` in to `teamId`: open a new shift, link the just-posted plan
+ * (plan-first flow), fire side-effects. Refused while they're on the clock
+ * anywhere (`already-clocked-in`) — one open shift per person. Shared by the
+ * `clock.start` method and server-side callers (a Pulse plan upload).
  */
 export async function clockStart(userId, { teamId, planPostId } = {}) {
   const team = await findUserTeam(userId, teamId);
   if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
+  if (await ClockEvents.findOneAsync({ userId, endTime: null })) {
+    throw await alreadyClockedIn(userId, teamId);
+  }
 
   const now = Date.now();
-  await ClockEvents.updateAsync(
-    { userId, teamId, endTime: null },
-    { $set: { endTime: now } },
-    { multi: true }
-  );
-
-  const _id = await ClockEvents.insertAsync({
-    userId,
-    teamId,
-    startTime: now,
-    accumulatedTime: 0,
-    autoClockoutAgreed: null,
-    endTime: null,
-  });
+  let _id;
+  try {
+    _id = await ClockEvents.insertAsync({
+      userId,
+      teamId,
+      startTime: now,
+      accumulatedTime: 0,
+      autoClockoutAgreed: null,
+      endTime: null,
+    });
+  } catch (err) {
+    // Clocked in elsewhere since the check above: the index refused it.
+    if (err?.code === DUPLICATE_KEY) throw await alreadyClockedIn(userId, teamId);
+    throw err;
+  }
   const created = await ClockEvents.findOneAsync(_id);
   const pub = toPublicClockEvent(created, []);
 
@@ -810,11 +919,20 @@ export async function clockStart(userId, { teamId, planPostId } = {}) {
 
 /**
  * Clock `userId` out of `teamId`: enforce the plan-first wrap-up gate, cancel
- * jobs, close timers and any open break, recompute, notify, log. Shared by the
- * `clock.stop` method and server-side callers (a Pulse wrap-up upload).
+ * jobs, close timers and any open break, recompute, notify, log. With
+ * `clockEventId`, only that session — never a newer one in the same team.
+ * Shared by the `clock.stop` method and server-side callers (a Pulse wrap-up).
  */
-export async function clockStop(userId, { teamId } = {}) {
-  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+export async function clockStop(userId, { teamId, clockEventId } = {}) {
+  if (clockEventId !== undefined && !isValidId(clockEventId)) {
+    throw new Meteor.Error('bad-request', 'Invalid clockEventId');
+  }
+  const event = await ClockEvents.findOneAsync({
+    userId,
+    teamId,
+    endTime: null,
+    ...(clockEventId ? { _id: oid(clockEventId) } : {}),
+  });
   if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
   const team = await findUserTeam(userId, teamId);

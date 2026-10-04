@@ -1289,6 +1289,10 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         teamId: { type: 'string' },
+        clockEventId: {
+          type: 'string',
+          description: 'Only this session: refused if it is no longer the open one',
+        },
       },
       required: ['teamId'],
     },

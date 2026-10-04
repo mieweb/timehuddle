@@ -199,13 +199,19 @@ export async function seedClockSession(params: {
   startTime: number;
   endTime: number | null;
 }): Promise<string> {
-  const { insertedId } = await withDb((db) =>
-    db.collection('clockevents').insertOne({
+  const { insertedId } = await withDb(async (db) => {
+    // One open shift per person (a unique index): an open one ends any other.
+    if (params.endTime === null) {
+      await db
+        .collection('clockevents')
+        .updateMany({ userId: params.userId, endTime: null }, { $set: { endTime: Date.now() } });
+    }
+    return db.collection('clockevents').insertOne({
       ...params,
       accumulatedTime:
         params.endTime == null ? 0 : Math.floor((params.endTime - params.startTime) / 1000),
-    }),
-  );
+    });
+  });
   return insertedId.toHexString();
 }
 
