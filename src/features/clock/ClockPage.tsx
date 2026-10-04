@@ -709,6 +709,20 @@ export const ClockPage: React.FC = () => {
                     : ''}
                 ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
               </Text>
+              {/* Pressed Pulse but won't record: the link would hold this for
+                  its whole life otherwise. */}
+              {pulseOnItsWay && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => clockPulse?.letGo()}
+                  aria-label={
+                    composerMode === 'plan' ? 'Write the plan instead' : 'Write the wrap-up instead'
+                  }
+                >
+                  Write it instead
+                </Button>
+              )}
             </div>
             {postError && (
               <Text variant="destructive" size="sm">

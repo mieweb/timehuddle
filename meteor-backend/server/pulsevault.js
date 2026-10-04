@@ -284,10 +284,14 @@ async function describeVideo(artifactId, size) {
   };
 }
 
-/** Record where an upload ended up, for `pulsevault.status`. */
+/**
+ * Record where an upload ended up, for `pulsevault.status`. Only a claim still
+ * being delivered settles, so a delivery and the abandoned-claim sweep can't
+ * both settle one upload; returns whether this call did.
+ */
 async function settleUpload(artifactId, { kept, reason, note }) {
-  await uploads().updateOne(
-    { _id: artifactId },
+  const { modifiedCount } = await uploads().updateOne(
+    { _id: artifactId, state: 'delivering' },
     {
       $set: {
         state: kept ? 'kept' : 'done',
@@ -298,6 +302,7 @@ async function settleUpload(artifactId, { kept, reason, note }) {
       $unset: { claimedAt: '' },
     },
   );
+  return modifiedCount > 0;
 }
 
 /**
@@ -427,16 +432,13 @@ async function sweepAbandonedClaims() {
     const stale = await uploads()
       .find({ state: 'delivering', claimedAt: { $lt: new Date(Date.now() - ABANDONED_CLAIM_MS) } })
       .toArray();
+    const reason = 'The upload was interrupted before it reached its destination.';
     for (const upload of stale) {
       if (delivering.has(upload._id)) continue;
+      // Settle first: a delivery that finished since the read above wins.
+      if (!(await settleUpload(upload._id, { kept: true, reason }))) continue;
       const video = await describeVideo(upload._id, 0);
-      const outcome = await keepPulseVideo(
-        upload.userId,
-        upload.destination,
-        video,
-        'The upload was interrupted before it reached its destination.',
-      );
-      await settleUpload(upload._id, outcome);
+      await keepPulseVideo(upload.userId, upload.destination, video, reason);
       console.log('[pulsevault] kept abandoned upload', upload._id);
     }
   } catch (err) {

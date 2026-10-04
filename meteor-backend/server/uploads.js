@@ -463,16 +463,22 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
+    const filter = { userId: targetUserId };
     if (userId !== targetUserId) {
-      const sharedTeam = await Teams.rawCollection().findOne({
-        members: { $all: [userId, targetUserId] },
-        isPersonal: { $ne: true },
-      });
-      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not a teammate');
+      const sharedTeams = await Teams.rawCollection()
+        .find({ members: { $all: [userId, targetUserId] }, isPersonal: { $ne: true } }, { projection: { _id: 1 } })
+        .toArray();
+      if (!sharedTeams.length) throw new Meteor.Error('forbidden', 'Not a teammate');
+      // A teammate sees profile photos, and only the videos posted to a team
+      // they share — not ones posted elsewhere, kept, or private to the owner.
+      filter.$or = [
+        { videoid: { $exists: false } },
+        { teamId: { $in: sharedTeams.map((team) => String(team._id)) } },
+      ];
     }
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId })
+      .find(filter)
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();

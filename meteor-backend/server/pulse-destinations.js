@@ -33,7 +33,7 @@ import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
 import { isValidId, rawDb } from './collections.js';
-import { appendWrapUp, createHuddlePost, getTeam, isTeamMember, POST_DATE_RE } from './huddle.js';
+import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -49,14 +49,7 @@ function badRequest(message) {
 
 /** What a failure says to the uploader: its reason when it has one. */
 function reasonOf(err) {
-  return err instanceof Meteor.Error ? err.reason : 'Something went wrong adding it there.';
-}
-
-async function assertTeamMember(userId, teamId) {
-  if (typeof teamId !== 'string' || !teamId) throw badRequest('Invalid teamId');
-  const team = await getTeam(teamId);
-  if (!team) throw new Meteor.Error('not-found', 'Team not found');
-  if (!isTeamMember(team, userId)) throw new Meteor.Error('forbidden', 'Not a member of this team');
+  return (err instanceof Meteor.Error && err.reason) || 'Something went wrong adding it there.';
 }
 
 function assertPostDate(postDate) {
@@ -78,9 +71,11 @@ async function ownSession(userId, clockEventId) {
 /**
  * Record the upload in the uploader's media library; returns its id. One item
  * per video, so keeping a video after a half-finished delivery can't add a
- * second. `recordedFor` is the destination a kept video never reached.
+ * second. `teamId` is the team it was posted to — the only teammates who may
+ * list it (media.listForUser); without one it stays private to the uploader.
+ * `recordedFor` is the destination a kept video never reached.
  */
-async function addToLibrary(userId, video, recordedFor = null) {
+async function addToLibrary(userId, video, { teamId, recordedFor } = {}) {
   const item = await rawDb()
     .collection('mediaitems')
     .findOneAndUpdate(
@@ -98,7 +93,9 @@ async function addToLibrary(userId, video, recordedFor = null) {
           thumbnail: null,
           uploadedAt: new Date(),
         },
-        ...(recordedFor ? { $set: { recordedFor } } : {}),
+        ...(teamId || recordedFor
+          ? { $set: { ...(teamId ? { teamId } : {}), ...(recordedFor ? { recordedFor } : {}) } }
+          : {}),
       },
       { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
     );
@@ -107,7 +104,7 @@ async function addToLibrary(userId, video, recordedFor = null) {
 
 /** A new Huddle post carrying the video, with the Pulse draft's name as its text. */
 async function postVideo(userId, video, { teamId, postDate }) {
-  const mediaId = await addToLibrary(userId, video);
+  const mediaId = await addToLibrary(userId, video, { teamId });
   return createHuddlePost(userId, {
     teamId,
     content: { text: video.name ?? '', mentions: [] },
@@ -143,7 +140,7 @@ async function followUp(failure, instead, step) {
     return undefined;
   } catch (err) {
     console.warn('[pulse-destinations] delivered, but the follow-up failed:', err);
-    return err instanceof Meteor.Error
+    return err instanceof Meteor.Error && err.reason
       ? `${failure}: ${err.reason.replace(/\.$/, '')}.`
       : `${failure}. ${instead}`;
   }
@@ -186,7 +183,7 @@ async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
 const DESTINATIONS = {
   huddle: {
     async resolve(userId, { teamId }) {
-      await assertTeamMember(userId, teamId);
+      await requireTeamMember(userId, teamId);
       return { teamId };
     },
     async deliver(userId, { teamId }, video) {
@@ -196,7 +193,7 @@ const DESTINATIONS = {
 
   'clock-plan': {
     async resolve(userId, { teamId, postDate }) {
-      await assertTeamMember(userId, teamId);
+      await requireTeamMember(userId, teamId);
       assertPostDate(postDate);
       // When the link was made, so delivery can tell a shift worked by hand
       // meanwhile (stored at reserve; the deliver-phase result is unused).
@@ -218,14 +215,14 @@ const DESTINATIONS = {
       if (phase === 'reserve' && session.endTime != null) {
         throw badRequest('That clock session has already ended');
       }
-      await assertTeamMember(userId, String(session.teamId));
+      await requireTeamMember(userId, String(session.teamId));
       assertPostDate(postDate);
       return { clockEventId, postDate };
     },
     async deliver(userId, { clockEventId, postDate }, video) {
       const session = await ownSession(userId, clockEventId);
       const teamId = String(session.teamId);
-      const mediaId = await addToLibrary(userId, video);
+      const mediaId = await addToLibrary(userId, video, { teamId });
       await appendWrapUp(userId, {
         teamId,
         clockEventId,
@@ -233,7 +230,11 @@ const DESTINATIONS = {
         line: video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**',
         attachment: postAttachment(mediaId, video),
       });
-      if (session.endTime != null) return undefined;
+      if (session.endTime != null) {
+        // Ended by hand meanwhile. A newer shift isn't this wrap-up's to end.
+        const open = await rawDb().collection('clockevents').findOne({ userId, endTime: null }, { projection: { _id: 1 } });
+        return open ? "Wrap-up posted to your earlier session. You're still clocked in to your current one." : undefined;
+      }
       return followUp("Wrap-up posted, but you weren't clocked out", 'Clock out from the Clock page.', async () => {
         const { clockStop } = await clockModule();
         await clockStop(userId, { teamId });
@@ -318,7 +319,8 @@ const DESTINATIONS = {
 export const PULSE_DESTINATION_KINDS = Object.keys(DESTINATIONS);
 
 function kindOf(destination) {
-  const kind = DESTINATIONS[destination?.kind];
+  // Own keys only: `constructor` and friends aren't destinations.
+  const kind = Object.hasOwn(DESTINATIONS, destination?.kind ?? '') ? DESTINATIONS[destination.kind] : null;
   if (!kind) throw badRequest('Unknown Pulse destination');
   return kind;
 }
@@ -337,7 +339,7 @@ export async function resolvePulseDestination(userId, destination) {
  * recorded for — never thrown away. Returns the outcome to report.
  */
 export async function keepPulseVideo(userId, destination, video, reason) {
-  await addToLibrary(userId, video, destination);
+  await addToLibrary(userId, video, { recordedFor: destination });
   return { kept: true, reason };
 }
 
