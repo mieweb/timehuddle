@@ -15,7 +15,6 @@ function toPublic(a) {
     url: a.url,
     type: a.type,
     title: a.title ?? null,
-    thumbnail: a.thumbnail ?? null,
     attachedTo: a.attachedTo,
     addedBy: a.addedBy,
     addedAt: a.addedAt instanceof Date ? a.addedAt.toISOString() : String(a.addedAt),
@@ -46,7 +45,7 @@ async function fetchYouTubeTitle(url) {
  * already know the owning userId from their own reservation/auth context
  * rather than the current Meteor method invocation.
  */
-export async function createAttachment({ url, type, title, thumbnail, attachedTo, addedBy }) {
+export async function createAttachment({ url, type, title, attachedTo, addedBy }) {
   if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
   if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
   if (!attachedTo?.kind || typeof attachedTo.id !== 'string' || !attachedTo.id) {
@@ -61,7 +60,6 @@ export async function createAttachment({ url, type, title, thumbnail, attachedTo
     url: url.trim(),
     type,
     ...(resolvedTitle ? { title: resolvedTitle } : {}),
-    ...(thumbnail ? { thumbnail } : {}),
     attachedTo,
     addedBy,
     addedAt: new Date(),
@@ -94,13 +92,15 @@ Meteor.methods({
     return { attachments: docs.map(toPublic) };
   },
 
-  async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
+  // No `thumbnail` from clients: a Pulse video's poster comes from PulseVault
+  // (GET /pulsevault/posters/:videoId), never from whoever attached it.
+  async 'attachments.add'({ url, type, title, attachedTo }) {
     const identity = await requireIdentity(this);
     // A string id, as `list` matches it: a numeric one would pass the Redmine
     // check but be stored where no list ever finds it.
     if (typeof attachedTo?.id !== 'string') throw new Meteor.Error('bad-request', 'attachedTo is required');
     await assertCanReach(identity.userId, attachedTo);
-    const attachment = await createAttachment({ url, type, title, thumbnail, attachedTo, addedBy: identity.userId });
+    const attachment = await createAttachment({ url, type, title, attachedTo, addedBy: identity.userId });
     return { attachment };
   },
 

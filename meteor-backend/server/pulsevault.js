@@ -42,7 +42,7 @@ import {
   createCapabilityAuthorize,
   ensureWebReady,
 } from '@mieweb/pulsevault/core';
-import { rawDb } from './collections.js';
+import { DUPLICATE_KEY_ERROR_CODE, rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { deliverPulseVideo, keepPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
@@ -115,7 +115,9 @@ export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecre
 
 /**
  * One document per Pulse upload, keyed by its artifactId:
- * `{ userId, destination, state, reason?, note?, expiresAt?, claimedAt? }`.
+ * `{ userId, destination, state, reason?, note?, expiresAt?, claimedAt?,
+ * thumbnailId? }` — `thumbnailId` is the video's poster frame (see
+ * linkThumbnail), served by `GET /pulsevault/posters/:videoId`.
  * In Mongo so it survives restarts — meteor hot-reloads on every server file
  * change, and a restart mid-upload would otherwise lose where the video goes.
  */
@@ -191,9 +193,21 @@ Meteor.startup(async () => {
   await uploads()
     .createIndex({ state: 1, claimedAt: 1 })
     .catch((err) => console.warn('[pulsevault] uploads claim index failed:', err.message));
-  await migrateReservations().catch((err) =>
-    console.warn('[pulsevault] reservation migration failed:', err.message),
+  const migrated = await migrateReservations().then(
+    () => true,
+    (err) => {
+      console.warn('[pulsevault] reservation migration failed:', err.message);
+      return false;
+    },
   );
+  // Only once the migration has succeeded: a poster's upsert first would leave
+  // a reservation still to migrate without its state, so its video would never
+  // be delivered. A failed migration retries at the next start, then this.
+  if (migrated) {
+    await backfillThumbnails().catch((err) =>
+      console.warn('[pulsevault] thumbnail backfill failed, runs again at next start:', err.message),
+    );
+  }
   await sweepAbandonedClaims();
   Meteor.setInterval(() => void sweepAbandonedClaims(), 5 * 60 * 1000);
 });
@@ -214,18 +228,25 @@ async function migrateReservations() {
         : target === REDMINE
           ? { kind: REDMINE, id: String(ticketId) }
           : (attachedTo ?? { kind: 'ticket', id: ticketId }));
-    await uploads().updateOne(
-      { _id },
-      {
-        $setOnInsert: {
-          userId,
-          destination: resolved,
-          state: 'reserved',
-          expiresAt: new Date((createdAt ?? new Date()).getTime() + RESERVATION_TTL_SECONDS * 1000),
-        },
+    // Fills in a row a poster frame already started (`thumbnailId` only, no
+    // `state`); a row that has a state is already an upload, and is left be.
+    const stateless = { _id, state: { $exists: false } };
+    const reservation = {
+      $set: {
+        userId,
+        destination: resolved,
+        state: 'reserved',
+        expiresAt: new Date((createdAt ?? new Date()).getTime() + RESERVATION_TTL_SECONDS * 1000),
       },
-      { upsert: true },
-    );
+    };
+    await uploads()
+      .updateOne(stateless, reservation, { upsert: true })
+      .catch(async (err) => {
+        if (err.code !== DUPLICATE_KEY_ERROR_CODE) throw err;
+        // A row appeared between the match and the insert — a poster frame
+        // linking just then. Fill it in, unless it's already an upload.
+        await uploads().updateOne(stateless, reservation);
+      });
   }
   await db.collection('pulsevault_reservations').drop().catch(() => {});
   await db.collection('pulsevault_deliveries').drop().catch(() => {});
@@ -313,6 +334,74 @@ async function settleUpload(artifactId, { kept, reason, note }) {
       $unset: { claimedAt: '' },
     },
   );
+}
+
+/**
+ * Record a finished Pulse thumbnail as its video's poster frame.
+ *
+ * Pulse uploads a pulse's poster frame (`kind: thumbnail`, `relatedTo` the
+ * video) alongside the video, usually first. Either order works: the poster
+ * is keyed by the video id, whether or not the video has landed yet. Trusting
+ * `relatedTo` is safe: only the video's own capability token can create an
+ * artifact related to it (createCapabilityAuthorize checks that). A read
+ * failure throws, so the upload reports it; a thumbnail that isn't related to
+ * a video is skipped.
+ */
+async function linkThumbnail(thumbnailId, relatedTo) {
+  const videoId = relatedTo ?? (await storage.getRelatedTo?.(thumbnailId));
+  if (!videoId) return;
+  await uploads().updateOne({ _id: videoId }, { $set: { thumbnailId } }, { upsert: true });
+}
+
+/**
+ * Catch-up for poster frames that landed before they were recorded against
+ * their video. Each is linked on its own, so one unreadable artifact can't
+ * hold up the rest; the marker is written only once every one has been
+ * linked, so a failure is retried at the next start.
+ */
+async function backfillThumbnails() {
+  const meta = rawDb().collection('pulsevault_meta');
+  if (await meta.findOne({ _id: 'thumbnailBackfill' })) return;
+  if (!storage.listArtifacts) return;
+
+  let linked = 0;
+  let failed = 0;
+  for await (const record of storage.listArtifacts()) {
+    if (record.kind !== 'thumbnail' || !record.ready || !record.relatedTo) continue;
+    try {
+      await linkThumbnail(record.artifactId, record.relatedTo);
+      linked += 1;
+    } catch (err) {
+      failed += 1;
+      console.warn('[pulsevault] could not link poster frame', record.artifactId, err.message);
+    }
+  }
+  if (failed > 0) {
+    console.warn('[pulsevault] thumbnail backfill:', failed, 'failed; runs again at next start');
+    return;
+  }
+  await meta.updateOne(
+    { _id: 'thumbnailBackfill' },
+    { $set: { doneAt: new Date(), linked } },
+    { upsert: true },
+  );
+  console.log('[pulsevault] thumbnail backfill linked', linked, 'poster frame(s)');
+}
+
+/** `GET /posters/<videoId>`: the video's poster frame, or 404 when it has none (yet). */
+async function servePoster(videoId, res) {
+  const upload = await uploads().findOne({ _id: videoId }, { projection: { thumbnailId: 1 } });
+  if (!upload?.thumbnailId) {
+    // Not cached: a poster that lands later shows on the next load.
+    res.writeHead(404, { 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
+  res.writeHead(302, {
+    Location: artifactPath(upload.thumbnailId),
+    'Cache-Control': 'private, max-age=3600',
+  });
+  res.end();
 }
 
 /**
@@ -509,6 +598,10 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind);
+    if (ctx.kind === 'thumbnail') {
+      await linkThumbnail(ctx.artifactId);
+      return;
+    }
     // Only a reserved video has somewhere to go; its captions, manifest and
     // thumbnail are separate artifacts with no reservation of their own.
     const upload = await claimUpload(ctx.artifactId);
@@ -550,6 +643,12 @@ Wormhole.use({
       if (req.method === 'GET' && docsUrl === '/docs') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(pulsevaultSwaggerHtml('/pulsevault/openapi.json'));
+        return;
+      }
+
+      const posterMatch = docsUrl.match(/^\/posters\/([0-9a-f-]{36})$/i);
+      if (req.method === 'GET' && posterMatch) {
+        await servePoster(posterMatch[1], res);
         return;
       }
 
@@ -673,7 +772,8 @@ Wormhole.use({
           // Only act for callers holding a valid capability token for this
           // artifactId — otherwise an unauthenticated POST could delete
           // someone else's in-progress upload.
-          await verifyUploadToken(req, { artifactId, phase: 'create' });
+          // A poster frame carries its video's token: pass what it's for.
+          await verifyUploadToken(req, { artifactId, phase: 'create', kind: meta.kind, relatedTo: meta.relatedTo });
         } catch {
           return; // core.handler will reject it with the proper 401/403
         }
@@ -697,6 +797,11 @@ Wormhole.use({
             }
             const removed = await storage.remove(artifactId);
             if (removed) console.log('[pulsevault] cleared stale unfinished upload for retry:', artifactId);
+            return;
+          }
+          // A poster frame whose linking failed: link it now (idempotent).
+          if (meta.kind === 'thumbnail') {
+            await linkThumbnail(artifactId);
             return;
           }
           const upload = await claimUpload(artifactId);

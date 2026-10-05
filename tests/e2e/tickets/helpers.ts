@@ -50,13 +50,17 @@ export async function deleteTicket(page: Page, title: string): Promise<void> {
 
 /**
  * Opens the given ticket (must already be on /app/tickets) and attaches the
- * real test-video.mp4 fixture the way Pulse does after a QR scan, then waits
- * for it in the ticket's attachments (AttachmentsPanel). Returns its videoid.
+ * real test-video.mp4 fixture the way Pulse does after a QR scan (poster frame
+ * first, then the video), then waits for its card in the ticket's attachments
+ * (AttachmentsPanel). Returns both artifact ids.
  */
-export async function uploadVideoToTicket(page: Page, ticketTitle: string): Promise<string> {
+export async function uploadVideoToTicket(
+  page: Page,
+  ticketTitle: string,
+): Promise<{ videoid: string; posterId: string }> {
   const ticketId = await openTicket(page, ticketTitle);
   const token = await getSessionToken(page);
-  const { videoid, status } = await sendPulseVideo(page.request, token, {
+  const { videoid, posterId, status } = await sendPulseVideo(page.request, token, {
     kind: 'ticket',
     id: ticketId,
   });
@@ -65,10 +69,10 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
   // Sent behind the page's back (no Pulse button pressed), so reload for it.
   await page.reload();
   const linksList = page.locator('ul[aria-label="Attachments"]');
-  await expect(linksList.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`)).toBeVisible({
+  await expect(linksList.getByRole('button', { name: /^Play / }).first()).toBeVisible({
     timeout: 30000,
   });
-  return videoid;
+  return { videoid, posterId };
 }
 
 /** Open a ticket from the list (must already be on /app/tickets); returns its id. */

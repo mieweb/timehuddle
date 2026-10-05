@@ -96,7 +96,10 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     const upload = page.waitForResponse(
       (res) => res.url().includes('/api/media/upload') && res.status() === 200,
     );
-    await pasteFiles(page, [SCREENSHOT]);
+    // Named uniquely: with no text of its own, the post is found by its image's
+    // name (search skips media URLs, so the stored filename can't find it).
+    const name = `image-only-${Date.now()}.png`;
+    await pasteFiles(page, [{ ...SCREENSHOT, name }]);
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
 
     // An attachment alone is enough content to post — the button must enable
@@ -104,12 +107,10 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await expect(postButton(page)).toBeEnabled();
     await submitPost(page);
 
-    // The post has no text of its own to search for, but its body is the
-    // uploaded image's markdown — so its stored filename is unique to it.
     const { item } = (await (await upload).json()) as { item: { url: string } };
     const storedName = item.url.split('/').pop()!;
     const img = page.locator(`[data-slot="superchat-message"] img[src*="${storedName}"]`).first();
-    await openPostInInbox(page, storedName, img);
+    await openPostInInbox(page, name, img);
     await expect(img).toBeVisible({ timeout: 20000 });
   });
 

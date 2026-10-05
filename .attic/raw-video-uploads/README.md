@@ -13,7 +13,7 @@ video upload anywhere in the app. See release note `release-notes/1.0.6.md`.
 
 - `videoThumbnail.ts`: grabbed a poster frame from a picked video file in the
   browser (`<video>` + `<canvas>`), used by the profile feed's video upload.
-  Pulse uploads its own thumbnail with every video.
+  Pulse uploads its own thumbnail now, which the backend links to the video.
 - `media-thumbnail-route.js`: the backend `POST /api/media-thumbnail/:id` route
   (from `meteor-backend/server/uploads.js`) that stored that browser-made
   poster frame. Not runnable on its own, because it used `uploads.js`'s

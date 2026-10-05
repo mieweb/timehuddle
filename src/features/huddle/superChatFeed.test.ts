@@ -407,6 +407,71 @@ describe('searchConversations', () => {
     expect(titlesFor('uploads')).toEqual([]);
   });
 
+  it('does not match on Pulse card payloads, generated or typed by hand', () => {
+    const videoId = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
+    const typedId = '5f0c9d2a-1b3e-4f6a-8c7d-9e0f1a2b3c4d';
+    const withCards = [
+      makePost({
+        id: 'p4',
+        content: {
+          text:
+            'Demo\n\n```genui\n{\n  "widget": "pulse_video",\n  "props": { "video": "' +
+            typedId +
+            '" }\n}\n```',
+          mentions: [],
+        },
+        attachments: [
+          {
+            mediaId: 'm4',
+            type: 'video',
+            url: `/pulsevault/artifacts/${videoId}`,
+            filename: 'Standup recap',
+          },
+        ],
+      }),
+    ];
+    const grouped = postsToConversations(withCards, 'session', VIEWER_MEMBER, NOW);
+    const hits = (query: string) => searchConversations(grouped, withCards, query).length;
+    expect(hits('standup recap')).toBe(1);
+    expect(hits('demo')).toBe(1);
+    for (const query of ['pulse_video', 'widget', videoId, typedId]) expect(hits(query)).toBe(0);
+  });
+
+  it('drops a typed Pulse card whose title has backticks, up to its closing fence line', () => {
+    const typedId = '5f0c9d2a-1b3e-4f6a-8c7d-9e0f1a2b3c4d';
+    const withCard = [
+      makePost({
+        id: 'p6',
+        content: {
+          text:
+            'Recap\n\n```genui\n{"widget":"pulse_video","props":{"video":"' +
+            typedId +
+            '","title":"a ``` b"}}\n```\n\nafter the card',
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(withCard, 'session', VIEWER_MEMBER, NOW);
+    const hits = (query: string) => searchConversations(grouped, withCard, query).length;
+    for (const query of ['pulse_video', typedId]) expect(hits(query)).toBe(0);
+    expect(hits('recap')).toBe(1);
+    expect(hits('after the card')).toBe(1);
+  });
+
+  it('still matches inside other GenUI blocks, which show as code', () => {
+    const withChart = [
+      makePost({
+        id: 'p5',
+        content: {
+          text: 'Numbers\n\n```genui\n{"widget":"chart","props":{"series":"latency"}}\n```',
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(withChart, 'session', VIEWER_MEMBER, NOW);
+    expect(searchConversations(grouped, withChart, 'latency')).toHaveLength(1);
+  });
+
   it('finds off-the-clock and live posts the same way in every view', () => {
     const livePost = makePost({
       id: 'p3',

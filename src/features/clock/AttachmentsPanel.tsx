@@ -2,7 +2,8 @@
  * AttachmentsPanel — Add, list, and remove attachments for a clock entry or
  * ticket. Two chips add to it: **Link** (a pasted URL — a YouTube Short, a
  * Loom, any page) and **Pulse** (a video from the Pulse app, which the server
- * attaches here when it lands; videos come from Pulse only).
+ * attaches here when it lands; videos come from Pulse only). A Pulse video
+ * plays inline; anything else is a link.
  *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
@@ -22,7 +23,9 @@ import {
 } from '../../lib/api';
 import { LinkAttachButton } from './LinkAttachButton';
 import type { AddedLink } from './linkAttach';
+import { pulseArtifactId } from '../pulse-upload/artifact';
 import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -119,36 +122,51 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       )}
 
       <ul className="attachment-list flex flex-col gap-1" aria-label="Attachments">
-        {attachments.map((a) => (
-          <li
-            key={a.id}
-            className="attachment-item flex items-center justify-between gap-2 text-sm"
-          >
-            {/* Backend-hosted attachments (Pulse videos) are stored by path
-                and bound to the current origin here; user-entered links pass
-                through resolveMediaUrl untouched. */}
-            <a
-              href={resolveMediaUrl(a.url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="attachment-link truncate text-primary hover:underline"
-              aria-label={a.title ?? a.url}
+        {attachments.map((a) => {
+          // Same rule as the Huddle feed: a video attachment pointing at a
+          // PulseVault artifact plays inline; anything else is a link.
+          const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
+          return (
+            <li
+              key={a.id}
+              className="attachment-item flex items-center justify-between gap-2 text-sm"
             >
-              {a.title ?? a.url}
-            </a>
-            {currentUserId && currentUserId === a.addedBy && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRemove(a.id)}
-                isLoading={deletingId === a.id}
-                aria-label="Remove link"
-              >
-                <FontAwesomeIcon icon={faTrash} className="text-destructive" />
-              </Button>
-            )}
-          </li>
-        ))}
+              {videoId ? (
+                <figure className="attachment-video min-w-0">
+                  <PulseVideoPlayer video={videoId} title={a.title ?? undefined} />
+                  {a.title && (
+                    <figcaption className="attachment-video-title truncate text-xs text-muted-foreground">
+                      {a.title}
+                    </figcaption>
+                  )}
+                </figure>
+              ) : (
+                // User-entered links pass through resolveMediaUrl untouched;
+                // backend-hosted paths are bound to the current origin.
+                <a
+                  href={resolveMediaUrl(a.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="attachment-link truncate text-primary hover:underline"
+                  aria-label={a.title ?? a.url}
+                >
+                  {a.title ?? a.url}
+                </a>
+              )}
+              {currentUserId && currentUserId === a.addedBy && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRemove(a.id)}
+                  isLoading={deletingId === a.id}
+                  aria-label={videoId ? 'Remove video' : 'Remove link'}
+                >
+                  <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden="true" />
+                </Button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

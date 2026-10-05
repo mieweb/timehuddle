@@ -1,6 +1,6 @@
 /**
  * Hand-written OpenAPI 3.1 documentation for PulseVault's raw HTTP surface
- * (TUS upload + artifact serving). Wormhole's own `/api/openapi.json` is
+ * (TUS upload, artifact serving, posters). Wormhole's own `/api/openapi.json` is
  * generated purely from the Meteor-method registry (see the vendored
  * `wreiske:meteor-wormhole` package's `openapi.js`) and has no extension
  * point for hand-written paths, so these routes — which aren't Meteor
@@ -224,6 +224,38 @@ export const pulsevaultOpenApiSpec = {
         responses: {
           204: { description: 'Artifact deleted' },
           409: { description: 'The video has already landed (been added somewhere), so it is kept.' },
+        },
+      },
+    },
+    '/posters/{videoId}': {
+      get: {
+        summary: "A video's poster frame",
+        description:
+          'Public, like artifact playback. Redirects to the thumbnail Pulse uploaded for this ' +
+          'video (cached privately for an hour), or answers 404 when it has none yet. The 404 ' +
+          'is not cached, so a poster that lands after its video shows on the next load.',
+        operationId: 'pulsevault_poster_get',
+        tags: ['pulsevault'],
+        parameters: [
+          {
+            name: 'videoId',
+            in: 'path',
+            required: true,
+            description: "The video's artifact id.",
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          302: {
+            description: 'Redirect to the poster image.',
+            headers: {
+              Location: {
+                description: 'The thumbnail artifact: `/pulsevault/artifacts/{thumbnailId}`.',
+                schema: { type: 'string' },
+              },
+            },
+          },
+          404: { description: 'No poster for this video (yet). `Cache-Control: no-store`.' },
         },
       },
     },
