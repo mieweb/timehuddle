@@ -17,7 +17,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
 import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
-import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
+import { closeShift, computeWorkSeconds, findBreaksForEvent } from './clock-core';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -109,7 +109,7 @@ export async function initAgenda() {
 
   // ── Job: 8h auto-clockout (agreed) ───────────────────────────────────────
   _agenda.define('shift-auto-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
     if (!event) return; // already clocked out
     if (!event.autoClockoutAgreed) return; // user changed their mind
@@ -124,13 +124,13 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await closeShift(event, now); // this shift only — other teams keep running
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // ── Job: 8h missed auto-clockout ─────────────────────────────────────────
   _agenda.define('shift-missed-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId, userId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
     if (!event) return; // already clocked out
     if (event.shiftReminderResponse === 'disagreed') return; // respected "Continue Working"
@@ -146,7 +146,7 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await closeShift(event, now); // this shift only — other teams keep running
 
     // Rewrite the existing shift-end-reminder notification in-place to describe
     // the auto-clock-out outcome (keeps exactly one inbox entry).

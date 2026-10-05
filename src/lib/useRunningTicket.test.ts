@@ -100,6 +100,7 @@ describe('useRunningTicket', () => {
         title: 'Overnight ticket',
         url: '/app/tickets/tkt1',
         sessionId: 'sess1',
+        clockEventId: 'ce1',
       });
     });
     expect(mockGetDay).toHaveBeenCalledWith('2026-09-03');

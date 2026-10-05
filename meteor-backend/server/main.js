@@ -1271,7 +1271,7 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('clock.start', {
-    description: 'Clock in to a team (closes any dangling open events first)',
+    description: "Clock in to a team (refused with already-clocked-in while that team's shift is open)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1283,13 +1283,14 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('clock.stop', {
-    description: 'Clock out of a team (computes worked time minus meal breaks)',
+    description:
+      "Clock out of one session (computes worked time minus meal breaks); other teams' shifts keep running",
     inputSchema: {
       type: 'object',
       properties: {
-        teamId: { type: 'string' },
+        clockEventId: { type: 'string', description: 'The session to close' },
+        teamId: { type: 'string', description: "Without clockEventId: close this team's open shift" },
       },
-      required: ['teamId'],
     },
   });
 
@@ -1320,8 +1321,8 @@ Meteor.startup(async() => {
     },
   });
 
-  Wormhole.expose('clock.activeForUser', {
-    description: "The caller's active clock event across any team, or null",
+  Wormhole.expose('clock.myOpenShifts', {
+    description: "The caller's open shifts, at most one per team",
     inputSchema: { type: 'object', properties: {} },
   });
 
@@ -1649,11 +1650,11 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.createEntry', {
     description: 'Create a WorkItem for a ticket on a given date',
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' } }, required: ['ticketId', 'date'] },
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' }, teamId: { type: 'string', description: 'The team the caller is working in; picks the shift for a ticket without a team' } }, required: ['ticketId', 'date'] },
   });
   Wormhole.expose('timers.startSession', {
     description: 'Start a timer for a WorkItem',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' }, teamId: { type: 'string', description: 'The team the caller is working in; picks the shift for a ticket without a team' } }, required: ['entryId'] },
   });
   Wormhole.expose('timers.stopSession', {
     description: 'Stop a running timer session',

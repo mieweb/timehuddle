@@ -1,9 +1,9 @@
 /**
  * Timer helpers the clock domain needs: pause/resume/stop close or restart the
- * user's running work-timer, and the timesheet nests each shift's ticket
- * sessions under it. Port of the timer-session helpers in
- * backend/src/services/timer.service.ts (closeRunningForUser, closeAllForUser,
- * findClosedAtTime, restartTimerForWorkItem).
+ * running work-timer inside a shift, and the timesheet nests each shift's
+ * ticket sessions under it. Port of the timer-session helpers in
+ * backend/src/services/timer.service.ts, scoped per shift rather than per user
+ * so one team's clock never stops another team's timers.
  *
  * Writes go through the native driver on the shared `timers` collection, so they
  * land in the oplog and the `timers.liveForUser` publication stays reactive —
@@ -23,9 +23,22 @@ function workItems() {
   return rawDb().collection('workitems');
 }
 
-/** Close the user's single running timer session (if any). Returns its hex id or null. */
-export async function closeRunningForUser(userId, now) {
-  const running = await timers().findOne({ userId, endTime: null });
+/**
+ * Which running sessions belong to a shift. A session records the shift it was
+ * started inside (`clockEventId`); one without it predates that field and
+ * can't be attributed to any shift, so whichever shift closes first takes it.
+ */
+function shiftSessionSelector(userId, clockEventId) {
+  return { userId, endTime: null, clockEventId: { $in: [clockEventId, null] } };
+}
+
+/**
+ * Close the user's running timer session inside one shift (if any) — a break
+ * in one team must not stop a timer running inside another team's shift.
+ * Returns its hex id or null.
+ */
+export async function closeRunningForShift(userId, clockEventId, now) {
+  const running = await timers().findOne(shiftSessionSelector(userId, clockEventId));
   if (!running) return null;
   const durationSeconds = Math.max(0, Math.floor((now - running.startTime) / 1000));
   await timers().updateOne(
@@ -35,28 +48,33 @@ export async function closeRunningForUser(userId, now) {
   return running._id.toHexString();
 }
 
-/** Close every running timer session for the user. Returns how many were closed. */
-export async function closeAllForUser(userId, now) {
-  const running = await timers().find({ userId, endTime: null }).toArray();
+/**
+ * Close every running timer session inside one shift. Returns how many were
+ * closed. Clocking out of a team stops only that team's timers.
+ */
+export async function closeTimersForShift(userId, clockEventId, now) {
+  const running = await timers().find(shiftSessionSelector(userId, clockEventId)).toArray();
   if (running.length === 0) return 0;
-  const bulkOps = running.map((s) => ({
-    updateOne: {
-      filter: { _id: s._id, endTime: null },
-      update: {
-        $set: {
-          endTime: now,
-          durationSeconds: Math.max(0, Math.floor((now - s.startTime) / 1000)),
+  // Never end a session before it began (only possible when closing a shift
+  // at a time in the past — see the duplicate-shift cleanup in clock.js).
+  const bulkOps = running.map((s) => {
+    const endTime = Math.max(now, s.startTime);
+    return {
+      updateOne: {
+        filter: { _id: s._id, endTime: null },
+        update: {
+          $set: { endTime, durationSeconds: Math.floor((endTime - s.startTime) / 1000) },
         },
       },
-    },
-  }));
+    };
+  });
   const result = await timers().bulkWrite(bulkOps);
   return result.modifiedCount;
 }
 
-/** Find the timer session that closed exactly at `endTime` for the user. */
-export function findClosedAtTime(userId, endTime) {
-  return timers().findOne({ userId, endTime });
+/** Find the timer session of a shift that closed exactly at `endTime`. */
+export function findClosedAtTime(userId, clockEventId, endTime) {
+  return timers().findOne({ userId, clockEventId, endTime });
 }
 
 /**

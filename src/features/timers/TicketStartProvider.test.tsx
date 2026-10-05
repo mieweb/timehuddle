@@ -3,6 +3,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, timerApi } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
 import { startTicketTimer } from '../tickets/startTicketTimer';
@@ -37,7 +38,7 @@ vi.mock('../tickets/startTicketTimer', async (importOriginal) => ({
 vi.mock('../tickets/sources', () => ({ invalidateRedmineCache: vi.fn() }));
 vi.mock('../../lib/useClockToggle', () => ({ useClockToggle: vi.fn() }));
 vi.mock('../../lib/useRunningTicket', () => ({ useRunningTicket: vi.fn() }));
-vi.mock('../../lib/TeamContext', () => ({ useTeam: () => ({ selectedTeamId: 'team1' }) }));
+vi.mock('../../lib/TeamContext', () => ({ useTeam: vi.fn() }));
 
 const navigate = vi.fn();
 vi.mock('../../ui/router', () => ({
@@ -54,6 +55,11 @@ const clock = { isClockedIn: true, planMissing: false, clockIn: vi.fn() };
 let running: RunningTicket | null = null;
 
 function applyMocks() {
+  // On the clock in any team counts: the server picks the shift for the timer.
+  vi.mocked(useTeam).mockReturnValue({
+    selectedTeamId: 'team1',
+    openShifts: clock.isClockedIn ? { team2: { id: 'evt2', teamId: 'team2' } } : {},
+  } as unknown as ReturnType<typeof useTeam>);
   mockClockToggle.mockReturnValue({
     isClockedIn: clock.isClockedIn,
     clockIn: clock.clockIn,
@@ -101,7 +107,10 @@ describe('TicketStartProvider', () => {
     });
 
     expect(outcome).toBe('started-and-added');
-    expect(mockStart).toHaveBeenCalledWith({ sourceId: 'redmine', id: '15' }, redmineStart);
+    expect(mockStart).toHaveBeenCalledWith(
+      { sourceId: 'redmine', id: '15' },
+      { ...redmineStart, teamId: 'team1' },
+    );
     expect(toast.success).toHaveBeenCalledWith('Timer started on #15 and added to My Board');
   });
 
@@ -113,6 +122,7 @@ describe('TicketStartProvider', () => {
       title: 'Fix login',
       url: null,
       sessionId: 's0',
+      clockEventId: 'evt2',
     };
     applyMocks();
     const { result } = renderProvider();
@@ -138,7 +148,7 @@ describe('TicketStartProvider', () => {
       });
     });
 
-    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number));
+    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number), 'team1');
     expect(toast.success).toHaveBeenCalledWith('Timer started on Fix login');
   });
 

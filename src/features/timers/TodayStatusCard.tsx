@@ -27,6 +27,9 @@ import {
 } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 
+/** How far back to look for the start of another user's open shift. */
+const OPEN_SHIFT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
 interface TodayStatusCardProps {
   userId?: string;
 }
@@ -51,11 +54,13 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
       .catch(() => {});
   }, [userId, isOwn]);
 
+  // Someone else's open shift, newest first. Your own comes from TeamContext.
   const fetchClockEvent = useCallback(() => {
-    if (!userId) return;
+    if (!userId || isOwn) return;
+    const now = Date.now();
     clockApi
-      .getActive(isOwn ? undefined : userId)
-      .then(setClockEvent)
+      .getTimesheet(userId, now - OPEN_SHIFT_LOOKBACK_MS, now)
+      .then(({ sessions }) => setClockEvent(sessions.find((s) => !s.endTime) ?? null))
       .catch(() => setClockEvent(null));
   }, [userId, isOwn]);
 

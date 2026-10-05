@@ -8,7 +8,9 @@
  *   • teamsReady       — true once the first fetch completes
  *   • refetchTeams     — callable after mutations to refresh the list
  *   • selectedTeamId   — persisted in localStorage
- *   • activeClockEvent — the user's current open clock event (REST)
+ *   • openShifts       — the user's open shifts, every team, keyed by teamId
+ *                        (REST, refreshed live by `clock.liveOpenShifts`)
+ *   • activeClockEvent — the selected team's open shift, or null
  *   • clockReady       — true once the first clock fetch completes
  *   • refetchClock     — callable after clock mutations to refresh
  *   • currentTime      — ticks every second for live timers
@@ -84,6 +86,12 @@ export interface TeamContextValue {
   selectedTeam: Team | null;
   setSelectedTeamId: (id: string) => void;
   isAdmin: boolean;
+  /**
+   * The user's open shifts in every team, keyed by teamId — the clock is per
+   * team, so a person can be on the clock in several teams at once.
+   */
+  openShifts: Record<string, ClockEvent>;
+  /** The selected team's open shift (from `openShifts`), or null. */
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
   refetchClock: () => void;
@@ -108,6 +116,7 @@ const TeamCtx = createContext<TeamContextValue>({
   selectedTeam: null,
   setSelectedTeamId: () => {},
   isAdmin: false,
+  openShifts: {},
   activeClockEvent: null,
   clockReady: false,
   refetchClock: () => {},
@@ -400,25 +409,31 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return org?.role === 'owner';
   }, [userId, selectedTeam, organizations]);
 
-  // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
+  // ── Open shifts: REST snapshot, refreshed live by Meteor DDP ────────────
 
-  const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
+  const [openShifts, setOpenShifts] = useState<Record<string, ClockEvent>>({});
   const [clockReady, setClockReady] = useState(false);
+  // Only the newest request may land: an older one resolving late would put
+  // back a shift that has since closed.
+  const clockRequestRef = useRef(0);
 
   const refetchClock = useCallback(async () => {
+    const request = ++clockRequestRef.current;
     if (!userId) {
-      setActiveClockEvent(null);
+      setOpenShifts({});
       setClockReady(true);
       return;
     }
+    let next: Record<string, ClockEvent> = {};
     try {
-      const event = await clockApi.getActive();
-      setActiveClockEvent(event);
+      const shifts = await clockApi.getOpenShifts();
+      next = Object.fromEntries(shifts.map((shift) => [shift.teamId, shift]));
     } catch {
-      setActiveClockEvent(null);
-    } finally {
-      setClockReady(true);
+      // Treated as clocked out everywhere, as before; the next change refetches.
     }
+    if (request !== clockRequestRef.current) return;
+    setOpenShifts(next);
+    setClockReady(true);
   }, [userId]);
 
   // Initial fetch (fallback if the DDP connection fails)
@@ -429,48 +444,42 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [refetchClock]);
 
-  // Real-time clock updates via the oplog-backed `clock.liveForTeams`
-  // publication: any writer (Fastify REST, Meteor methods, Agenda auto
-  // clock-out) pushes changes here — no server-side broadcast code.
+  // Live: `clock.liveOpenShifts` publishes the user's own open shifts in every
+  // team, so a clock-in or clock-out from another tab, another device or the
+  // auto clock-out reaches this tab whatever team it has selected. The docs
+  // only say *which* shifts are open (breaks live elsewhere), so a change in
+  // that set triggers a refetch of the full events rather than replacing them.
   useEffect(() => {
-    if (!userId || !selectedTeamId) {
-      return;
-    }
+    if (!userId) return;
 
     const ddp = getDdpClient();
+    let lastSignature: string | null = null;
 
-    const applyLiveDocs = () => {
-      const userEvent =
-        ddp
-          .docs('clockevents')
-          .map(ddpDocToClockEvent)
-          .find((e) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime) ?? null;
-      if (userEvent) {
-        setActiveClockEvent(userEvent);
-        setClockReady(true);
-      } else {
-        // No active event for the selected team — clear only if the previous
-        // event was for this team; a cross-team active event (from the REST
-        // fallback) must survive.
-        setActiveClockEvent((prev) => (prev && prev.teamId === selectedTeamId ? null : prev));
-      }
+    const onLiveChange = () => {
+      const signature = ddp
+        .docs('clockevents')
+        .map(ddpDocToClockEvent)
+        .filter((e) => e.userId === userId && !e.endTime)
+        .map((e) => e.id)
+        .sort()
+        .join(',');
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      // Only refetch with a token — avoids errors when the subscription is
+      // ready before auth is fully established.
+      if (localStorage.getItem('meteor_resume_token')) void refetchClock();
     };
 
-    const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
-    const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
-      applyLiveDocs();
-      // Only refetch if we have a valid token — avoids 500 errors when
-      // the subscription ready fires before auth is fully established
-      if (localStorage.getItem('meteor_resume_token')) {
-        void refetchClock();
-      }
-    });
+    const offChange = ddp.onCollectionChange('clockevents', onLiveChange);
+    const unsubscribe = ddp.subscribe('clock.liveOpenShifts', [], onLiveChange);
 
     return () => {
       offChange();
       unsubscribe();
     };
-  }, [userId, selectedTeamId, refetchClock]);
+  }, [userId, refetchClock]);
+
+  const activeClockEvent = selectedTeamId ? (openShifts[selectedTeamId] ?? null) : null;
 
   // ── Live timer ──────────────────────────────────────────────────────────────
 
@@ -501,6 +510,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeam,
       setSelectedTeamId,
       isAdmin,
+      openShifts,
       activeClockEvent,
       clockReady,
       refetchClock,
@@ -524,6 +534,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedTeam,
       setSelectedTeamId,
       isAdmin,
+      openShifts,
       activeClockEvent,
       clockReady,
       refetchClock,

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -20,6 +20,11 @@ vi.mock('./useSession', () => ({
 }));
 
 const listOrganizationsMock = vi.fn().mockResolvedValue([]);
+const getOpenShiftsMock = vi.fn().mockResolvedValue([]);
+
+// The live clockevents docs and their change listeners, driven by the tests.
+let ddpClockDocs: Record<string, unknown>[] = [];
+const ddpListeners = new Map<string, () => void>();
 
 vi.mock('./api', () => ({
   teamApi: {
@@ -33,21 +38,24 @@ vi.mock('./api', () => ({
     list: vi.fn().mockResolvedValue([]),
   },
   clockApi: {
-    getActive: vi.fn().mockResolvedValue(null),
+    getOpenShifts: (...args: unknown[]) => getOpenShiftsMock(...args),
   },
 }));
 
 vi.mock('./ddp', () => ({
   getDdpClient: () => ({
-    docs: () => [],
-    onCollectionChange: () => () => {},
+    docs: (collection: string) => (collection === 'clockevents' ? ddpClockDocs : []),
+    onCollectionChange: (collection: string, cb: () => void) => {
+      ddpListeners.set(collection, cb);
+      return () => {};
+    },
     onDisconnect: () => () => {},
     subscribe: (_name: string, _params: unknown[], cb: () => void) => {
       cb();
       return () => {};
     },
   }),
-  ddpDocToClockEvent: vi.fn(),
+  ddpDocToClockEvent: (doc: unknown) => doc,
   ddpDocToTeam: vi.fn(),
 }));
 
@@ -170,5 +178,77 @@ describe('TeamContext organization refetch', () => {
     });
 
     expect(screen.getByTestId('orgs').textContent).toBe('Default Organization');
+  });
+});
+
+// ── Open shifts ───────────────────────────────────────────────────────────────
+
+function OpenShiftsDisplay() {
+  const { openShifts } = useTeam();
+  return (
+    <div data-testid="open-shifts">
+      {Object.entries(openShifts)
+        .map(([teamId, shift]) => `${teamId}=${shift.id}`)
+        .sort()
+        .join(',') || 'none'}
+    </div>
+  );
+}
+
+describe('TeamContext open shifts', () => {
+  beforeEach(() => {
+    mockUser = { id: 'user-1', username: 'jiadoe' };
+    localStorage.setItem('meteor_resume_token', 'token');
+    ddpClockDocs = [];
+    ddpListeners.clear();
+    getOpenShiftsMock.mockReset().mockResolvedValue([{ id: 'evt-a', teamId: 'team-a' }]);
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.removeItem('meteor_resume_token');
+  });
+
+  it('keeps every open shift keyed by team, and refetches when the live set changes', async () => {
+    render(
+      <TeamProvider>
+        <OpenShiftsDisplay />
+      </TeamProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('open-shifts').textContent).toBe('team-a=evt-a'));
+
+    // Another tab clocks in to team B: the live doc set changes.
+    getOpenShiftsMock.mockResolvedValue([
+      { id: 'evt-a', teamId: 'team-a' },
+      { id: 'evt-b', teamId: 'team-b' },
+    ]);
+    ddpClockDocs = [
+      { id: 'evt-a', userId: 'user-1', teamId: 'team-a', endTime: null },
+      { id: 'evt-b', userId: 'user-1', teamId: 'team-b', endTime: null },
+    ];
+    act(() => ddpListeners.get('clockevents')?.());
+
+    await waitFor(() =>
+      expect(screen.getByTestId('open-shifts').textContent).toBe('team-a=evt-a,team-b=evt-b'),
+    );
+  });
+
+  it("ignores live changes to other people's shifts", async () => {
+    render(
+      <TeamProvider>
+        <OpenShiftsDisplay />
+      </TeamProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('open-shifts').textContent).toBe('team-a=evt-a'));
+    const calls = getOpenShiftsMock.mock.calls.length;
+
+    ddpClockDocs = [{ id: 'evt-x', userId: 'someone-else', teamId: 'team-a', endTime: null }];
+    act(() => ddpListeners.get('clockevents')?.());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getOpenShiftsMock.mock.calls.length).toBe(calls);
   });
 });

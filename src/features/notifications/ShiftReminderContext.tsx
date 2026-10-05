@@ -57,7 +57,7 @@ export function useShiftReminder(): ShiftReminderCtx {
 
 export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useSession();
-  const { activeClockEvent, clockReady } = useTeam();
+  const { openShifts, clockReady } = useTeam();
   const [pendingNotif, setPendingNotif] = useState<Notification | null>(null);
   const [respondLoading, setRespondLoading] = useState(false);
   const [respondError, setRespondError] = useState<string | null>(null);
@@ -92,8 +92,9 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
         );
         if (!missed) return;
         const clockEventId = missed.data?.clockEventId as string | undefined;
-        // Skip if the clock event is already closed — auto-clockout already ran
-        if (!activeClockEvent || activeClockEvent.id !== clockEventId) return;
+        // Skip if the clock event is already closed — auto-clockout already ran.
+        // The shift may be in any team, not just the selected one.
+        if (!Object.values(openShifts).some((shift) => shift.id === clockEventId)) return;
         const dedupeKey = clockEventId ?? missed.id;
         if (shownIds.current.has(dedupeKey)) return;
         shownIds.current.add(dedupeKey);

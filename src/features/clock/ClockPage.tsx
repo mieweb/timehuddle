@@ -63,6 +63,7 @@ import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
+import { OtherTeamShifts } from './OtherTeamShifts';
 import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -71,7 +72,7 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { selectedTeamId, activeClockEvent, openShifts, currentTime, teamsReady } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -83,24 +84,25 @@ export const ClockPage: React.FC = () => {
     clockOutLoading,
     clockPauseLoading,
     clockOutBlockedReason,
+    clockInRefusedReason,
     planGate,
   } = useClockToggle();
 
-  const {
-    teamId: gateTeamId,
-    teamName,
-    requirePlan,
-    sessionPost,
-    planMissing,
-    wrapUpMissing,
-  } = planGate;
+  const { teamId: gateTeamId, requirePlan, sessionPost, planMissing, wrapUpMissing } = planGate;
 
   const isClockedIn = !!activeClockEvent;
   const isPaused = !!activeClockEvent?.isPaused;
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
 
   // Active ticket under the session timer — shared hook (getRunning + getDay).
-  const runningTicket = useRunningTicket(isClockedIn);
+  // Only one inside this team's shift: a timer running in another team's
+  // shift belongs to that team's clock (older timers, with no shift, to both).
+  const runningAnywhere = useRunningTicket(isClockedIn);
+  const runningTicket =
+    runningAnywhere &&
+    (!runningAnywhere.clockEventId || runningAnywhere.clockEventId === activeClockEvent?.id)
+      ? runningAnywhere
+      : null;
   // A timer started while clocked out, waiting for this clock-in (#586).
   const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
 
@@ -400,7 +402,6 @@ export const ClockPage: React.FC = () => {
   const eyebrow = !isClockedIn ? 'Clocked out' : isPaused ? 'On break' : 'Clocked in';
 
   // ── Composer card copy — always says what's blocking you ──
-  const teamSuffix = teamName && gateTeamId !== selectedTeamId ? ` in “${teamName}”` : '';
   const composerTitle =
     composerMode === 'plan' ? 'Plan before you clock in' : 'Wrap up before you clock out';
   let composerDescription: React.ReactNode = null;
@@ -419,7 +420,7 @@ export const ClockPage: React.FC = () => {
       </>
     );
   } else if (composerMode === 'wrapup') {
-    composerDescription = `Add a quick wrap-up of what you did this session${teamSuffix} before clocking out.`;
+    composerDescription = 'Add a quick wrap-up of what you did this session before clocking out.';
   }
 
   if (!teamsReady) {
@@ -443,6 +444,10 @@ export const ClockPage: React.FC = () => {
               : 'Any time you track here gets logged to this workspace.'
           }
         />
+
+        {/* The clock is per team: a shift open elsewhere is named, not shown
+            under this team's name. */}
+        <OtherTeamShifts />
 
         {/* ── Status — eyebrow + big bold session timer ──
              The surface is tinted by state rather than being a fixed dark slab
@@ -688,12 +693,18 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* Clocking out closes every ticket timer (clock.stop), so say so first. */}
+        {/* Clocking out closes the ticket timer running in this shift (clock.stop), so say so first. */}
         {isClockedIn && runningTicket && (
           <Text variant="muted" size="sm" className="clock-out-stops-timer shrink-0 text-center">
             {timerText.clockOutStopsTimer(
               timerLabel(runningTicket.source, runningTicket.id, runningTicket.title),
             )}
+          </Text>
+        )}
+
+        {clockInRefusedReason && (
+          <Text variant="warning" size="sm" className="shrink-0" aria-live="polite">
+            {clockInRefusedReason}
           </Text>
         )}
 
@@ -704,7 +715,8 @@ export const ClockPage: React.FC = () => {
         )}
 
         {/* ── Redmine push — renders itself away when there is nothing to send ── */}
-        <RedminePushPanel isClockedIn={isClockedIn} />
+        {/* Redmine's URL lock and push rules look at a shift in any team. */}
+        <RedminePushPanel isClockedIn={Object.keys(openShifts).length > 0} />
 
         {/* ── Recent sessions ── */}
         <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">

@@ -9,8 +9,9 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
-import { Timers, WorkItems, Tickets, Teams, ClockEvents, isValidId, rawDb } from './collections';
+import { Timers, WorkItems, Tickets, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { findOpenShifts } from './clock-core';
 import { createNotification, userDisplayName } from './notify-core';
 import { requiresApproval, submitChangeRequest } from './timesheet-change-requests';
 import {
@@ -106,18 +107,50 @@ async function closeRunningSession(userId, now) {
   return running._id.toHexString();
 }
 
+/** The team a Huddle ticket belongs to, or null (Redmine issues have none). */
+async function huddleTicketTeamId(source, ticketId) {
+  if (normalizeSource(source) !== HUDDLE) return null;
+  if (typeof ticketId !== 'string' || !/^[0-9a-f]{24}$/i.test(ticketId)) return null;
+  const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId), {
+    fields: { teamId: 1 },
+  });
+  return ticket?.teamId ? String(ticket.teamId) : null;
+}
+
 /**
- * The caller's running shift, or a hard stop.
+ * The id of the shift a new ticket-timer session runs inside, or a hard stop.
  *
- * A ticket timer may only run inside a shift. That is what lets the
- * existing 8h auto-clockout close ticket sessions for free, and what lets the
- * Dashboard timesheet nest a session under the shift that contains it.
- * Source-agnostic on purpose: it works the same for a Huddle team and a
- * personal workspace.
+ * A ticket timer may only run inside a shift. That is what lets clocking out
+ * (by hand or the 8h auto-clockout) close ticket sessions for free, and what
+ * lets the Dashboard timesheet nest a session under the shift that contains it.
+ *
+ * The clock is per team, so the shift is chosen by team, never by taking
+ * whichever of several open shifts Mongo returns first:
+ *   1. a Huddle ticket's own team (a personal ticket's is the personal
+ *      workspace), when the caller is on the clock there;
+ *   2. else `teamId`, the team the caller is working in, when on the clock there
+ *      — this is how a Redmine issue, which has no team, finds its shift;
+ *   3. else the caller's only open shift.
+ * With several open shifts and none of those matching, the caller has to say
+ * which (`shift-ambiguous`).
  */
-async function requireActiveShift(userId) {
-  const shift = await ClockEvents.findOneAsync({ userId, endTime: null });
-  if (!shift) throw new Meteor.Error('no-active-shift', 'Clock in to start a ticket timer');
+async function requireActiveShift(userId, { source, ticketId, teamId } = {}) {
+  const shifts = await findOpenShifts(userId);
+  if (!shifts.length) {
+    throw new Meteor.Error('no-active-shift', 'Clock in to start a ticket timer');
+  }
+  const shiftByTeam = new Map(shifts.map((shift) => [shift.teamId, shift]));
+  const ticketTeamId = await huddleTicketTeamId(source, ticketId);
+  const shift =
+    (ticketTeamId && shiftByTeam.get(ticketTeamId)) ||
+    (typeof teamId === 'string' && shiftByTeam.get(teamId)) ||
+    (shifts.length === 1 ? shifts[0] : null);
+  if (!shift) {
+    throw new Meteor.Error(
+      'shift-ambiguous',
+      "You're on the clock in more than one team. Switch to the team this time belongs to and start the timer again."
+    );
+  }
   return shift._id.toHexString();
 }
 
@@ -470,7 +503,16 @@ Meteor.methods({
    * `{userId, source, ticketId, date}` — without `source`, Redmine issue #42
    * and a Huddle ticket would share a row.
    */
-  async 'timers.createEntry'({ ticketId, source, date, note, startNow = false, notifyAdmins = true, tz } = {}) {
+  async 'timers.createEntry'({
+    ticketId,
+    source,
+    date,
+    note,
+    startNow = false,
+    notifyAdmins = true,
+    tz,
+    teamId,
+  } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticketSource = normalizeSource(source);
@@ -509,7 +551,11 @@ Meteor.methods({
     let session = null;
     if (startNow) {
       if (isPreviousDate(date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
-      const clockEventId = await requireActiveShift(userId);
+      const clockEventId = await requireActiveShift(userId, {
+        source: ticketSource,
+        ticketId,
+        teamId,
+      });
       await closeRunningSession(userId, Date.now());
       const sessionId = await Timers.insertAsync({
         workItemId: entry._id.toHexString(),
@@ -533,7 +579,7 @@ Meteor.methods({
   },
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
-  async 'timers.startSession'({ entryId, now = Date.now(), tz } = {}) {
+  async 'timers.startSession'({ entryId, now = Date.now(), tz, teamId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
@@ -542,7 +588,11 @@ Meteor.methods({
     if (entry.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
     if (isPreviousDate(entry.date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
 
-    const clockEventId = await requireActiveShift(userId);
+    const clockEventId = await requireActiveShift(userId, {
+      source: entry.source,
+      ticketId: entry.ticketId,
+      teamId,
+    });
     const closedSessionId = await closeRunningSession(userId, now);
     const sessionId = await Timers.insertAsync({
       workItemId: entryId,
