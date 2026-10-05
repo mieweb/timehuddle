@@ -248,15 +248,17 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const ticket = await requireTicketPermission(userId, ticketId, 'read');
     const ticketHexId = ticket._id.toHexString();
-    const [holders, myTime, timed] = await Promise.all([
+    const [holders, myTime, timed, teamUserIds] = await Promise.all([
       linkedIssueIdOf(ticket) ? findLockHolders(ticketHexId) : [],
       callerTimeOn(userId, ticket),
       usersWithTimeOn(ticketHexId),
+      currentTeamUserIds(ticket.teamId),
     ]);
     return {
       lock: holders.length ? { holders, message: lockMessage(holders, userId) } : null,
       myTime,
-      othersWithTime: timed.filter((uid) => uid !== userId).length,
+      // The same people `notifyLinkChange` tells, so the dialog's count is true.
+      othersWithTime: timed.filter((uid) => uid !== userId && teamUserIds.has(uid)).length,
     };
   },
 });
