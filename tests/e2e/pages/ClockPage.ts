@@ -48,6 +48,11 @@ export class ClockPage extends BasePage {
 
   async waitForLoad(timeout = 30000) {
     await this.heading.waitFor({ state: 'visible', timeout });
+    // The status card is busy until the user's open shifts have loaded; before
+    // that it reads "Clocked out" whatever the server says.
+    await this.page
+      .locator('.clock-status:not([aria-busy="true"])')
+      .waitFor({ state: 'visible', timeout });
   }
 
   async navigateFromSidebar() {

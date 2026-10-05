@@ -51,6 +51,7 @@ import {
   ticketSessionsForClockEvents,
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
+import { planDuplicateShiftClosures } from './open-shift-dedupe';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
 import {
@@ -71,9 +72,9 @@ const OPEN_SHIFT_INDEX = 'unique_open_shift_per_team';
  * End every older duplicate open shift per (user, team), keeping the newest.
  *
  * Before the unique index existed, two racing `clock.start` calls could both
- * insert. Each older shift ends where the next one began, so no hours overlap;
- * its open break and ticket timers stop at that moment, and its reminder jobs
- * are cancelled. Returns how many shifts were closed.
+ * insert. Each older shift ends where the next one began, so no hours overlap
+ * (see open-shift-dedupe.js); its open break and ticket timers stop at that
+ * moment, and its reminder jobs are cancelled. Returns how many shifts were closed.
  */
 async function closeDuplicateOpenShifts() {
   const groups = await rawDb()
@@ -85,28 +86,30 @@ async function closeDuplicateOpenShifts() {
     ])
     .toArray();
 
-  let closedCount = 0;
+  const openShifts = [];
   for (const { _id: group } of groups) {
-    const shifts = await ClockEvents.find(
-      { userId: group.userId, teamId: group.teamId, endTime: null },
-      { sort: { startTime: 1, _id: 1 } }
-    ).fetchAsync();
-    const kept = shifts[shifts.length - 1];
-    for (let i = 0; i < shifts.length - 1; i++) {
-      const shift = shifts[i];
-      const shiftId = shift._id.toHexString();
-      const endAt = Math.max(shift.startTime, shifts[i + 1].startTime);
-      const closed = await closeShift(shift, endAt);
-      if (!closed) continue;
-      closedCount++;
-      cancelClockJobs(shiftId).catch((err) =>
-        console.error('[agenda] cancelClockJobs for duplicate shift failed:', err)
-      );
-      console.warn(
-        `[clock] closed duplicate open shift ${shiftId} (user ${group.userId}, team ${group.teamId}) ` +
-          `at ${new Date(endAt).toISOString()}; kept ${kept._id.toHexString()}`
-      );
-    }
+    openShifts.push(
+      ...(await ClockEvents.find({
+        userId: group.userId,
+        teamId: group.teamId,
+        endTime: null,
+      }).fetchAsync())
+    );
+  }
+
+  let closedCount = 0;
+  for (const { shift, endAt, keptId } of planDuplicateShiftClosures(openShifts)) {
+    const shiftId = shift._id.toHexString();
+    const closed = await closeShift(shift, endAt);
+    if (!closed) continue;
+    closedCount++;
+    cancelClockJobs(shiftId).catch((err) =>
+      console.error('[agenda] cancelClockJobs for duplicate shift failed:', err)
+    );
+    console.warn(
+      `[clock] closed duplicate open shift ${shiftId} (user ${shift.userId}, team ${shift.teamId}) ` +
+        `at ${new Date(endAt).toISOString()}; kept ${keptId}`
+    );
   }
   return closedCount;
 }

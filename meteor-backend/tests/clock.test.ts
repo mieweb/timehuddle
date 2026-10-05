@@ -52,10 +52,10 @@ afterAll(async () => {
 describe('clock (wormhole)', () => {
   let clockEventId: string;
 
-  it('has no active clock initially', async () => {
-    const res = await wormhole<null>('clock.activeForUser', {}, jwt);
+  it('has no open shift initially', async () => {
+    const res = await wormhole<Array<{ id: string }>>('clock.myOpenShifts', {}, jwt);
     expect(res.ok).toBe(true);
-    expect(res.result).toBeNull();
+    expect(res.result).toEqual([]);
   });
 
   it('clocks in', async () => {
@@ -71,10 +71,23 @@ describe('clock (wormhole)', () => {
     clockEventId = res.result.id;
   });
 
-  it('shows active clock event', async () => {
-    const res = await wormhole<{ id: string }>('clock.activeForUser', {}, jwt);
+  it('lists the open shift', async () => {
+    const res = await wormhole<Array<{ id: string; teamId: string }>>(
+      'clock.myOpenShifts',
+      {},
+      jwt,
+    );
     expect(res.ok).toBe(true);
-    expect(res.result.id).toBe(clockEventId);
+    expect(res.result.map((s) => [s.teamId, s.id])).toEqual([[teamId, clockEventId]]);
+  });
+
+  it('refuses a second clock-in to the same team, and leaves the shift open', async () => {
+    const res = await wormhole('clock.start', { teamId }, jwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/already clocked in/i);
+
+    const open = await wormhole<Array<{ id: string }>>('clock.myOpenShifts', {}, jwt);
+    expect(open.result.map((s) => s.id)).toEqual([clockEventId]);
   });
 
   it('gets clock status', async () => {
@@ -109,10 +122,10 @@ describe('clock (wormhole)', () => {
     expect(res.result.endTime).not.toBeNull();
   });
 
-  it('has no active clock after stop', async () => {
-    const res = await wormhole<null>('clock.activeForUser', {}, jwt);
+  it('has no open shift after stop', async () => {
+    const res = await wormhole<Array<{ id: string }>>('clock.myOpenShifts', {}, jwt);
     expect(res.ok).toBe(true);
-    expect(res.result).toBeNull();
+    expect(res.result).toEqual([]);
   });
 
   it('lists clock events', async () => {

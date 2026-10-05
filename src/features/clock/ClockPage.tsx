@@ -72,7 +72,8 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, openShifts, currentTime, teamsReady } = useTeam();
+  const { selectedTeamId, activeClockEvent, openShifts, currentTime, teamsReady, clockReady } =
+    useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -466,6 +467,7 @@ export const ClockPage: React.FC = () => {
               : 'border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-50',
           )}
           aria-live="polite"
+          aria-busy={!clockReady}
         >
           <div className="flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] opacity-70">
             <span
