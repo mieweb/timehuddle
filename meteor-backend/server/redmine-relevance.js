@@ -280,12 +280,13 @@ async function listIssuesByIdsChunked(account, issueIds, options) {
 }
 
 /**
- * The pinned, My Board and ticket-linked ids to fetch, board first, without
- * repeats, bounded. Board first because an entry left unresolved is a row the
- * user put on their board by hand, now missing from it.
+ * The My Board, pinned and ticket-linked ids to fetch, without repeats, bounded.
+ * Board first because an entry left unresolved is a row the user put on their
+ * board by hand, now missing from it. Linked issues last: they only decorate a
+ * ticket that shows without them, so they must never cost a pinned row its place.
  */
 function keptIssueIds(pinnedIds = [], boardIds = [], linkedIds = []) {
-  return [...new Set([...boardIds, ...linkedIds, ...pinnedIds].map(Number))].slice(
+  return [...new Set([...boardIds, ...pinnedIds, ...linkedIds].map(Number))].slice(
     0,
     MAX_KEPT_ISSUES,
   );

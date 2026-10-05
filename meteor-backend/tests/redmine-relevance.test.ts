@@ -410,6 +410,19 @@ describe('buildRelevantIssues', () => {
       expect(built.issues.map((row) => row.id)).not.toContain(70);
     });
 
+    it('asks for linked issues after the board and pins, so they never cost a pin its place', async () => {
+      const answer = byIds();
+      stubWithIds(answer);
+      await buildRelevantIssues(account, {
+        redmineUserId: 7,
+        pinnedIds: [60],
+        boardIds: [50],
+        linkedIds: [70],
+        now: NOW,
+      });
+      expect(answer.requests[0]).toEqual([50, 60, 70]);
+    });
+
     it('still returns a linked issue the caller hid from their suggestions', async () => {
       stubWithIds(byIds());
       const built = await buildRelevantIssues(account, {

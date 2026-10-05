@@ -22,6 +22,8 @@ import {
   resolveTicketRefs,
   sourceSelector,
 } from './ticket-refs';
+import { findRedmineAccount } from './redmine-account';
+import { onDefaultRedmine } from './redmine-client';
 import { pinIssueIfUnset } from './redmine-prefs';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
@@ -345,7 +347,12 @@ async function callerWorkItemIds(userId, ticketId, source) {
 async function callerSessionSelector(userId, ticketId, source) {
   const entryIds = await callerWorkItemIds(userId, ticketId, source);
   const onWorkItems = { workItemId: { $in: entryIds } };
-  return normalizeSource(source) === REDMINE
+  if (normalizeSource(source) !== REDMINE) return { userId, ...onWorkItems };
+
+  // A link names an issue on the deployment's own Redmine. For a caller on a
+  // custom instance (dev/test) the same number is a different issue.
+  const account = await findRedmineAccount(userId);
+  return !account || onDefaultRedmine(account)
     ? { userId, $or: [onWorkItems, { redmineIssueId: String(ticketId) }] }
     : { userId, ...onWorkItems };
 }
