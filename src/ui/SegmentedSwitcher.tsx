@@ -21,11 +21,17 @@ import React, { useRef } from 'react';
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
+  /** Shown before the label, or in place of it with `iconOnly`. */
+  icon?: React.ReactNode;
+  /** Show the icon alone. The label stays as the option's accessible name and tooltip. */
+  iconOnly?: boolean;
 }
 
 export interface SegmentedSwitcherProps<T extends string> {
-  /** Accessible name of the group, also shown above it. */
+  /** Accessible name of the group, also shown above it unless `hideLabel`. */
   label: string;
+  /** Keep the label for assistive tech only, where the options explain themselves. */
+  hideLabel?: boolean;
   options: readonly SegmentedOption<T>[];
   value: T;
   onValueChange: (value: T) => void;
@@ -41,6 +47,7 @@ export function SegmentedSwitcher<T extends string>({
   onValueChange,
   name,
   disabled = false,
+  hideLabel = false,
 }: SegmentedSwitcherProps<T>) {
   const reducedMotion = useReducedMotion();
   const buttons = useRef(new Map<T, HTMLButtonElement>());
@@ -66,10 +73,14 @@ export function SegmentedSwitcher<T extends string>({
   };
 
   return (
-    <div className="segmented-switcher space-y-1.5">
+    <div className={`segmented-switcher ${hideLabel ? '' : 'space-y-1.5'}`}>
       <span
         id={`${name}-label`}
-        className="segmented-switcher-label block text-sm font-medium text-foreground"
+        className={
+          hideLabel
+            ? 'segmented-switcher-label sr-only'
+            : 'segmented-switcher-label block text-sm font-medium text-foreground'
+        }
       >
         {label}
       </span>
@@ -94,12 +105,16 @@ export function SegmentedSwitcher<T extends string>({
               size="sm"
               role="radio"
               aria-checked={selected}
+              aria-label={option.iconOnly ? option.label : undefined}
+              title={option.iconOnly ? option.label : undefined}
               tabIndex={selected ? 0 : -1}
               disabled={disabled}
               onClick={() => select(option.value)}
               className={[
                 // `hover:bg-transparent`: the sliding highlight is the only fill.
-                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md px-2 py-1.5 sm:px-3 hover:bg-transparent dark:hover:bg-transparent',
+                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md py-1.5 hover:bg-transparent dark:hover:bg-transparent',
+                // An icon alone is narrower than a word, so it gets more room either side.
+                option.iconOnly ? 'px-3.5 sm:px-5' : 'px-2 sm:px-3',
                 selected
                   ? 'text-primary-700 dark:text-primary-300'
                   : 'text-muted-foreground hover:text-foreground',
@@ -117,7 +132,12 @@ export function SegmentedSwitcher<T extends string>({
                   }
                 />
               )}
-              <span className="segmented-switcher-text relative">{option.label}</span>
+              {/* A block-level flex row one text line tall, so an icon is centred in
+                  it instead of sitting on the text baseline. */}
+              <span className="segmented-switcher-text relative flex min-h-5 items-center justify-center gap-1.5">
+                {option.icon}
+                {!option.iconOnly && option.label}
+              </span>
             </Button>
           );
         })}

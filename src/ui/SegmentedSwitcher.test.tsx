@@ -54,4 +54,26 @@ describe('SegmentedSwitcher', () => {
     fireEvent.keyDown(group, { key: 'ArrowLeft' });
     expect(onValueChange.mock.calls).toEqual([['none'], ['github']]);
   });
+
+  it('names an icon-only option by its label, without showing the text', () => {
+    render(
+      <SegmentedSwitcher
+        name="views"
+        label="View"
+        hideLabel
+        options={[
+          { value: 'board', label: 'My Board' },
+          { value: 'all', label: 'All Sources', icon: <svg data-testid="icon" />, iconOnly: true },
+        ]}
+        value="board"
+        onValueChange={vi.fn()}
+      />,
+    );
+    const iconOnly = screen.getByRole('radio', { name: 'All Sources' });
+    expect(iconOnly.textContent).toBe('');
+    expect(iconOnly.getAttribute('title')).toBe('All Sources');
+    expect(screen.getByTestId('icon')).toBeTruthy();
+    // The group keeps its name with the visible label hidden.
+    expect(screen.getByRole('radiogroup', { name: 'View' })).toBeTruthy();
+  });
 });

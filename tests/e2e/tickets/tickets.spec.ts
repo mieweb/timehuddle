@@ -12,14 +12,14 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { createTicket, ticketRow as rowFor } from './helpers';
+import { createTicket, goToTickets, ticketRow as rowFor } from './helpers';
 
 /**
  * A ticket title in the table that is showing. A new ticket is also on its
  * creator's My Board, and both tabs stay mounted, so the title is on the page twice.
  */
 const inTable = (page: Page, title: string) =>
-  page.locator('[role="tabpanel"]:visible').getByText(title);
+  page.locator('.tickets-view-panel:visible').getByText(title);
 
 const TICKET_TITLE = `E2E Test Ticket ${Date.now()}`;
 const TICKET_TITLE_2 = `E2E Searchable Ticket ${Date.now()}`;
@@ -36,8 +36,7 @@ test.describe('Tickets', () => {
     // data another test happened to leave behind.
     await createTicket(page, `E2E Columns ${Date.now()}`);
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Verify correct URL
     expect(page.url()).toContain('/app/tickets');
@@ -61,8 +60,7 @@ test.describe('Tickets', () => {
     // default 30s so this doesn't flake under load.
     test.setTimeout(60000);
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Click New Ticket button
     await page.getByRole('button', { name: 'New Ticket' }).click();
@@ -80,8 +78,7 @@ test.describe('Tickets', () => {
   });
 
   test('should create a ticket and search for it', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket first
     await page.getByRole('button', { name: 'New Ticket' }).click();
@@ -105,8 +102,7 @@ test.describe('Tickets', () => {
   });
 
   test('should open edit ticket modal with all components', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Wait for the org/team context to fully load before creating a ticket
     // (avoids the "No team available" modal that shows when org hasn't initialised yet).
@@ -155,8 +151,7 @@ test.describe('Tickets', () => {
   });
 
   test('should open ticket details and verify components', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket
     const detailTitle = `E2E Detail Test ${Date.now()}`;
@@ -200,13 +195,11 @@ test.describe('Tickets', () => {
     }
 
     // Navigate back to tickets list
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
   });
 
   test('should delete a ticket', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to delete
     const deleteTitle = `E2E Delete Test ${Date.now()}`;
@@ -237,9 +230,8 @@ test.describe('Tickets', () => {
 
   test('should assign and unassign a ticket', async ({ page }) => {
     // Navigate fresh to ensure no leftover modals
-    await page.goto('/app/tickets');
+    await goToTickets(page);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(1000);
 
     // Create a ticket to assign
@@ -279,8 +271,7 @@ test.describe('Tickets', () => {
     await expect(inTable(page, assignTitle).first()).toBeVisible({ timeout: 5000 });
 
     // Reload the page to clear any overlays, then unassign
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
     await page.waitForTimeout(1000);
 
     // Open edit modal again to unassign
@@ -312,8 +303,7 @@ test.describe('Tickets', () => {
     // Set mobile viewport (iPhone 12)
     await page.setViewportSize({ width: 390, height: 844 });
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to test the dropdown
     const mobileTitle = `E2E Mobile Dropdown ${Date.now()}`;
@@ -379,8 +369,7 @@ test.describe('Tickets', () => {
     // Set tablet viewport (iPad)
     await page.setViewportSize({ width: 768, height: 1024 });
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to test the dropdown
     const tabletTitle = `E2E Tablet Dropdown ${Date.now()}`;

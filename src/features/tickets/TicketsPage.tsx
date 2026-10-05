@@ -8,7 +8,7 @@
  * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
  * assignment); rows gate those controls on each source's capabilities.
  */
-import { faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
@@ -22,14 +22,11 @@ import {
   ModalHeader,
   ModalTitle,
   Select,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Text,
   Textarea,
   useToast,
 } from '@mieweb/ui';
+import { Binoculars } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -51,9 +48,10 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
-import { TicketTablePanel } from './TicketTablePanel';
+import { TicketTablePanel, TicketViewControls } from './TicketTablePanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -95,6 +93,38 @@ function chunk<T>(items: T[], size: number): T[][] {
   }
   return slices;
 }
+
+/** The two views' names and the empty board's pointer to the other one. */
+const viewText = {
+  myBoard: 'My Board',
+  allSources: 'All Sources',
+  emptyBoardHint: 'Find tickets in All Sources and move them here.',
+  browseAllSources: 'Browse All Sources',
+  switcherLabel: 'Tickets view',
+  newTicket: 'New Ticket',
+  newTicketPrefix: 'New ',
+  ticket: 'Ticket',
+};
+
+type TicketsView = 'tickets' | 'my-board';
+
+/** My Board first: it is the view the page opens on. All Sources is the lookup. */
+const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
+  { value: 'my-board', label: viewText.myBoard },
+  {
+    value: 'tickets',
+    label: viewText.allSources,
+    icon: <Binoculars className="h-4 w-4" aria-hidden="true" />,
+    iconOnly: true,
+  },
+];
+
+/**
+ * Both views stay mounted, so each keeps its filters, sort, page and selection
+ * while the other is showing; the one not showing is only hidden.
+ */
+const viewPanelClass = (showing: boolean) =>
+  `tickets-view-panel min-h-0 flex-1 flex-col gap-3 ${showing ? 'flex' : 'hidden'}`;
 
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
@@ -282,8 +312,9 @@ export const TicketsPage: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
 
-  // Tickets tab vs My Board tab — same URL, local state only.
-  const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('tickets');
+  // My Board vs All Sources — same URL, local state only. My Board is where the
+  // day's work is; All Sources is where more of it is looked up.
+  const [activeView, setActiveView] = useState<TicketsView>('my-board');
 
   // My Board membership — identity only (`${sourceId}:${id}` keys, matching
   // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
@@ -369,11 +400,24 @@ export const TicketsPage: React.FC = () => {
   ]);
   const unresolvedBoardNotice = unresolvedBoard?.message ?? null;
 
-  // Search/filter/sort/paginate/select — one independent pipeline per tab.
+  // Filter/sort/paginate/select — one independent pipeline per tab.
   // Resolves the assignee filter's "Me" option across both id namespaces.
   const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
   const boardView = useTicketTableView(boardTickets, meKeys);
+
+  // The search is the exception: one bar sits above both tabs, so its text is
+  // one value, applied to whichever table is showing.
+  const searchQuery = ticketsView.searchQuery;
+  const setTicketsSearch = ticketsView.setSearchQuery;
+  const setBoardSearch = boardView.setSearchQuery;
+  const setSearchQuery = useCallback(
+    (query: string) => {
+      setTicketsSearch(query);
+      setBoardSearch(query);
+    },
+    [setTicketsSearch, setBoardSearch],
+  );
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
@@ -680,9 +724,13 @@ export const TicketsPage: React.FC = () => {
       // click reports "No team available" to a user who has a team.
       disabled={!teamsReady}
       onClick={startCreate}
+      // The label shortens to "Ticket" on a phone, where the search bar needs
+      // the width; the name stays whole for assistive tech.
+      aria-label={viewText.newTicket}
       className="shrink-0 rounded-lg"
     >
-      New Ticket
+      <span className="max-sm:hidden">{viewText.newTicketPrefix}</span>
+      {viewText.ticket}
     </Button>
   );
 
@@ -703,42 +751,48 @@ export const TicketsPage: React.FC = () => {
       <h1 className="sr-only">Tickets</h1>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <Tabs
-          value={activeView}
-          onValueChange={(v) => setActiveView(v as 'tickets' | 'my-board')}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <TabsList className="mb-3 w-fit shrink-0">
-            <TabsTrigger value="tickets">Tickets</TabsTrigger>
-            <TabsTrigger value="my-board">My Board</TabsTrigger>
-          </TabsList>
+        <div className="tickets-views flex min-h-0 flex-1 flex-col">
+          <div className="tickets-view-switcher mb-1.5 shrink-0">
+            <SegmentedSwitcher
+              name="tickets-view"
+              label={viewText.switcherLabel}
+              hideLabel
+              options={VIEW_OPTIONS}
+              value={activeView}
+              onValueChange={setActiveView}
+            />
+          </div>
 
-          {/* ── Tickets tab ── */}
-          <TabsContent
-            value="tickets"
-            forceMount
-            className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
+          {/* One toolbar for both views: it stays put when the tab changes. */}
+          <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+            {newTicketButton}
+
+            <RedmineSuggestions
+              userId={userId}
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              baseUrl={redmineBaseUrl}
+              tableIssueIds={tableRedmineIssueIds}
+              runningIssueId={runningRedmineIssueId}
+              onToggleTimer={handleSuggestionTimer}
+              inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
+            />
+
+            <TicketViewControls
+              view={activeView === 'tickets' ? ticketsView : boardView}
+              loading={ticketsLoading}
+            />
+          </div>
+
+          {/* ── All Sources tab ── */}
+          <section
+            aria-label={viewText.allSources}
+            className={viewPanelClass(activeView === 'tickets')}
           >
             <TicketTablePanel
               {...sharedTableProps}
               view={ticketsView}
               loading={ticketsLoading}
-              search={
-                <>
-                  {newTicketButton}
-
-                  <RedmineSuggestions
-                    userId={userId}
-                    query={ticketsView.searchQuery}
-                    onQueryChange={ticketsView.setSearchQuery}
-                    baseUrl={redmineBaseUrl}
-                    tableIssueIds={tableRedmineIssueIds}
-                    runningIssueId={runningRedmineIssueId}
-                    onToggleTimer={handleSuggestionTimer}
-                    inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
-                  />
-                </>
-              }
               canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
               onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
               primaryLabel="Move to My Board"
@@ -749,36 +803,18 @@ export const TicketsPage: React.FC = () => {
                 hint: 'Create one to get started.',
               }}
             />
-          </TabsContent>
+          </section>
 
           {/* ── My Board tab ── */}
-          <TabsContent
-            value="my-board"
-            forceMount
-            className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
+          <section
+            aria-label={viewText.myBoard}
+            className={viewPanelClass(activeView === 'my-board')}
           >
             <TicketTablePanel
               {...sharedTableProps}
               showTimerColumn
               view={boardView}
               loading={ticketsLoading}
-              search={
-                <div className="relative min-w-0 flex-1">
-                  <FontAwesomeIcon
-                    icon={faSearch}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-                  />
-                  <Input
-                    label="Search"
-                    hideLabel
-                    placeholder="Search My Board…"
-                    value={boardView.searchQuery}
-                    onChange={(e) => boardView.setSearchQuery(e.target.value)}
-                    className={`pl-8 rounded-lg ${noFocusRingClass}`}
-                    size="sm"
-                  />
-                </div>
-              }
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <div
@@ -819,12 +855,22 @@ export const TicketsPage: React.FC = () => {
               emptyText={{
                 open: 'Your board is empty',
                 closed: 'No closed tickets on your board',
-                hint: 'Select tickets on the Tickets tab and click "Move to My Board".',
+                hint: viewText.emptyBoardHint,
               }}
+              emptyAction={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
+                  onClick={() => setActiveView('tickets')}
+                >
+                  {viewText.browseAllSources}
+                </Button>
+              }
               emptyNotice={unresolvedBoardNotice}
             />
-          </TabsContent>
-        </Tabs>
+          </section>
+        </div>
 
         {/* Edit ticket modal (creator only) */}
         <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>

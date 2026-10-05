@@ -72,6 +72,8 @@ async function goToTicketsWithoutReloading(page: Page) {
   await expect(page.getByRole('heading', { level: 1, name: 'Tickets' })).toBeVisible({
     timeout: 20000,
   });
+  // The page opens on My Board; the issues these specs look for are in All Sources.
+  await page.getByRole('radio', { name: 'All Sources' }).click();
 }
 
 test.describe('Redmine connection propagates without a reload', () => {
