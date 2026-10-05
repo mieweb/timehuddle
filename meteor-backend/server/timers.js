@@ -201,7 +201,7 @@ async function restampSessions(entry, newTicketId) {
   const [sessions, stamp, ledger] = await Promise.all([
     Timers.find(
       { workItemId: entry._id.toHexString() },
-      { fields: { redmineIssueId: 1, date: 1 } },
+      { fields: { redmineIssueId: 1, date: 1, endTime: 1 } },
     ).fetchAsync(),
     redmineStampFor({ source: HUDDLE, ticketId: newTicketId }),
     pushLedgerFor(entry.userId),

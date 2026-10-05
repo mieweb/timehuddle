@@ -158,25 +158,33 @@ describe('sessionIssuesAfterMove', () => {
     }).map((row) => row.issueId);
 
   it('moves unsent sessions to the new ticket\u2019s issue', () => {
-    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day }, { _id: 'b', date: day }];
+    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day, endTime: 2 }, { _id: 'b', date: day, endTime: 2 }];
     expect(issuesOf({ sessions, nextIssueId: '900' })).toEqual(['900', '900']);
   });
 
   it('clears the issue when the new ticket is not linked', () => {
-    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day }];
+    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day, endTime: 2 }];
     expect(issuesOf({ sessions })).toEqual([null]);
   });
 
   it('leaves a session on an issue-day that already has time sent', () => {
     const sessions = [
-      { _id: 'a', redmineIssueId: '700', date: day },
-      { _id: 'b', redmineIssueId: '700', date: '2026-10-03' },
+      { _id: 'a', redmineIssueId: '700', date: day, endTime: 2 },
+      { _id: 'b', redmineIssueId: '700', date: '2026-10-03', endTime: 2 },
+    ];
+    expect(issuesOf({ sessions, nextIssueId: '900', ledger: sent('700') })).toEqual(['700', '900']);
+  });
+
+  it('always moves a session that is still running, since none of it can have been sent', () => {
+    const sessions = [
+      { _id: 'a', redmineIssueId: '700', date: day, endTime: 2 },
+      { _id: 'b', redmineIssueId: '700', date: day, endTime: null },
     ];
     expect(issuesOf({ sessions, nextIssueId: '900', ledger: sent('700') })).toEqual(['700', '900']);
   });
 
   it('keeps a Redmine entry\u2019s sent time on its own issue, though its sessions carry no stamp', () => {
-    const sessions = [{ _id: 'a' }];
+    const sessions = [{ _id: 'a', endTime: 2 }];
     expect(
       issuesOf({ sessions, previousIssueId: '700', nextIssueId: '900', ledger: sent('700') }),
     ).toEqual(['700']);

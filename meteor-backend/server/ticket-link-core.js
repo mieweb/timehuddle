@@ -24,8 +24,12 @@ export function linkedIssueIdOf(ticket) {
  * session would count as unsent on the new issue and be sent a second time,
  * and an entry in Redmine can never be withdrawn.
  *
+ * A session still running always follows the item: only closed time is ever
+ * pushed, so none of it can have been sent, and what it goes on to record
+ * belongs to the new ticket.
+ *
  * @param {object} input
- * @param {Array<{_id: unknown, redmineIssueId?: string, date?: string}>} input.sessions
+ * @param {Array<{_id: unknown, redmineIssueId?: string, date?: string, endTime?: number|null}>} input.sessions
  * @param {string} input.date  the work item's day, for a session without its own
  * @param {string|null} input.previousIssueId  the issue the item itself was on,
  *   when it was a Redmine entry whose sessions carry no stamp
@@ -35,7 +39,9 @@ export function linkedIssueIdOf(ticket) {
 export function sessionIssuesAfterMove({ sessions, date, previousIssueId, nextIssueId, ledger }) {
   return sessions.map((session) => {
     const was = session.redmineIssueId ?? previousIssueId ?? null;
-    const handled = was ? (ledger.get(ticketDayKey(was, session.date ?? date))?.seconds ?? 0) : 0;
+    const closed = session.endTime != null;
+    const handled =
+      closed && was ? (ledger.get(ticketDayKey(was, session.date ?? date))?.seconds ?? 0) : 0;
     return { sessionId: session._id, issueId: handled > 0 ? was : (nextIssueId ?? null) };
   });
 }
