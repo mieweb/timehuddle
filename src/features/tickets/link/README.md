@@ -33,7 +33,7 @@ ticket.
 
 **The lock.** While anyone has a timer running on a linked ticket, the server
 refuses changes to its link and its fields (`ticket-locked`, with whose timer it
-is). The ticket page reads `tickets.linkStatus` to show that before anyone
+is). The ticket page polls the cheap `tickets.lockStatus` to show that before anyone
 tries. An unlinked ticket is never locked.
 
 **Time.** A timer session on a linked ticket is stamped with the issue it was
@@ -46,3 +46,14 @@ a row of its own. That merge lives in `../sources/linkedTickets.ts`.
 
 The GitHub URL is the ticket's older `github` field. It is shown and edited in
 the same section as a Redmine link, and the two are mutually exclusive.
+
+## Known follow-ups
+
+- **Server-built sentences are English only.** The lock message and the
+  link-change notification (`lockMessage`, `linkNotificationBody` in
+  `meteor-backend/server/ticket-link-core.js`) are assembled by concatenation.
+  The client's text goes through `ticketLinkStrings.ts`; the server's will need
+  the same seam before either can be translated.
+- **`SegmentedSwitcher` (`src/ui/`) belongs in `@mieweb/ui`.** It is generic,
+  and the library has no segmented control. It should move upstream through the
+  `vendor/ui` submodule.

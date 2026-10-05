@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  isHttpsUrl,
   linkAction,
   linkNotificationBody,
   linkedIssueIdOf,
@@ -189,5 +190,26 @@ describe('sessionIssuesAfterMove', () => {
       issuesOf({ sessions, previousIssueId: '700', nextIssueId: '900', ledger: sent('700') }),
     ).toEqual(['700']);
     expect(issuesOf({ sessions, previousIssueId: '700', nextIssueId: '900' })).toEqual(['900']);
+  });
+});
+
+describe('isHttpsUrl', () => {
+  it('accepts an absolute https link on any host', () => {
+    expect(isHttpsUrl('https://github.com/mieweb/timehuddle/issues/636')).toBe(true);
+    expect(isHttpsUrl('https://jira.example.com/browse/ABC-1')).toBe(true);
+  });
+
+  it('refuses everything that must not reach an href', () => {
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,x',
+      'http://github.com/a/b',
+      'github.com/a/b',
+      '',
+      null,
+      42,
+    ]) {
+      expect(isHttpsUrl(bad), String(bad)).toBe(false);
+    }
   });
 });

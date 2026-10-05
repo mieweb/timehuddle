@@ -27,6 +27,7 @@ import {
 import React, { useEffect, useState } from 'react';
 
 import { ApiError, redmineApi, type RedmineIssue, type Ticket } from '../../../lib/api';
+import { onOtherRedmineServer, useRedmineStatus } from '../../../lib/useRedmineStatus';
 import { useRouter } from '../../../ui/router';
 import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
@@ -40,6 +41,7 @@ import { linkWarnings, type LinkChange } from './linkWarnings';
 import { TicketLinkFields } from './TicketLinkFields';
 import {
   EMPTY_LINK_FORM,
+  isWebUrl,
   linkFormFor,
   linkFormReady,
   linkKindOf,
@@ -60,7 +62,8 @@ type IssueState =
   | { kind: 'loading' }
   | { kind: 'loaded'; issue: RedmineIssue; /** The issue's page in Redmine. */ url: string | null }
   | { kind: 'not-connected' }
-  | { kind: 'unavailable' };
+  | { kind: 'unavailable' }
+  | { kind: 'other-server' };
 
 type Mode = 'view' | 'edit' | 'remove';
 
@@ -119,8 +122,15 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
   const currentKind = linkKindOf(ticket);
   const status = useLinkStatus(ticket.id, mode !== 'view');
 
+  // An account on another Redmine server would read *that* server's issue of
+  // the same number, so it is not asked at all.
+  const otherServer = onOtherRedmineServer(useRedmineStatus());
   useEffect(() => {
     if (!linkedId) return;
+    if (otherServer) {
+      setIssueState({ kind: 'other-server' });
+      return;
+    }
     let cancelled = false;
     setIssueState({ kind: 'loading' });
     redmineApi.issues
@@ -138,7 +148,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
     return () => {
       cancelled = true;
     };
-  }, [linkedId]);
+  }, [linkedId, otherServer]);
 
   // A GitHub issue's title is read from GitHub when the section is shown, like
   // a Redmine issue's: only the link is stored. Private repositories answer
@@ -211,7 +221,14 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
           </Text>
         )}
 
-        {mode !== 'edit' && currentKind === 'github' && (
+        {mode !== 'edit' && currentKind === 'github' && !isWebUrl(ticket.github) && (
+          // A stored value that is not a web address is shown, never linked.
+          <Text size="sm" className="break-all">
+            {ticket.github}
+          </Text>
+        )}
+
+        {mode !== 'edit' && currentKind === 'github' && isWebUrl(ticket.github) && (
           <div className="ticket-linked-github space-y-1.5">
             <a
               href={ticket.github}
@@ -287,6 +304,11 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
             {issueState.kind === 'unavailable' && (
               <Text size="sm" variant="muted">
                 {ticketLinkText.issueUnavailable}
+              </Text>
+            )}
+            {issueState.kind === 'other-server' && (
+              <Text size="sm" variant="muted">
+                {ticketLinkText.otherServer}
               </Text>
             )}
           </div>

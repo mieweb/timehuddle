@@ -22,6 +22,18 @@ import { useEffect, useState } from 'react';
 import { redmineApi, type RedmineStatus } from './api';
 import { useSession } from './useSession';
 
+/**
+ * Whether the account is on a Redmine server other than the one this
+ * deployment uses (possible only where custom URLs are allowed: dev and test).
+ * A ticket's link names an issue by number, so it can only mean an issue on the
+ * deployment's own server; the backend refuses to link or read one from any
+ * other, and the UI must not offer it.
+ */
+export function onOtherRedmineServer(status: RedmineStatus | null): boolean {
+  if (!status?.connected || !status.customUrlAllowed || !status.defaultBaseUrl) return false;
+  return status.baseUrl !== status.defaultBaseUrl;
+}
+
 /** Broadcast when a Redmine account is linked or unlinked. */
 export const REDMINE_CHANGED = 'redmine:changed';
 

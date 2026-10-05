@@ -7,6 +7,21 @@
  */
 import { sumClosedSessions, ticketDayKey } from './redmine-net-hours';
 
+/**
+ * Whether `value` is an absolute `https://` URL. A ticket's external link is
+ * stored for a team and rendered as an `href` for every member, so nothing
+ * else is accepted: not `javascript:` or `data:`, and not plain `http://`.
+ * Any host is allowed — the link may point at any tracker, not only GitHub.
+ */
+export function isHttpsUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /** The id of the issue a stored ticket is linked to, or null. */
 export function linkedIssueIdOf(ticket) {
   const id = ticket?.linkedIssue?.id;

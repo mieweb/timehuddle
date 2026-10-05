@@ -12,13 +12,13 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { redmineApi, type RedmineNamed } from '../../../lib/api';
-import { useRedmineStatus } from '../../../lib/useRedmineStatus';
+import { onOtherRedmineServer, useRedmineStatus } from '../../../lib/useRedmineStatus';
 import { AnimatedHeight } from '../../../ui/AnimatedHeight';
 import { useRouter } from '../../../ui/router';
 import { SegmentedSwitcher, type SegmentedOption } from '../../../ui/SegmentedSwitcher';
 import { redmineErrorMessage, toId, toOptions } from '../redmine/redmineForm';
 
-import type { LinkFormState, LinkKind, RedmineMode } from './ticketLinkForm';
+import { isHttpsUrl, type LinkFormState, type LinkKind, type RedmineMode } from './ticketLinkForm';
 import { ticketLinkText } from './ticketLinkStrings';
 
 const KIND_OPTIONS: readonly SegmentedOption<LinkKind>[] = [
@@ -55,7 +55,10 @@ export function TicketLinkFields({
   allowNone = true,
 }: TicketLinkFieldsProps) {
   const { navigate } = useRouter();
-  const redmineMissing = useRedmineStatus()?.connected === false;
+  const redmineStatus = useRedmineStatus();
+  // Either way Redmine cannot be offered: no account, or one on another server.
+  const otherServer = onOtherRedmineServer(redmineStatus);
+  const redmineMissing = redmineStatus?.connected === false || otherServer;
 
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -166,6 +169,11 @@ export function TicketLinkFields({
                   placeholder={ticketLinkText.githubPlaceholder}
                   value={value.github}
                   disabled={disabled}
+                  error={
+                    value.github.trim() && !isHttpsUrl(value.github)
+                      ? ticketLinkText.httpsOnly
+                      : undefined
+                  }
                   onChange={(e) => onChange({ github: e.target.value })}
                 />
               </motion.div>
@@ -178,16 +186,20 @@ export function TicketLinkFields({
                 {...panelMotion}
               >
                 <Alert variant="warning">
-                  <AlertDescription>{ticketLinkText.redmineNeeded}</AlertDescription>
+                  <AlertDescription>
+                    {otherServer ? ticketLinkText.otherServer : ticketLinkText.redmineNeeded}
+                  </AlertDescription>
                 </Alert>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/app/settings')}
-                >
-                  {ticketLinkText.goToSettings}
-                </Button>
+                {!otherServer && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/app/settings')}
+                  >
+                    {ticketLinkText.goToSettings}
+                  </Button>
+                )}
               </motion.div>
             )}
 
@@ -241,7 +253,7 @@ export function TicketLinkFields({
                     </div>
                     {value.issue && (
                       <div
-                        className="ticket-link-preview rounded-md border border-neutral-200 p-3 dark:border-neutral-700"
+                        className="ticket-link-preview rounded-md border border-border p-3"
                         role="group"
                         aria-label={ticketLinkText.previewLabel}
                       >
@@ -281,7 +293,12 @@ export function TicketLinkFields({
                         options={toOptions(projects ?? [])}
                         value={value.projectId}
                         disabled={disabled}
-                        onValueChange={(next) => onChange({ projectId: next, trackerId: '' })}
+                        onValueChange={(next) => {
+                          // The old project's trackers must not stay selectable
+                          // while the new project's are loading.
+                          setTrackers([]);
+                          onChange({ projectId: next, trackerId: '' });
+                        }}
                       />
                       <Select
                         label={ticketLinkText.trackerLabel}

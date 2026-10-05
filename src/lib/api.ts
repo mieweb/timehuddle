@@ -1138,6 +1138,11 @@ export const ticketApi = {
       expectedIssueId,
     }).then(toTicket),
 
+  /** Who is timing the ticket right now. Cheap enough for a page to poll. */
+  lockStatus: (id: string) =>
+    wormholeCall<Pick<TicketLinkStatus, 'lock'>>('tickets.lockStatus', { ticketId: id }),
+
+  /** The lock plus the caller's time figures, for a dialog about to change the link. */
   linkStatus: (id: string) =>
     wormholeCall<TicketLinkStatus>('tickets.linkStatus', { ticketId: id }),
 

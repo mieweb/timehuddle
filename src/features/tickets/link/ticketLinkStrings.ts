@@ -55,6 +55,9 @@ export const ticketLinkText = {
     "The issue gets this ticket's title, description and priority, and is assigned to you.",
 
   redmineNeeded: 'Connect your Redmine account in Settings to link a Redmine issue.',
+  otherServer:
+    "Your Redmine account is on a different server from the one this TimeHuddle uses, so its issues can't be linked or shown here.",
+  httpsOnly: 'Enter a full link starting with https://',
   linkFailed: "Couldn't save the link. Please try again.",
   removedNotReplaced:
     "The Redmine link was removed, but the GitHub link couldn't be saved. Save again to add it.",

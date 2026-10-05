@@ -1003,6 +1003,16 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('tickets.lockStatus', {
+    description:
+      'Whether a linked ticket is locked because someone is timing it, and who (lock is null when it is not). Cheap enough to poll',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
   Wormhole.expose('tickets.linkStatus', {
     description:
       "Whether a linked ticket is locked because someone is timing it, and who (lock is null when it is not), plus the caller's own time on it and how many teammates have logged time",

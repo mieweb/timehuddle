@@ -117,6 +117,15 @@ describe('huddleSource.toUnified', () => {
     });
   });
 
+  it('never turns a value that is not a web address into a link', () => {
+    for (const github of ['javascript:alert(1)', 'data:text/html,x', 'not a link']) {
+      expect(
+        huddleSource.toUnified({ ...huddleTicket, github }, ctx).externalRef,
+        github,
+      ).toBeNull();
+    }
+  });
+
   it('defaults a blank status to open', () => {
     expect(huddleSource.toUnified({ ...huddleTicket, status: '' }, ctx).status.native).toBe('open');
   });

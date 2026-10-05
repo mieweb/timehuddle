@@ -119,7 +119,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
   // Every source has an in-app page; a source's own page is a separate menu item.
   const openTicket = useCallback(() => navigate(ticketDetailPath(ticket)), [navigate, ticket]);
-  // The whole row opens the ticket, a bigger target than its title. Controls
+  // The whole row opens the ticket, a bigger target than its title. This is a
+  // pointer convenience only: the keyboard path is the title, which is a real
+  // button, so the row itself takes no tab stop or role. Controls
   // keep their own job: the select, timer and menu cells, and anything
   // clickable inside the row (the menu is portaled out of the row's DOM, but
   // its clicks still bubble here through React). A click that ends a text

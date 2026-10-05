@@ -69,7 +69,7 @@ export function SegmentedSwitcher<T extends string>({
     <div className="segmented-switcher space-y-1.5">
       <span
         id={`${name}-label`}
-        className="segmented-switcher-label block text-sm font-medium text-neutral-900 dark:text-neutral-100"
+        className="segmented-switcher-label block text-sm font-medium text-foreground"
       >
         {label}
       </span>
@@ -78,7 +78,7 @@ export function SegmentedSwitcher<T extends string>({
         aria-labelledby={`${name}-label`}
         aria-disabled={disabled || undefined}
         onKeyDown={onKeyDown}
-        className="segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg sm:gap-1 bg-neutral-100 p-1 dark:bg-neutral-800"
+        className="segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted p-1 sm:gap-1"
       >
         {options.map((option) => {
           const selected = option.value === value;
@@ -102,14 +102,14 @@ export function SegmentedSwitcher<T extends string>({
                 'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md px-2 py-1.5 sm:px-3 hover:bg-transparent dark:hover:bg-transparent',
                 selected
                   ? 'text-primary-700 dark:text-primary-300'
-                  : 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100',
+                  : 'text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
               {selected && (
                 <motion.span
                   layoutId={`${name}-thumb`}
                   aria-hidden="true"
-                  className="segmented-switcher-thumb absolute inset-0 rounded-md bg-white shadow-sm ring-1 ring-neutral-200 dark:bg-neutral-700 dark:ring-neutral-600"
+                  className="segmented-switcher-thumb absolute inset-0 rounded-md bg-background shadow-sm ring-1 ring-border"
                   transition={
                     reducedMotion
                       ? { duration: 0 }

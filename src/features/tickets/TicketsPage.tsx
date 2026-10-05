@@ -203,6 +203,9 @@ export const TicketsPage: React.FC = () => {
     [teams],
   );
 
+  // Links already covered by a Redmine fetch, read by the live feed below.
+  const seenLinkKeys = React.useRef(new Set<string>());
+
   // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
   // Any write to the shared Mongo (Fastify REST, Meteor methods, wormhole REST,
   // MCP agents) is pushed here automatically — no broadcast code on any server.
@@ -239,8 +242,6 @@ export const TicketsPage: React.FC = () => {
     };
   }, [teamIdsKey, userId, setSourceItems, refetchAfterRedmineWrite]);
 
-  // Links already covered by a Redmine fetch (see the DDP handler above).
-  const seenLinkKeys = React.useRef(new Set<string>());
   // Rebuilt, not added to: a link that was removed must ask again if it returns.
   useEffect(() => {
     seenLinkKeys.current = new Set(

@@ -196,6 +196,9 @@ async function loggedSeconds(entryId) {
  * its sessions now belong to whatever that ticket is linked to, if anything —
  * except time on an issue-day that has already been sent (see
  * `sessionIssuesAfterMove`).
+ *
+ * @returns {Promise<() => Promise<void>>} puts the stamps back, for a caller
+ *   whose own write then fails
  */
 async function restampSessions(entry, newTicketId) {
   const [sessions, stamp, ledger] = await Promise.all([
@@ -214,19 +217,45 @@ async function restampSessions(entry, newTicketId) {
     ledger,
   });
 
-  const idsByIssue = new Map();
-  for (const { sessionId, issueId } of moved) {
-    idsByIssue.set(issueId, [...(idsByIssue.get(issueId) ?? []), sessionId]);
-  }
-  await Promise.all(
-    [...idsByIssue].map(([issueId, ids]) =>
-      Timers.updateAsync(
-        { _id: { $in: ids } },
-        issueId ? { $set: { redmineIssueId: issueId } } : { $unset: { redmineIssueId: '' } },
-        { multi: true },
+  const writeStamps = (stamps) => {
+    const idsByIssue = new Map();
+    for (const { sessionId, issueId } of stamps) {
+      idsByIssue.set(issueId, [...(idsByIssue.get(issueId) ?? []), sessionId]);
+    }
+    return Promise.all(
+      [...idsByIssue].map(([issueId, ids]) =>
+        Timers.updateAsync(
+          { _id: { $in: ids } },
+          issueId ? { $set: { redmineIssueId: issueId } } : { $unset: { redmineIssueId: '' } },
+          { multi: true },
+        ),
       ),
-    ),
-  );
+    );
+  };
+
+  // There are no transactions here, and a stamp decides which Redmine issue
+  // time is sent to, which can never be taken back. So the stamps move first,
+  // and are put back if anything after them fails; a restore that itself fails
+  // is logged for reconciliation by hand.
+  const original = sessions.map((s) => ({ sessionId: s._id, issueId: s.redmineIssueId ?? null }));
+  const restore = async () => {
+    try {
+      await writeStamps(original);
+    } catch (err) {
+      console.error('[timers] RECONCILE: session stamps left moved after a failed entry move', {
+        workItemId: entry._id.toHexString(),
+        userId: entry.userId,
+        err,
+      });
+    }
+  };
+  try {
+    await writeStamps(moved);
+  } catch (err) {
+    await restore();
+    throw err;
+  }
+  return restore;
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
@@ -261,9 +290,15 @@ export async function applyTimerUpdate(
   const updateDoc = { $set };
   if (Object.keys($unset).length) updateDoc.$unset = $unset;
   onCommit?.();
-  await WorkItems.updateAsync(entry._id, updateDoc);
-
-  if ($set.ticketId) await restampSessions(entry, $set.ticketId);
+  // Stamps before the entry: if the entry's write fails they are put back, so
+  // an entry is never left on the new ticket with time still stamped for the old.
+  const restoreStamps = $set.ticketId ? await restampSessions(entry, $set.ticketId) : null;
+  try {
+    await WorkItems.updateAsync(entry._id, updateDoc);
+  } catch (err) {
+    await restoreStamps?.();
+    throw err;
+  }
 
   if (durationSeconds !== undefined) {
     const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });

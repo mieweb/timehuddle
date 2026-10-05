@@ -214,7 +214,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await withFakeLink(page, '482');
     const message =
       'Ticket Member is timing this ticket. The timer has to be stopped before it can be changed.';
-    await stubTicketCall(page, 'tickets.linkStatus', () => ({
+    await stubTicketCall(page, 'tickets.lockStatus', () => ({
       lock: { holders: [{ userId: 'u2', name: 'Ticket Member' }], message },
       myTime: NO_TIME,
       othersWithTime: 1,

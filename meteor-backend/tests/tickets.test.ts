@@ -448,6 +448,24 @@ describe('tickets (wormhole)', () => {
       expect(allowed.result.github).toBe('https://github.com/a/b/issues/1');
     });
 
+    it('only stores an https link, on create and on update', async () => {
+      await seedLink(null);
+      for (const github of ['javascript:alert(1)', 'data:text/html,x', 'http://github.com/a/b']) {
+        const created = await wormhole('tickets.create', { teamId, title: 'Bad link', github }, ownerJwt);
+        expect(created.ok, github).toBe(false);
+        expect(created.error, github).toMatch(/https:\/\//);
+        const updated = await wormhole('tickets.update', { ticketId: linkTicketId, github }, ownerJwt);
+        expect(updated.ok, github).toBe(false);
+      }
+      const ok = await wormhole<{ github: string }>(
+        'tickets.update',
+        { ticketId: linkTicketId, github: 'https://tracker.example.com/issues/9' },
+        ownerJwt,
+      );
+      expect(ok.result.github).toBe('https://tracker.example.com/issues/9');
+      await wormhole('tickets.update', { ticketId: linkTicketId, github: '' }, ownerJwt);
+    });
+
     it('treats unlinking an unlinked ticket as nothing to do', async () => {
       await seedLink(null);
       const res = await wormhole(
@@ -528,7 +546,7 @@ describe('tickets (wormhole)', () => {
         expect(mine.error).toMatch(/You are timing this ticket. Stop your timer/);
 
         const status = await wormhole<{ lock: { holders: Array<{ userId: string; name: string }> } }>(
-          'tickets.linkStatus',
+          'tickets.lockStatus',
           { ticketId: linkTicketId },
           ownerJwt,
         );

@@ -49,9 +49,35 @@ export function linkFormFor(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): Lin
   return { ...EMPTY_LINK_FORM, kind: kind === 'none' ? 'redmine' : kind, github: ticket.github };
 }
 
+/**
+ * Whether `value` is an absolute `https://` URL — the only kind of external
+ * link that is saved. The link is stored for a team and rendered as an `href`
+ * for every member, so `javascript:`, `data:` and plain `http://` are refused.
+ * Any host is allowed. The server makes the same check.
+ */
+export function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a stored link is safe to render as an `href`. Wider than what can be
+ * saved now, so links saved before the https rule (plain `http://`) still open.
+ */
+export function isWebUrl(value: string): boolean {
+  try {
+    return ['https:', 'http:'].includes(new URL(value.trim()).protocol);
+  } catch {
+    return false;
+  }
+}
+
 /** Whether the choice is complete enough to save. */
 export function linkFormReady(form: LinkFormState): boolean {
-  if (form.kind === 'github') return form.github.trim().length > 0;
+  if (form.kind === 'github') return isHttpsUrl(form.github);
   if (form.kind === 'redmine') {
     return form.redmineMode === 'existing' ? form.issue !== null : form.projectId !== '';
   }

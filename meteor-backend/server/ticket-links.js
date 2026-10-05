@@ -49,6 +49,19 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[ticket-links] failed to create the linked-session index:', error);
   }
+  // `linkedRedmineIssueIds` runs on every relevant-list build: the linked
+  // tickets of the caller's teams. Only linked tickets are indexed.
+  try {
+    await Tickets.createIndexAsync(
+      { teamId: 1, 'linkedIssue.source': 1 },
+      {
+        name: 'linked_tickets_by_team',
+        partialFilterExpression: { 'linkedIssue.source': { $exists: true } },
+      },
+    );
+  } catch (error) {
+    console.error('[ticket-links] failed to create the linked-ticket index:', error);
+  }
 });
 
 /**
@@ -77,6 +90,10 @@ async function callerTimeOn(userId, ticket) {
 
 /** Each link is one Redmine read; nobody links more than a few tickets a minute. */
 const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
+/** A ticket page asks on load, on refocus and every few minutes while it is open. */
+const lockStatusLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
+/** Asked once each time a link dialog opens; it reads the caller's whole time history. */
+const linkStatusLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 1000 });
 
 const STALE_LINK = "This ticket's link was changed by someone else. Reload it and try again.";
 
@@ -230,26 +247,40 @@ Meteor.methods({
     if (!matchesExpectedLink(ticket, expectedIssueId)) {
       throw new Meteor.Error('stale-link', STALE_LINK);
     }
+    enforceRedmineLimit(linkLimiter, userId);
     await assertUnlocked(ticket, userId);
     return writeLink(userId, ticket, null);
   },
 
   /**
-   * What a page needs to know before offering to change a ticket or its link:
-   * who is timing it right now (`lock`, null when nobody is, or when the ticket
-   * is not linked and so is not locked). `message` is the sentence a refused
-   * change would carry, so the page and the refusal read the same.
+   * Who is timing a ticket right now, for the page that shows it: `lock` is
+   * null when nobody is, or when the ticket is not linked and so is not locked.
+   * `message` is the sentence a refused change would carry, so the page and the
+   * refusal read the same. Cheap enough to poll, unlike `tickets.linkStatus`.
+   */
+  async 'tickets.lockStatus'({ ticketId } = {}) {
+    const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(lockStatusLimiter, userId);
+    const ticket = await requireTicketPermission(userId, ticketId, 'read');
+    const holders = linkedIssueIdOf(ticket) ? await findLockHolders(ticket) : [];
+    return { lock: holders.length ? { holders, message: lockMessage(holders, userId) } : null };
+  },
+
+  /**
+   * What a dialog needs to know before a ticket's link is changed: the lock
+   * (as `tickets.lockStatus`), the caller's own time on the ticket (`myTime`,
+   * see `linkedTimeSummary`) and how many teammates have logged time on it.
    *
-   * Also the caller's own time on the ticket (`myTime`, see `linkedTimeSummary`)
-   * and how many teammates have logged time on it, for the warnings shown
-   * before a link is changed.
+   * Reads the ticket's and the caller's whole time history, so it is asked when
+   * a dialog opens, not polled.
    */
   async 'tickets.linkStatus'({ ticketId } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(linkStatusLimiter, userId);
     const ticket = await requireTicketPermission(userId, ticketId, 'read');
     const ticketHexId = ticket._id.toHexString();
     const [holders, myTime, timed, teamUserIds] = await Promise.all([
-      linkedIssueIdOf(ticket) ? findLockHolders(ticketHexId) : [],
+      linkedIssueIdOf(ticket) ? findLockHolders(ticket) : [],
       callerTimeOn(userId, ticket),
       usersWithTimeOn(ticketHexId),
       currentTeamUserIds(ticket.teamId),

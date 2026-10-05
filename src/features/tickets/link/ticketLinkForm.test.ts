@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { RedmineIssue } from '../../../lib/api';
 
-import { EMPTY_LINK_FORM, linkFormFor, linkFormReady, linkKindOf } from './ticketLinkForm';
+import {
+  EMPTY_LINK_FORM,
+  isHttpsUrl,
+  isWebUrl,
+  linkFormFor,
+  linkFormReady,
+  linkKindOf,
+} from './ticketLinkForm';
 
 const issue = { id: 482, subject: 'Export job times out' } as RedmineIssue;
 
@@ -34,6 +41,24 @@ describe('linkFormReady', () => {
     expect(linkFormReady(EMPTY_LINK_FORM)).toBe(true);
   });
 
+  it('only accepts an https link, since it is rendered as an href for the whole team', () => {
+    const github = (value: string) => ({
+      ...EMPTY_LINK_FORM,
+      kind: 'github' as const,
+      github: value,
+    });
+    expect(linkFormReady(github('https://tracker.example.com/issues/1'))).toBe(true);
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,x',
+      'http://github.com/a/b',
+      'github.com/a/b',
+      'not a link',
+    ]) {
+      expect(linkFormReady(github(bad)), bad).toBe(false);
+    }
+  });
+
   it('needs a link for GitHub', () => {
     expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: '  ' })).toBe(false);
     expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: 'https://x' })).toBe(true);
@@ -49,5 +74,23 @@ describe('linkFormReady', () => {
     const form = { ...EMPTY_LINK_FORM, kind: 'redmine' as const, redmineMode: 'new' as const };
     expect(linkFormReady(form)).toBe(false);
     expect(linkFormReady({ ...form, projectId: '2' })).toBe(true);
+  });
+});
+
+describe('isHttpsUrl / isWebUrl', () => {
+  it('saves https only, on any host', () => {
+    expect(isHttpsUrl(' https://github.com/a/b/issues/1 ')).toBe(true);
+    expect(isHttpsUrl('https://jira.example.com/browse/ABC-1')).toBe(true);
+    expect(isHttpsUrl('http://github.com/a/b')).toBe(false);
+    expect(isHttpsUrl('javascript:alert(1)')).toBe(false);
+    expect(isHttpsUrl('')).toBe(false);
+  });
+
+  it('still renders an http link saved before the rule, but never a script or data URL', () => {
+    expect(isWebUrl('http://old.example.com/1')).toBe(true);
+    expect(isWebUrl('https://github.com/a/b')).toBe(true);
+    expect(isWebUrl('javascript:alert(1)')).toBe(false);
+    expect(isWebUrl('data:text/html,<script>1</script>')).toBe(false);
+    expect(isWebUrl('plain text')).toBe(false);
   });
 });

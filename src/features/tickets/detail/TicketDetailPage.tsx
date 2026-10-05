@@ -141,7 +141,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [lock, setLock] = useState<TicketLinkStatus['lock']>(null);
   const loadLock = useCallback(
     () =>
-      ticketApi.linkStatus(ticketId).then(
+      ticketApi.lockStatus(ticketId).then(
         (status) => {
           setLock(status.lock);
           return true;
