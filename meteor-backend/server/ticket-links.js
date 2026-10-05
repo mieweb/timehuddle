@@ -84,23 +84,29 @@ const STALE_LINK = "This ticket's link was changed by someone else. Reload it an
  * The relevant list is cached per user and carries the linked issues, so a link
  * change has to clear it for everyone who can see the ticket, not just the caller.
  */
-async function bustTeamCaches(teamId) {
+function bustTeamCaches(teamUserIds) {
+  for (const uid of teamUserIds) bustUserCaches(uid);
+}
+
+/** The team's current members and admins: who the ticket's live feed reaches. */
+async function currentTeamUserIds(teamId) {
   const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId), {
     fields: { members: 1, admins: 1 },
   });
-  for (const uid of new Set([...(team?.members ?? []), ...(team?.admins ?? [])])) {
-    bustUserCaches(uid);
-  }
+  return new Set([...(team?.members ?? []), ...(team?.admins ?? [])]);
 }
 
 /**
  * Tell teammates who logged time on the ticket that its link changed, since it
  * decides where their time goes from now on. The person who made the change
- * was told in the dialog.
+ * was told in the dialog, and someone who has since left the team is not told:
+ * the notice carries the ticket's title.
  */
-async function notifyLinkChange(actorId, ticket, change) {
+async function notifyLinkChange(actorId, ticket, change, teamUserIds) {
   const ticketId = ticket._id.toHexString();
-  const recipients = (await usersWithTimeOn(ticketId)).filter((uid) => uid !== actorId);
+  const recipients = (await usersWithTimeOn(ticketId)).filter(
+    (uid) => uid !== actorId && teamUserIds.has(uid),
+  );
   if (!recipients.length) return;
   const actorName = await userDisplayName(actorId);
   const body = linkNotificationBody({ actorName, ticketTitle: ticket.title, ...change });
@@ -155,8 +161,9 @@ async function writeLink(userId, ticket, nextId) {
     teamId: ticket.teamId,
     ...change,
   });
-  await bustTeamCaches(ticket.teamId);
-  await notifyLinkChange(userId, ticket, change);
+  const teamUserIds = await currentTeamUserIds(ticket.teamId);
+  bustTeamCaches(teamUserIds);
+  await notifyLinkChange(userId, ticket, change, teamUserIds);
   return toPublicTicket(updated);
 }
 
@@ -205,6 +212,9 @@ Meteor.methods({
       );
     }
 
+    // Checked again: reading the issue takes a moment, and a timer started
+    // meanwhile must not find the ticket linked underneath it.
+    await assertUnlocked(ticket, userId, { evenIfUnlinked: true });
     return writeLink(userId, ticket, nextId);
   },
 
