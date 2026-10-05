@@ -7,7 +7,7 @@ import { BasePage } from './BasePage';
  * The table shows every source (TimeHuddle, Redmine) at once — there is no view
  * switcher. Rows carry `data-ticket-source` so tests can assert on provenance.
  * Sorting and filtering both live on the column headers; a switch toggles
- * open/closed, and paging replaces scrolling.
+ * open/closed, and the rows scroll under a fixed header.
  */
 export class TicketsPage extends BasePage {
   readonly heading: Locator;

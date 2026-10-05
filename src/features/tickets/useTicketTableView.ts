@@ -1,11 +1,11 @@
 /**
- * Search + filter + sort + paginate + select pipeline for a `TicketTable`.
+ * Search + filter + sort + select pipeline for a `TicketTable`.
  *
  * A hook so each tab (Tickets, My Board) runs the same pipeline over its own
  * ticket list with fully independent state — switching tabs must never reset
- * or leak the other tab's search, filters, sort, page, or selection.
+ * or leak the other tab's search, filters, sort, or selection.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import {
   applyFilters,
@@ -18,7 +18,6 @@ import {
   type TicketFilters,
 } from './ticketFilters';
 import type { UnifiedTicket } from './sources';
-import { useAutoPageSize } from './useAutoPageSize';
 
 export interface TicketTableView {
   searchQuery: string;
@@ -32,16 +31,12 @@ export interface TicketTableView {
   setShowClosed: (showClosed: boolean) => void;
   openFilterMenu: string | null;
   onOpenFilterMenuChange: (menuId: string | null) => void;
-  page: number;
-  setPage: (page: number) => void;
-  containerRef: React.RefObject<HTMLDivElement | null>;
   /** Everything matching the search + filter chips, before the Open/Closed split. */
   searchFilteredTickets: UnifiedTicket[];
   openCount: number;
   closedCount: number;
+  /** The rows the table lists: filtered, split by Open/Closed, and sorted. */
   sortedTickets: UnifiedTicket[];
-  pageTickets: UnifiedTicket[];
-  totalPages: number;
   selectedKeys: Set<string>;
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;
   onSelectAllChange: (selected: boolean) => void;
@@ -58,8 +53,6 @@ export function useTicketTableView(
   const [showClosed, setShowClosed] = useState(false);
   const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(1);
-  const { containerRef, pageSize } = useAutoPageSize();
 
   const clearFilters = useCallback(() => setFilters(EMPTY_FILTERS), []);
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), []);
@@ -87,27 +80,8 @@ export function useTicketTableView(
     [searchFilteredTickets, showClosed, sort],
   );
 
-  const totalPages = Math.max(1, Math.ceil(sortedTickets.length / pageSize));
-
-  // Clamp rather than reset: shrinking the window or tightening a filter should
-  // land on the last real page, not silently jump the user back to page 1.
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
-
-  // Any change to what is listed invalidates the current page position.
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery, filters, showClosed]);
-
-  const pageTickets = useMemo(
-    () => sortedTickets.slice((page - 1) * pageSize, page * pageSize),
-    [sortedTickets, page, pageSize],
-  );
-
   const onSortChange = useCallback((field: SortField) => {
     setSort((current) => toggleSort(current, field));
-    setPage(1);
   }, []);
 
   const onSelectedChange = useCallback((ticket: UnifiedTicket, selected: boolean) => {
@@ -119,19 +93,19 @@ export function useTicketTableView(
     });
   }, []);
 
-  // Select-all applies to the current page only, matching what the user sees.
+  // Select-all applies to every row listed: they are all one scroll away.
   const onSelectAllChange = useCallback(
     (selected: boolean) => {
       setSelectedKeys((prev) => {
         const next = new Set(prev);
-        for (const ticket of pageTickets) {
+        for (const ticket of sortedTickets) {
           if (selected) next.add(ticket.key);
           else next.delete(ticket.key);
         }
         return next;
       });
     },
-    [pageTickets],
+    [sortedTickets],
   );
 
   return {
@@ -146,15 +120,10 @@ export function useTicketTableView(
     setShowClosed,
     openFilterMenu,
     onOpenFilterMenuChange: setOpenFilterMenu,
-    page,
-    setPage,
-    containerRef,
     searchFilteredTickets,
     openCount,
     closedCount,
     sortedTickets,
-    pageTickets,
-    totalPages,
     selectedKeys,
     onSelectedChange,
     onSelectAllChange,

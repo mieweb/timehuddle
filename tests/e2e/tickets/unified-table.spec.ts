@@ -3,7 +3,7 @@
  *
  * Guards the behaviour that replaced the Huddle/Redmine view switcher: one
  * table for every source, with source as a column and a filter rather than a
- * mode, sortable column headers, row selection and pagination.
+ * mode, sortable column headers, row selection and scrolling.
  *
  * Test accounts have no linked Redmine account, so these assert the shape of
  * the table and the *degraded* path most users see — Huddle rows only, no
@@ -158,17 +158,22 @@ test.describe('Unified ticket table', () => {
     });
   });
 
-  test('pages instead of scrolling the rows', async ({ page }) => {
-    // The row area must not be a vertical scroller — paging replaces it.
-    const rowArea = page.locator('tr[data-ticket-id]').first();
-    await expect(rowArea).toBeVisible();
+  test('scrolls the rows under a fixed header, with no pagination', async ({ page }) => {
+    await expect(page.locator('tr[data-ticket-id]').first()).toBeVisible();
 
-    const overflowsVertically = await page.evaluate(() => {
-      const row = document.querySelector('tr[data-ticket-id]');
-      const host = row?.closest('div.overflow-hidden');
-      return host ? host.scrollHeight > host.clientHeight + 2 : false;
+    const scroller = await page.evaluate(() => {
+      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
+      const header = area?.querySelector('thead');
+      if (!area || !header) return null;
+      return {
+        overflowY: getComputedStyle(area).overflowY,
+        headerPosition: getComputedStyle(header).position,
+        // The scroller is bounded by the card, not grown to fit its rows.
+        fitsCard: area.clientHeight <= (area.parentElement?.clientHeight ?? 0) + 1,
+      };
     });
-    expect(overflowsVertically).toBe(false);
+    expect(scroller).toEqual({ overflowY: 'auto', headerPosition: 'sticky', fitsCard: true });
+    await expect(page.getByRole('navigation', { name: 'Ticket pages' })).toHaveCount(0);
   });
 
   test('offers no way to start a timer — that lives only on My Board (M3 D1)', async ({ page }) => {

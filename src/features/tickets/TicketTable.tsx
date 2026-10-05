@@ -70,11 +70,12 @@ const FIXED_COLUMN_WIDTH = Object.entries(COLUMN_WIDTH)
   .reduce((sum, [, w]) => sum + w, 0);
 const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
-// The app's minimal scrollbar, as a thin horizontal bar.
-const SCROLLBAR_CLASS = `w-full [&::-webkit-scrollbar]:h-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
+// The table's scroller: rows scroll under the fixed header, columns sideways,
+// both with the app's minimal thin scrollbar.
+const SCROLL_AREA_CLASS = `ticket-table-scroll h-full w-full [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
 
 export interface TicketTableProps {
-  /** One page of rows, already filtered and sorted. */
+  /** The rows to list, already filtered and sorted. */
   tickets: UnifiedTicket[];
   /** Everything matching the search, used to build the filter menus. */
   optionSource: UnifiedTicket[];
@@ -214,7 +215,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       {!loading && tickets.length === 0 ? (
         emptyState
       ) : (
-        <ScrollArea orientation="horizontal" className={SCROLLBAR_CLASS}>
+        <ScrollArea orientation="both" className={SCROLL_AREA_CLASS}>
           <Table
             aria-label={showClosed ? 'Closed tickets' : 'Open tickets'}
             responsive={false}
