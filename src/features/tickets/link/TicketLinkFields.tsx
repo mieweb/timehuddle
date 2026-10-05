@@ -9,7 +9,7 @@
  */
 import { Alert, AlertDescription, Badge, Button, Input, Select, Spinner, Text } from '@mieweb/ui';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { redmineApi, type RedmineNamed } from '../../../lib/api';
 import { useRedmineStatus } from '../../../lib/useRedmineStatus';
@@ -109,14 +109,20 @@ export function TicketLinkFields({
     };
   }, [creatingNew, projectId]);
 
+  // Searches are numbered, and editing the query retires the one in flight, so
+  // an answer can never be installed under text it was not asked for.
+  const searchSeq = useRef(0);
+
   const findIssue = async () => {
     const text = value.query.trim();
     if (!text) return;
+    const seq = ++searchSeq.current;
     setSearching(true);
     setMessage(null);
     onChange({ issue: null });
     try {
       const result = await redmineApi.issues.search(text);
+      if (seq !== searchSeq.current) return;
       const issue = result.issues[0];
       if (result.kind !== 'id' && result.kind !== 'url') {
         setMessage(ticketLinkText.needNumberOrLink);
@@ -126,9 +132,9 @@ export function TicketLinkFields({
         onChange({ issue });
       }
     } catch (err) {
-      setMessage(redmineErrorMessage(err));
+      if (seq === searchSeq.current) setMessage(redmineErrorMessage(err));
     } finally {
-      setSearching(false);
+      if (seq === searchSeq.current) setSearching(false);
     }
   };
 
@@ -210,6 +216,8 @@ export function TicketLinkFields({
                           autoComplete="off"
                           disabled={disabled}
                           onChange={(e) => {
+                            searchSeq.current += 1;
+                            setSearching(false);
                             setMessage(null);
                             onChange({ query: e.target.value, issue: null });
                           }}

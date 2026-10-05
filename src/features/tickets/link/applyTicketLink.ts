@@ -31,6 +31,23 @@ export class IssueCreatedNotLinkedError extends Error {
   }
 }
 
+/**
+ * A Redmine link was removed to make way for a GitHub one, which then could not
+ * be saved. `ticket` is the ticket as it now stands, without a link.
+ */
+export class LinkRemovedNotReplacedError extends Error {
+  constructor(
+    readonly ticket: Ticket,
+    readonly cause: unknown,
+  ) {
+    super('The Redmine link was removed, but the GitHub link could not be saved.');
+    this.name = 'LinkRemovedNotReplacedError';
+  }
+}
+
+/** What a new issue is made with when the project's options cannot be read. */
+const NO_OPTIONS = { assignees: [], priorities: [], defaultPriorityId: null, me: null };
+
 /** Told when a step succeeded with something the user should know. */
 export interface LinkOutcome {
   /** Redmine stored the new issue differently from what was sent. */
@@ -44,7 +61,9 @@ async function createIssueFrom(
   { onWarning }: LinkOutcome,
 ): Promise<RedmineIssue> {
   const projectId = Number(form.projectId);
-  const options = await redmineApi.projects.formOptions(projectId);
+  // The options only refine the issue. Without them Redmine applies its own
+  // defaults, which is what the form promised when it let this through.
+  const options = await redmineApi.projects.formOptions(projectId).catch(() => NO_OPTIONS);
   const prefill = prefillFromTicket(ticket);
   const meIsMember = options.assignees.some((member) => member.id === options.me);
   const created = await redmineApi.issues.create({
@@ -98,8 +117,13 @@ export async function applyTicketLink(
   }
 
   const github = form.kind === 'github' ? form.github.trim() : '';
-  let updated: Ticket | null = null;
-  if (linkedId) updated = await ticketApi.unlink(ticket.id, linkedId);
-  if (github !== ticket.github) updated = await ticketApi.updateTicket(ticket.id, { github });
-  return updated;
+  const unlinked = linkedId ? await ticketApi.unlink(ticket.id, linkedId) : null;
+  if (github === ticket.github) return unlinked;
+  try {
+    return await ticketApi.updateTicket(ticket.id, { github });
+  } catch (err) {
+    // The two steps are separate calls. The first one stands, so say so.
+    if (unlinked) throw new LinkRemovedNotReplacedError(unlinked, err);
+    throw err;
+  }
 }

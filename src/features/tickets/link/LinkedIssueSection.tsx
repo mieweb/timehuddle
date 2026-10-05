@@ -30,7 +30,11 @@ import { ApiError, redmineApi, type RedmineIssue, type Ticket } from '../../../l
 import { useRouter } from '../../../ui/router';
 import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
-import { IssueCreatedNotLinkedError, applyTicketLink } from './applyTicketLink';
+import {
+  IssueCreatedNotLinkedError,
+  LinkRemovedNotReplacedError,
+  applyTicketLink,
+} from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
 import { linkWarnings, type LinkChange } from './linkWarnings';
 import { TicketLinkFields } from './TicketLinkFields';
@@ -176,6 +180,10 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
           issue: err.issue,
         }));
         setError(ticketLinkText.createdNotLinked(`#${err.issue.id}`));
+      } else if (err instanceof LinkRemovedNotReplacedError) {
+        // Show the ticket as it now stands; the form keeps the GitHub link to retry.
+        onChanged(err.ticket);
+        setError(ticketLinkText.removedNotReplaced);
       } else {
         setError(linkErrorMessage(err, ticketLinkText.linkFailed));
       }

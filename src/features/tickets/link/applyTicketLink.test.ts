@@ -16,7 +16,8 @@ vi.mock('../../../lib/api', async (importOriginal) => ({
   redmineApi: { projects: { formOptions: api.formOptions }, issues: { create: api.createIssue } },
 }));
 
-const { IssueCreatedNotLinkedError, applyTicketLink } = await import('./applyTicketLink');
+const { IssueCreatedNotLinkedError, LinkRemovedNotReplacedError, applyTicketLink } =
+  await import('./applyTicketLink');
 const { EMPTY_LINK_FORM } = await import('./ticketLinkForm');
 
 const ticket = {
@@ -59,6 +60,29 @@ describe('applyTicketLink', () => {
   it('removes a GitHub link by clearing it', async () => {
     await applyTicketLink(onGithub, EMPTY_LINK_FORM);
     expect(api.updateTicket).toHaveBeenCalledWith('t1', { github: '' });
+  });
+
+  it('says the Redmine link is gone when the GitHub link then fails to save', async () => {
+    api.unlink.mockResolvedValue({ id: 't1', github: '' });
+    api.updateTicket.mockRejectedValue(new Error('offline'));
+    const failure = await applyTicketLink(onRedmine, {
+      ...EMPTY_LINK_FORM,
+      kind: 'github',
+      github: 'https://github.com/a/b/pull/2',
+    }).catch((err) => err);
+    expect(failure).toBeInstanceOf(LinkRemovedNotReplacedError);
+    expect(failure.ticket).toEqual({ id: 't1', github: '' });
+  });
+
+  it('passes a failed GitHub save through when there was no Redmine link to lose', async () => {
+    api.updateTicket.mockRejectedValue(new Error('offline'));
+    await expect(
+      applyTicketLink(ticket, {
+        ...EMPTY_LINK_FORM,
+        kind: 'github',
+        github: 'https://github.com/a/b/pull/2',
+      }),
+    ).rejects.toThrow('offline');
   });
 
   it('switching from Redmine to GitHub unlinks first, then saves the link', async () => {
@@ -128,6 +152,15 @@ describe('applyTicketLink', () => {
       const onWarning = vi.fn();
       await applyTicketLink(ticket, form, { onWarning });
       expect(onWarning).not.toHaveBeenCalled();
+    });
+
+    it('still creates it when the project\u2019s options cannot be read, leaving Redmine its defaults', async () => {
+      api.formOptions.mockRejectedValue(new Error('unreachable'));
+      await applyTicketLink(ticket, form);
+      expect(api.createIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 2, trackerId: 1, assigneeId: null, priorityId: null }),
+      );
+      expect(api.link).toHaveBeenCalledWith('t1', 77, null);
     });
 
     it('leaves it unassigned when the caller is not on the project', async () => {

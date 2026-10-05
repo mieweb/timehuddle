@@ -105,6 +105,9 @@ async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTi
   );
 }
 
+const LINKED_TO_REDMINE =
+  'This ticket is linked to a Redmine issue. Remove that link before adding a GitHub link.';
+
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). */
   async 'tickets.list'({ teamId } = {}) {
@@ -230,10 +233,7 @@ Meteor.methods({
       // `tickets.unlink`, which tells the people it affects; it is never
       // dropped as a side effect of an edit.
       if (github.trim() && linkedIssueIdOf(ticket)) {
-        throw new Meteor.Error(
-          'validation-error',
-          'This ticket is linked to a Redmine issue. Remove that link before adding a GitHub link.',
-        );
+        throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
       }
       $set.github = github;
     }
@@ -243,7 +243,18 @@ Meteor.methods({
       }
       $set.description = description;
     }
-    await Tickets.updateAsync(new Mongo.ObjectID(ticketId), { $set });
+    // The check above read the ticket a moment ago. Writing a GitHub URL only
+    // while the ticket is still unlinked keeps a link made meanwhile from
+    // leaving the ticket with both.
+    const writesGithub = typeof $set.github === 'string' && $set.github.trim() !== '';
+    const changed = await Tickets.updateAsync(
+      {
+        _id: new Mongo.ObjectID(ticketId),
+        ...(writesGithub ? { linkedIssue: { $exists: false } } : {}),
+      },
+      { $set },
+    );
+    if (!changed) throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
     await emitTicketActivity(identity.userId, updated.teamId, 'ticket.updated', {
       ticketId,

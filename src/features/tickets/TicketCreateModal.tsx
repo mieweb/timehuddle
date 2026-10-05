@@ -117,16 +117,30 @@ export function TicketCreateModal({
   const titleFilledFrom = useRef('');
   useEffect(() => {
     if (!open) titleFilledFrom.current = '';
-    if (!open || !isGithubIssueUrl(githubUrl) || titleFilledFrom.current === githubUrl) return;
+    if (!open || !isGithubIssueUrl(githubUrl) || titleFilledFrom.current === githubUrl) {
+      setTitleFetching(false);
+      return;
+    }
+    // Held from the first keystroke, not from when the request starts, so the
+    // ticket cannot be created in the pause before its title arrives.
+    setTitleFetching(true);
+    let cancelled = false;
     const timer = setTimeout(() => {
-      titleFilledFrom.current = githubUrl;
-      setTitleFetching(true);
-      void fetchGithubIssueTitle(githubUrl).then((title) => {
-        if (title) setForm((current) => (current ? { ...current, title } : current));
-        setTitleFetching(false);
-      });
+      void fetchGithubIssueTitle(githubUrl)
+        .catch(() => null)
+        .then((title) => {
+          // An answer for a link that has since changed, or for a dialog that
+          // was closed, must not fill this form.
+          if (cancelled) return;
+          titleFilledFrom.current = githubUrl;
+          if (title) setForm((current) => (current ? { ...current, title } : current));
+          setTitleFetching(false);
+        });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [open, githubUrl]);
 
   const canSubmit =

@@ -56,6 +56,8 @@ export const ticketLinkText = {
 
   redmineNeeded: 'Connect your Redmine account in Settings to link a Redmine issue.',
   linkFailed: "Couldn't save the link. Please try again.",
+  removedNotReplaced:
+    "The Redmine link was removed, but the GitHub link couldn't be saved. Save again to add it.",
   staleLink: 'Someone else changed this ticket’s link. Reload the ticket and try again.',
   createdNotLinked: (ref: string) =>
     `Redmine issue ${ref} was created, but linking it to this ticket failed. Save again to link it.`,
