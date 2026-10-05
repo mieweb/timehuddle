@@ -158,7 +158,9 @@ export function TicketCreateModal({
     // it: say what happened, and the link can be retried on the ticket's page.
     if (form.link.kind === 'redmine') {
       try {
-        await applyTicketLink(created, form.link);
+        await applyTicketLink(created, form.link, {
+          onWarning: (message) => toast.warning(message),
+        });
       } catch (err) {
         toast.error(
           err instanceof IssueCreatedNotLinkedError

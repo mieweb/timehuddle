@@ -112,6 +112,24 @@ describe('applyTicketLink', () => {
       expect(api.link).toHaveBeenCalledWith('t1', 77, null);
     });
 
+    it('reports what Redmine stored differently from what was sent', async () => {
+      api.createIssue.mockResolvedValue({
+        issueId: 77,
+        issue: { id: 77, subject: 'Fix export' },
+        mismatches: ['priority_id'],
+      });
+      const onWarning = vi.fn();
+      await applyTicketLink(ticket, form, { onWarning });
+      expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('priority'));
+      expect(api.link).toHaveBeenCalledWith('t1', 77, null);
+    });
+
+    it('says nothing when Redmine stored the issue as sent', async () => {
+      const onWarning = vi.fn();
+      await applyTicketLink(ticket, form, { onWarning });
+      expect(onWarning).not.toHaveBeenCalled();
+    });
+
     it('leaves it unassigned when the caller is not on the project', async () => {
       api.formOptions.mockResolvedValue({
         trackers: [],

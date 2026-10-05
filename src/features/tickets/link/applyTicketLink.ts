@@ -6,7 +6,7 @@
  * respects the lock and tells teammates who logged time on the ticket.
  */
 import { redmineApi, ticketApi, type RedmineIssue, type Ticket } from '../../../lib/api';
-import { matchPriorityId, prefillFromTicket } from '../redmine/redmineForm';
+import { matchPriorityId, mismatchWarning, prefillFromTicket } from '../redmine/redmineForm';
 
 import type { LinkFormState } from './ticketLinkForm';
 
@@ -31,8 +31,18 @@ export class IssueCreatedNotLinkedError extends Error {
   }
 }
 
+/** Told when a step succeeded with something the user should know. */
+export interface LinkOutcome {
+  /** Redmine stored the new issue differently from what was sent. */
+  onWarning?: (message: string) => void;
+}
+
 /** Create a Redmine issue from the ticket: its title, description and priority, assigned to the caller. */
-async function createIssueFrom(ticket: LinkableTicket, form: LinkFormState): Promise<RedmineIssue> {
+async function createIssueFrom(
+  ticket: LinkableTicket,
+  form: LinkFormState,
+  { onWarning }: LinkOutcome,
+): Promise<RedmineIssue> {
   const projectId = Number(form.projectId);
   const options = await redmineApi.projects.formOptions(projectId);
   const prefill = prefillFromTicket(ticket);
@@ -45,6 +55,8 @@ async function createIssueFrom(ticket: LinkableTicket, form: LinkFormState): Pro
     priorityId: matchPriorityId(options.priorities, prefill.priority) ?? options.defaultPriorityId,
     assigneeId: meIsMember ? options.me : null,
   });
+  const warning = mismatchWarning(created.mismatches ?? []);
+  if (warning) onWarning?.(warning);
   // The read-back can fail after a create that succeeded; the number is still good.
   return (
     created.issue ?? {
@@ -68,6 +80,7 @@ async function createIssueFrom(ticket: LinkableTicket, form: LinkFormState): Pro
 export async function applyTicketLink(
   ticket: LinkableTicket,
   form: LinkFormState,
+  outcome: LinkOutcome = {},
 ): Promise<Ticket | null> {
   const linkedId = ticket.linkedIssue?.id ?? null;
 
@@ -76,7 +89,7 @@ export async function applyTicketLink(
       if (!form.issue || String(form.issue.id) === linkedId) return null;
       return ticketApi.link(ticket.id, form.issue.id, linkedId);
     }
-    const issue = await createIssueFrom(ticket, form);
+    const issue = await createIssueFrom(ticket, form, outcome);
     try {
       return await ticketApi.link(ticket.id, issue.id, linkedId);
     } catch (err) {

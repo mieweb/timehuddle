@@ -17,6 +17,7 @@ import {
   AlertDescription,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   ExternalLinkIcon,
@@ -106,6 +107,8 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
   const [form, setForm] = useState<LinkFormState>(EMPTY_LINK_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Redmine stored a new issue differently from what was sent; shown once saved.
+  const [savedWarning, setSavedWarning] = useState<string | null>(null);
 
   const linked = ticket.linkedIssue;
   const linkedId = linked?.id ?? null;
@@ -150,6 +153,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
 
   const open = (next: Mode) => {
     setError(null);
+    setSavedWarning(null);
     setForm(linkFormFor(ticket));
     setMode(next);
   };
@@ -157,8 +161,9 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
   const run = async (target: LinkFormState) => {
     setSaving(true);
     setError(null);
+    setSavedWarning(null);
     try {
-      const updated = await applyTicketLink(ticket, target);
+      const updated = await applyTicketLink(ticket, target, { onWarning: setSavedWarning });
       if (updated) onChanged(updated);
       setMode('view');
     } catch (err) {
@@ -298,6 +303,11 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
                 <AlertDescription>{warning}</AlertDescription>
               </Alert>
             ))}
+          {savedWarning && (
+            <Alert variant="warning">
+              <AlertDescription>{savedWarning}</AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="danger" role="alert">
               <AlertDescription>{error}</AlertDescription>
@@ -306,7 +316,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
         </div>
 
         {mode === 'view' && (
-          <div className="ticket-linked-issue-actions flex flex-wrap justify-end gap-2">
+          <ButtonGroup className="ticket-linked-issue-actions">
             <Button variant="outline" size="sm" disabled={locked} onClick={() => open('edit')}>
               {currentKind === 'none' ? ticketLinkText.add : ticketLinkText.change}
             </Button>
@@ -315,11 +325,11 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
                 {ticketLinkText.remove}
               </Button>
             )}
-          </div>
+          </ButtonGroup>
         )}
 
         {mode !== 'view' && (
-          <div className="ticket-linked-issue-confirm flex flex-wrap justify-end gap-2">
+          <ButtonGroup className="ticket-linked-issue-confirm">
             <Button variant="outline" size="sm" disabled={saving} onClick={() => setMode('view')}>
               {ticketLinkText.cancel}
             </Button>
@@ -345,7 +355,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
                 {saving ? ticketLinkText.removing : ticketLinkText.removeAction}
               </Button>
             )}
-          </div>
+          </ButtonGroup>
         )}
       </CardContent>
     </Card>
