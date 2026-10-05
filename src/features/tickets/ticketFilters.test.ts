@@ -114,6 +114,69 @@ describe('applyFilters', () => {
     expect(applyFilters(all, EMPTY_FILTERS, 'nothing')).toEqual([]);
   });
 
+  describe('the @person search prefix', () => {
+    const adaHuddle = make({
+      key: 'huddle:2',
+      id: '2',
+      assignees: [{ id: 'u1', name: 'Ada King' }],
+    });
+    const adaRedmine = make({
+      key: 'redmine:3',
+      sourceId: 'redmine',
+      id: '3',
+      ref: '#3',
+      assignees: [{ id: '8', name: 'Ada Lovelace' }],
+    });
+    const grace = make({ key: 'huddle:4', id: '4', assignees: [{ id: 'u2', name: 'Grace' }] });
+    const rows = [huddle, adaHuddle, adaRedmine, grace];
+
+    it('matches the assignee name in every source, ignoring case', () => {
+      expect(applyFilters(rows, EMPTY_FILTERS, '@ADA')).toEqual([adaHuddle, adaRedmine]);
+      expect(applyFilters(rows, EMPTY_FILTERS, '@lovelace')).toEqual([adaRedmine]);
+      expect(applyFilters(rows, EMPTY_FILTERS, '@nobody')).toEqual([]);
+    });
+
+    it('on its own, keeps every assigned ticket', () => {
+      expect(applyFilters(rows, EMPTY_FILTERS, '@')).toEqual([adaHuddle, adaRedmine, grace]);
+    });
+
+    it('does not match a title that mentions the name', () => {
+      const mention = make({ key: 'huddle:5', id: '5', title: 'Ask Ada about the build' });
+      expect(applyFilters([mention], EMPTY_FILTERS, '@ada')).toEqual([]);
+      expect(applyFilters([mention], EMPTY_FILTERS, 'ada')).toEqual([mention]);
+    });
+
+    it('does not match inside the raw id of an unresolved assignee', () => {
+      const unresolved = make({
+        key: 'huddle:6',
+        id: '6',
+        assignees: [{ id: 'k7adaq2', name: 'k7adaq2' }],
+      });
+      expect(applyFilters([unresolved], EMPTY_FILTERS, '@ada')).toEqual([]);
+      expect(applyFilters([unresolved], EMPTY_FILTERS, '@')).toEqual([unresolved]);
+    });
+  });
+
+  describe('the #ref search prefix', () => {
+    const nineteen = make({ key: 'redmine:19', sourceId: 'redmine', id: '19', ref: '#19' });
+    const huddleRef = make({ key: 'huddle:6', id: '6', ref: '#A3f1c' });
+
+    it('matches from the start of the reference', () => {
+      expect(applyFilters([redmine, nineteen], EMPTY_FILTERS, '#9')).toEqual([redmine]);
+      expect(applyFilters([redmine, nineteen], EMPTY_FILTERS, '#1')).toEqual([nineteen]);
+    });
+
+    it('matches a TimeHuddle reference, which has letters in it', () => {
+      expect(applyFilters([redmine, huddleRef], EMPTY_FILTERS, '#a3f')).toEqual([huddleRef]);
+    });
+
+    it('does not match a title that contains the reference', () => {
+      const mention = make({ key: 'huddle:7', id: '7', ref: '#7', title: 'Follow-up to #9' });
+      expect(applyFilters([mention], EMPTY_FILTERS, '#9')).toEqual([]);
+      expect(applyFilters([mention], EMPTY_FILTERS, 'to #9')).toEqual([mention]);
+    });
+  });
+
   it('filters by a source-specific native status', () => {
     expect(applyFilters(all, withFilters({ status: 'Feedback' }), '')).toEqual([redmine]);
   });
