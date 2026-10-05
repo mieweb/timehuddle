@@ -28,7 +28,15 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { ApiError, notificationApi, type Notification } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
@@ -58,6 +66,16 @@ export function useShiftReminder(): ShiftReminderCtx {
 export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useSession();
   const { openShifts, clockReady } = useTeam();
+  // Ids of the open shifts in every team — a stable key, so the inbox check
+  // below re-runs when the set changes rather than on every clock refetch.
+  const openShiftIds = useMemo(
+    () =>
+      Object.values(openShifts)
+        .map((shift) => shift.id)
+        .sort()
+        .join(','),
+    [openShifts],
+  );
   const [pendingNotif, setPendingNotif] = useState<Notification | null>(null);
   const [respondLoading, setRespondLoading] = useState(false);
   const [respondError, setRespondError] = useState<string | null>(null);
@@ -94,7 +112,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
         const clockEventId = missed.data?.clockEventId as string | undefined;
         // Skip if the clock event is already closed — auto-clockout already ran.
         // The shift may be in any team, not just the selected one.
-        if (!Object.values(openShifts).some((shift) => shift.id === clockEventId)) return;
+        if (!clockEventId || !openShiftIds.split(',').includes(clockEventId)) return;
         const dedupeKey = clockEventId ?? missed.id;
         if (shownIds.current.has(dedupeKey)) return;
         shownIds.current.add(dedupeKey);
@@ -107,8 +125,9 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       cancelled = true;
     };
-    // Re-run once clockReady flips to true so we have the authoritative clock state
-  }, [user?.id, clockReady]);
+    // Re-run once clockReady flips to true so we have the authoritative clock
+    // state, and whenever the open shifts change (a snapshot arriving late).
+  }, [user?.id, clockReady, openShiftIds]);
 
   useEffect(() => {
     if (!user) return;

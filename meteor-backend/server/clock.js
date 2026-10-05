@@ -119,6 +119,9 @@ async function closeDuplicateOpenShifts() {
  * simultaneous clock-ins for the same team can't both succeed. Existing
  * duplicates have to go first or the index can't be built; a clock-in racing
  * that gap only means another pass.
+ *
+ * `clock.start` relies on this index to settle concurrent clock-ins, so when it
+ * can't be built the server refuses to start rather than run without it.
  */
 Meteor.startup(async () => {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -132,10 +135,41 @@ Meteor.startup(async () => {
     } catch (err) {
       if (err?.code === DUPLICATE_KEY_ERROR_CODE && attempt < 3) continue;
       console.error('[clock] failed to create the one-open-shift-per-team index:', err);
-      return;
+      throw new Error('[clock] one-open-shift-per-team index is not enforced; refusing to start', {
+        cause: err,
+      });
     }
   }
 });
+
+/**
+ * Only the person themselves, or an admin of a team they're in, may read their
+ * clock (timesheet, open shifts).
+ */
+async function requireClockViewer(requesterId, targetUserId) {
+  if (typeof targetUserId !== 'string' || !targetUserId) {
+    throw new Meteor.Error('forbidden', 'Not allowed to view timesheet');
+  }
+  if (requesterId === targetUserId) return;
+  const sharedAdminTeam = await Teams.findOneAsync({
+    admins: requesterId,
+    $or: [{ members: targetUserId }, { admins: targetUserId }],
+  });
+  if (!sharedAdminTeam) throw new Meteor.Error('forbidden', 'Not allowed to view timesheet');
+}
+
+/** A user's open shifts with their breaks, as public clock events. */
+async function publicOpenShifts(userId) {
+  const shifts = await findOpenShifts(userId);
+  const breaks = await findBreaksForEvents(shifts.map((e) => e._id.toHexString()));
+  return shifts.map((event) => {
+    const eventId = event._id.toHexString();
+    return toPublicClockEvent(
+      event,
+      breaks.filter((b) => b.clockEventId === eventId)
+    );
+  });
+}
 
 /** Load one team the user belongs to (member or admin), or null. */
 async function findUserTeam(userId, teamId) {
@@ -331,15 +365,18 @@ Meteor.methods({
    */
   async 'clock.myOpenShifts'() {
     const identity = await requireIdentity(this);
-    const shifts = await findOpenShifts(identity.userId);
-    const breaks = await findBreaksForEvents(shifts.map((e) => e._id.toHexString()));
-    return shifts.map((event) => {
-      const eventId = event._id.toHexString();
-      return toPublicClockEvent(
-        event,
-        breaks.filter((b) => b.clockEventId === eventId)
-      );
-    });
+    return publicOpenShifts(identity.userId);
+  },
+
+  /**
+   * Another person's open shifts, at most one per team, oldest first — for
+   * their profile's status card. Visible to the same viewers as their
+   * timesheet; however long ago a shift started, it's open until clocked out.
+   */
+  async 'clock.openShiftsForUser'({ userId } = {}) {
+    const identity = await requireIdentity(this);
+    await requireClockViewer(identity.userId, userId);
+    return publicOpenShifts(userId);
   },
 
   /** Live clock status for a team: { event, workSeconds, isPaused } or null. */
@@ -763,14 +800,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const requesterId = identity.userId;
     const targetUserId = userId;
-
-    if (requesterId !== targetUserId) {
-      const sharedAdminTeam = await Teams.findOneAsync({
-        admins: requesterId,
-        $or: [{ members: targetUserId }, { admins: targetUserId }],
-      });
-      if (!sharedAdminTeam) throw new Meteor.Error('forbidden', 'Not allowed to view timesheet');
-    }
+    await requireClockViewer(requesterId, targetUserId);
 
     const events = await ClockEvents.find(
       { userId: targetUserId, startTime: { $gte: startMs, $lte: endMs } },
@@ -1033,13 +1063,89 @@ Meteor.publish('clock.liveForTeams', async function (teamIds) {
 });
 
 /**
- * The caller's own open shifts, every team — at most one per team. Drives the
- * per-team clock in every tab and on every device, whatever team each has
- * selected; `clock.liveForTeams` stays for team views (who's in).
+ * The caller's own open shifts, every team — at most one per team — and those
+ * shifts' breaks. Drives the per-team clock in every tab and on every device,
+ * whatever team each has selected; `clock.liveForTeams` stays for team views
+ * (who's in).
+ *
+ * Pause/resume only write `clockbreaks`, and a break carries no userId, so the
+ * breaks are joined to the open shifts here: each shift gets its own break
+ * observer, started when it opens and stopped (its breaks withdrawn) when it
+ * closes.
  */
-Meteor.publish('clock.liveOpenShifts', function () {
+Meteor.publish('clock.liveOpenShifts', async function () {
   if (!this.userId) return this.ready();
-  return ClockEvents.find({ userId: this.userId, endTime: null });
+
+  /** clockEventId → { handle, sent: Map<idKey, id> } */
+  const breakWatchers = new Map();
+  let stopped = false;
+  const idKey = (id) => (typeof id?.toHexString === 'function' ? id.toHexString() : String(id));
+
+  const withdraw = (watcher) => {
+    for (const id of watcher.sent.values()) this.removed('clockbreaks', id);
+    watcher.sent.clear();
+  };
+
+  const watchBreaks = async (clockEventId) => {
+    const watcher = { handle: null, sent: new Map() };
+    breakWatchers.set(clockEventId, watcher);
+    const handle = await ClockBreaks.find({ clockEventId }).observeChangesAsync({
+      added: (id, fields) => {
+        watcher.sent.set(idKey(id), id);
+        this.added('clockbreaks', id, fields);
+      },
+      changed: (id, fields) => this.changed('clockbreaks', id, fields),
+      removed: (id) => {
+        watcher.sent.delete(idKey(id));
+        this.removed('clockbreaks', id);
+      },
+    });
+    // The shift closed (or the subscription stopped) while the observer started.
+    if (stopped || breakWatchers.get(clockEventId) !== watcher) {
+      handle.stop();
+      if (!stopped) withdraw(watcher);
+      return;
+    }
+    watcher.handle = handle;
+  };
+
+  const unwatchBreaks = (clockEventId) => {
+    const watcher = breakWatchers.get(clockEventId);
+    if (!watcher) return;
+    breakWatchers.delete(clockEventId);
+    watcher.handle?.stop();
+    withdraw(watcher);
+  };
+
+  const logWatchError = (err) => console.error('[clock] liveOpenShifts break observer failed:', err);
+  const initialWatches = [];
+  let initializing = true;
+  const shiftHandle = await ClockEvents.find({
+    userId: this.userId,
+    endTime: null,
+  }).observeChangesAsync({
+    added: (id, fields) => {
+      this.added('clockevents', id, fields);
+      const watch = watchBreaks(idKey(id)).catch(logWatchError);
+      if (initializing) initialWatches.push(watch);
+    },
+    changed: (id, fields) => this.changed('clockevents', id, fields),
+    removed: (id) => {
+      unwatchBreaks(idKey(id));
+      this.removed('clockevents', id);
+    },
+  });
+  initializing = false;
+
+  this.onStop(() => {
+    stopped = true;
+    shiftHandle.stop();
+    for (const watcher of breakWatchers.values()) watcher.handle?.stop();
+    breakWatchers.clear();
+  });
+
+  await Promise.all(initialWatches);
+  this.ready();
 });
 
 /**

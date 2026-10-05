@@ -9,7 +9,8 @@
  *   • refetchTeams     — callable after mutations to refresh the list
  *   • selectedTeamId   — persisted in localStorage
  *   • openShifts       — the user's open shifts, every team, keyed by teamId
- *                        (REST, refreshed live by `clock.liveOpenShifts`)
+ *                        (REST, refreshed live by `clock.liveOpenShifts`,
+ *                        breaks included)
  *   • activeClockEvent — the selected team's open shift, or null
  *   • clockReady       — true once the first clock fetch completes
  *   • refetchClock     — callable after clock mutations to refresh
@@ -445,10 +446,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refetchClock]);
 
   // Live: `clock.liveOpenShifts` publishes the user's own open shifts in every
-  // team, so a clock-in or clock-out from another tab, another device or the
-  // auto clock-out reaches this tab whatever team it has selected. The docs
-  // only say *which* shifts are open (breaks live elsewhere), so a change in
-  // that set triggers a refetch of the full events rather than replacing them.
+  // team, plus those shifts' breaks, so a clock-in, clock-out, pause or resume
+  // from another tab, another device or the auto clock-out reaches this tab
+  // whatever team it has selected. The docs only say *which* shifts are open
+  // and which breaks they have, so a change in either triggers a refetch of the
+  // full events rather than replacing them.
   useEffect(() => {
     if (!userId) return;
 
@@ -456,13 +458,18 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let lastSignature: string | null = null;
 
     const onLiveChange = () => {
-      const signature = ddp
+      const shiftIds = ddp
         .docs('clockevents')
         .map(ddpDocToClockEvent)
         .filter((e) => e.userId === userId && !e.endTime)
-        .map((e) => e.id)
-        .sort()
-        .join(',');
+        .map((e) => e.id);
+      const openIds = new Set(shiftIds);
+      // A pause or resume only adds or closes a break.
+      const breaks = ddp
+        .docs('clockbreaks')
+        .filter((b) => openIds.has(String(b.clockEventId)))
+        .map((b) => `${b._id}:${b.endTime ?? ''}`);
+      const signature = `${shiftIds.sort().join(',')}|${breaks.sort().join(',')}`;
       if (signature === lastSignature) return;
       lastSignature = signature;
       // Only refetch with a token — avoids errors when the subscription is
@@ -470,11 +477,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (localStorage.getItem('meteor_resume_token')) void refetchClock();
     };
 
-    const offChange = ddp.onCollectionChange('clockevents', onLiveChange);
+    const offShifts = ddp.onCollectionChange('clockevents', onLiveChange);
+    const offBreaks = ddp.onCollectionChange('clockbreaks', onLiveChange);
     const unsubscribe = ddp.subscribe('clock.liveOpenShifts', [], onLiveChange);
 
     return () => {
-      offChange();
+      offShifts();
+      offBreaks();
       unsubscribe();
     };
   }, [userId, refetchClock]);

@@ -237,3 +237,40 @@ describe('several teams on the clock at once', () => {
     expect(await db.collection('timers').countDocuments({ userId, endTime: null })).toBe(0);
   });
 });
+
+describe('another viewer reads open shifts', () => {
+  const STRANGER = { name: 'Per Team Stranger', email: 'wh-clock-per-team-stranger@test.dev', password: 'Password1!' };
+  let strangerJwt: string;
+
+  beforeAll(async () => {
+    await purgeUser(STRANGER.email);
+    strangerJwt = (await createUserAndGetJwt(STRANGER)).jwt;
+  });
+
+  afterAll(async () => {
+    await purgeUser(STRANGER.email);
+  });
+
+  it('finds a shift opened more than a day ago, and hides it from a stranger', async () => {
+    const db = await getDb();
+    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const { insertedId } = await db.collection('clockevents').insertOne({
+      userId,
+      teamId: teamC,
+      startTime: twoDaysAgo,
+      accumulatedTime: 0,
+      autoClockoutAgreed: null,
+      endTime: null,
+    });
+
+    const own = await wormhole<Shift[]>('clock.openShiftsForUser', { userId }, jwt);
+    expect(own.ok).toBe(true);
+    expect(own.result.map((s) => s.id)).toEqual([insertedId.toHexString()]);
+
+    const stranger = await wormhole('clock.openShiftsForUser', { userId }, strangerJwt);
+    expect(stranger.ok).toBe(false);
+
+    const stop = await wormhole('clock.stop', { clockEventId: insertedId.toHexString() }, jwt);
+    expect(stop.ok).toBe(true);
+  });
+});

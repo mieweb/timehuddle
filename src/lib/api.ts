@@ -1551,6 +1551,13 @@ export const clockApi = {
   /** The current user's open shifts, at most one per team. */
   getOpenShifts: () => wormholeCall<ClockEvent[]>('clock.myOpenShifts', {}),
 
+  /**
+   * Another user's open shifts, at most one per team, oldest first — however
+   * long ago they started. Allowed for the same viewers as their timesheet.
+   */
+  getOpenShiftsForUser: (userId: string) =>
+    wormholeCall<ClockEvent[]>('clock.openShiftsForUser', { userId }),
+
   /** Get all clock events for the current user. */
   getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
 

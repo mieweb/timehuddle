@@ -22,8 +22,9 @@ vi.mock('./useSession', () => ({
 const listOrganizationsMock = vi.fn().mockResolvedValue([]);
 const getOpenShiftsMock = vi.fn().mockResolvedValue([]);
 
-// The live clockevents docs and their change listeners, driven by the tests.
+// The live clockevents/clockbreaks docs and their change listeners, driven by the tests.
 let ddpClockDocs: Record<string, unknown>[] = [];
+let ddpBreakDocs: Record<string, unknown>[] = [];
 const ddpListeners = new Map<string, () => void>();
 
 vi.mock('./api', () => ({
@@ -44,7 +45,12 @@ vi.mock('./api', () => ({
 
 vi.mock('./ddp', () => ({
   getDdpClient: () => ({
-    docs: (collection: string) => (collection === 'clockevents' ? ddpClockDocs : []),
+    docs: (collection: string) =>
+      collection === 'clockevents'
+        ? ddpClockDocs
+        : collection === 'clockbreaks'
+          ? ddpBreakDocs
+          : [],
     onCollectionChange: (collection: string, cb: () => void) => {
       ddpListeners.set(collection, cb);
       return () => {};
@@ -200,6 +206,7 @@ describe('TeamContext open shifts', () => {
     mockUser = { id: 'user-1', username: 'jiadoe' };
     localStorage.setItem('meteor_resume_token', 'token');
     ddpClockDocs = [];
+    ddpBreakDocs = [];
     ddpListeners.clear();
     getOpenShiftsMock.mockReset().mockResolvedValue([{ id: 'evt-a', teamId: 'team-a' }]);
   });
@@ -250,5 +257,26 @@ describe('TeamContext open shifts', () => {
       await Promise.resolve();
     });
     expect(getOpenShiftsMock.mock.calls.length).toBe(calls);
+  });
+
+  it('refetches when a break starts or ends in another tab', async () => {
+    ddpClockDocs = [{ id: 'evt-a', userId: 'user-1', teamId: 'team-a', endTime: null }];
+    render(
+      <TeamProvider>
+        <OpenShiftsDisplay />
+      </TeamProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('open-shifts').textContent).toBe('team-a=evt-a'));
+    const calls = getOpenShiftsMock.mock.calls.length;
+
+    // Paused elsewhere: only clockbreaks changes.
+    ddpBreakDocs = [{ _id: 'brk-1', clockEventId: 'evt-a', startTime: 1, endTime: null }];
+    act(() => ddpListeners.get('clockbreaks')?.());
+    await waitFor(() => expect(getOpenShiftsMock.mock.calls.length).toBe(calls + 1));
+
+    // Resumed elsewhere: the same break closes.
+    ddpBreakDocs = [{ _id: 'brk-1', clockEventId: 'evt-a', startTime: 1, endTime: 2 }];
+    act(() => ddpListeners.get('clockbreaks')?.());
+    await waitFor(() => expect(getOpenShiftsMock.mock.calls.length).toBe(calls + 2));
   });
 });

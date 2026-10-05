@@ -1326,6 +1326,15 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
+  Wormhole.expose('clock.openShiftsForUser', {
+    description: "Another user's open shifts, at most one per team (same viewers as their timesheet)",
+    inputSchema: {
+      type: 'object',
+      properties: { userId: { type: 'string' } },
+      required: ['userId'],
+    },
+  });
+
   Wormhole.expose('clock.events', {
     description: 'All clock events for the caller (their own history)',
     inputSchema: { type: 'object', properties: {} },
