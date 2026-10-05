@@ -17,7 +17,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
 import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
-import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
+import { closeShift, computeWorkSeconds, findBreaksForEvent } from './clock-core';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -30,6 +30,13 @@ const SHIFT_END_WORK_SECS = 7.75 * 3600; // 7h 45m in work seconds
 const AUTO_CLOCKOUT_WORK_SECS = 8 * 3600; // 8h in work seconds
 
 let _agenda;
+
+// Resolves once initAgenda has built the instance, so a cancel queued earlier
+// in startup (the duplicate-shift cleanup in clock.js) still runs.
+let _resolveAgendaReady;
+const agendaReady = new Promise((resolve) => {
+  _resolveAgendaReady = resolve;
+});
 
 export function getAgenda() {
   return _agenda;
@@ -60,6 +67,7 @@ export async function initAgenda() {
     processEvery: '30 seconds',
     defaultLockLifetime: 10_000,
   });
+  _resolveAgendaReady(_agenda);
 
   // ── Job: 4h "Take a Break" reminder ──────────────────────────────────────
   _agenda.define('shift-4h-reminder', async (job) => {
@@ -109,7 +117,7 @@ export async function initAgenda() {
 
   // ── Job: 8h auto-clockout (agreed) ───────────────────────────────────────
   _agenda.define('shift-auto-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
     if (!event) return; // already clocked out
     if (!event.autoClockoutAgreed) return; // user changed their mind
@@ -124,13 +132,13 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await closeShift(event, now); // this shift only — other teams keep running
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // ── Job: 8h missed auto-clockout ─────────────────────────────────────────
   _agenda.define('shift-missed-clockout', async (job) => {
-    const { clockEventId, userId, teamId } = job.attrs.data;
+    const { clockEventId, userId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
     if (!event) return; // already clocked out
     if (event.shiftReminderResponse === 'disagreed') return; // respected "Continue Working"
@@ -146,7 +154,7 @@ export async function initAgenda() {
       return;
     }
 
-    await stopActiveClock(userId, teamId, now);
+    await closeShift(event, now); // this shift only — other teams keep running
 
     // Rewrite the existing shift-end-reminder notification in-place to describe
     // the auto-clock-out outcome (keeps exactly one inbox entry).
@@ -254,10 +262,10 @@ export async function scheduleMissedClockout(clockEventId, userId, teamId, start
 
 /** Cancel all pending jobs for a clock event (manual clock-out or delete). */
 export async function cancelClockJobs(clockEventId) {
-  await _agenda.cancel({ data: { clockEventId } });
+  await (_agenda ?? (await agendaReady)).cancel({ data: { clockEventId } });
 }
 
 /** Cancel a single named job for a clock event. */
 export async function cancelClockJobsByName(clockEventId, name) {
-  await _agenda.cancel({ name, data: { clockEventId } });
+  await (_agenda ?? (await agendaReady)).cancel({ name, data: { clockEventId } });
 }

@@ -107,9 +107,12 @@ function refreshTimerViews() {
 export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const toast = useToast();
   const { pathname, navigate } = useRouter();
-  const { selectedTeamId } = useTeam();
-  const { isClockedIn, clockIn, clockInLoading, planGate } = useClockToggle();
-  const runningTicket = useRunningTicket(isClockedIn);
+  const { selectedTeamId, openShifts } = useTeam();
+  const { clockIn, clockInLoading, planGate } = useClockToggle();
+  // A ticket timer runs inside a shift of any team (the server picks the
+  // ticket's team, else the selected one), so any open shift will do here.
+  const onTheClock = Object.keys(openShifts).length > 0;
+  const runningTicket = useRunningTicket(onTheClock);
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   // One start or stop at a time, app-wide. The state above lands a render late,
@@ -162,11 +165,14 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         let outcome: TicketTimerOutcome;
         try {
           if (request.kind === 'ticket') {
-            outcome = await startTicketTimer(request.ticket, request);
+            outcome = await startTicketTimer(request.ticket, {
+              ...request,
+              teamId: selectedTeamId,
+            });
             // A pinned issue joins the Redmine rows, which are cached per session.
             if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
           } else {
-            await timerApi.startSession(request.entryId, Date.now());
+            await timerApi.startSession(request.entryId, Date.now(), selectedTeamId ?? undefined);
             outcome = 'started';
           }
         } catch (err) {
@@ -182,19 +188,19 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return outcome;
       });
     },
-    [toast, exclusive],
+    [toast, exclusive, selectedTeamId],
   );
 
   const start = useCallback(
     async (request: TicketStartRequest): Promise<TicketTimerOutcome> => {
-      // `isClockedIn` can be stale (another tab clocked out); the server's
+      // `onTheClock` can be stale (another tab clocked out); the server's
       // `no-active-shift` is then shown as an error by `runStart`.
-      if (isClockedIn) return runStart(request);
+      if (onTheClock) return runStart(request);
       setPromptError(null);
       setPrompt(request);
       return 'clock-in';
     },
-    [isClockedIn, runStart],
+    [onTheClock, runStart],
   );
 
   const stop = useCallback(
@@ -252,10 +258,10 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // there (the Clock page's "Post plan and clock in", or any other clock-in).
   useEffect(() => {
     const waiting = pendingRef.current;
-    if (!isClockedIn || !waiting) return;
+    if (!onTheClock || !waiting) return;
     setPendingStart(null);
     void runStart(waiting.request).then(() => navigate(waiting.returnTo));
-  }, [isClockedIn, runStart, navigate, setPendingStart]);
+  }, [onTheClock, runStart, navigate, setPendingStart]);
 
   const cancelPending = useCallback(() => setPendingStart(null), [setPendingStart]);
 

@@ -7,7 +7,7 @@
  * the close-out. No Meteor method/DDP context here — plain async helpers.
  */
 import { ClockEvents, ClockBreaks } from './collections';
-import { closeAllForUser } from './timer-core';
+import { closeTimersForShift } from './timer-core';
 
 /** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
 export const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
@@ -208,33 +208,63 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
- * Close the user's active clock event in a team: close any running ticket
- * timers, auto-classify any open break, compute accumulatedTime (span minus
- * meal breaks), and set endTime. Returns the updated event doc, or null when
- * there was nothing open. Mirrors ClockService.stop / clock.stop.
+ * Every open shift the user has, one per team at most (the unique open-shift
+ * index on `clockevents` guarantees it), oldest first.
+ *
+ * The one place "is this person on the clock?" is answered: a lookup with
+ * `findOne({ userId, endTime: null })` would hand back whichever shift Mongo
+ * found first once the user is clocked in to two teams.
  */
-export async function stopActiveClock(userId, teamId, now = Date.now()) {
-  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
-  if (!event) return null;
+export function findOpenShifts(userId) {
+  return ClockEvents.find({ userId, endTime: null }, { sort: { startTime: 1 } }).fetchAsync();
+}
 
-  const eventId = event._id.toHexString();
+/**
+ * The user's open shift in one team, or null. A missing team is null rather
+ * than "any team": the driver drops an undefined `teamId` from the filter.
+ */
+export async function findOpenShift(userId, teamId) {
+  if (typeof teamId !== 'string' || !teamId) return null;
+  return ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+}
 
-  // Close any running timer sessions for this user (mirrors clock.stop).
-  await closeAllForUser(userId, now);
+/**
+ * Close one shift at `now`: stop the ticket timers running inside it, close
+ * and auto-classify its open break, compute accumulatedTime (span minus meal
+ * breaks) and set endTime.
+ *
+ * Only this shift is touched — clocking out of one team leaves the user's other
+ * teams' shifts and ticket timers running. Returns `{ event, breaks }` with the
+ * closed event, or null when the shift had already been closed by someone else
+ * (a second tab, the auto clock-out). Cancelling the shift's Agenda jobs is left
+ * to the caller: agenda.js imports this module. Shared by `clock.stop`, the
+ * Agenda auto clock-out and the startup duplicate-shift cleanup.
+ */
+export async function closeShift(event, now) {
+  const eventId = hexId(event._id);
+
+  await closeTimersForShift(event.userId, eventId, now);
 
   const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
   if (openBreak) {
-    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+    // A break opened after `now` (only possible when closing a shift in the
+    // past) ends where it began rather than before it.
+    const breakEnd = Math.max(now, openBreak.startTime);
+    const durationSeconds = Math.floor((breakEnd - openBreak.startTime) / 1000);
     await ClockBreaks.updateAsync(openBreak._id, {
-      $set: { endTime: now, ...classifyBreak(durationSeconds) },
+      $set: { endTime: breakEnd, ...classifyBreak(durationSeconds) },
     });
   }
 
   const breaks = await findBreaksForEvent(eventId);
-  const shiftSpan = Math.floor((now - event.startTime) / 1000);
+  const shiftSpan = Math.max(0, Math.floor((now - event.startTime) / 1000));
   const deducted = computeDeductedBreakSeconds(breaks, now);
   const accumulatedTime = Math.max(0, shiftSpan - deducted);
 
-  await ClockEvents.updateAsync(event._id, { $set: { endTime: now, accumulatedTime } });
-  return ClockEvents.findOneAsync(event._id);
+  const modified = await ClockEvents.updateAsync(
+    { _id: event._id, endTime: null },
+    { $set: { endTime: now, accumulatedTime } }
+  );
+  if (!modified) return null;
+  return { event: await ClockEvents.findOneAsync(event._id), breaks };
 }

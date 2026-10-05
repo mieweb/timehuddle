@@ -135,9 +135,9 @@ describe('plan-first clock flow (wormhole)', () => {
 
   it('recovery: a session post created for the active session unblocks clock-out', async () => {
     // The session started bare (previous test). Its active event:
-    const active = await wormhole<{ id: string }>('clock.activeForUser', {}, memberJwt);
+    const active = await wormhole<Array<{ id: string }>>('clock.myOpenShifts', {}, memberJwt);
     expect(active.ok).toBe(true);
-    const clockEventId = active.result.id;
+    const clockEventId = active.result[0].id;
 
     // A plain post for today (no session link) does NOT satisfy the gate.
     await memberDdp.call('huddle.createPost', [
@@ -214,13 +214,13 @@ describe('plan-first clock flow (wormhole)', () => {
     expect(blocked.error).toMatch(/wrap-up/i);
 
     // Recover so the suite leaves no open session.
-    const active = await wormhole<{ id: string }>('clock.activeForUser', {}, memberJwt);
+    const active = await wormhole<Array<{ id: string }>>('clock.myOpenShifts', {}, memberJwt);
     await memberDdp.call('huddle.createPost', [
       {
         teamId,
         content: { text: '**Wrap-up:** second session' },
         postDate: todayString(),
-        clockEventId: active.result.id,
+        clockEventId: active.result[0].id,
         wrapUp: true,
       },
     ]);

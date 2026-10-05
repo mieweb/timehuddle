@@ -41,6 +41,12 @@ export interface StartTicketTimerOptions {
   inTable: boolean;
   /** My Board already has this ticket. */
   onBoard: boolean;
+  /**
+   * The selected team. The clock is per team, so the server nests the timer
+   * under the shift of the ticket's own team when that one is open, else this
+   * team's, else the only open shift.
+   */
+  teamId?: string | null;
 }
 
 /**
@@ -51,6 +57,7 @@ export interface StartTicketTimerOptions {
 export function timerErrorMessage(err: unknown): string {
   const code = err instanceof ApiError ? err.code : undefined;
   if (code === 'no-active-shift') return text.errorNoShift;
+  if (code === 'shift-ambiguous') return text.errorShiftAmbiguous;
   if (code === 'not-connected') return text.errorNotConnected;
   if (code === 'unreachable' || code === 'invalid-key') return text.errorUnreachable;
   return text.errorStart;
@@ -71,7 +78,7 @@ function pinRedmineIssue(issueId: number): Promise<boolean> {
  */
 export async function startTicketTimer(
   ticket: TimerTicket,
-  { inTable, onBoard }: StartTicketTimerOptions,
+  { inTable, onBoard, teamId }: StartTicketTimerOptions,
 ): Promise<TicketTimerOutcome> {
   const result = await timerApi.createEntry({
     ticketId: ticket.id,
@@ -79,6 +86,7 @@ export async function startTicketTimer(
     date: toLocalDateStr(new Date()),
     startNow: true,
     notifyAdmins: false,
+    ...(teamId ? { teamId } : {}),
   });
   if (!result.session) return 'failed';
 

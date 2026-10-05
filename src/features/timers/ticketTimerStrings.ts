@@ -43,6 +43,8 @@ export const ticketTimerText = {
 
   /** Why a start or stop failed; see `timerErrorMessage`. */
   errorNoShift: 'Clock in to start a ticket timer.',
+  errorShiftAmbiguous:
+    "You're on the clock in more than one team. Switch to the team this timer belongs to and try again.",
   errorNotConnected: 'Connect your Redmine account in Settings to time this issue.',
   errorUnreachable: 'Could not reach Redmine to start this timer.',
   errorStart: 'Could not start the timer. Please try again.',

@@ -17,8 +17,8 @@ export function useClockBreak() {
 
   const isPaused = !!activeClockEvent?.isPaused;
 
-  // Always prefer the active event's teamId: the user may have switched teams
-  // after clocking in, and the break belongs to the session, not the selection.
+  // The selected team's shift: the clock is per team, and a shift open in
+  // another team is that team's to pause.
   const teamId = activeClockEvent?.teamId ?? selectedTeamId;
 
   const runBreakAction = useCallback(

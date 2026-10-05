@@ -13,7 +13,8 @@ import { randomUUID } from 'node:crypto';
 
 import { Meteor } from 'meteor/meteor';
 
-import { ClockEvents, DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Timers } from './collections';
+import { DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Timers } from './collections';
+import { findOpenShifts } from './clock-core';
 import { requireIdentity } from './auth-bridge';
 import {
   createTimeEntry,
@@ -142,9 +143,12 @@ function requestedBaseUrl(rawBaseUrl) {
   return baseUrl;
 }
 
-/** Whether the caller is clocked in (their main clock has an open shift). */
+/**
+ * Whether the caller is on the clock in any team. Redmine is per person, not
+ * per team, so a shift open in any team means the day isn't finished.
+ */
 async function hasOpenShift(userId) {
-  return Boolean(await ClockEvents.findOneAsync({ userId, endTime: null }));
+  return (await findOpenShifts(userId)).length > 0;
 }
 
 /**

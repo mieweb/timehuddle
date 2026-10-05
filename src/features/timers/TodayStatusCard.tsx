@@ -51,11 +51,12 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
       .catch(() => {});
   }, [userId, isOwn]);
 
+  // Someone else's newest open shift. Your own comes from TeamContext.
   const fetchClockEvent = useCallback(() => {
-    if (!userId) return;
+    if (!userId || isOwn) return;
     clockApi
-      .getActive(isOwn ? undefined : userId)
-      .then(setClockEvent)
+      .getOpenShiftsForUser(userId)
+      .then((shifts) => setClockEvent(shifts.at(-1) ?? null))
       .catch(() => setClockEvent(null));
   }, [userId, isOwn]);
 

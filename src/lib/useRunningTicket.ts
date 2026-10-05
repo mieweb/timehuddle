@@ -23,6 +23,8 @@ export type RunningTicket = {
   /** In-app route for a Huddle ticket, the instance URL for a Redmine issue. */
   url: string | null;
   sessionId: string;
+  /** The shift the timer runs inside; null for sessions that predate that link. */
+  clockEventId: string | null;
 };
 
 export function useRunningTicket(enabled: boolean): RunningTicket | null {
@@ -53,6 +55,7 @@ export function useRunningTicket(enabled: boolean): RunningTicket | null {
         title: displayTitle || ticketId,
         url: displayUrl,
         sessionId: session.id,
+        clockEventId: session.clockEventId ?? null,
       });
     } catch {
       setRunning(null);

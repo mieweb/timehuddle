@@ -1520,12 +1520,19 @@ export const timesheetApprovalApi = {
 };
 
 export const clockApi = {
-  /** Clock in to a team. Returns the new clock event. */
+  /**
+   * Clock in to a team. Returns the new clock event. Refused with
+   * `already-clocked-in` while that team's shift is open.
+   */
   start: (teamId: string, planPostId?: string) =>
     wormholeCall<ClockEvent>('clock.start', { teamId, planPostId }),
 
-  /** Clock out of a team. */
-  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
+  /**
+   * Clock out of one session. `clockEventId` names it, so a newer shift started
+   * meanwhile is never the one that ends; without it, the team's open shift.
+   */
+  stop: (teamId: string, clockEventId?: string) =>
+    wormholeCall<ClockEvent>('clock.stop', clockEventId ? { teamId, clockEventId } : { teamId }),
 
   /** Pause an active clock session (break start). */
   pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),
@@ -1541,8 +1548,15 @@ export const clockApi = {
       isPaused: boolean;
     } | null>('clock.status', { teamId }),
 
-  /** Get the current user's active clock event (any team), or null. */
-  getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
+  /** The current user's open shifts, at most one per team. */
+  getOpenShifts: () => wormholeCall<ClockEvent[]>('clock.myOpenShifts', {}),
+
+  /**
+   * Another user's open shifts, at most one per team, oldest first — however
+   * long ago they started. Allowed for the same viewers as their timesheet.
+   */
+  getOpenShiftsForUser: (userId: string) =>
+    wormholeCall<ClockEvent[]>('clock.openShiftsForUser', { userId }),
 
   /** Get all clock events for the current user. */
   getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
@@ -1841,18 +1855,24 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
+    /** The team the user is working in; picks the shift for a ticket with no team. */
+    teamId?: string;
   }) =>
     wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', {
       ...data,
       tz: clientTz(),
     }),
 
-  /** Start a timer for a WorkItem. Closes any open timer first. */
-  startSession: (entryId: string, now?: number) =>
+  /**
+   * Start a timer for a WorkItem. Closes any open timer first. `teamId` is the
+   * team the user is working in; it picks the shift for a ticket with no team.
+   */
+  startSession: (entryId: string, now?: number, teamId?: string) =>
     wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', {
       entryId,
       now: now ?? Date.now(),
       tz: clientTz(),
+      ...(teamId ? { teamId } : {}),
     }),
 
   /** Stop a running timer. */

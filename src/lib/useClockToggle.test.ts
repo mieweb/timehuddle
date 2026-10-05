@@ -61,6 +61,9 @@ function setupTeam(
     selectedTeam: null,
     setSelectedTeamId: vi.fn(),
     isAdmin: false,
+    openShifts: opts.activeClockEvent
+      ? ({ [opts.activeClockEvent.teamId]: opts.activeClockEvent } as any)
+      : {},
     activeClockEvent: (opts.activeClockEvent ?? null) as any,
     clockReady: true,
     refetchClock: mockRefetchClock,
@@ -118,6 +121,32 @@ describe('useClockToggle', () => {
       expect(mockRefetchClock).not.toHaveBeenCalled();
     });
 
+    it('says why when the team is already clocked in, and refetches the shifts', async () => {
+      setupTeam({ activeClockEvent: null, selectedTeamId: 'team1' });
+      mockStart.mockRejectedValueOnce(
+        new ApiError("You're already clocked in to Team One", 500, 'already-clocked-in'),
+      );
+      const { result } = renderHook(() => useClockToggle());
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.clockIn();
+      });
+
+      expect(ok).toBe(false);
+      expect(result.current.clockInRefusedReason).toBe("You're already clocked in to Team One");
+      expect(mockRefetchClock).toHaveBeenCalledOnce();
+    });
+
+    it('rethrows other clock-in errors', async () => {
+      setupTeam({ activeClockEvent: null, selectedTeamId: 'team1' });
+      mockStart.mockRejectedValueOnce(new Error('Network error'));
+      const { result } = renderHook(() => useClockToggle());
+
+      await expect(act(() => result.current.clockIn())).rejects.toThrow('Network error');
+      expect(result.current.clockInRefusedReason).toBeNull();
+    });
+
     it('sets clockInLoading=true during the call and false after', async () => {
       setupTeam({ selectedTeamId: 'team1' });
       let resolveStart!: (value?: any) => void;
@@ -144,16 +173,16 @@ describe('useClockToggle', () => {
   // ── clockOut() ──────────────────────────────────────────────────────────────
 
   describe('clockOut()', () => {
-    it("uses the active event's teamId (not selectedTeamId) to stop", async () => {
+    it("stops the selected team's session by its clockEventId", async () => {
       setupTeam({
-        activeClockEvent: { id: 'evt1', teamId: 'team-from-event' },
-        selectedTeamId: 'team-from-ui',
+        activeClockEvent: { id: 'evt1', teamId: 'team1' },
+        selectedTeamId: 'team1',
       });
       const { result } = renderHook(() => useClockToggle());
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-from-event');
+      expect(mockStop).toHaveBeenCalledWith('team1', 'evt1');
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
@@ -163,7 +192,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-fallback');
+      expect(mockStop).toHaveBeenCalledWith('team-fallback', undefined);
     });
 
     it('does nothing when both teamId sources are null', async () => {

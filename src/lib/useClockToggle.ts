@@ -1,11 +1,11 @@
 /**
  * useClockToggle — Shared clock-in / clock-out logic.
  *
- * Encapsulates the API calls, loading states, the teamId guard (always
- * prefer the active event's teamId over the currently selected team, since
- * the user may have switched teams after clocking in), and the plan-first
- * gates — so every clock surface (clock page, bottom-nav FAB, work/tickets
- * clock-in prompts) enforces them consistently.
+ * The clock is per team: everything here acts on the selected team's shift
+ * (`activeClockEvent`), whatever shifts are open in other teams. Encapsulates
+ * the API calls, loading states and the plan-first gates — so every clock
+ * surface (clock page, bottom-nav FAB, work/tickets clock-in prompts) enforces
+ * them consistently.
  */
 import { useCallback, useState } from 'react';
 
@@ -15,7 +15,7 @@ import { useSessionPost } from './useSessionPost';
 import { useTeam } from './TeamContext';
 
 export function useClockToggle() {
-  const { teams, activeClockEvent, selectedTeamId, selectedTeam, refetchClock } = useTeam();
+  const { activeClockEvent, selectedTeamId, selectedTeam, refetchClock } = useTeam();
 
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
@@ -24,17 +24,20 @@ export function useClockToggle() {
   // Set when clock-out is refused by the plan-first gate ('plan-required');
   // pages render it inline with a link to Huddle instead of an alert.
   const [clockOutBlockedReason, setClockOutBlockedReason] = useState<string | null>(null);
+  // Set when the server refuses a clock-in because this team's shift is
+  // already open (another tab or device got there first).
+  const [clockInRefused, setClockInRefused] = useState<{ teamId: string; reason: string } | null>(
+    null,
+  );
+  const clockInRefusedReason =
+    clockInRefused && clockInRefused.teamId === selectedTeamId ? clockInRefused.reason : null;
 
   const isClockedIn = !!activeClockEvent;
 
   // ── Plan-first gates (team setting, default off) — per session ──
-  // Clock In targets the selected team; Clock Out targets the team of the
-  // active session (which may differ if the user switched teams after
-  // clocking in). Gate against whichever applies.
-  const gateTeamId = activeClockEvent?.teamId ?? selectedTeamId;
-  const gateTeam = activeClockEvent
-    ? (teams.find((t) => t.id === activeClockEvent.teamId) ?? null)
-    : selectedTeam;
+  // Clock In and Clock Out both target the selected team's shift.
+  const gateTeamId = selectedTeamId;
+  const gateTeam = selectedTeam;
   const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
   // The published post linked to THIS clock session (one post per session).
   const { sessionPost } = useSessionPost(
@@ -55,10 +58,17 @@ export function useClockToggle() {
       // passes planJustPosted (+ planPostId to link the plan to the session).
       if (!selectedTeamId || (planMissing && !opts?.planJustPosted)) return false;
       setClockInLoading(true);
+      setClockInRefused(null);
       try {
         await clockApi.start(selectedTeamId, opts?.planPostId);
         await refetchClock();
         return true;
+      } catch (err) {
+        if (!(err instanceof ApiError && err.code === 'already-clocked-in')) throw err;
+        // Say why, and let the fresh open-shift map correct the page.
+        setClockInRefused({ teamId: selectedTeamId, reason: err.message });
+        await refetchClock();
+        return false;
       } finally {
         setClockInLoading(false);
       }
@@ -72,7 +82,9 @@ export function useClockToggle() {
     setClockOutLoading(true);
     setClockOutBlockedReason(null);
     try {
-      await clockApi.stop(teamId);
+      // By session id: only this session ends, never a newer one.
+      await clockApi.stop(teamId, activeClockEvent?.id);
+      setClockInRefused(null);
       await refetchClock();
       // Notify all timer-displaying pages to refetch immediately
       window.dispatchEvent(new CustomEvent('work:refetch'));
@@ -100,6 +112,7 @@ export function useClockToggle() {
     clockOutLoading,
     clockPauseLoading,
     clockOutBlockedReason,
+    clockInRefusedReason,
     /** Plan-first gate state for the team the next clock action targets. */
     planGate: {
       teamId: gateTeamId,

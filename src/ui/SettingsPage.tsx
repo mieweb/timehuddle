@@ -745,8 +745,9 @@ const RedmineConnection: React.FC = () => {
   }, [load]);
 
   // Issue ids mean nothing across Redmine instances, so the URL can only change
-  // between shifts. The server enforces this too; locking the field says so up front.
-  const isClockedIn = Boolean(useTeam().activeClockEvent);
+  // between shifts — in any team. The server enforces this too; locking the
+  // field says so up front.
+  const isClockedIn = Object.keys(useTeam().openShifts).length > 0;
   const showUrlField = Boolean(status?.customUrlAllowed);
 
   const handleConnect = async () => {

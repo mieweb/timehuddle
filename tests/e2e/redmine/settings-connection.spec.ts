@@ -212,20 +212,23 @@ test.describe('Settings — Redmine connection', () => {
     });
 
     test('is locked to the default while clocked in', async ({ page }) => {
-      // An open shift on a team other than the selected one, so the live DDP
-      // feed (which only clears the selected team's event) leaves it standing.
-      await page.route('**/api/clock_activeForUser', (route) =>
+      // An open shift on a team other than the selected one: the URL lock
+      // applies while the user is on the clock in any team. The live feed only
+      // triggers refetches of this REST list, so the mocked shift stands.
+      await page.route('**/api/clock_myOpenShifts', (route) =>
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            result: {
-              id: 'e2e-open-shift',
-              userId: 'e2e',
-              teamId: 'e2e-other-team',
-              startTime: Date.now(),
-              accumulatedTime: 0,
-            },
+            result: [
+              {
+                id: 'e2e-open-shift',
+                userId: 'e2e',
+                teamId: 'e2e-other-team',
+                startTime: Date.now(),
+                accumulatedTime: 0,
+              },
+            ],
           }),
         }),
       );
