@@ -54,23 +54,6 @@ export async function closeAllForUser(userId, now) {
   return result.modifiedCount;
 }
 
-/**
- * Close the timer sessions still running inside one shift, at `now` (never
- * before they started). For a shift closed outside a clock-out — the one
- * open shift per person migration. Returns how many were closed.
- */
-export async function closeRunningForShift(clockEventId, now) {
-  const running = await timers().find({ clockEventId, endTime: null }).toArray();
-  for (const s of running) {
-    const endTime = Math.max(s.startTime, now);
-    await timers().updateOne(
-      { _id: s._id, endTime: null },
-      { $set: { endTime, durationSeconds: Math.floor((endTime - s.startTime) / 1000) } }
-    );
-  }
-  return running.length;
-}
-
 /** Find the timer session that closed exactly at `endTime` for the user. */
 export function findClosedAtTime(userId, endTime) {
   return timers().findOne({ userId, endTime });

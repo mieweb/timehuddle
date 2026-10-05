@@ -1523,9 +1523,7 @@ export const clockApi = {
     wormholeCall<ClockEvent>('clock.start', { teamId, planPostId }),
 
   /** Clock out of a team. */
-  /** With `clockEventId`, only that session — never a newer one in the team. */
-  stop: (teamId: string, clockEventId?: string) =>
-    wormholeCall<ClockEvent>('clock.stop', { teamId, ...(clockEventId ? { clockEventId } : {}) }),
+  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
 
   /** Pause an active clock session (break start). */
   pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),
