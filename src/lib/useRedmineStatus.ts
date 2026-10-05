@@ -30,8 +30,10 @@ import { useSession } from './useSession';
  * other, and the UI must not offer it.
  */
 export function onOtherRedmineServer(status: RedmineStatus | null): boolean {
-  if (!status?.connected || !status.customUrlAllowed || !status.defaultBaseUrl) return false;
-  return status.baseUrl !== status.defaultBaseUrl;
+  if (!status?.connected || !status.customUrlAllowed) return false;
+  // No server configured for the deployment means there is none to be "on":
+  // the backend refuses every custom account in that case, and so does this.
+  return !status.defaultBaseUrl || status.baseUrl !== status.defaultBaseUrl;
 }
 
 /** Broadcast when a Redmine account is linked or unlinked. */

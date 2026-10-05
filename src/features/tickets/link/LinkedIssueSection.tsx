@@ -71,6 +71,15 @@ type Mode = 'view' | 'edit' | 'remove';
 const LINK_CLASS =
   'ticket-linked-issue-link inline-flex max-w-full items-baseline gap-1.5 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400';
 
+/**
+ * What a plain link is "from": GitHub for github.com, otherwise the site's host
+ * name. The link may point at any tracker, so it is never assumed to be GitHub.
+ */
+function linkSourceName(url: string): string {
+  const host = new URL(url.trim()).hostname.replace(/^www\./, '');
+  return host === 'github.com' ? ticketLinkText.github : ticketLinkText.linkSource(host);
+}
+
 /** `owner/repo#12` for a GitHub issue or pull request URL, else the URL itself. */
 function githubLabel(url: string): string {
   const parts = parseGithubIssueUrl(url);
@@ -250,7 +259,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
               <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
             </a>
             <SourceLine
-              source={ticketLinkText.github}
+              source={linkSourceName(ticket.github)}
               detail={githubParts ? `${githubParts.owner}/${githubParts.repo}` : undefined}
             />
           </div>

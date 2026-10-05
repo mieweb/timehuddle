@@ -17,9 +17,11 @@ export const ticketLinkText = {
   cancel: 'Cancel',
   redmine: 'Redmine',
   github: 'GitHub',
+  /** For a link to anywhere else: the badge shows the site it points at. */
+  linkSource: (host: string) => host,
   loadingIssue: 'Loading the linked issue from Redmine',
   openIssue: (ref: string) => `Open issue ${ref} in Redmine`,
-  openGithub: (url: string) => `Open GitHub link ${url}`,
+  openGithub: (url: string) => `Open link ${url}`,
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
@@ -31,10 +33,10 @@ export const ticketLinkText = {
 
   kindLabel: 'Tracked in',
   kindNone: 'TimeHuddle',
-  kindGithub: 'GitHub',
+  kindGithub: 'Link',
   kindRedmine: 'Redmine',
 
-  githubLabel: 'GitHub issue or pull request link',
+  githubLabel: 'Link to the issue',
   githubPlaceholder: 'https://github.com/…',
 
   redmineModeLabel: 'Redmine issue',
@@ -60,7 +62,7 @@ export const ticketLinkText = {
   httpsOnly: 'Enter a full link starting with https://',
   linkFailed: "Couldn't save the link. Please try again.",
   removedNotReplaced:
-    "The Redmine link was removed, but the GitHub link couldn't be saved. Save again to add it.",
+    "The Redmine link was removed, but the new link couldn't be saved. Save again to add it.",
   staleLink: 'Someone else changed this ticket’s link. Reload the ticket and try again.',
   createdNotLinked: (ref: string) =>
     `Redmine issue ${ref} was created, but linking it to this ticket failed. Save again to link it.`,

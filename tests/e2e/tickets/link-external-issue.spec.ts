@@ -90,10 +90,10 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
     await card(page).getByRole('button', { name: 'Add link' }).click();
 
-    // Changed in place, with no popup. The choice is GitHub or Redmine only:
+    // Changed in place, with no popup. The choice is a link or Redmine only:
     // "TimeHuddle" is not a link to add, and a link is removed with Unlink.
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(card(page).getByRole('radio', { name: 'GitHub' })).toBeVisible();
+    await expect(card(page).getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
     await expect(card(page).getByRole('radio', { name: 'TimeHuddle', exact: true })).toHaveCount(0);
     await expect(card(page).getByRole('radio', { name: 'Redmine' })).toBeChecked();
     await card(page).getByLabel('Issue number or link').fill('#482');
@@ -145,7 +145,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
 
     // Nothing is stubbed here: the GitHub link is a real field on the ticket.
-    await expect(card(page).getByRole('link', { name: `Open GitHub link ${url}` })).toBeVisible({
+    await expect(card(page).getByRole('link', { name: `Open link ${url}` })).toBeVisible({
       timeout: 20000,
     });
     await card(page).getByRole('button', { name: 'Unlink' }).click();
@@ -171,8 +171,8 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     const tickets = new TicketsPage(page);
     await tickets.goto();
     await page.getByRole('button', { name: 'New Ticket' }).click();
-    await page.getByRole('radio', { name: 'GitHub' }).check();
-    await page.getByLabel('GitHub issue or pull request link').fill(url);
+    await page.getByRole('radio', { name: 'Link', exact: true }).check();
+    await page.getByLabel('Link to the issue').fill(url);
     // The dialog takes the ticket's title from the issue.
     await expect(page.getByPlaceholder('Ticket title')).toHaveValue(githubTitle, {
       timeout: 15000,
@@ -183,7 +183,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
     await page.goto(`/app/tickets/${result.id}`);
     // The link reads as the issue, not as a raw URL, and still goes to GitHub.
-    const link = card(page).getByRole('link', { name: `Open GitHub link ${url}` });
+    const link = card(page).getByRole('link', { name: `Open link ${url}` });
     await expect(link).toContainText(`#638`, { timeout: 20000 });
     await expect(link).toContainText(githubTitle);
     await expect(link).toHaveAttribute('href', url);

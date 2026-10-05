@@ -125,7 +125,7 @@ test.describe('Creating a ticket tracked in Redmine', () => {
 
     await expect(page.getByPlaceholder('Ticket title')).toBeVisible();
     await expect(page.getByRole('radio', { name: 'TimeHuddle', exact: true })).toBeChecked();
-    await expect(page.getByRole('radio', { name: 'GitHub' })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
     await expect(page.getByRole('radio', { name: 'Redmine' })).toBeVisible();
   });
 
