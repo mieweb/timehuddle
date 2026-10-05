@@ -224,6 +224,12 @@ describe('several teams on the clock at once', () => {
     expect((await openShifts()).map((s) => s.id)).toEqual([shiftA.id]);
   });
 
+  it('refuses a clock-out that names neither a session nor a team', async () => {
+    const res = await wormhole('clock.stop', {}, jwt);
+    expect(res.ok).toBe(false);
+    expect((await openShifts()).map((s) => s.id)).toEqual([shiftA.id]);
+  });
+
   it('records the hours of a shift closed by clock-out', async () => {
     const stopA = await wormhole<Shift & { accumulatedTime: number }>(
       'clock.stop',

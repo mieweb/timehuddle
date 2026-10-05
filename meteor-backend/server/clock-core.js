@@ -219,8 +219,12 @@ export function findOpenShifts(userId) {
   return ClockEvents.find({ userId, endTime: null }, { sort: { startTime: 1 } }).fetchAsync();
 }
 
-/** The user's open shift in one team, or null. */
-export function findOpenShift(userId, teamId) {
+/**
+ * The user's open shift in one team, or null. A missing team is null rather
+ * than "any team": the driver drops an undefined `teamId` from the filter.
+ */
+export async function findOpenShift(userId, teamId) {
+  if (typeof teamId !== 'string' || !teamId) return null;
   return ClockEvents.findOneAsync({ userId, teamId, endTime: null });
 }
 

@@ -31,6 +31,13 @@ const AUTO_CLOCKOUT_WORK_SECS = 8 * 3600; // 8h in work seconds
 
 let _agenda;
 
+// Resolves once initAgenda has built the instance, so a cancel queued earlier
+// in startup (the duplicate-shift cleanup in clock.js) still runs.
+let _resolveAgendaReady;
+const agendaReady = new Promise((resolve) => {
+  _resolveAgendaReady = resolve;
+});
+
 export function getAgenda() {
   return _agenda;
 }
@@ -60,6 +67,7 @@ export async function initAgenda() {
     processEvery: '30 seconds',
     defaultLockLifetime: 10_000,
   });
+  _resolveAgendaReady(_agenda);
 
   // ── Job: 4h "Take a Break" reminder ──────────────────────────────────────
   _agenda.define('shift-4h-reminder', async (job) => {
@@ -254,10 +262,10 @@ export async function scheduleMissedClockout(clockEventId, userId, teamId, start
 
 /** Cancel all pending jobs for a clock event (manual clock-out or delete). */
 export async function cancelClockJobs(clockEventId) {
-  await _agenda.cancel({ data: { clockEventId } });
+  await (_agenda ?? (await agendaReady)).cancel({ data: { clockEventId } });
 }
 
 /** Cancel a single named job for a clock event. */
 export async function cancelClockJobsByName(clockEventId, name) {
-  await _agenda.cancel({ name, data: { clockEventId } });
+  await (_agenda ?? (await agendaReady)).cancel({ name, data: { clockEventId } });
 }
