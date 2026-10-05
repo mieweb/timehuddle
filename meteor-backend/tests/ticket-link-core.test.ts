@@ -13,6 +13,7 @@ import {
   linkedTimeSummary,
   lockMessage,
   matchesExpectedLink,
+  sessionIssuesAfterMove,
 } from '../server/ticket-link-core';
 
 const linked = { linkedIssue: { source: 'redmine', id: '482' } };
@@ -140,5 +141,45 @@ describe('linkedTimeSummary', () => {
       ledger: ledgerOf('482', 1200, 1200),
     });
     expect(summary).toEqual({ unlinkedSeconds: 0, unsentSeconds: 0, sentSeconds: 0 });
+  });
+});
+
+describe('sessionIssuesAfterMove', () => {
+  const day = '2026-10-04';
+  const sent = (issueId: string, seconds = 600) => new Map([[`${issueId}|${day}`, { seconds }]]);
+  const issuesOf = (input: Partial<Parameters<typeof sessionIssuesAfterMove>[0]>) =>
+    sessionIssuesAfterMove({
+      sessions: [],
+      date: day,
+      previousIssueId: null,
+      nextIssueId: null,
+      ledger: new Map(),
+      ...input,
+    }).map((row) => row.issueId);
+
+  it('moves unsent sessions to the new ticket\u2019s issue', () => {
+    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day }, { _id: 'b', date: day }];
+    expect(issuesOf({ sessions, nextIssueId: '900' })).toEqual(['900', '900']);
+  });
+
+  it('clears the issue when the new ticket is not linked', () => {
+    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day }];
+    expect(issuesOf({ sessions })).toEqual([null]);
+  });
+
+  it('leaves a session on an issue-day that already has time sent', () => {
+    const sessions = [
+      { _id: 'a', redmineIssueId: '700', date: day },
+      { _id: 'b', redmineIssueId: '700', date: '2026-10-03' },
+    ];
+    expect(issuesOf({ sessions, nextIssueId: '900', ledger: sent('700') })).toEqual(['700', '900']);
+  });
+
+  it('keeps a Redmine entry\u2019s sent time on its own issue, though its sessions carry no stamp', () => {
+    const sessions = [{ _id: 'a' }];
+    expect(
+      issuesOf({ sessions, previousIssueId: '700', nextIssueId: '900', ledger: sent('700') }),
+    ).toEqual(['700']);
+    expect(issuesOf({ sessions, previousIssueId: '700', nextIssueId: '900' })).toEqual(['900']);
   });
 });

@@ -23,6 +23,8 @@ import {
   sourceSelector,
 } from './ticket-refs';
 import { pinIssueIfUnset } from './redmine-prefs';
+import { pushLedgerFor } from './redmine-time-sync';
+import { sessionIssuesAfterMove } from './ticket-link-core';
 import { redmineStampFor } from './timer-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -187,6 +189,44 @@ async function loggedSeconds(entryId) {
   return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
 }
 
+/**
+ * Moving an entry to another ticket says its time was spent on that ticket, so
+ * its sessions now belong to whatever that ticket is linked to, if anything —
+ * except time on an issue-day that has already been sent (see
+ * `sessionIssuesAfterMove`).
+ */
+async function restampSessions(entry, newTicketId) {
+  const [sessions, stamp, ledger] = await Promise.all([
+    Timers.find(
+      { workItemId: entry._id.toHexString() },
+      { fields: { redmineIssueId: 1, date: 1 } },
+    ).fetchAsync(),
+    redmineStampFor({ source: HUDDLE, ticketId: newTicketId }),
+    pushLedgerFor(entry.userId),
+  ]);
+  const moved = sessionIssuesAfterMove({
+    sessions,
+    date: entry.date,
+    previousIssueId: normalizeSource(entry.source) === REDMINE ? entry.ticketId : null,
+    nextIssueId: stamp.redmineIssueId ?? null,
+    ledger,
+  });
+
+  const idsByIssue = new Map();
+  for (const { sessionId, issueId } of moved) {
+    idsByIssue.set(issueId, [...(idsByIssue.get(issueId) ?? []), sessionId]);
+  }
+  await Promise.all(
+    [...idsByIssue].map(([issueId, ids]) =>
+      Timers.updateAsync(
+        { _id: { $in: ids } },
+        issueId ? { $set: { redmineIssueId: issueId } } : { $unset: { redmineIssueId: '' } },
+        { multi: true },
+      ),
+    ),
+  );
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────
 // Extracted so an approved change request can replay the same write the direct
 // path would have made. `actorId` is who the change is attributed to — the
@@ -221,18 +261,7 @@ export async function applyTimerUpdate(
   onCommit?.();
   await WorkItems.updateAsync(entry._id, updateDoc);
 
-  if ($set.ticketId) {
-    // Moving an entry to another ticket says its time was spent on that ticket,
-    // so its sessions now belong to whatever that ticket is linked to, if
-    // anything. Time already sent to the old issue stays in Redmine: entries
-    // there cannot be withdrawn.
-    const stamp = await redmineStampFor({ source: HUDDLE, ticketId: $set.ticketId });
-    await Timers.updateAsync(
-      { workItemId: entryId },
-      stamp.redmineIssueId ? { $set: stamp } : { $unset: { redmineIssueId: '' } },
-      { multi: true },
-    );
-  }
+  if ($set.ticketId) await restampSessions(entry, $set.ticketId);
 
   if (durationSeconds !== undefined) {
     const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });

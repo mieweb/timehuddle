@@ -236,7 +236,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
               }
             >
               <Badge variant="outline" size="sm" className="shrink-0">
-                <FontAwesomeIcon icon={faLink} className="mr-1 text-[10px]" aria-hidden="true" />
+                <FontAwesomeIcon icon={faLink} className="me-1 text-[10px]" aria-hidden="true" />
                 {ticket.linked.ref}
               </Badge>
             </Tooltip>

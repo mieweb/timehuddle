@@ -10,9 +10,16 @@
  * 7. Assign/unassign ticket
  * 8. Unified list: source filter, sorting, no view switcher
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, ticketRow as rowFor } from './helpers';
+
+/**
+ * A ticket title in the table that is showing. A new ticket is also on its
+ * creator's My Board, and both tabs stay mounted, so the title is on the page twice.
+ */
+const inTable = (page: Page, title: string) =>
+  page.locator('[role="tabpanel"]:visible').getByText(title);
 
 const TICKET_TITLE = `E2E Test Ticket ${Date.now()}`;
 const TICKET_TITLE_2 = `E2E Searchable Ticket ${Date.now()}`;
@@ -69,7 +76,7 @@ test.describe('Tickets', () => {
 
     // Wait for ticket to appear in the list
     await page.waitForTimeout(2000);
-    await expect(page.getByText(TICKET_TITLE)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, TICKET_TITLE)).toBeVisible({ timeout: 10000 });
   });
 
   test('should create a ticket and search for it', async ({ page }) => {
@@ -81,7 +88,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(TICKET_TITLE_2);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
 
     // Search for the ticket
     await page
@@ -90,7 +97,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(500);
 
     // Ticket should still be visible
-    await expect(page.getByText(TICKET_TITLE_2)).toBeVisible();
+    await expect(inTable(page, TICKET_TITLE_2)).toBeVisible();
 
     // Clear search and verify all tickets show again
     await page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }).clear();
@@ -110,7 +117,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(editTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(editTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, editTitle)).toBeVisible({ timeout: 10000 });
 
     // Open the ticket options menu
     const ticketRow = rowFor(page, editTitle).first();
@@ -144,7 +151,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(2000);
 
     // Verify updated title appears
-    await expect(page.getByText(`${editTitle} - Updated`)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, `${editTitle} - Updated`)).toBeVisible({ timeout: 10000 });
   });
 
   test('should open ticket details and verify components', async ({ page }) => {
@@ -157,7 +164,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(detailTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(detailTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, detailTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
     const ticketRow = rowFor(page, detailTitle).first();
@@ -207,7 +214,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(deleteTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(deleteTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, deleteTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
     const ticketRow = rowFor(page, deleteTitle).first();
@@ -225,7 +232,7 @@ test.describe('Tickets', () => {
 
     // Wait and verify ticket is gone
     await page.waitForTimeout(2000);
-    await expect(page.getByText(deleteTitle)).not.toBeVisible({ timeout: 5000 });
+    await expect(inTable(page, deleteTitle)).not.toBeVisible({ timeout: 5000 });
   });
 
   test('should assign and unassign a ticket', async ({ page }) => {
@@ -241,7 +248,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(assignTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(assignTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, assignTitle)).toBeVisible({ timeout: 10000 });
 
     // Open edit modal to assign via checkboxes
     const ticketRow = rowFor(page, assignTitle).first();
@@ -269,7 +276,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(2000);
 
     // Verify the ticket still exists after assign
-    await expect(page.getByText(assignTitle).first()).toBeVisible({ timeout: 5000 });
+    await expect(inTable(page, assignTitle).first()).toBeVisible({ timeout: 5000 });
 
     // Reload the page to clear any overlays, then unassign
     await page.goto('/app/tickets');
@@ -314,7 +321,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(mobileTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(mobileTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, mobileTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
     const ticketRow = rowFor(page, mobileTitle).first();
@@ -381,7 +388,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(tabletTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(tabletTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, tabletTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
     const ticketRow = rowFor(page, tabletTitle).first();

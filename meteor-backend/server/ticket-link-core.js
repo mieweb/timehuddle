@@ -14,6 +14,33 @@ export function linkedIssueIdOf(ticket) {
 }
 
 /**
+ * The issue each session of a work item is logged under once the item has been
+ * moved to another ticket, as `[{ sessionId, issueId }]` (`issueId` null for
+ * none).
+ *
+ * A session follows the item to the new ticket's issue (`nextIssueId`) unless
+ * time on the issue-day it was logged under has already been sent or discarded.
+ * Those stay where they are: the push ledger is kept per issue-day, so a moved
+ * session would count as unsent on the new issue and be sent a second time,
+ * and an entry in Redmine can never be withdrawn.
+ *
+ * @param {object} input
+ * @param {Array<{_id: unknown, redmineIssueId?: string, date?: string}>} input.sessions
+ * @param {string} input.date  the work item's day, for a session without its own
+ * @param {string|null} input.previousIssueId  the issue the item itself was on,
+ *   when it was a Redmine entry whose sessions carry no stamp
+ * @param {string|null} input.nextIssueId  the issue the new ticket is linked to
+ * @param {Map<string, {seconds: number}>} input.ledger  `pushLedgerFor`
+ */
+export function sessionIssuesAfterMove({ sessions, date, previousIssueId, nextIssueId, ledger }) {
+  return sessions.map((session) => {
+    const was = session.redmineIssueId ?? previousIssueId ?? null;
+    const handled = was ? (ledger.get(ticketDayKey(was, session.date ?? date))?.seconds ?? 0) : 0;
+    return { sessionId: session._id, issueId: handled > 0 ? was : (nextIssueId ?? null) };
+  });
+}
+
+/**
  * Whether the ticket's link is still the one the caller last saw.
  * `expectedIssueId` is null (or absent) for "not linked". A mismatch means
  * someone else changed the link meanwhile, and writing now would undo it.

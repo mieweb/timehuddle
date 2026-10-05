@@ -241,11 +241,11 @@ export const TicketsPage: React.FC = () => {
 
   // Links already covered by a Redmine fetch (see the DDP handler above).
   const seenLinkKeys = React.useRef(new Set<string>());
+  // Rebuilt, not added to: a link that was removed must ask again if it returns.
   useEffect(() => {
-    for (const ticket of allTickets) {
-      const key = linkedIssueKey(ticket);
-      if (key) seenLinkKeys.current.add(key);
-    }
+    seenLinkKeys.current = new Set(
+      allTickets.map(linkedIssueKey).filter((key): key is string => key !== null),
+    );
   }, [allTickets]);
 
   // Read inside the DDP callback so live pushes normalize against the current
@@ -1005,7 +1005,11 @@ export const TicketsPage: React.FC = () => {
         <TicketCreateModal
           open={showCreate}
           onClose={() => setShowCreate(false)}
-          onCreated={() => void refetch()}
+          // A new ticket is put on its creator's My Board by the server.
+          onCreated={() => {
+            void refetch();
+            loadBoard();
+          }}
           teams={teams}
           defaultTeamId={selectedTeam?.id ?? null}
           userId={userId}
