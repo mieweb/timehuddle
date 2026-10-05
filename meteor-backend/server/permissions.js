@@ -15,7 +15,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { AbilityBuilder, createMongoAbility, subject } from '@casl/ability';
-import { Tickets, Teams, rawDb, isValidId } from './collections';
+import { Tickets, Teams, rawDb, isValidId, isObjectIdHex } from './collections';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -137,7 +137,7 @@ export async function requireTeamMembership(userId, teamId) {
  * Returns the ticket, or throws 'not-found' / 'forbidden'.
  */
 export async function requireTicketPermission(userId, ticketId, action) {
-  if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Invalid ticket id');
+  if (!isObjectIdHex(ticketId)) throw new Meteor.Error('not-found', 'Invalid ticket id');
   const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
   if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
   const ctx = await buildTeamAbility(userId, ticket.teamId);

@@ -230,17 +230,18 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
     if (match) {
       autoOpenedRef.current = focusRequestId;
       setActive(match);
-      onFocusHandled?.();
       return;
     }
     if (loading) return;
     // Not in the pending list — it may already be resolved, so fetch it to show why.
     autoOpenedRef.current = focusRequestId;
-    onFocusHandled?.();
     timesheetApprovalApi
       .get(focusRequestId)
       .then(setActive)
-      .catch(() => {});
+      .catch(() => {
+        // Nothing to open: let the link stop pointing at it.
+        onFocusHandled?.();
+      });
   }, [focusRequestId, requests, loading, onFocusHandled]);
 
   // Another admin ruling on the request that is open here drops it from the
@@ -262,11 +263,15 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       .catch(() => {});
   }, [requests, active, loading, busy]);
 
+  // The deep link holds the request open: it is only handed back when the
+  // modal closes, so reloading or copying the URL meanwhile reopens the same
+  // request. `autoOpenedRef` is what stops it reopening after the close.
   const close = useCallback(() => {
     setActive(null);
     setNote('');
     setError(null);
-  }, []);
+    onFocusHandled?.();
+  }, [onFocusHandled]);
 
   const respond = useCallback(
     async (approved: boolean) => {

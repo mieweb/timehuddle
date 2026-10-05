@@ -70,7 +70,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
-import { useRouter } from '../../ui/router';
+import { useQueryParam, useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 import { useTicketStart } from './TicketStartProvider';
@@ -98,6 +98,18 @@ function getWeekStart(d: Date): Date {
   monday.setDate(d.getDate() - ((dow + 6) % 7));
   monday.setHours(0, 0, 0, 0);
   return monday;
+}
+
+/**
+ * A `YYYY-MM-DD` that is also a real calendar day. The shape alone isn't
+ * enough: `2026-99-99` parses to Invalid Date and `2026-02-31` silently
+ * rolls over into March, so the parsed date has to round-trip back to the
+ * string it came from.
+ */
+function isLocalDateStr(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime()) && toLocalDateStr(parsed) === value;
 }
 
 function addDays(d: Date, n: number): Date {
@@ -129,8 +141,15 @@ export const WorkPage: React.FC = () => {
   const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
 
-  // Selected day (local YYYY-MM-DD)
-  const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
+  // Selected day (local YYYY-MM-DD) — `?date=`, today when absent. Picking a
+  // day pushes, so Back returns to the previous one.
+  const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
+  const selectedDate =
+    dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
+  const setSelectedDate = useCallback(
+    (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
+    [setDateParam],
+  );
 
   // Whether the selected day is today (updates reactively at midnight via currentTime)
   const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
@@ -471,16 +490,16 @@ export const WorkPage: React.FC = () => {
   const handlePrevWeek = useCallback(() => {
     const base = new Date(selectedDate + 'T00:00:00');
     setSelectedDate(toLocalDateStr(addDays(base, -7)));
-  }, [selectedDate]);
+  }, [selectedDate, setSelectedDate]);
 
   const handleNextWeek = useCallback(() => {
     const base = new Date(selectedDate + 'T00:00:00');
     setSelectedDate(toLocalDateStr(addDays(base, 7)));
-  }, [selectedDate]);
+  }, [selectedDate, setSelectedDate]);
 
   const handleGoToToday = useCallback(() => {
     setSelectedDate(toLocalDateStr(new Date()));
-  }, []);
+  }, [setSelectedDate]);
 
   const handleOpenEdit = useCallback((de: DayEntry) => {
     const total = entryTotalSeconds(de.sessions, Date.now());

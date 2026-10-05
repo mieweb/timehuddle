@@ -1,8 +1,8 @@
 import { WebApp } from 'meteor/webapp';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
-import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
+import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
@@ -539,13 +539,9 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
-    if (userId !== targetUserId) {
-      const sharedTeam = await Teams.rawCollection().findOne({
-        members: { $all: [userId, targetUserId] },
-        isPersonal: { $ne: true },
-      });
-      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not a teammate');
-    }
+    // Same rule as `users.get`: this is the profile's Feed, so disagreeing
+    // would leave an authorized profile with an empty one.
+    await requireProfileAccess(userId, targetUserId, 'Not a teammate');
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
       .find({ userId: targetUserId })

@@ -501,7 +501,7 @@ test.describe('Redmine issue page timer', () => {
     ).toBeVisible();
     await page.getByRole('button', { name: "Write today's plan" }).click();
 
-    await expect(page).toHaveURL(/\/app\/clock$/);
+    await expect(page).toHaveURL(/\/app\/clock(\?|$)/);
     await expect(
       page.getByText(`The timer on #${ISSUE_ID} starts when you clock in.`),
     ).toBeVisible();

@@ -131,7 +131,7 @@ test.describe('Organization Email Invitations', () => {
       // New account may be prompted to claim a username before landing in the app.
       const usernameDialog = invitedPage.getByRole('dialog', { name: 'Username Required' });
       await Promise.race([
-        invitedPage.waitForURL(/\/app\/(dashboard)?$/, { timeout: 20000 }).catch(() => {}),
+        invitedPage.waitForURL(/\/app\/(dashboard)?(\?|$)/, { timeout: 20000 }).catch(() => {}),
         usernameDialog.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {}),
       ]);
       if (await usernameDialog.isVisible().catch(() => false)) {
@@ -142,7 +142,7 @@ test.describe('Organization Email Invitations', () => {
         await usernameDialog.getByRole('button', { name: 'Claim username' }).click();
         await usernameDialog.waitFor({ state: 'hidden', timeout: 10000 });
       }
-      await invitedPage.waitForURL(/\/app\/(dashboard)?$/, { timeout: 20000 });
+      await invitedPage.waitForURL(/\/app\/(dashboard)?(\?|$)/, { timeout: 20000 });
     } finally {
       await invitedContext.close();
     }

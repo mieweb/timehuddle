@@ -36,7 +36,7 @@ import React, { useState } from 'react';
 import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu';
-import { useRouter } from './router';
+import { isActivePath, useRouter } from './router';
 
 interface NavTab {
   icon: LucideIcon;
@@ -166,7 +166,8 @@ export const BottomNav: React.FC = () => {
             neither of which can express an icon stacked over a label. */}
         {TABS.map((tab) => {
           const isActive =
-            pathname === tab.href || (tab.href === '/app/dashboard' && pathname === '/app');
+            isActivePath(pathname, tab.href) ||
+            (tab.href === '/app/dashboard' && pathname === '/app');
 
           if (tab.isFab) {
             return (

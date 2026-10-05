@@ -30,7 +30,8 @@ import {
 import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
 import React, { useEffect, useState } from 'react';
 
-import { ApiError, userApi, type PublicUser } from '../../lib/api';
+import { userApi, type PublicUser } from '../../lib/api';
+import { classifyLoadError } from '../../lib/loadError';
 
 /**
  * Resize a photo data-URL to at most `maxDim` on its longest side.
@@ -66,8 +67,8 @@ async function resizeAvatarPhoto(dataUrl: string, maxDim = 2048): Promise<string
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
-import { useRouter } from '../../ui/router';
-import { UserAvatar } from '../../ui/UserAvatar';
+import { NoAccessState, type NoAccessKind } from '../../ui/NoAccessState';
+import { useQueryParam, useRouter } from '../../ui/router';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileFeed } from './ProfileFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
@@ -76,15 +77,23 @@ import { TodayStatusCard } from '../timers/TodayStatusCard';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
+/** The tabs `?tab=` may name; anything else is treated as absent. */
+const PROFILE_TABS = ['feed', 'work', 'activity'] as const;
+type ProfileTab = (typeof PROFILE_TABS)[number];
+
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
-  const { navigate, pathname, search, replace } = useRouter();
+  const { navigate } = useRouter();
   const isOwn = userId ? sessionUser?.id === userId : sessionUser?.username === username;
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [isForbidden, setIsForbidden] = useState(false);
-  const [isNotFound, setIsNotFound] = useState(false);
+  // Set when the profile can't be shown at all: forbidden vs. doesn't exist.
+  const [unavailable, setUnavailable] = useState<NoAccessKind | null>(null);
+  // A load that failed for some other reason (offline, backend down). Separate
+  // from `unavailable`, because this one is worth retrying.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   // Avatar upload/crop modal state
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
@@ -92,54 +101,39 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   // Background image state
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const [backgroundUploading, setBackgroundUploading] = useState(false);
-  // Active tab — re-derived whenever the deep link's `?tab=` query changes
-  // (e.g. tapping a second notification while already on this profile page).
-  // Consumed immediately: leaving `?tab=` in the URL would make a repeat tap a
-  // no-op change to `search`, so the deep link would be silently ignored.
-  const [activeTab, setActiveTab] = useState(
-    () => new URLSearchParams(search).get('tab') ?? 'feed',
-  );
-  useEffect(() => {
-    const tab = new URLSearchParams(search).get('tab');
-    if (!tab) return;
-    setActiveTab(tab);
-    replace(pathname);
-  }, [search, pathname, replace]);
+  // Active tab — `?tab=` (Feed when absent). Switching pushes, so Back
+  // returns to the previous tab and a notification's `?tab=work` is just a link.
+  const [tabParam, setTabParam] = useQueryParam('tab', { mode: 'push' });
+  // A stale or hand-edited `?tab=` falls back to Feed rather than rendering
+  // a Tabs with no matching content.
+  const activeTab = PROFILE_TABS.includes(tabParam as ProfileTab) ? tabParam! : 'feed';
+  const setActiveTab = (tab: string) => setTabParam(tab === 'feed' ? null : tab);
+
+  // One loader for the first paint and for pull-to-refresh, so a refresh that
+  // fails lands on the same no-access or error state instead of emptying the
+  // page into an "Unknown user".
+  const loadProfile = React.useCallback(async () => {
+    setUnavailable(null);
+    setLoadError(false);
+    try {
+      const p = await (userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!));
+      setProfile(p);
+      setBackgroundUrl(p.backgroundUrl ?? null);
+    } catch (err) {
+      // By Meteor.Error code: wormhole sends them all as HTTP 500.
+      const kind = classifyLoadError(err);
+      if (kind === 'error') setLoadError(true);
+      else setUnavailable(kind);
+      setProfile(null);
+    }
+  }, [userId, username]);
 
   useEffect(() => {
     setIsReady(false);
-    setIsForbidden(false);
-    setIsNotFound(false);
-    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-    fetch
-      .then((p) => {
-        setProfile(p);
-        setBackgroundUrl(p.backgroundUrl ?? null);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 403) {
-          setIsForbidden(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setIsNotFound(true);
-        }
-        setProfile(null);
-      })
-      .finally(() => setIsReady(true));
-  }, [userId, username]);
+    void loadProfile().finally(() => setIsReady(true));
+  }, [loadProfile, reloadKey]);
 
-  useRefresh(
-    React.useCallback(async () => {
-      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
-      fetch
-        .then((p) => {
-          setProfile(p);
-          setBackgroundUrl(p.backgroundUrl ?? null);
-        })
-        .catch(() => {
-          setProfile(null);
-        });
-    }, [userId, username]),
-  );
+  useRefresh(loadProfile);
 
   if (!isReady) {
     return (
@@ -149,37 +143,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     );
   }
 
-  // 404 — user does not exist
-  if (isNotFound) {
-    return (
-      <div className="w-full space-y-6 p-6">
-        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
-          <UserAvatar name="?" size="xl" />
-          <Text as="h1" size="xl" weight="bold">
-            User Not Found
-          </Text>
-          <Text variant="muted" size="sm">
-            This profile does not exist or the username may have changed.
-          </Text>
-        </Card>
-      </div>
-    );
+  if (unavailable) {
+    return <NoAccessState kind={unavailable} resource="profile" />;
   }
 
-  // 403 — not a teammate
-  if (isForbidden) {
+  // Without this the failed load would fall through and render the page as
+  // "Unknown user", which reads as a real but empty profile.
+  if (loadError) {
     return (
-      <div className="w-full space-y-6 p-6">
-        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
-          <UserAvatar name="?" size="xl" />
-          <Text as="h1" size="xl" weight="bold">
-            Profile Unavailable
-          </Text>
-          <Text variant="muted" size="sm">
-            You can only view profiles of people who share a team with you.
-          </Text>
-        </Card>
-      </div>
+      <AppPage>
+        <div className="profile-load-error flex flex-col items-center gap-4 py-24">
+          <Text>Could not load this profile. Check your connection.</Text>
+          <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </Button>
+        </div>
+      </AppPage>
     );
   }
 

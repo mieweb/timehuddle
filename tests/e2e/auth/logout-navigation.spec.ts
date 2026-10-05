@@ -27,7 +27,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify we're on dashboard
     expect(page.url()).toContain('/dashboard');
@@ -49,7 +49,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to teams page
     await page.getByRole('button', { name: /^Teams$/i }).click();
@@ -75,7 +75,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to organization page
     await page.getByRole('button', { name: /^Organization$/i }).click();
@@ -101,7 +101,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to org members page
     await page.getByRole('button', { name: /^Organization$/i }).click();
@@ -139,7 +139,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to teams page
     await page.getByRole('button', { name: /^Teams$/i }).click();
@@ -169,7 +169,7 @@ test.describe('Logout Navigation', () => {
 
     // Login
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to any page
     await page.getByRole('button', { name: /^Teams$/i }).click();
@@ -184,7 +184,7 @@ test.describe('Logout Navigation', () => {
 
     // Should be able to login again
     await loginPage.loginAs(user);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify authenticated
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);

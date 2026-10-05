@@ -61,8 +61,10 @@ jobs:
           # ship a bundle that cannot reach any backend. Set it explicitly.
           if [ "$CHANNEL" = "production" ]; then
             echo "backend=https://timecore-prod.os.mieweb.org" >> "$GITHUB_OUTPUT"
+            echo "frontend=https://huddle.os.mieweb.org" >> "$GITHUB_OUTPUT"
           else
             echo "backend=https://timecore-dev.os.mieweb.org" >> "$GITHUB_OUTPUT"
+            echo "frontend=https://timehuddledev.os.mieweb.org" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
@@ -73,16 +75,27 @@ jobs:
         env:
           CAPACITOR: '1'
           VITE_TIMECORE_URL: ${{ steps.channel.outputs.backend }}
+          # Inside the native shell window.location.origin is capacitor://localhost,
+          # so every shared link (Copy Link, team QR) is built from this instead.
+          # The frontend is deployed separately from the backend, so it cannot be
+          # derived from VITE_TIMECORE_URL.
+          VITE_PUBLIC_APP_URL: ${{ steps.channel.outputs.frontend }}
 
       - name: Verify bundle points at the right backend
         run: |
           BACKEND="${{ steps.channel.outputs.backend }}"
+          FRONTEND="${{ steps.channel.outputs.frontend }}"
           # Without VITE_TIMECORE_URL the URL appears nowhere in dist/ and the app
           # silently falls back to localhost in src/lib/api.ts, shipping a bundle
           # that cannot reach any backend. Its presence proves the var was applied.
           grep -rqF "$BACKEND" dist --include=*.js \
             || { echo "FAIL: $BACKEND missing from dist/ - VITE_TIMECORE_URL was not applied"; exit 1; }
           echo "PASS: bundle targets $BACKEND"
+          # Same check for the share origin: unset, shared links would point at
+          # the backend host, which does not serve the web app.
+          grep -rqF "$FRONTEND" dist --include=*.js \
+            || { echo "FAIL: $FRONTEND missing from dist/ - VITE_PUBLIC_APP_URL was not applied"; exit 1; }
+          echo "PASS: shared links point at $FRONTEND"
 
       - name: Publish bundle
         run: node scripts/publish-ota.mjs --channel ${{ steps.channel.outputs.name }} ${{ github.event.inputs.version && format('--version {0}', github.event.inputs.version) || '' }}

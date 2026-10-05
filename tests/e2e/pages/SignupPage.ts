@@ -132,7 +132,7 @@ export class SignupPage extends BasePage {
    */
   async waitForSignupSuccess(timeout = 15000) {
     await Promise.race([
-      this.page.waitForURL('**/dashboard', { timeout }),
+      this.page.waitForURL(/\/dashboard(\?|$)/, { timeout }),
       this.page.waitForURL(/\/app\/(?!$)/, { timeout }),
     ]);
   }

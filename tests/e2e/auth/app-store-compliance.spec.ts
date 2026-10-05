@@ -85,7 +85,7 @@ test.describe('App Store compliance — Account deletion (5.1.1(v))', () => {
     await dashboardPage.logout();
     await loginPage.goto();
     await loginPage.login(user.email, user.password);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);
   });
 

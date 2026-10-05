@@ -23,7 +23,7 @@ test.describe('Login', () => {
     await loginPage.loginAs(owner);
 
     // Wait for navigation to complete
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify we're on dashboard
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);
@@ -35,7 +35,7 @@ test.describe('Login', () => {
     await loginPage.loginAs(admin);
 
     // Wait for navigation
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify authenticated
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);
@@ -47,7 +47,7 @@ test.describe('Login', () => {
     await loginPage.loginAs(member);
 
     // Wait for navigation
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify authenticated
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);
@@ -83,7 +83,7 @@ test.describe('Login', () => {
     await loginPage.loginAs(owner);
 
     // Should navigate to dashboard
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify URL contains dashboard
     expect(page.url()).toContain('/dashboard');

@@ -41,6 +41,11 @@ jobs:
 
       - name: Vite build (testflight mode → timecore-dev.os.mieweb.org)
         run: npx vite build --mode testflight
+        env:
+          # window.location.origin is capacitor://localhost in the native shell,
+          # so shared links are built from this. Set explicitly: the frontend is
+          # deployed separately from the backend and can't be derived from it.
+          VITE_PUBLIC_APP_URL: https://timehuddledev.os.mieweb.org
 
       - name: Capacitor sync
         run: npx cap sync ios
@@ -83,6 +88,8 @@ jobs:
 
       - name: Vite build (production mode → timecore-prod.os.mieweb.org)
         run: npx vite build --mode production
+        env:
+          VITE_PUBLIC_APP_URL: https://huddle.os.mieweb.org
 
       - name: Capacitor sync
         run: npx cap sync ios

@@ -1,4 +1,11 @@
-import { faCopy, faPen, faTrash, faCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCopy,
+  faLink,
+  faPen,
+  faTrash,
+  faCheck,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -28,12 +35,15 @@ import {
   type TicketLinkStatus,
   type TicketSession,
 } from '../../../lib/api';
+import { classifyLoadError } from '../../../lib/loadError';
 import { useBackgroundRefresh } from '../../../lib/useBackgroundRefresh';
 import { useSession } from '../../../lib/useSession';
 import { useTeam } from '../../../lib/TeamContext';
 import { useRefresh } from '../../../lib/RefreshContext';
+import { useCopyLink } from '../../../lib/useCopyLink';
 import { AppPage } from '../../../ui/AppPage';
 import { MarkdownContent } from '../../../ui/MarkdownContent';
+import { NoAccessState, type NoAccessKind } from '../../../ui/NoAccessState';
 import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
@@ -103,6 +113,7 @@ interface TicketDetailPageProps {
 
 export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) => {
   const { navigate } = useRouter();
+  const copyLink = useCopyLink();
   const { user } = useSession();
   const { teams } = useTeam();
 
@@ -113,6 +124,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [idCopied, setIdCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Set when the ticket can't be shown at all: forbidden vs. doesn't exist.
+  const [unavailable, setUnavailable] = useState<NoAccessKind | null>(null);
 
   // Edit state
   const [editingTitle, setEditingTitle] = useState(false);
@@ -157,6 +170,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setUnavailable(null);
     Promise.all([
       ticketApi.getTicket(ticketId),
       activityApi.getTicketActivity(ticketId, 50).catch(() => ({ events: [] })),
@@ -169,7 +183,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         setTitleDraft(t.title);
         setDescDraft(t.description ?? '');
       })
-      .catch(() => setError('Ticket not found or you do not have access.'))
+      .catch((err: unknown) => {
+        const kind = classifyLoadError(err);
+        if (kind === 'error') setError('Could not load this ticket. Check your connection.');
+        else setUnavailable(kind);
+      })
       .finally(() => setLoading(false));
   }, [ticketId]);
 
@@ -316,6 +334,14 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     );
   }
 
+  if (unavailable) {
+    return (
+      <AppPage>
+        <NoAccessState kind={unavailable} resource="ticket" />
+      </AppPage>
+    );
+  }
+
   if (error || !ticket) {
     return (
       <AppPage>
@@ -344,7 +370,20 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   return (
     <AppPage>
-      <BackToTicketsButton />
+      <BackToTicketsButton
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label="Copy link to this ticket"
+            className="rounded-full"
+            onClick={() => void copyLink(`/app/tickets/${ticket.id}`)}
+            leftIcon={<FontAwesomeIcon icon={faLink} size="sm" />}
+          >
+            Copy Link
+          </Button>
+        }
+      />
 
       {/* Full-width title section */}
       <div className="ticket-detail-title-section mb-6">

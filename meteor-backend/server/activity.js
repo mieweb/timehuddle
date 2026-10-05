@@ -1,8 +1,9 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
-import { Teams, rawDb, isValidId } from './collections';
+import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
+import { requireProfileAccess } from './profile-access';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -56,15 +57,13 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'userId is required');
     }
 
-    if (userId !== targetUserId) {
-      const sharedTeam = await Teams.rawCollection().findOne({
-        members: { $all: [userId, targetUserId] },
-        isPersonal: { $ne: true },
-      });
-      if (!sharedTeam) {
-        throw new Meteor.Error('forbidden', 'You can only view activity of teammates.');
-      }
-    }
+    // Same rule as `users.get`: this is the profile's Activity tab, so
+    // disagreeing would leave an authorized profile with an unavailable one.
+    await requireProfileAccess(
+      userId,
+      targetUserId,
+      'You can only view activity of teammates.',
+    );
 
     return getLog(targetUserId, limit, before);
   },

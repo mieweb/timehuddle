@@ -61,6 +61,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
+import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { PendingJoinRequests } from './PendingJoinRequests';
@@ -91,7 +92,7 @@ function invitationStatusVariant(
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { navigate, pathname } = useRouter();
+  const { navigate } = useRouter();
   const {
     teams,
     pendingRequests,
@@ -102,57 +103,6 @@ export const TeamsPage: React.FC = () => {
     isAdmin,
     refetchTeams,
   } = useTeam();
-
-  // Controlled via deep-link query params (?teamId=) — Members/Pending are
-  // always visible together now, no tabs to switch between.
-  const [urlCheckCounter, setUrlCheckCounter] = useState(0);
-
-  // ── Parse deep-link query params whenever URL changes ──
-  useEffect(() => {
-    // Teams load asynchronously, and this effect consumes the query string
-    // destructively (the replaceState below). Running before they arrive means
-    // `teamId` can never match, so the team is silently dropped while the
-    // params are stripped anyway — every later run then sees an empty search
-    // and the deep link is lost for good, leaving the user on whichever team
-    // sorts first instead of the linked one.
-    if (!teamsReady) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const teamId = params.get('teamId');
-    const hasQuery = window.location.search.length > 0;
-
-    // Old notification URLs pointed here with tab=timesheet; the timesheet
-    // view has moved to the Dashboard. Forward so those links still work.
-    if (params.get('tab') === 'timesheet') {
-      const fwd = new URLSearchParams();
-      fwd.set('tab', 'timesheet');
-      const memberId = params.get('memberId');
-      const fwdTeamId = params.get('teamId');
-      if (memberId) fwd.set('memberId', memberId);
-      if (fwdTeamId) fwd.set('teamId', fwdTeamId);
-      navigate(`/app/dashboard?${fwd.toString()}`);
-      return;
-    }
-
-    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
-
-    // Clean up query params from URL without triggering a navigation
-    if (hasQuery) {
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState(null, '', cleanUrl);
-    }
-  }, [pathname, urlCheckCounter, setSelectedTeamId, navigate, teams, teamsReady]);
-
-  // ── Listen for navigation events (from navigate()) ──
-  useEffect(() => {
-    const handleUrlChange = () => setUrlCheckCounter((c) => c + 1);
-    window.addEventListener('timehuddle:navigate', handleUrlChange);
-    window.addEventListener('popstate', handleUrlChange);
-    return () => {
-      window.removeEventListener('timehuddle:navigate', handleUrlChange);
-      window.removeEventListener('popstate', handleUrlChange);
-    };
-  }, []);
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -309,7 +259,7 @@ export const TeamsPage: React.FC = () => {
         description: createDescription.trim() || undefined,
         orgId: selectedOrgId,
       });
-      setSelectedTeamId(team.id);
+      setSelectedTeamId(team.id, team);
       setModal({ type: 'created', code: team.code });
       setFormValue('');
       setCreateDescription('');
@@ -332,7 +282,7 @@ export const TeamsPage: React.FC = () => {
         setModal({ type: 'pending-request', teamCode: formValue.trim() });
         refetchTeams();
       } else if (result.status === 'joined') {
-        setSelectedTeamId(result.team.id);
+        setSelectedTeamId(result.team.id, result.team);
         closeModal();
         refetchTeams();
       }
@@ -364,13 +314,17 @@ export const TeamsPage: React.FC = () => {
     try {
       await teamApi.deleteTeam(selectedTeamId);
       closeModal();
+      // The URL still names the team that just went. Left there, the no-access
+      // gate would strand the admin who deleted it on their own page; `/app/teams`
+      // redirects to whichever team they have left.
+      navigate('/app/teams');
       refetchTeams();
     } catch (e: any) {
       setFormError(e.message || 'Failed to delete');
     } finally {
       setDeleteLoading(false);
     }
-  }, [selectedTeamId, refetchTeams]);
+  }, [selectedTeamId, refetchTeams, navigate]);
 
   const handleInvite = useCallback(async () => {
     if (!formValue.trim() || !selectedTeamId || inviteLoading) return;
@@ -472,7 +426,7 @@ export const TeamsPage: React.FC = () => {
   // Shareable signup link encoded in the QR code — scanning it lands on the
   // signup page and auto-joins this team after account creation.
   const joinUrl = selectedTeam?.code
-    ? `${window.location.origin}/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`
+    ? absoluteAppUrl(`/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`)
     : '';
 
   const [linkCopied, setLinkCopied] = useState(false);

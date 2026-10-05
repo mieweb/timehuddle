@@ -11,7 +11,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { selectSharedTestTeam } from '../fixtures/team';
+import { selectSharedTestTeam, selectTeamById } from '../fixtures/team';
 import { getUserIdByEmail, inboxMessage, seedPost } from '../huddle/helpers';
 
 const MONGO_URL =
@@ -50,18 +50,6 @@ function localDate(daysAgo = 0): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Force the app onto `teamId` the way the team fixture does, then reload. */
-async function selectTeam(page: Page, teamId: string): Promise<void> {
-  await page.evaluate((id) => {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('app:selectedTeamId'))
-      .forEach((k) => localStorage.setItem(k, id));
-    localStorage.setItem('app:selectedTeamId', id);
-  }, teamId);
-  await page.reload();
-  await page.waitForLoadState('domcontentloaded');
-}
-
 async function openHuddleFeed(page: Page): Promise<void> {
   await page.goto('/app/huddle');
   await page.getByRole('button', { name: /^Team:/ }).waitFor({ state: 'visible', timeout: 20000 });
@@ -71,7 +59,7 @@ async function openHuddleFeed(page: Page): Promise<void> {
 const openedPost = (page: Page, text: string) => inboxMessage(page, text).first();
 
 test.describe('Notification deep links', () => {
-  test('a post link opens its conversation and clears the consumed query', async ({ page }) => {
+  test('a post link opens its conversation and becomes a conversation link', async ({ page }) => {
     test.setTimeout(90000);
     await loginAs(page, TEST_USERS.owner1);
     const teamId = await selectSharedTestTeam(page);
@@ -86,8 +74,18 @@ test.describe('Notification deep links', () => {
     await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
 
     await expect(openedPost(page, text)).toBeVisible({ timeout: 15000 });
-    // Left in place, a stale ?postId= makes the next identical tap a no-op.
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe('');
+    // The post resolves to the conversation holding it: that's the durable
+    // link. Left in place, a stale ?postId= would make the next identical tap
+    // a no-op.
+    const params = () => new URL(page.url()).searchParams;
+    await expect.poll(() => params().get('conversation'), { timeout: 10000 }).toMatch(/^session:/);
+    expect(params().get('team')).toBe(teamId);
+    expect(params().has('postId')).toBe(false);
+    expect(params().has('teamId')).toBe(false);
+
+    // …and survives a reload.
+    await page.reload();
+    await expect(openedPost(page, text)).toBeVisible({ timeout: 20000 });
   });
 
   test('a second post link is honoured while already on the feed', async ({ page }) => {
@@ -152,7 +150,7 @@ test.describe('Notification deep links', () => {
     const otherTeamId = await getOtherTeamId(TEST_USERS.owner1.email, sharedTeamId);
     test.skip(!otherTeamId, 'owner1 belongs to only one team — nothing to switch away from');
 
-    await selectTeam(page, otherTeamId!);
+    await selectTeamById(page, otherTeamId!);
     await openHuddleFeed(page);
     const sharedTeamPicker = page.getByRole('button', { name: 'Team: Test Team Alpha' });
     await expect(sharedTeamPicker).toBeHidden();
@@ -178,12 +176,14 @@ test.describe('Notification deep links', () => {
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10000 }).toBe('');
+    // The tab is part of the link now, so a reload keeps it.
+    expect(new URL(page.url()).searchParams.get('tab')).toBe('work');
 
-    // Switching by hand leaves the URL untouched, so a repeat tap pushes the
-    // same query string again — it must still be acted on.
+    // Switching by hand writes the URL too, so a repeat tap is a real change
+    // and is acted on.
     await feedTab.click();
     await expect(feedTab).toHaveAttribute('aria-selected', 'true');
+    expect(new URL(page.url()).searchParams.has('tab')).toBe(false);
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });

@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { isNewer, isValidVersion } from '@timehuddle/ota-version';
 import { Teams, rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { adminsAnOrgOf, sharedTeamDocs } from './profile-access';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -65,6 +66,24 @@ async function resolveTeamMemberships(userId) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * The non-personal teams both users are in, after checking the caller may see
+ * the profile at all. The rule itself lives in `profile-access`, because the
+ * Feed and Activity tabs are separate methods that must agree with it.
+ */
+async function requireSharedTeams(viewerId, targetUserId) {
+  if (viewerId === targetUserId) return [];
+  const docs = await sharedTeamDocs(viewerId, targetUserId);
+  if (docs.length === 0 && !(await adminsAnOrgOf(viewerId, targetUserId))) {
+    throw new Meteor.Error('forbidden', 'You do not share a team with this user');
+  }
+  return docs.map((t) => ({
+    id: t._id.toHexString ? t._id.toHexString() : String(t._id),
+    name: t.name,
+    isAdmin: t.admins.includes(viewerId),
+  }));
+}
+
 async function toPublicUser(u, profileMap) {
   if (!u) return null;
   const userId = u._id.toHexString ? u._id.toHexString() : String(u._id);
@@ -92,17 +111,7 @@ Meteor.methods({
     const user = await findUserById(targetUserId);
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const sharedTeamDocs = userId !== targetUserId
-      ? await Teams.rawCollection().find({
-          members: { $all: [userId, targetUserId] },
-          isPersonal: { $ne: true },
-        }).toArray()
-      : [];
-    const sharedTeams = sharedTeamDocs.map((t) => ({
-      id: t._id.toHexString ? t._id.toHexString() : String(t._id),
-      name: t.name,
-      isAdmin: t.admins.includes(userId),
-    }));
+    const sharedTeams = await requireSharedTeams(userId, targetUserId);
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },
@@ -116,18 +125,7 @@ Meteor.methods({
     const user = await rawDb().collection('users').findOne({ username: username.toLowerCase() });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const targetId = String(user._id);
-    const sharedTeamDocs = userId !== targetId
-      ? await Teams.rawCollection().find({
-          members: { $all: [userId, targetId] },
-          isPersonal: { $ne: true },
-        }).toArray()
-      : [];
-    const sharedTeams = sharedTeamDocs.map((t) => ({
-      id: t._id.toHexString ? t._id.toHexString() : String(t._id),
-      name: t.name,
-      isAdmin: t.admins.includes(userId),
-    }));
+    const sharedTeams = await requireSharedTeams(userId, String(user._id));
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },

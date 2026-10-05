@@ -12,7 +12,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
-import { gotoTeamsPage } from '../fixtures/team';
+import { gotoTeamsPage, selectTeamById } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const MONGO_URL =
@@ -31,13 +31,7 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
   const teamId = await getTeamId('TEST01');
   if (!teamId) return false;
 
-  await page.evaluate((id) => {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('app:selectedTeamId'))
-      .forEach((k) => localStorage.setItem(k, id));
-    localStorage.setItem('app:selectedTeamId', id);
-  }, teamId);
-  await page.reload();
+  await selectTeamById(page, teamId);
   // Reload occasionally lands on the login screen when the session cookie
   // hasn't fully synced yet — wait for the app shell (larger, more forgiving
   // signal than the h1) before asserting on page-specific content.

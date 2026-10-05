@@ -111,7 +111,7 @@ before adding a note rather than copying an existing file blind.
 
 - **Global styles**: `src/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
 - **App shell**: `src/ui/AppLayout.tsx` — layout, sidebar, routing context
-- **Routing**: client-side only via `RouterContext` (no React Router)
+- **Routing**: client-side only via `RouterProvider` / `useRouter` (no React Router). The URL scheme — path = resource, `?team=` = scope, other params = view state — is in [`src/ui/ROUTING.md`](src/ui/ROUTING.md)
 - **API calls**: `src/lib/api.ts` — fetch wrappers to the backend
 - **Auth**: `src/lib/useSession.ts`
 

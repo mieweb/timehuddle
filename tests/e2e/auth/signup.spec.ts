@@ -89,7 +89,7 @@ test.describe('Signup', () => {
     // Login again with the same credentials
     await loginPage.goto();
     await loginPage.login(testEmail, testPassword);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Verify authenticated
     await expect(dashboardPage.hasSidebar()).resolves.toBe(true);

@@ -148,7 +148,8 @@ test.describe('Unified ticket table', () => {
     await row.getByRole('checkbox').click();
     await row.getByRole('button', { name: 'Ticket options' }).click();
     await page.keyboard.press('Escape');
-    await expect(page).toHaveURL(/\/app\/tickets$/);
+    // The Tickets URL carries `?team=` (deep linking), so only the path is pinned.
+    await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
 
     // A plain cell — not the title — opens the ticket.
     await row.getByText('TimeHuddle', { exact: true }).click();

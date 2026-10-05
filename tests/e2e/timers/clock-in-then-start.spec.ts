@@ -123,13 +123,13 @@ test.describe('Clock in, then start a ticket timer', () => {
     ).toBeVisible();
     await page.getByRole('button', { name: "Write today's plan" }).click();
 
-    await expect(page).toHaveURL(/\/app\/clock$/);
+    await expect(page).toHaveURL(/\/app\/clock(\?|$)/);
     await expect(page.getByText(`The timer on ${title} starts when you clock in.`)).toBeVisible();
     await clock.typePlan(`Plan before timing ${title}`);
     await clock.postPlanAndClockIn();
 
     // Back where the start was asked for, with the timer running.
-    await expect(page).toHaveURL(/\/app\/tickets$/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/app\/tickets(\?|$)/, { timeout: 15000 });
     await expect(page.getByText(`Timer started on ${title}. It's on My Board`)).toBeVisible();
     await tickets.switchToTab('my-board');
     await expect(tickets.stopTimerButton(title)).toBeVisible({ timeout: 10000 });
@@ -156,7 +156,7 @@ test.describe('Clock in, then start a ticket timer', () => {
     await clock.typePlan('Plan without a waiting timer');
     await clock.postPlanAndClockIn();
     // Clocked in, still on the Clock page, and nothing was started.
-    await expect(page).toHaveURL(/\/app\/clock$/);
+    await expect(page).toHaveURL(/\/app\/clock(\?|$)/);
     await expect(page.getByText(/Clocking out will stop the timer/)).toHaveCount(0);
     await clock.ensureClockedOut();
   });

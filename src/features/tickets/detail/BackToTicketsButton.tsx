@@ -4,15 +4,15 @@
  */
 import { faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+import { Button, ButtonGroup } from '@mieweb/ui';
 import React from 'react';
 
 import { useRouter } from '../../../ui/router';
 
-export const BackToTicketsButton: React.FC = () => {
+export const BackToTicketsButton: React.FC<{ actions?: React.ReactNode }> = ({ actions }) => {
   const { navigate } = useRouter();
   return (
-    <div className="ticket-detail-back mb-4">
+    <ButtonGroup split className="ticket-detail-back mb-4 w-full">
       <Button
         variant="secondary"
         size="sm"
@@ -23,6 +23,7 @@ export const BackToTicketsButton: React.FC = () => {
       >
         TICKETS
       </Button>
-    </div>
+      {actions}
+    </ButtonGroup>
   );
 };

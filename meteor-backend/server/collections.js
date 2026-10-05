@@ -61,5 +61,14 @@ export function isValidId(id) {
   return /^[0-9a-f]{24}$/i.test(id) || /^[a-zA-Z0-9]{7,32}$/.test(id);
 }
 
+/**
+ * Narrower than `isValidId`, which also accepts legacy Meteor ids. Use this
+ * before `new Mongo.ObjectID(id)`: that constructor throws on anything but
+ * 24 hex characters, turning a bad link into a server error.
+ */
+export function isObjectIdHex(id) {
+  return typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id);
+}
+
 /** Mongo's error code for a write that violates a unique index. */
 export const DUPLICATE_KEY_ERROR_CODE = 11000;

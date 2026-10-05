@@ -303,7 +303,7 @@ test.describe('Redmine suggestion timers', () => {
     await expect(page.getByText("Timer started on #23. It's on My Board")).toBeVisible();
     expect(boardAdds).toHaveLength(0);
     expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
-    await expect(page).toHaveURL(/\/app\/tickets$/);
+    await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
   });
 
   test('a timer on an issue you do not own adds it to the table, then My Board', async ({

@@ -9,6 +9,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 
 import { authApi, orgApi, type TimecoreUser } from './api';
 import { getDdpClient } from './ddp';
+import { forgetReturnTo } from './returnTo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.removeItem('meteor_resume_token');
     // Clear user state immediately to stop any reactive refetches
     setUser(null);
+    // A deliberate sign-out shouldn't send the next sign-in back here.
+    forgetReturnTo();
     // Navigate to root to show landing/login page
     if (window.location.pathname !== '/') {
       window.history.pushState(null, '', '/');

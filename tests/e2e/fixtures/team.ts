@@ -38,6 +38,30 @@ export async function getTeamIdByCode(code: string): Promise<string | null> {
 }
 
 /**
+ * Reload the current page without the team its URL names (`?team=`,
+ * `?teamId=`, or `/app/teams/:teamId`). The URL wins over localStorage (see
+ * src/ui/ROUTING.md), so a plain reload would keep the old team.
+ */
+export async function reloadWithStoredTeam(page: Page): Promise<void> {
+  const url = new URL(page.url());
+  url.searchParams.delete('team');
+  url.searchParams.delete('teamId');
+  url.pathname = url.pathname.replace(/^\/app\/teams\/[^/]+$/, '/app/teams');
+  await page.goto(url.toString());
+}
+
+/** Make `teamId` the stored team on every `app:selectedTeamId*` key, then reload onto it. */
+export async function selectTeamById(page: Page, teamId: string): Promise<void> {
+  await page.evaluate((id) => {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('app:selectedTeamId'))
+      .forEach((k) => localStorage.setItem(k, id));
+    localStorage.setItem('app:selectedTeamId', id);
+  }, teamId);
+  await reloadWithStoredTeam(page);
+}
+
+/**
  * Force the given page onto the shared "Test Team Alpha" (TEST01) team by
  * writing every `app:selectedTeamId*` localStorage key and reloading.
  */
@@ -60,7 +84,7 @@ export async function selectSharedTestTeam(page: Page): Promise<string> {
 
     if (alreadySelected) return teamId;
 
-    await page.reload();
+    await reloadWithStoredTeam(page);
     await page.waitForLoadState('domcontentloaded');
 
     const settled = await page
