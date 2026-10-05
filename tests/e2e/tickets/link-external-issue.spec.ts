@@ -1,5 +1,6 @@
 /**
- * Linking a TimeHuddle ticket to a Redmine issue from its page (#636).
+ * The "Linked issue" section at the top of a ticket's page (#636, #638): the
+ * one place a ticket's Redmine or GitHub link is shown, changed and removed.
  *
  * The ticket is real and lives in the test backend. Redmine is stubbed
  * (`fixtures/redmine.ts`), and so are the link calls themselves
@@ -86,39 +87,107 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     const { link } = await withFakeLink(page);
     await openNewTicket(page, `Link existing ${Date.now()}`);
 
-    await expect(card(page)).toContainText('Not linked to an external issue.');
-    await card(page).getByRole('button', { name: 'Connect to…' }).click();
+    await expect(card(page)).toContainText('Not linked.');
+    await card(page).getByRole('button', { name: 'Add link' }).click();
 
-    await page.getByLabel('Redmine issue number or link').fill('#482');
-    await page.getByRole('button', { name: 'Find issue' }).click();
+    // Changed in place, with no popup. The choice is GitHub or Redmine only:
+    // "TimeHuddle" is not a link to add, and a link is removed with Unlink.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(card(page).getByRole('radio', { name: 'GitHub' })).toBeVisible();
+    await expect(card(page).getByRole('radio', { name: 'TimeHuddle', exact: true })).toHaveCount(0);
+    await expect(card(page).getByRole('radio', { name: 'Redmine' })).toBeChecked();
+    await card(page).getByLabel('Issue number or link').fill('#482');
+    await card(page).getByRole('button', { name: 'Find', exact: true }).click();
 
     // The issue is shown before anything is linked.
-    const preview = page.getByRole('group', { name: 'Issue to link' });
+    const preview = card(page).getByRole('group', { name: 'Issue to link' });
     await expect(preview).toContainText('Export job times out');
     expect(link.calls).toHaveLength(0);
 
-    await page.getByRole('button', { name: 'Link to #482' }).click();
+    await card(page).getByRole('button', { name: 'Save' }).click();
 
     await expect.poll(() => link.calls.length).toBe(1);
     expect(link.calls[0]).toMatchObject({ issueId: 482, expectedIssueId: null });
-    // The card now shows the issue, read live from Redmine.
-    await expect(card(page).getByRole('button', { name: 'Open Redmine issue #482' })).toBeVisible();
-    await expect(card(page)).toContainText('Export job times out');
-    await expect(card(page)).toContainText('In Progress');
-    await expect(card(page)).toContainText('Assigned to Test User');
+    // The section now shows the issue, read live from Redmine: its number and
+    // title as one link out to Redmine, and where it comes from.
+    const issueLink = card(page).getByRole('link', { name: 'Open issue #482 in Redmine' });
+    await expect(issueLink).toHaveAttribute('href', `${BASE_URL}/issues/482`);
+    await expect(issueLink).toContainText('#482');
+    await expect(issueLink).toContainText('Export job times out');
+    await expect(card(page)).toContainText('from');
+    await expect(card(page)).toContainText('Redmine');
+    await expect(card(page)).toContainText('In Progress · Assigned to Test User');
   });
 
-  test('unlinks after a confirmation', async ({ page }) => {
+  test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
     await openNewTicket(page, `Unlink ${Date.now()}`);
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
-    await expect(page.getByRole('heading', { name: 'Unlink Redmine issue #482?' })).toBeVisible();
-    await page.getByRole('button', { name: 'Unlink', exact: true }).last().click();
+    await expect(card(page)).toContainText('Unlink this issue?');
+    expect(unlink.calls).toHaveLength(0);
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
 
     await expect.poll(() => unlink.calls.length).toBe(1);
     expect(unlink.calls[0]).toMatchObject({ expectedIssueId: '482' });
-    await expect(card(page)).toContainText('Not linked to an external issue.');
+    await expect(card(page)).toContainText('Not linked.');
+  });
+
+  test('shows a GitHub link in the same section, and can unlink it', async ({ page }) => {
+    // Not an issue or pull request URL, so the dialog does not fetch a title for it.
+    const url = 'https://github.com/mieweb/timehuddle/discussions/1';
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    const title = `GitHub link ${Date.now()}`;
+    await tickets.createTicket(title, url);
+    await tickets.search(title);
+    await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
+    await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
+
+    // Nothing is stubbed here: the GitHub link is a real field on the ticket.
+    await expect(card(page).getByRole('link', { name: `Open GitHub link ${url}` })).toBeVisible({
+      timeout: 20000,
+    });
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
+    await card(page).getByRole('button', { name: 'Unlink' }).click();
+
+    await expect(card(page)).toContainText('Not linked.');
+    await page.reload();
+    await expect(card(page)).toContainText('Not linked.', { timeout: 20000 });
+  });
+
+  test('shows a linked GitHub issue by its title', async ({ page }) => {
+    const url = 'https://github.com/mieweb/timehuddle/issues/638';
+    const githubTitle = `Unify ticket creation ${Date.now()}`;
+    await page.route('https://api.github.com/repos/mieweb/timehuddle/issues/638', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ title: githubTitle, body: null }),
+      }),
+    );
+
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByRole('radio', { name: 'GitHub' }).check();
+    await page.getByLabel('GitHub issue or pull request link').fill(url);
+    // The dialog takes the ticket's title from the issue.
+    await expect(page.getByPlaceholder('Ticket title')).toHaveValue(githubTitle, {
+      timeout: 15000,
+    });
+    const created = page.waitForResponse('**/api/tickets_create');
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    const { result } = (await (await created).json()) as { result: { id: string } };
+
+    await page.goto(`/app/tickets/${result.id}`);
+    // The link reads as the issue, not as a raw URL, and still goes to GitHub.
+    const link = card(page).getByRole('link', { name: `Open GitHub link ${url}` });
+    await expect(link).toContainText(`#638`, { timeout: 20000 });
+    await expect(link).toContainText(githubTitle);
+    await expect(link).toHaveAttribute('href', url);
+    await expect(card(page)).toContainText('mieweb/timehuddle');
   });
 
   test('says what happens to logged time before the link is removed', async ({ page }) => {
@@ -167,12 +236,14 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await stubTicketCall(page, 'tickets.link', () => ({ error: 'ticket-locked', reason: refusal }));
     await openNewTicket(page, `Refused ${Date.now()}`);
 
-    await card(page).getByRole('button', { name: 'Connect to…' }).click();
-    await page.getByLabel('Redmine issue number or link').fill('482');
-    await page.getByRole('button', { name: 'Find issue' }).click();
-    await page.getByRole('button', { name: 'Link to #482' }).click();
+    await card(page).getByRole('button', { name: 'Add link' }).click();
+    await card(page).getByRole('radio', { name: 'Redmine' }).check();
+    await card(page).getByLabel('Issue number or link').fill('482');
+    await card(page).getByRole('button', { name: 'Find', exact: true }).click();
+    await card(page).getByRole('button', { name: 'Save' }).click();
 
-    await expect(page.getByText(refusal)).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Connect to an external issue' })).toBeVisible();
+    // The refusal is shown where the change was attempted, and nothing is lost.
+    await expect(card(page).getByText(refusal)).toBeVisible();
+    await expect(card(page).getByRole('group', { name: 'Issue to link' })).toBeVisible();
   });
 });

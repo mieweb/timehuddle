@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { linkedIssueKey, mergeLinked } from './linkedTickets';
+import { displaySourceId, linkedIssueKey, mergeLinked } from './linkedTickets';
 import type { UnifiedLinkedIssue, UnifiedTicket } from './types';
 
 const linkTo = (id: string): UnifiedLinkedIssue => ({
@@ -36,6 +36,14 @@ describe('linkedIssueKey', () => {
   it('is the row key of the linked issue, or null for an unlinked ticket', () => {
     expect(linkedIssueKey(huddle('a', linkTo('482')))).toBe('redmine:482');
     expect(linkedIssueKey(huddle('a'))).toBeNull();
+  });
+});
+
+describe('displaySourceId', () => {
+  it('is the linked issue\u2019s source for a linked ticket, and the ticket\u2019s own otherwise', () => {
+    expect(displaySourceId(huddle('a', linkTo('482')))).toBe('redmine');
+    expect(displaySourceId(huddle('a'))).toBe('huddle');
+    expect(displaySourceId(redmine('7'))).toBe('redmine');
   });
 });
 

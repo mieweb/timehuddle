@@ -51,11 +51,9 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketTablePanel } from './TicketTablePanel';
-import { TicketConnectDialog } from './link/TicketConnectDialog';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -191,7 +189,7 @@ export const TicketsPage: React.FC = () => {
   useRefresh(refetchAfterRedmineWrite, pathname === '/app/tickets');
 
   // Redmine issues are edited in their own dialog, under the user's personal
-  // Redmine key. A new one is created from a ticket ("Connect to…").
+  // Redmine key. A new one is created with a ticket, in the New Ticket dialog.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
 
   // Stable key derived from sorted team IDs — the subscription only reconnects
@@ -389,11 +387,8 @@ export const TicketsPage: React.FC = () => {
   const [editTicket, setEditTicket] = useState<Ticket | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
-  const [editGithub, setEditGithub] = useState('');
   const [editAssignees, setEditAssignees] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState('');
-  const [titleFetching, setTitleFetching] = useState(false);
-  const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Change status modal (any team member)
   const [changeStatusTicket, setChangeStatusTicket] = useState<UnifiedTicket | null>(null);
@@ -473,7 +468,6 @@ export const TicketsPage: React.FC = () => {
     setEditTicket(ticket);
     setEditTitle(ticket.title);
     setEditDescription(ticket.description || '');
-    setEditGithub(ticket.github || '');
     setEditAssignees(ticket.assignedTo ?? []);
     setEditPriority(ticket.priority || 'none');
   }, []);
@@ -485,7 +479,6 @@ export const TicketsPage: React.FC = () => {
       await ticketApi.updateTicket(editTicket.id, {
         title: editTitle.trim(),
         description: editDescription.trim() || undefined,
-        github: editGithub.trim() || undefined,
       });
       const currentAssignees = editTicket.assignedTo ?? [];
       const hasChanged =
@@ -507,16 +500,7 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setEditSaving(false);
     }
-  }, [
-    editTicket,
-    editTitle,
-    editDescription,
-    editGithub,
-    editAssignees,
-    editPriority,
-    refetch,
-    toast,
-  ]);
+  }, [editTicket, editTitle, editDescription, editAssignees, editPriority, refetch, toast]);
 
   // A Redmine status change goes through the edit dialog: its choices are the
   // transitions Redmine's workflow allows, not Huddle's fixed status list.
@@ -701,18 +685,6 @@ export const TicketsPage: React.FC = () => {
     </Button>
   );
 
-  // "Connect to…" needs the full ticket (description, link), which the list's
-  // normalized rows do not carry, so it is fetched when the dialog opens.
-  const [connectTicket, setConnectTicket] = useState<Ticket | null>(null);
-  const openConnectDialog = useCallback(
-    (unified: UnifiedTicket) =>
-      void ticketApi
-        .getTicket(unified.id)
-        .then(setConnectTicket)
-        .catch(() => toast.error(ticketLinkText.loadFailed)),
-    [toast],
-  );
-
   // What both tabs' tables share; each tab adds its own view and labels.
   const sharedTableProps = {
     errors: sourceErrors,
@@ -723,7 +695,6 @@ export const TicketsPage: React.FC = () => {
     onEditRequest: (t: UnifiedTicket) => void openEditModal(t),
     onDeleteRequest: (t: UnifiedTicket) => requestDelete([t]),
     onChangeStatusRequest: handleChangeStatusRequest,
-    onConnectRequest: openConnectDialog,
   };
 
   return (
@@ -863,25 +834,11 @@ export const TicketsPage: React.FC = () => {
           <ModalBody>
             <div className="space-y-4">
               <Input
-                label={titleFetching ? 'Title (fetching…)' : 'Title'}
+                label="Title"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
                 className={noFocusRingClass}
                 autoFocus
-                disabled={titleFetching}
-                onPaste={(e) => {
-                  const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
-                    ?.getData('text')
-                    ?.trim();
-                  if (!text || !isGithubIssueUrl(text)) return;
-                  e.preventDefault();
-                  setEditGithub(text);
-                  setTitleFetching(true);
-                  void fetchGithubIssueTitle(text).then((title) => {
-                    if (title) setEditTitle(title);
-                    setTitleFetching(false);
-                  });
-                }}
               />
               <Textarea
                 label="Description"
@@ -891,27 +848,6 @@ export const TicketsPage: React.FC = () => {
                 className={noFocusRingClass}
                 autoResize
                 rows={3}
-              />
-              <Input
-                label="GitHub URL"
-                type="url"
-                placeholder="https://github.com/…"
-                value={editGithub}
-                className={noFocusRingClass}
-                onChange={(e) => {
-                  const url = e.target.value;
-                  setEditGithub(url);
-                  if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                  if (isGithubIssueUrl(url)) {
-                    editFetchTimer.current = setTimeout(() => {
-                      setTitleFetching(true);
-                      void fetchGithubIssueTitle(url).then((title) => {
-                        if (title) setEditTitle(title);
-                        setTitleFetching(false);
-                      });
-                    }, 300);
-                  }
-                }}
               />
               <div>
                 <label className="mb-2 block text-sm font-medium">Assignees</label>
@@ -1078,15 +1014,6 @@ export const TicketsPage: React.FC = () => {
           defaultTeamId={selectedTeam?.id ?? null}
           userId={userId}
         />
-        {connectTicket && (
-          <TicketConnectDialog
-            open
-            onClose={() => setConnectTicket(null)}
-            ticket={connectTicket}
-            // The live ticket feed carries the change to the table.
-            onChanged={() => {}}
-          />
-        )}
         <RedmineIssueEditModal
           issueId={redmineEditIssueId}
           onClose={() => setRedmineEditIssueId(null)}

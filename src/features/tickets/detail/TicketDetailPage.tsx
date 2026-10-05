@@ -1,11 +1,4 @@
-import {
-  faCopy,
-  faExternalLink,
-  faPen,
-  faTrash,
-  faCheck,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
+import { faCopy, faPen, faTrash, faCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -44,7 +37,7 @@ import { MarkdownContent } from '../../../ui/MarkdownContent';
 import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
-import { LinkedIssueCard } from '../link/LinkedIssueCard';
+import { LinkedIssueSection } from '../link/LinkedIssueSection';
 import { huddleTicketRef } from '../sources';
 
 import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
@@ -384,7 +377,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </Button>
           </div>
         ) : (
-          <div className="ticket-title-display flex items-center gap-2 group">
+          <div className="ticket-title-display flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
               {ticket.title}
             </h1>
@@ -393,7 +386,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 variant="ghost"
                 size="icon"
                 aria-label="Edit title"
-                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={() => setEditingTitle(true)}
               >
                 <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
@@ -452,23 +444,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       <div className="ticket-detail-layout flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* ── Left column: body ── */}
         <div className="ticket-detail-body min-w-0 flex-1 space-y-3">
-          {/* GitHub link */}
-          {ticket.github && (
-            <Card>
-              <CardContent className="ticket-github-link">
-                <a
-                  href={ticket.github}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`External link: ${ticket.github}`}
-                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  <FontAwesomeIcon icon={faExternalLink} className="h-3 w-3" />
-                  {ticket.github}
-                </a>
-              </CardContent>
-            </Card>
-          )}
+          <LinkedIssueSection ticket={ticket} onChanged={setTicket} locked={locked} />
 
           {/* Description */}
           <Card>
@@ -670,8 +646,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               )}
             </CardContent>
           </Card>
-
-          <LinkedIssueCard ticket={ticket} onChanged={setTicket} locked={locked} />
 
           {/* Team badge */}
           {ticket.teamId && (

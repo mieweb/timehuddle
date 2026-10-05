@@ -6,65 +6,70 @@
  * function so a translation can place it.
  */
 export const ticketLinkText = {
-  cardTitle: 'Linked issue',
-  notLinked: 'Not linked to an external issue.',
-  connect: 'Connect to…',
+  sectionTitle: 'Linked Issue',
+  notLinked: 'Not linked. This ticket is tracked in TimeHuddle only.',
+  add: 'Add link',
   change: 'Change',
-  changeLinked: 'Change linked issue…',
-  unlink: 'Unlink',
+  remove: 'Unlink',
+  from: 'from',
+  save: 'Save',
+  saving: 'Saving…',
+  cancel: 'Cancel',
   redmine: 'Redmine',
-  unassigned: 'Unassigned',
+  github: 'GitHub',
   loadingIssue: 'Loading the linked issue from Redmine',
-  openIssue: (ref: string) => `Open Redmine issue ${ref}`,
-  assignedTo: (name: string) => `Assigned to ${name}`,
+  openIssue: (ref: string) => `Open issue ${ref} in Redmine`,
+  openGithub: (url: string) => `Open GitHub link ${url}`,
+  /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
+  statusAndAssignee: (status: string | null, assignee: string | null) =>
+    [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
   linkedTo: (ref: string) => `Linked to Redmine ${ref}`,
   linkedToWithStatus: (ref: string, status: string) => `Linked to Redmine ${ref} · ${status}`,
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
 
-  dialogTitle: 'Connect to an external issue',
-  dialogTitleChange: 'Change the linked issue',
-  tabsLabel: 'Where to connect this ticket',
-  tabExisting: 'Existing Redmine issue',
-  tabNew: 'New Redmine issue',
-  tabGithub: 'GitHub link',
-  replaces: (ref: string) => `This replaces the link to Redmine ${ref}.`,
+  kindLabel: 'Tracked in',
+  kindNone: 'TimeHuddle',
+  kindGithub: 'GitHub',
+  kindRedmine: 'Redmine',
 
-  existingLabel: 'Redmine issue number or link',
+  githubLabel: 'GitHub issue or pull request link',
+  githubPlaceholder: 'https://github.com/…',
+
+  redmineModeLabel: 'Redmine issue',
+  modeExisting: 'Existing issue',
+  modeNew: 'New issue',
+  existingLabel: 'Issue number or link',
   existingPlaceholder: '#1234 or a Redmine issue link',
-  find: 'Find issue',
+  find: 'Find',
   finding: 'Finding…',
   needNumberOrLink: 'Enter an issue number or paste a link to a Redmine issue.',
   notFound: 'No issue found. It may not exist, or you may not have access to it.',
-  alreadyLinked: 'This ticket is already linked to that issue.',
   previewLabel: 'Issue to link',
-  linkTo: (ref: string) => `Link to ${ref}`,
-  linking: 'Linking…',
-
-  newIntro:
-    'Create a new issue in Redmine from this ticket. Its title, description and priority are filled in for you; you choose the project and tracker.',
-  newAction: 'Create in Redmine…',
-  createdNotLinked: (ref: string) =>
-    `Redmine issue ${ref} was created, but linking it to this ticket failed.`,
-  retryLink: 'Try linking again',
-
-  githubLabel: 'GitHub URL',
-  githubPlaceholder: 'https://github.com/…',
-  githubHelp: 'Leave empty to remove the link.',
-  save: 'Save',
-  saving: 'Saving…',
-  cancel: 'Cancel',
-  close: 'Close',
+  projectLabel: 'Project',
+  projectPlaceholder: 'Choose a project',
+  trackerLabel: 'Tracker',
+  loadingProjects: 'Loading your Redmine projects',
+  newIssueHelp:
+    "The issue gets this ticket's title, description and priority, and is assigned to you.",
 
   redmineNeeded: 'Connect your Redmine account in Settings to link a Redmine issue.',
-  linkFailed: "Couldn't link the issue. Please try again.",
+  linkFailed: "Couldn't save the link. Please try again.",
+  removedNotReplaced:
+    "The Redmine link was removed, but the GitHub link couldn't be saved. Save again to add it.",
   staleLink: 'Someone else changed this ticket’s link. Reload the ticket and try again.',
+  createdNotLinked: (ref: string) =>
+    `Redmine issue ${ref} was created, but linking it to this ticket failed. Save again to link it.`,
+  ticketCreatedLinkFailed: (reason: string) =>
+    `The ticket was created, but it could not be linked: ${reason} Open the ticket to try again.`,
+  openTicketToLink: 'Open the ticket to link it.',
 
-  unlinkTitle: (ref: string) => `Unlink Redmine issue ${ref}?`,
-  unlinkBody:
-    'The ticket stays in TimeHuddle and carries on as a plain ticket. Nothing changes in Redmine.',
-  unlinking: 'Unlinking…',
+  removeConfirm:
+    'Unlink this issue? The ticket stays in TimeHuddle, and nothing changes in the linked system.',
+  removeAction: 'Unlink',
+  removing: 'Unlinking…',
+  saveFailed: "Couldn't save the ticket. Please try again.",
 
   warnUnsent: (duration: string, ref: string) =>
     `${duration} you logged on this ticket hasn't been sent to Redmine ${ref} yet. It stays with ${ref}: you can still send it from the Clock page, or choose "Never send" there.`,
@@ -77,9 +82,6 @@ export const ticketLinkText = {
     count === 1
       ? '1 teammate who logged time on this ticket will be notified.'
       : `${count} teammates who logged time on this ticket will be notified.`,
-  unlinkFailed: "Couldn't unlink the issue. Please try again.",
-  loadFailed: 'Could not load the ticket. Please try again.',
-  saveFailed: "Couldn't save the ticket. Please try again.",
 };
 
 /** The `action` values a link change is recorded under in a ticket's activity. */

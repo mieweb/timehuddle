@@ -138,6 +138,25 @@ test.describe('Unified ticket table', () => {
     }
   });
 
+  test('opens a ticket from anywhere in its row, but not from its controls', async ({ page }) => {
+    const title = `E2E Row Click ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.search(title);
+    const row = tickets.rowByTitle(title);
+
+    // Selecting the row, and opening its menu, do their own job and stay put.
+    await row.getByRole('checkbox').click();
+    await row.getByRole('button', { name: 'Ticket options' }).click();
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/app\/tickets$/);
+
+    // A plain cell — not the title — opens the ticket.
+    await row.getByText('TimeHuddle', { exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+      timeout: 20000,
+    });
+  });
+
   test('pages instead of scrolling the rows', async ({ page }) => {
     // The row area must not be a vertical scroller — paging replaces it.
     const rowArea = page.locator('tr[data-ticket-id]').first();
