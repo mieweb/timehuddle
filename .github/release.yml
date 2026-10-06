@@ -1,0 +1,12 @@
+# Shapes the "Generate release notes" PR list on GitHub Releases — see
+# release-notes/README.md, "Shipping a release".
+# One category on purpose: most PRs here carry no labels to split on.
+changelog:
+  exclude:
+    authors:
+      # Both spellings: the docs do not say which login form is matched.
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: Pull requests in this release
+      labels: ['*']

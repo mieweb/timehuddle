@@ -12,9 +12,14 @@ import { expect, type Page, type Route } from '@playwright/test';
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
 
+/**
+ * Open the Tickets page on All Sources. The page itself opens on My Board; the
+ * specs using this are about the full table.
+ */
 export async function goToTickets(page: Page): Promise<void> {
   await page.goto('/app/tickets');
   await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+  await page.getByRole('radio', { name: 'All Sources' }).click();
 }
 
 /**
@@ -22,13 +27,13 @@ export async function goToTickets(page: Page): Promise<void> {
  *
  * Rows are `<tr data-ticket-id>` — the unified table replaced the old `<ul>`/`<li>`
  * list, and the only `<li>` left in it is the per-source error banner. Scoped to
- * the visible tab panel because both Tickets and My Board stay mounted to keep
+ * the visible tab panel because both All Sources and My Board stay mounted to keep
  * their state, so an unscoped match would also hit the hidden panel's copy of
  * the same row. Mirrors `TicketsPage.rowByTitle`.
  */
 export function ticketRow(page: Page, title: string) {
   return page
-    .locator('[role="tabpanel"]:visible')
+    .locator('.tickets-view-panel:visible')
     .locator('tr[data-ticket-id]')
     .filter({ hasText: title });
 }

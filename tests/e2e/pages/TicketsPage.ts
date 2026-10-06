@@ -4,10 +4,15 @@ import { BasePage } from './BasePage';
 /**
  * TicketsPage - Page object for the unified ticket table.
  *
- * The table shows every source (TimeHuddle, Redmine) at once — there is no view
- * switcher. Rows carry `data-ticket-source` so tests can assert on provenance.
- * Sorting and filtering both live on the column headers; a switch toggles
- * open/closed, and the rows scroll under a fixed header.
+ * The page has two views over the same table, chosen with a switcher: My Board, which it opens on, and
+ * All Sources, which shows every source (TimeHuddle, Redmine) at once. Rows
+ * carry `data-ticket-source` so tests can assert on provenance. Sorting and
+ * filtering both live on the column headers; a switch toggles open/closed, and
+ * the rows scroll under a fixed header.
+ *
+ * `goto()` lands on All Sources, because that is the table most specs are
+ * about; a spec about the board switches with `switchToTab('my-board')`, and
+ * one about the page's own default uses `page.goto('/app/tickets')`.
  */
 export class TicketsPage extends BasePage {
   readonly heading: Locator;
@@ -37,8 +42,8 @@ export class TicketsPage extends BasePage {
     this.closedSwitch = this.page.getByRole('switch', { name: /Closed/i });
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
-    this.ticketsTab = this.page.getByRole('tab', { name: 'Tickets' });
-    this.myBoardTab = this.page.getByRole('tab', { name: 'My Board' });
+    this.ticketsTab = this.page.getByRole('radio', { name: 'All Sources' });
+    this.myBoardTab = this.page.getByRole('radio', { name: 'My Board' });
     this.moveToBoardButton = this.page.getByRole('button', { name: 'Move to My Board' });
     this.removeFromBoardButton = this.page.getByRole('button', { name: 'Remove from My Board' });
     this.deselectAllButton = this.page.getByRole('button', { name: 'Deselect all' });
@@ -47,7 +52,7 @@ export class TicketsPage extends BasePage {
     this.closeIssuesButton = this.page.getByRole('button', { name: 'Close Issues' });
   }
 
-  /** Switch between the "Tickets" and "My Board" tabs (same URL). */
+  /** Switch between the All Sources (`tickets`) and My Board tabs (same URL). */
   async switchToTab(tab: 'tickets' | 'my-board') {
     await (tab === 'tickets' ? this.ticketsTab : this.myBoardTab).click();
     await this.page.waitForTimeout(300);
@@ -74,7 +79,7 @@ export class TicketsPage extends BasePage {
     return this.page.getByRole('button', { name: `Stop timer for ${title}` });
   }
 
-  /** Move a ticket to My Board from the Tickets tab and land on My Board. */
+  /** Move a ticket to My Board from All Sources and land on My Board. */
   async moveToBoard(title: string) {
     await this.selectTicket(title);
     await this.moveToBoardButton.click();
@@ -100,8 +105,10 @@ export class TicketsPage extends BasePage {
     await this.waitForLoad();
   }
 
+  /** Wait for the page, then show All Sources (see the note on this class). */
   async waitForLoad(timeout = 10000) {
     await this.heading.waitFor({ state: 'visible', timeout });
+    await this.ticketsTab.click();
   }
 
   async navigateFromSidebar() {
@@ -160,7 +167,7 @@ export class TicketsPage extends BasePage {
    * it resolves to the one row the user can actually see.
    */
   get activePanel(): Locator {
-    return this.page.locator('[role="tabpanel"]:visible');
+    return this.page.locator('.tickets-view-panel:visible');
   }
 
   /** All rows contributed by one source. */

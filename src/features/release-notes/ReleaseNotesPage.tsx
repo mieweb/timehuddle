@@ -21,6 +21,7 @@ import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { releaseNotes, unseenReleaseNotes } from './notes';
 import { ReleaseNotesList } from './ReleaseNotesList';
+import { useReleaseCelebration } from './useReleaseCelebration';
 
 export const ReleaseNotesPage: React.FC = () => {
   const { user, markReleaseNotesSeen } = useSession();
@@ -36,6 +37,8 @@ export const ReleaseNotesPage: React.FC = () => {
         ),
       ),
   );
+
+  useReleaseCelebration(unseenVersions.size > 0);
 
   useEffect(() => {
     if (!newest || !user) return;
