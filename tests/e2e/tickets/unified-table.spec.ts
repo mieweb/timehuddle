@@ -3,7 +3,7 @@
  *
  * Guards the behaviour that replaced the Huddle/Redmine view switcher: one
  * table for every source, with source as a column and a filter rather than a
- * mode, sortable column headers, row selection and pagination.
+ * mode, sortable column headers, row selection and scrolling.
  *
  * Test accounts have no linked Redmine account, so these assert the shape of
  * the table and the *degraded* path most users see — Huddle rows only, no
@@ -158,17 +158,40 @@ test.describe('Unified ticket table', () => {
     });
   });
 
-  test('pages instead of scrolling the rows', async ({ page }) => {
-    // The row area must not be a vertical scroller — paging replaces it.
-    const rowArea = page.locator('tr[data-ticket-id]').first();
-    await expect(rowArea).toBeVisible();
+  test('scrolls the rows under a fixed header, with no pagination', async ({ page }) => {
+    // A short window and a few tickets: more rows than the card can show.
+    await page.setViewportSize({ width: 1280, height: 480 });
+    const stamp = Date.now();
+    for (const n of [1, 2, 3, 4]) await tickets.createTicket(`E2E Scroll ${stamp} ${n}`);
+    await tickets.search(`E2E Scroll ${stamp}`);
+    await expect(tickets.activePanel.locator('tr[data-ticket-id]')).toHaveCount(4);
 
-    const overflowsVertically = await page.evaluate(() => {
-      const row = document.querySelector('tr[data-ticket-id]');
-      const host = row?.closest('div.overflow-hidden');
-      return host ? host.scrollHeight > host.clientHeight + 2 : false;
-    });
-    expect(overflowsVertically).toBe(false);
+    const scroller = tickets.activePanel.locator('.ticket-table-scroll');
+    const header = scroller.locator('thead');
+    const measure = () =>
+      scroller.evaluate((area) => ({
+        overflows: area.scrollHeight > area.clientHeight + 1,
+        scrollTop: area.scrollTop,
+        headerTop: Math.round(area.querySelector('thead')!.getBoundingClientRect().top),
+        areaTop: Math.round(area.getBoundingClientRect().top),
+      }));
+
+    const before = await measure();
+    expect(before.overflows).toBe(true);
+
+    await scroller.evaluate((area) => area.scrollTo({ top: area.scrollHeight }));
+    const after = await measure();
+    expect(after.scrollTop).toBeGreaterThan(0);
+    // The header has not moved: it is still at the top of the scroller.
+    expect(after.headerTop).toBe(after.areaTop);
+    await expect(header).toBeVisible();
+    await expect(tickets.rowByTitle(`E2E Scroll ${stamp} 1`)).toBeInViewport();
+
+    // Changing what is listed goes back to the first row.
+    await tickets.sortByColumn('Title');
+    await expect.poll(async () => (await measure()).scrollTop).toBe(0);
+
+    await expect(page.getByRole('navigation', { name: 'Ticket pages' })).toHaveCount(0);
   });
 
   test('offers no way to start a timer — that lives only on My Board (M3 D1)', async ({ page }) => {

@@ -8,7 +8,7 @@ import { BasePage } from './BasePage';
  * All Sources, which shows every source (TimeHuddle, Redmine) at once. Rows
  * carry `data-ticket-source` so tests can assert on provenance. Sorting and
  * filtering both live on the column headers; a switch toggles open/closed, and
- * paging replaces scrolling.
+ * the rows scroll under a fixed header.
  *
  * `goto()` lands on All Sources, because that is the table most specs are
  * about; a spec about the board switches with `switchToTab('my-board')`, and
