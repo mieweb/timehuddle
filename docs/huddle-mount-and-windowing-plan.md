@@ -71,9 +71,10 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M6: Infinite-scroll sentinel
 
-- [ ] `LoadOlderSentinel` (IntersectionObserver) in `listFooter`, only while `hasMore`; spinner while loading, "no older posts" at the end
-- [ ] Re-arms after each load; loop guard for runs of empty windows
-- [ ] aria-live, externalized strings, RTL-safe classes
+- [x] `LoadOlderSentinel` (IntersectionObserver) in `listFooter`, only while `hasMore`; spinner while loading, "No older posts" at the end, quiet until `hasMore` is known
+- [x] Re-arms after each load, so a window that doesn't fill the list triggers the next one
+- [x] Loop guard: a failed load stops auto-loading until Retry. A run of empty windows costs one cheap request per 30 days of gap and is bounded by the team's history; no extra cap
+- [x] aria-live region, labelled spinner and Retry button; strings are inline like the rest of the page (the app has no i18n layer yet); no left/right classes
 
 ### M7: Keep Huddle mounted (causes A and B)
 

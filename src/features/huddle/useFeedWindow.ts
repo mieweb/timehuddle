@@ -23,7 +23,8 @@ export function windowSince(days: number, now: number = Date.now()): string {
 interface WindowState {
   key: string;
   days: number;
-  hasMore: boolean;
+  /** Null until a fetch has reported. */
+  hasMore: boolean | null;
   loadingOlder: boolean;
   loadFailed: boolean;
 }
@@ -33,7 +34,7 @@ export type FeedOutcome = { ok: true; hasMore: boolean } | { ok: false };
 const fresh = (key: string): WindowState => ({
   key,
   days: WINDOW_INITIAL_DAYS,
-  hasMore: false,
+  hasMore: null,
   loadingOlder: false,
   loadFailed: false,
 });

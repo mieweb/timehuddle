@@ -37,6 +37,7 @@ import {
 import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
@@ -226,6 +227,7 @@ export default function Huddle() {
   const teamFeedKey = `team:${selectedTeamId}`;
   const teamWindow = useFeedWindow(teamFeedKey);
   const meWindow = useFeedWindow(ME_FEED_KEY);
+  const feedWindow = scope === 'me' ? meWindow : teamWindow;
 
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   // Starts true so the Personal view's first render shows the spinner, not an
@@ -882,6 +884,21 @@ export default function Huddle() {
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
                     currentParticipantId={user.id}
                     virtualized
+                    listFooter={
+                      // The starter conversation stands in for an empty feed; there's nothing older to load.
+                      activePosts.length > 0 ? (
+                        <LoadOlderSentinel
+                          hasMore={feedWindow.hasMore}
+                          loading={feedWindow.loadingOlder}
+                          failed={feedWindow.loadFailed}
+                          onVisible={feedWindow.loadOlder}
+                          onRetry={() => {
+                            feedWindow.retry();
+                            void refreshActiveScope();
+                          }}
+                        />
+                      ) : undefined
+                    }
                     renderPlugins={renderPlugins}
                     acceptedFileTypes={['image', 'video', 'pdf']}
                     onMessageSent={(text, { mentions: sentMentions, attachments }) =>

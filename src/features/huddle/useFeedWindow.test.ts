@@ -19,10 +19,10 @@ describe('windowSince', () => {
 describe('useFeedWindow', () => {
   const sinceFor = (days: number) => windowSince(days);
 
-  it('starts at 30 days with nothing known to be older', () => {
+  it('starts at 30 days with nothing known about older posts', () => {
     const { result } = renderHook(() => useFeedWindow('team-1'));
     expect(result.current.since).toBe(sinceFor(30));
-    expect(result.current.hasMore).toBe(false);
+    expect(result.current.hasMore).toBeNull();
   });
 
   it('does not widen until a fetch has reported older posts', () => {
@@ -94,11 +94,11 @@ describe('useFeedWindow', () => {
 
     rerender({ feed: 'team-2' });
     expect(result.current.since).toBe(sinceFor(30));
-    expect(result.current.hasMore).toBe(false);
+    expect(result.current.hasMore).toBeNull();
 
     // A late answer for the feed that was left must not touch this one.
     act(() => result.current.settle('team-1', { ok: true, hasMore: true }));
-    expect(result.current.hasMore).toBe(false);
+    expect(result.current.hasMore).toBeNull();
 
     act(() => result.current.settle('team-2', { ok: true, hasMore: true }));
     expect(result.current.hasMore).toBe(true);
