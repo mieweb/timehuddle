@@ -105,9 +105,13 @@ test.describe('Huddle — a Pulse upload posts itself', () => {
       kind: 'huddle',
       teamId,
     });
-    await uploadRealVideoViaApi(page.request, videoid, uploadToken);
+    // The draft's name in Pulse becomes the post's text.
+    const name = `Pulse post ${Date.now()}`;
+    await uploadRealVideoViaApi(page.request, videoid, uploadToken, { name });
 
     // Delivered after the video is made web-playable, seconds after the last byte.
+    type Post = { content: { text: string }; attachments?: { url: string }[] };
+    let post: Post | undefined;
     await expect
       .poll(
         async () => {
@@ -115,19 +119,18 @@ test.describe('Huddle — a Pulse upload posts itself', () => {
             headers: { Authorization: `Bearer ${token}` },
             data: { teamId },
           });
-          const { posts } = (await res.json()).result as {
-            posts: { attachments?: { url: string }[] }[];
-          };
-          return posts.some((p) => p.attachments?.some((a) => a.url.includes(videoid)));
+          const { posts } = (await res.json()).result as { posts: Post[] };
+          post = posts.find((p) => p.attachments?.some((a) => a.url.includes(videoid)));
+          return post !== undefined;
         },
         { timeout: 30000 },
       )
       .toBe(true);
+    expect(post!.content.text).toBe(name);
 
     await page.reload();
-    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible({
-      timeout: 20000,
-    });
+    await expect(page.getByText(name).first()).toBeVisible({ timeout: 20000 });
+    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible();
   });
 });
 

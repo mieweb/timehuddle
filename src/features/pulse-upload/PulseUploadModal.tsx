@@ -8,7 +8,7 @@ import React, { useId } from 'react';
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { PulseLogo } from './PulseLogo';
 import { PulseStoreBadges } from './PulseStoreBadges';
-import { keptMessage, landedLabel, uploadHint } from './pulseStatus';
+import { EXPIRED_MESSAGE, keptMessage, landedLabel, uploadHint } from './pulseStatus';
 
 export interface PulseUploadModalProps {
   open: boolean;
@@ -108,7 +108,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
               </Text>
             ) : status?.state === 'expired' ? (
               <Text size="xs" variant="muted">
-                This link has expired. Close this and press Pulse again for a new one.
+                {EXPIRED_MESSAGE}
               </Text>
             ) : (
               <span className="pulse-modal-waiting flex items-center gap-2">

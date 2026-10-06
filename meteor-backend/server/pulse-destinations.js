@@ -24,7 +24,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
-import { isValidId, rawDb } from './collections.js';
+import { isObjectIdHex, rawDb } from './collections.js';
 import { createHuddlePost, requireTeamMember } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
@@ -52,7 +52,7 @@ const attachedNote = (kind, id) => `Attached to ${kind} ${id}`;
 /** A ticket-like destination: the video becomes an attachment on `{ kind, id }`. */
 const attachment = (kind, check) => ({
   check,
-  async delivered({ id }, video) {
+  async delivered(_userId, { id }, video) {
     return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
   },
   async deliver(userId, { id }, video) {
@@ -70,7 +70,7 @@ const attachment = (kind, check) => ({
 /**
  * Every destination kind. `check(userId, destination)` throws a Meteor.Error
  * when the video may not go there (and returns the fields to sign into the
- * token); `delivered(destination, video)` is the note from an earlier
+ * token); `delivered(userId, destination, video)` is the note from an earlier
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
@@ -105,7 +105,7 @@ const DESTINATIONS = {
     async check() {
       return {};
     },
-    async delivered(_destination, video) {
+    async delivered(_userId, _destination, video) {
       const item = await rawDb()
         .collection('mediaitems')
         .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
@@ -123,10 +123,12 @@ const DESTINATIONS = {
       await requireTeamMember(userId, teamId);
       return { teamId };
     },
-    async delivered(_destination, video) {
+    // This uploader's post in this team: a post elsewhere carrying the same
+    // video (huddle.createPost takes attachment URLs) isn't this delivery.
+    async delivered(userId, { teamId }, video) {
       const post = await rawDb()
         .collection('huddlePosts')
-        .findOne({ 'attachments.url': video.url }, { projection: { _id: 1 } });
+        .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1 } });
       return post ? HUDDLE_NOTE : null;
     },
     async deliver(userId, { teamId }, video) {
@@ -142,7 +144,8 @@ const DESTINATIONS = {
 
   ticket: attachment('ticket', async (userId, { id }) => {
     requireId(id, 'ticket');
-    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Ticket not found');
+    // `isValidId` also takes legacy Meteor ids, which `new ObjectId` throws on.
+    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Ticket not found');
     // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
@@ -163,7 +166,7 @@ const DESTINATIONS = {
 
   clock: attachment('clock', async (userId, { id }) => {
     requireId(id, 'clock session');
-    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Clock session not found');
+    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Clock session not found');
     const session = await rawDb()
       .collection('clockevents')
       .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1 } });
@@ -210,7 +213,7 @@ export async function deliverPulseVideo(userId, destination, video) {
   const kind = kindOf(destination);
   // Only a token this server signed gets here, so this is a kind that has since been removed.
   if (!kind) return { state: 'kept', reason: `Unknown Pulse destination "${destination?.kind}"` };
-  const earlier = await kind.delivered(destination, video);
+  const earlier = await kind.delivered(userId, destination, video);
   if (earlier) return { state: 'done', note: earlier };
   try {
     await kind.check(userId, destination);

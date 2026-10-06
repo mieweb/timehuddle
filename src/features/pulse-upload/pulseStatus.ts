@@ -26,6 +26,9 @@ export function uploadHint(destination: PulseDestination): string {
   return UPLOAD_HINTS[destination.kind];
 }
 
+/** A link's token works for 30 minutes; after that, only a new one will do. */
+export const EXPIRED_MESSAGE = 'This link has expired. Press Pulse again for a new one.';
+
 /**
  * What to tell someone whose Pulse video couldn't go where they recorded it
  * for: the server kept it instead (never thrown away), and `reason` says why —

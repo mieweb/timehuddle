@@ -74,6 +74,8 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
   const [pending, setPending] = useState<PendingUpload | null>(() => readPending(scope));
+  // The last link ran out (30 minutes) with nothing landing on it.
+  const [expired, setExpired] = useState(false);
 
   // A reservation that hasn't resolved yet. Reported to the host (which blocks
   // submit on it) and used here to stop a second reservation overwriting it.
@@ -131,6 +133,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       if (Date.now() - pending.reservedAt > PENDING_TTL_MS) {
         clearComposerPulseUpload(scope);
         setPending(null);
+        setExpired(true);
         return;
       }
       try {
@@ -169,6 +172,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
       const link = buildUploadDeepLink(videoid, uploadToken);
       attachedRef.current = null;
+      setExpired(false);
       setPending(writePending(scope, videoid));
       setScanLink(buildScanLink(videoid, uploadToken));
       return { videoid, uploadLink: link };
@@ -255,7 +259,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         onClose={() => setModalOpen(false)}
         scanLink={scanLink}
         destination={{ kind: 'library' }}
-        status={hasReservation ? { state: 'waiting' } : null}
+        status={hasReservation ? { state: 'waiting' } : expired ? { state: 'expired' } : null}
       />
     </>
   );

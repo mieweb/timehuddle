@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { MongoClient, ObjectId } from 'mongodb';
 import { expect, test, type APIRequestContext, type TestInfo } from '@playwright/test';
 import { getTeamIdByCode } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -88,6 +89,8 @@ async function mediaItemsFor(request: APIRequestContext, token: string, videoid:
  * it as abandoned (`reclaim` waits for 5 idle minutes). Needs the backend's
  * `VIDEOS_DIR`; the tests that use it skip without one.
  */
+const MONGO_URL =
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 const BACKEND_VIDEOS_DIR = process.env.VIDEOS_DIR;
 function abandon(artifactId: string): void {
   const aWhileAgo = new Date(Date.now() - 10 * 60 * 1000);
@@ -406,6 +409,108 @@ test.describe('PulseVault — delivery to a destination', () => {
     const list = await request.post('/api/attachments_list', {
       headers: auth,
       data: { kind: 'ticket', id: ticketId },
+    });
+    expect((await list.json()).result.attachments).toEqual([]);
+  });
+});
+
+test.describe('PulseVault — delivery to a clock session', () => {
+  test.setTimeout(90000);
+
+  /** Clock in to the shared team over REST: the open session's id. */
+  async function clockIn(request: APIRequestContext, auth: Record<string, string>) {
+    const teamId = await getTeamIdByCode('TEST01');
+    const res = await request.post('/api/clock_start', { headers: auth, data: { teamId } });
+    expect(res.status()).toBe(200);
+    return { teamId, sessionId: (await res.json()).result.id as string };
+  }
+
+  test("a video for your own session is attached to it; another person's session is refused", async ({
+    browser,
+  }) => {
+    const owner = await (await browser.newContext()).newPage();
+    await loginAs(owner, TEST_USERS.owner1);
+    const auth = { Authorization: `Bearer ${await getSessionToken(owner)}` };
+    const { teamId, sessionId } = await clockIn(owner.request, auth);
+
+    try {
+      // The uploader's own session: reserved, uploaded, attached.
+      const { videoid, uploadToken } = await reservePulseUpload(
+        owner.request,
+        auth.Authorization.slice(7),
+        {
+          kind: 'clock',
+          id: sessionId,
+        },
+      );
+      await uploadRealVideoViaApi(owner.request, videoid, uploadToken);
+      await expect
+        .poll(
+          async () => {
+            const res = await owner.request.post('/api/attachments_list', {
+              headers: auth,
+              data: { kind: 'clock', id: sessionId },
+            });
+            const { attachments } = (await res.json()).result as { attachments: { url: string }[] };
+            return attachments.some((a) => a.url.includes(videoid));
+          },
+          { timeout: 30000 },
+        )
+        .toBe(true);
+
+      // Someone else's session: no link is minted for it.
+      const other = await (await browser.newContext()).newPage();
+      await loginAs(other, TEST_USERS.member1);
+      const refused = await other.request.post('/api/pulsevault_reserve', {
+        headers: { Authorization: `Bearer ${await getSessionToken(other)}` },
+        data: { destination: { kind: 'clock', id: sessionId } },
+      });
+      expect(refused.status()).toBe(500);
+      expect((await refused.json()).error).toBe('forbidden');
+    } finally {
+      await owner.request.post('/api/clock_stop', { headers: auth, data: { teamId } });
+    }
+  });
+
+  test('a session deleted while its video uploads is kept, not attached', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const token = await getSessionToken(page);
+    const auth = { Authorization: `Bearer ${token}` };
+    const { sessionId } = await clockIn(request, auth);
+    const { videoid, uploadToken } = await reservePulseUpload(request, token, {
+      kind: 'clock',
+      id: sessionId,
+    });
+
+    // The session goes away between the link and the last byte.
+    const client = await MongoClient.connect(MONGO_URL);
+    try {
+      await client
+        .db()
+        .collection('clockevents')
+        .deleteOne({ _id: new ObjectId(sessionId) });
+    } finally {
+      await client.close();
+    }
+    await uploadRealVideoViaApi(request, videoid, uploadToken);
+
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/pulsevault/artifacts/${videoid}/status`, {
+            headers: { Authorization: `Bearer ${uploadToken}` },
+          });
+          return res.ok() ? ((await res.json()).outcome ?? null) : null;
+        },
+        { timeout: 20000 },
+      )
+      .toMatchObject({ state: 'kept', reason: expect.stringContaining('Clock session not found') });
+    const list = await request.post('/api/attachments_list', {
+      headers: auth,
+      data: { kind: 'clock', id: sessionId },
     });
     expect((await list.json()).result.attachments).toEqual([]);
   });
