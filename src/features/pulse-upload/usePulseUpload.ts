@@ -185,7 +185,10 @@ export function usePulseUpload(
     try {
       reservation = await videoApi.reserve(JSON.parse(destinationKey) as PulseDestination);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : 'Could not start Pulse. Try again.');
+      // Not an error of the destination now on screen, if the host moved on meanwhile.
+      if (mounted.current && latestKey.current === destinationKey) {
+        setError(e instanceof Error && e.message ? e.message : 'Could not start Pulse. Try again.');
+      }
       return;
     } finally {
       setReserving(false);

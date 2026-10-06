@@ -67,6 +67,27 @@ describe('usePulseUpload', () => {
     expect(result.current.status).toBeNull();
   });
 
+  it("keeps a failed reservation's error off the destination that replaced it", async () => {
+    let fail: (reason: Error) => void = () => {};
+    reserve.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)) as never);
+    const { result, rerender } = renderHook(({ destination }) => usePulseUpload(destination), {
+      initialProps: { destination: TICKET_A },
+    });
+
+    let started: Promise<void> = Promise.resolve();
+    act(() => {
+      started = result.current.start();
+    });
+    rerender({ destination: TICKET_B });
+    await act(async () => {
+      fail(new Error('Ticket not found'));
+      await started;
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.reserving).toBe(false);
+  });
+
   it('reopens the live link instead of minting a second one', async () => {
     reserve.mockResolvedValueOnce(RESERVATION);
     const { result } = renderHook(() => usePulseUpload(TICKET_A));
