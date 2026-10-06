@@ -23,6 +23,8 @@ import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
 
 /** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
+/** How long one such question may take before it's given up on. */
+const STATUS_TIMEOUT_MS = 10_000;
 /** How long the modal shows a delivered video before closing itself. */
 const LANDED_CLOSE_MS = 1500;
 
@@ -73,10 +75,14 @@ export function usePulseUpload(
   const latestKey = useRef(destinationKey);
   latestKey.current = destinationKey;
   const mounted = useRef(true);
+  // Cancels a phone launch still deciding between the Pulse app and its store
+  // listing (see openPulseAppOrStore), so it can't redirect a later screen.
+  const launch = useRef<() => void>(() => {});
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      launch.current();
     };
   }, []);
 
@@ -93,6 +99,7 @@ export function usePulseUpload(
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
     if (!link || link.destinationKey === destinationKey) return;
+    launch.current();
     setLink(null);
     setStatus(null);
     setModalOpen(false);
@@ -104,13 +111,22 @@ export function usePulseUpload(
   useEffect(() => {
     if (!current || status?.state !== 'waiting') return;
     let cancelled = false;
+    // One question at a time, each with a deadline: a stalled server can't
+    // pile up requests, and none outlives this link.
+    let inFlight: AbortController | null = null;
     const check = async () => {
-      if (cancelled || document.hidden) return;
+      if (cancelled || document.hidden || inFlight) return;
+      const controller = new AbortController();
+      inFlight = controller;
+      const deadline = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
       try {
-        const next = await videoApi.status(current.videoid, current.uploadToken);
+        const next = await videoApi.status(current.videoid, current.uploadToken, controller.signal);
         if (!cancelled && next.state !== 'waiting') setStatus(next);
       } catch {
-        // transient: try again next tick
+        // transient, or aborted: try again next tick
+      } finally {
+        clearTimeout(deadline);
+        inFlight = null;
       }
     };
     const onVisible = () => {
@@ -121,6 +137,7 @@ export function usePulseUpload(
     window.addEventListener('focus', onVisible);
     return () => {
       cancelled = true;
+      inFlight?.abort();
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
@@ -147,8 +164,10 @@ export function usePulseUpload(
   const openLink = useCallback(async ({ videoid, uploadToken }: PulseLink) => {
     const storeOS = getStoreOS();
     const deepLink = buildUploadDeepLink(videoid, uploadToken);
+    launch.current();
+    launch.current = () => {};
     if (storeOS && isNativeApp()) await openNativePulseOrStore(deepLink, storeOS);
-    else if (storeOS) openPulseAppOrStore(deepLink, storeOS);
+    else if (storeOS) launch.current = openPulseAppOrStore(deepLink, storeOS);
     else setModalOpen(true);
   }, []);
 

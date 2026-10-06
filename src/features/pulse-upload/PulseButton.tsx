@@ -14,7 +14,7 @@ import React from 'react';
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
 import { PulseLogo } from './PulseLogo';
-import { keptMessage } from './pulseStatus';
+import { EXPIRED_MESSAGE, keptMessage, landedLabel } from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
 import { usePulseUpload, type PulseUpload } from './usePulseUpload';
 
@@ -27,9 +27,17 @@ interface PulseChipProps {
 
 /** The Pulse chip, with what went wrong or where the video went beside it. */
 export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, disabled }) => {
-  const { reserving, error, status, modalOpen } = pulse;
-  // Phones have no modal: say it here when the video went elsewhere.
-  const note = !modalOpen && status?.state === 'kept' ? keptMessage(status.reason) : '';
+  const { reserving, error, status, modalOpen, destination } = pulse;
+  // Phones have no modal: the same words the modal uses, beside the chip.
+  const note = modalOpen
+    ? ''
+    : status?.state === 'done'
+      ? landedLabel(destination)
+      : status?.state === 'kept'
+        ? keptMessage(status.reason)
+        : status?.state === 'expired'
+          ? EXPIRED_MESSAGE
+          : '';
   return (
     <>
       <ComposerChipButton

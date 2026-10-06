@@ -23,7 +23,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
-import { isValidId, rawDb } from './collections.js';
+import { isObjectIdHex, rawDb } from './collections.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -105,7 +105,8 @@ const DESTINATIONS = {
 
   ticket: attachment('ticket', async (userId, { id }) => {
     requireId(id, 'ticket');
-    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Ticket not found');
+    // `isValidId` also takes legacy Meteor ids, which `new ObjectId` throws on.
+    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Ticket not found');
     // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
@@ -126,7 +127,7 @@ const DESTINATIONS = {
 
   clock: attachment('clock', async (userId, { id }) => {
     requireId(id, 'clock session');
-    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Clock session not found');
+    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Clock session not found');
     const session = await rawDb()
       .collection('clockevents')
       .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1 } });

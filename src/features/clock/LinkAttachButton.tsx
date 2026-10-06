@@ -21,11 +21,10 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import { getYouTubeTitleFromUrl, isYouTubeUrl } from '@timehuddle/youtube';
 import React, { useState } from 'react';
 
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
-import { normalizeLink, type AddedLink } from './linkAttach';
+import { lookupLinkTitle, normalizeLink, type AddedLink } from './linkAttach';
 
 interface LinkAttachButtonProps {
   onAdd: (link: AddedLink) => void | Promise<void>;
@@ -54,8 +53,7 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
     }
     setAdding(true);
     try {
-      const title = isYouTubeUrl(url) ? await getYouTubeTitleFromUrl(url).catch(() => null) : null;
-      await onAdd({ url, title });
+      await onAdd({ url, title: await lookupLinkTitle(url) });
       close();
     } catch {
       setError('Could not add that link. Try again.');
@@ -66,9 +64,11 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
 
   return (
     <>
+      {/* Also while an add is saving: its close() would clear a dialog reopened meanwhile. */}
       <ComposerChipButton
         onClick={() => setOpen(true)}
-        disabled={disabled}
+        disabled={disabled || adding}
+        aria-busy={adding}
         aria-label="Add a link, like a YouTube Short"
         leftIcon={<FontAwesomeIcon icon={faLink} className="w-3.5 h-3.5" aria-hidden="true" />}
       >
