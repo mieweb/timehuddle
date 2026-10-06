@@ -389,8 +389,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
           </div>
 
           {/* One height for every badge: an outlined one is otherwise taller
-              than a filled one by its border. */}
-          <div className="ticket-row-facts flex min-w-0 flex-wrap items-center gap-1.5 [&_[data-slot=badge]]:h-5 [&_[data-slot=badge]]:py-0">
+              than a filled one by its border. A minimum, so a label long
+              enough to wrap grows its badge instead of spilling out of it. */}
+          <div className="ticket-row-facts flex min-w-0 flex-wrap items-center gap-1.5 [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
             {/* Names, not avatars: there is room, and initials alone say less. */}
             {assignees.slice(0, COMPACT_ASSIGNEES).map((assignee) => (
               <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">

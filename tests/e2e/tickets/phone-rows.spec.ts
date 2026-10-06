@@ -85,9 +85,49 @@ test.describe('Ticket rows on a phone', () => {
     await expect(tickets.rowByTitle(title)).toBeVisible();
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sort and filter, 1 filter on' })).toBeVisible();
+    // The section says which choice is applied, not only that one is.
+    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
+    await expect(page.getByRole('menu').getByText('Filter by Source: TimeHuddle')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await tickets.clearFiltersButton.click();
     await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();
+  });
+
+  test('works from the keyboard: focus goes in, arrows move, Escape comes back', async ({
+    page,
+  }) => {
+    await tickets.createTicket(`E2E Phone Keys ${Date.now()}`);
+    const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
+    const items = page.getByRole('menuitem');
+
+    await menuButton.click();
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(items.last()).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(menuButton).toBeFocused();
+
+    // Choosing an item also hands focus back, since the item itself goes away.
+    await menuButton.click();
+    await items.first().press('Enter');
+    await expect(menuButton).toBeFocused();
+  });
+
+  test('keeps the whole menu reachable on a short screen', async ({ page }) => {
+    await tickets.createTicket(`E2E Phone Short ${Date.now()}`);
+    await page.setViewportSize({ width: 390, height: 520 });
+
+    await page.getByRole('button', { name: /^Sort and filter/ }).click();
+    const last = page.getByRole('menuitem').last();
+    await last.scrollIntoViewIfNeeded();
+    const box = await last.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(520);
   });
 
   test('wraps a long title instead of cutting it off', async () => {

@@ -12,7 +12,11 @@ import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react';
 import React from 'react';
 
 import { FilterDropdown } from './FilterDropdown';
-import { TicketFilterItems, type TicketColumnFilter } from './TicketColumnHeader';
+import {
+  TicketFilterItems,
+  selectedFilterLabel,
+  type TicketColumnFilter,
+} from './TicketColumnHeader';
 import type { SortField, SortSpec } from './ticketFilters';
 
 export interface TicketColumn {
@@ -39,7 +43,8 @@ const text = {
   sortBy: 'Sort by',
   sorted: (direction: SortSpec['direction']) =>
     direction === 'asc' ? '(sorted ascending)' : '(sorted descending)',
-  filterBy: (label: string) => `Filter by ${label}`,
+  filterBy: (label: string, selected: string | null) =>
+    selected ? `Filter by ${label}: ${selected}` : `Filter by ${label}`,
 };
 
 export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
@@ -101,7 +106,11 @@ export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
       {filters.map((column) => (
         <React.Fragment key={column.label}>
           <DropdownSeparator />
-          <DropdownLabel>{text.filterBy(column.label)}</DropdownLabel>
+          {/* The section names what is applied: bold on the choice below is
+              all that marks it otherwise, and a screen reader cannot hear bold. */}
+          <DropdownLabel>
+            {text.filterBy(column.label, selectedFilterLabel(column.filter!))}
+          </DropdownLabel>
           <TicketFilterItems filter={column.filter!} />
         </React.Fragment>
       ))}

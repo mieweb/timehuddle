@@ -29,6 +29,17 @@ export interface FilterDropdownProps {
   children: React.ReactNode;
 }
 
+/** What each navigation key does to the focused menu item. */
+const MENU_KEY_STEP: Record<string, 1 | -1 | 'first' | 'last' | undefined> = {
+  ArrowDown: 1,
+  ArrowUp: -1,
+  Home: 'first',
+  End: 'last',
+};
+
+const menuItems = (menu: HTMLElement | null) =>
+  menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : [];
+
 export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   activeMenuId,
   menuId,
@@ -68,11 +79,15 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     const rect = trigger.getBoundingClientRect();
     const gutter = 8;
     shiftAppliedRef.current = false;
+    const top = rect.bottom + 8;
     setMenuStyle({
       position: 'fixed',
-      top: rect.bottom + 8,
+      top,
       left: Math.max(gutter, rect.left),
       right: 'auto',
+      // Never taller than the room under the trigger, so the last choices of
+      // a long menu can always be scrolled to, even on a short screen.
+      ['--menu-max-height' as string]: `${Math.max(120, window.innerHeight - top - gutter)}px`,
     });
   }, []);
 
@@ -125,6 +140,12 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     }
   }, [open, menuStyle, boundaryRef]);
 
+  // The menu is portaled to the end of <body>, far from its trigger in the tab
+  // order, so focus is moved into it when it opens.
+  React.useEffect(() => {
+    if (open) menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
   // Close on outside click / Escape — the library's Dropdown handles this
   // internally, but we're no longer using it for the menu itself since it
   // needs to live in a portal.
@@ -137,7 +158,24 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       handleOpenChange(false);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleOpenChange(false);
+      if (e.key === 'Escape') {
+        handleOpenChange(false);
+        triggerRef.current?.focus();
+        return;
+      }
+      // Arrow keys walk the choices, as in any menu.
+      const step = MENU_KEY_STEP[e.key];
+      const items = menuItems(menuRef.current);
+      if (step === undefined || !items.length) return;
+      e.preventDefault();
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next =
+        step === 'first'
+          ? 0
+          : step === 'last'
+            ? items.length - 1
+            : (current + step + items.length) % items.length;
+      items[next]?.focus();
     };
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
@@ -171,10 +209,14 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
             role="menu"
             style={menuStyle}
             className="z-9999 max-w-[calc(100vw-1rem)] min-w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
-            /* Clicking any item bubbles up here and closes the dropdown */
-            onClick={() => handleOpenChange(false)}
+            /* Clicking any item bubbles up here and closes the dropdown. Focus
+               goes back to the trigger: the item it was on is about to unmount. */
+            onClick={() => {
+              handleOpenChange(false);
+              triggerRef.current?.focus();
+            }}
           >
-            <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white shadow-lg dark:bg-neutral-800">
+            <DropdownContent className="max-h-[min(60vh,var(--menu-max-height,60vh))] overflow-y-auto bg-white shadow-lg dark:bg-neutral-800">
               {children}
             </DropdownContent>
           </div>,

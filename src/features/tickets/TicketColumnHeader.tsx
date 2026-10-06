@@ -45,6 +45,16 @@ export interface TicketColumnHeaderProps {
   boundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
+/** The label of the choice a filter is set to, or null when it is on "any". */
+export function selectedFilterLabel(filter: TicketColumnFilter): string | null {
+  if (!filter.value) return null;
+  return (
+    filter.extraOptions?.find((o) => o.value === filter.value)?.label ??
+    filter.options.find((o) => o.value === filter.value)?.label ??
+    null
+  );
+}
+
 /**
  * One filter's choices as menu items: "any", the fixed extras, then the options
  * derived from the loaded tickets. Shared by a column's own filter menu and the
@@ -111,12 +121,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
   const isSorted = sortField !== undefined && sort.field === sortField;
   const ariaSort = isSorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
 
-  const selectedLabel =
-    filter && filter.value
-      ? (filter.extraOptions?.find((o) => o.value === filter.value)?.label ??
-        filter.options.find((o) => o.value === filter.value)?.label ??
-        null)
-      : null;
+  const selectedLabel = filter ? selectedFilterLabel(filter) : null;
 
   return (
     <TableHead
