@@ -27,8 +27,6 @@ export const ReleaseNotesPage: React.FC = () => {
   const { user, markReleaseNotesSeen } = useSession();
   const newest = releaseNotes[0];
 
-  useReleaseCelebration();
-
   // Captured once: which notes were unread *when the page opened*. Recomputing
   // after the marker is written would clear every flag mid-read.
   const [unseenVersions] = useState(
@@ -39,6 +37,8 @@ export const ReleaseNotesPage: React.FC = () => {
         ),
       ),
   );
+
+  useReleaseCelebration(unseenVersions.size > 0);
 
   useEffect(() => {
     if (!newest || !user) return;
