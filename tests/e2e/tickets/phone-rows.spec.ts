@@ -74,6 +74,10 @@ test.describe('Ticket rows on a phone', () => {
       'aria-sort',
       'ascending',
     );
+    // The menu says which field is sorted, and which way, in words.
+    await menuButton.click();
+    await expect(page.getByRole('menuitem', { name: 'Title (sorted ascending)' })).toBeVisible();
+    await page.keyboard.press('Escape');
 
     // Filtering: the same choices a column's own filter offers on a wide screen.
     await menuButton.click();

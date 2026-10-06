@@ -60,6 +60,9 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
   const filtered = Boolean(view.searchQuery) || hasActiveFilters(view.filters);
+  // What decides which rows are listed and in what order. When it changes the
+  // table goes back to its first row, as paging went back to page 1.
+  const listKey = JSON.stringify([view.searchQuery, view.filters, view.sort, view.showClosed]);
 
   return (
     <>
@@ -112,11 +115,13 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
         padding="none"
         className="ticket-table-card flex min-h-0 flex-1 flex-col max-md:-mx-4 max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:bg-transparent max-md:shadow-none"
       >
-        {/* Fills the remaining height; the table scrolls inside it, under a fixed header. */}
-        <div className="ticket-table-area min-h-0 flex-1 overflow-hidden">
+        {/* Fills the remaining height, as a column: a source-error banner takes
+            what it needs and the table scrolls in the rest, under a fixed header. */}
+        <div className="ticket-table-area flex min-h-0 flex-1 flex-col overflow-hidden">
           <TicketTable
             {...tableProps}
             tickets={view.sortedTickets}
+            listKey={listKey}
             optionSource={view.searchFilteredTickets}
             loading={loading}
             sort={view.sort}

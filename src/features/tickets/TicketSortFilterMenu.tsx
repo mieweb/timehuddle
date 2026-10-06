@@ -37,6 +37,8 @@ const text = {
   triggerFiltered: (count: number) =>
     `Sort and filter, ${count} filter${count === 1 ? '' : 's'} on`,
   sortBy: 'Sort by',
+  sorted: (direction: SortSpec['direction']) =>
+    direction === 'asc' ? '(sorted ascending)' : '(sorted descending)',
   filterBy: (label: string) => `Filter by ${label}`,
 };
 
@@ -89,6 +91,9 @@ export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
               }
             >
               {column.label}
+              {/* The arrow is decoration; this says it for a screen reader, which
+                  has no column header to read the sort from on a phone. */}
+              {active && <span className="sr-only">{text.sorted(sort.direction)}</span>}
             </DropdownItem>
           );
         })}

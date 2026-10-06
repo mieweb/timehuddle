@@ -84,11 +84,17 @@ const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
 // The table's scroller: rows scroll under the fixed header, columns sideways,
 // both with the app's minimal thin scrollbar.
-const SCROLL_AREA_CLASS = `ticket-table-scroll h-full w-full [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
+const SCROLL_AREA_CLASS = `ticket-table-scroll min-h-0 w-full flex-1 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
 
 export interface TicketTableProps {
   /** The rows to list, already filtered and sorted. */
   tickets: UnifiedTicket[];
+  /**
+   * Changes when the search, a filter, the sort or Open/Closed does. The table
+   * scrolls back to its first row then: the old position means nothing in a
+   * different list. New rows arriving in the same list leave it alone.
+   */
+  listKey: string;
   /** Everything matching the search, used to build the filter menus. */
   optionSource: UnifiedTicket[];
   loading: boolean;
@@ -147,6 +153,7 @@ const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number }> = ({
 
 export const TicketTable: React.FC<TicketTableProps> = ({
   tickets,
+  listKey,
   optionSource,
   loading,
   errors,
@@ -258,11 +265,16 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     { label: 'Updated', sortField: 'updated' },
   ];
 
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [listKey]);
+
   return (
     <>
       {errors.length > 0 && (
         <ul
-          className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
           aria-label="Source load errors"
         >
           {errors.map((error) => (
@@ -289,7 +301,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       {!loading && tickets.length === 0 ? (
         emptyState
       ) : (
-        <ScrollArea orientation="both" className={SCROLL_AREA_CLASS}>
+        <ScrollArea ref={scrollRef} orientation="both" className={SCROLL_AREA_CLASS}>
           <Table
             aria-label={showClosed ? 'Closed tickets' : 'Open tickets'}
             responsive={false}
