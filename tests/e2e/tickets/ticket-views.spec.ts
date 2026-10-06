@@ -54,4 +54,31 @@ test.describe('Tickets page views', () => {
     await tickets.switchToTab('my-board');
     await expect(tickets.searchInput).toHaveValue('');
   });
+
+  test('shortens New Ticket on a phone, and keeps its name', async ({ page }) => {
+    await expect(tickets.newTicketButton).toHaveText('New Ticket');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    // Still found by its full name; only what is shown gets shorter.
+    await expect(tickets.newTicketButton).toBeVisible();
+    await expect(tickets.newTicketButton.getByText('New', { exact: true })).toBeHidden();
+    await expect(tickets.newTicketButton).toContainText('Ticket');
+  });
+});
+
+test.describe('An empty My Board', () => {
+  test('points at All Sources, and keeps keyboard focus when it goes there', async ({ page }) => {
+    // No ticket spec puts anything on this user's board.
+    await loginAs(page, TEST_USERS.admin3);
+    const tickets = new TicketsPage(page);
+    await page.goto('/app/tickets');
+    await tickets.heading.waitFor({ state: 'visible' });
+
+    const browse = page.getByRole('button', { name: 'Browse All Sources' });
+    await expect(browse).toBeVisible();
+    await browse.click();
+
+    await expect(tickets.ticketsTab).toHaveAttribute('aria-checked', 'true');
+    await expect(tickets.ticketsTab).toBeFocused();
+  });
 });

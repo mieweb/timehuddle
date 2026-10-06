@@ -68,6 +68,7 @@ import {
 import { removalText } from './ticketRemovalStrings';
 import type { TicketTimerOutcome } from './startTicketTimer';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
+import { useMyBoardKeys } from './useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { timerLabel } from '../timers/ticketTimerStrings';
 import { useTicketTableView } from './useTicketTableView';
@@ -315,34 +316,21 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
+  const switcherRef = React.useRef<HTMLDivElement>(null);
+  // The empty board's button hides itself by switching views. Focus goes to
+  // the option it selected, so a keyboard user is not dropped on the page body.
+  const browseAllSources = useCallback(() => {
+    setActiveView('tickets');
+    requestAnimationFrame(() =>
+      switcherRef.current
+        ?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')
+        ?.focus(),
+    );
+  }, []);
 
-  // My Board membership — identity only (`${sourceId}:${id}` keys, matching
-  // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
-  // never snapshotted server-side (Core Model Data Discipline).
-  const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
-  // Huddle board entries the server says the user can no longer see.
-  const [unavailableHuddleKeys, setUnavailableHuddleKeys] = useState<Set<string>>(new Set());
-  // Reloaded on tickets:refetch too: a timer start (from anywhere, including
-  // one that waited for a clock-in) can add a ticket to the board.
-  // A failed reload keeps the board as it was rather than emptying it.
-  const loadBoard = useCallback(
-    () =>
-      void myBoardApi
-        .list()
-        .then((entries) => {
-          const keyOf = (e: { sourceId: string; ticketId: string }) =>
-            `${e.sourceId}:${e.ticketId}`;
-          setBoardKeys(new Set(entries.map(keyOf)));
-          setUnavailableHuddleKeys(new Set(entries.filter((e) => e.unavailable).map(keyOf)));
-        })
-        .catch(() => {}),
-    [],
-  );
-  useEffect(() => {
-    loadBoard();
-    window.addEventListener('tickets:refetch', loadBoard);
-    return () => window.removeEventListener('tickets:refetch', loadBoard);
-  }, [loadBoard]);
+  // My Board membership, as identity only. Emptied and reloaded when the
+  // signed-in user changes: this page stays mounted, and opens on the board.
+  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard } = useMyBoardKeys(userId);
   // A board entry for a Redmine issue shows as the ticket linked to that issue.
   const boardTickets = useMemo(
     () => allTickets.filter((t) => boardKeys.has(t.key) || boardKeys.has(linkedIssueKey(t) ?? '')),
@@ -752,7 +740,7 @@ export const TicketsPage: React.FC = () => {
 
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="tickets-views flex min-h-0 flex-1 flex-col">
-          <div className="tickets-view-switcher mb-1.5 shrink-0">
+          <div ref={switcherRef} className="tickets-view-switcher mb-1.5 shrink-0">
             <SegmentedSwitcher
               name="tickets-view"
               label={viewText.switcherLabel}
@@ -862,7 +850,7 @@ export const TicketsPage: React.FC = () => {
                   variant="outline"
                   size="sm"
                   leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
-                  onClick={() => setActiveView('tickets')}
+                  onClick={browseAllSources}
                 >
                   {viewText.browseAllSources}
                 </Button>
