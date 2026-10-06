@@ -16,7 +16,7 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
@@ -43,7 +43,7 @@ import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
-import { useQueryParams, useSearchParam } from '../ui/router';
+import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
@@ -57,6 +57,8 @@ const THREAD_BY_KEY = 'app:huddleThreadBy';
 const LOAD_TIMEOUT_MS = 10_000;
 // Team-picker value for the Personal view; team ids are never this string.
 const PERSONAL_VIEW = 'personal';
+// URL params that say which view Huddle is showing; any of them in the URL means the link chose the view.
+const VIEW_PARAMS = ['conversation', 'post', 'postId', 'view', 'q'];
 // Key of the Personal view's feed window; team feeds are keyed by team id.
 const ME_FEED_KEY = 'me';
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
@@ -119,6 +121,30 @@ export default function Huddle() {
   const { params, setParams } = useQueryParams();
   const conversationParam = params.get('conversation');
   const postParam = params.get('post') || params.get('postId');
+
+  // AppLayout keeps Huddle mounted behind other pages, but the sidebar link
+  // back to it carries none of the view. Remember the view while Huddle is on
+  // screen and put it back when it returns to a bare URL; a link that names a
+  // view (a notification, a shared conversation) wins. The layout effect runs
+  // before paint, so the return never flashes the default conversation, and it
+  // re-runs each time <Activity> shows the page again.
+  const { pathname } = useRouter();
+  const onScreen = pathname === '/app/huddle';
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const lastViewRef = useRef<Record<string, string | null>>({});
+  useLayoutEffect(() => {
+    if (VIEW_PARAMS.some((key) => paramsRef.current.has(key))) return;
+    setParams(lastViewRef.current);
+  }, [setParams]);
+  useEffect(() => {
+    if (!onScreen) return;
+    lastViewRef.current = {
+      conversation: params.get('conversation'),
+      view: params.get('view'),
+      q: params.get('q'),
+    };
+  }, [onScreen, params]);
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -372,35 +398,35 @@ export default function Huddle() {
     if (closed) void refreshActiveScopeRef.current();
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
-  // A team's feed starts over when the selected team changes. Kept apart from
-  // the subscription below, which re-runs when the window widens and must not
-  // blank the posts already on screen.
-  const loadingRef = useRef(loading);
-  loadingRef.current = loading;
+  // A team's feed starts over when the selected team changes — and only then.
+  // Huddle is paused (see AppLayout) when another page is showing, which runs
+  // every effect's cleanup; the posts already on screen must survive that.
+  const loadedTeamRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedTeamId) {
+      loadedTeamRef.current = null;
       setPosts([]);
       setLoading(false);
       return;
     }
-
+    if (loadedTeamRef.current === selectedTeamId) return;
+    loadedTeamRef.current = selectedTeamId;
+    setPosts([]);
+    restPostsRef.current.clear();
     setLoading(true);
     setError(null);
+  }, [selectedTeamId]);
 
-    // Neither route delivered: say so rather than show an empty feed, which
-    // would read as "no posts" (and offer the starter conversation).
+  // Neither route delivered: say so rather than show an empty feed, which
+  // would read as "no posts" (and offer the starter conversation).
+  useEffect(() => {
+    if (!loading || !selectedTeamId) return;
     const loadingFallback = setTimeout(() => {
-      if (!loadingRef.current) return;
       setLoading(false);
       setError('Failed to load posts. Pull down to retry.');
     }, LOAD_TIMEOUT_MS);
-
-    return () => {
-      clearTimeout(loadingFallback);
-      setPosts([]);
-      restPostsRef.current.clear();
-    };
-  }, [selectedTeamId]);
+    return () => clearTimeout(loadingFallback);
+  }, [loading, selectedTeamId]);
 
   // Subscribe to the live DDP publication for the team's posts in the window.
   // Widening the window re-subscribes; the REST snapshot (kept until the new

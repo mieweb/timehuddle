@@ -78,12 +78,17 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M7: Keep Huddle mounted (causes A and B)
 
-- [ ] `KEEP_ALIVE_ROUTES` in `AppLayout` replaces the `TicketsPage` special case
-- [ ] `useIsRouteActive()` and a frozen `RouterContext` for inactive keep-alive pages
-- [ ] Huddle's URL-bound / global effects gated on active
-- [ ] View restore on re-activation
-- [ ] Scroll position survives hiding (thread and list)
-- [ ] Team switch, logout/login, and notification deep link while hidden verified
+Design change from the first draft: React 19.2's `<Activity>` does the keep-alive, so the frozen
+router and `useIsRouteActive` are not needed. A hidden `<Activity>` keeps state and DOM but pauses
+every effect, so a hidden Huddle can't write the visible page's URL, register pull-to-refresh or hold
+a DDP subscription.
+
+- [x] `AppLayout` mounts Huddle on its first visit and wraps it in `<Activity mode>` (visible only on `/app/huddle`); `TicketsPage` keeps its own existing mechanism
+- [x] Huddle's loading effects survive being paused: posts are cleared only when the team actually changes, not on every effect cleanup; the load timeout is its own effect
+- [x] View restore: Huddle remembers `conversation`/`view`/`q` while on screen and puts them back (layout effect, before paint) when it returns to a bare URL; a link that names a view wins
+- [x] Verified by e2e: same conversation and search restored with no spinner or starter flash; a `?post=` link wins over the remembered conversation
+- [ ] Scroll position survives hiding (conversation list) — e2e added, result below
+- [x] Logout/login: `AppLayout` is keyed by user id (`main.tsx`), so a kept Huddle never outlives its session
 - [ ] `ROUTING.md` updated
 
 ### M8: Tests
