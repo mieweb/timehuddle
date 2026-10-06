@@ -11,6 +11,8 @@
  *     resulting attachment appearing in the ticket's "Links" list.
  */
 import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { expect, test, type Page, type APIRequestContext, type TestInfo } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from './helpers';
@@ -89,6 +91,79 @@ async function uploadRealVideoViaApi(
   expect(patched.headers()['upload-offset']).toBe(String(bytes.length));
 }
 
+/** One file of a pulse, sent the way Pulse sends it (its `Pulse-Client` header included). */
+async function uploadArtifact(
+  request: APIRequestContext,
+  uploadToken: string,
+  file: { artifactId: string; filename: string; bytes: Buffer; kind?: string; relatedTo?: string },
+  { finish = true }: { finish?: boolean } = {},
+): Promise<{ created: number; finished: number | null; location?: string }> {
+  const fields: Array<[string, string]> = [
+    ['artifactId', file.artifactId],
+    ['filename', file.filename],
+  ];
+  if (file.kind) fields.push(['kind', file.kind]);
+  if (file.relatedTo) fields.push(['relatedTo', file.relatedTo]);
+  const headers = {
+    'Tus-Resumable': '1.0.0',
+    'Pulse-Client': 'Pulse/2.2.0 (e2e; test); protocol=1-2',
+    Authorization: `Bearer ${uploadToken}`,
+  };
+  const created = await request.post('/pulsevault/upload', {
+    headers: {
+      ...headers,
+      'Upload-Length': String(file.bytes.length),
+      'Upload-Metadata': fields
+        .map(([key, value]) => `${key} ${Buffer.from(value).toString('base64')}`)
+        .join(','),
+    },
+  });
+  const location = created.headers()['location'];
+  if (!finish || created.status() !== 201)
+    return { created: created.status(), finished: null, location };
+  const patched = await request.patch(location, {
+    headers: {
+      ...headers,
+      'Upload-Offset': '0',
+      'Content-Type': 'application/offset+octet-stream',
+    },
+    data: file.bytes,
+  });
+  return { created: created.status(), finished: patched.status(), location };
+}
+
+/** The caller's media items for a video id (media.list over REST). */
+async function mediaItemsFor(request: APIRequestContext, token: string, videoid: string) {
+  const res = await request.post('/api/media_list', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {},
+  });
+  expect(res.status()).toBe(200);
+  const { items } = (await res.json()).result as { items: Array<{ videoid: string | null }> };
+  return items.filter((item) => item.videoid === videoid);
+}
+
+/**
+ * Age an unfinished upload's files on the backend's disk, so PulseVault treats
+ * it as abandoned (`reclaim` waits for 5 idle minutes). Needs the backend's
+ * `VIDEOS_DIR`; the tests that use it skip without one.
+ */
+const BACKEND_VIDEOS_DIR = process.env.VIDEOS_DIR;
+function abandon(artifactId: string): void {
+  const aWhileAgo = new Date(Date.now() - 10 * 60 * 1000);
+  for (const entry of fs.readdirSync(BACKEND_VIDEOS_DIR!, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    const file = path.join(entry.parentPath, entry.name);
+    if (entry.isFile() && file.includes(artifactId)) fs.utimesSync(file, aWhileAgo, aWhileAgo);
+  }
+}
+
+const THUMBNAIL = fs.readFileSync(path.join(__dirname, '../fixtures/test-image.png'));
+const CAPTIONS = Buffer.from('WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n');
+const MANIFEST = Buffer.from('{"beats":[{"startMs":0,"endMs":1000}]}');
+
 // ─── API-level contract checks ────────────────────────────────────────────────
 
 test.describe('PulseVault — API contract', () => {
@@ -99,7 +174,7 @@ test.describe('PulseVault — API contract', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body).toHaveProperty('protocolVersion');
-    expect(body).toHaveProperty('uploadUnit', 'merged');
+    expect(body).not.toHaveProperty('uploadUnit');
   });
 
   test('POST /api/pulsevault_reserve requires auth', async ({ request }) => {
@@ -256,7 +331,7 @@ test.describe('PulseVault — API contract', () => {
     ).toBe(true);
   });
 
-  test('GET/DELETE /pulsevault/artifacts/{id} serve and remove the finished video', async ({
+  test('GET/DELETE /pulsevault/artifacts/{id} serve the finished video, which its token cannot delete', async ({
     page,
     request,
   }) => {
@@ -275,18 +350,15 @@ test.describe('PulseVault — API contract', () => {
     expect(getArtifact.status()).toBe(200);
     expect(getArtifact.headers()['content-type']).toContain('video/mp4');
 
-    // Artifact delete is authorized by the same capability token as the
-    // upload (the `authorize` hook only treats the `resolve`/GET phase as
-    // public — everything else, including delete, goes through
-    // verifyUploadToken against the artifact-scoped capability token, not a
-    // general Meteor session token).
+    // A video that landed stays (`lockWhenReady`): even the capability token
+    // it was uploaded with can't delete it.
     const del = await request.delete(`/pulsevault/artifacts/${videoid}`, {
       headers: { Authorization: `Bearer ${uploadToken}` },
     });
-    expect([200, 204]).toContain(del.status());
+    expect(del.status()).toBe(403);
 
     const getAfterDelete = await request.get(`/pulsevault/artifacts/${videoid}`);
-    expect(getAfterDelete.status()).toBe(404);
+    expect(getAfterDelete.status()).toBe(200);
   });
 
   test('GET /pulsevault/docs and /pulsevault/openapi.json serve the standalone Swagger page', async ({
@@ -340,8 +412,8 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(qr).toBeVisible();
   });
 
-  // The deep-link protocol itself (v=1, artifactId, server, token,
-  // uploadUnit) is asserted at the unit level in PulseUploadButton.test.ts —
+  // The deep-link protocol itself (v=1, artifactId, server, token) is
+  // asserted at the unit level in PulseUploadButton.test.ts —
   // qrcode.react renders to a plain <svg> with no way to read back the
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.
@@ -376,5 +448,131 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(linksList.locator('a[href*="/pulsevault/artifacts/"]').first()).toBeVisible({
       timeout: 8000,
     });
+  });
+});
+
+// ─── A pulse's related files (thumbnail, beat manifest, captions) ─────────────
+
+test.describe('PulseVault — a pulse uploads its related files with the video', () => {
+  test.setTimeout(60000);
+
+  test('the thumbnail, manifest and captions are accepted, and the video is added once', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const token = await getSessionToken(page);
+    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+
+    const related = [
+      { filename: 'thumb.png', bytes: THUMBNAIL, kind: 'thumbnail' },
+      { filename: 'beats.pulse', bytes: MANIFEST, kind: 'project' },
+      { filename: 'captions.vtt', bytes: CAPTIONS, kind: 'captions' },
+    ];
+    for (const file of related) {
+      const sent = await uploadArtifact(request, uploadToken, {
+        ...file,
+        artifactId: randomUUID(),
+        relatedTo: videoid,
+      });
+      expect([sent.created, sent.finished], file.kind).toEqual([201, 204]);
+    }
+    // None of them is the video, so none of them is added in its place.
+    expect(await mediaItemsFor(request, token, videoid)).toHaveLength(0);
+
+    await uploadRealVideoViaApi(request, videoid, uploadToken);
+    await expect.poll(async () => (await mediaItemsFor(request, token, videoid)).length).toBe(1);
+  });
+
+  test('each file must use the id it was given: the video its own, a related file another', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const token = await getSessionToken(page);
+    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+
+    // A thumbnail under the video's own id would take that id from the video.
+    const underVideoId = await uploadArtifact(request, uploadToken, {
+      artifactId: videoid,
+      filename: 'thumb.png',
+      bytes: THUMBNAIL,
+      kind: 'thumbnail',
+    });
+    expect(underVideoId.created).toBe(403);
+
+    // A video under some other id would never be added anywhere.
+    const elsewhere = await uploadArtifact(request, uploadToken, {
+      artifactId: randomUUID(),
+      filename: 'video.mp4',
+      bytes: fs.readFileSync(TEST_MP4),
+      relatedTo: videoid,
+    });
+    expect(elsewhere.created).toBe(403);
+
+    // Neither took anything from the reservation: the real video still lands, once.
+    await uploadRealVideoViaApi(request, videoid, uploadToken);
+    await expect.poll(async () => (await mediaItemsFor(request, token, videoid)).length).toBe(1);
+  });
+
+  test('an abandoned thumbnail upload can be sent again', async ({ page, request }) => {
+    test.skip(!BACKEND_VIDEOS_DIR, "needs the backend's VIDEOS_DIR to age the abandoned upload");
+    await loginAs(page, TEST_USERS.owner1);
+    const token = await getSessionToken(page);
+    const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
+
+    const thumbnail = {
+      artifactId: randomUUID(),
+      filename: 'thumb.png',
+      bytes: THUMBNAIL,
+      kind: 'thumbnail',
+      relatedTo: videoid,
+    };
+    expect((await uploadArtifact(request, uploadToken, thumbnail, { finish: false })).created).toBe(
+      201,
+    );
+    abandon(thumbnail.artifactId);
+
+    const again = await uploadArtifact(request, uploadToken, thumbnail);
+    expect([again.created, again.finished]).toEqual([201, 204]);
+  });
+
+  test("another person's token can't clear someone's abandoned upload", async ({ browser }) => {
+    test.skip(!BACKEND_VIDEOS_DIR, "needs the backend's VIDEOS_DIR to age the abandoned upload");
+    const owner = await (await browser.newContext()).newPage();
+    await loginAs(owner, TEST_USERS.owner1);
+    const mine = await reserveLibraryUpload(owner.request, await getSessionToken(owner));
+    const video = {
+      artifactId: mine.videoid,
+      filename: 'video.mp4',
+      bytes: fs.readFileSync(TEST_MP4),
+    };
+    const started = await uploadArtifact(owner.request, mine.uploadToken, video, { finish: false });
+    expect(started.created).toBe(201);
+    abandon(mine.videoid);
+
+    // Their own token, claiming the other upload is related to their video.
+    const other = await (await browser.newContext()).newPage();
+    await loginAs(other, TEST_USERS.member1);
+    const theirs = await reserveLibraryUpload(other.request, await getSessionToken(other));
+    const attempt = await uploadArtifact(
+      other.request,
+      theirs.uploadToken,
+      {
+        artifactId: mine.videoid,
+        filename: 'x.png',
+        bytes: THUMBNAIL,
+        kind: 'thumbnail',
+        relatedTo: theirs.videoid,
+      },
+      { finish: false },
+    );
+    expect(attempt.created).toBe(409);
+
+    // The owner's upload is still there, ready to resume.
+    const head = await owner.request.head(started.location!, {
+      headers: { 'Tus-Resumable': '1.0.0', Authorization: `Bearer ${mine.uploadToken}` },
+    });
+    expect(head.status()).toBe(200);
   });
 });

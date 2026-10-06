@@ -2006,6 +2006,58 @@ export const videoApi = {
    */
   shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
 
+  /**
+   * Wait for the backend to file a finished upload — attach it to its ticket or
+   * add it to the media library — and say how it went, from PulseVault's status
+   * route read with the upload's own token. The video is made web-playable
+   * before it is filed, so this can come seconds after the last byte.
+   *
+   * `done` carries the backend's note; `kept` means the backend decided not to
+   * file it (its destination is gone) and says why; `forbidden` means the token
+   * no longer opens the status (it expired, or isn't this upload's); `timeout`
+   * means nothing was recorded within `timeoutMs` — the backend keeps trying on
+   * its own, so the video may still appear later.
+   */
+  waitUntilFiled: async (
+    videoid: string,
+    uploadToken: string,
+    timeoutMs = 120_000,
+  ): Promise<
+    | { state: 'done'; note?: string }
+    | { state: 'kept'; reason?: string }
+    | { state: 'forbidden' }
+    | { state: 'timeout' }
+  > => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        // Each request is bounded by what's left of the deadline (at most 10 s), so a stalled
+        // request can't keep this waiting past `timeoutMs`; an abort counts as transient.
+        const res = await fetch(`${METEOR_API_BASE}/pulsevault/artifacts/${videoid}/status`, {
+          headers: { Authorization: `Bearer ${uploadToken}` },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(Math.max(1000, Math.min(10_000, deadline - Date.now()))),
+        });
+        if (res.status === 401 || res.status === 403) return { state: 'forbidden' };
+        if (res.ok) {
+          const status = (await res.json()) as {
+            acknowledged?: boolean;
+            outcome?: { state?: string; note?: string; reason?: string };
+          };
+          // `acknowledged` only says the backend finished handling it; the
+          // outcome says whether that was a filing or a refusal.
+          if (status.outcome?.state === 'done') return { state: 'done', note: status.outcome.note };
+          if (status.outcome?.state === 'kept')
+            return { state: 'kept', reason: status.outcome.reason };
+        }
+      } catch {
+        // A transient failure: ask again.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return { state: 'timeout' };
+  },
+
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
