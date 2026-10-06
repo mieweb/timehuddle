@@ -1,15 +1,6 @@
 import { faCheck, faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Button,
-  ButtonGroup,
-  Card,
-  Dropdown,
-  DropdownItem,
-  Input,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
+import { Button, ButtonGroup, Dropdown, DropdownItem, Input, Spinner, Text } from '@mieweb/ui';
 import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
@@ -121,6 +112,7 @@ export default function Huddle() {
   const { params, setParams } = useQueryParams();
   const conversationParam = params.get('conversation');
   const postParam = params.get('post') || params.get('postId');
+  const [searchQuery, setSearchQuery] = useSearchParam('q');
 
   // AppLayout keeps Huddle mounted behind other pages, but the sidebar link
   // back to it carries none of the view. Remember the view while Huddle is on
@@ -139,12 +131,14 @@ export default function Huddle() {
   }, [setParams]);
   useEffect(() => {
     if (!onScreen) return;
+    // The search draft, not the URL's `q`: the URL follows it after a pause, and
+    // leaving inside that pause would otherwise lose what was typed.
     lastViewRef.current = {
       conversation: params.get('conversation'),
       view: params.get('view'),
-      q: params.get('q'),
+      q: searchQuery,
     };
-  }, [onScreen, params]);
+  }, [onScreen, params, searchQuery]);
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,7 +147,6 @@ export default function Huddle() {
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useSearchParam('q');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
   // function below, it never refetches. A linked conversation or post brings
@@ -848,18 +841,19 @@ export default function Huddle() {
       {/* Phones only: clip (not hide) sideways overflow so the page can't be
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip">
+      <div className="huddle flex h-full min-h-0 gap-0 max-md:overflow-x-clip">
         {/* The filters live in the inbox's list header; until the inbox is on
-            screen (loading, no posts) they sit here instead. Ghost card: no
-            border or fill of its own, it sits on the page. */}
+            screen (loading, error, no team) they sit in a column the size of
+            that list, so they don't jump when it appears. Phones open on the
+            chat, where the list is hidden, so they show nothing here. */}
         {!listHeaderEl && (
-          <Card variant="ghost" padding="none" className="huddle-header shrink-0">
-            <div className="huddle-toolbar p-3">{inboxControls}</div>
-          </Card>
+          <aside className="huddle-toolbar hidden w-64 shrink-0 border-e border-neutral-200 p-3 sm:block dark:border-neutral-700">
+            {inboxControls}
+          </aside>
         )}
 
         {/* Feed */}
-        <div ref={feedRef} className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+        <div ref={feedRef} className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto">
           {scope === 'team' && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">
