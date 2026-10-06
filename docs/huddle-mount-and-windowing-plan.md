@@ -57,9 +57,9 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M4: Window state in the client
 
-- [ ] `windowDays` / `since` / `hasMore` / `loadingOlder` state; reset on team/scope change
-- [ ] Re-subscribe with the widened `since` (new subscription before the old one stops); pass `since` to REST and Personal fetches
-- [ ] A failed load-older keeps existing posts and is retryable
+- [x] `useFeedWindow` hook (`windowDays` / `since` / `hasMore` / `loadingOlder` / `loadFailed`), one window per feed, reset on team change; unit-tested
+- [x] The team subscription re-subscribes with the widened `since` without blanking posts (the REST snapshot holds the screen); `since` is passed to the REST and Personal fetches
+- [x] A failed load-older keeps existing posts and waits for an explicit retry (`retry()`); nothing triggers `loadOlder` yet (M6)
 
 ### M5: `listFooter` slot in `@mieweb/ui` (needs approval)
 

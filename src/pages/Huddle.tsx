@@ -37,6 +37,7 @@ import {
 import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { useFeedWindow } from '../features/huddle/useFeedWindow';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
@@ -55,6 +56,8 @@ const THREAD_BY_KEY = 'app:huddleThreadBy';
 const LOAD_TIMEOUT_MS = 10_000;
 // Team-picker value for the Personal view; team ids are never this string.
 const PERSONAL_VIEW = 'personal';
+// Key of the Personal view's feed window; team feeds are keyed by team id.
+const ME_FEED_KEY = 'me';
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
 const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
@@ -218,23 +221,38 @@ export default function Huddle() {
     setParams({ view: null }, 'push');
     setSelectedTeamId(value);
   };
+  // How far back each feed reaches. The team feed and the Personal view keep
+  // their own windows; the team's resets when the selected team changes.
+  const teamFeedKey = `team:${selectedTeamId}`;
+  const teamWindow = useFeedWindow(teamFeedKey);
+  const meWindow = useFeedWindow(ME_FEED_KEY);
+
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
   // Starts true so the Personal view's first render shows the spinner, not an
   // empty feed, before its fetch effect runs.
   const [myPostsLoading, setMyPostsLoading] = useState(true);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  const { since: meSince, settle: settleMe } = meWindow;
+  const meSinceRef = useRef(meSince);
+  meSinceRef.current = meSince;
   const refreshMyPosts = useCallback(async () => {
     try {
-      setMyPosts((await huddleApi.getMyPosts()).posts);
+      const page = await huddleApi.getMyPosts(meSince);
+      // Answered for a window that has since moved on; the newer fetch owns the state.
+      if (meSinceRef.current !== meSince) return;
+      setMyPosts(page.posts);
       setMyPostsError(null);
+      settleMe(ME_FEED_KEY, { ok: true, hasMore: page.hasMore });
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
       setMyPostsError('Failed to load your posts.');
+      settleMe(ME_FEED_KEY, { ok: false });
     }
-  }, []);
+  }, [meSince, settleMe]);
   useEffect(() => {
     if (scope !== 'me') return;
-    setMyPostsLoading(true);
+    // No spinner here: a widened window or a return to Personal keeps the posts
+    // already on screen while the fetch runs.
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
@@ -293,22 +311,29 @@ export default function Huddle() {
   // Pulse recording), so the feed still updates without a reconnect.
   const selectedTeamIdRef = useRef(selectedTeamId);
   selectedTeamIdRef.current = selectedTeamId;
+  const { since: teamSince, settle: settleTeam } = teamWindow;
+  const teamSinceRef = useRef(teamSince);
+  teamSinceRef.current = teamSince;
   const refreshFeed = useCallback(async () => {
     if (!selectedTeamId) return;
     try {
-      const { posts: fresh } = await huddleApi.getPosts(selectedTeamId);
+      const page = await huddleApi.getPosts(selectedTeamId, teamSince);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
-      // must not write the old team's snapshot over the new team's feed.
-      if (selectedTeamIdRef.current !== selectedTeamId) return;
-      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
+      // must not write the old team's snapshot over the new team's feed; the
+      // same goes for one answered for a window that has since widened.
+      if (selectedTeamIdRef.current !== selectedTeamId || teamSinceRef.current !== teamSince)
+        return;
+      restPostsRef.current = new Map(page.posts.map((post) => [post.id, post]));
       syncPosts();
       // A fetched snapshot is real data, even when it is empty.
       setLoading(false);
       setError(null);
+      settleTeam(teamFeedKey, { ok: true, hasMore: page.hasMore });
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
+      settleTeam(teamFeedKey, { ok: false });
     }
-  }, [selectedTeamId, syncPosts]);
+  }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, settleTeam]);
 
   // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
   // is active.
@@ -345,7 +370,11 @@ export default function Huddle() {
     if (closed) void refreshActiveScopeRef.current();
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
-  // Subscribe to live DDP publication for huddle posts
+  // A team's feed starts over when the selected team changes. Kept apart from
+  // the subscription below, which re-runs when the window widens and must not
+  // blank the posts already on screen.
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
   useEffect(() => {
     if (!selectedTeamId) {
       setPosts([]);
@@ -356,8 +385,29 @@ export default function Huddle() {
     setLoading(true);
     setError(null);
 
+    // Neither route delivered: say so rather than show an empty feed, which
+    // would read as "no posts" (and offer the starter conversation).
+    const loadingFallback = setTimeout(() => {
+      if (!loadingRef.current) return;
+      setLoading(false);
+      setError('Failed to load posts. Pull down to retry.');
+    }, LOAD_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(loadingFallback);
+      setPosts([]);
+      restPostsRef.current.clear();
+    };
+  }, [selectedTeamId]);
+
+  // Subscribe to the live DDP publication for the team's posts in the window.
+  // Widening the window re-subscribes; the REST snapshot (kept until the new
+  // fetch replaces it) holds the screen steady while the subscription restarts.
+  useEffect(() => {
+    if (!selectedTeamId) return;
+
     const ddp = getDdpClient();
-    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => {
+    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId, teamSince], () => {
       setLoading(false);
       setError(null);
     });
@@ -372,21 +422,11 @@ export default function Huddle() {
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
 
-    // Neither route delivered: say so rather than show an empty feed, which
-    // would read as "no posts" (and offer the starter conversation).
-    const loadingFallback = setTimeout(() => {
-      setLoading(false);
-      setError('Failed to load posts. Pull down to retry.');
-    }, LOAD_TIMEOUT_MS);
-
     return () => {
-      clearTimeout(loadingFallback);
       unsub();
       offChange();
-      setPosts([]);
-      restPostsRef.current.clear();
     };
-  }, [selectedTeamId, syncPosts, refreshFeed]);
+  }, [selectedTeamId, teamSince, syncPosts, refreshFeed]);
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
