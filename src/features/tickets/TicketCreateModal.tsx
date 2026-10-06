@@ -1,9 +1,12 @@
 /**
- * Create a TimeHuddle ticket — laid out like `RedmineIssueCreateModal`, so
- * both "New Ticket" choices look and behave the same.
+ * Create a ticket — the one dialog for it, whatever system the work is tracked
+ * in. Every ticket is a TimeHuddle ticket; "Tracked in" says whether it also
+ * points at a GitHub link or a Redmine issue (an existing one, or a new one
+ * created from this ticket). The same choice can be changed later on the
+ * ticket's page.
  *
- * Pasting a GitHub issue/PR URL into the title (or typing one into the GitHub
- * field) fills the title from GitHub. The assignee defaults to the creator; the
+ * Pasting a GitHub issue/PR URL into the title, or entering one as the GitHub
+ * link, fills the title from GitHub. The assignee defaults to the creator; the
  * team defaults to the one currently selected.
  */
 import {
@@ -19,6 +22,7 @@ import {
   ModalTitle,
   Select,
   Textarea,
+  useToast,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -26,6 +30,11 @@ import { teamApi, ticketApi, type TeamMember } from '../../lib/api';
 
 import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
+import { IssueCreatedNotLinkedError, applyTicketLink } from './link/applyTicketLink';
+import { linkErrorMessage } from './link/linkErrors';
+import { TicketLinkFields } from './link/TicketLinkFields';
+import { EMPTY_LINK_FORM, linkFormReady, type LinkFormState } from './link/ticketLinkForm';
+import { ticketLinkText } from './link/ticketLinkStrings';
 
 /** `Select` value for "nobody". */
 const UNASSIGNED = 'none';
@@ -44,9 +53,10 @@ interface FormState {
   teamId: string;
   title: string;
   description: string;
-  github: string;
   assigneeId: string;
   priority: string;
+  /** Where the ticket is tracked besides TimeHuddle. */
+  link: LinkFormState;
 }
 
 export function TicketCreateModal({
@@ -62,10 +72,12 @@ export function TicketCreateModal({
   const [titleFetching, setTitleFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toast = useToast();
 
   const update = (patch: Partial<FormState>) =>
     setForm((current) => (current ? { ...current, ...patch } : current));
+  const updateLink = (patch: Partial<LinkFormState>) =>
+    setForm((current) => (current ? { ...current, link: { ...current.link, ...patch } } : current));
 
   // Fresh form each time the dialog opens — only on the open transition, so a
   // teams refetch while it is open can't wipe what the user has typed.
@@ -79,9 +91,9 @@ export function TicketCreateModal({
       teamId: defaultTeamId ?? teams[0]?.id ?? '',
       title: '',
       description: '',
-      github: '',
       assigneeId: userId ?? UNASSIGNED,
       priority: 'none',
+      link: EMPTY_LINK_FORM,
     });
   }, [open, defaultTeamId, teams, userId]);
 
@@ -99,44 +111,84 @@ export function TicketCreateModal({
     };
   }, [open, teamId]);
 
-  useEffect(
-    () => () => {
-      if (fetchTimer.current) clearTimeout(fetchTimer.current);
-    },
-    [],
-  );
-
-  const fillTitleFrom = (url: string) => {
-    setTitleFetching(true);
-    void fetchGithubIssueTitle(url).then((title) => {
-      if (title) update({ title });
+  // A GitHub issue link fills the title, shortly after it stops changing and
+  // once per link.
+  const githubUrl = form?.link.kind === 'github' ? form.link.github.trim() : '';
+  const titleFilledFrom = useRef('');
+  useEffect(() => {
+    if (!open) titleFilledFrom.current = '';
+    if (!open || !isGithubIssueUrl(githubUrl) || titleFilledFrom.current === githubUrl) {
       setTitleFetching(false);
-    });
-  };
+      return;
+    }
+    // Held from the first keystroke, not from when the request starts, so the
+    // ticket cannot be created in the pause before its title arrives.
+    setTitleFetching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void fetchGithubIssueTitle(githubUrl)
+        .catch(() => null)
+        .then((title) => {
+          // An answer for a link that has since changed, or for a dialog that
+          // was closed, must not fill this form.
+          if (cancelled) return;
+          titleFilledFrom.current = githubUrl;
+          if (title) setForm((current) => (current ? { ...current, title } : current));
+          setTitleFetching(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, githubUrl]);
 
-  const canSubmit = Boolean(form?.teamId && form.title.trim()) && !saving && !titleFetching;
+  const canSubmit =
+    Boolean(form?.teamId && form.title.trim() && linkFormReady(form.link)) &&
+    !saving &&
+    !titleFetching;
 
   const handleCreate = useCallback(async () => {
     if (!form || !form.teamId || !form.title.trim()) return;
     setSaving(true);
     setError(null);
+    let created;
     try {
-      await ticketApi.createTicket({
+      created = await ticketApi.createTicket({
         teamId: form.teamId,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
-        github: form.github.trim() || undefined,
+        github: form.link.kind === 'github' ? form.link.github.trim() : undefined,
         priority: form.priority === 'none' ? undefined : form.priority,
         assignedToUserIds: form.assigneeId === UNASSIGNED ? [] : [form.assigneeId],
       });
-      onCreated();
-      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the ticket. Try again.');
-    } finally {
       setSaving(false);
+      return;
     }
-  }, [form, onCreated, onClose]);
+
+    // The ticket exists from here on. A Redmine step that fails must not lose
+    // it: say what happened, and the link can be retried on the ticket's page.
+    if (form.link.kind === 'redmine') {
+      try {
+        await applyTicketLink(created, form.link, {
+          onWarning: (message) => toast.warning(message),
+        });
+      } catch (err) {
+        toast.error(
+          err instanceof IssueCreatedNotLinkedError
+            ? `${err.message} ${ticketLinkText.openTicketToLink}`
+            : ticketLinkText.ticketCreatedLinkFailed(
+                linkErrorMessage(err, ticketLinkText.linkFailed),
+              ),
+        );
+      }
+    }
+    setSaving(false);
+    onCreated();
+    onClose();
+  }, [form, onCreated, onClose, toast]);
 
   const assigneeOptions = [
     { value: UNASSIGNED, label: 'Unassigned' },
@@ -149,7 +201,7 @@ export function TicketCreateModal({
   return (
     <Modal open={open} onOpenChange={(next) => !next && onClose()} size="lg">
       <ModalHeader>
-        <ModalTitle>New TimeHuddle ticket</ModalTitle>
+        <ModalTitle>New ticket</ModalTitle>
         <ModalClose />
       </ModalHeader>
       <ModalBody>
@@ -157,7 +209,7 @@ export function TicketCreateModal({
           // Plain <form>: @mieweb/ui has no Form primitive, and this gives Enter-to-submit.
           <form
             className="ticket-create space-y-4"
-            aria-label="New TimeHuddle ticket"
+            aria-label="New ticket"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSubmit) void handleCreate();
@@ -194,9 +246,15 @@ export function TicketCreateModal({
                 const text = e.clipboardData?.getData('text')?.trim();
                 if (!text || !isGithubIssueUrl(text)) return;
                 e.preventDefault();
-                update({ github: text });
-                fillTitleFrom(text);
+                updateLink({ kind: 'github', github: text });
               }}
+            />
+
+            <TicketLinkFields
+              name="ticket-create-link"
+              value={form.link}
+              onChange={updateLink}
+              disabled={saving}
             />
 
             <Textarea
@@ -205,21 +263,6 @@ export function TicketCreateModal({
               value={form.description}
               placeholder="Supports Markdown (headings, lists, links, code, etc.)"
               onChange={(e) => update({ description: e.target.value })}
-            />
-
-            <Input
-              label="GitHub URL"
-              type="url"
-              placeholder="GitHub URL (optional)"
-              value={form.github}
-              onChange={(e) => {
-                const url = e.target.value;
-                update({ github: url });
-                if (fetchTimer.current) clearTimeout(fetchTimer.current);
-                if (isGithubIssueUrl(url)) {
-                  fetchTimer.current = setTimeout(() => fillTitleFrom(url), 300);
-                }
-              }}
             />
 
             <div className="ticket-create-people grid gap-4 sm:grid-cols-2">

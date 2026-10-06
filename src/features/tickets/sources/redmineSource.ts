@@ -16,6 +16,10 @@
  * because the issue was closed or reassigned. The rest of the relevant list
  * (recently logged, recent activity, watched) belongs to the search bar's
  * suggestions.
+ *
+ * The fetch also carries the issues that TimeHuddle tickets are linked to.
+ * Those are marked `linkOnly`: they exist to show live status on the linking
+ * ticket and never become rows (see `linkedTickets.ts`).
  */
 import { useSyncExternalStore } from 'react';
 
@@ -50,6 +54,8 @@ const CAPABILITIES: SourceCapabilities = {
 export interface RedmineRaw {
   issue: RedmineIssue;
   baseUrl: string | null;
+  /** Present only because a ticket links to it — not a table row. */
+  linkOnly?: boolean;
 }
 
 /**
@@ -111,15 +117,20 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     const result = await redmineApi.issues.relevant(true);
     if (!result.connected) return [];
 
-    const raws = result.issues
+    const rows: RedmineRaw[] = result.issues
       .filter((issue) => issue.reasons.some((reason) => TABLE_REASONS.includes(reason)))
       .map((issue) => ({ issue, baseUrl: result.baseUrl }));
+    const rowIds = new Set(rows.map(({ issue }) => issue.id));
+    const linkOnly: RedmineRaw[] = (result.linkedIssues ?? [])
+      .filter((issue) => !rowIds.has(issue.id))
+      .map((issue) => ({ issue, baseUrl: result.baseUrl, linkOnly: true }));
+    const raws = [...rows, ...linkOnly];
     listCache.set(userId, { raws, unavailableBoardIds: result.unavailableBoardIds ?? NO_IDS });
     notifyCacheChanged();
     return raws;
   },
 
-  toUnified: ({ issue, baseUrl }): UnifiedTicket => ({
+  toUnified: ({ issue, baseUrl, linkOnly }): UnifiedTicket => ({
     key: ticketKey('redmine', issue.id),
     sourceId: 'redmine',
     id: String(issue.id),
@@ -146,6 +157,8 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     externalUrl: baseUrl ? `${baseUrl}/issues/${issue.id}` : null,
     externalRef: null,
     sharedWithTimeharbor: false,
+    linked: null,
+    ...(linkOnly ? { linkOnly } : {}),
     capabilities: CAPABILITIES,
   }),
 };

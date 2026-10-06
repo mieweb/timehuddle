@@ -14,8 +14,6 @@ import {
   Button,
   Alert,
   AlertDescription,
-  Dropdown,
-  DropdownItem,
   Input,
   Modal,
   ModalBody,
@@ -53,16 +51,16 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketTablePanel } from './TicketTablePanel';
-import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
+import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
 import {
   huddleSource,
   invalidateRedmineCache,
+  linkedIssueKey,
   redmineSource,
   ticketRefOf,
   useUnavailableRedmineBoardIds,
@@ -190,15 +188,9 @@ export const TicketsPage: React.FC = () => {
   // have changed behind the user's back.
   useRefresh(refetchAfterRedmineWrite, pathname === '/app/tickets');
 
-  // Redmine issues are edited and created in their own dialogs, under the
-  // user's personal Redmine key.
+  // Redmine issues are edited in their own dialog, under the user's personal
+  // Redmine key. A new one is created with a ticket, in the New Ticket dialog.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
-  const [showRedmineCreate, setShowRedmineCreate] = useState(false);
-  const [redmineNotice, setRedmineNotice] = useState<{
-    issueId: number;
-    message: string;
-    isWarning: boolean;
-  } | null>(null);
 
   // Stable key derived from sorted team IDs — the subscription only reconnects
   // when the actual set of teams changes, not on every new array reference.
@@ -210,6 +202,9 @@ export const TicketsPage: React.FC = () => {
         .join(','),
     [teams],
   );
+
+  // Links already covered by a Redmine fetch, read by the live feed below.
+  const seenLinkKeys = React.useRef(new Set<string>());
 
   // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
   // Any write to the shared Mongo (Fastify REST, Meteor methods, wormhole REST,
@@ -225,10 +220,19 @@ export const TicketsPage: React.FC = () => {
 
     const offChange = ddp.onCollectionChange('tickets', () => {
       const liveDocs = ddp.docs('tickets').map(ddpDocToTicket);
-      setSourceItems(
-        'huddle',
-        liveDocs.map((doc) => huddleSource.toUnified(doc, sourceCtxRef.current)),
-      );
+      const items = liveDocs.map((doc) => huddleSource.toUnified(doc, sourceCtxRef.current));
+      setSourceItems('huddle', items);
+
+      // A teammate linked a ticket to an issue this page has not fetched: the
+      // Redmine list must be read again for its status to show. Each link asks
+      // once, so an issue this user cannot see does not refetch on every push.
+      const unseen = items
+        .map(linkedIssueKey)
+        .filter((key): key is string => key !== null && !seenLinkKeys.current.has(key));
+      if (unseen.length > 0) {
+        unseen.forEach((key) => seenLinkKeys.current.add(key));
+        refetchAfterRedmineWrite();
+      }
     });
     const unsubscribe = ddp.subscribe('tickets.byTeam', [teamIds]);
 
@@ -236,7 +240,14 @@ export const TicketsPage: React.FC = () => {
       offChange();
       unsubscribe();
     };
-  }, [teamIdsKey, userId, setSourceItems]);
+  }, [teamIdsKey, userId, setSourceItems, refetchAfterRedmineWrite]);
+
+  // Rebuilt, not added to: a link that was removed must ask again if it returns.
+  useEffect(() => {
+    seenLinkKeys.current = new Set(
+      allTickets.map(linkedIssueKey).filter((key): key is string => key !== null),
+    );
+  }, [allTickets]);
 
   // Read inside the DDP callback so live pushes normalize against the current
   // team/member data without resubscribing every time that data changes.
@@ -270,8 +281,6 @@ export const TicketsPage: React.FC = () => {
   // Create state
   const [showCreate, setShowCreate] = useState(false);
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
-  // Controlled so picking an item closes the menu before its dialog opens.
-  const [newTicketMenuOpen, setNewTicketMenuOpen] = useState(false);
 
   // Tickets tab vs My Board tab — same URL, local state only.
   const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('tickets');
@@ -303,8 +312,9 @@ export const TicketsPage: React.FC = () => {
     window.addEventListener('tickets:refetch', loadBoard);
     return () => window.removeEventListener('tickets:refetch', loadBoard);
   }, [loadBoard]);
+  // A board entry for a Redmine issue shows as the ticket linked to that issue.
   const boardTickets = useMemo(
-    () => allTickets.filter((t) => boardKeys.has(t.key)),
+    () => allTickets.filter((t) => boardKeys.has(t.key) || boardKeys.has(linkedIssueKey(t) ?? '')),
     [allTickets, boardKeys],
   );
 
@@ -330,7 +340,8 @@ export const TicketsPage: React.FC = () => {
   const unavailableRedmineIds = useUnavailableRedmineBoardIds(userId);
   const [removeUnavailableFailed, setRemoveUnavailableFailed] = useState(false);
   const unresolvedBoard = useMemo(() => {
-    const missing = [...boardKeys].filter((key) => !ticketByKey.has(key));
+    const linkedKeys = new Set(allTickets.map(linkedIssueKey));
+    const missing = [...boardKeys].filter((key) => !ticketByKey.has(key) && !linkedKeys.has(key));
     if (ticketsLoading || missing.length === 0) return null;
     const redmineCount = missing.filter((key) => key.startsWith('redmine:')).length;
     if (redmineCount > 0 && redmineConnected === false) {
@@ -349,6 +360,7 @@ export const TicketsPage: React.FC = () => {
     };
   }, [
     boardKeys,
+    allTickets,
     ticketByKey,
     ticketsLoading,
     redmineConnected,
@@ -376,11 +388,8 @@ export const TicketsPage: React.FC = () => {
   const [editTicket, setEditTicket] = useState<Ticket | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
-  const [editGithub, setEditGithub] = useState('');
   const [editAssignees, setEditAssignees] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState('');
-  const [titleFetching, setTitleFetching] = useState(false);
-  const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Change status modal (any team member)
   const [changeStatusTicket, setChangeStatusTicket] = useState<UnifiedTicket | null>(null);
@@ -425,34 +434,28 @@ export const TicketsPage: React.FC = () => {
     [handleToggleTimer, redmineBaseUrl, sourceCtx],
   );
 
-  // Redmine issues already in the table, so "More from Redmine" offers only new ones.
+  // Redmine issues already in the table — as a row, or as the issue a ticket is
+  // linked to — so "More from Redmine" offers only new ones.
   const tableRedmineIssueIds = useMemo(
-    () => new Set(allTickets.filter((t) => t.sourceId === 'redmine').map((t) => Number(t.id))),
+    () =>
+      new Set(
+        allTickets.flatMap((t) => [
+          ...(t.sourceId === 'redmine' ? [Number(t.id)] : []),
+          ...(t.linked?.sourceId === 'redmine' ? [Number(t.linked.id)] : []),
+        ]),
+      ),
     [allTickets],
   );
   const runningRedmineIssueId =
     runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
 
-  const startHuddleCreate = useCallback(() => {
-    setNewTicketMenuOpen(false);
+  const startCreate = useCallback(() => {
     if (!selectedTeam) {
       setShowNoTeamDialog(true);
       return;
     }
     setShowCreate(true);
   }, [selectedTeam]);
-
-  const handleRedmineCreated = useCallback(
-    (issueId: number, warning: string | null) => {
-      setRedmineNotice({
-        issueId,
-        message: warning ?? `Created Redmine issue #${issueId}.`,
-        isWarning: Boolean(warning),
-      });
-      refetchAfterRedmineWrite();
-    },
-    [refetchAfterRedmineWrite],
-  );
 
   // The list only carries the normalized shape, so fetch the full ticket the
   // edit form needs (description, assignees) when the modal actually opens.
@@ -466,7 +469,6 @@ export const TicketsPage: React.FC = () => {
     setEditTicket(ticket);
     setEditTitle(ticket.title);
     setEditDescription(ticket.description || '');
-    setEditGithub(ticket.github || '');
     setEditAssignees(ticket.assignedTo ?? []);
     setEditPriority(ticket.priority || 'none');
   }, []);
@@ -478,7 +480,6 @@ export const TicketsPage: React.FC = () => {
       await ticketApi.updateTicket(editTicket.id, {
         title: editTitle.trim(),
         description: editDescription.trim() || undefined,
-        github: editGithub.trim() || undefined,
       });
       const currentAssignees = editTicket.assignedTo ?? [];
       const hasChanged =
@@ -494,16 +495,25 @@ export const TicketsPage: React.FC = () => {
       }
       setEditTicket(null);
       void refetch();
+    } catch (err) {
+      // E.g. a linked ticket someone is timing: the server says whose timer it is.
+      toast.error(err instanceof ApiError && err.message ? err.message : ticketLinkText.saveFailed);
     } finally {
       setEditSaving(false);
     }
-  }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
+  }, [editTicket, editTitle, editDescription, editAssignees, editPriority, refetch, toast]);
 
   // A Redmine status change goes through the edit dialog: its choices are the
   // transitions Redmine's workflow allows, not Huddle's fixed status list.
   const handleChangeStatusRequest = useCallback((t: UnifiedTicket) => {
     if (t.sourceId === 'redmine') {
       setRedmineEditIssueId(Number(t.id));
+      return;
+    }
+    // A linked ticket shows its Redmine issue's status, so that is the status
+    // to change. A viewer who cannot read the issue changes the ticket's own.
+    if (t.linked?.status) {
+      setRedmineEditIssueId(Number(t.linked.id));
       return;
     }
     setChangeStatusTicket(t);
@@ -517,10 +527,12 @@ export const TicketsPage: React.FC = () => {
       await ticketApi.updateStatusPriority(changeStatusTicket.id, { status: changeStatusValue });
       setChangeStatusTicket(null);
       void refetch();
+    } catch (err) {
+      toast.error(err instanceof ApiError && err.message ? err.message : ticketLinkText.saveFailed);
     } finally {
       setChangeStatusSaving(false);
     }
-  }, [changeStatusTicket, changeStatusValue, refetch]);
+  }, [changeStatusTicket, changeStatusValue, refetch, toast]);
 
   const requestDelete = useCallback((tickets: UnifiedTicket[]) => {
     setDeleteError(null);
@@ -628,7 +640,13 @@ export const TicketsPage: React.FC = () => {
   }, [ticketsView, toast]);
 
   const handleRemoveFromBoard = useCallback(() => {
-    const keys = [...boardView.selectedKeys];
+    // A ticket can be on the board through the issue it is linked to; taking
+    // the ticket off has to take that entry off too.
+    const keys = [...boardView.selectedKeys].flatMap((key) => {
+      const ticket = ticketByKey.get(key);
+      const alias = ticket ? linkedIssueKey(ticket) : null;
+      return alias && boardKeys.has(alias) ? [key, alias] : [key];
+    });
     const refs = keys.map(ticketRefOf);
     void myBoardApi.removeMany(refs).then(
       () => {
@@ -647,7 +665,7 @@ export const TicketsPage: React.FC = () => {
       },
       () => toast.error(removalText.boardRemoveFailed),
     );
-  }, [boardView, refetch, toast]);
+  }, [boardView, ticketByKey, boardKeys, refetch, toast]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
@@ -661,7 +679,7 @@ export const TicketsPage: React.FC = () => {
       // paint even for users who have one. Without this guard an early
       // click reports "No team available" to a user who has a team.
       disabled={!teamsReady}
-      onClick={startHuddleCreate}
+      onClick={startCreate}
       className="shrink-0 rounded-lg"
     >
       New Ticket
@@ -707,29 +725,7 @@ export const TicketsPage: React.FC = () => {
               loading={ticketsLoading}
               search={
                 <>
-                  {redmineConnected ? (
-                    // With Redmine linked, "New Ticket" asks which system the new
-                    // item belongs to. Dropdown replaces the trigger's onClick.
-                    <Dropdown
-                      trigger={newTicketButton}
-                      placement="bottom-start"
-                      open={newTicketMenuOpen}
-                      onOpenChange={setNewTicketMenuOpen}
-                    >
-                      <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
-                      <DropdownItem
-                        onClick={() => {
-                          setNewTicketMenuOpen(false);
-                          setRedmineNotice(null);
-                          setShowRedmineCreate(true);
-                        }}
-                      >
-                        Redmine issue
-                      </DropdownItem>
-                    </Dropdown>
-                  ) : (
-                    newTicketButton
-                  )}
+                  {newTicketButton}
 
                   <RedmineSuggestions
                     userId={userId}
@@ -742,31 +738,6 @@ export const TicketsPage: React.FC = () => {
                     inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
                   />
                 </>
-              }
-              beforeBulkBar={
-                <div className="redmine-create-notice" aria-live="polite">
-                  {redmineNotice && (
-                    <Alert
-                      variant={redmineNotice.isWarning ? 'warning' : 'success'}
-                      dismissible
-                      onDismiss={() => setRedmineNotice(null)}
-                    >
-                      <AlertDescription>
-                        {redmineNotice.message}{' '}
-                        {redmineBaseUrl && (
-                          <a
-                            href={`${redmineBaseUrl}/issues/${redmineNotice.issueId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium underline"
-                          >
-                            Open in Redmine
-                          </a>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </div>
               }
               canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
               onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
@@ -864,25 +835,11 @@ export const TicketsPage: React.FC = () => {
           <ModalBody>
             <div className="space-y-4">
               <Input
-                label={titleFetching ? 'Title (fetching…)' : 'Title'}
+                label="Title"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
                 className={noFocusRingClass}
                 autoFocus
-                disabled={titleFetching}
-                onPaste={(e) => {
-                  const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
-                    ?.getData('text')
-                    ?.trim();
-                  if (!text || !isGithubIssueUrl(text)) return;
-                  e.preventDefault();
-                  setEditGithub(text);
-                  setTitleFetching(true);
-                  void fetchGithubIssueTitle(text).then((title) => {
-                    if (title) setEditTitle(title);
-                    setTitleFetching(false);
-                  });
-                }}
               />
               <Textarea
                 label="Description"
@@ -892,27 +849,6 @@ export const TicketsPage: React.FC = () => {
                 className={noFocusRingClass}
                 autoResize
                 rows={3}
-              />
-              <Input
-                label="GitHub URL"
-                type="url"
-                placeholder="https://github.com/…"
-                value={editGithub}
-                className={noFocusRingClass}
-                onChange={(e) => {
-                  const url = e.target.value;
-                  setEditGithub(url);
-                  if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                  if (isGithubIssueUrl(url)) {
-                    editFetchTimer.current = setTimeout(() => {
-                      setTitleFetching(true);
-                      void fetchGithubIssueTitle(url).then((title) => {
-                        if (title) setEditTitle(title);
-                        setTitleFetching(false);
-                      });
-                    }, 300);
-                  }
-                }}
               />
               <div>
                 <label className="mb-2 block text-sm font-medium">Assignees</label>
@@ -1070,7 +1006,11 @@ export const TicketsPage: React.FC = () => {
         <TicketCreateModal
           open={showCreate}
           onClose={() => setShowCreate(false)}
-          onCreated={() => void refetch()}
+          // A new ticket is put on its creator's My Board by the server.
+          onCreated={() => {
+            void refetch();
+            loadBoard();
+          }}
           teams={teams}
           defaultTeamId={selectedTeam?.id ?? null}
           userId={userId}
@@ -1079,11 +1019,6 @@ export const TicketsPage: React.FC = () => {
           issueId={redmineEditIssueId}
           onClose={() => setRedmineEditIssueId(null)}
           onSaved={refetchAfterRedmineWrite}
-        />
-        <RedmineIssueCreateModal
-          open={showRedmineCreate}
-          onClose={() => setShowRedmineCreate(false)}
-          onCreated={handleRedmineCreated}
         />
       </div>
     </AppPage>

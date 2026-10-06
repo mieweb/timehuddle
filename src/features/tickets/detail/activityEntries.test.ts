@@ -39,6 +39,23 @@ describe('fromHuddleEvents', () => {
     });
     expect(status.text).toBe('changed status to closed');
   });
+
+  it('says which Redmine issue a link change was about', () => {
+    const updated = (id: string, payload: Record<string, unknown>) =>
+      event(id, 'ticket.updated', '2026-09-21T09:00:00Z', payload);
+    const texts = fromHuddleEvents([
+      updated('a', { action: 'linked', issueId: '482' }),
+      updated('b', { action: 'relinked', issueId: '500', previousIssueId: '482' }),
+      updated('c', { action: 'unlinked', previousIssueId: '500' }),
+      updated('d', { action: 'edited' }),
+    ]).map((entry) => entry.text);
+    expect(texts).toEqual([
+      'linked this ticket to Redmine #482',
+      "moved this ticket's link from Redmine #482 to Redmine #500",
+      'unlinked this ticket from Redmine #500',
+      'updated this ticket',
+    ]);
+  });
 });
 
 describe('fromSessions', () => {

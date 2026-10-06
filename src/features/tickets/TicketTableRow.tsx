@@ -43,7 +43,8 @@ import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
 
-import { SOURCE_LABELS, ticketDetailPath, type UnifiedTicket } from './sources';
+import { ticketLinkText } from './link/ticketLinkStrings';
+import { SOURCE_LABELS, displaySourceId, ticketDetailPath, type UnifiedTicket } from './sources';
 
 export interface TicketTableRowProps {
   ticket: UnifiedTicket;
@@ -118,6 +119,22 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
   // Every source has an in-app page; a source's own page is a separate menu item.
   const openTicket = useCallback(() => navigate(ticketDetailPath(ticket)), [navigate, ticket]);
+  // The whole row opens the ticket, a bigger target than its title. This is a
+  // pointer convenience only: the keyboard path is the title, which is a real
+  // button, so the row itself takes no tab stop or role. Controls
+  // keep their own job: the select, timer and menu cells, and anything
+  // clickable inside the row (the menu is portaled out of the row's DOM, but
+  // its clicks still bubble here through React). A click that ends a text
+  // selection is someone copying, not opening.
+  const openFromRow = useCallback(
+    (event: React.MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('[data-row-control], button, a, input, label, [role="menu"]')) return;
+      if (window.getSelection()?.toString()) return;
+      openTicket();
+    },
+    [openTicket],
+  );
   const openExternal = useCallback(() => {
     if (externalUrl) window.open(externalUrl, '_blank', 'noopener,noreferrer');
   }, [externalUrl]);
@@ -174,9 +191,10 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       data-ticket-key={ticket.key}
       data-ticket-id={ticket.id}
       data-ticket-source={ticket.sourceId}
-      className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+      className="cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+      onClick={openFromRow}
     >
-      <TableCell className="pl-4">
+      <TableCell className="pl-4" data-row-control>
         <Checkbox
           checked={selected}
           onChange={(e) => onSelectedChange(ticket, e.target.checked)}
@@ -185,7 +203,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       </TableCell>
 
       {showTimerColumn && (
-        <TableCell className="pl-2">
+        <TableCell className="pl-2" data-row-control>
           <TimerToggleButton
             isRunning={isTimerRunning}
             isLoading={timerLoading}
@@ -210,6 +228,23 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
               {ticket.title}
             </Button>
           </OverflowTooltip>
+          {ticket.linked && (
+            <Tooltip
+              content={
+                ticket.linked.status
+                  ? ticketLinkText.linkedToWithStatus(
+                      ticket.linked.ref,
+                      ticket.linked.status.native,
+                    )
+                  : ticketLinkText.linkedTo(ticket.linked.ref)
+              }
+            >
+              <Badge variant="outline" size="sm" className="shrink-0">
+                <FontAwesomeIcon icon={faLink} className="me-1 text-[10px]" aria-hidden="true" />
+                {ticket.linked.ref}
+              </Badge>
+            </Tooltip>
+          )}
           {ticket.sharedWithTimeharbor && (
             <Tooltip content="Shared with TimeHarbor">
               <Badge variant="default" size="sm">
@@ -242,7 +277,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
       <TableCell className="whitespace-nowrap">
         <Badge variant="outline" size="sm">
-          {SOURCE_LABELS[ticket.sourceId]}
+          {SOURCE_LABELS[displaySourceId(ticket)]}
         </Badge>
       </TableCell>
 
@@ -326,7 +361,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
         </Text>
       </TableCell>
 
-      <TableCell className="pr-4 text-end">
+      <TableCell className="pr-4 text-end" data-row-control>
         <Button
           ref={menuTriggerRef}
           variant="ghost"

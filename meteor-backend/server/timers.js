@@ -22,7 +22,12 @@ import {
   resolveTicketRefs,
   sourceSelector,
 } from './ticket-refs';
+import { findRedmineAccount } from './redmine-account';
+import { onDefaultRedmine } from './redmine-client';
 import { pinIssueIfUnset } from './redmine-prefs';
+import { pushLedgerFor } from './redmine-time-sync';
+import { sessionIssuesAfterMove } from './ticket-link-core';
+import { redmineStampFor } from './timer-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -186,6 +191,73 @@ async function loggedSeconds(entryId) {
   return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
 }
 
+/**
+ * Moving an entry to another ticket says its time was spent on that ticket, so
+ * its sessions now belong to whatever that ticket is linked to, if anything —
+ * except time on an issue-day that has already been sent (see
+ * `sessionIssuesAfterMove`).
+ *
+ * @returns {Promise<() => Promise<void>>} puts the stamps back, for a caller
+ *   whose own write then fails
+ */
+async function restampSessions(entry, newTicketId) {
+  const [sessions, stamp, ledger] = await Promise.all([
+    Timers.find(
+      { workItemId: entry._id.toHexString() },
+      { fields: { redmineIssueId: 1, date: 1, endTime: 1 } },
+    ).fetchAsync(),
+    redmineStampFor({ source: HUDDLE, ticketId: newTicketId }),
+    pushLedgerFor(entry.userId),
+  ]);
+  const moved = sessionIssuesAfterMove({
+    sessions,
+    date: entry.date,
+    previousIssueId: normalizeSource(entry.source) === REDMINE ? entry.ticketId : null,
+    nextIssueId: stamp.redmineIssueId ?? null,
+    ledger,
+  });
+
+  const writeStamps = (stamps) => {
+    const idsByIssue = new Map();
+    for (const { sessionId, issueId } of stamps) {
+      idsByIssue.set(issueId, [...(idsByIssue.get(issueId) ?? []), sessionId]);
+    }
+    return Promise.all(
+      [...idsByIssue].map(([issueId, ids]) =>
+        Timers.updateAsync(
+          { _id: { $in: ids } },
+          issueId ? { $set: { redmineIssueId: issueId } } : { $unset: { redmineIssueId: '' } },
+          { multi: true },
+        ),
+      ),
+    );
+  };
+
+  // There are no transactions here, and a stamp decides which Redmine issue
+  // time is sent to, which can never be taken back. So the stamps move first,
+  // and are put back if anything after them fails; a restore that itself fails
+  // is logged for reconciliation by hand.
+  const original = sessions.map((s) => ({ sessionId: s._id, issueId: s.redmineIssueId ?? null }));
+  const restore = async () => {
+    try {
+      await writeStamps(original);
+    } catch (err) {
+      console.error('[timers] RECONCILE: session stamps left moved after a failed entry move', {
+        workItemId: entry._id.toHexString(),
+        userId: entry.userId,
+        err,
+      });
+    }
+  };
+  try {
+    await writeStamps(moved);
+  } catch (err) {
+    await restore();
+    throw err;
+  }
+  return restore;
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────
 // Extracted so an approved change request can replay the same write the direct
 // path would have made. `actorId` is who the change is attributed to — the
@@ -218,7 +290,15 @@ export async function applyTimerUpdate(
   const updateDoc = { $set };
   if (Object.keys($unset).length) updateDoc.$unset = $unset;
   onCommit?.();
-  await WorkItems.updateAsync(entry._id, updateDoc);
+  // Stamps before the entry: if the entry's write fails they are put back, so
+  // an entry is never left on the new ticket with time still stamped for the old.
+  const restoreStamps = $set.ticketId ? await restampSessions(entry, $set.ticketId) : null;
+  try {
+    await WorkItems.updateAsync(entry._id, updateDoc);
+  } catch (err) {
+    await restoreStamps?.();
+    throw err;
+  }
 
   if (durationSeconds !== undefined) {
     const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });
@@ -291,6 +371,25 @@ async function callerWorkItemIds(userId, ticketId, source) {
     { fields: { _id: 1 } }
   ).fetchAsync();
   return items.map((e) => e._id.toHexString());
+}
+
+/**
+ * Selector for the caller's own sessions on one ticket. For a Redmine issue
+ * that is the time logged on the issue itself plus the time logged on
+ * TimeHuddle tickets while they were linked to it — the same time the push
+ * sends to that issue.
+ */
+async function callerSessionSelector(userId, ticketId, source) {
+  const entryIds = await callerWorkItemIds(userId, ticketId, source);
+  const onWorkItems = { workItemId: { $in: entryIds } };
+  if (normalizeSource(source) !== REDMINE) return { userId, ...onWorkItems };
+
+  // A link names an issue on the deployment's own Redmine. For a caller on a
+  // custom instance (dev/test) the same number is a different issue.
+  const account = await findRedmineAccount(userId);
+  return !account || onDefaultRedmine(account)
+    ? { userId, $or: [onWorkItems, { redmineIssueId: String(ticketId) }] }
+    : { userId, ...onWorkItems };
 }
 
 Meteor.methods({
@@ -424,11 +523,10 @@ Meteor.methods({
    */
   async 'timers.getTicketTotal'({ ticketId, source } = {}) {
     const { userId } = await requireIdentity(this);
-    const entryIds = await callerWorkItemIds(userId, ticketId, source);
-    if (!entryIds.length) return { totalSeconds: 0 };
+    const selector = await callerSessionSelector(userId, ticketId, source);
     const db = rawDb();
     const agg = await db.collection('timers').aggregate([
-      { $match: { workItemId: { $in: entryIds }, endTime: { $ne: null } } },
+      { $match: { ...selector, endTime: { $ne: null } } },
       { $group: { _id: null, total: { $sum: '$durationSeconds' } } },
     ]).toArray();
     return { totalSeconds: agg[0]?.total ?? 0 };
@@ -445,10 +543,8 @@ Meteor.methods({
     if (typeof ticketId !== 'string' || !ticketId) {
       throw new Meteor.Error('bad-request', 'ticketId is required');
     }
-    const entryIds = await callerWorkItemIds(userId, ticketId, source);
-    if (!entryIds.length) return { sessions: [] };
     const sessions = await Timers.find(
-      { userId, workItemId: { $in: entryIds } },
+      await callerSessionSelector(userId, ticketId, source),
       { sort: { startTime: -1 }, limit: TICKET_SESSIONS_LIMIT }
     ).fetchAsync();
     return {
@@ -519,6 +615,7 @@ Meteor.methods({
         startTime: Date.now(),
         endTime: null,
         createdAt: new Date(),
+        ...(await redmineStampFor(entry)),
       });
       session = toPublicSession(await Timers.findOneAsync(sessionId));
       pinTimedRedmineIssue(userId, ticketSource, ticketId);
@@ -552,6 +649,7 @@ Meteor.methods({
       startTime: now,
       endTime: null,
       createdAt: new Date(),
+      ...(await redmineStampFor(entry)),
     });
     const session = await Timers.findOneAsync(sessionId);
     pinTimedRedmineIssue(userId, entry.source, entry.ticketId);

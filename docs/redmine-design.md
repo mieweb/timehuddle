@@ -29,6 +29,8 @@ This is also why Redmine issues stay out of team-level views: an issue is only e
 | My Board rows and pins/dismissals, as issue ids          | Anything Redmine returns, beyond those ids |
 | One row per time entry sent, with the seconds it covered |                                            |
 | Attachments a user adds to an issue's page               |                                            |
+| A ticket's link to an issue, as `{ source, id }`         |                                            |
+| The issue a timer session was logged under, as its id    |                                            |
 
 Issue content is read live. Only slow-changing lists (projects, trackers, members, priorities) and the per-user relevant list sit in a short in-process cache, keyed by user and cleared when the user links, unlinks, pins or dismisses. Issue subjects and search terms can contain patient information, which is the reason for this rule; it costs a round trip per page load.
 
@@ -37,6 +39,21 @@ Issue content is read live. Only slow-changing lists (projects, trackers, member
 - **A ticket timer requires an open shift.** It therefore inherits the shift's 8-hour auto clock-out, so a forgotten timer cannot run indefinitely.
 - **Breaks are structural.** A break closes the running session and resuming opens a new one, so break time never has to be subtracted.
 - **Shift time and ticket time are separate numbers** and are never added together. Only ticket-timer time reaches Redmine.
+
+## Tickets linked to an issue
+
+A TimeHuddle ticket can be linked to one Redmine issue. The ticket stays a TimeHuddle ticket, visible to its team; the link says which issue it stands for.
+
+| Rule                          | What it means                                                                                                                                                        | Why                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **Only the number is stored** | The ticket holds `{ source, id }`. Status, subject and assignee are read live by each viewer with their own key.                                                     | The same no-content rule as above. A teammate without access sees the plain ticket.   |
+| **One row, not two**          | A linked issue is shown on the ticket that links to it, and its status decides Open or Closed.                                                                       | Two rows for one piece of work would drift apart.                                     |
+| **Checked when linked**       | Linking runs under the caller's key, so a ticket can only be linked to an issue the person linking it can see. Anyone who may edit the ticket may change its link.   | Redmine, not TimeHuddle, decides who can see an issue.                                |
+| **Time remembers its issue**  | Each timer session is stamped with the issue the ticket was linked to when it started. Relinking changes where future time goes, never time already logged.          | A team shares the link, but time is personal. Nobody can redirect a teammate's hours. |
+| **Locked while timed**        | While anyone has a timer running on a linked ticket, in a shift that is still open, its link and fields cannot be changed. Only the timer's owner releases the lock. | The time being recorded is on its way to that issue.                                  |
+| **One Redmine server**        | A link names an issue by number, so it means an issue on the deployment's own Redmine. An account on a custom URL (dev and test only) cannot link or push that time. | Issue ids are not tied to an instance.                                                |
+
+Time logged on a linked ticket is offered in the same push as time logged on the issue itself, and pools with it per issue-day. Time logged before a ticket was linked belongs to no issue and stays in TimeHuddle.
 
 ## Pushing time to Redmine
 

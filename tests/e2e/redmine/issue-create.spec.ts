@@ -1,18 +1,21 @@
 /**
- * Creating and editing Redmine issues from TimeHuddle (plan area e, M6).
+ * Creating a ticket that is tracked in Redmine, and editing a Redmine issue
+ * (plan area e, M6; reworked in #638).
  *
- * The "New Ticket" button becomes a two-way dropdown only when Redmine is
- * linked; without a link it must stay an ordinary button, which is the
- * negative case worth pinning down.
+ * There is one dialog for creating a ticket. "Tracked in → Redmine" either
+ * links an existing issue or creates a new one from the ticket, asking only for
+ * the project and tracker.
  *
- * Redmine is stubbed at the wormhole boundary (see `fixtures/redmine.ts`):
- * these assert what the dialogs send and how they react, never that Redmine
- * accepts it.
+ * Redmine is stubbed at the wormhole boundary (see `fixtures/redmine.ts`), and
+ * so is `tickets.link`, whose real path needs a Redmine account the test backend
+ * does not have. These assert what the dialog sends and how it reacts, never
+ * that Redmine accepts it.
  */
 import { test, expect, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
+import { deleteTicket, stubTicketCall } from '../tickets/helpers';
 import {
   BASE_URL,
   connectedStatus,
@@ -44,11 +47,26 @@ const FORM_OPTIONS = {
   me: 8,
 };
 
+const CREATED = {
+  baseUrl: BASE_URL,
+  issue: issueDetail({ id: 77, subject: 'Export job times out' }),
+  mismatches: [],
+  issueId: 77,
+  confirmed: true,
+};
+
 const connectedList = (issues = [redmineIssue()]) => ({
   connected: true,
   baseUrl: BASE_URL,
   issues,
 });
+
+const linked = {
+  status: connectedStatus(),
+  'issues.relevant': connectedList(),
+  'projects.list': PROJECTS,
+  'projects.formOptions': FORM_OPTIONS,
+};
 
 async function openTickets(
   page: Page,
@@ -60,159 +78,172 @@ async function openTickets(
   return { rm, tickets };
 }
 
-const linked = {
-  status: connectedStatus(),
-  'issues.relevant': connectedList(),
-  'projects.list': PROJECTS,
-  'projects.formOptions': FORM_OPTIONS,
-};
+/** What `tickets.link` answers once the ticket is linked. Only the link matters here. */
+const linkedTicket = (params: Record<string, unknown>) => ({
+  id: params.ticketId,
+  teamId: 'team',
+  title: 'Linked',
+  createdBy: 'user',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  linkedIssue: { source: 'redmine', id: String(params.issueId) },
+});
 
-async function openCreateDialog(page: Page) {
+/** Tickets these specs created, deleted again so they do not crowd later specs' tables. */
+const createdTitles: string[] = [];
+
+/** Opens New Ticket, fills the title, and chooses "Tracked in → Redmine → New issue". */
+async function startNewRedmineTicket(page: Page): Promise<string> {
+  const title = `Tracked in Redmine ${Date.now()}`;
+  createdTitles.push(title);
   await page.getByRole('button', { name: 'New Ticket' }).click();
-  await page.getByText('Redmine issue', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'New Redmine issue' })).toBeVisible({
-    timeout: 15000,
-  });
+  await page.getByPlaceholder('Ticket title').fill(title);
+  await page.getByRole('radio', { name: 'Redmine' }).check();
+  await page.getByRole('radio', { name: 'New issue', exact: true }).check();
+  return title;
 }
 
-test.describe('Redmine issue create and edit', () => {
+const createButton = (page: Page) => page.getByRole('button', { name: 'Create Ticket' });
+
+const chooseProject = async (page: Page, name: string) => {
+  await page.getByRole('combobox', { name: 'Project' }).click();
+  await page.getByRole('option', { name, exact: true }).click();
+};
+
+test.describe('Creating a ticket tracked in Redmine', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
   });
 
-  test('without a linked account, New Ticket stays a plain button', async ({ page }) => {
-    await openTickets(page, { status: { connected: false } });
-
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-
-    // It opens the Huddle composer directly rather than asking which system.
-    await expect(page.getByPlaceholder('Ticket title')).toBeVisible();
-    await expect(page.getByText('Redmine issue', { exact: true })).toHaveCount(0);
+  test.afterEach(async ({ page }) => {
+    for (const title of createdTitles.splice(0)) await deleteTicket(page, title);
   });
 
-  test('with a linked account, New Ticket asks which system', async ({ page }) => {
+  test('New Ticket is one dialog, with no menu asking which system', async ({ page }) => {
     await openTickets(page, linked);
 
     await page.getByRole('button', { name: 'New Ticket' }).click();
 
-    await expect(page.getByText('TimeHuddle ticket', { exact: true })).toBeVisible();
-    await expect(page.getByText('Redmine issue', { exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder('Ticket title')).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'TimeHuddle', exact: true })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Redmine' })).toBeVisible();
   });
 
-  test('creates an issue and sends exactly what was filled in', async ({ page }) => {
-    const { rm } = await openTickets(page, {
-      ...linked,
-      'issues.create': {
-        baseUrl: BASE_URL,
-        issue: issueDetail({ id: 77, subject: 'Export job times out' }),
-        mismatches: [],
-        issueId: 77,
-        confirmed: true,
-      },
-    });
+  test('a new Redmine issue asks only for project and tracker, and is made from the ticket', async ({
+    page,
+  }) => {
+    const link = await stubTicketCall(page, 'tickets.link', linkedTicket);
+    const { rm } = await openTickets(page, { ...linked, 'issues.create': CREATED });
 
-    await openCreateDialog(page);
-    await page.getByRole('combobox', { name: 'Project' }).click();
-    await page.getByRole('option', { name: 'Exports', exact: true }).click();
-    await page.getByPlaceholder('What needs doing?').fill('Export job times out');
-    await page.getByRole('button', { name: 'Create in Redmine' }).click();
+    const title = await startNewRedmineTicket(page);
+    await chooseProject(page, 'Exports');
+    await expect(page.getByRole('combobox', { name: 'Tracker' })).toBeVisible();
+    await createButton(page).click();
 
+    // The issue takes its subject from the ticket and is assigned to the caller.
     await expect.poll(() => rm.callCount('issues.create')).toBe(1);
     expect(rm.calls('issues.create')[0]).toMatchObject({
       projectId: 2,
-      subject: 'Export job times out',
+      trackerId: 1,
+      subject: title,
+      assigneeId: 8,
     });
+    // Then the ticket is linked to it.
+    await expect.poll(() => link.calls.length).toBe(1);
+    expect(link.calls[0]).toMatchObject({ issueId: 77, expectedIssueId: null });
+    await expect(page.getByPlaceholder('Ticket title')).toBeHidden();
   });
 
-  test('confirms the new issue and links to it', async ({ page }) => {
+  test('links an existing issue after previewing it', async ({ page }) => {
+    const link = await stubTicketCall(page, 'tickets.link', linkedTicket);
+    const found = redmineIssue({ id: 482, subject: 'Export job times out' });
     await openTickets(page, {
       ...linked,
-      'issues.create': {
-        baseUrl: BASE_URL,
-        issue: issueDetail({ id: 77 }),
-        mismatches: [],
-        issueId: 77,
-        confirmed: true,
-      },
+      'issues.search': { connected: true, baseUrl: BASE_URL, kind: 'id', issues: [found] },
     });
 
-    await openCreateDialog(page);
-    await page.getByRole('combobox', { name: 'Project' }).click();
-    await page.getByRole('option', { name: 'Intake', exact: true }).click();
-    await page.getByPlaceholder('What needs doing?').fill('Something to do');
-    await page.getByRole('button', { name: 'Create in Redmine' }).click();
+    const title = `Existing issue ${Date.now()}`;
+    createdTitles.push(title);
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(title);
+    await page.getByRole('radio', { name: 'Redmine' }).check();
 
-    await expect(page.getByText('Created Redmine issue #77.')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('link', { name: 'Open in Redmine' })).toHaveAttribute(
-      'href',
-      `${BASE_URL}/issues/77`,
+    // Nothing to link until an issue has been found.
+    await expect(createButton(page)).toBeDisabled();
+    await page.getByLabel('Issue number or link').fill('#482');
+    await page.getByRole('button', { name: 'Find', exact: true }).click();
+    await expect(page.getByRole('group', { name: 'Issue to link' })).toContainText(
+      'Export job times out',
     );
+
+    await createButton(page).click();
+    await expect.poll(() => link.calls.length).toBe(1);
+    expect(link.calls[0]).toMatchObject({ issueId: 482, expectedIssueId: null });
   });
 
-  test('cannot submit without a project and a subject', async ({ page }) => {
+  test('cannot create a Redmine ticket without a project', async ({ page }) => {
     await openTickets(page, linked);
-    await openCreateDialog(page);
+    await startNewRedmineTicket(page);
+    createdTitles.pop(); // never created
 
-    const submit = page.getByRole('button', { name: 'Create in Redmine' });
-    await expect(submit).toBeDisabled();
-
-    await page.getByRole('combobox', { name: 'Project' }).click();
-    await page.getByRole('option', { name: 'Intake', exact: true }).click();
-    await expect(submit).toBeDisabled();
-
-    await page.getByPlaceholder('What needs doing?').fill('Now it has a subject');
-    await expect(submit).toBeEnabled();
+    await expect(createButton(page)).toBeDisabled();
+    await chooseProject(page, 'Intake');
+    await expect(createButton(page)).toBeEnabled();
   });
 
-  test('a refused create reports why and keeps the dialog open', async ({ page }) => {
-    await openTickets(page, {
+  test('keeps the ticket when Redmine refuses the issue, and says why', async ({ page }) => {
+    const { tickets } = await openTickets(page, {
       ...linked,
       'issues.create': { error: 'forbidden', reason: 'You may not create issues there.' },
     });
 
-    await openCreateDialog(page);
-    await page.getByRole('combobox', { name: 'Project' }).click();
-    await page.getByRole('option', { name: 'Intake', exact: true }).click();
-    await page.getByPlaceholder('What needs doing?').fill('Doomed issue');
-    await page.getByRole('button', { name: 'Create in Redmine' }).click();
+    const title = await startNewRedmineTicket(page);
+    await chooseProject(page, 'Intake');
+    await createButton(page).click();
 
-    await expect(page.getByText('You may not create issues there.')).toBeVisible({
+    await expect(page.getByText(/The ticket was created, but it could not be linked/)).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByRole('heading', { name: 'New Redmine issue' })).toBeVisible();
+    await expect(page.getByText(/You may not create issues there\./)).toBeVisible();
+    await tickets.search(title);
+    await expect(tickets.rowByTitle(title)).toHaveCount(1);
   });
 
-  test('an empty project list leaves the dialog unusable rather than broken', async ({ page }) => {
+  test('keeps the new issue when linking fails, and says which issue it is', async ({ page }) => {
+    await stubTicketCall(page, 'tickets.link', () => ({
+      error: 'unreachable',
+      reason: 'Redmine did not answer.',
+    }));
+    await openTickets(page, { ...linked, 'issues.create': CREATED });
+
+    await startNewRedmineTicket(page);
+    await chooseProject(page, 'Intake');
+    await createButton(page).click();
+
+    await expect(
+      page.getByText(/Redmine issue #77 was created, but linking it to this ticket failed\./),
+    ).toBeVisible({ timeout: 15000 });
+  });
+
+  test('an empty project list leaves Redmine unusable rather than broken', async ({ page }) => {
     await openTickets(page, { ...linked, 'projects.list': { projects: [] } });
+    await startNewRedmineTicket(page);
+    createdTitles.pop(); // never created
 
-    await openCreateDialog(page);
-
-    await expect(page.getByRole('button', { name: 'Create in Redmine' })).toBeDisabled();
+    await expect(createButton(page)).toBeDisabled();
   });
 
-  test('a failing formOptions after picking a project does not block the subject', async ({
-    page,
-  }) => {
-    // Tracker/assignee/priority are optional — Redmine applies its own defaults
-    // — so losing their options must not prevent creating the issue.
+  test('a failing tracker list does not block creating the issue', async ({ page }) => {
+    // The tracker is optional: Redmine applies its own default without one.
     await openTickets(page, {
       ...linked,
       'projects.formOptions': { status: 500, reason: 'No options for you' },
-      'issues.create': {
-        baseUrl: BASE_URL,
-        issue: issueDetail({ id: 78 }),
-        mismatches: [],
-        issueId: 78,
-        confirmed: true,
-      },
     });
+    await startNewRedmineTicket(page);
+    createdTitles.pop(); // never created
 
-    await openCreateDialog(page);
-    await page.getByRole('combobox', { name: 'Project' }).click();
-    await page.getByRole('option', { name: 'Intake', exact: true }).click();
-    await page.getByPlaceholder('What needs doing?').fill('Still creatable');
-
-    await expect(page.getByRole('button', { name: 'Create in Redmine' })).toBeEnabled();
+    await chooseProject(page, 'Intake');
+    await expect(createButton(page)).toBeEnabled();
   });
 
   test('opens the edit dialog for an existing issue from its row', async ({ page }) => {
@@ -221,6 +252,7 @@ test.describe('Redmine issue create and edit', () => {
       'issues.get': { baseUrl: BASE_URL, issue: issueDetail(), journals: [] },
     });
 
+    await tickets.search('Fix the intake form validation');
     await tickets
       .rowByTitle('Fix the intake form validation')
       .getByRole('button', { name: 'Ticket options' })

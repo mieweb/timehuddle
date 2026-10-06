@@ -2,7 +2,9 @@
  * The contract every ticket source implements. The unified list, filter bar,
  * and row component only ever see `UnifiedTicket`. Normalization happens here,
  * at the read layer, and is never persisted: no source information is written
- * to the core `Ticket` model. See README.md for how to add a source.
+ * to the core `Ticket` model. The one exception is a ticket's link to an
+ * external issue, which stores that issue's id and nothing else (`linked`).
+ * See README.md for how to add a source.
  */
 import type { TicketSourceId } from '../../../lib/api';
 
@@ -63,6 +65,21 @@ export interface UnifiedContainer {
   name: string;
 }
 
+/**
+ * The external issue a ticket is linked to. The id comes from the ticket; the
+ * live fields come from the linked source and are filled in by `mergeLinked`.
+ */
+export interface UnifiedLinkedIssue {
+  sourceId: TicketSourceId;
+  /** Native id in the linked source, e.g. a Redmine issue number. */
+  id: string;
+  /** Short human-facing reference, e.g. `#482`. */
+  ref: string;
+  /** Null until merged, or when the viewer cannot read the issue with their own key. */
+  status: UnifiedStatus | null;
+  assignee: UnifiedAssignee | null;
+}
+
 /** The single shape the unified list renders, whatever the source. */
 export interface UnifiedTicket {
   /** `${sourceId}:${id}` — row identity. Client-side only, never persisted. */
@@ -86,6 +103,13 @@ export interface UnifiedTicket {
   externalRef: { url: string; label: string } | null;
   /** Huddle-only; always false for other sources. */
   sharedWithTimeharbor: boolean;
+  /** The external issue this ticket is linked to, or null. */
+  linked: UnifiedLinkedIssue | null;
+  /**
+   * Fetched only because a ticket links to it. Never a row of its own:
+   * `mergeLinked` folds it into the linking ticket and drops it.
+   */
+  linkOnly?: boolean;
   capabilities: SourceCapabilities;
 }
 

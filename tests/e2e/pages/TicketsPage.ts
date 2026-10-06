@@ -115,12 +115,13 @@ export class TicketsPage extends BasePage {
     await this.page.getByPlaceholder('Ticket title').waitFor({ state: 'visible' });
   }
 
-  /** Create a ticket with the given title and optional GitHub URL */
+  /** Create a ticket with the given title, optionally with a link to `githubUrl`. */
   async createTicket(title: string, githubUrl?: string) {
     await this.openCreateForm();
     await this.page.getByPlaceholder('Ticket title').fill(title);
     if (githubUrl) {
-      await this.page.getByPlaceholder('GitHub URL (optional)').fill(githubUrl);
+      await this.page.getByRole('radio', { name: 'Link', exact: true }).check();
+      await this.page.getByLabel('Link to the issue').fill(githubUrl);
       // Wait for title fetch
       await this.page.waitForTimeout(1500);
     }

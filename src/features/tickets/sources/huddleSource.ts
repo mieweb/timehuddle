@@ -7,6 +7,8 @@
  */
 import { ticketApi, type Ticket } from '../../../lib/api';
 
+import { isWebUrl } from '../link/ticketLinkForm';
+
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
 /** Huddle statuses that mean "no longer open". Mirrors the Open/Closed tabs. */
@@ -82,13 +84,23 @@ export const huddleSource: TicketSource<Ticket> = {
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
       externalUrl: null,
-      externalRef: ticket.github
+      // Only a web address becomes a link: the value is user-entered.
+      externalRef: isWebUrl(ticket.github)
         ? {
             url: ticket.github,
             label: ticket.github.includes('github.com') ? 'GitHub' : 'Issue link',
           }
         : null,
       sharedWithTimeharbor: ticket.sharedWithTimeharbor === true,
+      linked: ticket.linkedIssue
+        ? {
+            sourceId: ticket.linkedIssue.source,
+            id: ticket.linkedIssue.id,
+            ref: `#${ticket.linkedIssue.id}`,
+            status: null,
+            assignee: null,
+          }
+        : null,
       capabilities: CAPABILITIES,
     };
   },

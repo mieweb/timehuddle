@@ -33,6 +33,7 @@ import {
   listIssuesByIds,
   listProjectMemberships,
   listProjects,
+  onDefaultRedmine,
   optionalRedmineBaseUrl,
   searchIssues,
 } from './redmine-client';
@@ -49,7 +50,7 @@ import {
 import { removeBoardEntries } from './my-board';
 import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
-import { MyBoard, Timers, WorkItems, isValidId } from './collections';
+import { MyBoard, Teams, Tickets, Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 
@@ -213,6 +214,31 @@ async function boardRedmineIssueIds(userId) {
   return entries.filter((e) => isRedmineIssueId(e.ticketId)).map((e) => Number(e.ticketId));
 }
 
+/**
+ * The Redmine issues that tickets the caller can see are linked to. Fetched
+ * with the caller's own key, so each viewer sees a linked issue as Redmine
+ * shows it to them, and not at all when Redmine would not. Same visibility as
+ * the `tickets.byTeam` publication.
+ */
+async function linkedRedmineIssueIds(userId, account) {
+  if (!onDefaultRedmine(account)) return [];
+  const teams = await Teams.find(
+    { $or: [{ members: userId }, { admins: userId }] },
+    { fields: { _id: 1 } },
+  ).fetchAsync();
+  if (!teams.length) return [];
+  const tickets = await Tickets.find(
+    {
+      teamId: { $in: teams.map((team) => team._id.toHexString()) },
+      status: { $ne: 'deleted' },
+      'linkedIssue.source': REDMINE,
+    },
+    { fields: { linkedIssue: 1 } },
+  ).fetchAsync();
+  const ids = tickets.map((ticket) => ticket.linkedIssue?.id).filter(isRedmineIssueId);
+  return [...new Set(ids.map(Number))];
+}
+
 /** How many issues one bulk Delete may take out of the table (the client sends in chunks). */
 export const MAX_REMOVE_PER_CALL = 100;
 
@@ -275,11 +301,12 @@ Meteor.methods({
     return relevantCache.get(userId, `relevant:${withDismissed}`, async () => {
       enforceLimit(relevantLimiter, userId);
       const now = Date.now();
-      const [{ pinnedIds }, redmineUserId, runningIds, boardIds] = await Promise.all([
+      const [{ pinnedIds }, redmineUserId, runningIds, boardIds, linkedIds] = await Promise.all([
         readIssuePrefs(userId, { now }),
         redmineUserIdFor(userId, account),
         runningRedmineIssueIds(userId),
         boardRedmineIssueIds(userId),
+        linkedRedmineIssueIds(userId, account),
       ]);
 
       try {
@@ -287,6 +314,7 @@ Meteor.methods({
           pinnedIds,
           boardIds,
           runningIds,
+          linkedIds,
           redmineUserId,
           now,
           // Deferred, because rules 5 and 10 need Redmine's answer about what is

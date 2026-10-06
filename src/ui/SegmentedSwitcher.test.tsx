@@ -1,0 +1,57 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { SegmentedSwitcher } from './SegmentedSwitcher';
+
+const OPTIONS = [
+  { value: 'none', label: 'TimeHuddle only' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'redmine', label: 'Redmine' },
+] as const;
+
+function renderSwitcher(value: (typeof OPTIONS)[number]['value'], onValueChange = vi.fn()) {
+  render(
+    <SegmentedSwitcher
+      name="test"
+      label="Tracked in"
+      options={OPTIONS}
+      value={value}
+      onValueChange={onValueChange}
+    />,
+  );
+  return onValueChange;
+}
+
+afterEach(cleanup);
+
+describe('SegmentedSwitcher', () => {
+  it('is a labelled radio group with exactly one option checked', () => {
+    renderSwitcher('github');
+    expect(screen.getByRole('radiogroup', { name: 'Tracked in' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'GitHub' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('radio', { name: 'Redmine' }).getAttribute('aria-checked')).toBe(
+      'false',
+    );
+  });
+
+  it('keeps a single tab stop, on the selected option', () => {
+    renderSwitcher('github');
+    const tabStops = screen.getAllByRole('radio').filter((radio) => radio.tabIndex === 0);
+    expect(tabStops.map((radio) => radio.textContent)).toEqual(['GitHub']);
+  });
+
+  it('selects on click, and not again when it is already selected', () => {
+    const onValueChange = renderSwitcher('github');
+    fireEvent.click(screen.getByRole('radio', { name: 'Redmine' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'GitHub' }));
+    expect(onValueChange.mock.calls).toEqual([['redmine']]);
+  });
+
+  it('moves the selection with the arrow keys, wrapping at the ends', () => {
+    const onValueChange = renderSwitcher('redmine');
+    const group = screen.getByRole('radiogroup');
+    fireEvent.keyDown(group, { key: 'ArrowRight' });
+    fireEvent.keyDown(group, { key: 'ArrowLeft' });
+    expect(onValueChange.mock.calls).toEqual([['none'], ['github']]);
+  });
+});

@@ -18,6 +18,7 @@ import { Badge, Button, Card, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
+import { linkActivityLabel } from '../tickets/link/ticketLinkStrings';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,11 @@ function metaForItem(item: ActivityLogItem): EventMeta {
       case 'priority-changed':
         return { icon: faListCheck, iconClass: 'text-orange-500', label: 'Changed priority' };
       default:
-        return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Updated ticket' };
+        return {
+          icon: faListCheck,
+          iconClass: 'text-blue-500',
+          label: linkActivityLabel(action) ?? 'Updated ticket',
+        };
     }
   }
   switch (item.type) {
