@@ -103,10 +103,12 @@ const DESTINATIONS = {
     },
   },
 
-  ticket: attachment('ticket', async (userId, { id }) => {
-    requireId(id, 'ticket');
+  ticket: attachment('ticket', async (userId, { id: rawId }) => {
+    requireId(rawId, 'ticket');
     // `isValidId` also takes legacy Meteor ids, which `new ObjectId` throws on.
-    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Ticket not found');
+    if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Ticket not found');
+    // As `toHexString` writes it, which is how attachments are found again.
+    const id = rawId.toLowerCase();
     // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
@@ -125,9 +127,10 @@ const DESTINATIONS = {
     return { id };
   }),
 
-  clock: attachment('clock', async (userId, { id }) => {
-    requireId(id, 'clock session');
-    if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Clock session not found');
+  clock: attachment('clock', async (userId, { id: rawId }) => {
+    requireId(rawId, 'clock session');
+    if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Clock session not found');
+    const id = rawId.toLowerCase();
     const session = await rawDb()
       .collection('clockevents')
       .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1 } });

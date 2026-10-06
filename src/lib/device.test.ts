@@ -121,6 +121,20 @@ describe('openNativePulseOrStore (Capacitor native shell)', () => {
     expect(openUrl).not.toHaveBeenCalledWith({ url: PULSE_STORE_URLS.ios });
   });
 
+  it('opens nothing once its signal is aborted while it is still checking', async () => {
+    let answer: (value: { value: boolean }) => void = () => {};
+    canOpenUrl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    openUrl.mockResolvedValue(undefined);
+    const controller = new AbortController();
+
+    const launch = openNativePulseOrStore('pulsecam://open?ticket=123', 'ios', controller.signal);
+    controller.abort();
+    answer({ value: true });
+    await launch;
+
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
   it('opens the App Store when Pulse Cam is not installed (iOS)', async () => {
     canOpenUrl.mockResolvedValue({ value: false });
     openUrl.mockResolvedValue(undefined);

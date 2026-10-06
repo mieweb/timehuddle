@@ -75,8 +75,9 @@ export function usePulseUpload(
   const latestKey = useRef(destinationKey);
   latestKey.current = destinationKey;
   const mounted = useRef(true);
-  // Cancels a phone launch still deciding between the Pulse app and its store
-  // listing (see openPulseAppOrStore), so it can't redirect a later screen.
+  // Cancels a phone launch still on its way — a native one checking whether
+  // Pulse is installed, or a browser one deciding between the app and its
+  // store listing — so it can't open for a screen that has since changed.
   const launch = useRef<() => void>(() => {});
   useEffect(() => {
     mounted.current = true;
@@ -98,8 +99,12 @@ export function usePulseUpload(
   // still delivers where it was meant to.
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
-    if (!link || link.destinationKey === destinationKey) return;
+    // Whatever went wrong was for the destination before this one.
+    setError(null);
     launch.current();
+  }, [destinationKey]);
+  useEffect(() => {
+    if (!link || link.destinationKey === destinationKey) return;
     setLink(null);
     setStatus(null);
     setModalOpen(false);
@@ -165,10 +170,19 @@ export function usePulseUpload(
     const storeOS = getStoreOS();
     const deepLink = buildUploadDeepLink(videoid, uploadToken);
     launch.current();
-    launch.current = () => {};
-    if (storeOS && isNativeApp()) await openNativePulseOrStore(deepLink, storeOS);
-    else if (storeOS) launch.current = openPulseAppOrStore(deepLink, storeOS);
-    else setModalOpen(true);
+    const controller = new AbortController();
+    launch.current = () => controller.abort();
+    if (storeOS && isNativeApp()) {
+      await openNativePulseOrStore(deepLink, storeOS, controller.signal);
+    } else if (storeOS) {
+      const cancel = openPulseAppOrStore(deepLink, storeOS);
+      launch.current = () => {
+        controller.abort();
+        cancel();
+      };
+    } else {
+      setModalOpen(true);
+    }
   }, []);
 
   const start = useCallback(async () => {
