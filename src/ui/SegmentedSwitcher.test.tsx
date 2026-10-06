@@ -68,7 +68,7 @@ describe('SegmentedSwitcher', () => {
     expect(onValueChange.mock.calls).toEqual([['none'], ['github']]);
   });
 
-  it('names an icon-only option by its label, without showing the text', async () => {
+  it('names an icon-only option by its label, without showing the text', () => {
     render(
       <SegmentedSwitcher
         name="views"
@@ -84,9 +84,9 @@ describe('SegmentedSwitcher', () => {
     );
     const iconOnly = screen.getByRole('radio', { name: 'All Sources' });
     expect(iconOnly.textContent).toBe('');
-    // Named for a sighted keyboard user too: the tooltip shows on focus.
+    // No tooltip either: the icon is the whole of what is shown.
     fireEvent.focus(iconOnly);
-    expect((await screen.findByRole('tooltip', { hidden: true })).textContent).toBe('All Sources');
+    expect(screen.queryByRole('tooltip', { hidden: true })).toBeNull();
     expect(screen.getByTestId('icon')).toBeTruthy();
     // The group keeps its name with the visible label hidden.
     expect(screen.getByRole('radiogroup', { name: 'View' })).toBeTruthy();

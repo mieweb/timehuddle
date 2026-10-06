@@ -7,9 +7,8 @@
  * `aria-sort` is supplied explicitly — `TableHead` spreads `...props` after its
  * own `aria-sort`, so ours wins.
  */
-import { faFilter, faSort, faSortDown, faSortUp } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, DropdownItem, DropdownLabel, DropdownSeparator, TableHead } from '@mieweb/ui';
+import { ChevronDown, ChevronUp, ChevronsUpDown, ListFilter } from 'lucide-react';
 import React from 'react';
 
 import { FilterDropdown } from './FilterDropdown';
@@ -105,8 +104,8 @@ export const TicketFilterItems: React.FC<{ filter: TicketColumnFilter }> = ({ fi
 };
 
 function sortIcon(active: boolean, direction: SortSpec['direction']) {
-  if (!active) return faSort;
-  return direction === 'asc' ? faSortUp : faSortDown;
+  if (!active) return ChevronsUpDown;
+  return direction === 'asc' ? ChevronUp : ChevronDown;
 }
 
 export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
@@ -125,6 +124,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
   const ariaSort = isSorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
 
   const selectedLabel = filter ? selectedFilterLabel(filter) : null;
+  const SortIcon = sortIcon(isSorted, sort.direction);
 
   return (
     <TableHead
@@ -141,9 +141,9 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
             aria-label={`Sort by ${label} ${isSorted && sort.direction === 'asc' ? 'descending' : 'ascending'}`}
           >
             {label}
-            <FontAwesomeIcon
-              icon={sortIcon(isSorted, sort.direction)}
-              className={`text-[10px] ${isSorted ? 'text-neutral-700 dark:text-neutral-200' : 'text-neutral-400'}`}
+            <SortIcon
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 ${isSorted ? 'text-neutral-700 dark:text-neutral-200' : 'text-neutral-400'}`}
             />
           </Button>
         ) : (
@@ -165,7 +165,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
                 }`}
                 title={selectedLabel ? `${label}: ${selectedLabel}` : `Filter by ${label}`}
               >
-                <FontAwesomeIcon icon={faFilter} className="text-[10px]" />
+                <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
               </span>
             }
             triggerAriaLabel={

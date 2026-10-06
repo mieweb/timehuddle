@@ -14,7 +14,7 @@
  * Keyboard model is a radio group: one tab stop, and the arrow keys move the
  * selection, since choosing is the whole interaction.
  */
-import { Button, Tooltip } from '@mieweb/ui';
+import { Button } from '@mieweb/ui';
 import { motion, useReducedMotion } from 'motion/react';
 import React, { useRef } from 'react';
 
@@ -23,10 +23,7 @@ export interface SegmentedOption<T extends string> {
   label: string;
   /** Shown before the label, or in place of it with `iconOnly`. */
   icon?: React.ReactNode;
-  /**
-   * Show the icon alone. The label stays as the option's accessible name, and
-   * as a tooltip shown on hover and on keyboard focus.
-   */
+  /** Show the icon alone. The label stays as the option's accessible name. */
   iconOnly?: boolean;
 }
 
@@ -99,7 +96,7 @@ export function SegmentedSwitcher<T extends string>({
       >
         {options.map((option) => {
           const selected = option.value === value;
-          const button = (
+          return (
             <Button
               key={option.value}
               ref={(node) => {
@@ -145,15 +142,6 @@ export function SegmentedSwitcher<T extends string>({
                 {!option.iconOnly && option.label}
               </span>
             </Button>
-          );
-          // An icon alone needs its name shown to someone who can see it: on
-          // hover, and on keyboard focus, which a native `title` never shows.
-          return option.iconOnly ? (
-            <Tooltip key={option.value} content={option.label} placement="bottom">
-              {button}
-            </Tooltip>
-          ) : (
-            button
           );
         })}
       </div>

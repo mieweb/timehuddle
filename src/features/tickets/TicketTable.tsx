@@ -67,6 +67,8 @@ export const COMPACT_QUERY = '(max-width: 767px)';
 const COLUMN_WIDTH = {
   select: 44,
   timer: 56,
+  /** The compact row's timer button is smaller, so its column is too. */
+  timerCompact: 48,
   ref: 90,
   source: 130,
   status: 140,
@@ -79,7 +81,7 @@ const COLUMN_WIDTH = {
 
 /** Sum of the fixed columns plus a readable floor for the flexible Title column. */
 const FIXED_COLUMN_WIDTH = Object.entries(COLUMN_WIDTH)
-  .filter(([key]) => key !== 'timer')
+  .filter(([key]) => key !== 'timer' && key !== 'timerCompact')
   .reduce((sum, [, w]) => sum + w, 0);
 const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
@@ -351,7 +353,9 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           >
             <colgroup>
               {showSelectColumn && <col style={{ width: COLUMN_WIDTH.select }} />}
-              {showTimerColumn && <col style={{ width: COLUMN_WIDTH.timer }} />}
+              {showTimerColumn && (
+                <col style={{ width: compact ? COLUMN_WIDTH.timerCompact : COLUMN_WIDTH.timer }} />
+              )}
               <col />
               {!compact && (
                 <>

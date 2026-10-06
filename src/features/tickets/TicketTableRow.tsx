@@ -81,6 +81,13 @@ export interface TicketTableRowProps {
 const TITLE_CLASS =
   'h-auto justify-start p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary';
 
+/**
+ * A compact row's first line: the height of one line of the title. The status
+ * dot and the timer button are each centred in a box this tall, so they sit on
+ * one centre line whatever their own sizes are.
+ */
+const FIRST_LINE_CLASS = 'h-5';
+
 /** Assignee names a compact row shows before it counts the rest. */
 const COMPACT_ASSIGNEES = 2;
 
@@ -324,20 +331,32 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       />
     </TableCell>
   );
+  const timerButton = (
+    <TimerToggleButton
+      isRunning={isTimerRunning}
+      isLoading={timerLoading}
+      disabled={timerDisabled}
+      onClick={() => onToggleTimer(ticket)}
+      ariaLabel={
+        isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+      }
+      // On a phone, the height of the toolbar's buttons rather than a full icon button.
+      className={compact ? 'h-8 w-8 shrink-0' : ''}
+    />
+  );
   const timerCell = showTimerColumn && (
     <TableCell
-      className={compact ? `${showSelectColumn ? 'pl-2' : 'pl-4'} pt-1.5 align-top` : 'pl-2'}
+      className={compact ? `${showSelectColumn ? 'pl-2' : 'pl-4'} pr-0 pt-3 align-top` : 'pl-2'}
       data-row-control
     >
-      <TimerToggleButton
-        isRunning={isTimerRunning}
-        isLoading={timerLoading}
-        disabled={timerDisabled}
-        onClick={() => onToggleTimer(ticket)}
-        ariaLabel={
-          isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
-        }
-      />
+      {compact ? (
+        // Centred on the title's first line, so it lines up with the status dot.
+        <div className={`ticket-row-timer flex items-center ${FIRST_LINE_CLASS}`}>
+          {timerButton}
+        </div>
+      ) : (
+        timerButton
+      )}
     </TableCell>
   );
 
@@ -376,7 +395,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       className={`py-3 pe-1 align-top ${showSelectColumn || showTimerColumn ? 'ps-2' : 'ps-4'}`}
     >
       <div className="ticket-row-compact flex min-w-0 items-start gap-2">
-        <span className="ticket-row-status mt-0.5 flex shrink-0">{statusDot}</span>
+        <span className={`ticket-row-status flex shrink-0 items-center ${FIRST_LINE_CLASS}`}>
+          {statusDot}
+        </span>
         <div className="ticket-row-body flex min-w-0 flex-1 flex-col gap-1.5">
           {/* Wraps instead of truncating: on a phone the title is most of what
               tells one ticket from another, and there is no tooltip to hover. */}
