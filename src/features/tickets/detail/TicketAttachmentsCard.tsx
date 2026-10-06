@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import type { TicketAttachmentKind } from '../../../lib/api';
 import { useSession } from '../../../lib/useSession';
 import { AttachmentsPanel } from '../../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../../pulse-upload/PulseUploadButton';
+import { PulseButton } from '../../pulse-upload/PulseButton';
 
 interface TicketAttachmentsCardProps {
   kind: TicketAttachmentKind;
@@ -27,10 +27,11 @@ export const TicketAttachmentsCard: React.FC<TicketAttachmentsCardProps> = ({ ki
           Attachments
         </Text>
         <AttachmentsPanel key={refresh} kind={kind} entityId={ticketId} currentUserId={user?.id} />
-        <PulseUploadButton
-          kind={kind}
-          ticketId={ticketId}
-          onUploadComplete={() => setRefresh((n) => n + 1)}
+        <PulseButton
+          destination={{ kind, id: ticketId }}
+          ariaLabel="Add a video with Pulse"
+          deviceUpload
+          onSettled={(status) => status.state === 'done' && setRefresh((n) => n + 1)}
         />
       </CardContent>
     </Card>

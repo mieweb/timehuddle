@@ -12,7 +12,7 @@ import {
 } from '../../lib/device';
 import type { MediaItem } from './types';
 import { ComposerChipButton } from './ComposerChipButton';
-import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/PulseUploadButton';
+import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/pulseLinks';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import {
   PENDING_TTL_MS,
@@ -44,8 +44,8 @@ interface PulseAttachButtonProps {
 }
 
 /**
- * Pulse video button for the Huddle composer — mirrors the ticket-details
- * {@link PulseUploadButton} (QR-record-with-phone + upload-from-device) but
+ * Pulse video button for the Huddle composer — QR-record-with-phone plus
+ * upload-from-device, like the ticket page's {@link PulseButton}, but it
  * reserves a *library* video (no ticket context) and hands the finished clip
  * back to the composer as an attachment.
  *
@@ -325,9 +325,9 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         scanLink={scanLink}
+        destination={{ kind: 'library' }}
+        status={hasReservation ? { state: 'waiting' } : null}
         onUploadFromDevice={handleUploadFromDevice}
-        onDone={() => setModalOpen(false)}
-        doneLabel="Done"
       />
     </>
   );

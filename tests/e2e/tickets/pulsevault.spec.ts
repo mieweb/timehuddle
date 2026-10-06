@@ -400,13 +400,13 @@ test.describe('PulseVault — Ticket video upload', () => {
     await deleteTicket(page, ticketTitle);
   });
 
-  test('"Upload Video" button opens QR modal with a valid pulsecam deep link', async ({ page }) => {
+  test('the Pulse chip opens the QR modal with a valid pulsecam deep link', async ({ page }) => {
     await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 
-    await page.getByRole('button', { name: /upload video/i }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
-    const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
+    const qrModal = page.locator('[aria-label="Record a video with Pulse"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
 
     const qr = qrModal.locator('[aria-label="QR code to open the Pulse upload screen"]');
@@ -414,7 +414,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   });
 
   // The deep-link protocol itself (v=1, artifactId, server, token) is
-  // asserted at the unit level in PulseUploadButton.test.ts —
+  // asserted at the unit level in pulseLinks.test.ts —
   // qrcode.react renders to a plain <svg> with no way to read back the
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.
@@ -425,11 +425,11 @@ test.describe('PulseVault — Ticket video upload', () => {
     await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 
-    await page.getByRole('button', { name: /upload video/i }).click();
+    await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
-    const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
+    const qrModal = page.locator('[aria-label="Record a video with Pulse"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
-    await expect(qrModal.getByText('Upload Video with Pulse')).toBeVisible();
+    await expect(qrModal.getByText('Record with Pulse')).toBeVisible();
     await expect(page.locator('button', { hasText: 'Upload from this device' })).toBeVisible();
   });
 

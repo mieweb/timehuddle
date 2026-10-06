@@ -65,9 +65,9 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
   await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
   await page.waitForTimeout(600);
 
-  await page.getByRole('button', { name: /upload video/i }).click();
+  await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
 
-  const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
+  const qrModal = page.locator('[aria-label="Record a video with Pulse"]');
   await expect(qrModal).toBeVisible({ timeout: 8000 });
 
   // Closes the QR modal itself and opens the hidden file input.
