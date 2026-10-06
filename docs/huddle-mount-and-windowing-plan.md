@@ -20,11 +20,11 @@ Plan and execution log for [issue #635](https://github.com/mieweb/timehuddle/iss
 
 ## Solution
 
-1. Keep Huddle mounted (generalize the `TicketsPage` special case into keep-alive). A hidden page gets a frozen router so it cannot read or write the visible page's URL; on re-activation Huddle restores its last `conversation`/`view`/`q` unless the URL carries explicit view params.
+1. Keep Huddle mounted: `AppLayout` mounts it on first visit and hides it with React `<Activity>` afterwards (state, scroll and drafts survive; its effects pause, so it can't write the visible page's URL). On return Huddle restores its last `conversation`/`view`/`q` unless the URL carries explicit view params.
 2. Track "loaded" per scope; show the starter only for a confirmed-empty load. Default to Today (Day grouping: today's thread, synthesized empty if needed).
 3. Window by date: one `since` parameter honored by the publication, REST and the Personal scope. Initial window 30 days; each time the end of the list is seen, widen it by 30 days. The existing `huddlePosts.byTeam` subscription is reused, not replaced.
 
-The end-of-list trigger needs a `listFooter` slot in `@mieweb/ui` (built in `vendor/ui`, sent upstream), per `AGENTS.md` Rule 14.
+The end-of-list trigger needs a `listFooter` slot in `@mieweb/ui` (built in `vendor/ui` and pushed to the fork; **not yet sent upstream** to `mieweb/ui`), per `AGENTS.md` Rule 14.
 
 ## Milestones
 
@@ -63,11 +63,12 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M5: `listFooter` slot in `@mieweb/ui` (needs approval)
 
-- [x] Change made in `vendor/ui` on the existing PR branch (already vendored); nothing pushed or opened as a PR yet
+- [x] Change made in `vendor/ui` on the existing PR branch (already vendored); pushed to the fork, not yet sent upstream to `mieweb/ui`
 - [x] `listFooter` prop on `SuperChatConversations` / `SuperChatInbox` with story control, README rows and tests (70/70 SuperChat tests pass)
 - [x] `npm run ui:build`; submodule pointer, tarball, marker and lockfile committed
 - [x] `docs/superchat-inbox-gaps.md` updated
-- [ ] **Before merging:** `git -C vendor/ui push` (commit `7c3490ab`), otherwise the submodule pointer references a commit nobody else can fetch (CI uses the tarball, so it is unaffected)
+- [x] `git -C vendor/ui push` done (commits `7c3490ab`, `1b1c7616`), so the submodule pointer references fetchable commits
+- [ ] Send `listFooter` and `defaultMobileView` upstream to `mieweb/ui` (not done)
 
 ### M6: Infinite-scroll sentinel
 

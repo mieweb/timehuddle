@@ -143,6 +143,21 @@ test.describe('Huddle stays mounted', () => {
     await expect(conversationRows(page).first()).toBeHidden();
   });
 
+  test('a link to a post older than 30 days widens the window until it is found', async ({
+    page,
+  }) => {
+    const token = uniqueToken('old-link');
+    const userId = await getUserIdByEmail(TEST_USERS.owner1.email);
+    const oldPostId = await seedPostDaysAgo({ teamId, userId, text: token, daysAgo: 75 });
+    try {
+      await page.goto(`/app/huddle?post=${oldPostId}`);
+      await expect(inboxMessage(page, token).first()).toBeVisible({ timeout: 30000 });
+      await expect(page.getByText('Post not found', { exact: false })).toHaveCount(0);
+    } finally {
+      await deletePost(oldPostId);
+    }
+  });
+
   test('a first visit opens Today in Day grouping', async ({ page }) => {
     await seedPost(page, { teamId, text: uniqueToken('today'), postDate: dateKey(-1) });
     await page.goto('/app/huddle');

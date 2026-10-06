@@ -412,6 +412,7 @@ describe('huddle.getPosts window', () => {
     old: new ObjectId(),
     older: new ObjectId(),
     oldDraft: new ObjectId(),
+    legacyTeamId: new ObjectId(),
   };
   const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -431,6 +432,8 @@ describe('huddle.getPosts window', () => {
       { ...base, _id: ids.old, ...at(daysAgo(40)) },
       { ...base, _id: ids.older, ...at(daysAgo(100)) },
       { ...base, _id: ids.oldDraft, status: 'draft', ...at(daysAgo(200)) },
+      // Legacy rows store the team as an ObjectId.
+      { ...base, _id: ids.legacyTeamId, teamId: new ObjectId(teamId), ...at(daysAgo(2)) },
     ]);
   });
 
@@ -454,6 +457,16 @@ describe('huddle.getPosts window', () => {
     expect(found).toContain(ids.recent.toHexString());
     expect(found).not.toContain(ids.old.toHexString());
     expect(res.result.hasMore).toBe(true);
+  });
+
+  it('includes legacy posts whose team id is an ObjectId, as strings', async () => {
+    const res = await wormhole<{ posts: Array<{ id: string; teamId: unknown }> }>(
+      'huddle.getPosts',
+      { teamId },
+      authorJwt,
+    );
+    const legacy = res.result.posts.find((p) => p.id === ids.legacyTeamId.toHexString());
+    expect(legacy?.teamId).toBe(teamId);
   });
 
   it('widens with `since`, and stops reporting more once everything is in', async () => {

@@ -46,7 +46,10 @@ export function useFeedWindow(feedKey: string) {
 
   // State left over from another feed reads as that feed's fresh window.
   const state = stored.key === feedKey ? stored : fresh(feedKey);
-  const since = useMemo(() => windowSince(state.days), [state.days]);
+  // Huddle stays mounted, so the window must follow the calendar: keyed on the
+  // local day, `since` moves forward after midnight instead of growing.
+  const today = windowSince(0);
+  const since = useMemo(() => windowSince(state.days), [state.days, today]);
 
   const update = useCallback(
     (key: string, change: (current: WindowState) => WindowState) =>

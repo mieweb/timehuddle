@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { useFeedWindow, windowSince } from './useFeedWindow';
 
@@ -82,6 +82,23 @@ describe('useFeedWindow', () => {
     const { result } = renderHook(() => useFeedWindow('team-1'));
     act(() => result.current.settle('team-1', { ok: false }));
     expect(result.current.loadFailed).toBe(false);
+  });
+
+  it('moves forward with the calendar when kept mounted past midnight', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 9, 6, 23, 50));
+      const { result, rerender } = renderHook(() => useFeedWindow('team-1'));
+      const before = result.current.since;
+      expect(before).toBe(windowSince(30, new Date(2026, 9, 6, 23, 50).getTime()));
+
+      vi.setSystemTime(new Date(2026, 9, 7, 0, 10));
+      rerender();
+      expect(result.current.since).toBe(windowSince(30, new Date(2026, 9, 7, 0, 10).getTime()));
+      expect(result.current.since).not.toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('gives each feed its own window', () => {

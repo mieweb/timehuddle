@@ -392,7 +392,8 @@ Meteor.methods({
     }
     
     const sinceDate = requireSince(since);
-    const filter = { teamId, ...PUBLISHED };
+    // Legacy posts store teamId as an ObjectId — match both forms.
+    const filter = { teamId: { $in: [teamId, toId(teamId)] }, ...PUBLISHED };
     const posts = await rawDb().collection('huddlePosts')
       .find({ ...filter, createdAt: { $gte: sinceDate } })
       .sort({ createdAt: -1 })
@@ -400,7 +401,9 @@ Meteor.methods({
     const hasMore = await hasPostsBefore(filter, sinceDate);
     
     await attachEnrichment(posts);
-    const enriched = await Promise.all(posts.map(post => enrichPost(post)));
+    const enriched = await Promise.all(
+      posts.map(post => enrichPost({ ...post, teamId: String(post.teamId) })),
+    );
     return { posts: enriched, hasMore };
   },
 

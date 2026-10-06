@@ -256,6 +256,7 @@ export default function Huddle() {
   const { since: meSince, settle: settleMe } = meWindow;
   const meSinceRef = useRef(meSince);
   meSinceRef.current = meSince;
+  const meLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
       const page = await huddleApi.getMyPosts(meSince);
@@ -263,10 +264,13 @@ export default function Huddle() {
       if (meSinceRef.current !== meSince) return;
       setMyPosts(page.posts);
       setMyPostsError(null);
+      meLoadedRef.current = true;
       settleMe(ME_FEED_KEY, { ok: true, hasMore: page.hasMore });
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
-      setMyPostsError('Failed to load your posts.');
+      // Only the first load replaces the feed; a failed older window keeps what
+      // is loaded and reports through the list footer's Retry.
+      if (!meLoadedRef.current) setMyPostsError('Failed to load your posts.');
       settleMe(ME_FEED_KEY, { ok: false });
     }
   }, [meSince, settleMe]);
@@ -668,6 +672,23 @@ export default function Huddle() {
   const feedLoading = scope === 'me' ? myPostsLoading : loading;
   const feedError = scope === 'me' ? myPostsError : error;
 
+  // A link to something older than the loaded window isn't missing yet: keep
+  // widening until it turns up or history runs out (a failed load stops this
+  // and leaves the footer's Retry to continue).
+  const { hasMore, loadingOlder, loadFailed, loadOlder } = feedWindow;
+  const linkTargetMissing =
+    (!!conversationParam && !linkedConversation) || (!!postParam && !targetPostLoaded);
+  const resolvingLink =
+    linkTargetMissing &&
+    hasMore === true &&
+    !loadFailed &&
+    scopeKeyRef.current === scopeKey &&
+    !feedLoading &&
+    !feedError;
+  useEffect(() => {
+    if (resolvingLink) loadOlder();
+  }, [resolvingLink, loadingOlder, loadOlder]);
+
   // The link points at a conversation we have, but the search box is hiding
   // it — the link wins, so the search goes. Once per link: after that the
   // reader is searching for something else, and clearing every keystroke that
@@ -701,13 +722,15 @@ export default function Huddle() {
   }, [conversationParam, linkedConversation, setParams]);
 
   // Only once the posts are in, and not across a scope change, where the
-  // effect above clears the param a render later.
+  // effect above clears the param a render later. Not while older windows
+  // could still hold it (`hasMore`).
   const conversationUnavailable =
     !!conversationParam &&
     !linkedConversation &&
     scopeKeyRef.current === scopeKey &&
     !feedLoading &&
-    !feedError;
+    !feedError &&
+    hasMore !== true;
 
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
@@ -727,7 +750,8 @@ export default function Huddle() {
     !targetPostLoaded &&
     scopeKeyRef.current === scopeKey &&
     !feedLoading &&
-    !feedError;
+    !feedError &&
+    hasMore !== true;
 
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
@@ -864,7 +888,7 @@ export default function Huddle() {
 
           {(scope === 'me' || selectedTeamId) && (
             <>
-              {feedLoading && (
+              {(feedLoading || resolvingLink) && (
                 <div className="huddle-loading flex items-center justify-center py-16">
                   <Spinner size="lg" label="Loading posts" />
                 </div>
@@ -894,6 +918,7 @@ export default function Huddle() {
                   list header don't vanish mid-typing, and with no posts at all
                   it opens the starter conversation (see `conversations`). */}
               {!feedLoading &&
+                !resolvingLink &&
                 !feedError &&
                 !conversationUnavailable &&
                 !postUnavailable &&
@@ -907,8 +932,8 @@ export default function Huddle() {
                     // On a phone, open straight into the conversation (Today) rather than the list.
                     defaultMobileView="chat"
                     listFooter={
-                      // The starter conversation stands in for an empty feed; there's nothing older to load.
-                      activePosts.length > 0 ? (
+                      // The starter stands in for an empty feed, but an empty window can still have history behind it.
+                      activePosts.length > 0 || feedWindow.hasMore === true ? (
                         <LoadOlderSentinel
                           hasMore={feedWindow.hasMore}
                           loading={feedWindow.loadingOlder}
