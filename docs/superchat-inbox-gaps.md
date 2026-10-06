@@ -94,7 +94,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 1.13 | Filter chips (Everyone / Only mine / each person / Missing wrap-up)                                                                                      | ❌ Could live in the host app if the header slot (1.8) exists                                                                                                                | P3       |
 | 1.14 | Search box                                                                                                                                               | ❌                                                                                                                                                                           | P3       |
 | 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ⚠️ Fixed at `w-64` (256px), with no prop                                                                                                                                     | P3       |
-| 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                                                           | —        |
+| 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                                                           | —        |     | 1.17 | A slot after the last conversation, for a "load older" control or end-of-list marker | ✅ **Built on the PR branch** (`listFooter`); Huddle loads the previous 30 days when it scrolls into view (#635) | P1  |
 
 ### 2. Thread Header
 
@@ -247,6 +247,9 @@ Huddle first.
       — spread onto the `ChatComposer` SuperChat renders, after SuperChat's own defaults, so the
       host can set `placeholder`, `leadingSlot` (a button beside `+`), `micSlot`, `addMenuItems`,
       `submitOnEnter`, `maxFileSize` and `mentionOptions={[]}` (mentions off).
+- [x] **`listFooter` on `SuperChatConversations` and `SuperChatInbox`** (1.17, #635) — built on the
+      branch: content after the last conversation, inside the scrolling list. Huddle puts its
+      "load older" sentinel there, so reaching the end of the list widens the 30-day window.
 - [ ] **`emptyState` on `SuperChatInbox`** (1.11) — shown in the panel when there are no
       conversations, **with the message box still rendered**, so the first post can be written.
       `onMessageSent` then gets `conversation: undefined`.

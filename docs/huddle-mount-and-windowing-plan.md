@@ -63,10 +63,11 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M5: `listFooter` slot in `@mieweb/ui` (needs approval)
 
-- [ ] Approval obtained to change `vendor/ui`
-- [ ] `listFooter` prop on `SuperChatConversations` / `SuperChatInbox` with story and test
-- [ ] `npm run ui:build`; submodule pointer and tarball committed
-- [ ] `docs/superchat-inbox-gaps.md` updated
+- [x] Change made in `vendor/ui` on the existing PR branch (already vendored); nothing pushed or opened as a PR yet
+- [x] `listFooter` prop on `SuperChatConversations` / `SuperChatInbox` with story control, README rows and tests (70/70 SuperChat tests pass)
+- [x] `npm run ui:build`; submodule pointer, tarball, marker and lockfile committed
+- [x] `docs/superchat-inbox-gaps.md` updated
+- [ ] **Before merging:** `git -C vendor/ui push` (commit `7c3490ab`), otherwise the submodule pointer references a commit nobody else can fetch (CI uses the tarball, so it is unaffected)
 
 ### M6: Infinite-scroll sentinel
 
