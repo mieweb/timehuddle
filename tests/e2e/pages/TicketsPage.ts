@@ -21,6 +21,9 @@ export class TicketsPage extends BasePage {
   readonly closedSwitch: Locator;
   readonly clearFiltersButton: Locator;
   readonly selectAllCheckbox: Locator;
+  /** Phone only: turns the rows' checkboxes on ("Select") and off ("Done"). */
+  readonly selectModeButton: Locator;
+  readonly doneSelectingButton: Locator;
   readonly ticketsTab: Locator;
   readonly myBoardTab: Locator;
   readonly moveToBoardButton: Locator;
@@ -42,6 +45,8 @@ export class TicketsPage extends BasePage {
     this.closedSwitch = this.page.getByRole('switch', { name: /Closed/i });
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
+    this.selectModeButton = this.page.getByRole('button', { name: 'Select', exact: true });
+    this.doneSelectingButton = this.page.getByRole('button', { name: 'Done', exact: true });
     this.ticketsTab = this.page.getByRole('radio', { name: 'All Sources' });
     this.myBoardTab = this.page.getByRole('radio', { name: 'My Board' });
     this.moveToBoardButton = this.page.getByRole('button', { name: 'Move to My Board' });

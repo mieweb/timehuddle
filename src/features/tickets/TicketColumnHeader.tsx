@@ -43,6 +43,8 @@ export interface TicketColumnHeaderProps {
   openMenuId: string | null;
   onOpenMenuChange: (menuId: string | null) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
+  /** Extra controls at the far end of the header cell. */
+  trailing?: React.ReactNode;
 }
 
 /** The label of the choice a filter is set to, or null when it is on "any". */
@@ -117,6 +119,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
   openMenuId,
   onOpenMenuChange,
   boundaryRef,
+  trailing,
 }) => {
   const isSorted = sortField !== undefined && sort.field === sortField;
   const ariaSort = isSorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
@@ -172,6 +175,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
             <TicketFilterItems filter={filter} />
           </FilterDropdown>
         )}
+        {trailing && <div className="ticket-column-trailing ms-auto flex">{trailing}</div>}
       </div>
     </TableHead>
   );

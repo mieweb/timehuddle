@@ -41,6 +41,8 @@ export interface SegmentedSwitcherProps<T extends string> {
   /** Unique on the page: it ties the sliding highlight to this switcher alone. */
   name: string;
   disabled?: boolean;
+  /** A lower track, the height of a small `Button`, for a row it shares with some. */
+  compact?: boolean;
 }
 
 export function SegmentedSwitcher<T extends string>({
@@ -51,6 +53,7 @@ export function SegmentedSwitcher<T extends string>({
   name,
   disabled = false,
   hideLabel = false,
+  compact = false,
 }: SegmentedSwitcherProps<T>) {
   const reducedMotion = useReducedMotion();
   const buttons = useRef(new Map<T, HTMLButtonElement>());
@@ -92,7 +95,7 @@ export function SegmentedSwitcher<T extends string>({
         aria-labelledby={`${name}-label`}
         aria-disabled={disabled || undefined}
         onKeyDown={onKeyDown}
-        className="segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted p-1 sm:gap-1"
+        className={`segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted sm:gap-1 ${compact ? 'p-0.5' : 'p-1'}`}
       >
         {options.map((option) => {
           const selected = option.value === value;
@@ -114,7 +117,8 @@ export function SegmentedSwitcher<T extends string>({
               onClick={() => select(option.value)}
               className={[
                 // `hover:bg-transparent`: the sliding highlight is the only fill.
-                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md py-1.5 hover:bg-transparent dark:hover:bg-transparent',
+                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md hover:bg-transparent dark:hover:bg-transparent',
+                compact ? 'py-1' : 'py-1.5',
                 // An icon alone is narrower than a word, so it gets more room either side.
                 option.iconOnly ? 'px-3.5 sm:px-5' : 'px-2 sm:px-3',
                 selected

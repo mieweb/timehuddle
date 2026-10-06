@@ -1,6 +1,8 @@
 /**
- * The ticket table on a phone (#637): each ticket is a compact row (its title
- * in full, where it sits, then badges), and nothing scrolls sideways.
+ * The ticket table on a phone (#637, #660): each ticket is a compact row (its
+ * title in full, where it sits, then badges), and nothing scrolls sideways.
+ * Rows have no checkbox until Select is pressed, and Open/Close and the
+ * sort-and-filter menu sit in the table's header.
  */
 import { test, expect } from '@playwright/test';
 
@@ -60,7 +62,47 @@ test.describe('Ticket rows on a phone', () => {
 
     // The columns those facts had on a wide screen are gone.
     await expect(page.getByRole('columnheader', { name: /Status/ })).toHaveCount(0);
+  });
+
+  test('shows checkboxes only while selecting, and drops the selection after', async () => {
+    const title = `E2E Phone Select ${Date.now()}`;
+    await tickets.createTicket(title);
+    const row = tickets.rowByTitle(title);
+
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+    await expect(tickets.selectAllCheckbox).toHaveCount(0);
+
+    await tickets.selectModeButton.click();
+    await expect(tickets.doneSelectingButton).toHaveAttribute('aria-pressed', 'true');
     await expect(tickets.selectAllCheckbox).toBeVisible();
+    await tickets.selectTicket(title);
+    await expect(tickets.moveToBoardButton).toBeVisible();
+
+    // Done hides the checkboxes, so nothing may stay ticked behind them.
+    await tickets.doneSelectingButton.click();
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+    await expect(tickets.moveToBoardButton).toHaveCount(0);
+    await tickets.selectModeButton.click();
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+  });
+
+  test('switches between open and closed tickets from the header', async ({ page }) => {
+    const title = `E2E Phone Closed ${Date.now()}`;
+    await tickets.createTicket(title);
+    const showOpen = page.getByRole('button', { name: 'Show open tickets' });
+    const showClosed = page.getByRole('button', { name: 'Show closed tickets' });
+
+    await expect(showOpen).toHaveAttribute('aria-pressed', 'true');
+    // The toolbar's switch is the wide screen's way of doing this.
+    await expect(tickets.closedSwitch).toBeHidden();
+
+    await showClosed.click();
+    await expect(showClosed).toHaveAttribute('aria-pressed', 'true');
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+
+    // Still there when the closed list is empty and the table is not drawn.
+    await showOpen.click();
+    await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
   test('sorts and filters from one menu in the header', async ({ page }) => {
@@ -91,7 +133,9 @@ test.describe('Ticket rows on a phone', () => {
     await expect(page.getByRole('menu').getByText('Filter by Source: TimeHuddle')).toBeVisible();
     await page.keyboard.press('Escape');
 
-    await tickets.clearFiltersButton.click();
+    // Clearing them is in the same menu; the toolbar has no room for it here.
+    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
+    await page.getByRole('menuitem', { name: 'Clear filters' }).click();
     await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();
   });
 
@@ -162,6 +206,7 @@ test.describe('Ticket rows on a phone', () => {
 
     const title = `E2E Phone Board ${Date.now()}`;
     await tickets.createTicket(title);
+    await tickets.selectModeButton.click();
     await tickets.moveToBoard(title);
     const row = tickets.rowByTitle(title);
     await expect(row).toBeVisible();
@@ -173,7 +218,8 @@ test.describe('Ticket rows on a phone', () => {
     expect(overflow).not.toBeNull();
     expect(overflow).toBeLessThanOrEqual(1);
 
-    // Every control on the row is on screen: select, timer, and the row menu.
+    // Every control on the row is on screen: select (still in selection mode,
+    // the tightest the row gets), timer, and the row menu.
     const controls = [
       row.getByRole('checkbox'),
       tickets.timerButtonForRow(title),
@@ -188,7 +234,7 @@ test.describe('Ticket rows on a phone', () => {
 
     await tickets.selectTicket(title);
     await expect(tickets.removeFromBoardButton).toBeVisible();
-    await tickets.selectTicket(title);
+    await tickets.doneSelectingButton.click();
 
     await tickets.startTimerButton(title).click();
     await expect(tickets.stopTimerButton(title)).toBeVisible();

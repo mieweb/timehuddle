@@ -28,6 +28,7 @@ import React from 'react';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../ui/scrollbar';
 
 import { TicketColumnHeader, type TicketColumnFilter } from './TicketColumnHeader';
+import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketSortFilterMenu, type TicketColumn } from './TicketSortFilterMenu';
 import { TicketTableRow } from './TicketTableRow';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
@@ -48,14 +49,14 @@ const TITLE_COLUMN: TicketColumn = { label: 'Title', sortField: 'title' };
 
 /** Column count including select and actions (the timer column is extra). */
 const COLUMN_COUNT = 10;
-/** The compact (phone) table: select, the ticket, actions. */
-const COMPACT_COLUMN_COUNT = 3;
+/** The compact (phone) table: the ticket and its actions (select and timer are extra). */
+const COMPACT_COLUMN_COUNT = 2;
 /**
  * Below this the table is compact: each row carries its facts under the title
  * and nothing scrolls sideways. Tailwind's `md`, where the page's own padding
  * and the table card's frame change too.
  */
-const COMPACT_QUERY = '(max-width: 767px)';
+export const COMPACT_QUERY = '(max-width: 767px)';
 
 /**
  * Fixed pixel width per column (Title excepted, which flexes to fill the
@@ -104,6 +105,7 @@ export interface TicketTableProps {
   onSortChange: (field: SortField) => void;
   filters: TicketFilters;
   onFiltersChange: (filters: TicketFilters) => void;
+  onClearFilters: () => void;
   openMenuId: string | null;
   onOpenMenuChange: (menuId: string | null) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
@@ -117,6 +119,13 @@ export interface TicketTableProps {
   /** Total across all pages, for the screen-reader status line. */
   totalCount: number;
   showClosed: boolean;
+  onShowClosedChange: (showClosed: boolean) => void;
+  /**
+   * Compact (phone) table only: show the select column. A phone row has no
+   * checkbox until the page's Select button asks for one; a wide table always
+   * has the column.
+   */
+  selecting?: boolean;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /** My Board only — see `TicketTableRow`. */
@@ -131,17 +140,19 @@ const SKELETON_ROWS_EMPTY = 5;
 const SKELETON_ROWS_TRAILING = 3;
 
 /**
- * A placeholder row shaped like a real one: a checkbox, a long title, and a
- * short bar per remaining column. The title is the one column that flexes.
+ * A placeholder row shaped like a real one: a checkbox (when the table has a
+ * select column), a long title, and a short bar per remaining column. The
+ * title is the one column that flexes.
  */
-const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number }> = ({
+const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number; hasSelect: boolean }> = ({
   columnCount,
   titleIndex,
+  hasSelect,
 }) => (
   <TableRow aria-hidden="true" className="ticket-skeleton-row">
     {Array.from({ length: columnCount }, (_, i) => (
       <TableCell key={i} className={i === 0 ? 'pl-4' : i === columnCount - 1 ? 'pr-4' : undefined}>
-        {i === 0 ? (
+        {hasSelect && i === 0 ? (
           <Skeleton width={16} height={16} />
         ) : (
           <Skeleton variant="text" width={i === titleIndex ? '70%' : '60%'} />
@@ -162,6 +173,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onSortChange,
   filters,
   onFiltersChange,
+  onClearFilters,
   openMenuId,
   onOpenMenuChange,
   boundaryRef,
@@ -172,6 +184,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   timerLoadingKey,
   totalCount,
   showClosed,
+  onShowClosedChange,
+  selecting = false,
   emptyState,
   onToggleTimer,
   showTimerColumn = false,
@@ -183,7 +197,10 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
   const compact = useMediaQuery(COMPACT_QUERY);
-  const columnCount = (compact ? COMPACT_COLUMN_COUNT : COLUMN_COUNT) + (showTimerColumn ? 1 : 0);
+  const showSelectColumn = !compact || selecting;
+  const columnCount =
+    (compact ? COMPACT_COLUMN_COUNT + (showSelectColumn ? 1 : 0) : COLUMN_COUNT) +
+    (showTimerColumn ? 1 : 0);
   // A compact table fits the screen; a full one keeps a readable floor and scrolls.
   const tableMinWidth = compact
     ? undefined
@@ -265,6 +282,20 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     { label: 'Updated', sortField: 'updated' },
   ];
 
+  // The compact table's header controls. A compact row has no column per fact,
+  // so the sorting and filtering those columns' headers carry is gathered into
+  // one menu, and Open/Closed sits beside it rather than up in the toolbar.
+  const openClosedToggle = (
+    <TicketOpenClosedToggle showClosed={showClosed} onShowClosedChange={onShowClosedChange} />
+  );
+  const sortFilterMenu = (
+    <TicketSortFilterMenu
+      columns={[TITLE_COLUMN, ...columns]}
+      onClearFilters={onClearFilters}
+      {...headerProps}
+    />
+  );
+
   const scrollRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -299,7 +330,17 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       </div>
 
       {!loading && tickets.length === 0 ? (
-        emptyState
+        <>
+          {/* No table, so no header: on a phone its controls are the only way
+              back from an empty Closed list or a filter that matches nothing. */}
+          {compact && (
+            <div className="ticket-table-empty-controls flex shrink-0 items-center justify-end gap-3 border-b border-border px-4 py-2">
+              {openClosedToggle}
+              {sortFilterMenu}
+            </div>
+          )}
+          {emptyState}
+        </>
       ) : (
         <ScrollArea ref={scrollRef} orientation="both" className={SCROLL_AREA_CLASS}>
           <Table
@@ -309,7 +350,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             style={{ minWidth: tableMinWidth }}
           >
             <colgroup>
-              <col style={{ width: COLUMN_WIDTH.select }} />
+              {showSelectColumn && <col style={{ width: COLUMN_WIDTH.select }} />}
               {showTimerColumn && <col style={{ width: COLUMN_WIDTH.timer }} />}
               <col />
               {!compact && (
@@ -327,14 +368,16 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-neutral-50 dark:bg-neutral-900">
               <TableRow>
-                <TableHead className="pl-4">
-                  <Checkbox
-                    checked={allSelected}
-                    indeterminate={someSelected}
-                    onChange={(e) => onSelectAllChange(e.target.checked)}
-                    aria-label={allSelected ? 'Deselect all tickets' : 'Select all tickets'}
-                  />
-                </TableHead>
+                {showSelectColumn && (
+                  <TableHead className="pl-4">
+                    <Checkbox
+                      checked={allSelected}
+                      indeterminate={someSelected}
+                      onChange={(e) => onSelectAllChange(e.target.checked)}
+                      aria-label={allSelected ? 'Deselect all tickets' : 'Select all tickets'}
+                    />
+                  </TableHead>
+                )}
 
                 {showTimerColumn && (
                   <TableHead>
@@ -342,20 +385,20 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   </TableHead>
                 )}
 
-                <TicketColumnHeader {...TITLE_COLUMN} {...headerProps} />
+                <TicketColumnHeader
+                  {...TITLE_COLUMN}
+                  {...headerProps}
+                  // Whichever cell comes first lines up with the page's gutter.
+                  className={showSelectColumn || showTimerColumn ? undefined : 'pl-4'}
+                  trailing={compact ? openClosedToggle : undefined}
+                />
                 {!compact &&
                   columns.map((column) => (
                     <TicketColumnHeader key={column.label} {...column} {...headerProps} />
                   ))}
 
                 <TableHead className="pr-4 text-end">
-                  {compact ? (
-                    // A compact row has no column per fact, so the sorting and
-                    // filtering those columns' headers carry is gathered here.
-                    <TicketSortFilterMenu columns={[TITLE_COLUMN, ...columns]} {...headerProps} />
-                  ) : (
-                    <span className="sr-only">Actions</span>
-                  )}
+                  {compact ? sortFilterMenu : <span className="sr-only">Actions</span>}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -373,6 +416,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   timerDisabled={timerLoadingKey !== null}
                   onToggleTimer={onToggleTimer}
                   showTimerColumn={showTimerColumn}
+                  showSelectColumn={showSelectColumn}
                   compact={compact}
                   onEditRequest={onEditRequest}
                   onDeleteRequest={onDeleteRequest}
@@ -389,7 +433,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     <SkeletonRow
                       key={`skeleton-${i}`}
                       columnCount={columnCount}
-                      titleIndex={showTimerColumn ? 2 : 1}
+                      titleIndex={(showSelectColumn ? 1 : 0) + (showTimerColumn ? 1 : 0)}
+                      hasSelect={showSelectColumn}
                     />
                   ),
                 )}

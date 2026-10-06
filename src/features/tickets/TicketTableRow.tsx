@@ -73,6 +73,8 @@ export interface TicketTableRowProps {
    * `TicketTable`.
    */
   compact?: boolean;
+  /** Whether the row has its select checkbox; a compact row only does in selection mode. */
+  showSelectColumn?: boolean;
 }
 
 /** The title button's look, shared by the one-line (table) and wrapping (phone) forms. */
@@ -117,6 +119,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onDeleteRequest,
   onChangeStatusRequest,
   compact = false,
+  showSelectColumn = true,
 }) => {
   const { navigate } = useRouter();
   const copyLink = useCopyLink();
@@ -312,7 +315,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
   // In a compact row the controls sit on the title's first line, not midway
   // down a row that is three lines tall.
-  const selectCell = (
+  const selectCell = showSelectColumn && (
     <TableCell className={compact ? 'pl-4 pt-3.5 align-top' : 'pl-4'} data-row-control>
       <Checkbox
         checked={selected}
@@ -322,7 +325,10 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
     </TableCell>
   );
   const timerCell = showTimerColumn && (
-    <TableCell className={compact ? 'pl-2 pt-1.5 align-top' : 'pl-2'} data-row-control>
+    <TableCell
+      className={compact ? `${showSelectColumn ? 'pl-2' : 'pl-4'} pt-1.5 align-top` : 'pl-2'}
+      data-row-control
+    >
       <TimerToggleButton
         isRunning={isTimerRunning}
         isLoading={timerLoading}
@@ -365,7 +371,10 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   const factCells = compact ? (
     // Phone: no sideways scroll, and no column per fact. The title, in full;
     // then where the ticket sits; then who has it and what state it is in.
-    <TableCell className="py-3 ps-2 pe-1 align-top">
+    // Whichever cell comes first lines up with the page's gutter.
+    <TableCell
+      className={`py-3 pe-1 align-top ${showSelectColumn || showTimerColumn ? 'ps-2' : 'ps-4'}`}
+    >
       <div className="ticket-row-compact flex min-w-0 items-start gap-2">
         <span className="ticket-row-status mt-0.5 flex shrink-0">{statusDot}</span>
         <div className="ticket-row-body flex min-w-0 flex-1 flex-col gap-1.5">
