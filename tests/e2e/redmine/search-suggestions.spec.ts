@@ -123,6 +123,38 @@ test.describe('Redmine search suggestions', () => {
     expect(rm.calls('issues.search').at(-1)).toEqual({ query: 'alpha' });
   });
 
+  test('on My Board, a search still finds an issue that is only in All Sources', async ({
+    page,
+  }) => {
+    // #40 is assigned, so it is in the All Sources table, but the user hid it
+    // from their suggestions and it is not on their board.
+    const hidden = suggestion(40, 'Hidden export job');
+    await stubRedmine(page, {
+      status: connectedStatus(),
+      'issues.relevant': (params: { includeDismissed?: boolean }) =>
+        relevant(params.includeDismissed ? [...SUGGESTED, hidden] : SUGGESTED),
+      'issues.search': searchResult('text', [redmineIssue({ id: 40, subject: hidden.subject })]),
+    });
+    const tickets = new TicketsPage(page);
+    // Not `tickets.goto()`, which switches to All Sources: this is about the default view.
+    await page.goto('/app/tickets');
+    await tickets.heading.waitFor({ state: 'visible' });
+    const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
+    const found = menu.getByRole('option', { name: /Hidden export job/ });
+
+    // The board does not have it, so the search has to.
+    await tickets.searchInput.fill('hidden export');
+    await expect(tickets.rowByTitle('Hidden export job')).toHaveCount(0);
+    await expect(found).toBeVisible();
+
+    // In All Sources it is a row in the table, so it is not offered a second time.
+    await tickets.switchToTab('tickets');
+    await expect(tickets.rowByTitle('Hidden export job')).toBeVisible();
+    await tickets.searchInput.click();
+    await expect(menu).toBeVisible();
+    await expect(found).toHaveCount(0);
+  });
+
   test('finds an issue by number straight away', async ({ page }) => {
     const { rm, input, option } = await openTickets(page, {
       'issues.search': searchResult('id', [redmineIssue({ id: 4242, subject: 'Remote issue' })]),

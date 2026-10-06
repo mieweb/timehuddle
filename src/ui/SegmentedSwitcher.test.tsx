@@ -22,6 +22,19 @@ function renderSwitcher(value: (typeof OPTIONS)[number]['value'], onValueChange 
   return onValueChange;
 }
 
+// jsdom has no matchMedia, which @mieweb/ui's Tooltip asks about reduced motion.
+window.matchMedia ??= (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    onchange: null,
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+
 afterEach(cleanup);
 
 describe('SegmentedSwitcher', () => {
@@ -53,5 +66,29 @@ describe('SegmentedSwitcher', () => {
     fireEvent.keyDown(group, { key: 'ArrowRight' });
     fireEvent.keyDown(group, { key: 'ArrowLeft' });
     expect(onValueChange.mock.calls).toEqual([['none'], ['github']]);
+  });
+
+  it('names an icon-only option by its label, without showing the text', async () => {
+    render(
+      <SegmentedSwitcher
+        name="views"
+        label="View"
+        hideLabel
+        options={[
+          { value: 'board', label: 'My Board' },
+          { value: 'all', label: 'All Sources', icon: <svg data-testid="icon" />, iconOnly: true },
+        ]}
+        value="board"
+        onValueChange={vi.fn()}
+      />,
+    );
+    const iconOnly = screen.getByRole('radio', { name: 'All Sources' });
+    expect(iconOnly.textContent).toBe('');
+    // Named for a sighted keyboard user too: the tooltip shows on focus.
+    fireEvent.focus(iconOnly);
+    expect((await screen.findByRole('tooltip', { hidden: true })).textContent).toBe('All Sources');
+    expect(screen.getByTestId('icon')).toBeTruthy();
+    // The group keeps its name with the visible label hidden.
+    expect(screen.getByRole('radiogroup', { name: 'View' })).toBeTruthy();
   });
 });

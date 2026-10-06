@@ -54,7 +54,7 @@ interface RedmineSuggestionsProps {
   onQueryChange: (query: string) => void;
   /** The connected Redmine's base URL; a pasted link matches locally only on it. */
   baseUrl: string | null;
-  /** Redmine issue ids already in the Tickets table, left out of "More from Redmine". */
+  /** Redmine issue ids already in the table that is showing, left out of "More from Redmine". */
   tableIssueIds: ReadonlySet<number>;
   /** The Redmine issue a timer is running on, if any. */
   runningIssueId: number | null;
