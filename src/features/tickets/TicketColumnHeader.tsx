@@ -45,6 +45,53 @@ export interface TicketColumnHeaderProps {
   boundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
+/**
+ * One filter's choices as menu items: "any", the fixed extras, then the options
+ * derived from the loaded tickets. Shared by a column's own filter menu and the
+ * compact table's single sort-and-filter menu.
+ */
+export const TicketFilterItems: React.FC<{ filter: TicketColumnFilter }> = ({ filter }) => {
+  // Options arrive pre-grouped by source; a label is emitted when the group
+  // changes so the menu reads as sections without needing a nested structure.
+  let lastGroup: TicketSourceId | undefined;
+
+  return (
+    <>
+      <DropdownItem
+        onClick={() => filter.onChange(null)}
+        className={!filter.value ? 'font-semibold' : ''}
+      >
+        {filter.anyLabel}
+      </DropdownItem>
+      {filter.extraOptions?.map((option) => (
+        <DropdownItem
+          key={option.value}
+          onClick={() => filter.onChange(option.value)}
+          className={filter.value === option.value ? 'font-semibold' : ''}
+        >
+          {option.label}
+        </DropdownItem>
+      ))}
+      {filter.options.length > 0 && <DropdownSeparator />}
+      {filter.options.map((option) => {
+        const startsGroup = option.group !== undefined && option.group !== lastGroup;
+        lastGroup = option.group;
+        return (
+          <React.Fragment key={option.value}>
+            {startsGroup && <DropdownLabel>{SOURCE_LABELS[option.group!]}</DropdownLabel>}
+            <DropdownItem
+              onClick={() => filter.onChange(option.value)}
+              className={filter.value === option.value ? 'font-semibold' : ''}
+            >
+              {option.label}
+            </DropdownItem>
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+};
+
 function sortIcon(active: boolean, direction: SortSpec['direction']) {
   if (!active) return faSort;
   return direction === 'asc' ? faSortUp : faSortDown;
@@ -70,10 +117,6 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
         filter.options.find((o) => o.value === filter.value)?.label ??
         null)
       : null;
-
-  // Options arrive pre-grouped by source; a label is emitted when the group
-  // changes so the menu reads as sections without needing a nested structure.
-  let lastGroup: TicketSourceId | undefined;
 
   return (
     <TableHead
@@ -121,37 +164,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
               selectedLabel ? `${label} filtered by ${selectedLabel}` : `Filter by ${label}`
             }
           >
-            <DropdownItem
-              onClick={() => filter.onChange(null)}
-              className={!filter.value ? 'font-semibold' : ''}
-            >
-              {filter.anyLabel}
-            </DropdownItem>
-            {filter.extraOptions?.map((option) => (
-              <DropdownItem
-                key={option.value}
-                onClick={() => filter.onChange(option.value)}
-                className={filter.value === option.value ? 'font-semibold' : ''}
-              >
-                {option.label}
-              </DropdownItem>
-            ))}
-            {filter.options.length > 0 && <DropdownSeparator />}
-            {filter.options.map((option) => {
-              const startsGroup = option.group !== undefined && option.group !== lastGroup;
-              lastGroup = option.group;
-              return (
-                <React.Fragment key={option.value}>
-                  {startsGroup && <DropdownLabel>{SOURCE_LABELS[option.group!]}</DropdownLabel>}
-                  <DropdownItem
-                    onClick={() => filter.onChange(option.value)}
-                    className={filter.value === option.value ? 'font-semibold' : ''}
-                  >
-                    {option.label}
-                  </DropdownItem>
-                </React.Fragment>
-              );
-            })}
+            <TicketFilterItems filter={filter} />
           </FilterDropdown>
         )}
       </div>

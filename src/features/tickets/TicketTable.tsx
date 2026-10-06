@@ -21,12 +21,14 @@ import {
   TableHeader,
   TableRow,
   Text,
+  useMediaQuery,
 } from '@mieweb/ui';
 import React from 'react';
 
 import { MINIMAL_SCROLLBAR_CLASS } from '../../ui/scrollbar';
 
 import { TicketColumnHeader, type TicketColumnFilter } from './TicketColumnHeader';
+import { TicketSortFilterMenu, type TicketColumn } from './TicketSortFilterMenu';
 import { TicketTableRow } from './TicketTableRow';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
 import {
@@ -42,8 +44,18 @@ import {
   type TicketFilters,
 } from './ticketFilters';
 
+const TITLE_COLUMN: TicketColumn = { label: 'Title', sortField: 'title' };
+
 /** Column count including select and actions (the timer column is extra). */
 const COLUMN_COUNT = 10;
+/** The compact (phone) table: select, the ticket, actions. */
+const COMPACT_COLUMN_COUNT = 3;
+/**
+ * Below this the table is compact: each row carries its facts under the title
+ * and nothing scrolls sideways. Tailwind's `md`, where the page's own padding
+ * and the table card's frame change too.
+ */
+const COMPACT_QUERY = '(max-width: 767px)';
 
 /**
  * Fixed pixel width per column (Title excepted, which flexes to fill the
@@ -163,8 +175,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
-  const columnCount = COLUMN_COUNT + (showTimerColumn ? 1 : 0);
-  const tableMinWidth = TABLE_MIN_WIDTH + (showTimerColumn ? COLUMN_WIDTH.timer : 0);
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const columnCount = (compact ? COMPACT_COLUMN_COUNT : COLUMN_COUNT) + (showTimerColumn ? 1 : 0);
+  // A compact table fits the screen; a full one keeps a readable floor and scrolls.
+  const tableMinWidth = compact
+    ? undefined
+    : TABLE_MIN_WIDTH + (showTimerColumn ? COLUMN_WIDTH.timer : 0);
 
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
@@ -183,6 +199,64 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   };
 
   const headerProps = { sort, onSortChange, openMenuId, onOpenMenuChange, boundaryRef };
+
+  // The columns after Title, defined once: a header each on a wide screen, and
+  // one menu between them on a phone.
+  const columns: TicketColumn[] = [
+    { label: 'Issue #', sortField: 'ref' },
+    { label: 'Source', sortField: 'source', filter: sourceFilter },
+    {
+      label: 'Status',
+      sortField: 'status',
+      filter: {
+        id: 'status',
+        anyLabel: 'Any status',
+        options: statusOptions(optionSource),
+        value: filters.status,
+        onChange: (value) => set('status', value),
+      },
+    },
+    {
+      label: 'Priority',
+      sortField: 'priority',
+      filter: {
+        id: 'priority',
+        anyLabel: 'Any priority',
+        options: priorityOptions(optionSource),
+        value: filters.priority,
+        onChange: (value) => set('priority', value),
+        extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
+      },
+    },
+    {
+      label: 'Assignees',
+      filter: {
+        id: 'assignee',
+        anyLabel: 'Anyone',
+        options: assigneeOptions(optionSource),
+        value: filters.assignee,
+        onChange: (value) => set('assignee', value),
+        // "Me" first: it is the shortcut people reach for most, and it spans
+        // every source at once (see the ME sentinel).
+        extraOptions: [
+          { value: ME, label: 'Me' },
+          { value: UNASSIGNED, label: 'Unassigned' },
+        ],
+      },
+    },
+    {
+      label: 'Project',
+      sortField: 'container',
+      filter: {
+        id: 'container',
+        anyLabel: 'All projects',
+        options: containerOptions(optionSource),
+        value: filters.container,
+        onChange: (value) => set('container', value),
+      },
+    },
+    { label: 'Updated', sortField: 'updated' },
+  ];
 
   return (
     <>
@@ -226,13 +300,17 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               <col style={{ width: COLUMN_WIDTH.select }} />
               {showTimerColumn && <col style={{ width: COLUMN_WIDTH.timer }} />}
               <col />
-              <col style={{ width: COLUMN_WIDTH.ref }} />
-              <col style={{ width: COLUMN_WIDTH.source }} />
-              <col style={{ width: COLUMN_WIDTH.status }} />
-              <col style={{ width: COLUMN_WIDTH.priority }} />
-              <col style={{ width: COLUMN_WIDTH.assignees }} />
-              <col style={{ width: COLUMN_WIDTH.container }} />
-              <col style={{ width: COLUMN_WIDTH.updated }} />
+              {!compact && (
+                <>
+                  <col style={{ width: COLUMN_WIDTH.ref }} />
+                  <col style={{ width: COLUMN_WIDTH.source }} />
+                  <col style={{ width: COLUMN_WIDTH.status }} />
+                  <col style={{ width: COLUMN_WIDTH.priority }} />
+                  <col style={{ width: COLUMN_WIDTH.assignees }} />
+                  <col style={{ width: COLUMN_WIDTH.container }} />
+                  <col style={{ width: COLUMN_WIDTH.updated }} />
+                </>
+              )}
               <col style={{ width: COLUMN_WIDTH.actions }} />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-neutral-50 dark:bg-neutral-900">
@@ -252,72 +330,20 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   </TableHead>
                 )}
 
-                <TicketColumnHeader label="Title" sortField="title" {...headerProps} />
-                <TicketColumnHeader label="Issue #" sortField="ref" {...headerProps} />
-                <TicketColumnHeader
-                  label="Source"
-                  sortField="source"
-                  filter={sourceFilter}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Status"
-                  sortField="status"
-                  filter={{
-                    id: 'status',
-                    anyLabel: 'Any status',
-                    options: statusOptions(optionSource),
-                    value: filters.status,
-                    onChange: (value) => set('status', value),
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Priority"
-                  sortField="priority"
-                  filter={{
-                    id: 'priority',
-                    anyLabel: 'Any priority',
-                    options: priorityOptions(optionSource),
-                    value: filters.priority,
-                    onChange: (value) => set('priority', value),
-                    extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Assignees"
-                  filter={{
-                    id: 'assignee',
-                    anyLabel: 'Anyone',
-                    options: assigneeOptions(optionSource),
-                    value: filters.assignee,
-                    onChange: (value) => set('assignee', value),
-                    // "Me" first: it is the shortcut people reach for most, and
-                    // it spans every source at once (see the ME sentinel).
-                    extraOptions: [
-                      { value: ME, label: 'Me' },
-                      { value: UNASSIGNED, label: 'Unassigned' },
-                    ],
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Project"
-                  sortField="container"
-                  filter={{
-                    id: 'container',
-                    anyLabel: 'All projects',
-                    options: containerOptions(optionSource),
-                    value: filters.container,
-                    onChange: (value) => set('container', value),
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader label="Updated" sortField="updated" {...headerProps} />
+                <TicketColumnHeader {...TITLE_COLUMN} {...headerProps} />
+                {!compact &&
+                  columns.map((column) => (
+                    <TicketColumnHeader key={column.label} {...column} {...headerProps} />
+                  ))}
 
-                <TableHead className="pr-4">
-                  <span className="sr-only">Actions</span>
+                <TableHead className="pr-4 text-end">
+                  {compact ? (
+                    // A compact row has no column per fact, so the sorting and
+                    // filtering those columns' headers carry is gathered here.
+                    <TicketSortFilterMenu columns={[TITLE_COLUMN, ...columns]} {...headerProps} />
+                  ) : (
+                    <span className="sr-only">Actions</span>
+                  )}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -335,6 +361,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   timerDisabled={timerLoadingKey !== null}
                   onToggleTimer={onToggleTimer}
                   showTimerColumn={showTimerColumn}
+                  compact={compact}
                   onEditRequest={onEditRequest}
                   onDeleteRequest={onDeleteRequest}
                   onChangeStatusRequest={onChangeStatusRequest}
