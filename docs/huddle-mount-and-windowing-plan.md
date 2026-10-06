@@ -90,7 +90,7 @@ a DDP subscription.
 - [x] Scroll position of the conversation list survives hiding (e2e, 25 days of posts)
 - [x] On a phone, Huddle opens straight into the Today chat instead of the list: `defaultMobileView="chat"` on `SuperChatInbox` (new vendored prop, commit `1b1c7616`, push it with `7c3490ab`); e2e at 390px
 - [x] Logout/login: `AppLayout` is keyed by user id (`main.tsx`), so a kept Huddle never outlives its session
-- [ ] `ROUTING.md` updated
+- [x] `ROUTING.md` updated
 
 ### M8: Tests
 
