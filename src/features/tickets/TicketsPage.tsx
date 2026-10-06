@@ -466,17 +466,21 @@ export const TicketsPage: React.FC = () => {
     [handleToggleTimer, redmineBaseUrl, sourceCtx],
   );
 
-  // Redmine issues already in the table — as a row, or as the issue a ticket is
-  // linked to — so "More from Redmine" offers only new ones.
+  // Redmine issues already in the table that is showing — as a row, or as the
+  // issue a ticket is linked to — so "More from Redmine" offers only new ones.
+  // The view that is showing, not every ticket loaded: on My Board, an issue
+  // that is only in All Sources is not on screen, and leaving it out of the
+  // search results as well would make it unfindable from there.
+  const shownTickets = activeView === 'tickets' ? allTickets : boardTickets;
   const tableRedmineIssueIds = useMemo(
     () =>
       new Set(
-        allTickets.flatMap((t) => [
+        shownTickets.flatMap((t) => [
           ...(t.sourceId === 'redmine' ? [Number(t.id)] : []),
           ...(t.linked?.sourceId === 'redmine' ? [Number(t.linked.id)] : []),
         ]),
       ),
-    [allTickets],
+    [shownTickets],
   );
   const runningRedmineIssueId =
     runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
