@@ -218,7 +218,8 @@ const core = createPulseVaultCore({
     // Only the video is attached: its captions, manifest and thumbnail are
     // separate artifacts, found from the video at read time.
     if (ctx.kind !== 'video') return;
-    const { userId, destination } = ctx.context ?? {};
+    const userId = ctx.context?.userId;
+    const destination = destinationOf(ctx.context ?? {});
     if (!userId || !destination) {
       console.log('[pulsevault][hook] onUploadComplete: no destination on', ctx.artifactId);
       await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: 'No destination on this upload' });
@@ -356,6 +357,19 @@ function mintUploadToken(artifactId, context) {
     issuer: ISSUER,
     context,
   });
+}
+
+/**
+ * The destination an upload's context names. Until this deploy `reserve`
+ * signed `{ target, ticketId }` instead (#644), and a link token lives 30
+ * minutes, so an upload minted just before it can still complete — or have its
+ * completion replayed — after. Remove once that window has passed.
+ */
+function destinationOf({ destination, target, ticketId }) {
+  if (destination) return destination;
+  if (!target) return null;
+  if (target === 'library' || !ticketId) return { kind: 'library' };
+  return { kind: target, id: ticketId };
 }
 
 Meteor.methods({

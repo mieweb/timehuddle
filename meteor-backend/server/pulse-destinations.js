@@ -28,37 +28,62 @@ import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
+const LIBRARY_NOTE = 'Added to the media library';
+
 function requireId(id, what) {
   if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', `Invalid ${what} id`);
 }
 
-/**
- * Attach the video to a ticket or Redmine issue. One attachment per video
- * and place, so a replayed completion finds the first one.
- */
-async function attachVideo(userId, attachedTo, video) {
-  const note = `Attached to ${attachedTo.kind} ${attachedTo.id}`;
-  const existing = await rawDb()
+/** The attachment this video already is on a ticket or Redmine issue, if any. */
+function existingAttachment(attachedTo, video) {
+  return rawDb()
     .collection('attachments')
     .findOne(
       { url: video.url, 'attachedTo.kind': attachedTo.kind, 'attachedTo.id': attachedTo.id },
       { projection: { _id: 1 } },
     );
-  if (existing) return note;
-  await createAttachment({ url: video.url, type: 'video', title: video.title, attachedTo, addedBy: userId });
-  return note;
 }
 
+const attachedNote = (kind, id) => `Attached to ${kind} ${id}`;
+
+/** A ticket-like destination: the video becomes an attachment on `{ kind, id }`. */
+const attachment = (kind, check) => ({
+  check,
+  async delivered({ id }, video) {
+    return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
+  },
+  async deliver(userId, { id }, video) {
+    await createAttachment({
+      url: video.url,
+      type: 'video',
+      title: video.title,
+      attachedTo: { kind, id },
+      addedBy: userId,
+    });
+    return attachedNote(kind, id);
+  },
+});
+
+/**
+ * Every destination kind. `check(userId, destination)` throws a Meteor.Error
+ * when the video may not go there (and returns the fields to sign into the
+ * token); `delivered(destination, video)` is the note from an earlier
+ * delivery of this video, or null; `deliver(userId, destination, video)`
+ * carries it out and returns the note.
+ */
 const DESTINATIONS = {
   library: {
     async check() {
       return {};
     },
+    async delivered(_destination, video) {
+      const item = await rawDb()
+        .collection('mediaitems')
+        .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
+      return item ? LIBRARY_NOTE : null;
+    },
     async deliver(userId, _destination, video) {
-      const media = rawDb().collection('mediaitems');
-      const note = 'Added to the media library';
-      if (await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } })) return note;
-      await media.insertOne({
+      await rawDb().collection('mediaitems').insertOne({
         _id: new ObjectId(),
         userId,
         type: 'video',
@@ -73,46 +98,38 @@ const DESTINATIONS = {
         thumbnail: null,
         uploadedAt: new Date(),
       });
-      return note;
+      return LIBRARY_NOTE;
     },
   },
 
-  ticket: {
-    async check(userId, { id }) {
-      requireId(id, 'ticket');
-      if (!isValidId(id)) throw new Meteor.Error('not-found', 'Ticket not found');
-      // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
-      const ticket = await rawDb()
-        .collection('tickets')
-        .findOne({ _id: new ObjectId(id), status: { $ne: 'deleted' } }, { projection: { teamId: 1 } });
-      if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-      // Whoever can see the ticket's team — the same check as reading the ticket,
-      // unconditional like there: a ticket without a valid team is refused.
-      await requireTeamMembership(userId, String(ticket.teamId ?? ''));
-      return { id };
-    },
-    deliver: (userId, { id }, video) => attachVideo(userId, { kind: 'ticket', id }, video),
-  },
+  ticket: attachment('ticket', async (userId, { id }) => {
+    requireId(id, 'ticket');
+    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Ticket not found');
+    // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
+    const ticket = await rawDb()
+      .collection('tickets')
+      .findOne({ _id: new ObjectId(id), status: { $ne: 'deleted' } }, { projection: { teamId: 1 } });
+    if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
+    // Whoever can see the ticket's team — the same check as reading the ticket,
+    // unconditional like there: a ticket without a valid team is refused.
+    await requireTeamMembership(userId, String(ticket.teamId ?? ''));
+    return { id };
+  }),
 
   // An issue the uploader's own Redmine key can see (attachments.add's own check).
-  [REDMINE]: {
-    async check(userId, { id }) {
-      requireId(id, 'Redmine issue');
-      await resolveTicketRef(userId, REDMINE, id);
-      return { id };
-    },
-    deliver: (userId, { id }, video) => attachVideo(userId, { kind: REDMINE, id }, video),
-  },
+  [REDMINE]: attachment(REDMINE, async (userId, { id }) => {
+    requireId(id, 'Redmine issue');
+    await resolveTicketRef(userId, REDMINE, id);
+    return { id };
+  }),
 };
 
 /** Every destination kind, for the reserve method's schema. */
 export const PULSE_DESTINATION_KINDS = Object.keys(DESTINATIONS);
 
+/** The entry for a destination's kind, or null. Own keys only: `constructor` and friends aren't kinds. */
 function kindOf(destination) {
-  // Own keys only: `constructor` and friends aren't destinations.
-  const kind = Object.hasOwn(DESTINATIONS, destination?.kind ?? '') ? DESTINATIONS[destination.kind] : null;
-  if (!kind) throw new Meteor.Error('bad-request', 'Unknown Pulse destination');
-  return kind;
+  return Object.hasOwn(DESTINATIONS, destination?.kind ?? '') ? DESTINATIONS[destination.kind] : null;
 }
 
 /**
@@ -120,8 +137,9 @@ function kindOf(destination) {
  * return the form to sign into the token. Throws a Meteor.Error if not.
  */
 export async function resolvePulseDestination(userId, destination) {
-  const fields = await kindOf(destination).check(userId, destination);
-  return { kind: destination.kind, ...fields };
+  const kind = kindOf(destination);
+  if (!kind) throw new Meteor.Error('bad-request', 'Unknown Pulse destination');
+  return { kind: destination.kind, ...(await kind.check(userId, destination)) };
 }
 
 /**
@@ -132,10 +150,18 @@ export async function resolvePulseDestination(userId, destination) {
  * else (Redmine unreachable, a write failed) is thrown, so PulseVault replays
  * the completion later.
  *
+ * A replay of a delivery that did happen, but whose outcome never got
+ * recorded, gets the same `done` as the first time — whatever has become of
+ * the destination since — so the check runs only for a video not yet there.
+ *
  * `video` is `{ artifactId, url, title, filename, mimeType, size }`.
  */
 export async function deliverPulseVideo(userId, destination, video) {
   const kind = kindOf(destination);
+  // Only a token this server signed gets here, so this is a kind that has since been removed.
+  if (!kind) return { state: 'kept', reason: `Unknown Pulse destination "${destination?.kind}"` };
+  const earlier = await kind.delivered(destination, video);
+  if (earlier) return { state: 'done', note: earlier };
   try {
     await kind.check(userId, destination);
   } catch (err) {
