@@ -26,7 +26,7 @@ async function uploadJustificationVideo(
   file: File,
   onProgress: (pct: number) => void,
 ): Promise<string> {
-  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
+  const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
 
   await new Promise<void>((resolve, reject) => {
     new tus.Upload(file, {

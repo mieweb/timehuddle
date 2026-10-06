@@ -1939,6 +1939,9 @@ export const timerApi = {
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
+/** Where a Pulse video lands: the uploader's media library, or a ticket's attachments. */
+export type PulseDestination = { kind: 'library' } | { kind: TicketAttachmentKind; id: string };
+
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
@@ -2010,19 +2013,17 @@ export const videoApi = {
     return { state: 'timeout' };
   },
 
-  /** Reserve a videoid for a ticket upload before starting TUS.
-   *  Pass `existingVideoid` when resuming a recording session so the backend
-   *  re-registers the same id instead of creating a new one.
+  /**
+   * Reserve a Pulse upload: a videoid and a link token that carries where the
+   * finished video goes. The backend delivers it there once it lands. Pass
+   * `existingVideoid` when resuming a recording session so the backend
+   * re-registers the same id instead of creating a new one.
    */
-  reserve: (ticketId: string, existingVideoid?: string, target: TicketAttachmentKind = 'ticket') =>
-    wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
+  reserve: (destination: PulseDestination, existingVideoid?: string) =>
+    wormholeCall<{ videoid: string; uploadToken: string }>(
       'pulsevault.reserve',
-      existingVideoid ? { target, ticketId, existingVideoid } : { target, ticketId },
+      existingVideoid ? { destination, existingVideoid } : { destination },
     ),
-
-  /** Reserve a videoid for a media library upload (no ticket context). */
-  reserveForLibrary: () =>
-    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserveForLibrary', {}),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────

@@ -13,24 +13,22 @@
  * Wormhole's own `/api/docs` only documents Meteor methods, with no
  * extension point for hand-written paths.
  *
- * Reservation → capability-token → upload → attach flow:
- *  1. `pulsevault.reserve` (ticket) / `pulsevault.reserveForLibrary` mint an
- *     artifactId + a short-lived HMAC capability token whose `context` says
- *     who reserved it and where the video goes (a ticket, a Redmine issue, or
- *     the media library). Nothing is recorded here: PulseVault stores the
- *     context with the upload it authorizes.
+ * One link, one upload, one destination:
+ *  1. `pulsevault.reserve` mints an artifactId + a short-lived HMAC capability
+ *     token whose `context` says who reserved it and where the video goes
+ *     (see pulse-destinations.js). Nothing is recorded here: PulseVault
+ *     stores the context with the upload it authorizes.
  *  2. The Pulse app or web fallback uploads bytes via TUS to
  *     `/pulsevault/upload`, authenticated by that capability token. PulseVault
  *     holds every create to the shape of a pulse (the video under the token's
  *     own id, its thumbnail/manifest/captions under their own ids `relatedTo`
  *     it), lets a re-scan of the same link take over an upload the app
  *     abandoned, and refuses to delete a video once it has landed.
- *  3. `onUploadComplete` gets that context back and creates the ticket
- *     attachment / media-library item. PulseVault fires it again if it threw
- *     or the server restarted first, so it is idempotent on the video id.
+ *  3. `onUploadComplete` gets that context back and delivers the video to its
+ *     destination. PulseVault fires it again if it threw or the server
+ *     restarted first, so delivery is idempotent on the video id.
  */
 import { Meteor } from 'meteor/meteor';
-import { MongoInternals } from 'meteor/mongo';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 import {
   createPulseVaultCore,
@@ -41,14 +39,10 @@ import {
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
-import { createAttachment } from './attachments.js';
-import { REDMINE, resolveTicketRef } from './ticket-refs.js';
-import { requireTeamMembership } from './permissions.js';
+import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
-
-const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 // Reuse the same directory/env-var convention as uploads.js's `VIDEOS_DIR`
 // (used there to clean up video files on `media.remove`).
@@ -130,78 +124,19 @@ const VIDEO_CONTENT_TYPES = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * The reserved destination no longer exists. The one failure that settles an
- * upload as kept: anything else thrown from the attach is left for PulseVault
- * to replay.
+ * The video a finished upload delivers, as pulse-destinations.js takes it.
+ * Pulse sends the draft's title as `Upload-Metadata.name`; it becomes the
+ * attachment title, with a short id when there's none.
  */
-function destinationGone(message) {
-  return Object.assign(new Error(message), { statusCode: 404 });
-}
-
-/**
- * Create the mediaitems doc / ticket attachment for a finished upload.
- * Idempotent on the video: PulseVault may fire the completion again if this
- * threw or the server restarted before it recorded the first one.
- */
-async function attachUploadedVideo({ artifactId, ext, size }, { userId, target, ticketId }) {
-  const videoUrl = artifactPath(artifactId);
-  const title = `Video ${artifactId.slice(0, 8)}`;
-  const mimeType = VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4';
-
-  if (target === 'library') {
-    const media = rawDb().collection('mediaitems');
-    const existing = await media.findOne({ videoid: artifactId }, { projection: { _id: 1 } });
-    if (existing) return 'Added to the media library'; // a replay
-    await media.insertOne({
-      _id: new ObjectId(),
-      userId,
-      type: 'video',
-      mimeType,
-      url: videoUrl,
-      videoid: artifactId,
-      filename: `${artifactId}${ext}`,
-      size,
-      title,
-      caption: null,
-      altText: null,
-      thumbnail: null,
-      uploadedAt: new Date(),
-    });
-    console.log('[pulsevault] created media item for library upload:', artifactId);
-    return 'Added to the media library';
-  }
-
-  const attachedTo = { kind: target === REDMINE ? REDMINE : 'ticket', id: ticketId };
-  const existing = await rawDb()
-    .collection('attachments')
-    .findOne(
-      { url: videoUrl, 'attachedTo.kind': attachedTo.kind, 'attachedTo.id': attachedTo.id },
-      { projection: { _id: 1 } },
-    );
-  const note = `Attached to ${attachedTo.kind} ${ticketId}`;
-  if (existing) return note; // a replay
-  if (attachedTo.kind === 'ticket') {
-    // `tickets.delete` soft-deletes (status: 'deleted'), so a deleted ticket still has a document.
-    const ticket = await rawDb()
-      .collection('tickets')
-      .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } }, { projection: { _id: 1 } });
-    if (!ticket) throw destinationGone(`Ticket ${ticketId} was deleted while the video was uploading`);
-  } else {
-    // The Redmine issue was checked at reserve time; check again now, with the uploader's
-    // key. Gone for good → kept. Redmine unreachable, rate-limited or the key rejected → thrown,
-    // so PulseVault tries the delivery again later.
-    try {
-      await resolveTicketRef(userId, REDMINE, ticketId);
-    } catch (err) {
-      if (err?.error === 'not-found') {
-        throw destinationGone(`Redmine issue ${ticketId} was deleted while the video was uploading`);
-      }
-      throw err;
-    }
-  }
-  await createAttachment({ url: videoUrl, type: 'video', title, attachedTo, addedBy: userId });
-  console.log('[pulsevault] created attachment for', attachedTo.kind, ticketId, 'video:', artifactId);
-  return note;
+function describeVideo({ artifactId, ext, size, name }) {
+  return {
+    artifactId,
+    url: artifactPath(artifactId),
+    title: name || `Video ${artifactId.slice(0, 8)}`,
+    filename: `${artifactId}${ext}`,
+    mimeType: VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4',
+    size,
+  };
 }
 
 const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
@@ -283,23 +218,17 @@ const core = createPulseVaultCore({
     // Only the video is attached: its captions, manifest and thumbnail are
     // separate artifacts, found from the video at read time.
     if (ctx.kind !== 'video') return;
-    const reservation = ctx.context;
-    if (!reservation?.userId) {
-      console.log('[pulsevault][hook] onUploadComplete: no reservation context for', ctx.artifactId);
-      await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: 'No reservation on this upload' });
+    const { userId, destination } = ctx.context ?? {};
+    if (!userId || !destination) {
+      console.log('[pulsevault][hook] onUploadComplete: no destination on', ctx.artifactId);
+      await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: 'No destination on this upload' });
       return;
     }
-    try {
-      const note = await attachUploadedVideo(ctx, reservation);
-      await core.recordOutcome(ctx.artifactId, { state: 'done', note });
-    } catch (err) {
-      // Only a destination that's gone for good settles the upload as kept
-      // (the video stays in storage, and the status route says why). Anything
-      // else is thrown, so PulseVault replays the completion.
-      if (err.statusCode !== 404) throw err;
-      console.warn('[pulsevault] kept', ctx.artifactId, err.message);
-      await core.recordOutcome(ctx.artifactId, { state: 'kept', reason: err.message });
-    }
+    // `kept` when the destination is gone for good; anything else throws, so
+    // PulseVault replays the completion.
+    const outcome = await deliverPulseVideo(userId, destination, describeVideo(ctx));
+    await core.recordOutcome(ctx.artifactId, outcome);
+    console.log('[pulsevault]', outcome.state, ctx.artifactId, outcome.note ?? outcome.reason);
   },
   onArtifactEvent: (event) => {
     if (event.phase === 'processed' && event.webReady?.action !== 'none') {
@@ -430,8 +359,15 @@ function mintUploadToken(artifactId, context) {
 }
 
 Meteor.methods({
-  async 'pulsevault.reserve'({ ticketId, existingVideoid, target } = {}) {
+  /**
+   * Reserve one Pulse upload: a fresh video id and a link token for it that
+   * carries where the finished video goes (`destination`, see
+   * pulse-destinations.js). The server delivers it there when the upload
+   * completes — the client has nothing left to do.
+   */
+  async 'pulsevault.reserve'({ destination, existingVideoid } = {}) {
     const identity = await requireIdentity(this);
+    const resolved = await resolvePulseDestination(identity.userId, destination);
 
     // The web client caches the last reserved videoid per ticket
     // (localStorage `pulsevault:ticket:<id>`) so a re-opened QR modal can
@@ -463,33 +399,9 @@ Meteor.methods({
     }
     videoid = videoid ?? randomUUID();
 
-    let reservation;
-    if (target === 'library' || !ticketId) {
-      reservation = { userId: identity.userId, target: 'library' };
-    } else if (target === REDMINE) {
-      await resolveTicketRef(identity.userId, REDMINE, ticketId);
-      reservation = { userId: identity.userId, target: REDMINE, ticketId };
-    } else {
-      const ticket = await rawDb()
-        .collection('tickets')
-        .findOne({ _id: new ObjectId(ticketId), status: { $ne: 'deleted' } });
-      if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-      // Only someone who can see the ticket's team may mint an upload for it — the same
-      // check as reading the ticket, unconditional like there: a ticket without a valid team
-      // is refused, not open to everyone. A token is a capability to attach to this ticket.
-      await requireTeamMembership(identity.userId, String(ticket.teamId ?? ''));
-      reservation = { userId: identity.userId, target: 'ticket', ticketId };
-    }
-
-    return { videoid, uploadToken: mintUploadToken(videoid, reservation) };
-  },
-
-  async 'pulsevault.reserveForLibrary'() {
-    const identity = await requireIdentity(this);
-    const videoid = randomUUID();
     return {
       videoid,
-      uploadToken: mintUploadToken(videoid, { userId: identity.userId, target: 'library' }),
+      uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }),
     };
   },
 

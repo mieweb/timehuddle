@@ -3,8 +3,8 @@
  *
  * Verifies the @mieweb/pulsevault-backed video upload path on the Meteor
  * backend (meteor-backend/server/pulsevault.js):
- *  1. API-level contract — capabilities discovery, all 4 Wormhole-exposed
- *     methods (reserve, reserveForLibrary, getVideo, listVideos), the full
+ *  1. API-level contract — capabilities discovery, the Wormhole-exposed
+ *     methods (reserve, getVideo, listVideos), the full
  *     raw TUS surface (POST/PATCH/HEAD/DELETE upload, GET/DELETE artifact),
  *     and the standalone /pulsevault/docs Swagger page.
  *  2. Ticket video upload flow — QR modal + deep link, device upload, the
@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page, type APIRequestContext, type TestInfo } from '@playwright/test';
+import { getTeamIdByCode } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from './helpers';
 
@@ -40,7 +41,7 @@ async function reserveLibraryUpload(
 ): Promise<{ videoid: string; uploadToken: string }> {
   const res = await request.post('/api/pulsevault_reserve', {
     headers: { Authorization: `Bearer ${token}` },
-    data: { target: 'library' },
+    data: { destination: { kind: 'library' } },
   });
   expect(res.status()).toBe(200);
   // Wormhole's REST bridge wraps every method's return value as { result }.
@@ -452,6 +453,58 @@ test.describe('PulseVault — Ticket video upload', () => {
 });
 
 // ─── A pulse's related files (thumbnail, beat manifest, captions) ─────────────
+
+test.describe('PulseVault — delivery to a destination', () => {
+  test('a ticket deleted while its video uploads is kept, not attached', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const auth = { Authorization: `Bearer ${await getSessionToken(page)}` };
+    const created = await request.post('/api/tickets_create', {
+      headers: auth,
+      data: {
+        teamId: await getTeamIdByCode('TEST01'),
+        title: `Pulse kept ${randomUUID().slice(0, 8)}`,
+      },
+    });
+    expect(created.status()).toBe(200);
+    const ticketId: string = (await created.json()).result.id;
+
+    const reserved = await request.post('/api/pulsevault_reserve', {
+      headers: auth,
+      data: { destination: { kind: 'ticket', id: ticketId } },
+    });
+    expect(reserved.status()).toBe(200);
+    const { videoid, uploadToken } = (await reserved.json()).result;
+
+    // The destination goes away between the link and the last byte.
+    const deleted = await request.post('/api/tickets_delete', {
+      headers: auth,
+      data: { ticketId },
+    });
+    expect(deleted.status()).toBe(200);
+    await uploadRealVideoViaApi(request, videoid, uploadToken);
+
+    // The backend records why instead of attaching to a ticket that is gone.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/pulsevault/artifacts/${videoid}/status`, {
+            headers: { Authorization: `Bearer ${uploadToken}` },
+          });
+          return res.ok() ? ((await res.json()).outcome ?? null) : null;
+        },
+        { timeout: 20000 },
+      )
+      .toMatchObject({ state: 'kept', reason: expect.stringContaining('Ticket not found') });
+    const list = await request.post('/api/attachments_list', {
+      headers: auth,
+      data: { kind: 'ticket', id: ticketId },
+    });
+    expect((await list.json()).result.attachments).toEqual([]);
+  });
+});
 
 test.describe('PulseVault — a pulse uploads its related files with the video', () => {
   test.setTimeout(60000);
