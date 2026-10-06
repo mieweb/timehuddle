@@ -10,13 +10,13 @@ Plan and execution log for [issue #635](https://github.com/mieweb/timehuddle/iss
 
 ### Root causes
 
-| #   | Symptom                           | Cause                                                                                                                                                              |
-| --- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A   | Huddle remounts on every visit    | `AppLayout` renders only the current route's page; only `TicketsPage` is kept alive.                                                                               |
-| B   | Open conversation is lost         | It lives only in `?conversation=`, and the sidebar links to a bare `/app/huddle`. The inbox's mobile list/chat state is internal and resets on remount.           |
-| C   | "Today" with no posts flashes     | The starter conversation shows whenever `posts.length === 0`, so "not loaded yet" looks like "empty". The 3s `loadingFallback` and effect cleanup both trigger it. |
-| D   | First visit isn't reliably Today  | The default is `conversations[0]` (most recently active), which is Today only if there is a post today.                                                            |
-| E   | Slow loading                      | `huddlePosts.byTeam` and `huddle.getPosts` return the entire history.                                                                                              |
+| #   | Symptom                          | Cause                                                                                                                                                              |
+| --- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A   | Huddle remounts on every visit   | `AppLayout` renders only the current route's page; only `TicketsPage` is kept alive.                                                                               |
+| B   | Open conversation is lost        | It lives only in `?conversation=`, and the sidebar links to a bare `/app/huddle`. The inbox's mobile list/chat state is internal and resets on remount.            |
+| C   | "Today" with no posts flashes    | The starter conversation shows whenever `posts.length === 0`, so "not loaded yet" looks like "empty". The 3s `loadingFallback` and effect cleanup both trigger it. |
+| D   | First visit isn't reliably Today | The default is `conversations[0]` (most recently active), which is Today only if there is a post today.                                                            |
+| E   | Slow loading                     | `huddlePosts.byTeam` and `huddle.getPosts` return the entire history.                                                                                              |
 
 ## Solution
 
@@ -37,10 +37,10 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M1: Honest loading state (cause C)
 
-- [ ] Per-scope `loaded` flag in `Huddle.tsx`, set only when a first snapshot has arrived (DDP ready + sync, or REST success); reset on team/scope change
-- [ ] Starter conversation only when `loaded && posts.length === 0`; spinner otherwise; the 3s timer never sets `loaded`
-- [ ] Don't blank `posts` on a team switch before the new scope has data
-- [ ] Unit test
+- [x] Loading ends only on a confirmed snapshot (DDP ready or REST success); the 3s timer no longer ends it. After 10s with neither, a load error is shown instead of an empty feed
+- [x] The starter conversation can no longer appear before a confirmed load (the inbox renders only after loading ends); the Personal view's loading flag starts true so its first render isn't empty
+- [x] Posts are still cleared on team switch, but the spinner is up in the same render, so no empty frame
+- [ ] Unit/e2e test: covered in M8 (the logic lives in component effects, no extractable unit)
 
 ### M2: Default to Today (cause D)
 

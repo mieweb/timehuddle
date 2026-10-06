@@ -49,6 +49,8 @@ import { toDateString } from '@lib/timeUtils';
 import styles from './Huddle.module.css';
 
 const THREAD_BY_KEY = 'app:huddleThreadBy';
+// How long to wait for a first snapshot (DDP ready or REST) before reporting a load failure.
+const LOAD_TIMEOUT_MS = 10_000;
 // Team-picker value for the Personal view; team ids are never this string.
 const PERSONAL_VIEW = 'personal';
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
@@ -215,7 +217,9 @@ export default function Huddle() {
     setSelectedTeamId(value);
   };
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
-  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  // Starts true so the Personal view's first render shows the spinner, not an
+  // empty feed, before its fetch effect runs.
+  const [myPostsLoading, setMyPostsLoading] = useState(true);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
   const refreshMyPosts = useCallback(async () => {
     try {
@@ -296,6 +300,9 @@ export default function Huddle() {
       if (selectedTeamIdRef.current !== selectedTeamId) return;
       restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
       syncPosts();
+      // A fetched snapshot is real data, even when it is empty.
+      setLoading(false);
+      setError(null);
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
     }
@@ -348,19 +355,27 @@ export default function Huddle() {
     setError(null);
 
     const ddp = getDdpClient();
-    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
+    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => {
+      setLoading(false);
+      setError(null);
+    });
 
     // Sync immediately in case data is already cached
     syncPosts();
 
     // REST fallback: populate the feed even if the DDP socket is down (it's
     // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed().finally(() => setLoading(false));
+    void refreshFeed();
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
 
-    const loadingFallback = setTimeout(() => setLoading(false), 3000);
+    // Neither route delivered: say so rather than show an empty feed, which
+    // would read as "no posts" (and offer the starter conversation).
+    const loadingFallback = setTimeout(() => {
+      setLoading(false);
+      setError('Failed to load posts. Pull down to retry.');
+    }, LOAD_TIMEOUT_MS);
 
     return () => {
       clearTimeout(loadingFallback);
