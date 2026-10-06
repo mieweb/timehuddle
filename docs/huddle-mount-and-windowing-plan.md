@@ -87,7 +87,8 @@ a DDP subscription.
 - [x] Huddle's loading effects survive being paused: posts are cleared only when the team actually changes, not on every effect cleanup; the load timeout is its own effect
 - [x] View restore: Huddle remembers `conversation`/`view`/`q` while on screen and puts them back (layout effect, before paint) when it returns to a bare URL; a link that names a view wins
 - [x] Verified by e2e: same conversation and search restored with no spinner or starter flash; a `?post=` link wins over the remembered conversation
-- [ ] Scroll position survives hiding (conversation list) — e2e added, result below
+- [x] Scroll position of the conversation list survives hiding (e2e, 25 days of posts)
+- [x] On a phone, Huddle opens straight into the Today chat instead of the list: `defaultMobileView="chat"` on `SuperChatInbox` (new vendored prop, commit `1b1c7616`, push it with `7c3490ab`); e2e at 390px
 - [x] Logout/login: `AppLayout` is keyed by user id (`main.tsx`), so a kept Huddle never outlives its session
 - [ ] `ROUTING.md` updated
 

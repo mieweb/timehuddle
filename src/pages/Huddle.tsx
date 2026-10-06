@@ -910,6 +910,8 @@ export default function Huddle() {
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
                     currentParticipantId={user.id}
                     virtualized
+                    // On a phone, open straight into the conversation (Today) rather than the list.
+                    defaultMobileView="chat"
                     listFooter={
                       // The starter conversation stands in for an empty feed; there's nothing older to load.
                       activePosts.length > 0 ? (
