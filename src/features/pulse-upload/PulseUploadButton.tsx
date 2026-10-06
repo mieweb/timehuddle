@@ -31,8 +31,8 @@ export function pulseServerBase(): string {
 /**
  * Build the pulsecam:// deep link entirely client-side. Mirrors
  * @mieweb/pulsevault's `buildUploadLink` protocol (PROTOCOL.md): `v=1`,
- * `artifactId`, `server`, `token` (the capability token authorizing the
- * upload), and `uploadUnit=merged` (one pre-recorded file per session).
+ * `artifactId`, `server`, and `token` (the capability token authorizing the
+ * upload).
  */
 export function buildUploadDeepLink(videoid: string, uploadToken: string): string {
   return `pulsecam://?${uploadParams(videoid, uploadToken).toString()}`;
@@ -56,7 +56,6 @@ function uploadParams(videoid: string, uploadToken: string): URLSearchParams {
     artifactId: videoid,
     server: pulseServerBase(),
     token: uploadToken,
-    uploadUnit: 'merged',
   });
 }
 
@@ -212,10 +211,25 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
-        clearStoredVideoid(videoidKey);
-        setUploadToken(null);
-        setProgress(null);
-        onUploadComplete();
+        // The attachment exists only once the backend has filed the video.
+        void videoApi.waitUntilFiled(videoid, uploadToken).then((filed) => {
+          setUploadToken(null);
+          setProgress(null);
+          if (filed.state === 'done') {
+            clearStoredVideoid(videoidKey);
+            onUploadComplete();
+            return;
+          }
+          // The upload itself finished; only the filing didn't, or couldn't be
+          // confirmed. Keep the stored videoid so a retry resumes the same one.
+          setError(
+            filed.state === 'kept'
+              ? `Uploaded, but not attached: ${filed.reason ?? 'its destination is gone'}.`
+              : filed.state === 'forbidden'
+                ? 'Uploaded, but this link has expired. Refresh the ticket to see it.'
+                : 'Uploaded; still being processed. Refresh the ticket in a minute.',
+          );
+        });
       },
       onError(err) {
         setError(err instanceof Error ? err.message : 'Upload failed. Try again.');
@@ -287,9 +301,34 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
         onClose={() => setModalOpen(false)}
         scanLink={scanLink}
         onUploadFromDevice={handleUploadFromDevice}
-        onDone={() => {
-          setModalOpen(false);
-          onUploadComplete();
+        onDone={async () => {
+          // The phone reports success when its last byte lands; the backend files the video
+          // seconds later, after making it web-playable. Wait for that before closing (which
+          // stops the attachment polling) and refreshing, or the ticket refreshes too early.
+          if (!videoid || !uploadToken) {
+            setModalOpen(false);
+            onUploadComplete();
+            return;
+          }
+          const filed = await videoApi.waitUntilFiled(videoid, uploadToken, 30_000);
+          if (filed.state === 'done') {
+            clearStoredVideoid(videoidKey);
+            setModalOpen(false);
+            onUploadComplete();
+          } else if (filed.state === 'timeout') {
+            // Still being made web-playable or filed: leave the modal open so the attachment
+            // polling keeps watching, and say so.
+            setError('Uploaded; still being processed. This will update when it lands.');
+          } else {
+            // The bytes landed but nothing was attached: say why, and keep the stored
+            // videoid out of the way so the next attempt starts fresh.
+            setModalOpen(false);
+            setError(
+              filed.state === 'kept'
+                ? `Uploaded, but not attached: ${filed.reason ?? 'its destination is gone'}.`
+                : 'Uploaded, but this link has expired. Refresh the ticket to see it.',
+            );
+          }
         }}
       />
     </div>

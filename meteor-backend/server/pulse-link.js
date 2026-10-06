@@ -1,7 +1,7 @@
 /**
  * Pulse Cam scan interstitial.
  *
- *   GET /pulse/open?v=1&artifactId=…&server=…&token=…&uploadUnit=merged
+ *   GET /pulse/open?v=1&artifactId=…&server=…&token=…
  *
  * A phone camera scanning a raw `pulsecam://` QR code does nothing at all when
  * Pulse Cam isn't installed — most camera apps refuse to surface an unknown
@@ -24,7 +24,7 @@ const STORE_URLS = {
 const ANDROID_PACKAGE = 'com.mieweb.pulse';
 
 /** Deep-link params forwarded to Pulse Cam, per @mieweb/pulsevault PROTOCOL.md. */
-const ALLOWED_PARAMS = ['v', 'artifactId', 'server', 'token', 'uploadUnit'];
+const ALLOWED_PARAMS = ['v', 'artifactId', 'server', 'token'];
 const MAX_PARAM_LENGTH = 2048;
 // RFC 3986 unreserved + sub-delims + path/query chars — no quotes, angle
 // brackets, or control characters can reach the rendered page.
@@ -275,9 +275,13 @@ WebApp.connectHandlers.use('/pulse/open', async (req, res) => {
   // guessed link still produces a convincing "Opening Pulse Cam…" page — the
   // upload would fail later, but only after the user has recorded a clip.
   try {
+    // Checked as a read of the video's status: the token must name this
+    // artifact. (`create` would also apply the shape of a pulse, which needs
+    // the upload's kind — there is no upload here.)
     await verifyUploadToken(req, {
       artifactId: link.artifactId,
-      phase: 'create',
+      kind: 'video',
+      phase: 'status',
       token: link.token,
     });
   } catch {

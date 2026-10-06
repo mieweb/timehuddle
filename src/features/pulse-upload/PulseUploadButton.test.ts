@@ -20,7 +20,7 @@ describe('buildUploadDeepLink', () => {
     expect(params.get('artifactId')).toBe(videoid);
     expect(params.get('server')).toBe(pulseServerBase());
     expect(params.get('token')).toBe(uploadToken);
-    expect(params.get('uploadUnit')).toBe('merged');
+    expect(params.has('uploadUnit')).toBe(false);
     // Legacy param names must not leak back in.
     expect(params.has('mode')).toBe(false);
     expect(params.has('videoid')).toBe(false);
@@ -39,7 +39,7 @@ describe('buildScanLink', () => {
     expect(url.searchParams.get('artifactId')).toBe(videoid);
     expect(url.searchParams.get('token')).toBe(uploadToken);
     expect(url.searchParams.get('server')).toBe(pulseServerBase());
-    expect(url.searchParams.get('uploadUnit')).toBe('merged');
+    expect(url.searchParams.has('uploadUnit')).toBe(false);
   });
 
   it('carries the same params as the deep link', () => {
