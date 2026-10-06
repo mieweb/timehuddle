@@ -123,16 +123,12 @@ const VIDEO_CONTENT_TYPES = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * The video a finished upload delivers, as pulse-destinations.js takes it.
- * Pulse sends the draft's title as `Upload-Metadata.name`; it becomes the
- * attachment title, with a short id when there's none.
- */
-function describeVideo({ artifactId, ext, size, name }) {
+/** The video a finished upload delivers, as pulse-destinations.js takes it. */
+function describeVideo({ artifactId, ext, size }) {
   return {
     artifactId,
     url: artifactPath(artifactId),
-    title: name || `Video ${artifactId.slice(0, 8)}`,
+    title: `Video ${artifactId.slice(0, 8)}`,
     filename: `${artifactId}${ext}`,
     mimeType: VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4',
     size,
