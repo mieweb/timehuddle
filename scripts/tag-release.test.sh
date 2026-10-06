@@ -66,12 +66,13 @@ out=$(run 0000000000000000000000000000000000000000 "$E"); check "5. new branch �
 git checkout -q -b rewritten "$C"; F=$(commit 1.0.6 "rewritten history"); git checkout -q main
 out=$(run "$D" "$F"); check "6. force push → skip with warning" "not an ancestor" "$out"
 
-# 7. One push with several commits, bump in the middle: old-version work inside
-# the push shipped too, so the tag goes on the last of it, not on the pre-push SHA
+# 7. One push with several commits, bump in the middle: only the pushed tip is
+# published, so the old-version commit inside the push is never tagged
 G=$(commit 1.0.6 "1.0.6 work in same push")
 H=$(commit 1.0.7 "bump to 1.0.7")
 I=$(commit 1.0.7 "1.0.7 work in same push")
-out=$(run "$E" "$I"); check "7. multi-commit push → tags last old-version commit in the push" "Tagged 1.0.6 on $G" "$out"
+out=$(run "$E" "$I"); check "7. multi-commit push → tags pre-push commit" "Tagged 1.0.6 on $E" "$out"
+check "7. tag is not on the unpublished commit inside the push" "$E" "$(remote_tag 1.0.6)"
 check "7. no title when the note file is missing" "1.0.6" "$(git tag -l --format='%(contents)' 1.0.6)"
 
 # 8. Bump reverted (1.0.7 → 1.0.6)

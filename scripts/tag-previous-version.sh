@@ -3,9 +3,9 @@
 #
 # Every push to main republishes the OTA bundle under the current package.json
 # version, so a version keeps shipping until the next bump. When a push changes
-# that version, the commit before the first version-changing commit on the
-# pushed first-parent range was the last one to ship under the old version, and
-# it gets the old version's tag.
+# that version, the commit main pointed at before the push was the last one to
+# ship under the old version, and it gets the old version's tag. Commits inside
+# the push never shipped on their own: only the pushed tip is published.
 #
 # Usage: scripts/tag-previous-version.sh <before-sha> <after-sha>
 #   DRY_RUN=1 prints the tag instead of creating and pushing it.
@@ -47,41 +47,33 @@ if [ "$OLD" = "$NEW" ]; then
   exit 0
 fi
 
-# Old-version commits inside this push shipped too, so walk forward from BEFORE
-# until the version changes.
-LAST="$BEFORE"
-while read -r COMMIT; do
-  if [ "$(version_at "$COMMIT")" != "$OLD" ]; then break; fi
-  LAST="$COMMIT"
-done < <(git rev-list --first-parent --reverse "$BEFORE..$AFTER")
-
 if EXISTING="$(git rev-parse -q --verify "refs/tags/$OLD^{commit}")"; then
-  if [ "$EXISTING" = "$(git rev-parse "$LAST")" ]; then
-    echo "Tag $OLD already on $LAST; nothing to do."
+  if [ "$EXISTING" = "$(git rev-parse "$BEFORE")" ]; then
+    echo "Tag $OLD already on $BEFORE; nothing to do."
     # A re-run still drafts the Release if the first run failed before it.
     emit_tag "$OLD"
   else
     # Moving a published tag rewrites history for anyone who fetched it, so a
     # person decides that — see release-notes/README.md.
-    echo "::warning::Tag $OLD already exists on $EXISTING, not on $LAST. Left as is; move it by hand if it is wrong."
+    echo "::warning::Tag $OLD already exists on $EXISTING, not on $BEFORE. Left as is; move it by hand if it is wrong."
   fi
   exit 0
 fi
 
-TITLE="$(note_title "$LAST" "$OLD")"
+TITLE="$(note_title "$BEFORE" "$OLD")"
 MESSAGE="$OLD${TITLE:+ — $TITLE}"
 
 if [ "${DRY_RUN:-}" = "1" ]; then
-  echo "Would tag $OLD on $LAST: $MESSAGE"
+  echo "Would tag $OLD on $BEFORE: $MESSAGE"
   exit 0
 fi
 
-git tag -a "$OLD" "$LAST" -m "$MESSAGE"
+git tag -a "$OLD" "$BEFORE" -m "$MESSAGE"
 if ! git push origin "refs/tags/$OLD"; then
   # GitHub refuses the workflow token a tag on a commit whose workflow files
   # differ from main's — i.e. whenever this push changed a workflow file.
   echo "::error::Could not push tag $OLD. If GitHub mentioned 'workflows' permission, this push changed a workflow file; tag and draft by hand: scripts/tag-previous-version.sh $BEFORE $AFTER && scripts/draft-release.sh $OLD"
   exit 1
 fi
-echo "Tagged $OLD on $LAST: $MESSAGE"
+echo "Tagged $OLD on $BEFORE: $MESSAGE"
 emit_tag "$OLD"
