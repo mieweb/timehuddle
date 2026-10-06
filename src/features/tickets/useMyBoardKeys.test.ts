@@ -50,6 +50,32 @@ describe('useMyBoardKeys', () => {
     expect([...result.current.boardKeys]).toEqual(['huddle:z']);
   });
 
+  it('says it has not loaded until the first read answers, and again for a new user', async () => {
+    const first = deferred<ReturnType<typeof entry>[]>();
+    const second = deferred<ReturnType<typeof entry>[]>();
+    api.list.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const { result, rerender } = renderHook(({ userId }) => useMyBoardKeys(userId), {
+      initialProps: { userId: 'u1' },
+    });
+    expect(result.current.boardLoaded).toBe(false);
+    await act(async () => first.resolve([]));
+    // Loaded and empty: now "nothing on it" is a fact.
+    expect(result.current.boardLoaded).toBe(true);
+
+    rerender({ userId: 'u2' });
+    expect(result.current.boardLoaded).toBe(false);
+    await act(async () => second.resolve([entry('z')]));
+    expect(result.current.boardLoaded).toBe(true);
+  });
+
+  it('counts a failed first read as answered, so the page does not wait forever', async () => {
+    api.list.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useMyBoardKeys('u1'));
+    await waitFor(() => expect(result.current.boardLoaded).toBe(true));
+    expect(result.current.boardKeys.size).toBe(0);
+  });
+
   it('drops an answer that was asked for the previous user', async () => {
     const first = deferred<ReturnType<typeof entry>[]>();
     api.list.mockReturnValueOnce(first.promise).mockResolvedValueOnce([entry('z')]);

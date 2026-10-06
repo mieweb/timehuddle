@@ -23,11 +23,17 @@ export interface MyBoardKeys {
   unavailableHuddleKeys: Set<string>;
   /** Read the board again. A failed read keeps the board as it was. */
   loadBoard: () => void;
+  /**
+   * False until this user's first read has answered, one way or the other.
+   * Until then an empty `boardKeys` means "not known yet", not "nothing on it".
+   */
+  boardLoaded: boolean;
 }
 
 export function useMyBoardKeys(userId: string | null): MyBoardKeys {
   const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
   const [unavailableHuddleKeys, setUnavailableHuddleKeys] = useState<Set<string>>(new Set());
+  const [boardLoaded, setBoardLoaded] = useState(false);
 
   // Reads are numbered so only the latest one is kept; a change of user retires
   // whatever is in flight.
@@ -43,7 +49,10 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
         setBoardKeys(new Set(entries.map(keyOf)));
         setUnavailableHuddleKeys(new Set(entries.filter((e) => e.unavailable).map(keyOf)));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (read === latestRead.current) setBoardLoaded(true);
+      });
   }, []);
 
   // Reloaded on tickets:refetch too: a timer start (from anywhere, including
@@ -53,11 +62,12 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
       loadedFor.current = userId;
       setBoardKeys(new Set());
       setUnavailableHuddleKeys(new Set());
+      setBoardLoaded(false);
     }
     loadBoard();
     window.addEventListener('tickets:refetch', loadBoard);
     return () => window.removeEventListener('tickets:refetch', loadBoard);
   }, [loadBoard, userId]);
 
-  return { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard };
+  return { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded };
 }

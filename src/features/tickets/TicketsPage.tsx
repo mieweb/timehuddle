@@ -330,7 +330,11 @@ export const TicketsPage: React.FC = () => {
 
   // My Board membership, as identity only. Emptied and reloaded when the
   // signed-in user changes: this page stays mounted, and opens on the board.
-  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard } = useMyBoardKeys(userId);
+  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded } =
+    useMyBoardKeys(userId);
+  // The board is the view the page opens on, so it must not say "empty" in
+  // the moment before it knows what is on it.
+  const boardLoading = ticketsLoading || !boardLoaded;
   // A board entry for a Redmine issue shows as the ticket linked to that issue.
   const boardTickets = useMemo(
     () => allTickets.filter((t) => boardKeys.has(t.key) || boardKeys.has(linkedIssueKey(t) ?? '')),
@@ -772,7 +776,7 @@ export const TicketsPage: React.FC = () => {
 
             <TicketViewControls
               view={activeView === 'tickets' ? ticketsView : boardView}
-              loading={ticketsLoading}
+              loading={activeView === 'tickets' ? ticketsLoading : boardLoading}
             />
           </div>
 
@@ -806,7 +810,7 @@ export const TicketsPage: React.FC = () => {
               {...sharedTableProps}
               showTimerColumn
               view={boardView}
-              loading={ticketsLoading}
+              loading={boardLoading}
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <div

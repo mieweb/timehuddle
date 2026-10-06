@@ -14,7 +14,7 @@
  * Keyboard model is a radio group: one tab stop, and the arrow keys move the
  * selection, since choosing is the whole interaction.
  */
-import { Button } from '@mieweb/ui';
+import { Button, Tooltip } from '@mieweb/ui';
 import { motion, useReducedMotion } from 'motion/react';
 import React, { useRef } from 'react';
 
@@ -23,7 +23,10 @@ export interface SegmentedOption<T extends string> {
   label: string;
   /** Shown before the label, or in place of it with `iconOnly`. */
   icon?: React.ReactNode;
-  /** Show the icon alone. The label stays as the option's accessible name and tooltip. */
+  /**
+   * Show the icon alone. The label stays as the option's accessible name, and
+   * as a tooltip shown on hover and on keyboard focus.
+   */
   iconOnly?: boolean;
 }
 
@@ -93,7 +96,7 @@ export function SegmentedSwitcher<T extends string>({
       >
         {options.map((option) => {
           const selected = option.value === value;
-          return (
+          const button = (
             <Button
               key={option.value}
               ref={(node) => {
@@ -106,7 +109,6 @@ export function SegmentedSwitcher<T extends string>({
               role="radio"
               aria-checked={selected}
               aria-label={option.iconOnly ? option.label : undefined}
-              title={option.iconOnly ? option.label : undefined}
               tabIndex={selected ? 0 : -1}
               disabled={disabled}
               onClick={() => select(option.value)}
@@ -139,6 +141,15 @@ export function SegmentedSwitcher<T extends string>({
                 {!option.iconOnly && option.label}
               </span>
             </Button>
+          );
+          // An icon alone needs its name shown to someone who can see it: on
+          // hover, and on keyboard focus, which a native `title` never shows.
+          return option.iconOnly ? (
+            <Tooltip key={option.value} content={option.label} placement="bottom">
+              {button}
+            </Tooltip>
+          ) : (
+            button
           );
         })}
       </div>
