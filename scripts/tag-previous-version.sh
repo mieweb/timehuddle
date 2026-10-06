@@ -68,6 +68,11 @@ if [ "${DRY_RUN:-}" = "1" ]; then
 fi
 
 git tag -a "$OLD" "$BEFORE" -m "$MESSAGE"
-git push origin "refs/tags/$OLD"
+if ! git push origin "refs/tags/$OLD"; then
+  # GitHub refuses the workflow token a tag on a commit whose workflow files
+  # differ from main's — i.e. whenever this push changed a workflow file.
+  echo "::error::Could not push tag $OLD. If GitHub mentioned 'workflows' permission, this push changed a workflow file; tag and draft by hand: scripts/tag-previous-version.sh $BEFORE $AFTER && scripts/draft-release.sh $OLD"
+  exit 1
+fi
 echo "Tagged $OLD on $BEFORE: $MESSAGE"
 emit_tag "$OLD"

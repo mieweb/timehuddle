@@ -209,9 +209,13 @@ version's bump merges.
 Publishing stays with a person. When the bump to `1.0.7` merges, ship `1.0.6`:
 
 1. Open https://github.com/mieweb/timehuddle/releases and find the **1.0.6**
-   draft. If it is missing, the **Tag Release** run failed or warned; run the
-   same scripts by hand, dry run first. `<before>` is the `main` commit just
-   before the bump merge — the run's log shows both SHAs:
+   draft. If it is missing, the **Tag Release** run failed or warned. The usual
+   cause: the bump push also changed a file in `.github/workflows/`, and GitHub
+   never lets the workflow's own token tag a commit whose workflows differ from
+   `main`'s. Keep workflow changes out of bump PRs to avoid it. Either way, run
+   the same scripts by hand, dry run first — your own `gh` login is allowed.
+   `<before>` is the `main` commit just before the bump merge — the run's log
+   shows both SHAs:
    ```bash
    git fetch --tags origin
    DRY_RUN=1 scripts/tag-previous-version.sh <before> <bump-merge>
