@@ -226,6 +226,8 @@ export default async function globalSetup(): Promise<void> {
       members: allMemberIds,
       admins: adminMemberIds,
       isPersonal: false,
+      // Pinned off so specs can clock in freely; plan-first specs turn it on.
+      settings: { requirePlanForClock: false },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -233,12 +235,17 @@ export default async function globalSetup(): Promise<void> {
 
     console.log(`[global-setup] ✔ Created team "${teamDoc.name}" code=${teamDoc.code}`);
   } else {
-    await db
-      .collection('teams')
-      .updateOne(
-        { _id: defaultTeam._id },
-        { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
-      );
+    await db.collection('teams').updateOne(
+      { _id: defaultTeam._id },
+      {
+        $set: {
+          members: allMemberIds,
+          admins: adminMemberIds,
+          isPersonal: false,
+          'settings.requirePlanForClock': false,
+        },
+      },
+    );
   }
 
   // Mark enterprise as installed to prevent the InstallerModal from showing.
