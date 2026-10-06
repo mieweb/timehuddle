@@ -25,12 +25,14 @@ import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { PulseAttachButton } from '../features/huddle/PulseAttachButton';
 import { clearComposerPulseUpload } from '../features/huddle/pulseComposerUpload';
 import {
+  defaultConversation,
   postsToConversations,
   searchConversations,
   starterConversation,
   stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
+  withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
@@ -422,10 +424,18 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
-  const allConversations = useMemo(
-    () => postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName),
-    [activePosts, threadBy, viewer, nowMinute, getTeamName],
-  );
+  const allConversations = useMemo(() => {
+    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
+    return user
+      ? withTodayConversation(
+          grouped,
+          threadBy,
+          { userId: user.id, name: user.name },
+          scope,
+          nowMinute,
+        )
+      : grouped;
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:
@@ -571,7 +581,9 @@ export default function Huddle() {
       conversations.find((c) => c.id === conversationParam) ??
       null)
     : null;
-  const activeConversation = conversationParam ? linkedConversation : conversations[0];
+  const activeConversation = conversationParam
+    ? linkedConversation
+    : defaultConversation(conversations, threadBy, nowMinute);
   const openConversation = (conversationId: string) =>
     setParams({ conversation: conversationId }, 'push');
 

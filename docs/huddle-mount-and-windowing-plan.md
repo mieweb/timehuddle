@@ -44,9 +44,9 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M2: Default to Today (cause D)
 
-- [ ] `defaultConversation()` in `superChatFeed.ts` (Day: today's thread or a synthesized empty one; other groupings: most recent)
-- [ ] Use it in `Huddle.tsx` instead of `conversations[0]`
-- [ ] Vitest cases (today exists, missing, other groupings, search active, midnight/timezone)
+- [x] `defaultConversation()` in `superChatFeed.ts`, plus `withTodayConversation()`, which adds an empty Today (same id the first post lands in) to Day grouping when nobody has posted today
+- [x] Used in `Huddle.tsx` instead of `conversations[0]`
+- [x] Vitest cases (today exists, missing, other groupings, midnight rollover)
 
 ### M3: Date-windowed backend (cause E)
 

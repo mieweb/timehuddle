@@ -392,6 +392,38 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
 /** Id of the {@link starterConversation}; it never matches a real post. */
 export const STARTER_CONVERSATION_ID = 'starter';
 
+/** A post-less conversation holding one system hint, so the chat input has somewhere to live. */
+function emptyConversation(
+  id: string,
+  title: string,
+  viewer: { userId: string; name: string },
+  hint: string,
+  now: number,
+): SuperChatConversation {
+  return {
+    id,
+    title,
+    participants: [
+      {
+        id: viewer.userId,
+        kind: 'human',
+        name: viewer.name,
+        color: avatarColorToCss(getUserColor(viewer.userId)),
+      },
+    ],
+    thread: [
+      {
+        id: `${id}:hint`,
+        type: 'system',
+        participantId: SYSTEM_PARTICIPANT_ID,
+        text: hint,
+        time: new Date(now),
+      },
+    ],
+    lastActivity: new Date(now),
+  };
+}
+
 /**
  * The conversation the inbox shows when there are no posts at all. SuperChat
  * only renders its chat input inside an open conversation, so with zero data
@@ -407,28 +439,52 @@ export function starterConversation(
     scope === 'me'
       ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
       : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
-  return {
-    id: STARTER_CONVERSATION_ID,
-    title: 'Today',
-    participants: [
-      {
-        id: viewer.userId,
-        kind: 'human',
-        name: viewer.name,
-        color: avatarColorToCss(getUserColor(viewer.userId)),
-      },
-    ],
-    thread: [
-      {
-        id: `${STARTER_CONVERSATION_ID}:hint`,
-        type: 'system',
-        participantId: SYSTEM_PARTICIPANT_ID,
-        text: hint,
-        time: new Date(now),
-      },
-    ],
-    lastActivity: new Date(now),
-  };
+  return emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
+}
+
+/** Id of the Day thread for the calendar day containing `now`. */
+function todayConversationId(now: number): string {
+  return `day:${localDateKey(now)}`;
+}
+
+/**
+ * Day grouping always has a Today thread: with no post yet today, an empty one
+ * (same id the first post will land in) is added so Today is both the default
+ * and somewhere to post. Other groupings are returned as they are.
+ */
+export function withTodayConversation(
+  conversations: SuperChatConversation[],
+  threadBy: ThreadBy,
+  viewer: { userId: string; name: string },
+  scope: 'team' | 'me',
+  now: number = Date.now(),
+): SuperChatConversation[] {
+  if (threadBy !== 'day' || conversations.length === 0) return conversations;
+  const id = todayConversationId(now);
+  if (conversations.some((c) => c.id === id)) return conversations;
+  const hint =
+    scope === 'me'
+      ? 'You haven’t posted today. Share an update below, or clock in to post your plan.'
+      : 'No updates yet today. Share what you’re working on below, or clock in to post your plan.';
+  const title = formatDayLabel(localDateKey(now));
+  return [emptyConversation(id, title, viewer, hint, now), ...conversations];
+}
+
+/**
+ * The conversation to open when the URL doesn't name one: Today in Day
+ * grouping, the first (most recent) conversation otherwise.
+ */
+export function defaultConversation(
+  conversations: SuperChatConversation[],
+  threadBy: ThreadBy,
+  now: number = Date.now(),
+): SuperChatConversation | undefined {
+  if (threadBy === 'day') {
+    const id = todayConversationId(now);
+    const today = conversations.find((c) => c.id === id);
+    if (today) return today;
+  }
+  return conversations[0];
 }
 
 /**
