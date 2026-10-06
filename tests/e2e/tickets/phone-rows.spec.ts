@@ -5,6 +5,7 @@
 import { test, expect } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 import { TicketsPage } from '../pages/TicketsPage';
 
 const PHONE = { width: 390, height: 844 };
@@ -116,6 +117,12 @@ test.describe('Ticket rows on a phone', () => {
     await menuButton.click();
     await items.first().press('Enter');
     await expect(menuButton).toBeFocused();
+
+    // Tab closes the menu, so its arrow keys cannot reach into the page.
+    await menuButton.click();
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('menu')).toHaveCount(0);
   });
 
   test('keeps the whole menu reachable on a short screen', async ({ page }) => {
@@ -143,6 +150,50 @@ test.describe('Ticket rows on a phone', () => {
     // Taller than one line of text, and nothing hidden off the edge.
     expect(height).toBeGreaterThan(30);
     expect(clipped).toBe(false);
+  });
+
+  test('My Board fits a 360px screen, timer column included', async ({ page }) => {
+    // My Board adds the ▶/⏸ column, so it is the tightest layout there is;
+    // 360px is the narrowest phone the app supports.
+    const narrow = { width: 360, height: 740 };
+    await new ClockPage(page).ensureClockedIn();
+    await page.setViewportSize(narrow);
+    await tickets.goto();
+
+    const title = `E2E Phone Board ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.moveToBoard(title);
+    const row = tickets.rowByTitle(title);
+    await expect(row).toBeVisible();
+
+    const overflow = await page.evaluate(() => {
+      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
+      return area ? area.scrollWidth - area.clientWidth : null;
+    });
+    expect(overflow).not.toBeNull();
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    // Every control on the row is on screen: select, timer, and the row menu.
+    const controls = [
+      row.getByRole('checkbox'),
+      tickets.timerButtonForRow(title),
+      row.getByRole('button', { name: 'Ticket options' }),
+    ];
+    for (const control of controls) {
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(narrow.width);
+    }
+
+    await tickets.selectTicket(title);
+    await expect(tickets.removeFromBoardButton).toBeVisible();
+    await tickets.selectTicket(title);
+
+    await tickets.startTimerButton(title).click();
+    await expect(tickets.stopTimerButton(title)).toBeVisible();
+    await tickets.stopTimerButton(title).click();
+    await expect(tickets.startTimerButton(title)).toBeVisible();
   });
 
   test('goes back to one column per fact on a wide screen', async ({ page }) => {

@@ -163,7 +163,18 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         triggerRef.current?.focus();
         return;
       }
-      // Arrow keys walk the choices, as in any menu.
+      // Everything below is the menu's own keyboard handling, so it applies
+      // only while focus is inside it: a key pressed in some other control
+      // keeps its normal meaning there.
+      if (!menuRef.current?.contains(e.target as Node)) return;
+      // Tab leaves the menu, as in any menu: it closes, and focus carries on
+      // from the trigger rather than from the end of <body>.
+      if (e.key === 'Tab') {
+        handleOpenChange(false);
+        triggerRef.current?.focus();
+        return;
+      }
+      // Arrow keys walk the choices.
       const step = MENU_KEY_STEP[e.key];
       const items = menuItems(menuRef.current);
       if (step === undefined || !items.length) return;
