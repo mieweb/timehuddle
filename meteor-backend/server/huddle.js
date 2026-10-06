@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { isBeforeWindow, resolveSince } from './huddle-window-core';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -24,6 +25,32 @@ const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // they were removed still exist — keep them out of every feed. Absent status =
 // published (legacy posts included).
 const PUBLISHED = { status: { $ne: 'draft' } };
+
+// Every feed read is `teamId`/`userId` + a createdAt window, newest first.
+Meteor.startup(async () => {
+  try {
+    const posts = rawDb().collection('huddlePosts');
+    await posts.createIndex({ teamId: 1, createdAt: -1 });
+    await posts.createIndex({ userId: 1, createdAt: -1 });
+  } catch (error) {
+    console.error('[huddle] failed to create feed indexes:', error);
+  }
+});
+
+/** The window start for a feed read, or a bad-request when `since` isn't a date. */
+function requireSince(since) {
+  const sinceDate = resolveSince(since);
+  if (!sinceDate) throw new Meteor.Error('bad-request', 'since must be an ISO date string');
+  return sinceDate;
+}
+
+/** Whether `filter` matches any post created before the window — i.e. there is more to load. */
+async function hasPostsBefore(filter, sinceDate) {
+  const older = await rawDb()
+    .collection('huddlePosts')
+    .findOne({ ...filter, createdAt: { $lt: sinceDate } }, { projection: { _id: 1 } });
+  return older !== null;
+}
 
 // Permission helpers
 async function getTeam(teamId) {
@@ -226,13 +253,14 @@ async function enrichComment(comment) {
 }
 
 // Publication with real-time updates
-Meteor.publish('huddlePosts.byTeam', async function (teamId) {
+Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   if (!teamId || typeof teamId !== 'string') {
     throw new Meteor.Error('bad-request', 'teamId is required');
   }
   if (!this.userId) {
     throw new Meteor.Error('not-authorized', 'Authentication required');
   }
+  const sinceDate = requireSince(since);
   
   const team = await getTeam(teamId);
   if (!team) {
@@ -248,12 +276,16 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   const collection = db.collection('huddlePosts');
   
   // Initial fetch and send — published posts only (drafts are author-only
-  // and never appear in the team feed).
-  let posts = await collection.find({ teamId, ...PUBLISHED }).sort({ createdAt: -1 }).toArray();
+  // and never appear in the team feed), from the window onward.
+  const inWindow = { createdAt: { $gte: sinceDate } };
+  let posts = await collection
+    .find({ teamId, ...PUBLISHED, ...inWindow })
+    .sort({ createdAt: -1 })
+    .toArray();
   // Also fetch posts where teamId was stored as ObjectId (legacy)
   if (/^[a-f0-9]{24}$/i.test(teamId)) {
     const legacyPosts = await collection
-      .find({ teamId: new ObjectId(teamId), ...PUBLISHED })
+      .find({ teamId: new ObjectId(teamId), ...PUBLISHED, ...inWindow })
       .sort({ createdAt: -1 })
       .toArray();
     // Merge, deduplicate by _id hex string
@@ -294,6 +326,8 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
         const docId = change.fullDocument._id.toHexString
           ? change.fullDocument._id.toHexString()
           : String(change.fullDocument._id);
+        // Older than the window: not this subscription's to send.
+        if (isBeforeWindow(change.fullDocument.createdAt, sinceDate)) return;
         // Drafts never reach the feed.
         if (change.fullDocument.status === 'draft') {
           if (sentIds.has(docId)) {
@@ -335,7 +369,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
 
 // Methods
 Meteor.methods({
-  async 'huddle.getPosts'({ teamId }) {
+  async 'huddle.getPosts'({ teamId, since }) {
     // requireIdentity, not this.userId: this is the REST feed refresh the
     // composer runs right after creating a post (huddle.createPost is REST for
     // the same reason — the WebView drops DDP while backgrounded). Over the
@@ -357,14 +391,17 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
     
+    const sinceDate = requireSince(since);
+    const filter = { teamId, ...PUBLISHED };
     const posts = await rawDb().collection('huddlePosts')
-      .find({ teamId, ...PUBLISHED })
+      .find({ ...filter, createdAt: { $gte: sinceDate } })
       .sort({ createdAt: -1 })
       .toArray();
+    const hasMore = await hasPostsBefore(filter, sinceDate);
     
     await attachEnrichment(posts);
     const enriched = await Promise.all(posts.map(post => enrichPost(post)));
-    return { posts: enriched };
+    return { posts: enriched, hasMore };
   },
 
   /**
@@ -374,10 +411,7 @@ Meteor.methods({
    */
   async 'huddle.getMyPosts'({ since } = {}) {
     const identity = await requireIdentity(this);
-    if (since !== undefined && (typeof since !== 'string' || Number.isNaN(Date.parse(since)))) {
-      throw new Meteor.Error('bad-request', 'since must be an ISO date string');
-    }
-    const sinceDate = since ? new Date(since) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const sinceDate = requireSince(since);
 
     const myTeams = await rawDb()
       .collection('teams')
@@ -389,22 +423,19 @@ Meteor.methods({
     // Legacy posts store teamId as an ObjectId — match both forms.
     const teamIds = myTeams.flatMap((t) => [String(t._id), toId(String(t._id))]);
 
+    const mine = { userId: identity.userId, teamId: { $in: teamIds }, ...PUBLISHED };
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({
-        userId: identity.userId,
-        teamId: { $in: teamIds },
-        createdAt: { $gte: sinceDate },
-        ...PUBLISHED,
-      })
+      .find({ ...mine, createdAt: { $gte: sinceDate } })
       .sort({ createdAt: -1 })
       .toArray();
+    const hasMore = await hasPostsBefore(mine, sinceDate);
 
     await attachEnrichment(posts);
     const enriched = await Promise.all(
       posts.map((post) => enrichPost({ ...post, teamId: String(post.teamId) })),
     );
-    return { posts: enriched };
+    return { posts: enriched, hasMore };
   },
 
   async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft }) {

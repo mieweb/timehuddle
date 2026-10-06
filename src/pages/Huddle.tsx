@@ -225,7 +225,7 @@ export default function Huddle() {
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
   const refreshMyPosts = useCallback(async () => {
     try {
-      setMyPosts(await huddleApi.getMyPosts());
+      setMyPosts((await huddleApi.getMyPosts()).posts);
       setMyPostsError(null);
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
@@ -296,7 +296,7 @@ export default function Huddle() {
   const refreshFeed = useCallback(async () => {
     if (!selectedTeamId) return;
     try {
-      const fresh = await huddleApi.getPosts(selectedTeamId);
+      const { posts: fresh } = await huddleApi.getPosts(selectedTeamId);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed.
       if (selectedTeamIdRef.current !== selectedTeamId) return;

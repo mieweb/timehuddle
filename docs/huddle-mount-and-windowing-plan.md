@@ -50,10 +50,10 @@ Run `nvm use` first; `npm run lint && npm run typecheck && npm run format && npm
 
 ### M3: Date-windowed backend (cause E)
 
-- [ ] `huddlePosts.byTeam(teamId, since)`: validate, default 30 days, bound the initial query (incl. legacy ObjectId `teamId`) and the change stream
-- [ ] `huddle.getPosts({ teamId, since })` returns `{ posts, hasMore }`; `huddle.getMyPosts` returns `hasMore`
-- [ ] Wormhole schemas and `api.ts` wrappers updated
-- [ ] Backend tests (boundaries, legacy `teamId`, `hasMore`, bad `since`, non-member rejected)
+- [x] `huddlePosts.byTeam(teamId, since)`: validated, defaults to 30 days, bounds the initial query (incl. legacy ObjectId `teamId`) and the change stream. Note: `DashboardPage` and `useSessionPost` subscribe without `since`, so they get the 30-day default too
+- [x] `huddle.getPosts({ teamId, since })` returns `{ posts, hasMore }`; `huddle.getMyPosts` returns `hasMore`; shared `resolveSince` lives in `server/huddle-window-core.js`
+- [x] Wormhole schemas and `api.ts` wrappers (`HuddleFeedPage`) updated; `huddlePosts` gets `{teamId, createdAt}` and `{userId, createdAt}` indexes
+- [x] Backend tests (`huddle-window-core.test.ts`; window, `hasMore`, bad `since`, non-member in `huddle-post-rest.test.ts`)
 
 ### M4: Window state in the client
 
