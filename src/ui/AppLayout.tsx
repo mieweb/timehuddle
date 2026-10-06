@@ -23,6 +23,7 @@ import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
+import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
@@ -423,6 +424,7 @@ const AppLayoutContent: React.FC = () => {
                   {/* Content column */}
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
+                    <WhatsNewBanner placement="mobile" />
                     <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and

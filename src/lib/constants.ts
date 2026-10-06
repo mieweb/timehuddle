@@ -20,6 +20,8 @@ export const PROFILE_WEBSITE_MAX = 200;
 export const THEME_KEY = 'app:theme' as const;
 export const BRAND_KEY = 'app:brand' as const;
 export const SIDEBAR_KEY = 'app:sidebar' as const;
+/** Last app version this browser has thrown confetti for on the release notes page. */
+export const RELEASE_CELEBRATED_KEY = 'app:release-celebrated' as const;
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 
