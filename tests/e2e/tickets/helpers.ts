@@ -6,8 +6,9 @@
  * tests/e2e/tickets/pulsevault.spec.ts for why that's the accepted boundary
  * of what's automatable here).
  */
+import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
@@ -61,23 +62,113 @@ export async function deleteTicket(page: Page, title: string): Promise<void> {
  * device" fallback. Waits for the resulting link to appear in the ticket's
  * "Links" list (AttachmentsPanel, src/features/clock/AttachmentsPanel.tsx).
  */
+/**
+ * The signed-in user's Meteor session token, for Wormhole's REST bridge.
+ * `meteor_resume_token` lands in localStorage once the DDP client has resumed
+ * its session, slightly after the redirect loginAs() waits on — poll briefly.
+ */
+export async function getSessionToken(page: Page): Promise<string> {
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('meteor_resume_token')), {
+      timeout: 10000,
+    })
+    .toBeTruthy();
+  return (await page.evaluate(() => localStorage.getItem('meteor_resume_token'))) as string;
+}
+
+/** Reserve a Pulse upload for `destination` over REST: its videoid and link token. */
+export async function reservePulseUpload(
+  request: APIRequestContext,
+  token: string,
+  destination: { kind: string; id?: string },
+): Promise<{ videoid: string; uploadToken: string }> {
+  const res = await request.post('/api/pulsevault_reserve', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { destination },
+  });
+  expect(res.status()).toBe(200);
+  // Wormhole's REST bridge wraps every method's return value as { result }.
+  return (await res.json()).result;
+}
+
+/**
+ * Full TUS create + single-chunk PATCH of the real test-video.mp4 fixture,
+ * entirely at the API level (no browser UI) — what the Pulse app does once a
+ * link is scanned. Returns once the bytes are in (Upload-Offset === file
+ * size); the backend makes the video web-playable and delivers it after.
+ */
+export async function uploadRealVideoViaApi(
+  request: APIRequestContext,
+  videoid: string,
+  uploadToken: string,
+): Promise<void> {
+  const bytes = fs.readFileSync(TEST_MP4);
+  const metadata = [
+    `artifactId ${Buffer.from(videoid).toString('base64')}`,
+    `filename ${Buffer.from('test-video.mp4').toString('base64')}`,
+  ].join(',');
+
+  const created = await request.post('/pulsevault/upload', {
+    headers: {
+      'Tus-Resumable': '1.0.0',
+      'Upload-Length': String(bytes.length),
+      'Upload-Metadata': metadata,
+      Authorization: `Bearer ${uploadToken}`,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const location = created.headers()['location'];
+  expect(location).toBeTruthy();
+
+  const patched = await request.patch(location, {
+    headers: {
+      'Tus-Resumable': '1.0.0',
+      'Upload-Offset': '0',
+      'Content-Type': 'application/offset+octet-stream',
+      Authorization: `Bearer ${uploadToken}`,
+    },
+    data: bytes,
+  });
+  expect(patched.status()).toBe(204);
+  expect(patched.headers()['upload-offset']).toBe(String(bytes.length));
+}
+
+/**
+ * Send a Pulse video to the ticket with this title, the way the Pulse app
+ * does: reserve a link for the ticket, upload the fixture through it, and
+ * wait for the backend to attach it. Leaves the page on the ticket, with the
+ * video in its Attachments list.
+ */
 export async function uploadVideoToTicket(page: Page, ticketTitle: string): Promise<void> {
   await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
-  await page.waitForTimeout(600);
+  await page.waitForURL(/\/app\/tickets\/[0-9a-f]{24}/);
+  const ticketId = page.url().match(/\/app\/tickets\/([0-9a-f]{24})/)![1];
+  const token = await getSessionToken(page);
 
-  await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
-
-  const qrModal = page.locator('[aria-label="Record a video with Pulse"]');
-  await expect(qrModal).toBeVisible({ timeout: 8000 });
-
-  // Closes the QR modal itself and opens the hidden file input.
-  await page.locator('button', { hasText: 'Upload from this device' }).click();
-
-  const fileInput = page.locator('input[type="file"][accept=".mp4,video/mp4"]');
-  await fileInput.setInputFiles(TEST_MP4);
-
-  const linksList = page.locator('ul[aria-label="Attached links"]');
-  await expect(linksList.locator('a[href*="/pulsevault/artifacts/"]').first()).toBeVisible({
-    timeout: 30000,
+  const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
+    kind: 'ticket',
+    id: ticketId,
   });
+  await uploadRealVideoViaApi(page.request, videoid, uploadToken);
+
+  // The backend makes the video web-playable before attaching it, seconds after
+  // the last byte. Only the Pulse button's own link is watched for in the page,
+  // so wait on the attachments themselves, then look at the list fresh.
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.post('/api/attachments_list', {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { kind: 'ticket', id: ticketId },
+        });
+        const { attachments } = (await res.json()).result as { attachments: { url: string }[] };
+        return attachments.some((a) => a.url.includes(videoid));
+      },
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  await page.reload();
+  await expect(
+    page.locator('ul[aria-label="Attachments"]').locator(`a[href*="${videoid}"]`),
+  ).toBeVisible({ timeout: 10000 });
 }

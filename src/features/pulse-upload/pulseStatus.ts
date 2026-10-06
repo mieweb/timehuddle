@@ -5,6 +5,7 @@ const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   library: 'Added to your media library',
   ticket: 'Added to this ticket',
   redmine: 'Added to this issue',
+  clock: 'Added to this session',
 };
 
 export function landedLabel(destination: PulseDestination): string {
@@ -16,6 +17,7 @@ const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   library: "It's added to your media library as soon as it uploads.",
   ticket: "It's added to this ticket as soon as it uploads.",
   redmine: "It's added to this issue as soon as it uploads.",
+  clock: "It's added to this session as soon as it uploads.",
 };
 
 export function uploadHint(destination: PulseDestination): string {

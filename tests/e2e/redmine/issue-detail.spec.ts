@@ -134,14 +134,15 @@ test.describe('Redmine issue detail', () => {
 
     await openIssue(page, { 'issues.get': detailResponse() });
 
-    const links = page.getByRole('list', { name: 'Attached links' });
+    const links = page.getByRole('list', { name: 'Attachments' });
     await expect(links.getByRole('link', { name: 'Intake spec' })).toBeVisible();
     expect(listed[0]).toEqual({ kind: 'redmine', id: String(ISSUE_ID) });
-    await expect(page.getByRole('button', { name: 'Upload video to this ticket' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add a video with Pulse' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Add link' }).click();
-    await page.getByPlaceholder('https://...').fill('https://example.com/spec');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: 'Add a link, like a YouTube Short' }).click();
+    const linkDialog = page.getByRole('dialog', { name: 'Add a link' });
+    await linkDialog.getByLabel('Link').fill('https://example.com/spec');
+    await linkDialog.getByRole('button', { name: 'Add link' }).click();
 
     await expect.poll(() => added.length).toBe(1);
     expect(added[0]).toMatchObject({

@@ -10,6 +10,7 @@
  *   library  → the uploader's media library
  *   ticket   → an attachment on a Huddle ticket
  *   redmine  → an attachment on a Redmine issue (lives only in TimeHuddle)
+ *   clock    → an attachment on the uploader's own clock session
  *
  * Each kind is one entry in DESTINATIONS. `check` runs when the link is
  * minted, so a bad destination fails before anyone records anything, and
@@ -120,6 +121,17 @@ const DESTINATIONS = {
   [REDMINE]: attachment(REDMINE, async (userId, { id }) => {
     requireId(id, 'Redmine issue');
     await resolveTicketRef(userId, REDMINE, id);
+    return { id };
+  }),
+
+  clock: attachment('clock', async (userId, { id }) => {
+    requireId(id, 'clock session');
+    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Clock session not found');
+    const session = await rawDb()
+      .collection('clockevents')
+      .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1 } });
+    if (!session) throw new Meteor.Error('not-found', 'Clock session not found');
+    if (session.userId !== userId) throw new Meteor.Error('forbidden', 'Not your clock session');
     return { id };
   }),
 };

@@ -1,6 +1,6 @@
-import { faCircleCheck, faVideo } from '@fortawesome/free-solid-svg-icons';
+import { faCircleCheck } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, ModalBody, ModalClose, ModalHeader, ModalTitle, Spinner, Text } from '@mieweb/ui';
+import { ModalBody, ModalClose, ModalHeader, ModalTitle, Spinner, Text } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useId } from 'react';
@@ -23,8 +23,6 @@ export interface PulseUploadModalProps {
   destination: PulseDestination;
   /** Where the video stands, for the status line; null before there is a link. */
   status: PulseUploadStatus | null;
-  /** When given, offers picking an MP4 from this device instead of the phone. */
-  onUploadFromDevice?: () => void;
 }
 
 /**
@@ -40,7 +38,6 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   scanLink,
   destination,
   status,
-  onUploadFromDevice,
 }) => {
   const titleId = useId();
   return (
@@ -122,27 +119,6 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
               </span>
             )}
           </div>
-
-          {onUploadFromDevice && (
-            <>
-              <div className="pulse-modal-divider flex w-full items-center gap-3">
-                <hr className="flex-1 border-border" />
-                <Text size="xs" variant="muted">
-                  or
-                </Text>
-                <hr className="flex-1 border-border" />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onUploadFromDevice}
-                aria-label="Upload video from this device instead"
-              >
-                <FontAwesomeIcon icon={faVideo} className="mr-1.5" />
-                Upload from this device
-              </Button>
-            </>
-          )}
         </div>
       </ModalBody>
     </AppModal>
