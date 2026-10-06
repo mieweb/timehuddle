@@ -19,7 +19,8 @@ git checkout -q -b main
 
 PASS=0; FAIL=0
 check() { # name, expected-substring, actual-output
-  if [[ "$3" == *"$2"* ]]; then echo "PASS  $1"; PASS=$((PASS+1))
+  # An empty expectation means the output must be empty, not "matches anything".
+  if { [ -z "$2" ] && [ -z "$3" ]; } || { [ -n "$2" ] && [[ "$3" == *"$2"* ]]; }; then echo "PASS  $1"; PASS=$((PASS+1))
   else echo "FAIL  $1"; echo "      expected: $2"; echo "      got: $3"; FAIL=$((FAIL+1)); fi
 }
 commit() { # version, message, [note-title]
@@ -65,11 +66,12 @@ out=$(run 0000000000000000000000000000000000000000 "$E"); check "5. new branch �
 git checkout -q -b rewritten "$C"; F=$(commit 1.0.6 "rewritten history"); git checkout -q main
 out=$(run "$D" "$F"); check "6. force push → skip with warning" "not an ancestor" "$out"
 
-# 7. One push with several commits, bump in the middle
-G=$(commit 1.0.6 "1.0.6 work")
+# 7. One push with several commits, bump in the middle: old-version work inside
+# the push shipped too, so the tag goes on the last of it, not on the pre-push SHA
+G=$(commit 1.0.6 "1.0.6 work in same push")
 H=$(commit 1.0.7 "bump to 1.0.7")
 I=$(commit 1.0.7 "1.0.7 work in same push")
-out=$(run "$G" "$I"); check "7. multi-commit push → tags pre-push commit" "Tagged 1.0.6 on $G" "$out"
+out=$(run "$E" "$I"); check "7. multi-commit push → tags last old-version commit in the push" "Tagged 1.0.6 on $G" "$out"
 check "7. no title when the note file is missing" "1.0.6" "$(git tag -l --format='%(contents)' 1.0.6)"
 
 # 8. Bump reverted (1.0.7 → 1.0.6)

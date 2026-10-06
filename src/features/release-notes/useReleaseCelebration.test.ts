@@ -56,6 +56,7 @@ describe('useReleaseCelebration', () => {
     unmount();
 
     renderHook(() => useReleaseCelebration());
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(confetti).toHaveBeenCalledTimes(firstRun);
   });

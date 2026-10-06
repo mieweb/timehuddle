@@ -5,9 +5,10 @@
  * the rules a note has to satisfy can be unit-tested against strings, and so
  * `notes.ts` can run the very same parser over the real folder.
  *
- * The parser is deliberately strict and throws rather than degrading: a note
- * with a mistyped version or a screenshot path that points at nothing is
- * dropped whole, not shipped to a phone with a broken image.
+ * The parser is deliberately strict and throws rather than degrading; the
+ * loader catches that and drops the whole note, so a mistyped version or a
+ * screenshot path that points at nothing never ships to a phone as a broken
+ * image.
  */
 import { isValidVersion } from '@timehuddle/ota-version';
 

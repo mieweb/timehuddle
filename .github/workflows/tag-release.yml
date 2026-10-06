@@ -32,6 +32,10 @@ jobs:
           # pre-push commit and checks whether the tag already exists.
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"
