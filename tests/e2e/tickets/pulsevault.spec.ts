@@ -425,7 +425,7 @@ test.describe('PulseVault — delivery to a clock session', () => {
     return { teamId, sessionId: (await res.json()).result.id as string };
   }
 
-  test("a video for your own session is attached to it; another person's session is refused", async ({
+  test("a video for your own session is attached to it; another person's session is refused, unread", async ({
     browser,
   }) => {
     const owner = await (await browser.newContext()).newPage();
@@ -458,15 +458,23 @@ test.describe('PulseVault — delivery to a clock session', () => {
         )
         .toBe(true);
 
-      // Someone else's session: no link is minted for it.
+      // Someone else's session: no link is minted for it, and its attachments
+      // can't be read either.
       const other = await (await browser.newContext()).newPage();
       await loginAs(other, TEST_USERS.member1);
+      const otherAuth = { Authorization: `Bearer ${await getSessionToken(other)}` };
       const refused = await other.request.post('/api/pulsevault_reserve', {
-        headers: { Authorization: `Bearer ${await getSessionToken(other)}` },
+        headers: otherAuth,
         data: { destination: { kind: 'clock', id: sessionId } },
       });
       expect(refused.status()).toBe(500);
       expect((await refused.json()).error).toBe('forbidden');
+      const hidden = await other.request.post('/api/attachments_list', {
+        headers: otherAuth,
+        data: { kind: 'clock', id: sessionId },
+      });
+      expect(hidden.status()).toBe(500);
+      expect((await hidden.json()).error).toBe('forbidden');
     } finally {
       await owner.request.post('/api/clock_stop', { headers: auth, data: { teamId } });
     }
@@ -508,11 +516,16 @@ test.describe('PulseVault — delivery to a clock session', () => {
         { timeout: 20000 },
       )
       .toMatchObject({ state: 'kept', reason: expect.stringContaining('Clock session not found') });
-    const list = await request.post('/api/attachments_list', {
-      headers: auth,
-      data: { kind: 'clock', id: sessionId },
-    });
-    expect((await list.json()).result.attachments).toEqual([]);
+    // Nothing was attached to a session that no longer exists (its listing
+    // is refused now, so look at the record itself).
+    const db = await MongoClient.connect(MONGO_URL);
+    try {
+      expect(
+        await db.db().collection('attachments').countDocuments({ 'attachedTo.id': sessionId }),
+      ).toBe(0);
+    } finally {
+      await db.close();
+    }
   });
 });
 

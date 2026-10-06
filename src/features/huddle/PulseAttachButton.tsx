@@ -12,6 +12,7 @@ import {
 import type { MediaItem } from './types';
 import { ComposerChipButton } from './ComposerChipButton';
 import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/pulseLinks';
+import { EXPIRED_MESSAGE } from '../pulse-upload/pulseStatus';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import {
   PENDING_TTL_MS,
@@ -245,6 +246,17 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
           >
             Cancel
           </button>
+        </span>
+      )}
+
+      {/* Phones never open the modal: say it here when the link ran out. */}
+      {expired && !modalOpen && (
+        <span
+          className="text-xs text-gray-500 dark:text-neutral-400"
+          role="status"
+          aria-live="polite"
+        >
+          {EXPIRED_MESSAGE}
         </span>
       )}
 

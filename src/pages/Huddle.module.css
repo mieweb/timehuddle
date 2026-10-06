@@ -12,13 +12,3 @@
 .inbox :global([data-slot='superchat-bubble']) {
   overflow-wrap: anywhere;
 }
-
-/* ChatComposer draws its own + after the leadingSlot, and the slot is one
-   wrapper; let the slot's children join the row so Pulse (after its "/")
-   can sit to the right of the +. */
-.inbox :global([data-slot='chat-composer-leading-slot']) {
-  display: contents;
-}
-.pulseGroup {
-  order: 1;
-}

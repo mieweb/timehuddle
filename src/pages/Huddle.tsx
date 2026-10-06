@@ -807,7 +807,7 @@ export default function Huddle() {
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
-                      // Pulse sits in this row; say it's the other way to post.
+                      // Pulse sits in this row; say it's another way to post.
                       placeholder: postingTeamId
                         ? 'Share an update, or post a Pulse…'
                         : 'Share an update…',
@@ -840,16 +840,14 @@ export default function Huddle() {
                               onAttachmentRemove={() => {}}
                             />
                           </div>
-                          {/* After the composer's own +, behind a "/" (or): a Pulse
-                              video posts itself when it lands, so nothing typed here
-                              goes with it. Refetch in case the live feed missed it
-                              (DDP dropped while in the Pulse app). */}
+                          {/* Behind a "/" (or), in the order it reads and tabs: a
+                              Pulse video posts itself when it lands, so nothing typed
+                              here goes with it. Refetch in case the live feed missed
+                              it (DDP dropped while in the Pulse app). */}
                           {postingTeamId && (
-                            <div
-                              className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
-                            >
+                            <div className="huddle-composer-pulse flex items-center gap-1.5">
                               <span
-                                className="huddle-composer-or px-1 text-sm text-neutral-300 dark:text-neutral-600"
+                                className="huddle-composer-or px-1 text-sm text-muted-foreground"
                                 aria-hidden="true"
                               >
                                 /
