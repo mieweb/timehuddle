@@ -1,6 +1,6 @@
 {
   "name": "timehuddle",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -27,6 +27,7 @@
     "test:headed": "playwright test -c tests/playwright.config.ts --headed",
     "test:ui": "playwright test -c tests/playwright.config.ts --ui",
     "test:unit": "vitest run",
+    "test:release-scripts": "scripts/tag-release.test.sh",
     "test:e2e": "playwright test -c tests/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/playwright.config.ts --headed",
     "test:e2e:ui": "playwright test -c tests/playwright.config.ts --ui",
@@ -75,6 +76,7 @@
     "@mieweb/ui": "file:vendor/mieweb-ui.tgz",
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",
+    "canvas-confetti": "^1.9.4",
     "cmdk": "^1.1.1",
     "datavis-ace": "^4.1.0",
     "date-fns": "^4.4.0",
@@ -113,6 +115,7 @@
     "@tailwindcss/typography": "^0.5.20",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.1.0",
     "@types/tus-js-client": "^1.8.0",

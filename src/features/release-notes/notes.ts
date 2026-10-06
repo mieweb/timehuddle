@@ -39,8 +39,8 @@ export interface LoadedReleaseNotes {
  * Parses every note in the folder.
  *
  * A malformed note is collected rather than thrown so one bad file degrades to
- * a missing entry instead of a blank app — `notes.test.ts` asserts this list is
- * empty for the real folder, which is where a mistake is meant to surface.
+ * a missing entry instead of a blank app. Nothing reads `errors` yet, so a bad
+ * note only shows up as a release missing from the page.
  */
 export function loadReleaseNotes(
   rawNotes: Record<string, string> = RAW_NOTES,

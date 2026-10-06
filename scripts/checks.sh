@@ -53,6 +53,7 @@ run_frontend() {
     npm run format
   fi
   npm run typecheck
+  npm run test:release-scripts
   CI=1 npm test
   npm run build
   echo "==> Frontend: PASSED"
