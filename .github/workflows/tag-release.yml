@@ -1,0 +1,52 @@
+name: Tag Release
+
+# When a push to main bumps package.json's version, tags the previous version
+# on the last commit that shipped under it, then drafts its GitHub Release from
+# release-notes/<version>.md. The logic is in scripts/tag-previous-version.sh
+# and scripts/draft-release.sh so both can be run locally with DRY_RUN=1;
+# scripts/tag-release.test.sh tests them without touching GitHub.
+#
+# The Release stays a draft: publishing notifies everyone watching the repo, so
+# a person reviews it and clicks Publish. See release-notes/README.md,
+# "Shipping a release".
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Tag and draft the previous version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the script reads package.json at the
+          # pre-push commit and checks whether the tag already exists.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Tag the previous version if this push bumped it
+        id: tag
+        run: scripts/tag-previous-version.sh "${{ github.event.before }}" "${{ github.sha }}"
+
+      - name: Draft its GitHub Release from the note
+        if: steps.tag.outputs.tag
+        run: scripts/draft-release.sh "${{ steps.tag.outputs.tag }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
