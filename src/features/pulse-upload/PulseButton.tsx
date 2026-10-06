@@ -29,13 +29,8 @@ interface PulseChipProps {
 /** The Pulse chip, with what went wrong or where the video went beside it. */
 export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, disabled }) => {
   const { reserving, error, status, modalOpen } = pulse;
-  // Phones have no modal: say it here when the video went elsewhere, or when
-  // a step after delivery failed.
-  const note = modalOpen
-    ? ''
-    : status?.state === 'kept'
-      ? keptMessage(status.reason)
-      : (status?.state === 'done' && status.note) || '';
+  // Phones have no modal: say it here when the video went elsewhere.
+  const note = !modalOpen && status?.state === 'kept' ? keptMessage(status.reason) : '';
   return (
     <>
       <ComposerChipButton

@@ -1943,9 +1943,10 @@ export const timerApi = {
 export type PulseDestination = { kind: 'library' } | { kind: TicketAttachmentKind; id: string };
 
 /**
- * Where a Pulse upload stands. `done` may carry the backend's `note`; `kept`
- * means it couldn't go where it was meant to (its destination is gone) and
- * `reason` says why; `expired` means the link's token no longer works.
+ * Where a Pulse upload stands. `done` carries the backend's `note` (what it
+ * did, written for the status route — the UI says it in its own words);
+ * `kept` means it couldn't go where it was meant to (its destination is gone)
+ * and `reason` says why; `expired` means the link's token no longer works.
  */
 export interface PulseUploadStatus {
   state: 'waiting' | 'done' | 'kept' | 'expired';

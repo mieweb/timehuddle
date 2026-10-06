@@ -127,14 +127,13 @@ export function usePulseUpload(
     };
   }, [current, status?.state]);
 
-  // A delivered video: show it in the modal for a moment, then close — unless
-  // there's a note to read.
-  const landedCleanly = status?.state === 'done' && !status.note;
+  // A delivered video: show it in the modal for a moment, then close.
+  const landed = status?.state === 'done';
   useEffect(() => {
-    if (!landedCleanly || !modalOpen) return;
+    if (!landed || !modalOpen) return;
     const t = setTimeout(() => setModalOpen(false), LANDED_CLOSE_MS);
     return () => clearTimeout(t);
-  }, [landedCleanly, modalOpen]);
+  }, [landed, modalOpen]);
 
   // Tell the host once the person has seen where the video went.
   useEffect(() => {

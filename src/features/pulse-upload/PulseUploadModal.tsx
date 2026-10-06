@@ -102,7 +102,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
                   aria-hidden="true"
                 />
                 <Text size="sm" weight="medium">
-                  {status.note ?? landedLabel(destination)}
+                  {landedLabel(destination)}
                 </Text>
               </span>
             ) : status?.state === 'kept' ? (
