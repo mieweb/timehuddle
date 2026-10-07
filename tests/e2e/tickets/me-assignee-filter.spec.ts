@@ -106,13 +106,10 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     const tickets = await openTickets(page);
     await createHuddleTicket(page, `Filter option ${Date.now()}`);
 
-    await tickets.sortFilterButton.click();
-
-    const assignees = tickets.filterSection('Assignees');
-    await expect(assignees.getByRole('menuitem', { name: 'Me', exact: true })).toBeVisible();
-    await expect(
-      assignees.getByRole('menuitem', { name: 'Unassigned', exact: true }),
-    ).toBeVisible();
+    await tickets.openFilter('Assignees');
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem', { name: 'Me', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Unassigned', exact: true })).toBeVisible();
   });
 
   test('narrows to the signed-in user’s own tickets', async ({ page }) => {

@@ -7,8 +7,9 @@ import { BasePage } from './BasePage';
  * The page has two views over the same list, chosen with a switcher: My Board, which it opens on, and
  * All Sources, which shows every source (TimeHuddle, Redmine) at once. Rows
  * carry `data-ticket-source` so tests can assert on provenance. Every sort and
- * filter is in one "Sort and filter" menu in the list header, beside the
- * Open/Closed switcher; the rows scroll under that header.
+ * filters are individual controls when they fit and move into the
+ * "Sort and filter" menu as the list narrows, beside the Open/Closed switcher;
+ * the rows scroll under that header.
  *
  * `goto()` lands on All Sources, because that is the table most specs are
  * about; a spec about the board switches with `switchToTab('my-board')`, and
@@ -97,17 +98,29 @@ export class TicketsPage extends BasePage {
     await this.switchToTab('my-board');
   }
 
-  /** One field's filter section in the open sort-and-filter menu. */
+  /** One field's filter section when it has moved into the overflow menu. */
   filterSection(field: string): Locator {
     return this.page
       .getByRole('menu')
       .getByRole('group', { name: new RegExp(`^Filter by ${field}`) });
   }
 
+  /** Open a field's own filter control, or its section in the overflow menu. */
+  async openFilter(field: string) {
+    const inline = this.page.getByRole('button', {
+      name: new RegExp(`^Filter by ${field}(?::|$)`),
+    });
+    if (await inline.isVisible()) {
+      await inline.click();
+    } else {
+      await this.sortFilterButton.click();
+    }
+  }
+
   /** Pick a value from a field's section of the sort-and-filter menu. */
   async filterBy(field: string, option: string) {
-    await this.sortFilterButton.click();
-    await this.filterSection(field).getByRole('menuitem', { name: option, exact: true }).click();
+    await this.openFilter(field);
+    await this.page.getByRole('menu').getByRole('menuitem', { name: option, exact: true }).click();
     await this.page.waitForTimeout(300);
   }
 

@@ -791,7 +791,7 @@ export const TicketsPage: React.FC = () => {
               aria-pressed={selecting}
               rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
               onClick={toggleSelecting}
-              className="tickets-select-toggle shrink-0 rounded-lg"
+              className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
             >
               {selecting ? viewText.doneSelecting : viewText.select}
             </Button>

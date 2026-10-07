@@ -94,6 +94,47 @@ test.describe('Ticket rows', () => {
     await expect(row.getByRole('checkbox')).not.toBeChecked();
   });
 
+  test('keeps desktop selection controls and progressively collapses filters to fit', async ({
+    page,
+  }) => {
+    const title = `E2E Responsive Filters ${Date.now()}`;
+    await tickets.createTicket(title);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const row = tickets.rowByTitle(title);
+    const listCard = tickets.activePanel.locator('.ticket-list-card');
+    const inlineFilters = tickets.activePanel.locator('[data-ticket-inline-filter]');
+
+    await expect(row.getByRole('checkbox')).toBeVisible();
+    await expect(tickets.selectModeButton).toBeHidden();
+    await expect(inlineFilters).toHaveCount(5);
+
+    // Keep the viewport fixed: only the list's available container width changes.
+    await listCard.evaluate((element) => {
+      (element as HTMLElement).style.flex = 'none';
+      (element as HTMLElement).style.width = '420px';
+    });
+    await expect.poll(() => inlineFilters.count()).toBeLessThan(5);
+
+    await tickets.sortFilterButton.click();
+    await expect(page.getByRole('menu').getByRole('group', { name: /^Filter by / })).toHaveCount(
+      5 - (await inlineFilters.count()),
+    );
+    for (const field of ['Source', 'Status', 'Priority', 'Assignees', 'Project']) {
+      const inlineFilter = page.getByRole('button', {
+        name: new RegExp(`^Filter by ${field}(?::|$)`),
+      });
+      if (!(await inlineFilter.isVisible())) {
+        await expect(tickets.filterSection(field)).toBeVisible();
+      }
+    }
+    await page.keyboard.press('Escape');
+
+    await listCard.evaluate((element) => {
+      (element as HTMLElement).style.width = '1100px';
+    });
+    await expect(inlineFilters).toHaveCount(5);
+  });
+
   test('drops the selection when the view changes, but preserves it when resizing', async ({
     page,
   }) => {
@@ -111,10 +152,15 @@ test.describe('Ticket rows', () => {
     await tickets.switchToTab('tickets');
     await expect(row.getByRole('checkbox')).toHaveCount(0);
 
-    // Resizing never hides a selected row's checkbox or changes selection mode.
-    await page.setViewportSize({ width: 1280, height: 800 });
+    // Enter selection mode before resizing: desktop keeps checkboxes visible,
+    // and the phone's Select control preserves the selected ticket on return.
+    await page.setViewportSize(PHONE);
     await tickets.selectModeButton.click();
     await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+
+    // Resizing never hides a selected row's checkbox or changes selection mode.
+    await page.setViewportSize({ width: 1280, height: 800 });
     await expect(tickets.deselectAllButton).toBeVisible();
     await page.setViewportSize(PHONE);
     await expect(tickets.deselectAllButton).toBeVisible();
@@ -147,7 +193,7 @@ test.describe('Ticket rows', () => {
     await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
-  test('sorts and filters from one menu in the header', async ({ page }) => {
+  test('sorts from the overflow menu and filters from the available control', async ({ page }) => {
     const title = `E2E Phone Menu ${Date.now()}`;
     await tickets.createTicket(title);
     const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
@@ -159,18 +205,14 @@ test.describe('Ticket rows', () => {
     await expect(page.getByRole('menuitem', { name: 'Title (sorted ascending)' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    // Filtering: every filter's choices are in the same menu.
-    await menuButton.click();
+    // A filter remains available whether inline or inside the overflow menu.
+    await tickets.openFilter('Source');
     await page.getByRole('menuitem', { name: 'TimeHuddle', exact: true }).click();
     await expect(tickets.rowByTitle(title)).toBeVisible();
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sort and filter, 1 filter on' })).toBeVisible();
-    // The section says which choice is applied, not only that one is.
-    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
-    await expect(page.getByRole('menu').getByText('Filter by Source: TimeHuddle')).toBeVisible();
-    await page.keyboard.press('Escape');
 
-    // Clearing them is in the same menu; the toolbar has no room for it here.
+    // Clearing them remains available in the overflow menu.
     await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
     await page.getByRole('menuitem', { name: 'Clear filters' }).click();
     await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();

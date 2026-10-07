@@ -1,6 +1,6 @@
 /**
- * FilterDropdown — an icon trigger plus a portaled menu, used for the ticket
- * list's sort-and-filter menu.
+ * FilterDropdown — a trigger plus a portaled menu, used for the ticket list's
+ * individual filters and sort-and-filter overflow menu.
  *
  * The menu is portaled to <body> and positioned with `fixed` coordinates rather
  * than using `@mieweb/ui`'s `Dropdown` directly, because the list card clips

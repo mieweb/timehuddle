@@ -6,13 +6,13 @@
  * blank out the sources that are working.
  *
  * One layout at every width: each ticket is a row carrying its properties, laid
- * out by the room the list has (see `RowList`). The header is the same at every
- * width too — select all and Open/Closed on the left, the one sort-and-filter
- * control on the right. Selection is host-owned.
+ * out by the room the list has (see `RowList`). The header keeps select all and
+ * Open/Closed on the left; individual filters move into its overflow menu only
+ * when the list gets too narrow. Selection is host-owned.
  */
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Checkbox, Text } from '@mieweb/ui';
+import { Checkbox, Text, useMediaQuery } from '@mieweb/ui';
 import React from 'react';
 
 import { RowList } from '../../ui/RowList';
@@ -125,6 +125,8 @@ export const TicketList: React.FC<TicketListProps> = ({
 }) => {
   // Each mounted list needs its own switcher name: it ties the sliding highlight.
   const stateSwitcherName = `ticket-state-${React.useId()}`;
+  const compact = useMediaQuery('(max-width: 767px)');
+  const showSelectionControls = !compact || selecting;
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
@@ -132,8 +134,8 @@ export const TicketList: React.FC<TicketListProps> = ({
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
 
-  // Every field the list sorts or filters by, gathered into the one menu. The
-  // registry drives the source options, so a third source needs no change here.
+  // The registry drives the source options, so a third source needs no change
+  // here. Filters stay individual until the list header no longer has room.
   const fields: TicketField[] = [
     { label: 'Title', sortField: 'title' },
     { label: 'Issue #', sortField: 'ref' },
@@ -201,36 +203,36 @@ export const TicketList: React.FC<TicketListProps> = ({
   ];
 
   const header = (
-    <>
-      {selecting && (
-        <Checkbox
-          checked={allSelected}
-          indeterminate={someSelected}
-          disabled={tickets.length === 0}
-          onChange={(e) => onSelectAllChange(e.target.checked)}
-          aria-label={allSelected ? text.deselectAll : text.selectAll}
-        />
-      )}
-      <TicketOpenClosedToggle
-        name={stateSwitcherName}
-        showClosed={showClosed}
-        onShowClosedChange={onShowClosedChange}
-        openCount={openCount}
-        closedCount={closedCount}
-        loading={loading}
-      />
-      <div className="ticket-list-tools ms-auto flex items-center gap-1">
-        <TicketSortFilterMenu
-          fields={fields}
-          sort={sort}
-          onSortChange={onSortChange}
-          onClearFilters={onClearFilters}
-          openMenuId={openMenuId}
-          onOpenMenuChange={onOpenMenuChange}
-          boundaryRef={boundaryRef}
+    <div className="ticket-list-header-controls flex w-full min-w-0 items-center gap-2">
+      <div className="ticket-list-header-primary flex shrink-0 items-center gap-2">
+        {showSelectionControls && (
+          <Checkbox
+            checked={allSelected}
+            indeterminate={someSelected}
+            disabled={tickets.length === 0}
+            onChange={(e) => onSelectAllChange(e.target.checked)}
+            aria-label={allSelected ? text.deselectAll : text.selectAll}
+          />
+        )}
+        <TicketOpenClosedToggle
+          name={stateSwitcherName}
+          showClosed={showClosed}
+          onShowClosedChange={onShowClosedChange}
+          openCount={openCount}
+          closedCount={closedCount}
+          loading={loading}
         />
       </div>
-    </>
+      <TicketSortFilterMenu
+        fields={fields}
+        sort={sort}
+        onSortChange={onSortChange}
+        onClearFilters={onClearFilters}
+        openMenuId={openMenuId}
+        onOpenMenuChange={onOpenMenuChange}
+        boundaryRef={boundaryRef}
+      />
+    </div>
   );
 
   return (
@@ -274,7 +276,7 @@ export const TicketList: React.FC<TicketListProps> = ({
             ticket={ticket}
             isCreator={isCreator(ticket)}
             selected={selectedKeys.has(ticket.key)}
-            selecting={selecting}
+            selecting={showSelectionControls}
             onSelectedChange={onSelectedChange}
             isTimerRunning={runningTicketKey === ticket.key}
             timerLoading={timerLoadingKey === ticket.key}

@@ -34,16 +34,16 @@ test.describe('Unified ticket table', () => {
     await expect(page.getByText('Tickets v1', { exact: true })).toHaveCount(0);
   });
 
-  test('has no filter chip bar — every filter is in the one menu', async ({ page }) => {
+  test('shows each filter as a separate control when the list has room', async ({ page }) => {
     await tickets.createTicket(`E2E Chips ${Date.now()}`);
 
     // The old chip row rendered these as standalone buttons outside the list.
     await expect(page.getByRole('button', { name: 'Clear all' })).toHaveCount(0);
-    await tickets.sortFilterButton.click();
     for (const field of ['Source', 'Status', 'Priority', 'Assignees', 'Project']) {
-      await expect(tickets.filterSection(field)).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: new RegExp(`^Filter by ${field}$`) }),
+      ).toBeVisible();
     }
-    await page.keyboard.press('Escape');
   });
 
   test('switches between open and closed tickets, with a count of each', async () => {
@@ -107,10 +107,10 @@ test.describe('Unified ticket table', () => {
   });
 
   test('offers every registered source in the Source filter', async ({ page }) => {
-    await tickets.sortFilterButton.click();
-    const source = tickets.filterSection('Source');
-    await expect(source.getByRole('menuitem', { name: 'TimeHuddle' })).toBeVisible();
-    await expect(source.getByRole('menuitem', { name: 'Redmine' })).toBeVisible();
+    await tickets.openFilter('Source');
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem', { name: 'TimeHuddle' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Redmine' })).toBeVisible();
     await page.keyboard.press('Escape');
   });
 
@@ -147,7 +147,7 @@ test.describe('Unified ticket table', () => {
 
   test('selects rows, including a tri-state select-all', async () => {
     await tickets.createTicket(`E2E Select ${Date.now()}`);
-    await tickets.selectModeButton.click();
+    if (await tickets.selectModeButton.isVisible()) await tickets.selectModeButton.click();
 
     const firstRowCheckbox = tickets.activePanel
       .locator('[data-ticket-id]')
