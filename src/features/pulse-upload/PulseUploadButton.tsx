@@ -149,7 +149,10 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       // Re-use any videoid already stored for this ticket so PulseCam can resume
       // a recording session that was interrupted before uploading.
       const existingVideoid = getStoredVideoid(videoidKey) ?? undefined;
-      const { videoid, uploadToken } = await videoApi.reserve(ticketId, existingVideoid, kind);
+      const { videoid, uploadToken } = await videoApi.reserve(
+        { kind, id: ticketId },
+        existingVideoid,
+      );
       setStoredVideoid(videoidKey, videoid);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).

@@ -167,7 +167,7 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
   }
 
   // Videos go through PulseVault TUS
-  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
+  const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
 
   await new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {

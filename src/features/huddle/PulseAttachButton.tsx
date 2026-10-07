@@ -171,7 +171,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
     setReserving(true);
     setError(null);
     try {
-      const { videoid, uploadToken } = await videoApi.reserveForLibrary();
+      const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
       const link = buildUploadDeepLink(videoid, uploadToken);
       attachedRef.current = null;
       setPending(writePending(scope, videoid));

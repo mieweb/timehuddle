@@ -42,6 +42,7 @@ import './team-join-requests';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
@@ -2189,26 +2190,23 @@ Meteor.startup(async() => {
   // ── PulseVault ────────────────────────────────────────────────────────────
 
   Wormhole.expose('pulsevault.reserve', {
-    description: 'Reserve a videoid for TUS video upload',
+    description: 'Reserve a Pulse upload: a videoid and a link token carrying where the video goes',
     inputSchema: {
       type: 'object',
       properties: {
-        ticketId: { type: 'string' },
+        destination: {
+          type: 'object',
+          description: 'Where the finished video lands (see pulse-destinations.js)',
+          properties: {
+            kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
+            id: { type: 'string', description: 'The ticket or Redmine issue id, for those kinds' },
+          },
+          required: ['kind'],
+        },
         existingVideoid: { type: 'string' },
-        target: { type: 'string', enum: ['ticket', 'redmine', 'library'] },
       },
+      required: ['destination'],
     },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        videoid: { type: 'string' },
-        uploadToken: { type: 'string' },
-      },
-    },
-  });
-  Wormhole.expose('pulsevault.reserveForLibrary', {
-    description: 'Reserve a videoid for media library TUS upload',
-    inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
       properties: {
