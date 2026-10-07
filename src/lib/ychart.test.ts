@@ -20,6 +20,15 @@ describe('forceYChartHtmlOverlayOnIos', () => {
     expect(orgChart.render).toHaveBeenCalledOnce();
   });
 
+  it('injects the touch-pan style once on iOS', () => {
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios');
+
+    forceYChartHtmlOverlayOnIos(makeOrgChart());
+    forceYChartHtmlOverlayOnIos(makeOrgChart());
+
+    expect(document.querySelectorAll('#ychart-overlay-touch-pan')).toHaveLength(1);
+  });
+
   it.each(['web', 'android'] as const)('leaves the chart untouched on %s', (platform) => {
     vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(platform);
     const orgChart = makeOrgChart();
