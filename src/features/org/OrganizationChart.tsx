@@ -335,7 +335,7 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
         <>
           {/* Overlay backdrop — click to close */}
           <div
-            className="absolute inset-0 bg-black/30 transition-opacity dark:bg-black/50"
+            className="absolute inset-0 z-[2000] bg-black/30 transition-opacity dark:bg-black/50"
             onClick={() => setSelectedMember(null)}
             role="button"
             tabIndex={0}
@@ -344,7 +344,7 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
           />
 
           {/* Lightbox card */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-end">
+          <div className="pointer-events-none absolute inset-0 z-[2001] flex items-center justify-end">
             <div className="pointer-events-auto mr-6 w-full max-w-sm rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
               {/* Header with close button */}
               <div className="flex items-start justify-between border-b border-neutral-200 p-6 dark:border-neutral-700">
