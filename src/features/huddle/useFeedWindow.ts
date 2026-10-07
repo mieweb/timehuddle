@@ -89,7 +89,9 @@ export function useFeedWindow(feedKey: string) {
       update(key, (current) =>
         outcome.ok
           ? { ...current, hasMore: outcome.hasMore, loadingOlder: false, loadFailed: false }
-          : { ...current, loadingOlder: false, loadFailed: current.loadingOlder },
+          : // A first fetch that failed leaves `hasMore` unknown, so the footer
+            // is the only way back to history: it is a failure like any other.
+            { ...current, loadingOlder: false, loadFailed: true },
       ),
     [update],
   );

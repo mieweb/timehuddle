@@ -9,26 +9,23 @@
  */
 import { useEffect, useState } from 'react';
 
-import type { HuddlePost } from './api';
+import { huddleApi, type HuddlePost } from './api';
 import { getDdpClient } from './ddp';
 
-// The plan is posted at clock-in; a day of slack covers one written just before it.
-const PLAN_LEAD_MS = 24 * 60 * 60 * 1000;
-
-export function useSessionPost(
-  teamId: string | null,
-  clockEventId: string | null,
-  sessionStart: number | null,
-) {
+export function useSessionPost(teamId: string | null, clockEventId: string | null) {
   const [sessionPost, setSessionPost] = useState<HuddlePost | null>(null);
 
   useEffect(() => {
-    if (!teamId || !clockEventId || sessionStart === null) {
+    if (!teamId || !clockEventId) {
       setSessionPost(null);
       return;
     }
 
     const ddp = getDdpClient();
+    // The publication only carries the last 30 days, which a session open longer
+    // than that has outgrown; this stands in until DDP has the post.
+    let fetched: HuddlePost | null = null;
+    let cancelled = false;
 
     const sync = () => {
       const match = ddp
@@ -42,22 +39,29 @@ export function useSessionPost(
             Number(!!b.wrapUpAt) - Number(!!a.wrapUpAt) ||
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
-      setSessionPost(match[0] ?? null);
+      setSessionPost(match[0] ?? fetched);
     };
 
-    // The feed only publishes the last 30 days by default, which a long-running
-    // session's plan post can fall outside of.
-    const since = new Date(sessionStart - PLAN_LEAD_MS).toISOString();
-    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId, since], sync);
+    huddleApi
+      .getMyPostForSession(teamId, clockEventId)
+      .then((post) => {
+        if (cancelled) return;
+        fetched = post;
+        sync();
+      })
+      .catch(() => {});
+
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId], sync);
     const offChange = ddp.onCollectionChange('huddlePosts', sync);
     sync();
 
     return () => {
+      cancelled = true;
       offChange();
       unsubscribe();
       setSessionPost(null);
     };
-  }, [teamId, clockEventId, sessionStart]);
+  }, [teamId, clockEventId]);
 
   return { sessionPost };
 }

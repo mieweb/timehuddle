@@ -78,10 +78,11 @@ describe('useFeedWindow', () => {
     expect(result.current.loadingOlder).toBe(false);
   });
 
-  it('does not count a failed first load as a failed older load', () => {
+  it('reports a failed first load, which is the only way back to history', () => {
     const { result } = renderHook(() => useFeedWindow('team-1'));
     act(() => result.current.settle('team-1', { ok: false }));
-    expect(result.current.loadFailed).toBe(false);
+    expect(result.current.loadFailed).toBe(true);
+    expect(result.current.hasMore).toBeNull();
   });
 
   it('moves forward with the calendar when kept mounted past midnight', () => {

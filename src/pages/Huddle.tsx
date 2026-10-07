@@ -1,6 +1,15 @@
 import { faCheck, faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, ButtonGroup, Dropdown, DropdownItem, Input, Spinner, Text } from '@mieweb/ui';
+import {
+  Alert,
+  Button,
+  ButtonGroup,
+  Dropdown,
+  DropdownItem,
+  Input,
+  Spinner,
+  Text,
+} from '@mieweb/ui';
 import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
@@ -692,29 +701,25 @@ export default function Huddle() {
   const feedLoading = scope === 'me' ? myPostsLoading : loading;
   const feedError = scope === 'me' ? myPostsError : error;
 
-  // A link to something older than the loaded window isn't missing yet: keep
-  // widening until it turns up or the search is exhausted (a failed load stops
-  // this and leaves the footer's Retry to continue). A day link is exhausted once
-  // the window reaches its date; anything else gives up at LINK_SEARCH_MAX_DAYS,
-  // and the footer's own loading can go further.
+  // A link to something older than the loaded window isn't missing yet: widen
+  // until it turns up. Only `hasMore === false` (or, for a day link, a window
+  // that now covers its date) says it isn't there — `null` just means no fetch
+  // has reported yet. Widening stops on its own at LINK_SEARCH_MAX_DAYS, and
+  // after a failed load, leaving the list footer to carry on by hand.
   const { hasMore, loadingOlder, loadFailed, loadOlder } = feedWindow;
   const conversationMissing = !!conversationParam && !linkedConversation;
   const postMissing = !!postParam && !targetPostLoaded;
-  const capReached = feedWindow.days >= LINK_SEARCH_MAX_DAYS;
   const dayStart = dayConversationStart(conversationParam);
   const conversationSearched =
-    dayStart === null ? capReached : Date.parse(feedWindow.since) <= dayStart;
-  const linkSearchExhausted =
-    hasMore !== true ||
-    ((!conversationMissing || conversationSearched) && (!postMissing || capReached));
-  const linkTargetMissing = conversationMissing || postMissing;
-  const resolvingLink =
-    linkTargetMissing &&
-    !linkSearchExhausted &&
-    !loadFailed &&
-    scopeKeyRef.current === scopeKey &&
-    !feedLoading &&
-    !feedError;
+    hasMore === false || (dayStart !== null && Date.parse(feedWindow.since) <= dayStart);
+  const postSearched = hasMore === false;
+  const searchingForLink =
+    (conversationMissing && !conversationSearched) || (postMissing && !postSearched);
+  const linkSearchStopped = loadFailed || feedWindow.days >= LINK_SEARCH_MAX_DAYS;
+  const linkStateSettled = scopeKeyRef.current === scopeKey && !feedLoading && !feedError;
+  const resolvingLink = searchingForLink && !linkSearchStopped && linkStateSettled;
+  // Still missing, but history hasn't been ruled out: the reader loads the rest.
+  const linkSearchPaused = searchingForLink && linkSearchStopped && linkStateSettled;
   useEffect(() => {
     if (resolvingLink) loadOlder();
   }, [resolvingLink, loadingOlder, loadOlder]);
@@ -752,15 +757,9 @@ export default function Huddle() {
   }, [conversationParam, linkedConversation, setParams]);
 
   // Only once the posts are in, and not across a scope change, where the
-  // effect above clears the param a render later. Not while older windows
-  // could still hold it (`linkSearchExhausted`).
-  const conversationUnavailable =
-    !!conversationParam &&
-    !linkedConversation &&
-    scopeKeyRef.current === scopeKey &&
-    !feedLoading &&
-    !feedError &&
-    linkSearchExhausted;
+  // effect above clears the param a render later. Not while an older window
+  // could still hold it (`conversationSearched`).
+  const conversationUnavailable = conversationMissing && conversationSearched && linkStateSettled;
 
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
@@ -775,13 +774,7 @@ export default function Huddle() {
   // above — without this the inbox would quietly show its default conversation
   // while the URL still named the post. Same timing guard as the conversation
   // case, so a post still arriving over DDP isn't called missing.
-  const postUnavailable =
-    !!postParam &&
-    !targetPostLoaded &&
-    scopeKeyRef.current === scopeKey &&
-    !feedLoading &&
-    !feedError &&
-    linkSearchExhausted;
+  const postUnavailable = postMissing && postSearched && linkStateSettled;
 
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
@@ -901,7 +894,7 @@ export default function Huddle() {
             that list, so they don't jump when it appears. Phones open on the
             chat, where the list is hidden, so they show nothing here. */}
         {!listHeaderEl && (
-          <aside className="huddle-toolbar hidden w-64 shrink-0 border-e border-neutral-200 p-3 sm:block dark:border-neutral-700">
+          <aside className="huddle-toolbar hidden w-64 shrink-0 border-e border-border p-3 sm:block">
             {inboxControls}
           </aside>
         )}
@@ -940,6 +933,13 @@ export default function Huddle() {
                 <NoAccessState kind="not-found" resource="post" />
               )}
 
+              {linkSearchPaused && (
+                <Alert variant="info" className="m-3">
+                  That link isn’t in the posts loaded so far. Load older posts at the end of the
+                  list to keep looking.
+                </Alert>
+              )}
+
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
 
               {/* SuperChatInbox, grouped by the selected Thread by option.
@@ -962,8 +962,10 @@ export default function Huddle() {
                     // On a phone, open straight into the conversation (Today) rather than the list.
                     defaultMobileView="chat"
                     listFooter={
-                      // The starter stands in for an empty feed, but an empty window can still have history behind it.
-                      activePosts.length > 0 || feedWindow.hasMore === true ? (
+                      // The starter stands in for an empty feed, but an empty window can still have history behind it — or a failed fetch that never said.
+                      activePosts.length > 0 ||
+                      feedWindow.hasMore === true ||
+                      feedWindow.loadFailed ? (
                         <LoadOlderSentinel
                           hasMore={feedWindow.hasMore}
                           loading={feedWindow.loadingOlder}

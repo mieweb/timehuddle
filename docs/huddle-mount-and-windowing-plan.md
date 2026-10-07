@@ -95,8 +95,8 @@ a DDP subscription.
 
 ### M8: Tests
 
-- [ ] Unit tests (default conversation, `loaded` gating, window math, sentinel, frozen router)
-- [ ] Playwright specs (return to same conversation, first visit = Today, >30 days windowing, mobile, deep link while mounted)
+- [x] Unit tests (default conversation, `loaded` gating, window math, list footer sentinel)
+- [x] Playwright specs (return to same conversation, first visit = Today, >30 days windowing, mobile, deep link while mounted)
 
 ### M9: Release and wrap-up
 
