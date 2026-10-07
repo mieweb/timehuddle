@@ -1,5 +1,5 @@
 /**
- * Search + filter + sort + select pipeline for a `TicketTable`.
+ * Search + filter + sort + select pipeline for a `TicketList`.
  *
  * A hook so each tab (Tickets, My Board) runs the same pipeline over its own
  * ticket list with fully independent state — switching tabs must never reset
@@ -35,7 +35,7 @@ export interface TicketTableView {
   searchFilteredTickets: UnifiedTicket[];
   openCount: number;
   closedCount: number;
-  /** The rows the table lists: filtered, split by Open/Closed, and sorted. */
+  /** The rows the list shows: filtered, split by Open/Closed, and sorted. */
   sortedTickets: UnifiedTicket[];
   selectedKeys: Set<string>;
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;

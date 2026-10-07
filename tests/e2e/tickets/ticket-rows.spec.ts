@@ -1,8 +1,7 @@
 /**
- * The ticket table on a phone (#637, #660): each ticket is a compact row (its
- * title in full, where it sits, then badges), and nothing scrolls sideways.
- * Rows have no checkbox until Select is pressed, and Open/Close and the
- * sort-and-filter menu sit in the table's header.
+ * The ticket list's one row layout (#668): at every width each ticket is a row
+ * — its title in full, where it sits, then its properties — that spreads out
+ * as the list gets more room, and nothing scrolls sideways.
  */
 import { test, expect } from '@playwright/test';
 
@@ -12,7 +11,16 @@ import { TicketsPage } from '../pages/TicketsPage';
 
 const PHONE = { width: 390, height: 844 };
 
-test.describe('Ticket rows on a phone', () => {
+/** How far the list scrolls sideways; 0 when it fits. */
+const sidewaysOverflow = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const area = document.querySelector<HTMLElement>(
+      '.tickets-view-panel:not(.hidden) .row-list-scroll',
+    );
+    return area ? area.scrollWidth - area.clientWidth : null;
+  });
+
+test.describe('Ticket rows', () => {
   let tickets: TicketsPage;
 
   test.beforeEach(async ({ page }) => {
@@ -22,17 +30,17 @@ test.describe('Ticket rows on a phone', () => {
     await tickets.goto();
   });
 
-  test('fits the screen, with no sideways scroll', async ({ page }) => {
+  test('fits every width, with no sideways scroll', async ({ page }) => {
     const title = `E2E Phone Row ${Date.now()}`;
     await tickets.createTicket(title);
     await expect(tickets.rowByTitle(title)).toBeVisible();
 
-    const overflow = await page.evaluate(() => {
-      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
-      return area ? area.scrollWidth - area.clientWidth : null;
-    });
-    expect(overflow).not.toBeNull();
-    expect(overflow).toBeLessThanOrEqual(1);
+    for (const width of [360, 600, 900, 1280, 1920]) {
+      await page.setViewportSize({ width, height: 800 });
+      const overflow = await sidewaysOverflow(page);
+      expect(overflow, `at ${width}px`).not.toBeNull();
+      expect(overflow, `at ${width}px`).toBeLessThanOrEqual(1);
+    }
   });
 
   test('lays a ticket out as title, details and badges, and keeps its menu in reach', async ({
@@ -48,7 +56,7 @@ test.describe('Ticket rows on a phone', () => {
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     const lines = await row
-      .locator('.ticket-row-body > *')
+      .locator('.row-list-title, .row-list-meta, .row-list-properties')
       .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBeLessThan(lines[1]);
@@ -60,8 +68,8 @@ test.describe('Ticket rows on a phone', () => {
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
 
-    // The columns those facts had on a wide screen are gone.
-    await expect(page.getByRole('columnheader', { name: /Status/ })).toHaveCount(0);
+    // There are no columns at all.
+    await expect(page.getByRole('columnheader')).toHaveCount(0);
   });
 
   test('shows checkboxes only while selecting, and drops the selection after', async () => {
@@ -86,7 +94,50 @@ test.describe('Ticket rows on a phone', () => {
     await expect(row.getByRole('checkbox')).not.toBeChecked();
   });
 
-  test('drops the selection when the view or the layout changes', async ({ page }) => {
+  test('keeps desktop selection controls and progressively collapses filters to fit', async ({
+    page,
+  }) => {
+    const title = `E2E Responsive Filters ${Date.now()}`;
+    await tickets.createTicket(title);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const row = tickets.rowByTitle(title);
+    const listCard = tickets.activePanel.locator('.ticket-list-card');
+    const inlineFilters = tickets.activePanel.locator('[data-ticket-inline-filter]');
+
+    await expect(row.getByRole('checkbox')).toBeVisible();
+    await expect(tickets.selectModeButton).toBeHidden();
+    await expect(inlineFilters).toHaveCount(5);
+
+    // Keep the viewport fixed: only the list's available container width changes.
+    await listCard.evaluate((element) => {
+      (element as HTMLElement).style.flex = 'none';
+      (element as HTMLElement).style.width = '420px';
+    });
+    await expect.poll(() => inlineFilters.count()).toBeLessThan(5);
+
+    await tickets.sortFilterButton.click();
+    await expect(page.getByRole('menu').getByRole('group', { name: /^Filter by / })).toHaveCount(
+      5 - (await inlineFilters.count()),
+    );
+    for (const field of ['Source', 'Status', 'Priority', 'Assignees', 'Project']) {
+      const inlineFilter = page.getByRole('button', {
+        name: new RegExp(`^Filter by ${field}(?::|$)`),
+      });
+      if (!(await inlineFilter.isVisible())) {
+        await expect(tickets.filterSection(field)).toBeVisible();
+      }
+    }
+    await page.keyboard.press('Escape');
+
+    await listCard.evaluate((element) => {
+      (element as HTMLElement).style.width = '1100px';
+    });
+    await expect(inlineFilters).toHaveCount(5);
+  });
+
+  test('drops the selection when the view changes, but preserves it when resizing', async ({
+    page,
+  }) => {
     const title = `E2E Phone Reset ${Date.now()}`;
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
@@ -101,20 +152,24 @@ test.describe('Ticket rows on a phone', () => {
     await tickets.switchToTab('tickets');
     await expect(row.getByRole('checkbox')).toHaveCount(0);
 
-    // A row ticked in the wide table is not left selected, unseen, on a phone.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await row.getByRole('checkbox').check();
-    await expect(tickets.deselectAllButton).toBeVisible();
+    // Enter selection mode before resizing: desktop keeps checkboxes visible,
+    // and the phone's Select control preserves the selected ticket on return.
     await page.setViewportSize(PHONE);
-    await expect(tickets.deselectAllButton).toHaveCount(0);
-    await expect(row.getByRole('checkbox')).toHaveCount(0);
-
-    // And selection mode on a phone does not carry over to the wide table.
     await tickets.selectModeButton.click();
     await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+
+    // Resizing never hides a selected row's checkbox or changes selection mode.
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(tickets.deselectAllButton).toHaveCount(0);
-    await expect(row.getByRole('checkbox')).not.toBeChecked();
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await page.setViewportSize(PHONE);
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await expect(row.getByRole('checkbox')).toBeChecked();
+
+    // The same selection stays visible when the list grows again.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await expect(row.getByRole('checkbox')).toBeChecked();
   });
 
   test('switches between open and closed tickets from the header', async ({ page }) => {
@@ -123,11 +178,11 @@ test.describe('Ticket rows on a phone', () => {
     const showOpen = tickets.openOption;
     const showClosed = tickets.closedOption;
 
-    // One switcher only: the toolbar's copy is the wide screen's.
+    // One switcher only, always in the list header.
     await expect(showOpen).toHaveCount(1);
     await expect(showOpen).toBeChecked();
     await expect(showOpen).toHaveAccessibleName(/^Open tickets, \d+\+?$/);
-    await expect(page.locator('.ticket-view-controls')).toBeHidden();
+    await expect(page.locator('.ticket-view-controls')).toHaveCount(0);
 
     await showClosed.click();
     await expect(showClosed).toBeChecked();
@@ -138,35 +193,26 @@ test.describe('Ticket rows on a phone', () => {
     await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
-  test('sorts and filters from one menu in the header', async ({ page }) => {
+  test('sorts from the overflow menu and filters from the available control', async ({ page }) => {
     const title = `E2E Phone Menu ${Date.now()}`;
     await tickets.createTicket(title);
     const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
 
-    // Sorting: the Title header is still there to report it.
+    // Sorting: the menu says which field is sorted, and which way, in words.
     await menuButton.click();
     await page.getByRole('menuitem', { name: 'Title', exact: true }).click();
-    await expect(page.getByRole('columnheader', { name: /Title/ })).toHaveAttribute(
-      'aria-sort',
-      'ascending',
-    );
-    // The menu says which field is sorted, and which way, in words.
     await menuButton.click();
     await expect(page.getByRole('menuitem', { name: 'Title (sorted ascending)' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    // Filtering: the same choices a column's own filter offers on a wide screen.
-    await menuButton.click();
+    // A filter remains available whether inline or inside the overflow menu.
+    await tickets.openFilter('Source');
     await page.getByRole('menuitem', { name: 'TimeHuddle', exact: true }).click();
     await expect(tickets.rowByTitle(title)).toBeVisible();
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sort and filter, 1 filter on' })).toBeVisible();
-    // The section says which choice is applied, not only that one is.
-    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
-    await expect(page.getByRole('menu').getByText('Filter by Source: TimeHuddle')).toBeVisible();
-    await page.keyboard.press('Escape');
 
-    // Clearing them is in the same menu; the toolbar has no room for it here.
+    // Clearing them remains available in the overflow menu.
     await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
     await page.getByRole('menuitem', { name: 'Clear filters' }).click();
     await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();
@@ -246,10 +292,7 @@ test.describe('Ticket rows on a phone', () => {
     // Switching view left selection mode; go back in, for the row at its tightest.
     await tickets.selectModeButton.click();
 
-    const overflow = await page.evaluate(() => {
-      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
-      return area ? area.scrollWidth - area.clientWidth : null;
-    });
+    const overflow = await sidewaysOverflow(page);
     expect(overflow).not.toBeNull();
     expect(overflow).toBeLessThanOrEqual(1);
 
@@ -277,13 +320,34 @@ test.describe('Ticket rows on a phone', () => {
     await expect(tickets.startTimerButton(title)).toBeVisible();
   });
 
-  test('goes back to one column per fact on a wide screen', async ({ page }) => {
-    const title = `E2E Phone Resize ${Date.now()}`;
+  test('spreads the same row out as the list gets wider, with no layout swap', async ({ page }) => {
+    const title = `E2E Resize ${Date.now()}`;
     await tickets.createTicket(title);
-    await expect(tickets.rowByTitle(title).locator('.ticket-row-facts')).toBeVisible();
+    const row = tickets.rowByTitle(title);
+    const titleTop = () =>
+      row.locator('.ticket-row-title').evaluate((el) => el.getBoundingClientRect().top);
+    const factsTop = () =>
+      row.locator('.row-list-properties').evaluate((el) => el.getBoundingClientRect().top);
 
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(tickets.rowByTitle(title).locator('.ticket-row-facts')).toHaveCount(0);
-    await expect(page.getByRole('columnheader', { name: /Status/ }).first()).toBeVisible();
+    // Narrow: the properties wrap under the title.
+    expect(await factsTop()).toBeGreaterThan((await titleTop()) + 10);
+
+    // Wide: the same row, with its properties beside the title. No columns
+    // appear, and the header controls stay where they were.
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+    expect(Math.abs((await factsTop()) - (await titleTop()))).toBeLessThanOrEqual(8);
+    await expect(page.getByRole('columnheader')).toHaveCount(0);
+
+    // Open/Closed sits at the start of the list header at every width.
+    for (const width of [360, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      const header = await tickets.activePanel.locator('.row-list-header').boundingBox();
+      const open = await tickets.openOption.boundingBox();
+      expect(header).not.toBeNull();
+      expect(open).not.toBeNull();
+      expect(open!.x - header!.x, `at ${width}px`).toBeLessThan(80);
+      expect(open!.y - header!.y, `at ${width}px`).toBeLessThan(20);
+    }
   });
 });

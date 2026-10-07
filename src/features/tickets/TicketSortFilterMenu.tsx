@@ -1,32 +1,43 @@
 /**
- * TicketSortFilterMenu — the compact (phone) table's one menu for sorting and
- * filtering.
+ * TicketSortFilterMenu — the ticket list's individual filter controls and
+ * responsive overflow menu for sorting and filters that do not fit.
  *
- * A compact row has no column per fact, so there are no column headers to carry
- * a sort control or a filter each. Everything those headers do is gathered here
- * instead, behind one button at the end of the header row, built from the same
- * column definitions the wide table's headers use.
+ * The list is rows, not columns, so the filters appear together in its header.
+ * They stay individual while they fit and move into the overflow menu one at a
+ * time as the list gets narrower.
  */
 import { DropdownItem, DropdownLabel, DropdownSeparator } from '@mieweb/ui';
-import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowUp, ListFilter, SlidersHorizontal } from 'lucide-react';
 import React from 'react';
 
 import { FilterDropdown } from './FilterDropdown';
-import {
-  TicketFilterItems,
-  selectedFilterLabel,
-  type TicketColumnFilter,
-} from './TicketColumnHeader';
-import type { SortField, SortSpec } from './ticketFilters';
+import { SOURCE_LABELS, type TicketSourceId } from './sources';
+import type { FilterOption, SortField, SortSpec } from './ticketFilters';
 
-export interface TicketColumn {
+export interface TicketFieldFilter {
+  /** Shown when nothing is selected, e.g. "Any status". */
+  anyLabel: string;
+  options: FilterOption[];
+  /** Currently selected value, or null for "any". */
+  value: string | null;
+  onChange: (value: string | null) => void;
+  /**
+   * Entries above the derived options, in order — e.g. "Me" and "Unassigned",
+   * or "No priority". These are not derived from the loaded tickets, so they
+   * stay available even when nothing currently matches them.
+   */
+  extraOptions?: { value: string; label: string }[];
+}
+
+/** A ticket property the list can sort by, filter by, or both. */
+export interface TicketField {
   label: string;
   sortField?: SortField;
-  filter?: TicketColumnFilter;
+  filter?: TicketFieldFilter;
 }
 
 export interface TicketSortFilterMenuProps {
-  columns: readonly TicketColumn[];
+  fields: readonly TicketField[];
   sort: SortSpec;
   onSortChange: (field: SortField) => void;
   /** Offered at the top of the menu while any filter is on. */
@@ -50,8 +61,64 @@ const text = {
     selected ? `Filter by ${label}: ${selected}` : `Filter by ${label}`,
 };
 
+/** The label of the choice a filter is set to, or null when it is on "any". */
+export function selectedFilterLabel(filter: TicketFieldFilter): string | null {
+  if (!filter.value) return null;
+  return (
+    filter.extraOptions?.find((o) => o.value === filter.value)?.label ??
+    filter.options.find((o) => o.value === filter.value)?.label ??
+    null
+  );
+}
+
+/**
+ * One filter's choices as menu items: "any", the fixed extras, then the options
+ * derived from the loaded tickets.
+ */
+const TicketFilterItems: React.FC<{ filter: TicketFieldFilter }> = ({ filter }) => {
+  // Options arrive pre-grouped by source; a label is emitted when the group
+  // changes so the menu reads as sections without needing a nested structure.
+  let lastGroup: TicketSourceId | undefined;
+
+  return (
+    <>
+      <DropdownItem
+        onClick={() => filter.onChange(null)}
+        className={!filter.value ? 'font-semibold' : ''}
+      >
+        {filter.anyLabel}
+      </DropdownItem>
+      {filter.extraOptions?.map((option) => (
+        <DropdownItem
+          key={option.value}
+          onClick={() => filter.onChange(option.value)}
+          className={filter.value === option.value ? 'font-semibold' : ''}
+        >
+          {option.label}
+        </DropdownItem>
+      ))}
+      {filter.options.length > 0 && <DropdownSeparator />}
+      {filter.options.map((option) => {
+        const startsGroup = option.group !== undefined && option.group !== lastGroup;
+        lastGroup = option.group;
+        return (
+          <React.Fragment key={option.value}>
+            {startsGroup && <DropdownLabel>{SOURCE_LABELS[option.group!]}</DropdownLabel>}
+            <DropdownItem
+              onClick={() => filter.onChange(option.value)}
+              className={filter.value === option.value ? 'font-semibold' : ''}
+            >
+              {option.label}
+            </DropdownItem>
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+};
+
 export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
-  columns,
+  fields,
   sort,
   onSortChange,
   onClearFilters,
@@ -59,71 +126,182 @@ export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
   onOpenMenuChange,
   boundaryRef,
 }) => {
-  const filters = columns.filter((column) => column.filter);
-  const activeFilters = filters.filter((column) => column.filter?.value).length;
+  const filters = fields.filter((field) => field.filter);
+  const activeFilters = filters.filter((field) => field.filter?.value).length;
   const SortArrow = sort.direction === 'asc' ? ArrowUp : ArrowDown;
+  const [inlineFilterCount, setInlineFilterCount] = React.useState(filters.length);
+  const layoutRef = React.useRef<HTMLDivElement>(null);
+  const inlineFiltersRef = React.useRef<HTMLDivElement>(null);
+  const overflowTriggerRef = React.useRef<HTMLDivElement>(null);
+  const inlineWidths = React.useRef(new Map<string, number>());
+  const filterSignature = filters.map((field) => field.label).join('|');
+  const filterCount = filters.length;
+
+  React.useLayoutEffect(() => {
+    const layout = layoutRef.current;
+    const inlineFilters = inlineFiltersRef.current;
+    const overflowTrigger = overflowTriggerRef.current;
+    if (!layout || !inlineFilters || !overflowTrigger || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const updateLayout = () => {
+      if (layout.clientWidth === 0) return;
+
+      for (const element of layout.querySelectorAll<HTMLElement>('[data-ticket-inline-filter]')) {
+        const width = element.getBoundingClientRect().width;
+        if (width > 0) {
+          inlineWidths.current.set(element.dataset.ticketInlineFilter ?? '', width);
+        }
+      }
+
+      const filterWidths = (filterSignature ? filterSignature.split('|') : []).map(
+        (label) => inlineWidths.current.get(label) ?? Number.POSITIVE_INFINITY,
+      );
+      const filterGap = Number.parseFloat(getComputedStyle(inlineFilters).columnGap) || 0;
+      const layoutGap = Number.parseFloat(getComputedStyle(layout).columnGap) || 0;
+      const available =
+        layout.clientWidth - overflowTrigger.getBoundingClientRect().width - layoutGap;
+      let count = filterCount;
+
+      while (
+        count > 0 &&
+        filterWidths.slice(0, count).reduce((sum, width) => sum + width, 0) +
+          Math.max(0, count - 1) * filterGap >
+          available
+      ) {
+        count -= 1;
+      }
+
+      setInlineFilterCount((current) => (current === count ? current : count));
+    };
+
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(layout);
+    updateLayout();
+    return () => observer.disconnect();
+  }, [filterCount, filterSignature]);
+
+  React.useEffect(() => {
+    const openFilterIndex = filters.findIndex((field) => `filter:${field.label}` === openMenuId);
+    if (openFilterIndex >= inlineFilterCount && openFilterIndex >= 0) {
+      onOpenMenuChange(null);
+    }
+  }, [filters, inlineFilterCount, onOpenMenuChange, openMenuId]);
+
+  const inlineFilters = filters.slice(0, inlineFilterCount);
+  const collapsedFilters = filters.slice(inlineFilterCount);
 
   return (
-    <FilterDropdown
-      menuId={MENU_ID}
-      activeMenuId={openMenuId}
-      boundaryRef={boundaryRef}
-      onOpenChange={(open) => onOpenMenuChange(open ? MENU_ID : null)}
-      triggerAriaLabel={activeFilters ? text.triggerFiltered(activeFilters) : text.trigger}
-      trigger={
-        <span
-          className={`flex items-center rounded p-1.5 transition-colors ${
-            activeFilters ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-        </span>
-      }
+    <div
+      ref={layoutRef}
+      className="ticket-list-tools ms-auto flex min-w-0 flex-1 items-center justify-end gap-1"
     >
-      {activeFilters > 0 && (
-        <>
-          <DropdownItem onClick={onClearFilters}>{text.clearFilters}</DropdownItem>
-          <DropdownSeparator />
-        </>
-      )}
-      <DropdownLabel>{text.sortBy}</DropdownLabel>
-      {columns
-        .filter((column) => column.sortField)
-        .map((column) => {
-          const active = sort.field === column.sortField;
+      <div ref={inlineFiltersRef} className="ticket-list-inline-filters flex items-center gap-1">
+        {inlineFilters.map((field) => {
+          const selected = selectedFilterLabel(field.filter!);
+          const menuId = `filter:${field.label}`;
           return (
-            <DropdownItem
-              key={column.label}
-              // Choosing the field already sorted by flips its direction.
-              onClick={() => onSortChange(column.sortField!)}
-              className={active ? 'font-semibold' : ''}
-              icon={
-                active ? (
-                  <SortArrow className="h-3.5 w-3.5" aria-hidden="true" />
-                ) : (
-                  <span className="inline-block w-3.5" />
-                )
-              }
+            <div
+              key={field.label}
+              data-ticket-inline-filter={field.label}
+              className="shrink-0 whitespace-nowrap"
             >
-              {column.label}
-              {/* The arrow is decoration; this says it for a screen reader, which
-                  has no column header to read the sort from on a phone. */}
-              {active && <span className="sr-only">{text.sorted(sort.direction)}</span>}
-            </DropdownItem>
+              <FilterDropdown
+                menuId={menuId}
+                activeMenuId={openMenuId}
+                boundaryRef={boundaryRef}
+                onOpenChange={(open) => onOpenMenuChange(open ? menuId : null)}
+                triggerAriaLabel={text.filterBy(field.label, selected)}
+                trigger={
+                  <span
+                    className={`flex items-center gap-1 rounded px-1 py-0.5 transition-colors ${
+                      selected
+                        ? 'text-primary'
+                        : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                    }`}
+                    title={selected ? `${field.label}: ${selected}` : `Filter by ${field.label}`}
+                  >
+                    {field.label}
+                    <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                }
+              >
+                <div role="group" aria-label={text.filterBy(field.label, selected)}>
+                  <TicketFilterItems filter={field.filter!} />
+                </div>
+              </FilterDropdown>
+            </div>
           );
         })}
+      </div>
+      <div ref={overflowTriggerRef} className="shrink-0">
+        <FilterDropdown
+          menuId={MENU_ID}
+          activeMenuId={openMenuId}
+          boundaryRef={boundaryRef}
+          onOpenChange={(open) => onOpenMenuChange(open ? MENU_ID : null)}
+          triggerAriaLabel={activeFilters ? text.triggerFiltered(activeFilters) : text.trigger}
+          trigger={
+            <span
+              className={`flex items-center rounded p-1.5 transition-colors ${
+                activeFilters ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            </span>
+          }
+        >
+          {activeFilters > 0 && (
+            <>
+              <DropdownItem onClick={onClearFilters}>{text.clearFilters}</DropdownItem>
+              <DropdownSeparator />
+            </>
+          )}
+          {/* Each section is a named group, so a screen reader hears which field a
+              choice belongs to, not only the choice. */}
+          <div role="group" aria-label={text.sortBy}>
+            <DropdownLabel>{text.sortBy}</DropdownLabel>
+            {fields
+              .filter((field) => field.sortField)
+              .map((field) => {
+                const active = sort.field === field.sortField;
+                return (
+                  <DropdownItem
+                    key={field.label}
+                    // Choosing the field already sorted by flips its direction.
+                    onClick={() => onSortChange(field.sortField!)}
+                    className={active ? 'font-semibold' : ''}
+                    icon={
+                      active ? (
+                        <SortArrow className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <span className="inline-block w-3.5" />
+                      )
+                    }
+                  >
+                    {field.label}
+                    {/* The arrow is decoration; this says it in words. */}
+                    {active && <span className="sr-only">{text.sorted(sort.direction)}</span>}
+                  </DropdownItem>
+                );
+              })}
+          </div>
 
-      {filters.map((column) => (
-        <React.Fragment key={column.label}>
-          <DropdownSeparator />
-          {/* The section names what is applied: bold on the choice below is
-              all that marks it otherwise, and a screen reader cannot hear bold. */}
-          <DropdownLabel>
-            {text.filterBy(column.label, selectedFilterLabel(column.filter!))}
-          </DropdownLabel>
-          <TicketFilterItems filter={column.filter!} />
-        </React.Fragment>
-      ))}
-    </FilterDropdown>
+          {collapsedFilters.map((field) => {
+            const label = text.filterBy(field.label, selectedFilterLabel(field.filter!));
+            return (
+              <React.Fragment key={field.label}>
+                <DropdownSeparator />
+                <div role="group" aria-label={label}>
+                  <DropdownLabel>{label}</DropdownLabel>
+                  <TicketFilterItems filter={field.filter!} />
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </FilterDropdown>
+      </div>
+    </div>
   );
 };

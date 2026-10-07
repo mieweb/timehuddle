@@ -2,10 +2,9 @@
  * TicketOpenClosedToggle — the choice between a view's open and closed tickets,
  * as a switcher that also says how many there are of each.
  *
- * The same control at every width, in two places: beside the search bar on a
- * wide screen, and in the table's own header on a phone, where the toolbar has
- * no room for it. The counts are the showing view's, after its search and
- * filters, so they change with the view and with what is typed.
+ * The same control in the list header at every width. The counts are the
+ * showing view's, after its search and filters, so they change with the view
+ * and with what is typed.
  */
 import React from 'react';
 

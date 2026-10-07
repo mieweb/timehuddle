@@ -22,7 +22,6 @@ import {
   Select,
   Text,
   Textarea,
-  useMediaQuery,
   useToast,
 } from '@mieweb/ui';
 import { Binoculars, CheckCheck, Plus } from 'lucide-react';
@@ -50,8 +49,7 @@ import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
-import { COMPACT_QUERY } from './TicketTable';
-import { TicketTablePanel, TicketViewControls } from './TicketTablePanel';
+import { TicketListPanel } from './TicketListPanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -318,9 +316,7 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
-  // On a phone the rows carry no checkbox until Select asks for them; the wide
-  // table always has its select column, so this is only read when compact.
-  const compact = useMediaQuery(COMPACT_QUERY);
+  // Rows carry no checkbox until Select asks for them, at every width.
   const [selecting, setSelecting] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement>(null);
   // The empty board's button hides itself by switching views. Focus goes to
@@ -414,11 +410,8 @@ export const TicketsPage: React.FC = () => {
     clearBoardSelection();
   }, [clearTicketsSelection, clearBoardSelection]);
 
-  // A selection belongs to the table it was made in, at the size it was made.
-  // Switching view, or crossing between the phone and wide layouts, starts
-  // clean: otherwise rows ticked in the wide table stay selected on a phone
-  // with no checkbox showing, and the bulk bar acts on rows nobody can see.
-  const selectionScope = `${activeView}|${compact}`;
+  // A selection belongs to the view it was made in; resizing keeps it visible.
+  const selectionScope = activeView;
   const lastSelectionScope = React.useRef(selectionScope);
   useEffect(() => {
     if (lastSelectionScope.current === selectionScope) return;
@@ -760,8 +753,8 @@ export const TicketsPage: React.FC = () => {
     </Button>
   );
 
-  // What both tabs' tables share; each tab adds its own view and labels.
-  const sharedTableProps = {
+  // What both tabs' lists share; each tab adds its own view and labels.
+  const sharedListProps = {
     selecting,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
@@ -787,24 +780,21 @@ export const TicketsPage: React.FC = () => {
               name="tickets-view"
               label={viewText.switcherLabel}
               hideLabel
-              // Beside the Select button on a phone, so it takes that button's height.
-              compact={compact}
+              compact
               options={VIEW_OPTIONS}
               value={activeView}
               onValueChange={setActiveView}
             />
-            {compact && (
-              <Button
-                variant={selecting ? 'primary' : 'secondary'}
-                size="sm"
-                aria-pressed={selecting}
-                rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-                onClick={toggleSelecting}
-                className="tickets-select-toggle shrink-0 rounded-lg"
-              >
-                {selecting ? viewText.doneSelecting : viewText.select}
-              </Button>
-            )}
+            <Button
+              variant={selecting ? 'primary' : 'secondary'}
+              size="sm"
+              aria-pressed={selecting}
+              rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+              onClick={toggleSelecting}
+              className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+            >
+              {selecting ? viewText.doneSelecting : viewText.select}
+            </Button>
           </div>
 
           {/* One toolbar for both views: it stays put when the tab changes. */}
@@ -821,11 +811,6 @@ export const TicketsPage: React.FC = () => {
               onToggleTimer={handleSuggestionTimer}
               inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
             />
-
-            <TicketViewControls
-              view={activeView === 'tickets' ? ticketsView : boardView}
-              loading={activeView === 'tickets' ? ticketsLoading : boardLoading}
-            />
           </div>
 
           {/* ── All Sources tab ── */}
@@ -833,8 +818,8 @@ export const TicketsPage: React.FC = () => {
             aria-label={viewText.allSources}
             className={viewPanelClass(activeView === 'tickets')}
           >
-            <TicketTablePanel
-              {...sharedTableProps}
+            <TicketListPanel
+              {...sharedListProps}
               view={ticketsView}
               loading={ticketsLoading}
               canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
@@ -854,9 +839,9 @@ export const TicketsPage: React.FC = () => {
             aria-label={viewText.myBoard}
             className={viewPanelClass(activeView === 'my-board')}
           >
-            <TicketTablePanel
-              {...sharedTableProps}
-              showTimerColumn
+            <TicketListPanel
+              {...sharedListProps}
+              showTimer
               view={boardView}
               loading={boardLoading}
               // Unresolvable board entries, announced politely.

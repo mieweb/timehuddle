@@ -48,7 +48,7 @@ test.describe('Unified table with Redmine rows', () => {
     await tickets.filterBySource('Redmine');
 
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(2);
-    await expect(tickets.activePanel.locator('tr[data-ticket-key="redmine:15"]')).toHaveCount(1);
+    await expect(tickets.activePanel.locator('[data-ticket-key="redmine:15"]')).toHaveCount(1);
     await expect(tickets.rowByTitle('Alpha intake validation')).toHaveCount(1);
   });
 
@@ -97,6 +97,7 @@ test.describe('Unified table with Redmine rows', () => {
     await expect(tickets.rowsFromSource('huddle')).toHaveCount(0);
     expect(await tickets.rowsFromSource('redmine').count()).toBeGreaterThan(0);
 
+    await tickets.sortFilterButton.click();
     await tickets.clearFiltersButton.click();
     await tickets.filterBySource('TimeHuddle');
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
@@ -108,9 +109,9 @@ test.describe('Unified table with Redmine rows', () => {
     // Sorts between the two Redmine subjects, so a per-source sort is visible.
     await tickets.createTicket('Mike huddle ticket');
 
-    await tickets.sortByColumn('Title');
+    await tickets.sortBy('Title');
 
-    const titles = await tickets.activePanel.locator('tr[data-ticket-id]').allInnerTexts();
+    const titles = await tickets.activePanel.locator('[data-ticket-id]').allInnerTexts();
     const ordered = titles.join(' | ');
     expect(ordered.indexOf('Alpha intake')).toBeLessThan(ordered.indexOf('Mike huddle'));
     expect(ordered.indexOf('Mike huddle')).toBeLessThan(ordered.indexOf('Zulu export'));

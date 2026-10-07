@@ -35,7 +35,7 @@ export async function goToTickets(page: Page): Promise<void> {
 export function ticketRow(page: Page, title: string) {
   return page
     .locator('.tickets-view-panel:visible')
-    .locator('tr[data-ticket-id]')
+    .locator('[data-ticket-id]')
     .filter({ hasText: title });
 }
 
