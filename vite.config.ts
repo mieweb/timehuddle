@@ -47,6 +47,7 @@ const capacitorStubs = isCapacitorBuild
       '@capacitor/push-notifications': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
       '@capacitor/core': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
       '@capacitor/share': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
+      '@capacitor/filesystem': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
     };
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as {

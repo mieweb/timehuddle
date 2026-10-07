@@ -13,6 +13,7 @@ import type {
   TicketSession,
 } from '../../../lib/api';
 import { formatDuration, formatTime } from '../../../lib/timeUtils';
+import { linkActivitySentence } from '../link/ticketLinkStrings';
 
 export interface ActivityEntry {
   /** Unique across kinds (prefixed by kind). */
@@ -34,7 +35,7 @@ function huddleEventLabel(event: ActivityLogItem): string {
     case 'ticket.created':
       return 'created this ticket';
     case 'ticket.updated':
-      return 'updated this ticket';
+      return linkActivitySentence(event.payload) ?? 'updated this ticket';
     case 'ticket.deleted':
       return 'deleted this ticket';
     case 'ticket.status_changed':

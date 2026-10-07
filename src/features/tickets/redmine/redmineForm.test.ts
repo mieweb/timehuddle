@@ -5,8 +5,11 @@ import { ApiError } from '../../../lib/api';
 import {
   UNASSIGNED,
   assigneeOptions,
+  MAX_SUBJECT_LENGTH,
   isStaleError,
+  matchPriorityId,
   mismatchWarning,
+  prefillFromTicket,
   toId,
   toOptions,
 } from './redmineForm';
@@ -79,5 +82,44 @@ describe('mismatchWarning', () => {
 
   it('names the fields in plain words', () => {
     expect(mismatchWarning(['status_id', 'assigned_to_id'])).toMatch(/status, assignee/);
+  });
+});
+
+describe('prefillFromTicket', () => {
+  it('carries the title, description and priority into the new issue', () => {
+    expect(
+      prefillFromTicket({ title: '  Fix the thing ', description: 'Steps…', priority: 'high' }),
+    ).toEqual({ subject: 'Fix the thing', description: 'Steps…', priority: 'high' });
+  });
+
+  it('cuts a title longer than Redmine allows, and tolerates no description', () => {
+    const prefill = prefillFromTicket({
+      title: 'x'.repeat(400),
+      description: null,
+      priority: null,
+    });
+    expect(prefill.subject).toHaveLength(MAX_SUBJECT_LENGTH);
+    expect(prefill.description).toBe('');
+  });
+});
+
+describe('matchPriorityId', () => {
+  const priorities = [
+    { id: 1, name: 'Low' },
+    { id: 2, name: 'Normal' },
+    { id: 3, name: 'High' },
+    { id: 4, name: 'Urgent' },
+  ];
+
+  it('maps TimeHuddle priorities onto Redmine\u2019s default names', () => {
+    expect(matchPriorityId(priorities, 'low')).toBe(1);
+    expect(matchPriorityId(priorities, 'medium')).toBe(2);
+    expect(matchPriorityId(priorities, 'high')).toBe(3);
+    expect(matchPriorityId(priorities, 'critical')).toBe(4);
+  });
+
+  it('is null when there is nothing to match, so the form keeps its default', () => {
+    expect(matchPriorityId(priorities, null)).toBeNull();
+    expect(matchPriorityId([{ id: 9, name: 'P1' }], 'high')).toBeNull();
   });
 });

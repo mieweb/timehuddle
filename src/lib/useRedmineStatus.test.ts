@@ -2,7 +2,12 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { redmineApi, type RedmineStatus } from './api';
-import { notifyRedmineChanged, REDMINE_CHANGED, useRedmineStatus } from './useRedmineStatus';
+import {
+  notifyRedmineChanged,
+  onOtherRedmineServer,
+  REDMINE_CHANGED,
+  useRedmineStatus,
+} from './useRedmineStatus';
 import { useSession } from './useSession';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -155,5 +160,29 @@ describe('useRedmineStatus', () => {
 
     // No act() wrapper: nothing should re-render, and React would warn if it did.
     expect(() => notifyRedmineChanged(CONNECTED)).not.toThrow();
+  });
+});
+
+describe('onOtherRedmineServer', () => {
+  const custom = { connected: true, customUrlAllowed: true, baseUrl: 'https://mine.example.com' };
+
+  it('is never true where custom URLs are off, or with no account', () => {
+    expect(onOtherRedmineServer(null)).toBe(false);
+    expect(onOtherRedmineServer({ connected: false })).toBe(false);
+    expect(onOtherRedmineServer({ connected: true, baseUrl: 'https://a.example.com' })).toBe(false);
+  });
+
+  it('compares the account\u2019s server with the deployment\u2019s', () => {
+    expect(onOtherRedmineServer({ ...custom, defaultBaseUrl: 'https://mine.example.com' })).toBe(
+      false,
+    );
+    expect(onOtherRedmineServer({ ...custom, defaultBaseUrl: 'https://ours.example.com' })).toBe(
+      true,
+    );
+  });
+
+  it('treats a deployment with no server of its own as another server, as the backend does', () => {
+    expect(onOtherRedmineServer({ ...custom, defaultBaseUrl: null })).toBe(true);
+    expect(onOtherRedmineServer(custom)).toBe(true);
   });
 });

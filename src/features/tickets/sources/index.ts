@@ -5,5 +5,6 @@ export {
   invalidateRedmineCache,
   useUnavailableRedmineBoardIds,
 } from './redmineSource';
+export { displaySourceId, linkedIssueKey, mergeLinked } from './linkedTickets';
 export * from './types';
 export { useUnifiedTickets } from './useUnifiedTickets';

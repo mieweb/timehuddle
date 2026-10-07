@@ -18,6 +18,7 @@ import {
   getMobileOS,
   getStoreOS,
   isMobileBrowser,
+  openExternalUrl,
   openNativePulseOrStore,
   openPulseAppOrStore,
   PULSE_STORE_URLS,
@@ -161,6 +162,33 @@ describe('openNativePulseOrStore (Capacitor native shell)', () => {
     await openNativePulseOrStore('pulsecam://open?ticket=123', 'ios');
 
     expect(openUrl).toHaveBeenCalledWith({ url: PULSE_STORE_URLS.ios });
+  });
+});
+
+describe('openExternalUrl', () => {
+  const url = 'https://apps.apple.com/us/app/timehuddle/id6763657217';
+
+  beforeEach(() => openUrl.mockReset());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('hands the link to the OS in the native shell', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    openUrl.mockResolvedValue(undefined);
+
+    await openExternalUrl(url);
+
+    expect(openUrl).toHaveBeenCalledWith({ url });
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('opens a new tab in a browser', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+
+    await openExternalUrl(url);
+
+    expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+    expect(openUrl).not.toHaveBeenCalled();
   });
 });
 

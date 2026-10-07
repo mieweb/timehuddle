@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { mergeLinked } from './linkedTickets';
 import { TICKET_SOURCES } from './registry';
 import type { TicketSourceContext, TicketSourceId, UnifiedTicket } from './types';
 
@@ -134,8 +135,10 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     }));
   }, []);
 
+  // Merged here, not inside a source: a live Huddle push replaces only the
+  // `huddle` partition, and the link overlay has to follow it.
   const tickets = useMemo(
-    () => TICKET_SOURCES.flatMap((source) => partitions[source.id]?.items ?? []),
+    () => mergeLinked(TICKET_SOURCES.flatMap((source) => partitions[source.id]?.items ?? [])),
     [partitions],
   );
 

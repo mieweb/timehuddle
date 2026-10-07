@@ -17,6 +17,7 @@ import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { linkActivityLabel } from '../tickets/link/ticketLinkStrings';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,11 @@ function metaForItem(item: ActivityLogItem): ActivityMeta {
           label: 'Changed ticket priority',
         };
       default:
-        return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Updated ticket' };
+        return {
+          icon: faListCheck,
+          iconClass: 'text-blue-500',
+          label: linkActivityLabel(action) ?? 'Updated ticket',
+        };
     }
   }
 

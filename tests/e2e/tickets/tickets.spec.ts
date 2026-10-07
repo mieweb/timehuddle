@@ -10,9 +10,16 @@
  * 7. Assign/unassign ticket
  * 8. Unified list: source filter, sorting, no view switcher
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { createTicket, ticketRow as rowFor } from './helpers';
+import { createTicket, goToTickets, ticketRow as rowFor } from './helpers';
+
+/**
+ * A ticket title in the table that is showing. A new ticket is also on its
+ * creator's My Board, and both tabs stay mounted, so the title is on the page twice.
+ */
+const inTable = (page: Page, title: string) =>
+  page.locator('.tickets-view-panel:visible').getByText(title);
 
 const TICKET_TITLE = `E2E Test Ticket ${Date.now()}`;
 const TICKET_TITLE_2 = `E2E Searchable Ticket ${Date.now()}`;
@@ -29,8 +36,7 @@ test.describe('Tickets', () => {
     // data another test happened to leave behind.
     await createTicket(page, `E2E Columns ${Date.now()}`);
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Verify correct URL
     expect(page.url()).toContain('/app/tickets');
@@ -54,8 +60,7 @@ test.describe('Tickets', () => {
     // default 30s so this doesn't flake under load.
     test.setTimeout(60000);
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Click New Ticket button
     await page.getByRole('button', { name: 'New Ticket' }).click();
@@ -69,19 +74,18 @@ test.describe('Tickets', () => {
 
     // Wait for ticket to appear in the list
     await page.waitForTimeout(2000);
-    await expect(page.getByText(TICKET_TITLE)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, TICKET_TITLE)).toBeVisible({ timeout: 10000 });
   });
 
   test('should create a ticket and search for it', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket first
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill(TICKET_TITLE_2);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
 
     // Search for the ticket
     await page
@@ -90,7 +94,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(500);
 
     // Ticket should still be visible
-    await expect(page.getByText(TICKET_TITLE_2)).toBeVisible();
+    await expect(inTable(page, TICKET_TITLE_2)).toBeVisible();
 
     // Clear search and verify all tickets show again
     await page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }).clear();
@@ -98,8 +102,7 @@ test.describe('Tickets', () => {
   });
 
   test('should open edit ticket modal with all components', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Wait for the org/team context to fully load before creating a ticket
     // (avoids the "No team available" modal that shows when org hasn't initialised yet).
@@ -110,7 +113,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(editTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(editTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, editTitle)).toBeVisible({ timeout: 10000 });
 
     // Open the ticket options menu
     const ticketRow = rowFor(page, editTitle).first();
@@ -127,7 +130,8 @@ test.describe('Tickets', () => {
     await expect(editModal.getByRole('heading', { name: 'Edit Ticket' })).toBeVisible();
     await expect(editModal.getByRole('textbox', { name: 'Title' })).toBeVisible();
     await expect(editModal.getByRole('textbox', { name: /Description/i })).toBeVisible();
-    await expect(editModal.getByRole('textbox', { name: /GitHub URL/i })).toBeVisible();
+    // A ticket's link is managed on its own page, not in this dialog.
+    await expect(editModal.getByRole('textbox', { name: /GitHub/i })).toHaveCount(0);
     await expect(editModal.getByText('Assignees')).toBeVisible();
     await expect(editModal.getByLabel(/Priority/i)).toBeVisible();
     await expect(editModal.getByRole('button', { name: 'Cancel' })).toBeVisible();
@@ -143,12 +147,11 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(2000);
 
     // Verify updated title appears
-    await expect(page.getByText(`${editTitle} - Updated`)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, `${editTitle} - Updated`)).toBeVisible({ timeout: 10000 });
   });
 
   test('should open ticket details and verify components', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket
     const detailTitle = `E2E Detail Test ${Date.now()}`;
@@ -156,7 +159,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(detailTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(detailTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, detailTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
     const ticketRow = rowFor(page, detailTitle).first();
@@ -192,13 +195,11 @@ test.describe('Tickets', () => {
     }
 
     // Navigate back to tickets list
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
   });
 
   test('should delete a ticket', async ({ page }) => {
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to delete
     const deleteTitle = `E2E Delete Test ${Date.now()}`;
@@ -206,7 +207,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(deleteTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(deleteTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, deleteTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
     const ticketRow = rowFor(page, deleteTitle).first();
@@ -224,14 +225,13 @@ test.describe('Tickets', () => {
 
     // Wait and verify ticket is gone
     await page.waitForTimeout(2000);
-    await expect(page.getByText(deleteTitle)).not.toBeVisible({ timeout: 5000 });
+    await expect(inTable(page, deleteTitle)).not.toBeVisible({ timeout: 5000 });
   });
 
   test('should assign and unassign a ticket', async ({ page }) => {
     // Navigate fresh to ensure no leftover modals
-    await page.goto('/app/tickets');
+    await goToTickets(page);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(1000);
 
     // Create a ticket to assign
@@ -240,7 +240,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(assignTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(assignTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, assignTitle)).toBeVisible({ timeout: 10000 });
 
     // Open edit modal to assign via checkboxes
     const ticketRow = rowFor(page, assignTitle).first();
@@ -268,11 +268,10 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(2000);
 
     // Verify the ticket still exists after assign
-    await expect(page.getByText(assignTitle).first()).toBeVisible({ timeout: 5000 });
+    await expect(inTable(page, assignTitle).first()).toBeVisible({ timeout: 5000 });
 
     // Reload the page to clear any overlays, then unassign
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
     await page.waitForTimeout(1000);
 
     // Open edit modal again to unassign
@@ -304,8 +303,7 @@ test.describe('Tickets', () => {
     // Set mobile viewport (iPhone 12)
     await page.setViewportSize({ width: 390, height: 844 });
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to test the dropdown
     const mobileTitle = `E2E Mobile Dropdown ${Date.now()}`;
@@ -313,7 +311,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(mobileTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(mobileTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, mobileTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
     const ticketRow = rowFor(page, mobileTitle).first();
@@ -371,8 +369,7 @@ test.describe('Tickets', () => {
     // Set tablet viewport (iPad)
     await page.setViewportSize({ width: 768, height: 1024 });
 
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+    await goToTickets(page);
 
     // Create a ticket to test the dropdown
     const tabletTitle = `E2E Tablet Dropdown ${Date.now()}`;
@@ -380,7 +377,7 @@ test.describe('Tickets', () => {
     await page.getByPlaceholder('Ticket title').fill(tabletTitle);
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.getByText(tabletTitle)).toBeVisible({ timeout: 10000 });
+    await expect(inTable(page, tabletTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
     const ticketRow = rowFor(page, tabletTitle).first();

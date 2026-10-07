@@ -71,6 +71,16 @@ export function linkedRedmineBaseUrl(storedUrl) {
   return (customRedmineUrlAllowed() && storedUrl) || optionalRedmineBaseUrl();
 }
 
+/**
+ * Whether `account` is on the deployment's own Redmine. A link from a ticket to
+ * an issue is shared by a team and stores the issue's number only, so it can
+ * only mean an issue on that one instance — never on a custom URL a single
+ * user linked (dev/test).
+ */
+export function onDefaultRedmine(account) {
+  return !customRedmineUrlAllowed() || account.baseUrl === optionalRedmineBaseUrl();
+}
+
 /** Whether this process is a production deployment (what `Meteor.isProduction` reads). */
 function inProduction() {
   return process.env.NODE_ENV === 'production';

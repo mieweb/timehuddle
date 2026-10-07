@@ -16,6 +16,7 @@ bar, and row component never learn where a ticket came from.
 | `huddleSource.ts`      | Adapter over `ticketApi` (team-scoped, full CRUD)                             |
 | `redmineSource.ts`     | Adapter over `redmineApi` (user-scoped via personal API key, read-only)       |
 | `useUnifiedTickets.ts` | Loads every source and merges the results                                     |
+| `linkedTickets.ts`     | Shows a linked external issue on the ticket that links to it                  |
 | `index.ts`             | Public surface — import from here, not from an adapter                        |
 
 ## Adding a source
@@ -41,9 +42,16 @@ the new source up from the registry.
 
 - **Normalize at read time, never persist.** No source information is written to
   the core `Ticket` model. The `key` field (`` `${sourceId}:${id}` ``) is row
-  identity for React and nothing more.
+  identity for React and nothing more. The one exception is a ticket's link to an
+  external issue (`linkedIssue`, see `../link/README.md`): it stores the issue's
+  source and id, and nothing the issue contains.
 - **Ids are namespaced per source.** A Huddle user id and a Redmine user id are
   different things that may collide. Never compare or merge them across sources.
+  A link is the one place a ticket names an id in another source, and it names
+  that source explicitly; `linkedTickets.ts` is the only code that follows it.
+- **A linked issue is not a row.** It is shown on the ticket that links to it,
+  and its status replaces the ticket's, so it decides Open/Closed. A viewer who
+  cannot read the issue sees the ticket with its own status.
 - **`status.native` is what the row shows; `status.isClosed` is what we filter
   on.** It is the only cross-source status fact we derive, and it drives the
   Open/Closed tabs. Redmine statuses are instance-defined free text, so the name

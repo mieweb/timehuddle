@@ -280,12 +280,16 @@ async function listIssuesByIdsChunked(account, issueIds, options) {
 }
 
 /**
- * The pinned and My Board ids to fetch, board first, without repeats, bounded.
+ * The My Board, pinned and ticket-linked ids to fetch, without repeats, bounded.
  * Board first because an entry left unresolved is a row the user put on their
- * board by hand, now missing from it.
+ * board by hand, now missing from it. Linked issues last: they only decorate a
+ * ticket that shows without them, so they must never cost a pinned row its place.
  */
-function keptIssueIds(pinnedIds = [], boardIds = []) {
-  return [...new Set([...boardIds, ...pinnedIds].map(Number))].slice(0, MAX_KEPT_ISSUES);
+function keptIssueIds(pinnedIds = [], boardIds = [], linkedIds = []) {
+  return [...new Set([...boardIds, ...pinnedIds, ...linkedIds].map(Number))].slice(
+    0,
+    MAX_KEPT_ISSUES,
+  );
 }
 
 /**
@@ -297,15 +301,15 @@ function keptIssueIds(pinnedIds = [], boardIds = []) {
  * slow query cannot spend the whole budget.
  *
  * `activity` is skipped when the caller's Redmine id is unknown, and `kept` (the
- * pinned and My Board issues, fetched together) when there are none — there is
- * nothing to ask in either case.
+ * pinned, My Board and ticket-linked issues, fetched together) when there are
+ * none — there is nothing to ask in either case.
  */
 async function gatherRemoteSignals(
   account,
-  { from, redmineUserId = null, pinnedIds = [], boardIds = [] } = {},
+  { from, redmineUserId = null, pinnedIds = [], boardIds = [], linkedIds = [] } = {},
 ) {
   const bound = { timeoutMs: SIGNAL_TIMEOUT_MS };
-  const keptIds = keptIssueIds(pinnedIds, boardIds);
+  const keptIds = keptIssueIds(pinnedIds, boardIds, linkedIds);
   const tasks = [
     ['assigned', () => listAssignedIssues(account, bound)],
     ['watching', () => listWatchedIssues(account, bound)],
@@ -353,6 +357,9 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * @param {number[]} [context.pinnedIds]
  * @param {number[]} [context.boardIds]
  * @param {number[]} [context.runningIds]
+ * @param {number[]} [context.linkedIds]  issues that TimeHuddle tickets the caller
+ *   can see are linked to. Not a relevance signal: they are returned apart, as
+ *   `linkedIssues`, and never join the scored list on that account
  * @param {number|null} [context.redmineUserId]
  * @param {(assignedIssueIds: number[], assignedKnown: boolean) =>
  *   Promise<{hiddenIds?: number[], removedIds?: number[]}>} [context.resolvePrefs]
@@ -362,10 +369,11 @@ const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) =>
  * @param {number} [context.now]  the date the decay and `from` are measured from
  * @param {() => number} [context.clock]  wall clock for the time budget; separate
  *   from `now` so a test can fix the date and still move time along
- * @returns {Promise<{issues: RelevantIssue[], partial: boolean, unavailableBoardIds: number[]}>}
+ * @returns {Promise<{issues: RelevantIssue[], partial: boolean, unavailableBoardIds: number[], linkedIssues: Array<ReturnType<typeof toIssue>>}>}
  *   `unavailableBoardIds` — My Board ids Redmine was asked for and did not
  *   return: deleted, or no longer visible to the caller. Empty whenever that
  *   question went unanswered, so it never names an issue that merely failed to load.
+ *   `linkedIssues` — the `linkedIds` Redmine returned, in the slim issue shape.
  */
 export async function buildRelevantIssues(
   account,
@@ -373,6 +381,7 @@ export async function buildRelevantIssues(
     pinnedIds = [],
     boardIds = [],
     runningIds = [],
+    linkedIds = [],
     redmineUserId = null,
     resolvePrefs,
     now = Date.now(),
@@ -387,6 +396,7 @@ export async function buildRelevantIssues(
     redmineUserId,
     pinnedIds,
     boardIds,
+    linkedIds,
   });
 
   // Every question failing is a different situation from some of them failing:
@@ -413,9 +423,16 @@ export async function buildRelevantIssues(
   // Only a `kept` fetch that answered can say an issue is gone; one that failed
   // says nothing, and the board keeps its entries.
   const keptReturned = new Set(issueIdsIn(answered.kept));
-  const keptAsked = new Set(keptIssueIds(pinnedIds, boardIds));
+  const keptAsked = new Set(keptIssueIds(pinnedIds, boardIds, linkedIds));
   const unavailableBoardIds =
     'kept' in answered ? boardIds.filter((id) => keptAsked.has(id) && !keptReturned.has(id)) : [];
+
+  // Read from the raw answer, not `issuesById`: hiding an issue from the
+  // suggestions must not blank the ticket that is linked to it.
+  const keptById = new Map((answered.kept ?? []).map((raw) => [raw?.id, raw]));
+  const linkedIssues = [...new Set(linkedIds)]
+    .filter((id) => keptById.has(id))
+    .map((id) => toIssue(keptById.get(id)));
 
   const logged = latestByIssue(answered.logged);
   const activity = latestByIssue(answered.activity);
@@ -470,6 +487,7 @@ export async function buildRelevantIssues(
     issues: capKeepingTableRows(issues),
     partial: failures.length > 0 || resolveFailed,
     unavailableBoardIds,
+    linkedIssues,
   };
 }
 

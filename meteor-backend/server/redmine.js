@@ -25,6 +25,7 @@ import {
   customRedmineUrlAllowed,
   linkedRedmineBaseUrl,
   normalizeRedmineUrl,
+  onDefaultRedmine,
   optionalRedmineBaseUrl,
   redmineUrlRefusal,
 } from './redmine-client';
@@ -260,7 +261,7 @@ function activitySelection(activities, chosenId) {
  * eligible — `push` re-derives this rather than trusting what the client sends.
  */
 async function buildPreviewRows(userId, account) {
-  const totals = await redmineTicketDaysFor(userId);
+  const totals = await redmineTicketDaysFor(userId, { includeLinked: onDefaultRedmine(account) });
   if (!totals.length) return [];
 
   // Only the time not already covered by earlier entries.
@@ -552,11 +553,13 @@ Meteor.methods({
     ) {
       throw new Meteor.Error('bad-request', 'A ticket id and a YYYY-MM-DD date are required.');
     }
-    await requireRedmineAccount(userId);
+    const account = await requireRedmineAccount(userId);
 
     // The push lock: a push running now could otherwise send the same seconds.
     return withPushLock(userId, async () => {
-      const totals = (await redmineTicketDaysFor(userId)).filter(
+      const totals = (
+        await redmineTicketDaysFor(userId, { includeLinked: onDefaultRedmine(account) })
+      ).filter(
         (total) => String(total.ticketId) === ticketId && total.date === date,
       );
       const [unsent] = unsentTotals(totals, await pushLedgerFor(userId));
