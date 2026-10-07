@@ -777,43 +777,46 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
   const team = await findUserTeam(userId, teamId);
   if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
-  // A plan that lands while this team's shift is already open (clocked in by
-  // hand meanwhile) joins that shift instead of restarting it. Decided here,
-  // next to the insert, so the window for a hand clock-in to slip between the
-  // look and the act is as small as the service can make it (#642's unique
-  // open-shift index closes it).
+  const now = Date.now();
+  let created;
   if (reuseOpen) {
-    const open = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
-    if (open) {
+    // A plan that lands while this team's shift is already open (clocked in by
+    // hand meanwhile) joins that shift. One upsert loads or opens it, so this
+    // path never closes a shift a concurrent hand clock-in just opened.
+    const { value: shift, lastErrorObject } = await ClockEvents.rawCollection().findOneAndUpdate(
+      { userId, teamId, endTime: null },
+      { $setOnInsert: { startTime: now, accumulatedTime: 0, autoClockoutAgreed: null } },
+      { upsert: true, returnDocument: 'after', includeResultMetadata: true }
+    );
+    if (lastErrorObject?.updatedExisting) {
       if (planPostId && isValidId(planPostId)) {
         // Not `updatedAt` — linking a session isn't an edit (see below).
         await rawDb()
           .collection('huddlePosts')
           .updateOne(
             { _id: new ObjectId(planPostId), userId, teamId: String(teamId) },
-            { $set: { clockEventId: open._id.toHexString() } }
+            { $set: { clockEventId: shift._id.toHexString() } }
           );
       }
-      return toPublicClockEvent(open, await findBreaksForEvent(open._id.toHexString()));
+      return toPublicClockEvent(shift, await findBreaksForEvent(shift._id.toHexString()));
     }
+    created = shift;
+  } else {
+    await ClockEvents.updateAsync(
+      { userId, teamId, endTime: null },
+      { $set: { endTime: now } },
+      { multi: true }
+    );
+    const _id = await ClockEvents.insertAsync({
+      userId,
+      teamId,
+      startTime: now,
+      accumulatedTime: 0,
+      autoClockoutAgreed: null,
+      endTime: null,
+    });
+    created = await ClockEvents.findOneAsync(_id);
   }
-
-  const now = Date.now();
-  await ClockEvents.updateAsync(
-    { userId, teamId, endTime: null },
-    { $set: { endTime: now } },
-    { multi: true }
-  );
-
-  const _id = await ClockEvents.insertAsync({
-    userId,
-    teamId,
-    startTime: now,
-    accumulatedTime: 0,
-    autoClockoutAgreed: null,
-    endTime: null,
-  });
-  const created = await ClockEvents.findOneAsync(_id);
   const pub = toPublicClockEvent(created, []);
 
   // Plan-first flow: link the just-posted plan to this session so the

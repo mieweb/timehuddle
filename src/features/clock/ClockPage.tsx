@@ -305,14 +305,23 @@ export const ClockPage: React.FC = () => {
   // change itself remounts the editor (it is in the editor's key), so no
   // extra remount here: one on top of it unmounted the editor mid-setup.
   // Only the draft held when that link was handed out is cleared: anything
-  // written since (a plan posted by hand, then a wrap-up begun) is kept.
+  // written since (a plan posted by hand, then a wrap-up begun) is kept. The
+  // generation advances on each hand post, so equal text in a later draft
+  // still counts as later.
   const textRef = useRef(text);
   textRef.current = text;
-  const planDraftRef = useRef<string | null>(null);
-  const wrapUpDraftRef = useRef<string | null>(null);
+  const draftGenRef = useRef(0);
+  type DraftSnapshot = { text: string; gen: number } | null;
+  const planDraftRef = useRef<DraftSnapshot>(null);
+  const wrapUpDraftRef = useRef<DraftSnapshot>(null);
   const refreshClockFor =
-    (draftRef: React.MutableRefObject<string | null>) => (status: PulseUploadStatus) => {
-      if (status.state === 'done' && textRef.current === draftRef.current) {
+    (draftRef: React.MutableRefObject<DraftSnapshot>) => (status: PulseUploadStatus) => {
+      const draft = draftRef.current;
+      if (
+        status.state === 'done' &&
+        draft?.gen === draftGenRef.current &&
+        draft.text === textRef.current
+      ) {
         setText('');
         seededTokenRef.current = null;
       }
@@ -320,13 +329,15 @@ export const ClockPage: React.FC = () => {
       refetchClock();
     };
   // The hooks compare destinations by value and drop a link whose destination
-  // changed, so the date and the session a link was reserved for hold still
-  // while it is waiting: midnight passing, or a newer shift opened by hand,
-  // must not stop the watch on a video that will still land where it said.
+  // changed, so the date, team and session a link was reserved for hold still
+  // while it is waiting: midnight passing, a team switch, or a newer shift
+  // opened by hand must not stop the watch on a video that will still land
+  // where it said.
   const todayStr = toDateString(new Date());
   const [postDate, setPostDate] = useState(todayStr);
+  const [planTeamId, setPlanTeamId] = useState(gateTeamId ?? '');
   const planPulse = usePulseUpload(
-    { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate },
+    { kind: 'clock-plan', teamId: planTeamId, postDate },
     { onSettled: refreshClockFor(planDraftRef) },
   );
   // The session a wrap-up is for, kept after it ends: the wrap-up landing is
@@ -339,10 +350,10 @@ export const ClockPage: React.FC = () => {
   const planLinkId = planPulse.link?.videoid;
   const wrapUpLinkId = wrapUpPulse.link?.videoid;
   useEffect(() => {
-    if (planLinkId) planDraftRef.current = textRef.current;
+    if (planLinkId) planDraftRef.current = { text: textRef.current, gen: draftGenRef.current };
   }, [planLinkId]);
   useEffect(() => {
-    if (wrapUpLinkId) wrapUpDraftRef.current = textRef.current;
+    if (wrapUpLinkId) wrapUpDraftRef.current = { text: textRef.current, gen: draftGenRef.current };
   }, [wrapUpLinkId]);
   // Each link holds its own destination still while it is waiting and while
   // its result is on screen: a plan still uploading must not keep the wrap-up
@@ -361,6 +372,9 @@ export const ClockPage: React.FC = () => {
       setWrapUpSessionId(activeSessionId);
     }
   }, [wrapUpBusy, activeSessionId, wrapUpSessionId]);
+  useEffect(() => {
+    if (!planBusy && (gateTeamId ?? '') !== planTeamId) setPlanTeamId(gateTeamId ?? '');
+  }, [planBusy, gateTeamId, planTeamId]);
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
@@ -392,6 +406,7 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      draftGenRef.current += 1;
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -456,6 +471,7 @@ export const ClockPage: React.FC = () => {
           attachments: postAttachments,
         });
       }
+      draftGenRef.current += 1;
       setText('');
       cachedPlanPostIdRef.current = null;
       await clockOut();
