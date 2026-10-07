@@ -14,6 +14,10 @@ import { Tickets, Teams, isValidId, isObjectIdHex, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
+import { addBoardEntryIfRoom } from './my-board';
+import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
+import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
+import { HUDDLE } from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -33,7 +37,7 @@ async function getActor(userId) {
  * `activities` collection. Errors are swallowed — activity logging must never
  * break callers.
  */
-async function emitTicketActivity(userId, teamId, type, payload) {
+export async function emitTicketActivity(userId, teamId, type, payload) {
   try {
     const actor = await getActor(userId);
     await rawDb().collection('activities').insertOne({
@@ -52,7 +56,7 @@ async function emitTicketActivity(userId, teamId, type, payload) {
 }
 
 /** Convert a stored ticket document into the API/DDP shape (hex id). */
-function toPublicTicket(doc) {
+export function toPublicTicket(doc) {
   const { _id, ...rest } = doc;
   return { id: _id.toHexString ? _id.toHexString() : String(_id), ...rest };
 }
@@ -101,6 +105,12 @@ async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTi
   );
 }
 
+const LINKED_TO_REDMINE =
+  'This ticket is linked to a Redmine issue. Remove that link before adding another one.';
+// The link is rendered as an `href` for the whole team, so it is checked here
+// as well as in the form: this method is callable without the form.
+const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
+
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). */
   async 'tickets.list'({ teamId } = {}) {
@@ -129,6 +139,9 @@ Meteor.methods({
     if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
       throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
     }
+    if (typeof github === 'string' && github.trim() && !isHttpsUrl(github.trim())) {
+      throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
+    }
     const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
     const _id = await Tickets.insertAsync({
@@ -144,6 +157,11 @@ Meteor.methods({
     });
     const doc = await Tickets.findOneAsync(_id);
     const createdTicketId = doc._id.toHexString();
+    // A new ticket starts on its creator's My Board. Best-effort: a full board,
+    // or a failed write, must not fail the create.
+    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId: createdTicketId }).catch((err) =>
+      console.error('[ticket] add to My Board failed:', err),
+    );
     await emitTicketActivity(identity.userId, teamId, 'ticket.created', {
       ticketId: createdTicketId,
       ticketTitle: doc.title,
@@ -162,6 +180,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
+    await assertUnlocked(ticket, userId);
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
     }
@@ -206,6 +225,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
+    await assertUnlocked(ticket, userId);
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) {
@@ -215,6 +235,15 @@ Meteor.methods({
     }
     if (github !== undefined) {
       if (typeof github !== 'string') throw new Meteor.Error('validation-error', 'github must be a string');
+      if (github.trim() && !isHttpsUrl(github.trim())) {
+        throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
+      }
+      // A ticket has one link. The Redmine link is removed through
+      // `tickets.unlink`, which tells the people it affects; it is never
+      // dropped as a side effect of an edit.
+      if (github.trim() && linkedIssueIdOf(ticket)) {
+        throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
+      }
       $set.github = github;
     }
     if (description !== undefined) {
@@ -223,7 +252,18 @@ Meteor.methods({
       }
       $set.description = description;
     }
-    await Tickets.updateAsync(new Mongo.ObjectID(ticketId), { $set });
+    // The check above read the ticket a moment ago. Writing a GitHub URL only
+    // while the ticket is still unlinked keeps a link made meanwhile from
+    // leaving the ticket with both.
+    const writesGithub = typeof $set.github === 'string' && $set.github.trim() !== '';
+    const changed = await Tickets.updateAsync(
+      {
+        _id: new Mongo.ObjectID(ticketId),
+        ...(writesGithub ? { linkedIssue: { $exists: false } } : {}),
+      },
+      { $set },
+    );
+    if (!changed) throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
     await emitTicketActivity(identity.userId, updated.teamId, 'ticket.updated', {
       ticketId,
@@ -239,6 +279,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'delete');
+    await assertUnlocked(ticket, userId);
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { status: 'deleted', updatedAt: new Date() },
     });
@@ -260,6 +301,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'assign');
+    await assertUnlocked(ticket, userId);
     await requireTeamAssignees(ticket.teamId, assignedToUserIds);
 
     // Newly added assignees (not previously assigned) — notify these only.
@@ -312,8 +354,19 @@ Meteor.methods({
     if (!Array.isArray(ticketIds)) {
       throw new Meteor.Error('validation-error', 'ticketIds must be an array');
     }
-    const validIds = ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id));
-    if (validIds.length === 0) return { modified: 0 };
+    const requestedIds = ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id));
+    // A linked ticket someone is timing is left as it is and reported back,
+    // rather than failing the whole batch for the tickets that can change.
+    // `lockedIds` is for callers of the API (agents, scripts): no screen in the
+    // app changes status in bulk today, so there is nowhere in the UI to say it.
+    const linked = await Tickets.find(
+      { _id: { $in: requestedIds }, teamId, linkedIssue: { $exists: true } },
+      { fields: { linkedIssue: 1, teamId: 1 } },
+    ).fetchAsync();
+    const holders = await findLockHoldersFor(linked.filter(linkedIssueIdOf));
+    const lockedIds = [...holders].filter(([, held]) => held.length > 0).map(([id]) => id);
+    const validIds = requestedIds.filter((id) => !lockedIds.includes(id.toHexString()));
+    if (validIds.length === 0) return { modified: 0, lockedIds };
     const $set = {
       status,
       ...(status === 'reviewed' ? { reviewedBy: identity.userId, reviewedAt: new Date() } : {}),
@@ -337,7 +390,7 @@ Meteor.methods({
         })
       )
     );
-    return { modified };
+    return { modified, lockedIds };
   },
 
   /** Get a single ticket by ID. Mirrors TicketService.findOne. */

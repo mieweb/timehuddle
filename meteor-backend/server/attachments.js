@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { REDMINE, resolveTicketRef } from './ticket-refs';
+import { isTeamAdminOrOrgOwner } from './org-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -74,16 +75,17 @@ export async function createAttachment({ url, type, title, thumbnail, attachedTo
 async function findTeam(teamId) {
   const teams = rawDb().collection('teams');
   return (
-    (await teams.findOne({ _id: teamId }, { projection: { admins: 1 } })) ??
+    (await teams.findOne({ _id: teamId }, { projection: { admins: 1, orgId: 1 } })) ??
     (isObjectIdHex(teamId)
-      ? await teams.findOne({ _id: new ObjectId(teamId) }, { projection: { admins: 1 } })
+      ? await teams.findOne({ _id: new ObjectId(teamId) }, { projection: { admins: 1, orgId: 1 } })
       : null)
   );
 }
 
 /**
  * A clock session's attachments are the session's own: its owner's, and its
- * team's admins' (who review the timesheet they sit on).
+ * team's admins' (who review the timesheet they sit on). An organization's
+ * owners count as every team's admins, as they do everywhere else.
  */
 async function assertCanReachSession(userId, id) {
   if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Clock session not found');
@@ -93,7 +95,8 @@ async function assertCanReachSession(userId, id) {
   if (!session) throw new Meteor.Error('not-found', 'Clock session not found');
   if (session.userId === userId) return;
   const team = await findTeam(String(session.teamId ?? ''));
-  if (!team?.admins?.includes(userId)) throw new Meteor.Error('forbidden', 'Not your clock session');
+  const reviews = team && (await isTeamAdminOrOrgOwner({ ...team, admins: team.admins ?? [] }, userId));
+  if (!reviews) throw new Meteor.Error('forbidden', 'Not your clock session');
 }
 
 /**

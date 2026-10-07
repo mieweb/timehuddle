@@ -114,9 +114,11 @@ export function conversationList(page: Page): Locator {
   return page.locator('[data-slot="superchat-conversations"]');
 }
 
-/** One row per conversation in the inbox list. */
+/** One row per conversation in the inbox list (the "load older" footer is not one). */
 export function conversationRows(page: Page): Locator {
-  return page.locator('[data-slot="superchat-conversation-list"] [role="listitem"]');
+  return page.locator(
+    '[data-slot="superchat-conversation-list"] [role="listitem"]:not([data-slot="superchat-conversation-list-footer"])',
+  );
 }
 
 /** The inbox search box (in the list header once the inbox is on screen). */
@@ -226,6 +228,38 @@ export async function seedClockSession(params: {
     }),
   );
   return insertedId.toHexString();
+}
+
+/**
+ * Insert a post created `daysAgo` days back straight into the test DB — the API
+ * always stamps "now", and the feed window is measured on `createdAt`. Returns
+ * the post id; pair with {@link deletePost}.
+ */
+export async function seedPostDaysAgo(params: {
+  teamId: string;
+  userId: string;
+  text: string;
+  daysAgo: number;
+}): Promise<string> {
+  const createdAt = new Date(Date.now() - params.daysAgo * 24 * 60 * 60 * 1000);
+  const { insertedId } = await withDb((db) =>
+    db.collection('huddlePosts').insertOne({
+      teamId: params.teamId,
+      userId: params.userId,
+      content: { text: params.text, mentions: [] },
+      attachments: [],
+      likes: [],
+      commentCount: 0,
+      createdAt,
+      updatedAt: createdAt,
+    }),
+  );
+  return insertedId.toHexString();
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  const { ObjectId } = await import('mongodb');
+  await withDb((db) => db.collection('huddlePosts').deleteOne({ _id: new ObjectId(postId) }));
 }
 
 export async function deleteClockSession(clockEventId: string): Promise<void> {

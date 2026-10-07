@@ -36,6 +36,7 @@ const huddleTicket: Ticket = {
   reviewedAt: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-02-01T00:00:00.000Z',
+  linkedIssue: null,
 };
 
 const redmineIssue: RedmineIssue = {
@@ -74,6 +75,7 @@ describe('huddleSource.toUnified', () => {
       externalUrl: null,
       externalRef: null,
       sharedWithTimeharbor: false,
+      linked: null,
       capabilities: huddleSource.capabilities,
     });
   });
@@ -102,6 +104,26 @@ describe('huddleSource.toUnified', () => {
       native: status,
       isClosed,
     });
+  });
+
+  it('carries the id of the issue a ticket is linked to, and nothing else about it', () => {
+    const linked = { ...huddleTicket, linkedIssue: { source: 'redmine' as const, id: '482' } };
+    expect(huddleSource.toUnified(linked, ctx).linked).toEqual({
+      sourceId: 'redmine',
+      id: '482',
+      ref: '#482',
+      status: null,
+      assignee: null,
+    });
+  });
+
+  it('never turns a value that is not a web address into a link', () => {
+    for (const github of ['javascript:alert(1)', 'data:text/html,x', 'not a link']) {
+      expect(
+        huddleSource.toUnified({ ...huddleTicket, github }, ctx).externalRef,
+        github,
+      ).toBeNull();
+    }
   });
 
   it('defaults a blank status to open', () => {
@@ -140,6 +162,7 @@ describe('redmineSource.toUnified', () => {
       externalUrl: 'https://redmine.example.com/issues/101',
       externalRef: null,
       sharedWithTimeharbor: false,
+      linked: null,
       capabilities: redmineSource.capabilities,
     });
   });
@@ -180,6 +203,11 @@ describe('redmineSource.toUnified', () => {
     expect(unified.container).toBeNull();
     expect(unified.assignees).toEqual([]);
     expect(unified.priority).toBeNull();
+  });
+
+  it('marks an issue fetched only for a link, so it never becomes a row', () => {
+    expect(redmineSource.toUnified(raw, ctx).linkOnly).toBeUndefined();
+    expect(redmineSource.toUnified({ ...raw, linkOnly: true }, ctx).linkOnly).toBe(true);
   });
 
   it('can be edited but never deleted from TimeHuddle (M6)', () => {

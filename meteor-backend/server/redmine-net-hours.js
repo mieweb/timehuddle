@@ -46,3 +46,36 @@ export function sumClosedSessions(sessions) {
   }
   return Math.floor(total);
 }
+
+/**
+ * Group closed sessions into ticket-day totals.
+ *
+ * `keyOf(session)` names the ticket-day a session belongs to (`ticketDayKey`),
+ * or null to leave it out. Time reaches a Redmine issue two ways — a timer on
+ * the issue itself, and a timer on a TimeHuddle ticket linked to it — and both
+ * pool into the same issue-day, because Redmine holds one total per issue.
+ *
+ * Days with no closed time are dropped: a still-running timer has no final
+ * duration, and a pushed entry can never be corrected.
+ *
+ * @template {{endTime?: number|null, durationSeconds?: number|null}} T
+ * @param {T[]} sessions
+ * @param {(session: T) => string | null | undefined} keyOf
+ * @returns {Array<{ticketId: string, date: string, seconds: number}>}
+ */
+export function ticketDayTotals(sessions, keyOf) {
+  const byKey = new Map();
+  for (const session of sessions ?? []) {
+    const key = keyOf(session);
+    if (!key) continue;
+    const bucket = byKey.get(key) ?? [];
+    bucket.push(session);
+    byKey.set(key, bucket);
+  }
+  return [...byKey.entries()]
+    .map(([key, bucket]) => {
+      const [ticketId, date] = key.split('|');
+      return { ticketId, date, seconds: sumClosedSessions(bucket) };
+    })
+    .filter((total) => total.seconds > 0);
+}

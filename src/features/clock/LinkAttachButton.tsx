@@ -120,7 +120,7 @@ export const LinkAttachButton: React.FC<LinkAttachButtonProps> = ({ onAdd, disab
         <ModalFooter>
           <ButtonGroup>
             <Button size="sm" variant="ghost" onClick={close}>
-              <FontAwesomeIcon icon={faXmark} className="mr-1.5" aria-hidden="true" />
+              <FontAwesomeIcon icon={faXmark} className="me-1.5" aria-hidden="true" />
               Close
             </Button>
             <Button size="sm" onClick={handleAdd} isLoading={adding} disabled={!value.trim()}>

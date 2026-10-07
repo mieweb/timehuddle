@@ -29,6 +29,7 @@ import { Capacitor } from '@capacitor/core';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useEffect, useState } from 'react';
 
+import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { notificationApi } from '../lib/api';
 
 // Detect page reload once at module load time (before React mounts).
@@ -252,6 +253,8 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
           </div>
         ))}
       </nav>
+
+      <WhatsNewBanner placement="sidebar" collapsed={!expanded} />
 
       {/* App info + test push — bottom of sidebar */}
       <div className="shrink-0 space-y-2 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">

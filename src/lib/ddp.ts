@@ -14,6 +14,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { toLinkedIssue } from './ticketLink';
+
 const meteorBase =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
@@ -620,6 +622,7 @@ export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,
     sharedWithTimeharbor: doc.sharedWithTimeharbor as boolean | undefined,
+    linkedIssue: toLinkedIssue(doc.linkedIssue),
   };
 }
 

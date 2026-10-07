@@ -21,12 +21,15 @@ import {
   TableHeader,
   TableRow,
   Text,
+  useMediaQuery,
 } from '@mieweb/ui';
 import React from 'react';
 
 import { MINIMAL_SCROLLBAR_CLASS } from '../../ui/scrollbar';
 
 import { TicketColumnHeader, type TicketColumnFilter } from './TicketColumnHeader';
+import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
+import { TicketSortFilterMenu, type TicketColumn } from './TicketSortFilterMenu';
 import { TicketTableRow } from './TicketTableRow';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
 import {
@@ -42,8 +45,18 @@ import {
   type TicketFilters,
 } from './ticketFilters';
 
+const TITLE_COLUMN: TicketColumn = { label: 'Title', sortField: 'title' };
+
 /** Column count including select and actions (the timer column is extra). */
 const COLUMN_COUNT = 10;
+/** The compact (phone) table: the ticket and its actions (select and timer are extra). */
+const COMPACT_COLUMN_COUNT = 2;
+/**
+ * Below this the table is compact: each row carries its facts under the title
+ * and nothing scrolls sideways. Tailwind's `md`, where the page's own padding
+ * and the table card's frame change too.
+ */
+export const COMPACT_QUERY = '(max-width: 767px)';
 
 /**
  * Fixed pixel width per column (Title excepted, which flexes to fill the
@@ -54,6 +67,8 @@ const COLUMN_COUNT = 10;
 const COLUMN_WIDTH = {
   select: 44,
   timer: 56,
+  /** The compact row's timer button is smaller, so its column is too. */
+  timerCompact: 48,
   ref: 90,
   source: 130,
   status: 140,
@@ -66,16 +81,23 @@ const COLUMN_WIDTH = {
 
 /** Sum of the fixed columns plus a readable floor for the flexible Title column. */
 const FIXED_COLUMN_WIDTH = Object.entries(COLUMN_WIDTH)
-  .filter(([key]) => key !== 'timer')
+  .filter(([key]) => key !== 'timer' && key !== 'timerCompact')
   .reduce((sum, [, w]) => sum + w, 0);
 const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
-// The app's minimal scrollbar, as a thin horizontal bar.
-const SCROLLBAR_CLASS = `w-full [&::-webkit-scrollbar]:h-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
+// The table's scroller: rows scroll under the fixed header, columns sideways,
+// both with the app's minimal thin scrollbar.
+const SCROLL_AREA_CLASS = `ticket-table-scroll min-h-0 w-full flex-1 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
 
 export interface TicketTableProps {
-  /** One page of rows, already filtered and sorted. */
+  /** The rows to list, already filtered and sorted. */
   tickets: UnifiedTicket[];
+  /**
+   * Changes when the search, a filter, the sort or Open/Closed does. The table
+   * scrolls back to its first row then: the old position means nothing in a
+   * different list. New rows arriving in the same list leave it alone.
+   */
+  listKey: string;
   /** Everything matching the search, used to build the filter menus. */
   optionSource: UnifiedTicket[];
   loading: boolean;
@@ -85,6 +107,7 @@ export interface TicketTableProps {
   onSortChange: (field: SortField) => void;
   filters: TicketFilters;
   onFiltersChange: (filters: TicketFilters) => void;
+  onClearFilters: () => void;
   openMenuId: string | null;
   onOpenMenuChange: (menuId: string | null) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
@@ -98,6 +121,16 @@ export interface TicketTableProps {
   /** Total across all pages, for the screen-reader status line. */
   totalCount: number;
   showClosed: boolean;
+  onShowClosedChange: (showClosed: boolean) => void;
+  /** How many open and closed tickets the view has, after its search and filters. */
+  openCount: number;
+  closedCount: number;
+  /**
+   * Compact (phone) table only: show the select column. A phone row has no
+   * checkbox until the page's Select button asks for one; a wide table always
+   * has the column.
+   */
+  selecting?: boolean;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /** My Board only — see `TicketTableRow`. */
@@ -112,17 +145,19 @@ const SKELETON_ROWS_EMPTY = 5;
 const SKELETON_ROWS_TRAILING = 3;
 
 /**
- * A placeholder row shaped like a real one: a checkbox, a long title, and a
- * short bar per remaining column. The title is the one column that flexes.
+ * A placeholder row shaped like a real one: a checkbox (when the table has a
+ * select column), a long title, and a short bar per remaining column. The
+ * title is the one column that flexes.
  */
-const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number }> = ({
+const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number; hasSelect: boolean }> = ({
   columnCount,
   titleIndex,
+  hasSelect,
 }) => (
   <TableRow aria-hidden="true" className="ticket-skeleton-row">
     {Array.from({ length: columnCount }, (_, i) => (
       <TableCell key={i} className={i === 0 ? 'pl-4' : i === columnCount - 1 ? 'pr-4' : undefined}>
-        {i === 0 ? (
+        {hasSelect && i === 0 ? (
           <Skeleton width={16} height={16} />
         ) : (
           <Skeleton variant="text" width={i === titleIndex ? '70%' : '60%'} />
@@ -134,6 +169,7 @@ const SkeletonRow: React.FC<{ columnCount: number; titleIndex: number }> = ({
 
 export const TicketTable: React.FC<TicketTableProps> = ({
   tickets,
+  listKey,
   optionSource,
   loading,
   errors,
@@ -142,6 +178,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onSortChange,
   filters,
   onFiltersChange,
+  onClearFilters,
   openMenuId,
   onOpenMenuChange,
   boundaryRef,
@@ -152,6 +189,10 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   timerLoadingKey,
   totalCount,
   showClosed,
+  openCount,
+  closedCount,
+  onShowClosedChange,
+  selecting = false,
   emptyState,
   onToggleTimer,
   showTimerColumn = false,
@@ -162,8 +203,15 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
-  const columnCount = COLUMN_COUNT + (showTimerColumn ? 1 : 0);
-  const tableMinWidth = TABLE_MIN_WIDTH + (showTimerColumn ? COLUMN_WIDTH.timer : 0);
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const showSelectColumn = !compact || selecting;
+  const columnCount =
+    (compact ? COMPACT_COLUMN_COUNT + (showSelectColumn ? 1 : 0) : COLUMN_COUNT) +
+    (showTimerColumn ? 1 : 0);
+  // A compact table fits the screen; a full one keeps a readable floor and scrolls.
+  const tableMinWidth = compact
+    ? undefined
+    : TABLE_MIN_WIDTH + (showTimerColumn ? COLUMN_WIDTH.timer : 0);
 
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
@@ -183,11 +231,96 @@ export const TicketTable: React.FC<TicketTableProps> = ({
 
   const headerProps = { sort, onSortChange, openMenuId, onOpenMenuChange, boundaryRef };
 
+  // The columns after Title, defined once: a header each on a wide screen, and
+  // one menu between them on a phone.
+  const columns: TicketColumn[] = [
+    { label: 'Issue #', sortField: 'ref' },
+    { label: 'Source', sortField: 'source', filter: sourceFilter },
+    {
+      label: 'Status',
+      sortField: 'status',
+      filter: {
+        id: 'status',
+        anyLabel: 'Any status',
+        options: statusOptions(optionSource),
+        value: filters.status,
+        onChange: (value) => set('status', value),
+      },
+    },
+    {
+      label: 'Priority',
+      sortField: 'priority',
+      filter: {
+        id: 'priority',
+        anyLabel: 'Any priority',
+        options: priorityOptions(optionSource),
+        value: filters.priority,
+        onChange: (value) => set('priority', value),
+        extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
+      },
+    },
+    {
+      label: 'Assignees',
+      filter: {
+        id: 'assignee',
+        anyLabel: 'Anyone',
+        options: assigneeOptions(optionSource),
+        value: filters.assignee,
+        onChange: (value) => set('assignee', value),
+        // "Me" first: it is the shortcut people reach for most, and it spans
+        // every source at once (see the ME sentinel).
+        extraOptions: [
+          { value: ME, label: 'Me' },
+          { value: UNASSIGNED, label: 'Unassigned' },
+        ],
+      },
+    },
+    {
+      label: 'Project',
+      sortField: 'container',
+      filter: {
+        id: 'container',
+        anyLabel: 'All projects',
+        options: containerOptions(optionSource),
+        value: filters.container,
+        onChange: (value) => set('container', value),
+      },
+    },
+    { label: 'Updated', sortField: 'updated' },
+  ];
+
+  // The compact table's header controls. A compact row has no column per fact,
+  // so the sorting and filtering those columns' headers carry is gathered into
+  // one menu, and Open/Closed sits beside it rather than up in the toolbar.
+  const openClosedToggle = (
+    <TicketOpenClosedToggle
+      // Two tables are mounted, one per view; each needs its own switcher.
+      name={`tickets-open-closed-${showTimerColumn ? 'board' : 'all'}`}
+      showClosed={showClosed}
+      onShowClosedChange={onShowClosedChange}
+      openCount={openCount}
+      closedCount={closedCount}
+      loading={loading}
+    />
+  );
+  const sortFilterMenu = (
+    <TicketSortFilterMenu
+      columns={[TITLE_COLUMN, ...columns]}
+      onClearFilters={onClearFilters}
+      {...headerProps}
+    />
+  );
+
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [listKey]);
+
   return (
     <>
       {errors.length > 0 && (
         <ul
-          className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
           aria-label="Source load errors"
         >
           {errors.map((error) => (
@@ -212,9 +345,19 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       </div>
 
       {!loading && tickets.length === 0 ? (
-        emptyState
+        <>
+          {/* No table, so no header: on a phone its controls are the only way
+              back from an empty Closed list or a filter that matches nothing. */}
+          {compact && (
+            <div className="ticket-table-empty-controls flex shrink-0 items-center justify-end gap-3 border-b border-border px-4 py-2">
+              {openClosedToggle}
+              {sortFilterMenu}
+            </div>
+          )}
+          {emptyState}
+        </>
       ) : (
-        <ScrollArea orientation="horizontal" className={SCROLLBAR_CLASS}>
+        <ScrollArea ref={scrollRef} orientation="both" className={SCROLL_AREA_CLASS}>
           <Table
             aria-label={showClosed ? 'Closed tickets' : 'Open tickets'}
             responsive={false}
@@ -222,28 +365,36 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             style={{ minWidth: tableMinWidth }}
           >
             <colgroup>
-              <col style={{ width: COLUMN_WIDTH.select }} />
-              {showTimerColumn && <col style={{ width: COLUMN_WIDTH.timer }} />}
+              {showSelectColumn && <col style={{ width: COLUMN_WIDTH.select }} />}
+              {showTimerColumn && (
+                <col style={{ width: compact ? COLUMN_WIDTH.timerCompact : COLUMN_WIDTH.timer }} />
+              )}
               <col />
-              <col style={{ width: COLUMN_WIDTH.ref }} />
-              <col style={{ width: COLUMN_WIDTH.source }} />
-              <col style={{ width: COLUMN_WIDTH.status }} />
-              <col style={{ width: COLUMN_WIDTH.priority }} />
-              <col style={{ width: COLUMN_WIDTH.assignees }} />
-              <col style={{ width: COLUMN_WIDTH.container }} />
-              <col style={{ width: COLUMN_WIDTH.updated }} />
+              {!compact && (
+                <>
+                  <col style={{ width: COLUMN_WIDTH.ref }} />
+                  <col style={{ width: COLUMN_WIDTH.source }} />
+                  <col style={{ width: COLUMN_WIDTH.status }} />
+                  <col style={{ width: COLUMN_WIDTH.priority }} />
+                  <col style={{ width: COLUMN_WIDTH.assignees }} />
+                  <col style={{ width: COLUMN_WIDTH.container }} />
+                  <col style={{ width: COLUMN_WIDTH.updated }} />
+                </>
+              )}
               <col style={{ width: COLUMN_WIDTH.actions }} />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-neutral-50 dark:bg-neutral-900">
               <TableRow>
-                <TableHead className="pl-4">
-                  <Checkbox
-                    checked={allSelected}
-                    indeterminate={someSelected}
-                    onChange={(e) => onSelectAllChange(e.target.checked)}
-                    aria-label={allSelected ? 'Deselect all tickets' : 'Select all tickets'}
-                  />
-                </TableHead>
+                {showSelectColumn && (
+                  <TableHead className="pl-4">
+                    <Checkbox
+                      checked={allSelected}
+                      indeterminate={someSelected}
+                      onChange={(e) => onSelectAllChange(e.target.checked)}
+                      aria-label={allSelected ? 'Deselect all tickets' : 'Select all tickets'}
+                    />
+                  </TableHead>
+                )}
 
                 {showTimerColumn && (
                   <TableHead>
@@ -251,72 +402,20 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   </TableHead>
                 )}
 
-                <TicketColumnHeader label="Title" sortField="title" {...headerProps} />
-                <TicketColumnHeader label="Issue #" sortField="ref" {...headerProps} />
                 <TicketColumnHeader
-                  label="Source"
-                  sortField="source"
-                  filter={sourceFilter}
+                  {...TITLE_COLUMN}
                   {...headerProps}
+                  // Whichever cell comes first lines up with the page's gutter.
+                  className={showSelectColumn || showTimerColumn ? undefined : 'pl-4'}
+                  trailing={compact ? openClosedToggle : undefined}
                 />
-                <TicketColumnHeader
-                  label="Status"
-                  sortField="status"
-                  filter={{
-                    id: 'status',
-                    anyLabel: 'Any status',
-                    options: statusOptions(optionSource),
-                    value: filters.status,
-                    onChange: (value) => set('status', value),
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Priority"
-                  sortField="priority"
-                  filter={{
-                    id: 'priority',
-                    anyLabel: 'Any priority',
-                    options: priorityOptions(optionSource),
-                    value: filters.priority,
-                    onChange: (value) => set('priority', value),
-                    extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Assignees"
-                  filter={{
-                    id: 'assignee',
-                    anyLabel: 'Anyone',
-                    options: assigneeOptions(optionSource),
-                    value: filters.assignee,
-                    onChange: (value) => set('assignee', value),
-                    // "Me" first: it is the shortcut people reach for most, and
-                    // it spans every source at once (see the ME sentinel).
-                    extraOptions: [
-                      { value: ME, label: 'Me' },
-                      { value: UNASSIGNED, label: 'Unassigned' },
-                    ],
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader
-                  label="Project"
-                  sortField="container"
-                  filter={{
-                    id: 'container',
-                    anyLabel: 'All projects',
-                    options: containerOptions(optionSource),
-                    value: filters.container,
-                    onChange: (value) => set('container', value),
-                  }}
-                  {...headerProps}
-                />
-                <TicketColumnHeader label="Updated" sortField="updated" {...headerProps} />
+                {!compact &&
+                  columns.map((column) => (
+                    <TicketColumnHeader key={column.label} {...column} {...headerProps} />
+                  ))}
 
-                <TableHead className="pr-4">
-                  <span className="sr-only">Actions</span>
+                <TableHead className="pr-4 text-end">
+                  {compact ? sortFilterMenu : <span className="sr-only">Actions</span>}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -334,6 +433,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   timerDisabled={timerLoadingKey !== null}
                   onToggleTimer={onToggleTimer}
                   showTimerColumn={showTimerColumn}
+                  showSelectColumn={showSelectColumn}
+                  compact={compact}
                   onEditRequest={onEditRequest}
                   onDeleteRequest={onDeleteRequest}
                   onChangeStatusRequest={onChangeStatusRequest}
@@ -349,7 +450,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     <SkeletonRow
                       key={`skeleton-${i}`}
                       columnCount={columnCount}
-                      titleIndex={showTimerColumn ? 2 : 1}
+                      titleIndex={(showSelectColumn ? 1 : 0) + (showTimerColumn ? 1 : 0)}
+                      hasSelect={showSelectColumn}
                     />
                   ),
                 )}

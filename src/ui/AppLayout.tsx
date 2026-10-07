@@ -12,7 +12,15 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+  Activity,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
@@ -23,6 +31,7 @@ import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
+import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
@@ -331,6 +340,19 @@ const AppLayoutContent: React.FC = () => {
     !redmineIssueId &&
     pathname === '/app/tickets';
 
+  // Huddle is mounted on its first visit and kept after that: <Activity> hides
+  // it (state, scroll and composer drafts survive; its effects and
+  // subscriptions pause) instead of tearing it down and refetching on return.
+  const isHuddleRoute =
+    !scopeForbidden &&
+    !profileUserId &&
+    !profileUsername &&
+    !ticketDetailId &&
+    !redmineIssueId &&
+    pathname === '/app/huddle';
+  const [huddleVisited, setHuddleVisited] = useState(isHuddleRoute);
+  if (isHuddleRoute && !huddleVisited) setHuddleVisited(true);
+
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -423,6 +445,7 @@ const AppLayoutContent: React.FC = () => {
                   {/* Content column */}
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
+                    <WhatsNewBanner placement="mobile" />
                     <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
@@ -441,6 +464,13 @@ const AppLayoutContent: React.FC = () => {
                             <TicketsPage />
                           </div>
                         </PageTitleContext.Provider>
+                        {huddleVisited && (
+                          <PageTitleContext.Provider value={isHuddleRoute ? pageTitle : null}>
+                            <Activity mode={isHuddleRoute ? 'visible' : 'hidden'}>
+                              <Huddle />
+                            </Activity>
+                          </PageTitleContext.Provider>
+                        )}
                         {scopeForbidden ? (
                           <NoAccessState
                             kind="forbidden"
@@ -459,6 +489,7 @@ const AppLayoutContent: React.FC = () => {
                         ) : (
                           route &&
                           route.component !== TicketsPage &&
+                          route.component !== Huddle &&
                           React.createElement(route.component)
                         )}
                       </PullToRefresh>

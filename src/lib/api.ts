@@ -9,6 +9,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
+import { toLinkedIssue, type LinkedIssue } from './ticketLink.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -1026,6 +1027,25 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string | null;
   sharedWithTimeharbor?: boolean;
+  /** The external issue this ticket is linked to, or null. */
+  linkedIssue: LinkedIssue | null;
+}
+
+/**
+ * Whether a linked ticket can be changed right now. `lock` names who is timing
+ * it; while anyone is, its fields and its link are refused server-side
+ * (`ticket-locked`). Null when nobody is, or when the ticket is not linked.
+ */
+export interface TicketLinkStatus {
+  lock: { holders: { userId: string; name: string }[]; message: string } | null;
+  /**
+   * The caller's own closed time on the ticket: logged before it had a link
+   * (`unlinkedSeconds`, belongs to no issue), and logged under the issue it is
+   * linked to now, split by whether it has reached Redmine.
+   */
+  myTime: { unlinkedSeconds: number; unsentSeconds: number; sentSeconds: number };
+  /** How many teammates have logged time on the ticket; they are told when its link changes. */
+  othersWithTime: number;
 }
 
 /** Normalize a wormhole ticket payload (raw Mongo doc shape) to the Ticket interface. */
@@ -1050,6 +1070,7 @@ function toTicket(raw: Record<string, unknown>): Ticket {
     createdAt: String(raw.createdAt),
     updatedAt: (raw.updatedAt as string | undefined) ?? null,
     sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
+    linkedIssue: toLinkedIssue(raw.linkedIssue),
   };
 }
 
@@ -1086,7 +1107,7 @@ export const ticketApi = {
   deleteTicket: (id: string) => wormholeCall<{ ok: boolean }>('tickets.delete', { ticketId: id }),
 
   batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
-    wormholeCall<{ modified: number }>('tickets.batchStatus', data),
+    wormholeCall<{ modified: number; lockedIds: string[] }>('tickets.batchStatus', data),
 
   /**
    * Assignment runs on Meteor: it fans out in-app + push notifications to
@@ -1097,6 +1118,33 @@ export const ticketApi = {
       ticketId: id,
       assignedToUserIds,
     }).then(toTicket),
+
+  /**
+   * Link a ticket to a Redmine issue the caller can see, or move the link to a
+   * different one. `expectedIssueId` is the link the caller last saw (null for
+   * none); the server refuses with `stale-link` when it has changed since.
+   */
+  link: (id: string, issueId: number, expectedIssueId: string | null) =>
+    wormholeCall<Record<string, unknown>>('tickets.link', {
+      ticketId: id,
+      issueId,
+      expectedIssueId,
+    }).then(toTicket),
+
+  /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
+  unlink: (id: string, expectedIssueId: string) =>
+    wormholeCall<Record<string, unknown>>('tickets.unlink', {
+      ticketId: id,
+      expectedIssueId,
+    }).then(toTicket),
+
+  /** Who is timing the ticket right now. Cheap enough for a page to poll. */
+  lockStatus: (id: string) =>
+    wormholeCall<Pick<TicketLinkStatus, 'lock'>>('tickets.lockStatus', { ticketId: id }),
+
+  /** The lock plus the caller's time figures, for a dialog about to change the link. */
+  linkStatus: (id: string) =>
+    wormholeCall<TicketLinkStatus>('tickets.linkStatus', { ticketId: id }),
 
   /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
@@ -1143,6 +1191,12 @@ export interface HuddlePost {
   updatedAt: string;
 }
 
+/** One window of a feed; `hasMore` means older posts exist before `since`. */
+export interface HuddleFeedPage {
+  posts: HuddlePost[];
+  hasMore: boolean;
+}
+
 export interface HuddleComment {
   id: string;
   postId: string;
@@ -1164,20 +1218,19 @@ export const huddleApi = {
     ),
 
   /**
-   * Fetch all published huddle posts for a team over wormhole REST. Used to
-   * refresh the feed the moment a post is created, since the DDP socket can be
-   * down (the WebView drops it while backgrounded for a Pulse recording) and
-   * the live subscription would otherwise deliver the new post only later.
+   * Published huddle posts for a team over wormhole REST, from `since` (ISO
+   * date; the last 30 days when omitted). Used to refresh the feed the moment
+   * a post is created, since the DDP socket can be down (the WebView drops it
+   * while backgrounded for a Pulse recording) and the live subscription would
+   * otherwise deliver the new post only later.
    */
-  getPosts: (teamId: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
+  getPosts: (teamId: string, since?: string) =>
+    wormholeCall<HuddleFeedPage>('huddle.getPosts', since ? { teamId, since } : { teamId }),
 
   /** The caller's own published posts across every team they belong to (the
-   *  Huddle inbox's Personal view). Defaults to the last 30 days. */
+   *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyPosts', since ? { since } : {}).then(
-      (r) => r.posts,
-    ),
+    wormholeCall<HuddleFeedPage>('huddle.getMyPosts', since ? { since } : {}),
 
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
@@ -2357,6 +2410,12 @@ export interface RedmineRelevantIssueList extends RedmineIssueList {
    * Absent when the account is not connected.
    */
   unavailableBoardIds?: number[];
+  /**
+   * The issues that tickets the caller can see are linked to, read with the
+   * caller's own key. They are not rows of their own: the Tickets page shows
+   * them on the ticket that links to them. Absent when not connected.
+   */
+  linkedIssues?: RedmineIssue[];
 }
 
 /** Response for `redmine.issues.search`. At most 25 issues, titles matched only. */

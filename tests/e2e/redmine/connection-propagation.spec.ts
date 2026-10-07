@@ -72,6 +72,8 @@ async function goToTicketsWithoutReloading(page: Page) {
   await expect(page.getByRole('heading', { level: 1, name: 'Tickets' })).toBeVisible({
     timeout: 20000,
   });
+  // The page opens on My Board; the issues these specs look for are in All Sources.
+  await page.getByRole('radio', { name: 'All Sources' }).click();
 }
 
 test.describe('Redmine connection propagates without a reload', () => {
@@ -98,21 +100,26 @@ test.describe('Redmine connection propagates without a reload', () => {
     await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
   });
 
-  test('New Ticket becomes the TimeHuddle/Redmine dropdown after connecting', async ({ page }) => {
+  test('the New Ticket dialog offers Redmine after connecting', async ({ page }) => {
     await stubLinkableRedmine(page);
     await tickets.goto();
 
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-    await expect(page.getByText('Redmine issue', { exact: true })).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    const chooseRedmine = async () => {
+      await page.getByRole('button', { name: 'New Ticket' }).click();
+      await page.getByRole('radio', { name: 'Redmine' }).check();
+    };
+
+    // Unlinked: the dialog says to connect Redmine instead of offering a search.
+    await chooseRedmine();
+    await expect(page.getByText(/Connect your Redmine account in Settings/)).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
 
     await openSettings(page);
     await connectInSettings(page);
     await goToTicketsWithoutReloading(page);
 
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-    await expect(page.getByText('TimeHuddle ticket', { exact: true })).toBeVisible();
-    await expect(page.getByText('Redmine issue', { exact: true })).toBeVisible();
+    await chooseRedmine();
+    await expect(page.getByLabel('Issue number or link')).toBeVisible();
   });
 
   test('the "Me" filter picks up the linked Redmine account', async ({ page }) => {

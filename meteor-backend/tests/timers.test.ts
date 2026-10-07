@@ -439,4 +439,188 @@ describe('timers (wormhole)', () => {
       await db.collection('timers').deleteMany({ userId: otherUserId });
     }
   });
+
+  describe('time on a ticket linked to a Redmine issue (#636)', () => {
+    const today = new Date().toISOString().split('T')[0];
+    let linkedTicketId: string;
+
+    const setLink = async (issueId: string | null) => {
+      const db = await getDb();
+      await db
+        .collection('tickets')
+        .updateOne(
+          { _id: new ObjectId(linkedTicketId) },
+          issueId
+            ? { $set: { linkedIssue: { source: 'redmine', id: issueId } } }
+            : { $unset: { linkedIssue: '' } },
+        );
+    };
+
+    /** The stamps on this ticket's sessions, oldest first. */
+    const stamps = async () => {
+      const db = await getDb();
+      const items = await db.collection('workitems').find({ userId, ticketId: linkedTicketId }).toArray();
+      const sessions = await db
+        .collection('timers')
+        .find({ workItemId: { $in: items.map((item) => item._id.toHexString()) } })
+        .sort({ startTime: 1 })
+        .toArray();
+      return sessions.map((session) => session.redmineIssueId ?? null);
+    };
+
+    const startNow = () =>
+      wormhole<{ entry: { id: string }; session: { id: string } }>(
+        'timers.createEntry',
+        { ticketId: linkedTicketId, date: today, startNow: true, notifyAdmins: false },
+        jwt,
+      );
+    const stop = (sessionId: string) => wormhole('timers.stopSession', { sessionId }, jwt);
+
+    beforeAll(async () => {
+      const db = await getDb();
+      const doc = {
+        _id: new ObjectId(),
+        teamId,
+        title: 'Linked Timer Ticket',
+        status: 'open',
+        createdBy: userId,
+        assignedTo: [userId],
+        createdAt: new Date(),
+      };
+      await db.collection('tickets').insertOne(doc);
+      linkedTicketId = doc._id.toHexString();
+    });
+
+    it('remembers the issue each session was logged under, whatever the ticket is linked to later', async () => {
+      await setLink('482');
+      const first = await startNow();
+      expect(first.ok).toBe(true);
+      await stop(first.result.session.id);
+
+      // Relinked between two sessions on the same work item, the same day.
+      await setLink('500');
+      const second = await wormhole<{ session: { id: string } }>(
+        'timers.startSession',
+        { entryId: first.result.entry.id },
+        jwt,
+      );
+      expect(second.ok).toBe(true);
+      await stop(second.result.session.id);
+
+      await setLink(null);
+      const third = await startNow();
+      await stop(third.result.session.id);
+
+      expect(await stamps()).toEqual(['482', '500', null]);
+    });
+
+    it('stamps the session a break ends with from the link at that moment', async () => {
+      const db = await getDb();
+      await setLink('482');
+      const started = await startNow();
+      expect(started.ok).toBe(true);
+
+      // The break closes the session, which is when the link may change.
+      expect((await wormhole('clock.pause', { teamId }, jwt)).ok).toBe(true);
+      await setLink('500');
+      expect((await wormhole('clock.resume', { teamId }, jwt)).ok).toBe(true);
+
+      const running = await db.collection('timers').findOne({ userId, endTime: null });
+      expect(running?.redmineIssueId).toBe('500');
+      await stop(running!._id.toHexString());
+      expect((await stamps()).slice(-2)).toEqual(['482', '500']);
+    });
+
+    it('shows that time on the Redmine issue it was logged under', async () => {
+      const onIssue = await wormhole<{ sessions: unknown[] }>(
+        'timers.getTicketSessions',
+        { ticketId: '482', source: 'redmine' },
+        jwt,
+      );
+      // One from each test above was stamped 482.
+      expect(onIssue.result.sessions).toHaveLength(2);
+
+      const onTicket = await wormhole<{ sessions: unknown[] }>(
+        'timers.getTicketSessions',
+        { ticketId: linkedTicketId, source: 'huddle' },
+        jwt,
+      );
+      expect(onTicket.result.sessions).toHaveLength(5);
+    });
+
+    describe('moving an entry to another linked ticket', () => {
+      const SENT_ENTRY_ID = 990_000_636;
+      let fromId: string;
+      let toId: string;
+
+      const ticketLinkedTo = async (issueId: string) => {
+        const db = await getDb();
+        const doc = {
+          _id: new ObjectId(),
+          teamId,
+          title: `Move Ticket ${issueId}`,
+          status: 'open',
+          createdBy: userId,
+          assignedTo: [userId],
+          linkedIssue: { source: 'redmine', id: issueId },
+          createdAt: new Date(),
+        };
+        await db.collection('tickets').insertOne(doc);
+        return doc._id.toHexString();
+      };
+
+      /** Time a session on `fromId`, move its entry to `toId`, and return the session's stamp. */
+      const stampAfterMove = async () => {
+        const started = await wormhole<{ entry: { id: string }; session: { id: string } }>(
+          'timers.createEntry',
+          { ticketId: fromId, date: today, startNow: true, notifyAdmins: false },
+          jwt,
+        );
+        expect(started.ok).toBe(true);
+        await stop(started.result.session.id);
+        const moved = await wormhole(
+          'timers.updateEntry',
+          { entryId: started.result.entry.id, ticketId: toId, notifyAdmins: false },
+          jwt,
+        );
+        expect(moved.ok).toBe(true);
+        const db = await getDb();
+        const session = await db
+          .collection('timers')
+          .findOne({ _id: new ObjectId(started.result.session.id) });
+        return session?.redmineIssueId ?? null;
+      };
+
+      beforeAll(async () => {
+        toId = await ticketLinkedTo('900');
+      });
+
+      afterAll(async () => {
+        const db = await getDb();
+        await db.collection('redmine_time_syncs').deleteMany({ redmineTimeEntryId: SENT_ENTRY_ID });
+      });
+
+      it('moves unsent time to the new ticket\u2019s issue', async () => {
+        fromId = await ticketLinkedTo('700');
+        expect(await stampAfterMove()).toBe('900');
+      });
+
+      it('leaves time on an issue-day that was already sent, so it is not sent twice', async () => {
+        fromId = await ticketLinkedTo('701');
+        const db = await getDb();
+        await db.collection('redmine_time_syncs').insertOne({
+          userId,
+          ticketId: '701',
+          date: today,
+          source: 'redmine',
+          redmineTimeEntryId: SENT_ENTRY_ID,
+          syncedSeconds: 60,
+          syncedHours: 0.02,
+          lastAttemptAt: new Date(),
+          failureReason: null,
+        });
+        expect(await stampAfterMove()).toBe('701');
+      });
+    });
+  });
 });

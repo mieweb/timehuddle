@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
 import {
+  defaultConversation,
   postsToConversations,
   searchConversations,
   starterConversation,
   stripInboxDecorations,
+  withTodayConversation,
 } from './superChatFeed';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
@@ -448,5 +450,52 @@ describe('starterConversation', () => {
   it('words the hint for the Personal view', () => {
     const { thread } = starterConversation(viewer, 'me', NOW);
     expect(thread[0].text).toMatch(/last 30 days/);
+  });
+});
+
+describe('Today as the default conversation', () => {
+  const viewer = { userId: 'u1', name: 'Test User' };
+  const older = [makePost({ id: 'old', createdAt: new Date(SEP_28_0900).toISOString() })];
+  const withToday = [makePost({ id: 'new', createdAt: new Date(SEP_29_0858).toISOString() })];
+
+  function dayConversations(posts: HuddlePost[]) {
+    const grouped = postsToConversations(posts, 'day', VIEWER_MEMBER, NOW);
+    return withTodayConversation(grouped, 'day', viewer, 'team', NOW);
+  }
+
+  it('adds an empty Today to Day grouping when nobody has posted today', () => {
+    const conversations = dayConversations(older);
+    expect(conversations.map((c) => c.id)).toEqual(['day:2026-09-29', 'day:2026-09-28']);
+    expect(conversations[0].thread).toHaveLength(1);
+  });
+
+  it('leaves a real Today thread alone', () => {
+    const conversations = dayConversations(withToday);
+    expect(conversations.map((c) => c.id)).toEqual(['day:2026-09-29']);
+    expect(conversations[0].thread[0].id).toBe('new');
+  });
+
+  it('adds nothing in other groupings or when there are no posts at all', () => {
+    const grouped = postsToConversations(older, 'ticket', VIEWER_MEMBER, NOW);
+    expect(withTodayConversation(grouped, 'ticket', viewer, 'team', NOW)).toBe(grouped);
+    expect(withTodayConversation([], 'day', viewer, 'team', NOW)).toEqual([]);
+  });
+
+  it('opens Today in Day grouping even when an older day is more recent in the list', () => {
+    const conversations = dayConversations(older);
+    const reordered = [conversations[1], conversations[0]];
+    expect(defaultConversation(reordered, 'day', NOW)?.id).toBe('day:2026-09-29');
+  });
+
+  it('opens the first conversation in other groupings', () => {
+    const conversations = postsToConversations(older, 'person', VIEWER_MEMBER, NOW);
+    expect(defaultConversation(conversations, 'person', NOW)).toBe(conversations[0]);
+  });
+
+  it('rolls over at local midnight', () => {
+    const nextDay = localMs(2026, 9, 30, 0, 1);
+    const grouped = postsToConversations(withToday, 'day', VIEWER_MEMBER, nextDay);
+    const conversations = withTodayConversation(grouped, 'day', viewer, 'team', nextDay);
+    expect(defaultConversation(conversations, 'day', nextDay)?.id).toBe('day:2026-09-30');
   });
 });

@@ -22,6 +22,7 @@ import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
+import './ticket-links';
 import './redmine';
 import './redmine-issue-methods';
 import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
@@ -971,6 +972,58 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('tickets.link', {
+    description:
+      'Link a ticket to a Redmine issue the caller can see, or move its link to a different one. Only the issue number is stored',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        issueId: { type: 'integer', description: 'The Redmine issue number to link to' },
+        expectedIssueId: {
+          type: ['string', 'null'],
+          description: 'The linked issue number the caller last saw, or null for none; a mismatch is refused as stale-link',
+        },
+      },
+      required: ['ticketId', 'issueId'],
+    },
+  });
+
+  Wormhole.expose('tickets.unlink', {
+    description: "Remove a ticket's link to a Redmine issue. Nothing changes in Redmine",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        expectedIssueId: {
+          type: 'string',
+          description: 'The linked issue number the caller last saw; a mismatch is refused as stale-link',
+        },
+      },
+      required: ['ticketId', 'expectedIssueId'],
+    },
+  });
+
+  Wormhole.expose('tickets.lockStatus', {
+    description:
+      'Whether a linked ticket is locked because someone is timing it, and who (lock is null when it is not). Cheap enough to poll',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.linkStatus', {
+    description:
+      "Whether a linked ticket is locked because someone is timing it, and who (lock is null when it is not), plus the caller's own time on it and how many teammates have logged time",
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
   Wormhole.expose('tickets.delete', {
     description: 'Soft-delete a ticket (sets status to deleted)',
     inputSchema: {
@@ -1037,7 +1090,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.issues.relevant', {
     description:
-      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running)",
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running), plus the issues their tickets are linked to (linkedIssues)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1525,17 +1578,18 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('huddle.getPosts', {
-    description: 'Fetch all published huddle posts for a team, newest first',
+    description:
+      "Published huddle posts for a team, newest first, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: { teamId: { type: 'string' }, since: { type: 'string', description: 'ISO date string' } },
       required: ['teamId'],
     },
   });
 
   Wormhole.expose('huddle.getMyPosts', {
     description:
-      "The caller's own published posts across every team they belong to (default: last 30 days)",
+      "The caller's own published posts across every team they belong to, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string', description: 'ISO date string' } },

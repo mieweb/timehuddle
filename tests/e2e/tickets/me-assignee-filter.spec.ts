@@ -35,22 +35,9 @@ async function openTickets(page: Page): Promise<TicketsPage> {
   return tickets;
 }
 
-/**
- * Creates a Huddle ticket.
- *
- * With Redmine linked, "New Ticket" becomes a dropdown asking which system the
- * item belongs to, so the plain `TicketsPage.createTicket` path only works
- * while unlinked.
- */
-async function createHuddleTicket(
-  page: Page,
-  title: string,
-  { redmineLinked = false } = {},
-): Promise<void> {
+/** Creates a Huddle ticket. */
+async function createHuddleTicket(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: 'New Ticket' }).click();
-  if (redmineLinked) {
-    await page.getByText('TimeHuddle ticket', { exact: true }).click();
-  }
   await page.getByPlaceholder('Ticket title').fill(title);
   await page.getByRole('button', { name: 'Create Ticket' }).click();
   await expect(page.getByPlaceholder('Ticket title')).toBeHidden({ timeout: 15000 });
@@ -182,7 +169,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     const tickets = await openTickets(page);
 
     const mine = `Mine huddle ${Date.now()}`;
-    await createHuddleTicket(page, mine, { redmineLinked: true });
+    await createHuddleTicket(page, mine);
 
     await tickets.filterBy('Assignees', 'Me');
 
@@ -211,7 +198,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
       },
     });
     const tickets = await openTickets(page);
-    await createHuddleTicket(page, `Anchor ${Date.now()}`, { redmineLinked: true });
+    await createHuddleTicket(page, `Anchor ${Date.now()}`);
 
     await tickets.filterBy('Assignees', 'Me');
 

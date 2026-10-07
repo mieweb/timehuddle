@@ -8,14 +8,19 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type Route } from '@playwright/test';
 
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
 
+/**
+ * Open the Tickets page on All Sources. The page itself opens on My Board; the
+ * specs using this are about the full table.
+ */
 export async function goToTickets(page: Page): Promise<void> {
   await page.goto('/app/tickets');
   await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+  await page.getByRole('radio', { name: 'All Sources' }).click();
 }
 
 /**
@@ -23,13 +28,13 @@ export async function goToTickets(page: Page): Promise<void> {
  *
  * Rows are `<tr data-ticket-id>` — the unified table replaced the old `<ul>`/`<li>`
  * list, and the only `<li>` left in it is the per-source error banner. Scoped to
- * the visible tab panel because both Tickets and My Board stay mounted to keep
+ * the visible tab panel because both All Sources and My Board stay mounted to keep
  * their state, so an unscoped match would also hit the hidden panel's copy of
  * the same row. Mirrors `TicketsPage.rowByTitle`.
  */
 export function ticketRow(page: Page, title: string) {
   return page
-    .locator('[role="tabpanel"]:visible')
+    .locator('.tickets-view-panel:visible')
     .locator('tr[data-ticket-id]')
     .filter({ hasText: title });
 }
@@ -180,4 +185,43 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
   await expect(
     page.locator('ul[aria-label="Attachments"]').locator(`a[href*="${videoid}"]`),
   ).toBeVisible({ timeout: 10000 });
+}
+
+/** What a stubbed ticket call answers: a result, or a refusal the app shows. */
+export type TicketCallAnswer = unknown | { error: string; reason: string };
+
+const isRefusal = (value: unknown): value is { error: string; reason: string } =>
+  typeof value === 'object' && value !== null && 'error' in value && 'reason' in value;
+
+/**
+ * Answers one `tickets.*` call from the spec instead of the backend, recording
+ * what was sent — the same seam `stubRedmine` uses for `redmine.*`.
+ *
+ * For the ticket-link calls: linking is checked against Redmine under the
+ * caller's own key, and the test backend has no Redmine account, so the real
+ * method can only ever answer "not connected". The server side of linking is
+ * covered by `meteor-backend/tests/tickets.test.ts`; these specs assert what the
+ * UI sends and how it reacts.
+ */
+export async function stubTicketCall(
+  page: Page,
+  method: string,
+  answer: (params: Record<string, unknown>) => TicketCallAnswer,
+): Promise<{ calls: Record<string, unknown>[] }> {
+  const calls: Record<string, unknown>[] = [];
+  await page.route(`**/api/${method.replace(/\./g, '_')}`, async (route: Route) => {
+    const params = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    calls.push(params);
+    const value = answer(params);
+    await route.fulfill(
+      isRefusal(value)
+        ? { status: 500, contentType: 'application/json', body: JSON.stringify(value) }
+        : {
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ result: value }),
+          },
+    );
+  });
+  return { calls };
 }
