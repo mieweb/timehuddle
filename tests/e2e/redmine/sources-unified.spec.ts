@@ -97,6 +97,7 @@ test.describe('Unified table with Redmine rows', () => {
     await expect(tickets.rowsFromSource('huddle')).toHaveCount(0);
     expect(await tickets.rowsFromSource('redmine').count()).toBeGreaterThan(0);
 
+    await tickets.sortFilterButton.click();
     await tickets.clearFiltersButton.click();
     await tickets.filterBySource('TimeHuddle');
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
