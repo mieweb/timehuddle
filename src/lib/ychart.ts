@@ -22,6 +22,7 @@ const PAN_STYLE = `
   .ychart-chart .html-overlay-container .overlay-node .details-btn,
   .ychart-chart .html-overlay-container .overlay-node .expand-siblings-btn,
   .ychart-chart .html-overlay-container .overlay-node .expand-supervisor-chain-btn,
+  .ychart-chart .html-overlay-container .overlay-node .paging-button-wrapper,
   .ychart-chart .html-overlay-container .overlay-node button,
   .ychart-chart .html-overlay-container .overlay-node a { pointer-events: auto !important; }
 }`;
