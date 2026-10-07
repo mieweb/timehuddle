@@ -40,6 +40,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { localDateRangeKey } from '../../lib/date';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
@@ -174,8 +175,12 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   // Loading shows for a new team, member or range of days only; a return or a
   // live update reloads quietly behind the timesheet shown.
   const isNewRange = useScopeChange();
+  // A load left in flight when the page was hidden, or for the member before a
+  // switch, can answer after the newest; only the newest may write.
+  const beginLoad = useLatestRequest();
 
   const fetchData = useCallback(async () => {
+    const isLatest = beginLoad();
     if (!selectedMemberId) return;
     let startMs: number;
     let endMs: number;
@@ -196,13 +201,13 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setError(null);
     try {
       const result = await clockApi.getTimesheet(selectedMemberId, startMs, endMs);
-      setData(result);
+      if (isLatest()) setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load timesheet');
+      if (isLatest()) setError(e instanceof Error ? e.message : 'Failed to load timesheet');
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
-  }, [selectedTeamId, selectedMemberId, preset, customStart, customEnd, isNewRange]);
+  }, [selectedTeamId, selectedMemberId, preset, customStart, customEnd, isNewRange, beginLoad]);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {

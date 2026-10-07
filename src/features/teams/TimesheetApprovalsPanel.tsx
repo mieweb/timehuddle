@@ -36,6 +36,7 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration } from '../../lib/timeUtils';
 import { useScopeChange } from '../../lib/useScopeChange';
+import { usePauseOnHide } from '../../ui/usePauseOnHide';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   create: 'Add time',
@@ -154,6 +155,8 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Dashboard is kept mounted; leaving it must not leave this playing.
+  const pauseOnHide = usePauseOnHide();
 
   // Claimed per call so a slower response for the team the reviewer just left
   // can't overwrite the current team's queue — which would put another team's
@@ -455,6 +458,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             // Capped so a portrait recording doesn't push the decision buttons
             // off the bottom of a phone screen.
             <video
+              ref={pauseOnHide}
               src={resolveMediaUrl(active.videoUrl)}
               controls
               playsInline

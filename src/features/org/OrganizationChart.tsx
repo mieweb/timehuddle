@@ -165,12 +165,26 @@ const OrganizationChartMount: React.FC<{
     const containerElement = containerRef.current!;
     containerElement.id = chartId;
     let fitTimerId = 0;
+    // Puts back the pan and zoom saved when this chart was last hidden, once
+    // the chart can take it. True once done, or when there is nothing to put back.
+    const restoreSavedView = () => {
+      const saved = savedViewRef.current;
+      if (saved?.yaml !== yaml) return false;
+      const state = instanceRef.current?.orgChart?.getChartState?.();
+      if (!state?.svg || !state.zoomBehavior) return false;
+      state.svg.call(state.zoomBehavior.transform, saved.transform);
+      savedViewRef.current = null;
+      return true;
+    };
 
     const frameId = requestAnimationFrame(() => {
       if (!containerElement.isConnected) return;
       try {
         instanceRef.current = new window.YChartEditor().initView(chartId, yaml);
         patchYChartForCapacitor(instanceRef.current.orgChart);
+        // Straight away rather than after the fit delay below, so a return
+        // doesn't first draw the chart fitted and then jump to where it was.
+        let restored = restoreSavedView();
 
         // Disable the YAML editor panel
         const instance = instanceRef.current as YChartInstance & {
@@ -257,13 +271,9 @@ const OrganizationChartMount: React.FC<{
             state.svgHeight = rect.height;
           }
 
-          const saved = savedViewRef.current;
+          restored = restored || restoreSavedView();
           savedViewRef.current = null;
-          if (saved?.yaml === yaml && state?.svg && state.zoomBehavior) {
-            state.svg.call(state.zoomBehavior.transform, saved.transform);
-          } else {
-            orgChart.fit?.({ animate: false });
-          }
+          if (!restored) orgChart.fit?.({ animate: false });
         }, 450);
       } catch (error) {
         if (containerElement.isConnected) {

@@ -176,8 +176,10 @@ export const ActivityLogPage: React.FC = () => {
   // the events since on top. When none of the latest page is already shown,
   // there may be a gap, so the page replaces the list instead.
   const isNewUser = useScopeChange();
-  // The first load can still be in flight when a return starts another; only
-  // the newest may write, so an older answer can't replace newer events.
+  // Every change to the list (this load, pull-to-refresh, Load more) begins a
+  // new one, and only the newest may write: a load left in flight when the
+  // page was hidden can't replace newer events, nor a late Load more append a
+  // page to a list that has since been replaced.
   const beginLoad = useLatestRequest();
   const itemsRef = React.useRef(items);
   itemsRef.current = items;
@@ -218,36 +220,43 @@ export const ActivityLogPage: React.FC = () => {
 
   useRefresh(
     React.useCallback(async () => {
+      const isLatest = beginLoad();
       if (!user) return;
       setLoading(true);
       try {
         const { events, nextCursor: cursor } = await activityApi.getLog({ limit: 50 });
+        if (!isLatest()) return;
+        setError(null);
         setItems(events);
         setNextCursor(cursor);
       } catch {
-        setError('Failed to load activity log.');
+        if (isLatest()) setError('Failed to load activity log.');
       } finally {
-        setLoading(false);
+        if (isLatest()) setLoading(false);
       }
-    }, [user]),
+    }, [user, beginLoad]),
   );
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
+    const isLatest = beginLoad();
     setLoadingMore(true);
     try {
       const { events, nextCursor: cursor } = await activityApi.getLog({
         limit: 50,
         before: nextCursor,
       });
+      if (!isLatest()) return;
       setItems((prev) => [...prev, ...events]);
       setNextCursor(cursor);
     } catch {
       // silently ignore — user can retry by clicking again
     } finally {
+      // Its own flag, so always cleared: a retired Load more must not leave the
+      // button stuck.
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore]);
+  }, [nextCursor, loadingMore, beginLoad]);
 
   const filteredItems = useMemo(
     () =>
