@@ -57,6 +57,12 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 
 export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],
 
+  // The two setups resolve @capacitor/* differently (real packages vs stubs),
+  // so they can't share pre-bundled deps: a web dev server (e2e on 3002) and a
+  // Capacitor one (dev:mobile on 3000) running side by side overwrote each
+  // other's, failing imports with "504 Outdated Optimize Dep".
+  cacheDir: isCapacitorBuild ? 'node_modules/.vite-capacitor' : 'node_modules/.vite',
+
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
   },
