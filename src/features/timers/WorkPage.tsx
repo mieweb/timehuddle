@@ -65,6 +65,7 @@ import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useIsCurrent } from '../../lib/useIsCurrent';
 import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
@@ -317,9 +318,13 @@ export const WorkPage: React.FC = () => {
   // just left can still be in flight on return, so only the newest may write.
   const isNewWeek = useScopeChange();
   const beginWeekLoad = useLatestRequest();
+  // A delete refreshes the week it was made in; if the user has since moved to
+  // another week, that refresh is stale and does nothing.
+  const isCurrentWeek = useIsCurrent(toLocalDateStr(weekDays[0]));
   const fetchWeekTotals = useCallback(async () => {
-    const isLatest = beginWeekLoad();
     const weekStart = toLocalDateStr(weekDays[0]);
+    if (!isCurrentWeek(weekStart)) return;
+    const isLatest = beginWeekLoad();
     if (isNewWeek(weekStart)) setWeekTotalsLoading(true);
     try {
       const days = await timerApi.getWeek(weekStart);
@@ -332,7 +337,7 @@ export const WorkPage: React.FC = () => {
     } finally {
       if (isLatest()) setWeekTotalsLoading(false);
     }
-  }, [weekDays, isNewWeek, beginWeekLoad]);
+  }, [weekDays, isNewWeek, beginWeekLoad, isCurrentWeek]);
 
   useEffect(() => {
     void fetchWeekTotals();
@@ -450,8 +455,12 @@ export const WorkPage: React.FC = () => {
   // dialog can be left open across a team switch: the pick is cleared then,
   // and Add only ever submits a ticket of the team now selected.
   const isNewEntryTeam = useScopeChange();
+  // The ticket list goes too, so the old team's tickets can't be picked while
+  // the new team's load.
   useEffect(() => {
-    if (isNewEntryTeam(selectedTeamId)) setNewEntryTicketId('');
+    if (!isNewEntryTeam(selectedTeamId)) return;
+    setNewEntryTicketId('');
+    setAllTickets([]);
   }, [selectedTeamId, isNewEntryTeam]);
 
   const handleCreateEntry = useCallback(async () => {

@@ -77,6 +77,28 @@ export function carriesTeamScope(pathname: string): boolean {
   return TEAM_SCOPED_PATHS.has(pathname);
 }
 
+/** The team and org a URL names: the path (`/app/teams/:teamId`), `?team=`
+ *  (legacy `?teamId=`) on a team-scoped page, and `?org=`. */
+function urlScopeOf(pathname: string, search: string) {
+  const params = new URLSearchParams(search);
+  const pathTeamId = matchPath(TEAM_PAGE, pathname)?.teamId ?? null;
+  return {
+    pathTeamId,
+    urlTeamId:
+      pathTeamId ??
+      (carriesTeamScope(pathname) ? params.get('team') || params.get('teamId') || null : null),
+    urlOrgId: params.get('org') || null,
+  };
+}
+
+/** The scope the URL names right now. A setter reads this when it runs, not
+ *  what the URL said when it was created: a create or join can finish after
+ *  the user has moved on, and must rewrite the URL that is on screen then. */
+function liveUrlScope() {
+  const { pathname, search } = liveLocation();
+  return { pathname, ...urlScopeOf(pathname, search) };
+}
+
 /**
  * `ok` — no team in the URL, or the user is a member of it.
  * `pending` — the URL names a team and the team list hasn't loaded yet.
@@ -368,13 +390,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // override the stored pick. A URL team also implies its org, so a link into
   // another org's team opens in that org without the page having to switch it.
 
-  const { pathname, replace } = useRouter();
+  const { pathname, search, replace } = useRouter();
   const { params, setParams } = useQueryParams();
-  const pathTeamId = matchPath(TEAM_PAGE, pathname)?.teamId ?? null;
-  const urlTeamId =
-    pathTeamId ??
-    (carriesTeamScope(pathname) ? params.get('team') || params.get('teamId') || null : null);
-  const urlOrgId = params.get('org') || null;
+  const { urlTeamId, urlOrgId } = urlScopeOf(pathname, search);
   const teamsLoaded = teamsReady && teams.length > 0;
   const urlTeam = urlTeamId ? (teams.find((t) => t.id === urlTeamId) ?? null) : null;
 
@@ -418,15 +436,16 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // A URL that names the scope must follow the pick, or the URL would keep
       // overriding it. An `?org=` that no longer matches the team is dropped.
-      if (pathTeamId) {
+      const live = liveUrlScope();
+      if (live.pathTeamId) {
         replace(withQuery(`/app/teams/${id}`, liveLocation().search, {}));
-      } else if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
+      } else if (live.urlTeamId || live.urlOrgId || carriesTeamScope(live.pathname)) {
         const patch: QueryPatch = { team: id, teamId: null };
-        if (urlOrgId && orgId !== urlOrgId) patch.org = null;
+        if (live.urlOrgId && orgId !== live.urlOrgId) patch.org = null;
         setParams(patch);
       }
     },
-    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, replace, setParams],
+    [teams, rememberTeam, replace, setParams],
   );
 
   // A team opened from a link becomes the remembered one too, so following a
@@ -453,13 +472,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       // The URL's team belongs to the old org, so it goes; the "pick first
       // available" effect then selects a team in the new org.
-      if (pathTeamId) {
+      const live = liveUrlScope();
+      if (live.pathTeamId) {
         replace(withQuery('/app/teams', liveLocation().search, {}));
-      } else if (urlTeamId || urlOrgId) {
-        setParams({ team: null, teamId: null, org: urlOrgId ? id : null });
+      } else if (live.urlTeamId || live.urlOrgId) {
+        setParams({ team: null, teamId: null, org: live.urlOrgId ? id : null });
       }
     },
-    [userId, pathTeamId, urlTeamId, urlOrgId, replace, setParams],
+    [userId, replace, setParams],
   );
 
   useEffect(() => {

@@ -61,6 +61,7 @@ import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useIsCurrent } from '../../lib/useIsCurrent';
 import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { usePresence } from '../../lib/usePresence';
@@ -117,8 +118,12 @@ export const TeamsPage: React.FC = () => {
   // newest may write, and a failed quiet reload keeps the members on screen.
   const isNewTeam = useScopeChange();
   const beginLoad = useLatestRequest();
+  // An invite or removal refreshes the team it was made on; if the user has
+  // since moved to another team, that refresh is stale and does nothing.
+  const isCurrentTeam = useIsCurrent(selectedTeamId);
   const fetchMembers = useCallback(
     async (teamId: string | null) => {
+      if (!isCurrentTeam(teamId)) return;
       const isLatest = beginLoad();
       const newTeam = isNewTeam(teamId);
       if (!teamId) {
@@ -139,7 +144,7 @@ export const TeamsPage: React.FC = () => {
         if (isLatest()) setMembersLoading(false);
       }
     },
-    [isNewTeam, beginLoad],
+    [isNewTeam, beginLoad, isCurrentTeam],
   );
 
   useEffect(() => {

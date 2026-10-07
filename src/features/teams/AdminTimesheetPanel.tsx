@@ -40,6 +40,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { localDateRangeKey } from '../../lib/date';
+import { useIsCurrent } from '../../lib/useIsCurrent';
 import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
@@ -185,8 +186,14 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   // A load left in flight when the page was hidden, or for the member before a
   // switch, can answer after the newest; only the newest may write.
   const beginLoad = useLatestRequest();
+  // A save or delete refreshes the selection it was made under; if the user has
+  // since moved to another team, member or range, that refresh is stale and
+  // does nothing.
+  const selection = `${selectedTeamId}|${selectedMemberId}|${preset}|${customStart}|${customEnd}`;
+  const isCurrentSelection = useIsCurrent(selection);
 
   const fetchData = useCallback(async () => {
+    if (!isCurrentSelection(selection)) return;
     const isLatest = beginLoad();
     // Beginning retired any load in flight, and with it the only finally that
     // would end its loading state, so a load that stops here ends it itself.
@@ -222,7 +229,17 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     } finally {
       if (isLatest()) setLoading(false);
     }
-  }, [selectedTeamId, selectedMemberId, preset, customStart, customEnd, isNewRange, beginLoad]);
+  }, [
+    selectedTeamId,
+    selectedMemberId,
+    preset,
+    customStart,
+    customEnd,
+    isNewRange,
+    beginLoad,
+    isCurrentSelection,
+    selection,
+  ]);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {
