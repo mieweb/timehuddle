@@ -48,6 +48,15 @@ describe('assignedToMe', () => {
     expect(assignedToMe(tickets, ME_KEYS).map((t) => t.key)).toEqual(['redmine:30', 'redmine:10']);
   });
 
+  it('leaves out a TimeHuddle ticket linked to a Redmine issue, account or not', () => {
+    const linked: UnifiedTicket = {
+      ...ticket('huddle', 'a', 'u1'),
+      linked: { sourceId: 'redmine', id: '30', ref: '#30', status: null, assignee: null },
+    };
+    expect(assignedToMe([linked], ME_KEYS)).toEqual([]);
+    expect(assignedToMe([linked], ['huddle:u1'])).toEqual([]);
+  });
+
   it('finds nothing without a Redmine identity', () => {
     expect(assignedToMe([ticket('redmine', '30', '7')], ['huddle:u1'])).toEqual([]);
   });

@@ -10,6 +10,7 @@
  */
 import {
   Button,
+  ButtonGroup,
   Alert,
   AlertDescription,
   Input,
@@ -922,24 +923,27 @@ export const TicketsPage: React.FC = () => {
                           isApproximate(assignedIssues),
                         )}
                       </Text>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-xs"
-                        onClick={showAssignedInAllSources}
-                        aria-label={starterText.showThemLabel}
-                      >
-                        {starterText.showThem}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="ms-auto h-6 w-6"
-                        onClick={assignedNotice.dismiss}
-                        aria-label={starterText.dismiss}
-                      >
-                        <X className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Button>
+                      {/* The link stays with the sentence; Dismiss goes to the far end. */}
+                      <ButtonGroup split className="board-assigned-notice-actions flex-1">
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={showAssignedInAllSources}
+                          aria-label={starterText.showThemLabel}
+                        >
+                          {starterText.showThem}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={assignedNotice.dismiss}
+                          aria-label={starterText.dismiss}
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Button>
+                      </ButtonGroup>
                     </div>
                   )}
                   <div
@@ -983,8 +987,9 @@ export const TicketsPage: React.FC = () => {
                 closed: 'No closed tickets on your board',
                 hint: viewText.emptyBoardHint,
               }}
+              // Wraps on a phone, where the two labels do not fit one row.
               emptyAction={
-                <div className="empty-board-actions flex flex-wrap items-center justify-center gap-2">
+                <ButtonGroup className="empty-board-actions max-w-full flex-wrap justify-center gap-2">
                   {offerAssigned && (
                     <Button
                       variant="primary"
@@ -1005,7 +1010,7 @@ export const TicketsPage: React.FC = () => {
                   >
                     {viewText.browseAllSources}
                   </Button>
-                </div>
+                </ButtonGroup>
               }
               emptyNotice={unresolvedBoardNotice}
             />

@@ -35,9 +35,15 @@ export const ASSIGNED_FILTERS: TicketFilters = {
  * The user's open, assigned Redmine issues, in the order the tickets came in.
  * Redmine rows arrive ranked by the server (their own recent work first), so
  * the head of this list is what a starter board should hold.
+ *
+ * Redmine issues only: a TimeHuddle ticket linked to an issue is filtered as
+ * Redmine work, but "Me" on it is the TimeHuddle assignee, and it can be there
+ * for someone with no Redmine account at all.
  */
 export function assignedToMe(tickets: UnifiedTicket[], meKeys: readonly string[]): UnifiedTicket[] {
-  return applyFilters(tickets, ASSIGNED_FILTERS, '', meKeys).filter((t) => !t.status.isClosed);
+  return applyFilters(tickets, ASSIGNED_FILTERS, '', meKeys).filter(
+    (t) => t.sourceId === 'redmine' && !t.status.isClosed,
+  );
 }
 
 /** Whether a count taken from `assigned` may be short of the real one. */
