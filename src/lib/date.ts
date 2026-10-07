@@ -5,13 +5,6 @@ export function toLocalDateStr(d: Date): string {
   return d.toLocaleDateString('en-CA');
 }
 
-/** A range as the calendar days it covers, e.g. "2026-10-05..2026-10-11".
- *  A relative preset ("this week") resolves to a new key when the week rolls
- *  over, but not as its end, often "now", moves through the day. */
-export function localDateRangeKey(startMs: number, endMs: number): string {
-  return `${toLocalDateStr(new Date(startMs))}..${toLocalDateStr(new Date(endMs))}`;
-}
-
 /** Short relative time ("3m ago", "2d ago"), falling back to a date past a week. */
 export function timeAgo(iso: string): string {
   const date = new Date(iso);

@@ -42,7 +42,6 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Skeleton,
   Spinner,
   Switch,
   Table,
@@ -61,14 +60,10 @@ import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
-import { useIsCurrent } from '../../lib/useIsCurrent';
-import { useLatestRequest } from '../../lib/useLatestRequest';
-import { useScopeChange } from '../../lib/useScopeChange';
 import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-import { LoadingRegion, SkeletonPanel } from '../../ui/PageSkeleton';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { getDdpClient } from '../../lib/ddp';
@@ -112,40 +107,21 @@ export const TeamsPage: React.FC = () => {
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
-  // Kept mounted: a return or a live update reloads quietly behind the members
-  // shown; only a new team clears the old one's and shows the loading state. A
-  // load for the team just left can still be in flight on return, so only the
-  // newest may write, and a failed quiet reload keeps the members on screen.
-  const isNewTeam = useScopeChange();
-  const beginLoad = useLatestRequest();
-  // An invite or removal refreshes the team it was made on; if the user has
-  // since moved to another team, that refresh is stale and does nothing.
-  const isCurrentTeam = useIsCurrent(selectedTeamId);
-  const fetchMembers = useCallback(
-    async (teamId: string | null) => {
-      if (!isCurrentTeam(teamId)) return;
-      const isLatest = beginLoad();
-      const newTeam = isNewTeam(teamId);
-      if (!teamId) {
-        setMembers([]);
-        setMembersLoading(false);
-        return;
-      }
-      if (newTeam) {
-        setMembers([]);
-        setMembersLoading(true);
-      }
-      try {
-        const data = await teamApi.getMembers(teamId);
-        if (isLatest()) setMembers(data);
-      } catch {
-        if (isLatest() && newTeam) setMembers([]);
-      } finally {
-        if (isLatest()) setMembersLoading(false);
-      }
-    },
-    [isNewTeam, beginLoad, isCurrentTeam],
-  );
+  const fetchMembers = useCallback(async (teamId: string | null) => {
+    if (!teamId) {
+      setMembers([]);
+      return;
+    }
+    setMembersLoading(true);
+    try {
+      const data = await teamApi.getMembers(teamId);
+      setMembers(data);
+    } catch {
+      setMembers([]);
+    } finally {
+      setMembersLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void fetchMembers(selectedTeamId);
@@ -249,34 +225,15 @@ export const TeamsPage: React.FC = () => {
   // Inline team-name draft used by the "Team Settings" modal's rename field
   // (kept separate from `formValue`, which drives the create/join/invite forms).
   const [teamNameDraft, setTeamNameDraft] = useState('');
-  // Seeded when Settings opens for a team, not on every run of this effect:
-  // the page is kept mounted, and showing it again must not drop an unsaved
-  // rename.
-  const isNewDraft = useScopeChange();
   useEffect(() => {
-    const draftFor = modal === 'settings' && selectedTeam ? selectedTeam.id : null;
-    if (isNewDraft(draftFor) && draftFor && selectedTeam) setTeamNameDraft(selectedTeam.name);
-  }, [modal, selectedTeam, isNewDraft]);
+    if (modal === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
+  }, [modal, selectedTeam]);
   const inviteSentEmail =
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 
   const [formValue, setFormValue] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
-
-  // A dialog about one team (delete, settings, a member) must not survive a
-  // switch to another: the page is kept mounted, so one left open, say through
-  // Back, would act on whichever team is selected on return. The ones not tied
-  // to a team stay, including "team created", which switches to the new team.
-  const isNewModalTeam = useScopeChange();
-  useEffect(() => {
-    if (!isNewModalTeam(selectedTeamId)) return;
-    const kind = typeof modal === 'object' ? modal?.type : modal;
-    if (!kind || ['create', 'join', 'created', 'pending-request'].includes(kind)) return;
-    setModal(null);
-    setFormValue('');
-    setFormError(null);
-  }, [selectedTeamId, isNewModalTeam, modal]);
 
   const closeModal = () => {
     setModal(null);
@@ -497,16 +454,9 @@ export const TeamsPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <AppPage>
-        <LoadingRegion label="Loading teams…">
-          <div className="teams-pills-skeleton flex gap-2">
-            {[96, 120, 84].map((width) => (
-              <Skeleton key={width} width={width} height={32} className="rounded-full" />
-            ))}
-          </div>
-          <SkeletonPanel rows={5} />
-        </LoadingRegion>
-      </AppPage>
+      <div className="flex items-center justify-center p-12">
+        <Spinner size="lg" label="Loading teams…" />
+      </div>
     );
   }
 
