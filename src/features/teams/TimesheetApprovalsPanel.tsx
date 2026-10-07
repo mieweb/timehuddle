@@ -160,11 +160,17 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   // requests in front of them, approvable, under this team's timesheet.
   const loadSeqRef = useRef(0);
   // Kept mounted: a return or a live update reloads quietly behind the queue
-  // shown; only a new team shows loading.
+  // shown. A new team clears the old one's queue and open review first, so its
+  // requests are never actionable under this team while the new queue loads.
   const isNewTeam = useScopeChange();
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current;
-    if (isNewTeam(teamId ?? null)) setLoading(true);
+    if (isNewTeam(teamId ?? null)) {
+      setRequests([]);
+      setActive(null);
+      setNote('');
+      setLoading(true);
+    }
     try {
       const next = await timesheetApprovalApi.listPending(teamId);
       if (loadSeqRef.current !== seq) return;

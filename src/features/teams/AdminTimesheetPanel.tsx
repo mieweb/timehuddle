@@ -39,6 +39,7 @@ import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
+import { localDateRangeKey } from '../../lib/date';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
@@ -170,8 +171,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     if (isNewTeam(selectedTeamId)) setData(null);
   }, [selectedTeamId, isNewTeam]);
 
-  // Loading shows for a new member or range only; a return or a live update
-  // reloads quietly behind the timesheet shown.
+  // Loading shows for a new team, member or range of days only; a return or a
+  // live update reloads quietly behind the timesheet shown.
   const isNewRange = useScopeChange();
 
   const fetchData = useCallback(async () => {
@@ -189,7 +190,9 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       endMs = e.getTime();
     }
 
-    if (isNewRange(`${selectedMemberId}|${preset}|${customStart}|${customEnd}`)) setLoading(true);
+    if (isNewRange(`${selectedTeamId}|${selectedMemberId}|${localDateRangeKey(startMs, endMs)}`)) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await clockApi.getTimesheet(selectedMemberId, startMs, endMs);
@@ -199,7 +202,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [selectedMemberId, preset, customStart, customEnd, isNewRange]);
+  }, [selectedTeamId, selectedMemberId, preset, customStart, customEnd, isNewRange]);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {

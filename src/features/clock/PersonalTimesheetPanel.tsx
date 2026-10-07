@@ -55,6 +55,7 @@ import {
   timesheetApproversFor,
   timesheetVideoRequired,
 } from '../../lib/timesheetApproval';
+import { localDateRangeKey } from '../../lib/date';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -263,8 +264,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
 
     const requestId = ++fetchRequestIdRef.current;
     // Kept mounted: a return or a live update reloads quietly behind the
-    // timesheet shown; only a new range shows loading.
-    if (isNewRange(`${user?.id}|${preset}|${customStart}|${customEnd}`)) setLoading(true);
+    // timesheet shown; only a new range of days shows loading.
+    if (isNewRange(`${user?.id}|${localDateRangeKey(startMs, endMs)}`)) setLoading(true);
     setError(null);
     try {
       const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);

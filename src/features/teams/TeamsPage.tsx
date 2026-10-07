@@ -259,6 +259,20 @@ export const TeamsPage: React.FC = () => {
   const [createDescription, setCreateDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
+  // A dialog about one team (delete, settings, a member) must not survive a
+  // switch to another: the page is kept mounted, so one left open, say through
+  // Back, would act on whichever team is selected on return. The ones not tied
+  // to a team stay, including "team created", which switches to the new team.
+  const isNewModalTeam = useScopeChange();
+  useEffect(() => {
+    if (!isNewModalTeam(selectedTeamId)) return;
+    const kind = typeof modal === 'object' ? modal?.type : modal;
+    if (!kind || ['create', 'join', 'created', 'pending-request'].includes(kind)) return;
+    setModal(null);
+    setFormValue('');
+    setFormError(null);
+  }, [selectedTeamId, isNewModalTeam, modal]);
+
   const closeModal = () => {
     setModal(null);
     setFormValue('');
