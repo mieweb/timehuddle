@@ -349,7 +349,12 @@ export const WorkPage: React.FC = () => {
   // follows it, fire one each), and an older answer can land last. Only the
   // newest request may write, so a pre-start snapshot never replaces a running row.
   const fetchDaySeq = useRef(0);
+  // An add, edit, delete or copy refreshes the day it was made on; if the user
+  // has since moved to another day, that refresh is stale and does nothing,
+  // rather than claim the newest sequence and show the old day's rows.
+  const isCurrentDay = useIsCurrent(selectedDate);
   const fetchDay = useCallback(async () => {
+    if (!isCurrentDay(selectedDate)) return;
     const seq = ++fetchDaySeq.current;
     try {
       const entries = await timerApi.getDay(selectedDate);
@@ -357,7 +362,7 @@ export const WorkPage: React.FC = () => {
     } catch {
       // keep previous
     }
-  }, [selectedDate]);
+  }, [selectedDate, isCurrentDay]);
 
   useEffect(() => {
     void fetchDay();

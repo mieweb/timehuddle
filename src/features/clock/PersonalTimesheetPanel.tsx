@@ -56,6 +56,7 @@ import {
   timesheetVideoRequired,
 } from '../../lib/timesheetApproval';
 import { localDateRangeKey } from '../../lib/date';
+import { useIsCurrent } from '../../lib/useIsCurrent';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -246,8 +247,13 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   // only applies its response if it's still the most recent call.
   const fetchRequestIdRef = useRef(0);
   const isNewRange = useScopeChange();
+  // A save, delete or add refreshes the range it was made under; if the user
+  // has since moved to another range, that refresh is stale and does nothing.
+  const selection = `${user?.id}|${preset}|${customStart}|${customEnd}`;
+  const isCurrentSelection = useIsCurrent(selection);
 
   const fetchData = useCallback(async () => {
+    if (!isCurrentSelection(selection)) return;
     if (!user?.id) return;
     let startMs: number;
     let endMs: number;
@@ -277,7 +283,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       if (fetchRequestIdRef.current === requestId) setLoading(false);
     }
-  }, [user?.id, preset, customStart, customEnd, isNewRange]);
+  }, [user?.id, preset, customStart, customEnd, isNewRange, isCurrentSelection, selection]);
 
   useEffect(() => {
     void fetchData();
