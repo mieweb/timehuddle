@@ -796,6 +796,7 @@ export default function Huddle() {
     const postedPulseIds = new Set(pulseVideos.map((m) => m.id));
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
+      // The send button is busy while this holds; it covers a send that slipped in before.
       if (pulseWaiting) {
         throw new Error(
           'Your Pulse video is still on its way. Send once it is attached, or cancel it.',
@@ -989,10 +990,11 @@ export default function Huddle() {
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
                       // A Pulse video or a ticket is a post on its own.
                       canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
-                      // Also busy while staged content is still settling: a send
-                      // rejected then would lose the picked files, which the
-                      // composer clears before `onSend` (gap 4.14).
-                      isSending: sending || ticketVideos.loading,
+                      // Also busy while staged content is still settling — a Pulse
+                      // video on its way, the ticket's videos loading: a send rejected
+                      // then would lose the picked files, which the composer clears
+                      // before `onSend` (gap 4.14).
+                      isSending: sending || pulseWaiting || ticketVideos.loading,
                       mentionOptions: mentions.options,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.

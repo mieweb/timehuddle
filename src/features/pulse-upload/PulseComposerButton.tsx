@@ -21,7 +21,11 @@ import { usePulseUpload } from './usePulseUpload';
 interface PulseComposerButtonProps {
   /** The landed video, as a composer attachment. */
   onAttach: (media: MediaItem) => void;
-  /** Whether a link is waiting for its video; the composer holds its post while it is. */
+  /**
+   * Whether a video may still arrive here: from the reserve request, through
+   * the wait, until a landed video has been handed to `onAttach`. The composer
+   * holds its post while it is true, so the video can't miss the post.
+   */
   onWaitingChange?: (waiting: boolean) => void;
   disabled?: boolean;
 }
@@ -44,7 +48,10 @@ export const PulseComposerButton: React.FC<PulseComposerButtonProps> = ({
     },
   );
 
-  const waiting = pulse.status?.state === 'waiting';
+  // Not only `waiting`: a link being reserved has no status yet, and a landed
+  // one stays `done` while the modal shows it, until `reset()` after the attach.
+  const waiting =
+    pulse.reserving || pulse.status?.state === 'waiting' || pulse.status?.state === 'done';
   const onWaitingChangeRef = useRef(onWaitingChange);
   onWaitingChangeRef.current = onWaitingChange;
   useEffect(() => {
