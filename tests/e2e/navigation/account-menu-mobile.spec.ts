@@ -15,7 +15,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const PHONE = { width: 390, height: 844 };
-const HELP_ITEMS = ['Report an Issue', 'Share Your Feedback', 'TestFlight'];
+const HELP_ITEMS = ['Report an Issue', 'Share Your Feedback', 'App Store'];
 
 async function openAccountMenu(page: Page) {
   await page.getByRole('button', { name: 'Account menu' }).click();

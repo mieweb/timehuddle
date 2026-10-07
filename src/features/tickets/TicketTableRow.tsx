@@ -33,6 +33,7 @@ import {
   Text,
   Tooltip,
 } from '@mieweb/ui';
+import { CircleUser } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -66,7 +67,20 @@ export interface TicketTableRowProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  /**
+   * Phone layout: the title in full, a line of where the ticket sits, and a
+   * line of badges, in place of one column per fact. The table decides; see
+   * `TicketTable`.
+   */
+  compact?: boolean;
 }
+
+/** The title button's look, shared by the one-line (table) and wrapping (phone) forms. */
+const TITLE_CLASS =
+  'h-auto justify-start p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary';
+
+/** Assignee names a compact row shows before it counts the rest. */
+const COMPACT_ASSIGNEES = 2;
 
 function statusIconFor(status: UnifiedTicket['status']): {
   icon: typeof faCircleDot;
@@ -102,6 +116,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  compact = false,
 }) => {
   const { navigate } = useRouter();
   const copyLink = useCopyLink();
@@ -185,6 +200,254 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
     };
   }, [menuOpen]);
 
+  // The row's facts, built once and laid out twice: one per column on a wide
+  // screen, or as a line under the title in the compact (phone) row.
+  const statusDot = <FontAwesomeIcon icon={icon} className={`shrink-0 text-sm ${iconClass}`} />;
+  const linkedBadge = ticket.linked && (
+    <Tooltip
+      content={
+        ticket.linked.status
+          ? ticketLinkText.linkedToWithStatus(ticket.linked.ref, ticket.linked.status.native)
+          : ticketLinkText.linkedTo(ticket.linked.ref)
+      }
+    >
+      <Badge variant="outline" size="sm" className="shrink-0">
+        <FontAwesomeIcon icon={faLink} className="me-1 text-[10px]" aria-hidden="true" />
+        {ticket.linked.ref}
+      </Badge>
+    </Tooltip>
+  );
+  const timeharborBadge = ticket.sharedWithTimeharbor && (
+    <Tooltip content="Shared with TimeHarbor">
+      <Badge variant="default" size="sm">
+        TH
+      </Badge>
+    </Tooltip>
+  );
+  const titleLine = (
+    <div className="flex min-w-0 items-center gap-2">
+      {statusDot}
+      <OverflowTooltip content={ticket.title} className="flex-1">
+        <Button
+          variant="ghost"
+          className={`${TITLE_CLASS} min-w-0 flex-1 truncate`}
+          onClick={openTicket}
+        >
+          {ticket.title}
+        </Button>
+      </OverflowTooltip>
+      {linkedBadge}
+      {timeharborBadge}
+    </div>
+  );
+  const refNode = (
+    <>
+      {ticket.externalRef ? (
+        <Tooltip content={ticket.externalRef.label}>
+          <a
+            href={ticket.externalRef.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-blue-500 hover:underline dark:text-neutral-400"
+          >
+            {ticket.ref}
+            <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
+          </a>
+        </Tooltip>
+      ) : (
+        <Text size="sm" variant="muted">
+          {ticket.ref}
+        </Text>
+      )}
+    </>
+  );
+  const statusBadge = (
+    <Badge variant={status.isClosed ? 'secondary' : 'default'} size="sm">
+      {status.native}
+    </Badge>
+  );
+  const priorityBadge = ticket.priority ? (
+    <Badge variant={priorityVariant(ticket.priority.rank)} size="sm">
+      {ticket.priority.native}
+    </Badge>
+  ) : null;
+  const assigneeList =
+    assignees.length > 0 ? (
+      <div className="flex -space-x-1">
+        {assignees.slice(0, 3).map((assignee) => {
+          // Only Huddle assignee ids resolve to an in-app profile route.
+          const avatar = <UserAvatar name={assignee.name} size="xs" />;
+          return (
+            <Tooltip key={assignee.id} content={assignee.name}>
+              {ticket.sourceId === 'huddle' ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-auto w-auto rounded-full p-0 ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 dark:ring-neutral-900"
+                  onClick={() => navigate(`/app/profile/${assignee.id}`)}
+                  aria-label={`View ${assignee.name}'s profile`}
+                >
+                  {avatar}
+                </Button>
+              ) : (
+                <div className="rounded-full ring-2 ring-white dark:ring-neutral-900">{avatar}</div>
+              )}
+            </Tooltip>
+          );
+        })}
+        {assignees.length > 3 && (
+          <Tooltip
+            content={assignees
+              .slice(3)
+              .map((a) => a.name)
+              .join(', ')}
+          >
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900">
+              +{assignees.length - 3}
+            </div>
+          </Tooltip>
+        )}
+      </div>
+    ) : null;
+
+  // In a compact row the controls sit on the title's first line, not midway
+  // down a row that is three lines tall.
+  const selectCell = (
+    <TableCell className={compact ? 'pl-4 pt-3.5 align-top' : 'pl-4'} data-row-control>
+      <Checkbox
+        checked={selected}
+        onChange={(e) => onSelectedChange(ticket, e.target.checked)}
+        aria-label={`Select ${ticket.title}`}
+      />
+    </TableCell>
+  );
+  const timerCell = showTimerColumn && (
+    <TableCell className={compact ? 'pl-2 pt-1.5 align-top' : 'pl-2'} data-row-control>
+      <TimerToggleButton
+        isRunning={isTimerRunning}
+        isLoading={timerLoading}
+        disabled={timerDisabled}
+        onClick={() => onToggleTimer(ticket)}
+        ariaLabel={
+          isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+        }
+      />
+    </TableCell>
+  );
+
+  const sourceBadge = (
+    <Badge variant="outline" size="sm">
+      {SOURCE_LABELS[displaySourceId(ticket)]}
+    </Badge>
+  );
+  const updatedAt = ticket.updatedAt ?? ticket.createdAt;
+  const updatedText = updatedAt ? timeAgo(updatedAt) : null;
+
+  // The compact row's second line: reference, project and age, dot-separated.
+  const metaItems = [
+    ticket.externalRef ? (
+      <a
+        href={ticket.externalRef.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${ticket.ref}, ${ticket.externalRef.label}`}
+        className="hover:text-foreground hover:underline"
+      >
+        {ticket.ref}
+      </a>
+    ) : (
+      ticket.ref
+    ),
+    ticket.container?.name,
+    updatedText,
+  ].filter(Boolean);
+
+  const factCells = compact ? (
+    // Phone: no sideways scroll, and no column per fact. The title, in full;
+    // then where the ticket sits; then who has it and what state it is in.
+    <TableCell className="py-3 ps-2 pe-1 align-top">
+      <div className="ticket-row-compact flex min-w-0 items-start gap-2">
+        <span className="ticket-row-status mt-0.5 flex shrink-0">{statusDot}</span>
+        <div className="ticket-row-body flex min-w-0 flex-1 flex-col gap-1.5">
+          {/* Wraps instead of truncating: on a phone the title is most of what
+              tells one ticket from another, and there is no tooltip to hover. */}
+          <Button
+            variant="ghost"
+            className={`ticket-row-title ${TITLE_CLASS} w-full whitespace-normal break-words [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal`}
+            onClick={openTicket}
+          >
+            {ticket.title}
+          </Button>
+
+          <div className="ticket-row-meta flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            {metaItems.map((item, index) => (
+              <React.Fragment key={index}>
+                {index > 0 && <span aria-hidden="true">•</span>}
+                <span className="min-w-0 truncate">{item}</span>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* One height for every badge: an outlined one is otherwise taller
+              than a filled one by its border. A minimum, so a label long
+              enough to wrap grows its badge instead of spilling out of it. */}
+          <div className="ticket-row-facts flex min-w-0 flex-wrap items-center gap-1.5 [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
+            {/* Names, not avatars: there is room, and initials alone say less. */}
+            {assignees.slice(0, COMPACT_ASSIGNEES).map((assignee) => (
+              <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">
+                <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="truncate">{assignee.name}</span>
+              </Badge>
+            ))}
+            {assignees.length > COMPACT_ASSIGNEES && (
+              <Text size="xs" variant="muted">
+                +{assignees.length - COMPACT_ASSIGNEES}
+              </Text>
+            )}
+            {sourceBadge}
+            {statusBadge}
+            {priorityBadge}
+            {linkedBadge}
+            {timeharborBadge}
+          </div>
+        </div>
+      </div>
+    </TableCell>
+  ) : (
+    <>
+      <TableCell className="overflow-hidden">{titleLine}</TableCell>
+      <TableCell className="whitespace-nowrap">{refNode}</TableCell>
+      <TableCell className="whitespace-nowrap">{sourceBadge}</TableCell>
+      <TableCell className="whitespace-nowrap">{statusBadge}</TableCell>
+      <TableCell className="whitespace-nowrap">
+        {priorityBadge ?? (
+          <Text size="sm" variant="muted">
+            —
+          </Text>
+        )}
+      </TableCell>
+      <TableCell className="whitespace-nowrap">
+        {assigneeList ?? (
+          <Text size="sm" variant="muted">
+            Unassigned
+          </Text>
+        )}
+      </TableCell>
+      <TableCell className="overflow-hidden">
+        <OverflowTooltip content={ticket.container?.name ?? '—'}>
+          <Text size="sm" variant="muted" className="block min-w-0 truncate">
+            {ticket.container?.name ?? '—'}
+          </Text>
+        </OverflowTooltip>
+      </TableCell>
+      <TableCell className="whitespace-nowrap">
+        <Text size="sm" variant="muted">
+          {updatedText ?? '—'}
+        </Text>
+      </TableCell>
+    </>
+  );
+
   return (
     <TableRow
       selected={selected}
@@ -194,174 +457,14 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       className="cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
       onClick={openFromRow}
     >
-      <TableCell className="pl-4" data-row-control>
-        <Checkbox
-          checked={selected}
-          onChange={(e) => onSelectedChange(ticket, e.target.checked)}
-          aria-label={`Select ${ticket.title}`}
-        />
-      </TableCell>
+      {selectCell}
+      {timerCell}
+      {factCells}
 
-      {showTimerColumn && (
-        <TableCell className="pl-2" data-row-control>
-          <TimerToggleButton
-            isRunning={isTimerRunning}
-            isLoading={timerLoading}
-            disabled={timerDisabled}
-            onClick={() => onToggleTimer(ticket)}
-            ariaLabel={
-              isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
-            }
-          />
-        </TableCell>
-      )}
-
-      <TableCell className="overflow-hidden">
-        <div className="flex min-w-0 items-center gap-2">
-          <FontAwesomeIcon icon={icon} className={`shrink-0 text-sm ${iconClass}`} />
-          <OverflowTooltip content={ticket.title} className="flex-1">
-            <Button
-              variant="ghost"
-              className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary"
-              onClick={openTicket}
-            >
-              {ticket.title}
-            </Button>
-          </OverflowTooltip>
-          {ticket.linked && (
-            <Tooltip
-              content={
-                ticket.linked.status
-                  ? ticketLinkText.linkedToWithStatus(
-                      ticket.linked.ref,
-                      ticket.linked.status.native,
-                    )
-                  : ticketLinkText.linkedTo(ticket.linked.ref)
-              }
-            >
-              <Badge variant="outline" size="sm" className="shrink-0">
-                <FontAwesomeIcon icon={faLink} className="me-1 text-[10px]" aria-hidden="true" />
-                {ticket.linked.ref}
-              </Badge>
-            </Tooltip>
-          )}
-          {ticket.sharedWithTimeharbor && (
-            <Tooltip content="Shared with TimeHarbor">
-              <Badge variant="default" size="sm">
-                TH
-              </Badge>
-            </Tooltip>
-          )}
-        </div>
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        {ticket.externalRef ? (
-          <Tooltip content={ticket.externalRef.label}>
-            <a
-              href={ticket.externalRef.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-blue-500 hover:underline dark:text-neutral-400"
-            >
-              {ticket.ref}
-              <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
-            </a>
-          </Tooltip>
-        ) : (
-          <Text size="sm" variant="muted">
-            {ticket.ref}
-          </Text>
-        )}
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        <Badge variant="outline" size="sm">
-          {SOURCE_LABELS[displaySourceId(ticket)]}
-        </Badge>
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        <Badge variant={status.isClosed ? 'secondary' : 'default'} size="sm">
-          {status.native}
-        </Badge>
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        {ticket.priority ? (
-          <Badge variant={priorityVariant(ticket.priority.rank)} size="sm">
-            {ticket.priority.native}
-          </Badge>
-        ) : (
-          <Text size="sm" variant="muted">
-            —
-          </Text>
-        )}
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        {assignees.length > 0 ? (
-          <div className="flex -space-x-1">
-            {assignees.slice(0, 3).map((assignee) => {
-              // Only Huddle assignee ids resolve to an in-app profile route.
-              const avatar = <UserAvatar name={assignee.name} size="xs" />;
-              return (
-                <Tooltip key={assignee.id} content={assignee.name}>
-                  {ticket.sourceId === 'huddle' ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-auto w-auto rounded-full p-0 ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 dark:ring-neutral-900"
-                      onClick={() => navigate(`/app/profile/${assignee.id}`)}
-                      aria-label={`View ${assignee.name}'s profile`}
-                    >
-                      {avatar}
-                    </Button>
-                  ) : (
-                    <div className="rounded-full ring-2 ring-white dark:ring-neutral-900">
-                      {avatar}
-                    </div>
-                  )}
-                </Tooltip>
-              );
-            })}
-            {assignees.length > 3 && (
-              <Tooltip
-                content={assignees
-                  .slice(3)
-                  .map((a) => a.name)
-                  .join(', ')}
-              >
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900">
-                  +{assignees.length - 3}
-                </div>
-              </Tooltip>
-            )}
-          </div>
-        ) : (
-          <Text size="sm" variant="muted">
-            Unassigned
-          </Text>
-        )}
-      </TableCell>
-
-      <TableCell className="overflow-hidden">
-        <OverflowTooltip content={ticket.container?.name ?? '—'}>
-          <Text size="sm" variant="muted" className="block min-w-0 truncate">
-            {ticket.container?.name ?? '—'}
-          </Text>
-        </OverflowTooltip>
-      </TableCell>
-
-      <TableCell className="whitespace-nowrap">
-        <Text size="sm" variant="muted">
-          {(ticket.updatedAt ?? ticket.createdAt)
-            ? timeAgo((ticket.updatedAt ?? ticket.createdAt) as string)
-            : '—'}
-        </Text>
-      </TableCell>
-
-      <TableCell className="pr-4 text-end" data-row-control>
+      <TableCell
+        className={compact ? 'pr-2 pt-1 pb-0 text-end align-top' : 'pr-4 text-end'}
+        data-row-control
+      >
         <Button
           ref={menuTriggerRef}
           variant="ghost"

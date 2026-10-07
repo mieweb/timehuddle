@@ -85,6 +85,21 @@ export function isMobileBrowser(): boolean {
 }
 
 /**
+ * Open an external `https://` link outside the app. In the native shell it goes
+ * through `AppLauncher.openUrl` — WKWebView can't open an App Store link from
+ * `window.open` (see {@link openNativePulseOrStore}), while the OS hands it
+ * straight to the App Store app. In a browser it opens in a new tab.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isNativeApp()) {
+    const { AppLauncher } = await import('@capacitor/app-launcher');
+    await AppLauncher.openUrl({ url });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+/**
  * Resolve the store OS to use for a Pulse Cam install fallback across *both*
  * the native app and mobile browsers. Returns `null` on desktop (where the QR
  * flow is used instead).
