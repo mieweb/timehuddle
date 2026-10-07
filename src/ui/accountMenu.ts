@@ -1,7 +1,7 @@
 /**
  * accountMenu — the Admin / Developers / Help groups of the account menu.
  *
- * Single source for these items, their access rules and TESTFLIGHT_URL.
+ * Single source for these items, their access rules and APP_STORE_URL.
  * UserDropdown renders them as dropdown sections; BottomNav renders them as
  * the More sheet's drill-down tiles. Keeping both on one definition is what
  * stops the avatar menu and the mobile sheet drifting apart again.
@@ -21,6 +21,7 @@ import {
 import { useMemo } from 'react';
 
 import type { TimecoreUser } from '../lib/api';
+import { openExternalUrl } from '../lib/device';
 import {
   hasDefaultOrganizationAdminAccess,
   hasOrganizationAdminAccess,
@@ -31,8 +32,7 @@ import { useSession } from '../lib/useSession';
 import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 
-// Update this URL once the TestFlight build is published in App Store Connect.
-export const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
+export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657217';
 
 export type AccountMenuSectionId = 'admin' | 'developers' | 'help';
 
@@ -60,13 +60,13 @@ export interface AccountMenuActions {
   navigate: (href: string) => void;
   openReportIssue: () => void;
   openFeedback: () => void;
-  openTestFlight: () => void;
+  openAppStore: () => void;
 }
 
 /** The sections this user may see, in display order. Empty sections are omitted. */
 export function buildAccountMenuSections(
   { user, enterpriseCount, organizations, isProduction }: AccountMenuAccess,
-  { navigate, openReportIssue, openFeedback, openTestFlight }: AccountMenuActions,
+  { navigate, openReportIssue, openFeedback, openAppStore }: AccountMenuActions,
 ): AccountMenuSection[] {
   const isOrganizationAdmin = hasOrganizationAdminAccess(organizations);
   const showAdmin =
@@ -113,14 +113,14 @@ export function buildAccountMenuSections(
     items: [
       { icon: FlagIcon, label: 'Report an Issue', onSelect: openReportIssue },
       { icon: MessageIcon, label: 'Share Your Feedback', onSelect: openFeedback },
-      { icon: ExternalLinkIcon, label: 'TestFlight', onSelect: openTestFlight },
+      { icon: ExternalLinkIcon, label: 'App Store', onSelect: openAppStore },
     ],
   });
 
   return sections;
 }
 
-const openTestFlight = () => window.open(TESTFLIGHT_URL, '_blank', 'noopener,noreferrer');
+const openAppStore = () => void openExternalUrl(APP_STORE_URL);
 
 /** Account-menu sections for the signed-in user, wired to the app's router and feedback modals. */
 export function useAccountMenuSections(): AccountMenuSection[] {
@@ -138,7 +138,7 @@ export function useAccountMenuSections(): AccountMenuSection[] {
           organizations,
           isProduction: import.meta.env.MODE === 'production',
         },
-        { navigate, openReportIssue, openFeedback, openTestFlight },
+        { navigate, openReportIssue, openFeedback, openAppStore },
       ),
     [user, enterprises.length, organizations, navigate, openReportIssue, openFeedback],
   );

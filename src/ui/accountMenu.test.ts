@@ -18,7 +18,7 @@ const actions = {
   navigate: vi.fn(),
   openReportIssue: vi.fn(),
   openFeedback: vi.fn(),
-  openTestFlight: vi.fn(),
+  openAppStore: vi.fn(),
 };
 
 const MEMBER: AccountMenuAccess = {
@@ -37,9 +37,7 @@ function layout(access: Partial<AccountMenuAccess>) {
 
 describe('buildAccountMenuSections', () => {
   it('shows a plain member only Help in production', () => {
-    expect(layout({})).toEqual([
-      ['help', ['Report an Issue', 'Share Your Feedback', 'TestFlight']],
-    ]);
+    expect(layout({})).toEqual([['help', ['Report an Issue', 'Share Your Feedback', 'App Store']]]);
   });
 
   it('shows an organization admin Admin with Members and Usage', () => {
