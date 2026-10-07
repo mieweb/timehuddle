@@ -1,7 +1,7 @@
 import '@mieweb/ychart';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { forceYChartHtmlOverlayOnIos } from '../../lib/ychart';
+import { patchYChartForCapacitor } from '../../lib/ychart';
 import { useRouter } from '../../ui/router';
 import { CompactTicketList } from '../profile/CompactTicketList';
 import { useProfileTickets } from '../profile/useProfileTickets';
@@ -160,7 +160,7 @@ const OrganizationChartMount: React.FC<{
       if (!containerElement.isConnected) return;
       try {
         instanceRef.current = new window.YChartEditor().initView(chartId, yaml);
-        forceYChartHtmlOverlayOnIos(instanceRef.current.orgChart);
+        patchYChartForCapacitor(instanceRef.current.orgChart);
 
         // Disable the YAML editor panel
         const instance = instanceRef.current as YChartInstance & {

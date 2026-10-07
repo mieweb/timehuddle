@@ -64,3 +64,10 @@ export const Share = {
   share: async () => ({}),
   canShare: async () => ({ value: false }),
 };
+
+// Filesystem stub — only reached behind isNativePlatform() guards
+export const Directory = { Cache: 'CACHE' } as const;
+export const Encoding = { UTF8: 'utf8' } as const;
+export const Filesystem = {
+  writeFile: async (_options: unknown) => ({ uri: '' }),
+};
