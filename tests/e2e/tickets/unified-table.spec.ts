@@ -45,12 +45,23 @@ test.describe('Unified ticket table', () => {
     await expect(tickets.filterTrigger('Assignees')).toBeVisible();
   });
 
-  test('toggles closed tickets with the switch', async () => {
-    await expect(tickets.closedSwitch).not.toBeChecked();
+  test('switches between open and closed tickets, with a count of each', async () => {
+    const title = `E2E Open Closed ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.search(title);
+
+    await expect(tickets.openOption).toBeChecked();
+    // The counts are the showing view's, after its search.
+    await expect(tickets.openOption).toHaveAccessibleName('Open tickets, 1');
+    await expect(tickets.closedOption).toHaveAccessibleName('Closed tickets, 0');
+
     await tickets.showClosedTickets();
-    await expect(tickets.closedSwitch).toBeChecked();
+    await expect(tickets.closedOption).toBeChecked();
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+
     await tickets.showOpenTickets();
-    await expect(tickets.closedSwitch).not.toBeChecked();
+    await expect(tickets.openOption).toBeChecked();
+    await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
   test('renders the expected columns', async ({ page }) => {

@@ -5,13 +5,15 @@
  * All Sources and My Board render the same panel over their own
  * `TicketTableView`; what differs between them (the notices around the bulk
  * bar, the labels) comes in as props. The toolbar is not here: one search bar
- * sits above both tabs, on the page, with `TicketViewControls` beside it.
+ * sits above both tabs, on the page, with `TicketViewControls` beside it on a
+ * wide screen. On a phone those controls move into the table's own header.
  */
-import { Button, Card, Switch, Text } from '@mieweb/ui';
+import { Button, Card } from '@mieweb/ui';
 import React from 'react';
 
 import { EmptyState } from '../../ui/EmptyState';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
+import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketTable, type TicketTableProps } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import type { TicketTableView } from './useTicketTableView';
@@ -24,6 +26,7 @@ type SharedTableProps = Pick<
   | 'timerLoadingKey'
   | 'onToggleTimer'
   | 'showTimerColumn'
+  | 'selecting'
   | 'onEditRequest'
   | 'onDeleteRequest'
   | 'onChangeStatusRequest'
@@ -49,22 +52,21 @@ export interface TicketTablePanelProps extends SharedTableProps {
 /**
  * The count and the Open/Closed switch for one view, with "Clear filters" when
  * any are set. Rendered by the page beside the search bar, for whichever view
- * is showing, so the bar reads the same on both tabs.
+ * is showing, so the bar reads the same on both tabs. Wide screens only: the
+ * compact table carries the same choices in its header (`TicketTable`).
  */
 export const TicketViewControls: React.FC<{ view: TicketTableView; loading: boolean }> = ({
   view,
   loading,
 }) => (
-  <div className="ticket-view-controls flex shrink-0 items-center gap-3">
-    <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
-      {loading ? '…' : `${view.openCount} open · ${view.closedCount} closed`}
-    </Text>
-    <Switch
-      size="sm"
-      label="Closed"
-      labelPosition="left"
-      checked={view.showClosed}
-      onCheckedChange={view.setShowClosed}
+  <div className="ticket-view-controls flex shrink-0 items-center gap-3 max-md:hidden">
+    <TicketOpenClosedToggle
+      name="tickets-open-closed-toolbar"
+      showClosed={view.showClosed}
+      onShowClosedChange={view.setShowClosed}
+      openCount={view.openCount}
+      closedCount={view.closedCount}
+      loading={loading}
     />
     {hasActiveFilters(view.filters) && (
       <Button
@@ -133,6 +135,7 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
             onSortChange={view.onSortChange}
             filters={view.filters}
             onFiltersChange={view.setFilters}
+            onClearFilters={view.clearFilters}
             openMenuId={view.openFilterMenu}
             onOpenMenuChange={view.onOpenFilterMenuChange}
             boundaryRef={cardRef}
@@ -141,6 +144,9 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
             onSelectAllChange={view.onSelectAllChange}
             totalCount={view.sortedTickets.length}
             showClosed={view.showClosed}
+            openCount={view.openCount}
+            closedCount={view.closedCount}
+            onShowClosedChange={view.setShowClosed}
             emptyState={
               <EmptyState
                 title={
