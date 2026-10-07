@@ -95,6 +95,8 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 1.14 | Search box                                                                                                                                               | ❌                                                                                                                                                                           | P3       |
 | 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ⚠️ Fixed at `w-64` (256px), with no prop                                                                                                                                     | P3       |
 | 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                                                           | —        |
+| 1.17 | A slot after the last conversation, for a "load older" control or end-of-list marker                                                                     | ✅ **Built on the PR branch** (`listFooter`); Huddle loads the previous 30 days when it scrolls into view (#635)                                                             | P1       |
+| 1.18 | On a phone, open straight into a conversation rather than the list                                                                                       | ✅ **Built on the PR branch** (`defaultMobileView`); Huddle opens on Today, and the back arrow still reaches the list (#635)                                                 | P1       |
 
 ### 2. Thread Header
 
@@ -247,6 +249,12 @@ Huddle first.
       — spread onto the `ChatComposer` SuperChat renders, after SuperChat's own defaults, so the
       host can set `placeholder`, `leadingSlot` (a button beside `+`), `micSlot`, `addMenuItems`,
       `submitOnEnter`, `maxFileSize` and `mentionOptions={[]}` (mentions off).
+- [x] **`listFooter` on `SuperChatConversations` and `SuperChatInbox`** (1.17, #635) — built on the
+      branch: content after the last conversation, inside the scrolling list. Huddle puts its
+      "load older" sentinel there, so reaching the end of the list widens the 30-day window.
+- [x] **`defaultMobileView` on `SuperChatInbox`** (1.18, #635) — built on the branch: which pane a
+      narrow screen opens on (`'list'`, the existing behaviour, or `'chat'`). Huddle opens on
+      Today; the back arrow still returns to the list.
 - [ ] **`emptyState` on `SuperChatInbox`** (1.11) — shown in the panel when there are no
       conversations, **with the message box still rendered**, so the first post can be written.
       `onMessageSent` then gets `conversation: undefined`.

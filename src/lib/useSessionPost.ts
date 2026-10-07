@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import type { HuddlePost } from './api';
+import { huddleApi, type HuddlePost } from './api';
 import { getDdpClient } from './ddp';
 
 export function useSessionPost(teamId: string | null, clockEventId: string | null) {
@@ -22,6 +22,10 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
     }
 
     const ddp = getDdpClient();
+    // The publication only carries the last 30 days, which a session open longer
+    // than that has outgrown; this stands in until DDP has the post.
+    let fetched: HuddlePost | null = null;
+    let cancelled = false;
 
     const sync = () => {
       const match = ddp
@@ -35,14 +39,24 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
             Number(!!b.wrapUpAt) - Number(!!a.wrapUpAt) ||
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
-      setSessionPost(match[0] ?? null);
+      setSessionPost(match[0] ?? fetched);
     };
+
+    huddleApi
+      .getMyPostForSession(teamId, clockEventId)
+      .then((post) => {
+        if (cancelled) return;
+        fetched = post;
+        sync();
+      })
+      .catch(() => {});
 
     const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId], sync);
     const offChange = ddp.onCollectionChange('huddlePosts', sync);
     sync();
 
     return () => {
+      cancelled = true;
       offChange();
       unsubscribe();
       setSessionPost(null);

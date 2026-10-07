@@ -1191,6 +1191,12 @@ export interface HuddlePost {
   updatedAt: string;
 }
 
+/** One window of a feed; `hasMore` means older posts exist before `since`. */
+export interface HuddleFeedPage {
+  posts: HuddlePost[];
+  hasMore: boolean;
+}
+
 export interface HuddleComment {
   id: string;
   postId: string;
@@ -1212,20 +1218,19 @@ export const huddleApi = {
     ),
 
   /**
-   * Fetch all published huddle posts for a team over wormhole REST. Used to
-   * refresh the feed the moment a post is created, since the DDP socket can be
-   * down (the WebView drops it while backgrounded for a Pulse recording) and
-   * the live subscription would otherwise deliver the new post only later.
+   * Published huddle posts for a team over wormhole REST, from `since` (ISO
+   * date; the last 30 days when omitted). Used to refresh the feed the moment
+   * a post is created, since the DDP socket can be down (the WebView drops it
+   * while backgrounded for a Pulse recording) and the live subscription would
+   * otherwise deliver the new post only later.
    */
-  getPosts: (teamId: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
+  getPosts: (teamId: string, since?: string) =>
+    wormholeCall<HuddleFeedPage>('huddle.getPosts', since ? { teamId, since } : { teamId }),
 
   /** The caller's own published posts across every team they belong to (the
-   *  Huddle inbox's Personal view). Defaults to the last 30 days. */
+   *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyPosts', since ? { since } : {}).then(
-      (r) => r.posts,
-    ),
+    wormholeCall<HuddleFeedPage>('huddle.getMyPosts', since ? { since } : {}),
 
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>

@@ -389,4 +389,103 @@ describe('huddle.getMyPosts', () => {
     const res = await wormhole('huddle.getMyPosts', { since: 'not a date' }, authorJwt);
     expect(res.ok).toBe(false);
   });
+
+  it('says whether older posts exist before the window', async () => {
+    const page = async (args: Record<string, unknown>) =>
+      (
+        await wormhole<{ hasMore: boolean }>('huddle.getMyPosts', args, authorJwt)
+      ).result.hasMore;
+    expect(await page({})).toBe(true); // the 40-day-old fixture
+    const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    expect(await page({ since })).toBe(false);
+  });
+});
+
+/**
+ * `huddle.getPosts` (and the `huddlePosts.byTeam` publication, which shares the
+ * same `since`) read a date window rather than the team's whole history, and
+ * `hasMore` tells the client whether widening the window finds anything.
+ */
+describe('huddle.getPosts window', () => {
+  const ids = {
+    recent: new ObjectId(),
+    old: new ObjectId(),
+    older: new ObjectId(),
+    oldDraft: new ObjectId(),
+    legacyTeamId: new ObjectId(),
+  };
+  const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const base = {
+      teamId,
+      userId: authorUserId,
+      content: { text: 'getPosts window fixture', mentions: [] },
+      attachments: [],
+      likes: [],
+      commentCount: 0,
+    };
+    const at = (createdAt: Date) => ({ createdAt, updatedAt: createdAt });
+    await db.collection('huddlePosts').insertMany([
+      { ...base, _id: ids.recent, ...at(daysAgo(1)) },
+      { ...base, _id: ids.old, ...at(daysAgo(40)) },
+      { ...base, _id: ids.older, ...at(daysAgo(100)) },
+      { ...base, _id: ids.oldDraft, status: 'draft', ...at(daysAgo(200)) },
+      // Legacy rows store the team as an ObjectId.
+      { ...base, _id: ids.legacyTeamId, teamId: new ObjectId(teamId), ...at(daysAgo(2)) },
+    ]);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('huddlePosts').deleteMany({ _id: { $in: Object.values(ids) } });
+  });
+
+  async function feed(args: Record<string, unknown> = {}, jwt = authorJwt) {
+    return wormhole<{ posts: Array<{ id: string }>; hasMore: boolean }>(
+      'huddle.getPosts',
+      { teamId, ...args },
+      jwt,
+    );
+  }
+
+  it('defaults to the last 30 days and reports older posts exist', async () => {
+    const res = await feed();
+    expect(res.ok).toBe(true);
+    const found = res.result.posts.map((p) => p.id);
+    expect(found).toContain(ids.recent.toHexString());
+    expect(found).not.toContain(ids.old.toHexString());
+    expect(res.result.hasMore).toBe(true);
+  });
+
+  it('includes legacy posts whose team id is an ObjectId, as strings', async () => {
+    const res = await wormhole<{ posts: Array<{ id: string; teamId: unknown }> }>(
+      'huddle.getPosts',
+      { teamId },
+      authorJwt,
+    );
+    const legacy = res.result.posts.find((p) => p.id === ids.legacyTeamId.toHexString());
+    expect(legacy?.teamId).toBe(teamId);
+  });
+
+  it('widens with `since`, and stops reporting more once everything is in', async () => {
+    const mid = await feed({ since: daysAgo(60).toISOString() });
+    const midIds = mid.result.posts.map((p) => p.id);
+    expect(midIds).toContain(ids.old.toHexString());
+    expect(midIds).not.toContain(ids.older.toHexString());
+    expect(mid.result.hasMore).toBe(true);
+
+    const all = await feed({ since: daysAgo(365).toISOString() });
+    expect(all.result.posts.map((p) => p.id)).toContain(ids.older.toHexString());
+    // The only post left beyond that is a legacy draft, which never counts.
+    expect(all.result.hasMore).toBe(false);
+  });
+
+  it('rejects an invalid `since` and a non-member', async () => {
+    expect((await feed({ since: 'not a date' })).ok).toBe(false);
+    const outsider = await feed({}, outsiderJwt);
+    expect(outsider.ok).toBe(false);
+    expect(outsider.error).toMatch(/team member/i);
+  });
 });

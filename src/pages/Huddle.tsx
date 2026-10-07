@@ -1,9 +1,9 @@
 import { faCheck, faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
+  Alert,
   Button,
   ButtonGroup,
-  Card,
   Dropdown,
   DropdownItem,
   Input,
@@ -16,7 +16,7 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
@@ -25,21 +25,25 @@ import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { PulseAttachButton } from '../features/huddle/PulseAttachButton';
 import { clearComposerPulseUpload } from '../features/huddle/pulseComposerUpload';
 import {
+  defaultConversation,
   postsToConversations,
   searchConversations,
   starterConversation,
   stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
+  withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
+import { useFeedWindow } from '../features/huddle/useFeedWindow';
 import { useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
-import { useQueryParams, useSearchParam } from '../ui/router';
+import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
@@ -49,8 +53,16 @@ import { toDateString } from '@lib/timeUtils';
 import styles from './Huddle.module.css';
 
 const THREAD_BY_KEY = 'app:huddleThreadBy';
+// How long to wait for a first snapshot (DDP ready or REST) before reporting a load failure.
+const LOAD_TIMEOUT_MS = 10_000;
 // Team-picker value for the Personal view; team ids are never this string.
 const PERSONAL_VIEW = 'personal';
+// URL params that say which view Huddle is showing; any of them in the URL means the link chose the view.
+const VIEW_PARAMS = ['conversation', 'post', 'postId', 'view', 'q'];
+// Key of the Personal view's feed window; team feeds are keyed by team id.
+const ME_FEED_KEY = 'me';
+// How far back a link that can't be dated (a post, a session) is chased before it reads as not found.
+const LINK_SEARCH_MAX_DAYS = 360;
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
 const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
@@ -102,6 +114,16 @@ function threadByOf(conversationId: string | null): ThreadBy | null {
   return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as ThreadBy) : null;
 }
 
+/** Local midnight (epoch ms) of a `day:YYYY-MM-DD` conversation id; null for any other id. */
+function dayConversationStart(conversationId: string | null): number | null {
+  const match = /^day:(\d{4})-(\d{2})-(\d{2})$/.exec(conversationId ?? '');
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const start = new Date(year, month - 1, day);
+  // A date that rolled over (month 13, Feb 30) is not a day.
+  return start.getMonth() === month - 1 && start.getDate() === day ? start.getTime() : null;
+}
+
 export default function Huddle() {
   // View state in the URL (see src/ui/ROUTING.md):
   //   ?conversation=  the open conversation (opening one pushes, so Back closes it)
@@ -111,6 +133,41 @@ export default function Huddle() {
   const { params, setParams } = useQueryParams();
   const conversationParam = params.get('conversation');
   const postParam = params.get('post') || params.get('postId');
+  const [searchQuery, setSearchQuery] = useSearchParam('q');
+
+  // AppLayout keeps Huddle mounted behind other pages, but the sidebar link
+  // back to it carries none of the view. Remember the view while Huddle is on
+  // screen and put it back when it returns to a bare URL; a link that names a
+  // view (a notification, a shared conversation) wins. The layout effect runs
+  // before paint, so the return never flashes the default conversation, and it
+  // re-runs each time <Activity> shows the page again.
+  const { pathname } = useRouter();
+  const onScreen = pathname === '/app/huddle';
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const lastViewRef = useRef<Record<string, string | null>>({});
+  useLayoutEffect(() => {
+    if (VIEW_PARAMS.some((key) => paramsRef.current.has(key))) return;
+    setParams(lastViewRef.current);
+  }, [setParams]);
+  // A hidden <Activity> keeps its DOM, so playing media would carry on, audible,
+  // behind the next page. Layout-effect cleanups run when it hides.
+  const huddleRootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = huddleRootRef.current;
+    return () =>
+      root?.querySelectorAll<HTMLMediaElement>('video, audio').forEach((media) => media.pause());
+  }, []);
+  useEffect(() => {
+    if (!onScreen) return;
+    // The search draft, not the URL's `q`: the URL follows it after a pause, and
+    // leaving inside that pause would otherwise lose what was typed.
+    lastViewRef.current = {
+      conversation: params.get('conversation'),
+      view: params.get('view'),
+      q: searchQuery,
+    };
+  }, [onScreen, params, searchQuery]);
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +176,6 @@ export default function Huddle() {
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [threadByMenuOpen, setThreadByMenuOpen] = useState(false);
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useSearchParam('q');
   // How the inbox groups posts into conversations. Persisted so a reload
   // keeps the reader's choice; switching it only re-runs the grouping
   // function below, it never refetches. A linked conversation or post brings
@@ -214,21 +270,43 @@ export default function Huddle() {
     setParams({ view: null }, 'push');
     setSelectedTeamId(value);
   };
+  // How far back each feed reaches. The team feed and the Personal view keep
+  // their own windows; the team's resets when the selected team changes.
+  const teamFeedKey = `team:${selectedTeamId}`;
+  const teamWindow = useFeedWindow(teamFeedKey);
+  const meWindow = useFeedWindow(ME_FEED_KEY);
+  const feedWindow = scope === 'me' ? meWindow : teamWindow;
+
   const [myPosts, setMyPosts] = useState<HuddlePost[]>([]);
-  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  // Starts true so the Personal view's first render shows the spinner, not an
+  // empty feed, before its fetch effect runs.
+  const [myPostsLoading, setMyPostsLoading] = useState(true);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  const { since: meSince, settle: settleMe } = meWindow;
+  const meSinceRef = useRef(meSince);
+  meSinceRef.current = meSince;
+  const meLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
-      setMyPosts(await huddleApi.getMyPosts());
+      const page = await huddleApi.getMyPosts(meSince);
+      // Answered for a window that has since moved on; the newer fetch owns the state.
+      if (meSinceRef.current !== meSince) return;
+      setMyPosts(page.posts);
       setMyPostsError(null);
+      meLoadedRef.current = true;
+      settleMe(ME_FEED_KEY, { ok: true, hasMore: page.hasMore });
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
-      setMyPostsError('Failed to load your posts.');
+      // Only the first load replaces the feed; a failed older window keeps what
+      // is loaded and reports through the list footer's Retry.
+      if (!meLoadedRef.current) setMyPostsError('Failed to load your posts.');
+      settleMe(ME_FEED_KEY, { ok: false });
     }
-  }, []);
+  }, [meSince, settleMe]);
   useEffect(() => {
     if (scope !== 'me') return;
-    setMyPostsLoading(true);
+    // No spinner here: a widened window or a return to Personal keeps the posts
+    // already on screen while the fetch runs.
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
@@ -287,19 +365,29 @@ export default function Huddle() {
   // Pulse recording), so the feed still updates without a reconnect.
   const selectedTeamIdRef = useRef(selectedTeamId);
   selectedTeamIdRef.current = selectedTeamId;
+  const { since: teamSince, settle: settleTeam } = teamWindow;
+  const teamSinceRef = useRef(teamSince);
+  teamSinceRef.current = teamSince;
   const refreshFeed = useCallback(async () => {
     if (!selectedTeamId) return;
     try {
-      const fresh = await huddleApi.getPosts(selectedTeamId);
+      const page = await huddleApi.getPosts(selectedTeamId, teamSince);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
-      // must not write the old team's snapshot over the new team's feed.
-      if (selectedTeamIdRef.current !== selectedTeamId) return;
-      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
+      // must not write the old team's snapshot over the new team's feed; the
+      // same goes for one answered for a window that has since widened.
+      if (selectedTeamIdRef.current !== selectedTeamId || teamSinceRef.current !== teamSince)
+        return;
+      restPostsRef.current = new Map(page.posts.map((post) => [post.id, post]));
       syncPosts();
+      // A fetched snapshot is real data, even when it is empty.
+      setLoading(false);
+      setError(null);
+      settleTeam(teamFeedKey, { ok: true, hasMore: page.hasMore });
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
+      settleTeam(teamFeedKey, { ok: false });
     }
-  }, [selectedTeamId, syncPosts]);
+  }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, settleTeam]);
 
   // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
   // is active.
@@ -336,40 +424,63 @@ export default function Huddle() {
     if (closed) void refreshActiveScopeRef.current();
   }, [liveClockEventIdsKey, liveTeamIds, scope, user?.id]);
 
-  // Subscribe to live DDP publication for huddle posts
+  // A team's feed starts over when the selected team changes — and only then.
+  // Huddle is paused (see AppLayout) when another page is showing, which runs
+  // every effect's cleanup; the posts already on screen must survive that.
+  const loadedTeamRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedTeamId) {
+      loadedTeamRef.current = null;
       setPosts([]);
       setLoading(false);
       return;
     }
-
+    if (loadedTeamRef.current === selectedTeamId) return;
+    loadedTeamRef.current = selectedTeamId;
+    setPosts([]);
+    restPostsRef.current.clear();
     setLoading(true);
     setError(null);
+  }, [selectedTeamId]);
+
+  // Neither route delivered: say so rather than show an empty feed, which
+  // would read as "no posts" (and offer the starter conversation).
+  useEffect(() => {
+    if (!loading || !selectedTeamId) return;
+    const loadingFallback = setTimeout(() => {
+      setLoading(false);
+      setError('Failed to load posts. Pull down to retry.');
+    }, LOAD_TIMEOUT_MS);
+    return () => clearTimeout(loadingFallback);
+  }, [loading, selectedTeamId]);
+
+  // Subscribe to the live DDP publication for the team's posts in the window.
+  // Widening the window re-subscribes; the REST snapshot (kept until the new
+  // fetch replaces it) holds the screen steady while the subscription restarts.
+  useEffect(() => {
+    if (!selectedTeamId) return;
 
     const ddp = getDdpClient();
-    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
+    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId, teamSince], () => {
+      setLoading(false);
+      setError(null);
+    });
 
     // Sync immediately in case data is already cached
     syncPosts();
 
     // REST fallback: populate the feed even if the DDP socket is down (it's
     // dropped while the app is backgrounded for a Pulse recording).
-    refreshFeed().finally(() => setLoading(false));
+    void refreshFeed();
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
 
-    const loadingFallback = setTimeout(() => setLoading(false), 3000);
-
     return () => {
-      clearTimeout(loadingFallback);
       unsub();
       offChange();
-      setPosts([]);
-      restPostsRef.current.clear();
     };
-  }, [selectedTeamId, syncPosts, refreshFeed]);
+  }, [selectedTeamId, teamSince, syncPosts, refreshFeed]);
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
@@ -407,10 +518,18 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
-  const allConversations = useMemo(
-    () => postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName),
-    [activePosts, threadBy, viewer, nowMinute, getTeamName],
-  );
+  const allConversations = useMemo(() => {
+    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
+    return user
+      ? withTodayConversation(
+          grouped,
+          threadBy,
+          { userId: user.id, name: user.name },
+          scope,
+          nowMinute,
+        )
+      : grouped;
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:
@@ -556,7 +675,9 @@ export default function Huddle() {
       conversations.find((c) => c.id === conversationParam) ??
       null)
     : null;
-  const activeConversation = conversationParam ? linkedConversation : conversations[0];
+  const activeConversation = conversationParam
+    ? linkedConversation
+    : defaultConversation(conversations, threadBy, nowMinute);
   const openConversation = (conversationId: string) =>
     setParams({ conversation: conversationId }, 'push');
 
@@ -579,6 +700,29 @@ export default function Huddle() {
 
   const feedLoading = scope === 'me' ? myPostsLoading : loading;
   const feedError = scope === 'me' ? myPostsError : error;
+
+  // A link to something older than the loaded window isn't missing yet: widen
+  // until it turns up. Only `hasMore === false` (or, for a day link, a window
+  // that now covers its date) says it isn't there — `null` just means no fetch
+  // has reported yet. Widening stops on its own at LINK_SEARCH_MAX_DAYS, and
+  // after a failed load, leaving the list footer to carry on by hand.
+  const { hasMore, loadingOlder, loadFailed, loadOlder } = feedWindow;
+  const conversationMissing = !!conversationParam && !linkedConversation;
+  const postMissing = !!postParam && !targetPostLoaded;
+  const dayStart = dayConversationStart(conversationParam);
+  const conversationSearched =
+    hasMore === false || (dayStart !== null && Date.parse(feedWindow.since) <= dayStart);
+  const postSearched = hasMore === false;
+  const searchingForLink =
+    (conversationMissing && !conversationSearched) || (postMissing && !postSearched);
+  const linkSearchStopped = loadFailed || feedWindow.days >= LINK_SEARCH_MAX_DAYS;
+  const linkStateSettled = scopeKeyRef.current === scopeKey && !feedLoading && !feedError;
+  const resolvingLink = searchingForLink && !linkSearchStopped && linkStateSettled;
+  // Still missing, but history hasn't been ruled out: the reader loads the rest.
+  const linkSearchPaused = searchingForLink && linkSearchStopped && linkStateSettled;
+  useEffect(() => {
+    if (resolvingLink) loadOlder();
+  }, [resolvingLink, loadingOlder, loadOlder]);
 
   // The link points at a conversation we have, but the search box is hiding
   // it — the link wins, so the search goes. Once per link: after that the
@@ -613,13 +757,9 @@ export default function Huddle() {
   }, [conversationParam, linkedConversation, setParams]);
 
   // Only once the posts are in, and not across a scope change, where the
-  // effect above clears the param a render later.
-  const conversationUnavailable =
-    !!conversationParam &&
-    !linkedConversation &&
-    scopeKeyRef.current === scopeKey &&
-    !feedLoading &&
-    !feedError;
+  // effect above clears the param a render later. Not while an older window
+  // could still hold it (`conversationSearched`).
+  const conversationUnavailable = conversationMissing && conversationSearched && linkStateSettled;
 
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
@@ -634,12 +774,7 @@ export default function Huddle() {
   // above — without this the inbox would quietly show its default conversation
   // while the URL still named the post. Same timing guard as the conversation
   // case, so a post still arriving over DDP isn't called missing.
-  const postUnavailable =
-    !!postParam &&
-    !targetPostLoaded &&
-    scopeKeyRef.current === scopeKey &&
-    !feedLoading &&
-    !feedError;
+  const postUnavailable = postMissing && postSearched && linkStateSettled;
 
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
@@ -753,18 +888,19 @@ export default function Huddle() {
       {/* Phones only: clip (not hide) sideways overflow so the page can't be
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 max-md:overflow-x-clip">
+      <div ref={huddleRootRef} className="huddle flex h-full min-h-0 gap-0 max-md:overflow-x-clip">
         {/* The filters live in the inbox's list header; until the inbox is on
-            screen (loading, no posts) they sit here instead. Ghost card: no
-            border or fill of its own, it sits on the page. */}
+            screen (loading, error, no team) they sit in a column the size of
+            that list, so they don't jump when it appears. Phones open on the
+            chat, where the list is hidden, so they show nothing here. */}
         {!listHeaderEl && (
-          <Card variant="ghost" padding="none" className="huddle-header shrink-0">
-            <div className="huddle-toolbar p-3">{inboxControls}</div>
-          </Card>
+          <aside className="huddle-toolbar hidden w-64 shrink-0 border-e border-border p-3 sm:block">
+            {inboxControls}
+          </aside>
         )}
 
         {/* Feed */}
-        <div ref={feedRef} className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+        <div ref={feedRef} className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto">
           {scope === 'team' && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">
@@ -775,7 +911,7 @@ export default function Huddle() {
 
           {(scope === 'me' || selectedTeamId) && (
             <>
-              {feedLoading && (
+              {(feedLoading || resolvingLink) && (
                 <div className="huddle-loading flex items-center justify-center py-16">
                   <Spinner size="lg" label="Loading posts" />
                 </div>
@@ -797,6 +933,13 @@ export default function Huddle() {
                 <NoAccessState kind="not-found" resource="post" />
               )}
 
+              {linkSearchPaused && (
+                <Alert variant="info" className="m-3">
+                  That link isn’t in the posts loaded so far. Load older posts at the end of the
+                  list to keep looking.
+                </Alert>
+              )}
+
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
 
               {/* SuperChatInbox, grouped by the selected Thread by option.
@@ -805,6 +948,7 @@ export default function Huddle() {
                   list header don't vanish mid-typing, and with no posts at all
                   it opens the starter conversation (see `conversations`). */}
               {!feedLoading &&
+                !resolvingLink &&
                 !feedError &&
                 !conversationUnavailable &&
                 !postUnavailable &&
@@ -815,6 +959,25 @@ export default function Huddle() {
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
                     currentParticipantId={user.id}
                     virtualized
+                    // On a phone, open straight into the conversation (Today) rather than the list.
+                    defaultMobileView="chat"
+                    listFooter={
+                      // The starter stands in for an empty feed, but an empty window can still have history behind it — or a failed fetch that never said.
+                      activePosts.length > 0 ||
+                      feedWindow.hasMore === true ||
+                      feedWindow.loadFailed ? (
+                        <LoadOlderSentinel
+                          hasMore={feedWindow.hasMore}
+                          loading={feedWindow.loadingOlder}
+                          failed={feedWindow.loadFailed}
+                          onVisible={feedWindow.loadOlder}
+                          onRetry={() => {
+                            feedWindow.retry();
+                            void refreshActiveScope();
+                          }}
+                        />
+                      ) : undefined
+                    }
                     renderPlugins={renderPlugins}
                     acceptedFileTypes={['image', 'video', 'pdf']}
                     onMessageSent={(text, { mentions: sentMentions, attachments }) =>

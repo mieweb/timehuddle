@@ -1578,17 +1578,18 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('huddle.getPosts', {
-    description: 'Fetch all published huddle posts for a team, newest first',
+    description:
+      "Published huddle posts for a team, newest first, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: { teamId: { type: 'string' }, since: { type: 'string', description: 'ISO date string' } },
       required: ['teamId'],
     },
   });
 
   Wormhole.expose('huddle.getMyPosts', {
     description:
-      "The caller's own published posts across every team they belong to (default: last 30 days)",
+      "The caller's own published posts across every team they belong to, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string', description: 'ISO date string' } },

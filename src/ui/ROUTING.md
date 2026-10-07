@@ -60,6 +60,8 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 
+**Huddle stays mounted** behind other pages (`<Activity>` in `AppLayout`), so it keeps its state, scroll and drafts. A hidden `<Activity>` pauses every effect, so it can't write the visible page's URL. The sidebar link back to it is a bare `/app/huddle`, so Huddle remembers its `conversation`, `view` and `q` while on screen and restores them on return; a link that carries any of `conversation`, `post`, `postId`, `view` or `q` wins over the remembered view.
+
 A signed-out visitor who opens an `/app/...` link signs in and comes back to it ([`lib/returnTo.ts`](../lib/returnTo.ts)).
 
 ## Legacy Links That Must Keep Working
