@@ -305,6 +305,9 @@ jobs:
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'beta')
+    concurrency:
+      group: beta-deploy
+      cancel-in-progress: false
     environment:
       name: beta
       url: https://betahuddle.os.mieweb.org
@@ -314,15 +317,17 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.BETA_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 2180 betahuddle.os.mieweb.org >> ~/.ssh/known_hosts
+          echo "${{ secrets.BETA_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
       - name: Deploy Frontend to BETA (betahuddle.os.mieweb.org:2180)
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p 2180 \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
-              pdharamkar@betahuddle.os.mieweb.org bash << 'ENDSSH'
+              pdharamkar@betahuddle.os.mieweb.org bash -s "$DEPLOY_SHA" << 'ENDSSH'
             set -e
             cd ~/timehuddle || { echo "ERROR: timehuddle directory not found"; exit 1; }
 
@@ -331,10 +336,10 @@ jobs:
             git branch --show-current
             sudo pm2 list
 
-            echo "=== git fetch + reset to origin/main ==="
-            git fetch origin
+            echo "=== git fetch + reset to $1 ==="
+            git fetch origin "$1"
             git checkout main
-            git reset --hard origin/main
+            git reset --hard "$1"
             git clean -fd
             echo "✓ Now at: $(git log -1 --oneline)"
 
