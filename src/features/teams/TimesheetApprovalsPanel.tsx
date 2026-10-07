@@ -179,7 +179,8 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       if (loadSeqRef.current !== seq) return;
       setRequests(next);
     } catch {
-      if (loadSeqRef.current === seq) setRequests([]);
+      // A failed reload keeps the queue shown: nothing was decided, and a new
+      // team's queue was already cleared above.
     } finally {
       if (loadSeqRef.current === seq) setLoading(false);
     }

@@ -144,13 +144,28 @@ function restoreView(remembered: string, live: string): string {
 }
 
 /** Renders a kept page against its own location, so while hidden it keeps
- *  seeing the URL it was left on rather than the one now on screen. */
-const KeptLocationProvider: React.FC<{ location: KeptLocation; children: React.ReactNode }> = ({
-  location,
-  children,
-}) => {
+ *  seeing the URL it was left on rather than the one now on screen. While
+ *  hidden it cannot write the URL either: its effects are paused, but a request
+ *  it started can still finish (a delete that then navigates, say) and must not
+ *  redirect or rewrite the page now on screen. */
+const KeptLocationProvider: React.FC<{
+  location: KeptLocation;
+  active: boolean;
+  children: React.ReactNode;
+}> = ({ location, active, children }) => {
   const { navigate, replace } = useRouter();
-  const value = useMemo(() => ({ navigate, replace, ...location }), [navigate, replace, location]);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const whileShown = useCallback(
+    (write: (path: string) => void) => (path: string) => {
+      if (activeRef.current) write(path);
+    },
+    [],
+  );
+  const value = useMemo(
+    () => ({ navigate: whileShown(navigate), replace: whileShown(replace), ...location }),
+    [whileShown, navigate, replace, location],
+  );
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 };
 
@@ -560,7 +575,7 @@ const AppLayoutContent: React.FC = () => {
                               value={isActive ? pageTitle : null}
                             >
                               <Activity mode={isActive ? 'visible' : 'hidden'}>
-                                <KeptLocationProvider location={location}>
+                                <KeptLocationProvider location={location} active={isActive}>
                                   {React.createElement(ROUTES[path].component)}
                                 </KeptLocationProvider>
                               </Activity>

@@ -269,17 +269,18 @@ export const DashboardPage: React.FC = () => {
       setLoading(true);
     }
     try {
+      // A failed request is null, not empty, so it keeps what is on screen: a
+      // brief failure on a return mustn't zero the tickets, clock totals or
+      // timers. A new team's data was already cleared above.
       const [t, m, r] = await Promise.all([
-        ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
-        teamDashboardApi
-          .getTeamClockStatus(selectedTeamId)
-          .catch(() => [] as TeamMemberClockStatus[]),
-        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
+        ticketApi.getTickets(selectedTeamId).catch(() => null),
+        teamDashboardApi.getTeamClockStatus(selectedTeamId).catch(() => null),
+        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => null),
       ]);
       if (!isLatest()) return;
-      setTickets(t);
-      setMemberStatuses(m);
-      setRunningTimers(r);
+      if (t) setTickets(t);
+      if (m) setMemberStatuses(m);
+      if (r) setRunningTimers(r);
     } finally {
       if (isLatest()) setLoading(false);
     }

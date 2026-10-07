@@ -446,8 +446,16 @@ export const WorkPage: React.FC = () => {
 
   // ── Handlers ──
 
+  // The picked ticket belongs to a team. This page is kept mounted, so the
+  // dialog can be left open across a team switch: the pick is cleared then,
+  // and Add only ever submits a ticket of the team now selected.
+  const isNewEntryTeam = useScopeChange();
+  useEffect(() => {
+    if (isNewEntryTeam(selectedTeamId)) setNewEntryTicketId('');
+  }, [selectedTeamId, isNewEntryTeam]);
+
   const handleCreateEntry = useCallback(async () => {
-    if (!newEntryTicketId) return;
+    if (!newEntryTicketId || !allTickets.some((t) => t.id === newEntryTicketId)) return;
     setNewEntryLoading(true);
     try {
       await timerApi.createEntry({
@@ -466,7 +474,7 @@ export const WorkPage: React.FC = () => {
     } finally {
       setNewEntryLoading(false);
     }
-  }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
+  }, [newEntryTicketId, allTickets, newEntryNote, selectedDate, fetchDay]);
 
   const handleDeleteEntry = useCallback(
     async (entryId: string) => {

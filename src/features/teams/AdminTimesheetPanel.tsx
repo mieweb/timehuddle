@@ -167,9 +167,16 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   // A different team's timesheet must not linger while the new one loads.
   // Only on a real switch: the page is kept mounted, and this effect also runs
   // each time it is shown again, when the data is still the right team's.
+  // The edit dialog belongs to that team too: one left open across a switch
+  // would save or delete the old team's session under the new one.
   const isNewTeam = useScopeChange();
   useEffect(() => {
-    if (isNewTeam(selectedTeamId)) setData(null);
+    if (!isNewTeam(selectedTeamId)) return;
+    setData(null);
+    setSessionDialogOpen(false);
+    setActiveSession(null);
+    setSessionSaveError(null);
+    setEditJustification(emptyJustification);
   }, [selectedTeamId, isNewTeam]);
 
   // Loading shows for a new team, member or range of days only; a return or a
@@ -181,12 +188,20 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
 
   const fetchData = useCallback(async () => {
     const isLatest = beginLoad();
-    if (!selectedMemberId) return;
+    // Beginning retired any load in flight, and with it the only finally that
+    // would end its loading state, so a load that stops here ends it itself.
+    if (!selectedMemberId) {
+      setLoading(false);
+      return;
+    }
     let startMs: number;
     let endMs: number;
 
     if (preset === 'custom') {
-      if (!customStart || !customEnd) return;
+      if (!customStart || !customEnd) {
+        setLoading(false);
+        return;
+      }
       startMs = new Date(`${customStart}T00:00:00`).getTime();
       endMs = new Date(`${customEnd}T23:59:59.999`).getTime();
     } else {
