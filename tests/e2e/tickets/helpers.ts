@@ -85,7 +85,9 @@ export async function getSessionToken(page: Page): Promise<string> {
 export type PulseDestination =
   | { kind: 'library' }
   | { kind: 'ticket' | 'redmine' | 'clock'; id: string }
-  | { kind: 'huddle'; teamId: string };
+  | { kind: 'huddle'; teamId: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'clock-wrapup'; clockEventId: string; postDate: string };
 
 /** Reserve a Pulse upload for `destination` over REST: its videoid and link token. */
 export async function reservePulseUpload(

@@ -310,20 +310,31 @@ export const ClockPage: React.FC = () => {
     }
     refetchClock();
   };
+  // The hooks compare destinations by value and drop a link whose destination
+  // changed, so the date and the session a link was reserved for hold still
+  // while it is waiting: midnight passing, or a newer shift opened by hand,
+  // must not stop the watch on a video that will still land where it said.
+  const todayStr = toDateString(new Date());
+  const [postDate, setPostDate] = useState(todayStr);
   const planPulse = usePulseUpload(
-    { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate: toDateString(new Date()) },
+    { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate },
     { onSettled: refreshClock },
   );
   // The session a wrap-up is for, kept after it ends: the wrap-up landing is
   // what clocks you out, and its link must still be the one being watched.
   const [wrapUpSessionId, setWrapUpSessionId] = useState(activeClockEvent?.id ?? '');
-  if (activeClockEvent && activeClockEvent.id !== wrapUpSessionId) {
-    setWrapUpSessionId(activeClockEvent.id);
-  }
   const wrapUpPulse = usePulseUpload(
-    { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate: toDateString(new Date()) },
+    { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate },
     { onSettled: refreshClock },
   );
+  const linkWaiting =
+    planPulse.status?.state === 'waiting' || wrapUpPulse.status?.state === 'waiting';
+  const activeSessionId = activeClockEvent?.id;
+  useEffect(() => {
+    if (linkWaiting) return;
+    if (postDate !== todayStr) setPostDate(todayStr);
+    if (activeSessionId && activeSessionId !== wrapUpSessionId) setWrapUpSessionId(activeSessionId);
+  }, [linkWaiting, postDate, todayStr, activeSessionId, wrapUpSessionId]);
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;

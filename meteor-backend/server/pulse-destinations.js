@@ -148,7 +148,14 @@ async function postVideo(userId, video, { teamId, postDate }) {
 function existingPost(userId, teamId, video) {
   return rawDb()
     .collection('huddlePosts')
-    .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1 } });
+    .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1, clockEventId: 1 } });
+}
+
+/** The session's post carrying the video as its wrap-up, if any. */
+function existingWrapUp(userId, clockEventId, video) {
+  return rawDb()
+    .collection('huddlePosts')
+    .findOne({ userId, clockEventId, 'attachments.url': video.url }, { projection: { _id: 1 } });
 }
 
 /**
@@ -242,11 +249,19 @@ const DESTINATIONS = {
       // meanwhile. Signed into the token at reserve; unused at delivery.
       return { teamId, postDate, reservedAt: Date.now() };
     },
+    // Two steps, so "delivered" is both: the post, and the session it was
+    // linked to by the clock-in. A post with no session is a delivery that
+    // stopped halfway (the process died between the two), and runs again.
     async delivered(userId, { teamId }, video) {
-      return (await existingPost(userId, teamId, video)) ? PLAN_NOTE : null;
+      const post = await existingPost(userId, teamId, video);
+      return post?.clockEventId ? PLAN_NOTE : null;
     },
     async deliver(userId, { teamId, postDate, reservedAt }, video) {
-      const { id: planPostId } = await postVideo(userId, video, { teamId, postDate });
+      // The post from a delivery that stopped before the clock-in, if any; never a second one.
+      const existing = await existingPost(userId, teamId, video);
+      const planPostId = existing
+        ? existing._id.toHexString()
+        : (await postVideo(userId, video, { teamId, postDate })).id;
       return withFollowUp(PLAN_NOTE, "you weren't clocked in", 'Clock in from the Clock page.', () =>
         clockInWithPlan(userId, teamId, planPostId, reservedAt),
       );
@@ -265,23 +280,29 @@ const DESTINATIONS = {
       assertPostDate(postDate);
       return { clockEventId: clockEventId.toLowerCase(), postDate };
     },
+    // Two steps here too: the wrap-up on the post, and the session ended. A
+    // wrap-up on a session still open stopped halfway, and runs again.
     async delivered(userId, { clockEventId }, video) {
-      const post = await rawDb()
-        .collection('huddlePosts')
-        .findOne({ userId, clockEventId, 'attachments.url': video.url }, { projection: { _id: 1 } });
-      return post ? WRAPUP_NOTE : null;
+      if (!(await existingWrapUp(userId, clockEventId, video))) return null;
+      const session = await rawDb()
+        .collection('clockevents')
+        .findOne({ _id: new ObjectId(clockEventId) }, { projection: { endTime: 1 } });
+      return session?.endTime != null ? WRAPUP_NOTE : null;
     },
     async deliver(userId, { clockEventId, postDate }, video) {
       const session = await ownSession(userId, clockEventId);
       const teamId = String(session.teamId);
-      const mediaId = await addToLibrary(userId, video);
-      await appendWrapUp(userId, {
-        teamId,
-        clockEventId,
-        postDate,
-        line: video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**',
-        attachment: postAttachment(mediaId, video),
-      });
+      // Not appended twice when a delivery stopped before the clock-out.
+      if (!(await existingWrapUp(userId, clockEventId, video))) {
+        const mediaId = await addToLibrary(userId, video);
+        await appendWrapUp(userId, {
+          teamId,
+          clockEventId,
+          postDate,
+          line: video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**',
+          attachment: postAttachment(mediaId, video),
+        });
+      }
       if (session.endTime != null) {
         // Ended by hand meanwhile. A newer shift in this team isn't this wrap-up's to end.
         const open = await rawDb()
