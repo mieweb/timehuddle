@@ -21,12 +21,16 @@ function makeOrgChart(svg?: SVGSVGElement) {
   };
 }
 
-function makeSvg() {
+function makeSvg(data: { name?: string; title?: string } = {}) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  const div = document.createElement('div');
-  div.className = 'node-foreign-object-div';
-  div.style.visibility = 'hidden';
-  svg.appendChild(div);
+  const card = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+  card.setAttribute('class', 'node-foreign-object');
+  card.setAttribute('width', '120');
+  card.setAttribute('height', '60');
+  (card as unknown as { __data__: unknown }).__data__ = {
+    data: { name: 'Ada Lovelace', title: 'Admin', ...data },
+  };
+  svg.appendChild(card);
   return svg;
 }
 
@@ -98,11 +102,18 @@ describe('patchYChartForCapacitor', () => {
 });
 
 describe('serializeSvgForExport', () => {
-  it('adds namespaces and un-hides node content', () => {
+  it('replaces foreignObject cards with plain SVG text', () => {
     const source = serializeSvgForExport(makeSvg());
 
     expect(source).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(source).toContain('visibility: visible');
-    expect(source).not.toContain('hidden');
+    expect(source).not.toContain('foreignObject');
+    expect(source).toContain('>Ada Lovelace</text>');
+    expect(source).toContain('>Admin</text>');
+  });
+
+  it('truncates names that do not fit the card', () => {
+    const source = serializeSvgForExport(makeSvg({ name: 'A very long member name indeed' }));
+
+    expect(source).toContain('\u2026</text>');
   });
 });
