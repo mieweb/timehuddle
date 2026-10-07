@@ -1,12 +1,11 @@
 /**
  * FilterDropdown — an icon trigger plus a portaled menu, used for the ticket
- * table's column filters.
+ * list's sort-and-filter menu.
  *
  * The menu is portaled to <body> and positioned with `fixed` coordinates rather
- * than using `@mieweb/ui`'s `Dropdown` directly, because the filter row scrolls
- * horizontally on mobile: per the CSS overflow spec, setting overflow on one
- * axis makes the other axis clip too, which silently cuts off a normally
- * positioned menu docked below the row.
+ * than using `@mieweb/ui`'s `Dropdown` directly, because the list card clips
+ * its overflow (for its rounded corners and scrolling rows), which would
+ * silently cut off a normally positioned menu docked below the header.
  */
 import { Button, DropdownContent } from '@mieweb/ui';
 import React from 'react';

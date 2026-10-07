@@ -30,10 +30,9 @@ test.describe('Tickets', () => {
   });
 
   test('should navigate to tickets page with correct URL', async ({ page }) => {
-    // The table — and therefore its column headers — only renders when at least
-    // one ticket exists; an empty list shows "No open tickets" instead. Seed one
-    // so the header assertions below are deterministic rather than depending on
-    // data another test happened to leave behind.
+    // Seed a ticket so the list shows rows rather than "No open tickets", and the
+    // assertions below do not depend on data another test happened to leave
+    // behind.
     await createTicket(page, `E2E Columns ${Date.now()}`);
 
     await goToTickets(page);
@@ -47,11 +46,9 @@ test.describe('Tickets', () => {
     await expect(
       page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }),
     ).toBeVisible();
-    await expect(page.getByRole('switch', { name: /Closed/i })).toBeVisible();
-    // Sorting and filtering live on the column headers, not a chip bar.
-    for (const header of ['Title', 'Issue #', 'Source', 'Status', 'Priority', 'Updated']) {
-      await expect(page.getByRole('columnheader', { name: new RegExp(header) })).toBeVisible();
-    }
+    // Open/Closed, and the one sort-and-filter menu, sit in the list header.
+    await expect(page.getByRole('radio', { name: /Closed$/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Sort and filter/ })).toBeVisible();
   });
 
   test('should create a ticket', async ({ page }) => {

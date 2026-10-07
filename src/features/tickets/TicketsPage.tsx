@@ -51,7 +51,7 @@ import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
-import { TicketTablePanel, TicketViewControls } from './TicketTablePanel';
+import { TicketListPanel } from './TicketListPanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -730,8 +730,8 @@ export const TicketsPage: React.FC = () => {
     </Button>
   );
 
-  // What both tabs' tables share; each tab adds its own view and labels.
-  const sharedTableProps = {
+  // What both tabs' lists share; each tab adds its own view and labels.
+  const sharedListProps = {
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -773,11 +773,6 @@ export const TicketsPage: React.FC = () => {
               onToggleTimer={handleSuggestionTimer}
               inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
             />
-
-            <TicketViewControls
-              view={activeView === 'tickets' ? ticketsView : boardView}
-              loading={activeView === 'tickets' ? ticketsLoading : boardLoading}
-            />
           </div>
 
           {/* ── All Sources tab ── */}
@@ -785,8 +780,8 @@ export const TicketsPage: React.FC = () => {
             aria-label={viewText.allSources}
             className={viewPanelClass(activeView === 'tickets')}
           >
-            <TicketTablePanel
-              {...sharedTableProps}
+            <TicketListPanel
+              {...sharedListProps}
               view={ticketsView}
               loading={ticketsLoading}
               canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
@@ -806,9 +801,9 @@ export const TicketsPage: React.FC = () => {
             aria-label={viewText.myBoard}
             className={viewPanelClass(activeView === 'my-board')}
           >
-            <TicketTablePanel
-              {...sharedTableProps}
-              showTimerColumn
+            <TicketListPanel
+              {...sharedListProps}
+              showTimer
               view={boardView}
               loading={boardLoading}
               // Unresolvable board entries, announced politely.

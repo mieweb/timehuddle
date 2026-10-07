@@ -1,6 +1,7 @@
 /**
- * The ticket table on a phone (#637): each ticket is a compact row (its title
- * in full, where it sits, then badges), and nothing scrolls sideways.
+ * The ticket list's one row layout (#668): at every width each ticket is a row
+ * — its title in full, where it sits, then its properties — that spreads out
+ * as the list gets more room, and nothing scrolls sideways.
  */
 import { test, expect } from '@playwright/test';
 
@@ -10,7 +11,16 @@ import { TicketsPage } from '../pages/TicketsPage';
 
 const PHONE = { width: 390, height: 844 };
 
-test.describe('Ticket rows on a phone', () => {
+/** How far the list scrolls sideways; 0 when it fits. */
+const sidewaysOverflow = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const area = document.querySelector<HTMLElement>(
+      '.tickets-view-panel:not(.hidden) .row-list-scroll',
+    );
+    return area ? area.scrollWidth - area.clientWidth : null;
+  });
+
+test.describe('Ticket rows', () => {
   let tickets: TicketsPage;
 
   test.beforeEach(async ({ page }) => {
@@ -20,17 +30,17 @@ test.describe('Ticket rows on a phone', () => {
     await tickets.goto();
   });
 
-  test('fits the screen, with no sideways scroll', async ({ page }) => {
+  test('fits every width, with no sideways scroll', async ({ page }) => {
     const title = `E2E Phone Row ${Date.now()}`;
     await tickets.createTicket(title);
     await expect(tickets.rowByTitle(title)).toBeVisible();
 
-    const overflow = await page.evaluate(() => {
-      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
-      return area ? area.scrollWidth - area.clientWidth : null;
-    });
-    expect(overflow).not.toBeNull();
-    expect(overflow).toBeLessThanOrEqual(1);
+    for (const width of [360, 600, 900, 1280, 1920]) {
+      await page.setViewportSize({ width, height: 800 });
+      const overflow = await sidewaysOverflow(page);
+      expect(overflow, `at ${width}px`).not.toBeNull();
+      expect(overflow, `at ${width}px`).toBeLessThanOrEqual(1);
+    }
   });
 
   test('lays a ticket out as title, details and badges, and keeps its menu in reach', async ({
@@ -46,7 +56,7 @@ test.describe('Ticket rows on a phone', () => {
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     const lines = await row
-      .locator('.ticket-row-body > *')
+      .locator('.row-list-title, .row-list-meta, .row-list-properties')
       .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBeLessThan(lines[1]);
@@ -58,8 +68,8 @@ test.describe('Ticket rows on a phone', () => {
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
 
-    // The columns those facts had on a wide screen are gone.
-    await expect(page.getByRole('columnheader', { name: /Status/ })).toHaveCount(0);
+    // There are no columns at all, and the header keeps select-all.
+    await expect(page.getByRole('columnheader')).toHaveCount(0);
     await expect(tickets.selectAllCheckbox).toBeVisible();
   });
 
@@ -68,19 +78,14 @@ test.describe('Ticket rows on a phone', () => {
     await tickets.createTicket(title);
     const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
 
-    // Sorting: the Title header is still there to report it.
+    // Sorting: the menu says which field is sorted, and which way, in words.
     await menuButton.click();
     await page.getByRole('menuitem', { name: 'Title', exact: true }).click();
-    await expect(page.getByRole('columnheader', { name: /Title/ })).toHaveAttribute(
-      'aria-sort',
-      'ascending',
-    );
-    // The menu says which field is sorted, and which way, in words.
     await menuButton.click();
     await expect(page.getByRole('menuitem', { name: 'Title (sorted ascending)' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    // Filtering: the same choices a column's own filter offers on a wide screen.
+    // Filtering: every filter's choices are in the same menu.
     await menuButton.click();
     await page.getByRole('menuitem', { name: 'TimeHuddle', exact: true }).click();
     await expect(tickets.rowByTitle(title)).toBeVisible();
@@ -166,10 +171,7 @@ test.describe('Ticket rows on a phone', () => {
     const row = tickets.rowByTitle(title);
     await expect(row).toBeVisible();
 
-    const overflow = await page.evaluate(() => {
-      const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
-      return area ? area.scrollWidth - area.clientWidth : null;
-    });
+    const overflow = await sidewaysOverflow(page);
     expect(overflow).not.toBeNull();
     expect(overflow).toBeLessThanOrEqual(1);
 
@@ -196,13 +198,34 @@ test.describe('Ticket rows on a phone', () => {
     await expect(tickets.startTimerButton(title)).toBeVisible();
   });
 
-  test('goes back to one column per fact on a wide screen', async ({ page }) => {
-    const title = `E2E Phone Resize ${Date.now()}`;
+  test('spreads the same row out as the list gets wider, with no layout swap', async ({ page }) => {
+    const title = `E2E Resize ${Date.now()}`;
     await tickets.createTicket(title);
-    await expect(tickets.rowByTitle(title).locator('.ticket-row-facts')).toBeVisible();
+    const row = tickets.rowByTitle(title);
+    const titleTop = () =>
+      row.locator('.ticket-row-title').evaluate((el) => el.getBoundingClientRect().top);
+    const factsTop = () =>
+      row.locator('.row-list-properties').evaluate((el) => el.getBoundingClientRect().top);
 
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(tickets.rowByTitle(title).locator('.ticket-row-facts')).toHaveCount(0);
-    await expect(page.getByRole('columnheader', { name: /Status/ }).first()).toBeVisible();
+    // Narrow: the properties wrap under the title.
+    expect(await factsTop()).toBeGreaterThan((await titleTop()) + 10);
+
+    // Wide: the same row, with its properties beside the title. No columns
+    // appear, and the header controls stay where they were.
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+    expect(Math.abs((await factsTop()) - (await titleTop()))).toBeLessThanOrEqual(8);
+    await expect(page.getByRole('columnheader')).toHaveCount(0);
+
+    // Open/Closed sits at the start of the list header, after select-all, at every width.
+    for (const width of [360, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      const header = await tickets.activePanel.locator('.row-list-header').boundingBox();
+      const open = await tickets.openSwitch.boundingBox();
+      expect(header).not.toBeNull();
+      expect(open).not.toBeNull();
+      expect(open!.x - header!.x, `at ${width}px`).toBeLessThan(80);
+      expect(open!.y - header!.y, `at ${width}px`).toBeLessThan(20);
+    }
   });
 });
