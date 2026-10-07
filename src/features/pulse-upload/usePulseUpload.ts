@@ -53,9 +53,10 @@ interface Options {
   /**
    * Called once per link when its video has landed — delivered (`done`) or
    * kept (`kept`) — and the person has seen the result: after the modal
-   * closes, or at once on a phone (no modal).
+   * closes, or at once on a phone (no modal). `link` is the link it landed
+   * on, for a host that wants the video itself (a composer attaching it).
    */
-  onSettled?: (status: PulseUploadStatus) => void;
+  onSettled?: (status: PulseUploadStatus, link: PulseLink) => void;
 }
 
 type LiveLink = PulseLink & { destinationKey: string };
@@ -162,7 +163,7 @@ export function usePulseUpload(
     if (!current || !status || !isSettled(status) || modalOpen) return;
     if (notifiedFor.current === current.videoid) return;
     notifiedFor.current = current.videoid;
-    onSettledRef.current?.(status);
+    onSettledRef.current?.(status, current);
   }, [current, status, modalOpen]);
 
   // Phone: straight into the Pulse app (or its store listing). Computer: QR.

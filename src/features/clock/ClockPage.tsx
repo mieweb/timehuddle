@@ -52,7 +52,6 @@ import {
   restoreImageAltText,
   toPostAttachment,
 } from '../huddle/api';
-import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -120,13 +119,9 @@ export const ClockPage: React.FC = () => {
   // none is — same single-bar treatment as the Huddle composer, aggregated
   // across the pickers and paste so an overlapping pair can't read as idle.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // A Pulse recording reserved but not yet attached.
-  const [pulsePending, setPulsePending] = useState(false);
-  // Posting mid-upload would drop the attachment still on the wire, and posting
-  // with a Pulse recording outstanding would clear its reservation and change
-  // composer mode — unmounting the watcher before the clip lands. Every submit
-  // path stays closed until both have settled.
-  const uploadInFlight = uploadFraction !== null || pulsePending;
+  // Posting mid-upload would drop the attachment still on the wire, so every
+  // submit path stays closed until it has settled.
+  const uploadInFlight = uploadFraction !== null;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -136,15 +131,8 @@ export const ClockPage: React.FC = () => {
     (media: MediaItem) => setAttachments((prev) => [...prev, media]),
     [],
   );
-  const handleAttachmentRemove = (mediaId: string) => {
-    // Removing the Pulse video chip also forgets its persisted upload, so a
-    // recording that finishes afterward doesn't reattach itself.
-    const removed = attachments.find((m) => m.id === mediaId);
-    if (removed?.type === 'video' && composerMode) {
-      clearComposerPulseUpload(`clock-${composerMode}`);
-    }
+  const handleAttachmentRemove = (mediaId: string) =>
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
-  };
   // Same paste/drop-a-screenshot handling as the Huddle composer — both share
   // the editor, so both must keep base64 images out of the post text.
   // Pasted/dropped images are written back into the document so the writer sees
@@ -320,7 +308,6 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
-      clearComposerPulseUpload('clock-plan');
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -387,7 +374,6 @@ export const ClockPage: React.FC = () => {
       }
       setText('');
       cachedPlanPostIdRef.current = null;
-      clearComposerPulseUpload('clock-wrapup');
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
@@ -610,14 +596,13 @@ export const ClockPage: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
-                pulseScope={`clock-${composerMode}`}
+                pulseKey={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
-                onPulsePendingChange={setPulsePending}
               />
             </div>
 

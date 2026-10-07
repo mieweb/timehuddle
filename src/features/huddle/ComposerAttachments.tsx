@@ -4,8 +4,10 @@
  * the same Photo/Video/Doc/Pulse/Ticket/@Mention affordances from here.
  */
 import { Badge } from '@mieweb/ui';
+import { PulseButton } from '../pulse-upload/PulseButton';
+import { COMPOSER_COPY } from '../pulse-upload/pulseStatus';
+import { pulseVideoMediaItem } from './api';
 import { AttachmentBar } from './AttachmentBar';
-import { PulseAttachButton } from './PulseAttachButton';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
 import type { MediaItem } from './types';
@@ -19,20 +21,16 @@ interface ComposerAttachButtonsProps {
   onTicketSelect: (ticketId: string) => void;
   onMentionSelect: (userId: string, name: string) => void;
   /**
-   * Stable id for this composer, so a Pulse recording started here resumes into
-   * *this* composer after the app is backgrounded — see {@link PulseAttachButton}.
+   * Which composer this is (the Clock page has one per mode). The Pulse
+   * button is remounted when it changes, so a link handed out for a plan
+   * can't attach its video to the wrap-up. Nothing about a link is kept
+   * otherwise: a video that lands after that is in the library, not lost.
    */
-  pulseScope?: string;
+  pulseKey?: string;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
   /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
   onError?: (message: string | null) => void;
-  /**
-   * Whether a Pulse recording is reserved but not yet attached. Hosts treat
-   * this as in-flight work and keep submit closed until it lands or is
-   * cancelled — see {@link PulseAttachButton}.
-   */
-  onPulsePendingChange?: (pending: boolean) => void;
 }
 
 /** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
@@ -42,10 +40,9 @@ export function ComposerAttachButtons({
   selectedTicketId,
   onTicketSelect,
   onMentionSelect,
-  pulseScope,
+  pulseKey,
   onUploadProgress,
   onError,
-  onPulsePendingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -54,14 +51,16 @@ export function ComposerAttachButtons({
         onUploadProgress={onUploadProgress}
         onError={onError}
       />
-      {/* Keyed by scope: PulseAttachButton reads its pending reservation from
-          the scope only on mount, so a scope change (e.g. clock plan → wrap-up)
-          must remount it rather than carry over the old reservation. */}
-      <PulseAttachButton
-        key={pulseScope}
-        onAttach={onAttachmentAdd}
-        scope={pulseScope}
-        onPendingChange={onPulsePendingChange}
+      {/* A Pulse video lands in the uploader's library; the server says when,
+          and it joins this composer as an attachment to send with the post. */}
+      <PulseButton
+        key={pulseKey}
+        destination={{ kind: 'library' }}
+        ariaLabel="Record a video with Pulse"
+        copy={COMPOSER_COPY}
+        onSettled={(status, link) => {
+          if (status.state === 'done') onAttachmentAdd(pulseVideoMediaItem(link.videoid));
+        }}
       />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />

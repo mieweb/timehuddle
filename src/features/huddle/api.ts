@@ -54,6 +54,22 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
 }
 
 /**
+ * A Pulse video that has landed in the uploader's media library, as a
+ * composer attachment. The post keeps the artifact URL, so the video's id is
+ * all the composer needs; its title follows the library's `Video <id8>`.
+ */
+export function pulseVideoMediaItem(videoid: string): MediaItem {
+  return {
+    id: videoid,
+    type: 'video',
+    size: 0,
+    mimeType: 'video/mp4',
+    url: `/pulsevault/artifacts/${videoid}`,
+    filename: `Video ${videoid.slice(0, 8)}`,
+  };
+}
+
+/**
  * Turn a file staged in SuperChat's chat input back into a `File`. The input
  * hands attachments over as base64 `data:` URLs; uploading goes through
  * {@link uploadMedia}, which takes a `File`.

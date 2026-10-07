@@ -8,7 +8,13 @@ import React, { useId } from 'react';
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { PulseLogo } from './PulseLogo';
 import { PulseStoreBadges } from './PulseStoreBadges';
-import { EXPIRED_MESSAGE, keptMessage, landedLabel, uploadHint } from './pulseStatus';
+import {
+  EXPIRED_MESSAGE,
+  keptMessage,
+  landedLabel,
+  uploadHint,
+  type PulseCopy,
+} from './pulseStatus';
 
 export interface PulseUploadModalProps {
   open: boolean;
@@ -21,6 +27,8 @@ export interface PulseUploadModalProps {
   scanLink: string | null;
   /** Where the video goes, for the hint and the landed line. */
   destination: PulseDestination;
+  /** Hint and landed line in the host's own words, when the kind's don't fit. */
+  copy?: PulseCopy;
   /** Where the video stands, for the status line; null before there is a link. */
   status: PulseUploadStatus | null;
 }
@@ -37,6 +45,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   onClose,
   scanLink,
   destination,
+  copy,
   status,
 }) => {
   const titleId = useId();
@@ -75,7 +84,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
               Scan with your phone to record in Pulse.
             </Text>
             <Text size="sm" variant="muted" className="text-center">
-              {uploadHint(destination)}
+              {copy?.hint ?? uploadHint(destination)}
             </Text>
           </div>
 
@@ -99,7 +108,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
                   aria-hidden="true"
                 />
                 <Text size="sm" weight="medium">
-                  {landedLabel(destination)}
+                  {copy?.landed ?? landedLabel(destination)}
                 </Text>
               </span>
             ) : status?.state === 'kept' ? (

@@ -18,7 +18,12 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
+import {
+  composerAttachmentToFile,
+  pulseVideoMediaItem,
+  toPostAttachment,
+  uploadMedia,
+} from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -34,6 +39,7 @@ import {
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { COMPOSER_COPY } from '../features/pulse-upload/pulseStatus';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -227,9 +233,13 @@ export default function Huddle() {
   // view, the selected team otherwise.
   const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
 
-  // The ticket the chat input's Ticket button adds to the next post, reset
-  // per team so one picked for one team can't land in another team's post.
-  // (Pulse isn't staged here: a Pulse video posts itself — see PulseButton.)
+  // What the chat input's own buttons add to the next post: Pulse videos
+  // (already on the backend, so a video id rather than a File) and a ticket.
+  // Reset per team so one picked for one team can't land in another's post.
+  const [pulseVideos, setPulseVideos] = useState<MediaItem[]>([]);
+  // Bumped when a Pulse video leaves the composer (posted or removed), so the
+  // button starts afresh and its "Attached to your post" line goes with it.
+  const [pulseRound, setPulseRound] = useState(0);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   // The picked ticket's own videos come along with it.
   const ticketVideos = useTicketVideos(selectedTicketId);
@@ -240,8 +250,15 @@ export default function Huddle() {
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
   useEffect(() => {
+    setPulseVideos([]);
     setSelectedTicketId(undefined);
   }, [postingTeamId]);
+  const attachPulseVideo = (media: MediaItem) =>
+    setPulseVideos((prev) => (prev.some((m) => m.id === media.id) ? prev : [...prev, media]));
+  const removePulseVideo = (mediaId: string) => {
+    setPulseVideos((prev) => prev.filter((m) => m.id !== mediaId));
+    setPulseRound((n) => n + 1);
+  };
 
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
@@ -785,13 +802,14 @@ export default function Huddle() {
     // Snapshot what's staged now: the uploads below take time, and anything
     // picked meanwhile belongs to the *next* post, not this one.
     const ticketId = selectedTicketId;
+    const postedPulseIds = new Set(pulseVideos.map((m) => m.id));
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
         throw new Error("The ticket's videos are still loading. Send again in a moment.");
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
-      const staged = ticketVideos.videos;
+      const staged = [...pulseVideos, ...ticketVideos.videos];
       // One file at a time: each attachment arrives as a base64 `data:` URL, so
       // decoding and uploading them together would hold every string, blob and
       // File in memory at once — enough to kill a mobile WebView at the size
@@ -822,8 +840,10 @@ export default function Huddle() {
       sendingRef.current = false;
       setSending(false);
     }
-    // Clear only what this post actually took: a ticket picked while it was in
+    // Clear only what this post actually took: anything staged while it was in
     // flight belongs to the next one.
+    setPulseVideos((prev) => prev.filter((m) => !postedPulseIds.has(m.id)));
+    if (postedPulseIds.size > 0) setPulseRound((n) => n + 1);
     setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
 
     // The Personal view reads its own cross-team list, not the team feed —
@@ -970,13 +990,10 @@ export default function Huddle() {
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
-                      // Pulse sits in this row; say it's another way to post.
-                      placeholder: postingTeamId
-                        ? 'Share an update, or post a Pulse…'
-                        : 'Share an update…',
+                      placeholder: 'Share an update…',
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
-                      // A ticket is a post on its own.
-                      canSendWhenEmpty: !!selectedTicketId,
+                      // A Pulse video or a ticket is a post on its own.
+                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
                       // Also busy while staged content is still settling: a send
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
@@ -984,45 +1001,41 @@ export default function Huddle() {
                       mentionOptions: mentions.options,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <>
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            {postingTeamId && (
-                              <TicketPicker
-                                teamId={postingTeamId}
-                                onSelect={setSelectedTicketId}
-                                selectedId={selectedTicketId}
-                              />
-                            )}
-                            <TicketVideoChips videos={ticketVideos.videos} />
-                            <ComposerChips
-                              selectedTicketId={selectedTicketId}
-                              onTicketRemove={() => setSelectedTicketId(undefined)}
-                              mentions={[]}
-                              onMentionRemove={() => {}}
-                              attachments={[]}
-                              onAttachmentRemove={() => {}}
-                            />
-                          </div>
-                          {/* Behind a "/" (or), in the order it reads and tabs: a
-                              Pulse video posts itself when it lands, so nothing typed
-                              here goes with it. Refetch in case the live feed missed
-                              it (DDP dropped while in the Pulse app). */}
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          {/* Keyed by team and round: a link handed out for one
+                              team's post doesn't attach its video to another's,
+                              and a sent post leaves a fresh button behind. The
+                              video itself is in the library either way. */}
                           {postingTeamId && (
-                            <div className="huddle-composer-pulse flex items-center gap-1.5">
-                              <span
-                                className="huddle-composer-or px-1 text-sm text-muted-foreground"
-                                aria-hidden="true"
-                              >
-                                /
-                              </span>
-                              <PulseButton
-                                destination={{ kind: 'huddle', teamId: postingTeamId }}
-                                ariaLabel="Post a video with Pulse"
-                                onSettled={() => void refreshActiveScope()}
-                              />
-                            </div>
+                            <PulseButton
+                              key={`${postingTeamId}:${pulseRound}`}
+                              destination={{ kind: 'library' }}
+                              ariaLabel="Record a video with Pulse"
+                              copy={COMPOSER_COPY}
+                              onSettled={(status, link) => {
+                                if (status.state === 'done') {
+                                  attachPulseVideo(pulseVideoMediaItem(link.videoid));
+                                }
+                              }}
+                            />
                           )}
-                        </>
+                          {postingTeamId && (
+                            <TicketPicker
+                              teamId={postingTeamId}
+                              onSelect={setSelectedTicketId}
+                              selectedId={selectedTicketId}
+                            />
+                          )}
+                          <TicketVideoChips videos={ticketVideos.videos} />
+                          <ComposerChips
+                            selectedTicketId={selectedTicketId}
+                            onTicketRemove={() => setSelectedTicketId(undefined)}
+                            mentions={[]}
+                            onMentionRemove={() => {}}
+                            attachments={pulseVideos}
+                            onAttachmentRemove={removePulseVideo}
+                          />
+                        </div>
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
