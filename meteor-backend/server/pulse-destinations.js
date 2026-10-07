@@ -11,7 +11,6 @@
  *   ticket   → an attachment on a Huddle ticket
  *   redmine  → an attachment on a Redmine issue (lives only in TimeHuddle)
  *   clock    → an attachment on the uploader's own clock session
- *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
  *
  * Each kind is one entry in DESTINATIONS. `check` runs when the link is
  * minted, so a bad destination fails before anyone records anything, and
@@ -25,7 +24,6 @@ import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
-import { createHuddlePost, requireTeamMember } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -52,7 +50,7 @@ const attachedNote = (kind, id) => `Attached to ${kind} ${id}`;
 /** A ticket-like destination: the video becomes an attachment on `{ kind, id }`. */
 const attachment = (kind, check) => ({
   check,
-  async delivered(_userId, { id }, video) {
+  async delivered({ id }, video) {
     return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
   },
   async deliver(userId, { id }, video) {
@@ -70,75 +68,38 @@ const attachment = (kind, check) => ({
 /**
  * Every destination kind. `check(userId, destination)` throws a Meteor.Error
  * when the video may not go there (and returns the fields to sign into the
- * token); `delivered(userId, destination, video)` is the note from an earlier
+ * token); `delivered(destination, video)` is the note from an earlier
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
-/** The video's media-library item, created once; returns its id. */
-async function addToLibrary(userId, video) {
-  const media = rawDb().collection('mediaitems');
-  const existing = await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-  if (existing) return existing._id.toHexString();
-  const _id = new ObjectId();
-  await media.insertOne({
-    _id,
-    userId,
-    type: 'video',
-    mimeType: video.mimeType,
-    url: video.url,
-    videoid: video.artifactId,
-    filename: video.filename,
-    size: video.size,
-    title: video.title,
-    caption: null,
-    altText: null,
-    thumbnail: null,
-    uploadedAt: new Date(),
-  });
-  return _id.toHexString();
-}
-
-const HUDDLE_NOTE = 'Posted to Huddle';
-
 const DESTINATIONS = {
   library: {
     async check() {
       return {};
     },
-    async delivered(_userId, _destination, video) {
+    async delivered(_destination, video) {
       const item = await rawDb()
         .collection('mediaitems')
         .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
       return item ? LIBRARY_NOTE : null;
     },
     async deliver(userId, _destination, video) {
-      await addToLibrary(userId, video);
-      return LIBRARY_NOTE;
-    },
-  },
-
-  huddle: {
-    async check(userId, { teamId }) {
-      requireId(teamId, 'team');
-      await requireTeamMember(userId, teamId);
-      return { teamId };
-    },
-    // This uploader's post in this team: a post elsewhere carrying the same
-    // video (huddle.createPost takes attachment URLs) isn't this delivery.
-    async delivered(userId, { teamId }, video) {
-      const post = await rawDb()
-        .collection('huddlePosts')
-        .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1 } });
-      return post ? HUDDLE_NOTE : null;
-    },
-    async deliver(userId, { teamId }, video) {
-      const mediaId = await addToLibrary(userId, video);
-      await createHuddlePost(userId, {
-        teamId,
-        content: { text: video.name ?? '', mentions: [] },
-        attachments: [{ mediaId, type: 'video', url: video.url, filename: video.title }],
+      await rawDb().collection('mediaitems').insertOne({
+        _id: new ObjectId(),
+        userId,
+        type: 'video',
+        mimeType: video.mimeType,
+        url: video.url,
+        videoid: video.artifactId,
+        filename: video.filename,
+        size: video.size,
+        title: video.title,
+        caption: null,
+        altText: null,
+        thumbnail: null,
+        uploadedAt: new Date(),
       });
-      return HUDDLE_NOTE;
+      return LIBRARY_NOTE;
     },
   },
 
@@ -209,14 +170,13 @@ export async function resolvePulseDestination(userId, destination) {
  * recorded, gets the same `done` as the first time — whatever has become of
  * the destination since — so the check runs only for a video not yet there.
  *
- * `video` is `{ artifactId, url, name, title, filename, mimeType, size }`:
- * `name` is the Pulse draft's title when one was sent.
+ * `video` is `{ artifactId, url, title, filename, mimeType, size }`.
  */
 export async function deliverPulseVideo(userId, destination, video) {
   const kind = kindOf(destination);
   // Only a token this server signed gets here, so this is a kind that has since been removed.
   if (!kind) return { state: 'kept', reason: `Unknown Pulse destination "${destination?.kind}"` };
-  const earlier = await kind.delivered(userId, destination, video);
+  const earlier = await kind.delivered(destination, video);
   if (earlier) return { state: 'done', note: earlier };
   try {
     await kind.check(userId, destination);

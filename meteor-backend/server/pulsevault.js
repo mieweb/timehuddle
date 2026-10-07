@@ -121,15 +121,11 @@ const VIDEO_CONTENT_TYPES = {
   '.m4v': 'video/x-m4v',
 };
 
-/**
- * The video a finished upload delivers, as pulse-destinations.js takes it.
- * `name` is the Pulse draft's title (`Upload-Metadata.name`), when sent.
- */
-function describeVideo({ artifactId, ext, size, name }) {
+/** The video a finished upload delivers, as pulse-destinations.js takes it. */
+function describeVideo({ artifactId, ext, size }) {
   return {
     artifactId,
     url: artifactPath(artifactId),
-    name: name || null,
     title: `Video ${artifactId.slice(0, 8)}`,
     filename: `${artifactId}${ext}`,
     mimeType: VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4',

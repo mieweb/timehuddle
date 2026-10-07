@@ -81,17 +81,11 @@ export async function getSessionToken(page: Page): Promise<string> {
   return (await page.evaluate(() => localStorage.getItem('meteor_resume_token'))) as string;
 }
 
-/** Where a Pulse upload goes — see meteor-backend/server/pulse-destinations.js. */
-export type PulseDestination =
-  | { kind: 'library' }
-  | { kind: 'ticket' | 'redmine' | 'clock'; id: string }
-  | { kind: 'huddle'; teamId: string };
-
 /** Reserve a Pulse upload for `destination` over REST: its videoid and link token. */
 export async function reservePulseUpload(
   request: APIRequestContext,
   token: string,
-  destination: PulseDestination,
+  destination: { kind: string; id?: string },
 ): Promise<{ videoid: string; uploadToken: string }> {
   const res = await request.post('/api/pulsevault_reserve', {
     headers: { Authorization: `Bearer ${token}` },
@@ -105,21 +99,18 @@ export async function reservePulseUpload(
 /**
  * Full TUS create + single-chunk PATCH of the real test-video.mp4 fixture,
  * entirely at the API level (no browser UI) — what the Pulse app does once a
- * link is scanned, with the draft's `name` when it has one. Returns once the
- * bytes are in (Upload-Offset === file size); the backend makes the video
- * web-playable and delivers it after.
+ * link is scanned. Returns once the bytes are in (Upload-Offset === file
+ * size); the backend makes the video web-playable and delivers it after.
  */
 export async function uploadRealVideoViaApi(
   request: APIRequestContext,
   videoid: string,
   uploadToken: string,
-  { name }: { name?: string } = {},
 ): Promise<void> {
   const bytes = fs.readFileSync(TEST_MP4);
   const metadata = [
     `artifactId ${Buffer.from(videoid).toString('base64')}`,
     `filename ${Buffer.from('test-video.mp4').toString('base64')}`,
-    ...(name ? [`name ${Buffer.from(name).toString('base64')}`] : []),
   ].join(',');
 
   const created = await request.post('/pulsevault/upload', {

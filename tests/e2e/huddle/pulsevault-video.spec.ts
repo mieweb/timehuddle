@@ -18,15 +18,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
-import {
-  createTicket,
-  deleteTicket,
-  getSessionToken,
-  reservePulseUpload,
-  uploadRealVideoViaApi,
-  uploadVideoToTicket,
-  TEST_MP4,
-} from '../tickets/helpers';
+import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
 import {
   attachTicket,
   clockOut,
@@ -84,53 +76,6 @@ test.describe('Huddle — direct video upload', () => {
     await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
       timeout: 10000,
     });
-  });
-});
-
-// One link, one upload, one destination: the server delivers a Pulse upload
-// where it was reserved for the moment it lands — nothing to attach or post.
-test.describe('Huddle — a Pulse upload posts itself', () => {
-  test.setTimeout(90000);
-
-  test('a Pulse upload for Huddle lands in the team feed as its own post', async ({ page }) => {
-    await loginAs(page, TEST_USERS.owner1);
-    const teamId = await selectSharedTestTeam(page);
-    await page.goto('/app/huddle');
-    await expect(page.getByRole('button', { name: 'Post a video with Pulse' })).toBeVisible({
-      timeout: 20000,
-    });
-
-    const token = await getSessionToken(page);
-    const { videoid, uploadToken } = await reservePulseUpload(page.request, token, {
-      kind: 'huddle',
-      teamId,
-    });
-    // The draft's name in Pulse becomes the post's text.
-    const name = `Pulse post ${Date.now()}`;
-    await uploadRealVideoViaApi(page.request, videoid, uploadToken, { name });
-
-    // Delivered after the video is made web-playable, seconds after the last byte.
-    type Post = { content: { text: string }; attachments?: { url: string }[] };
-    let post: Post | undefined;
-    await expect
-      .poll(
-        async () => {
-          const res = await page.request.post('/api/huddle_getPosts', {
-            headers: { Authorization: `Bearer ${token}` },
-            data: { teamId },
-          });
-          const { posts } = (await res.json()).result as { posts: Post[] };
-          post = posts.find((p) => p.attachments?.some((a) => a.url.includes(videoid)));
-          return post !== undefined;
-        },
-        { timeout: 30000 },
-      )
-      .toBe(true);
-    expect(post!.content.text).toBe(name);
-
-    await page.reload();
-    await expect(page.getByText(name).first()).toBeVisible({ timeout: 20000 });
-    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible();
   });
 });
 
