@@ -40,7 +40,11 @@ interface PulseChipProps {
   disabled?: boolean;
 }
 
-/** The Pulse chip, with what went wrong or where the video went beside it. */
+/**
+ * The Pulse chip, with what went wrong beside it. A video that landed needs
+ * no words here: it is in the list or on the post, and the modal has already
+ * said so — the chip's row keeps its shape.
+ */
 export const PulseChip: React.FC<PulseChipProps> = ({
   pulse,
   ariaLabel,
@@ -53,15 +57,16 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   // Phones have no modal: the same words the modal uses, beside the chip.
   const note = modalOpen
     ? ''
-    : status?.state === 'done'
-      ? (copy?.landed ?? landedLabel(destination))
-      : status?.state === 'kept'
-        ? keptMessage(status.reason)
-        : status?.state === 'expired'
-          ? EXPIRED_MESSAGE
-          : waiting
-            ? WAITING_MESSAGE
-            : '';
+    : status?.state === 'kept'
+      ? keptMessage(status.reason)
+      : status?.state === 'expired'
+        ? EXPIRED_MESSAGE
+        : waiting
+          ? WAITING_MESSAGE
+          : '';
+  // Announced, not shown: screen readers still learn the video landed.
+  const announced =
+    !modalOpen && status?.state === 'done' ? (copy?.landed ?? landedLabel(destination)) : '';
   return (
     <>
       <ComposerChipButton
@@ -88,7 +93,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
           role="status"
           className={note ? 'pulse-chip-status' : 'pulse-chip-status sr-only'}
         >
-          {note}
+          {note || announced}
           {waiting && (
             <>
               {' '}
