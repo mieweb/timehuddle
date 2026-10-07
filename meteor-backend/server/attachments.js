@@ -1,8 +1,9 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
-import { rawDb, isValidId } from './collections';
+import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { REDMINE, resolveTicketRef } from './ticket-refs';
+import { isTeamAdminOrOrgOwner } from './org-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -70,13 +71,44 @@ export async function createAttachment({ url, type, title, thumbnail, attachedTo
   return toPublic(doc);
 }
 
+/** The team document, by either id shape a team can have. */
+async function findTeam(teamId) {
+  const teams = rawDb().collection('teams');
+  return (
+    (await teams.findOne({ _id: teamId }, { projection: { admins: 1, orgId: 1 } })) ??
+    (isObjectIdHex(teamId)
+      ? await teams.findOne({ _id: new ObjectId(teamId) }, { projection: { admins: 1, orgId: 1 } })
+      : null)
+  );
+}
+
 /**
- * A Redmine issue's attachments live only in TimeHuddle, but they belong to an
- * issue the caller's own key must be able to see — `resolveTicketRef` throws
- * when it cannot. Huddle tickets and clock entries are not gated here.
+ * A clock session's attachments are the session's own: its owner's, and its
+ * team's admins' (who review the timesheet they sit on). An organization's
+ * owners count as every team's admins, as they do everywhere else.
+ */
+async function assertCanReachSession(userId, id) {
+  if (!isObjectIdHex(id)) throw new Meteor.Error('not-found', 'Clock session not found');
+  const session = await rawDb()
+    .collection('clockevents')
+    .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1, teamId: 1 } });
+  if (!session) throw new Meteor.Error('not-found', 'Clock session not found');
+  if (session.userId === userId) return;
+  const team = await findTeam(String(session.teamId ?? ''));
+  const reviews = team && (await isTeamAdminOrOrgOwner({ ...team, admins: team.admins ?? [] }, userId));
+  if (!reviews) throw new Meteor.Error('forbidden', 'Not your clock session');
+}
+
+/**
+ * Whether the caller may see — and so add to — what `attachedTo` names. A
+ * Redmine issue's attachments live only in TimeHuddle, but they belong to an
+ * issue the caller's own key must be able to see (`resolveTicketRef` throws
+ * when it cannot); a clock session is its owner's or its team admins'.
+ * Huddle tickets are not gated here.
  */
 async function assertCanReach(userId, attachedTo) {
   if (attachedTo.kind === REDMINE) await resolveTicketRef(userId, REDMINE, attachedTo.id);
+  if (attachedTo.kind === 'clock') await assertCanReachSession(userId, attachedTo.id);
 }
 
 Meteor.methods({

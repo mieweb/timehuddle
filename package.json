@@ -74,6 +74,7 @@
     "@kerebron/extension-yjs": "^0.8.9",
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/datavis": "^1.5.0",
+    "@mieweb/pulsevault": "0.5.0",
     "@mieweb/ui": "file:vendor/mieweb-ui.tgz",
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",

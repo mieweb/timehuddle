@@ -121,8 +121,6 @@ const VIDEO_CONTENT_TYPES = {
   '.m4v': 'video/x-m4v',
 };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** The video a finished upload delivers, as pulse-destinations.js takes it. */
 function describeVideo({ artifactId, ext, size }) {
   return {
@@ -375,40 +373,12 @@ Meteor.methods({
    * pulse-destinations.js). The server delivers it there when the upload
    * completes — the client has nothing left to do.
    */
-  async 'pulsevault.reserve'({ destination, existingVideoid } = {}) {
+  async 'pulsevault.reserve'({ destination } = {}) {
     const identity = await requireIdentity(this);
     const resolved = await resolvePulseDestination(identity.userId, destination);
-
-    // The web client caches the last reserved videoid per ticket
-    // (localStorage `pulsevault:ticket:<id>`) so a re-opened QR modal can
-    // resume an interrupted upload. But if that upload actually FINISHED,
-    // reusing the id is always wrong: the artifact already exists, so
-    // PulseCam's create POST hard-409s ("rejected by server"). And an
-    // unfinished upload may only be resumed by the person who reserved it:
-    // any signed-in user could otherwise pass an arbitrary in-progress
-    // id and get a token minted for it. The upload's own context says who.
-    // Only a well-formed id is reused (getStatus reports anything else as
-    // `unknown`), and only a video's: a thumbnail's id would 409 the video.
-    let videoid = null;
-    if (typeof existingVideoid === 'string' && UUID_RE.test(existingVideoid)) {
-      try {
-        const status = await core.getStatus(existingVideoid);
-        if (
-          status.state === 'unknown' ||
-          (status.state === 'uploading' &&
-            status.kind === 'video' &&
-            status.context?.userId === identity.userId)
-        ) {
-          videoid = existingVideoid;
-        } else {
-          console.log('[pulsevault] reserve: not reusing existingVideoid', existingVideoid, status.state);
-        }
-      } catch (err) {
-        console.warn('[pulsevault] reserve: could not read existingVideoid', existingVideoid, err.message);
-      }
-    }
-    videoid = videoid ?? randomUUID();
-
+    // Always a fresh id: one link is one upload, and a re-scan of the same
+    // link resumes it (PulseVault's `reclaim`).
+    const videoid = randomUUID();
     return {
       videoid,
       uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }),

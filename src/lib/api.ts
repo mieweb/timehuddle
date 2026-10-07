@@ -1992,8 +1992,45 @@ export const timerApi = {
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
-/** Where a Pulse video lands: the uploader's media library, or a ticket's attachments. */
-export type PulseDestination = { kind: 'library' } | { kind: TicketAttachmentKind; id: string };
+/**
+ * Where a Pulse video lands: the uploader's media library, or the attachments
+ * of a ticket, a Redmine issue or a clock session.
+ */
+export type PulseDestination = { kind: 'library' } | { kind: AttachmentKind; id: string };
+
+/**
+ * Where a Pulse upload stands. `done` carries the backend's `note` (what it
+ * did, written for the status route — the UI says it in its own words);
+ * `kept` means it couldn't go where it was meant to (its destination is gone)
+ * and `reason` says why; `expired` means the link's token no longer works.
+ */
+export interface PulseUploadStatus {
+  state: 'waiting' | 'done' | 'kept' | 'expired';
+  note?: string;
+  reason?: string;
+}
+
+async function readPulseStatus(
+  videoid: string,
+  uploadToken: string,
+  signal?: AbortSignal,
+): Promise<PulseUploadStatus> {
+  const res = await fetch(`${METEOR_API_BASE}/pulsevault/artifacts/${videoid}/status`, {
+    headers: { Authorization: `Bearer ${uploadToken}` },
+    cache: 'no-store',
+    signal,
+  });
+  if (res.status === 401 || res.status === 403) return { state: 'expired' };
+  if (!res.ok) throw new Error(`Pulse status ${res.status}`);
+  // `acknowledged` only says the backend finished handling it; the outcome
+  // says whether that was a delivery or a refusal.
+  const { outcome } = (await res.json()) as {
+    outcome?: { state?: string; note?: string; reason?: string };
+  };
+  if (outcome?.state === 'done') return { state: 'done', note: outcome.note };
+  if (outcome?.state === 'kept') return { state: 'kept', reason: outcome.reason };
+  return { state: 'waiting' };
+}
 
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
@@ -2015,16 +2052,20 @@ export const videoApi = {
   shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
 
   /**
-   * Wait for the backend to file a finished upload — attach it to its ticket or
-   * add it to the media library — and say how it went, from PulseVault's status
-   * route read with the upload's own token. The video is made web-playable
-   * before it is filed, so this can come seconds after the last byte.
-   *
-   * `done` carries the backend's note; `kept` means the backend decided not to
-   * file it (its destination is gone) and says why; `forbidden` means the token
-   * no longer opens the status (it expired, or isn't this upload's); `timeout`
-   * means nothing was recorded within `timeoutMs` — the backend keeps trying on
-   * its own, so the video may still appear later.
+   * Where a Pulse upload stands, from PulseVault's status route read with the
+   * upload's own token. `waiting` until the backend has delivered the video (it
+   * is made web-playable first, so this can come seconds after the last byte);
+   * then `done` with the backend's note, or `kept` with the reason when it
+   * decided not to deliver it (its destination is gone); `expired` once the
+   * token no longer opens the status. Throws on a network failure.
+   */
+  status: readPulseStatus,
+
+  /**
+   * Wait for the backend to file a finished upload and say how it went.
+   * `forbidden` means the token no longer opens the status; `timeout` means
+   * nothing was recorded within `timeoutMs` — the backend keeps trying on its
+   * own, so the video may still appear later.
    */
   waitUntilFiled: async (
     videoid: string,
@@ -2041,23 +2082,14 @@ export const videoApi = {
       try {
         // Each request is bounded by what's left of the deadline (at most 10 s), so a stalled
         // request can't keep this waiting past `timeoutMs`; an abort counts as transient.
-        const res = await fetch(`${METEOR_API_BASE}/pulsevault/artifacts/${videoid}/status`, {
-          headers: { Authorization: `Bearer ${uploadToken}` },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(Math.max(1000, Math.min(10_000, deadline - Date.now()))),
-        });
-        if (res.status === 401 || res.status === 403) return { state: 'forbidden' };
-        if (res.ok) {
-          const status = (await res.json()) as {
-            acknowledged?: boolean;
-            outcome?: { state?: string; note?: string; reason?: string };
-          };
-          // `acknowledged` only says the backend finished handling it; the
-          // outcome says whether that was a filing or a refusal.
-          if (status.outcome?.state === 'done') return { state: 'done', note: status.outcome.note };
-          if (status.outcome?.state === 'kept')
-            return { state: 'kept', reason: status.outcome.reason };
-        }
+        const status = await readPulseStatus(
+          videoid,
+          uploadToken,
+          AbortSignal.timeout(Math.max(1000, Math.min(10_000, deadline - Date.now()))),
+        );
+        if (status.state === 'expired') return { state: 'forbidden' };
+        if (status.state === 'done') return { state: 'done', note: status.note };
+        if (status.state === 'kept') return { state: 'kept', reason: status.reason };
       } catch {
         // A transient failure: ask again.
       }
@@ -2068,15 +2100,10 @@ export const videoApi = {
 
   /**
    * Reserve a Pulse upload: a videoid and a link token that carries where the
-   * finished video goes. The backend delivers it there once it lands. Pass
-   * `existingVideoid` when resuming a recording session so the backend
-   * re-registers the same id instead of creating a new one.
+   * finished video goes. The backend delivers it there once it lands.
    */
-  reserve: (destination: PulseDestination, existingVideoid?: string) =>
-    wormholeCall<{ videoid: string; uploadToken: string }>(
-      'pulsevault.reserve',
-      existingVideoid ? { destination, existingVideoid } : { destination },
-    ),
+  reserve: (destination: PulseDestination) =>
+    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserve', { destination }),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────

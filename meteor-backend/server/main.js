@@ -2204,7 +2204,6 @@ Meteor.startup(async() => {
           },
           required: ['kind'],
         },
-        existingVideoid: { type: 'string' },
       },
       required: ['destination'],
     },
