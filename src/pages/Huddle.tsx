@@ -52,6 +52,8 @@ const PERSONAL_VIEW = 'personal';
 const VIEW_PARAMS = ['conversation', 'post', 'postId', 'view', 'q'];
 // Key of the Personal view's feed window; team feeds are keyed by team id.
 const ME_FEED_KEY = 'me';
+// How far back a link that can't be dated (a post, a session) is chased before it reads as not found.
+const LINK_SEARCH_MAX_DAYS = 360;
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
 const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
@@ -103,6 +105,16 @@ function threadByOf(conversationId: string | null): ThreadBy | null {
   return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as ThreadBy) : null;
 }
 
+/** Local midnight (epoch ms) of a `day:YYYY-MM-DD` conversation id; null for any other id. */
+function dayConversationStart(conversationId: string | null): number | null {
+  const match = /^day:(\d{4})-(\d{2})-(\d{2})$/.exec(conversationId ?? '');
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const start = new Date(year, month - 1, day);
+  // A date that rolled over (month 13, Feb 30) is not a day.
+  return start.getMonth() === month - 1 && start.getDate() === day ? start.getTime() : null;
+}
+
 export default function Huddle() {
   // View state in the URL (see src/ui/ROUTING.md):
   //   ?conversation=  the open conversation (opening one pushes, so Back closes it)
@@ -129,6 +141,14 @@ export default function Huddle() {
     if (VIEW_PARAMS.some((key) => paramsRef.current.has(key))) return;
     setParams(lastViewRef.current);
   }, [setParams]);
+  // A hidden <Activity> keeps its DOM, so playing media would carry on, audible,
+  // behind the next page. Layout-effect cleanups run when it hides.
+  const huddleRootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = huddleRootRef.current;
+    return () =>
+      root?.querySelectorAll<HTMLMediaElement>('video, audio').forEach((media) => media.pause());
+  }, []);
   useEffect(() => {
     if (!onScreen) return;
     // The search draft, not the URL's `q`: the URL follows it after a pause, and
@@ -673,14 +693,24 @@ export default function Huddle() {
   const feedError = scope === 'me' ? myPostsError : error;
 
   // A link to something older than the loaded window isn't missing yet: keep
-  // widening until it turns up or history runs out (a failed load stops this
-  // and leaves the footer's Retry to continue).
+  // widening until it turns up or the search is exhausted (a failed load stops
+  // this and leaves the footer's Retry to continue). A day link is exhausted once
+  // the window reaches its date; anything else gives up at LINK_SEARCH_MAX_DAYS,
+  // and the footer's own loading can go further.
   const { hasMore, loadingOlder, loadFailed, loadOlder } = feedWindow;
-  const linkTargetMissing =
-    (!!conversationParam && !linkedConversation) || (!!postParam && !targetPostLoaded);
+  const conversationMissing = !!conversationParam && !linkedConversation;
+  const postMissing = !!postParam && !targetPostLoaded;
+  const capReached = feedWindow.days >= LINK_SEARCH_MAX_DAYS;
+  const dayStart = dayConversationStart(conversationParam);
+  const conversationSearched =
+    dayStart === null ? capReached : Date.parse(feedWindow.since) <= dayStart;
+  const linkSearchExhausted =
+    hasMore !== true ||
+    ((!conversationMissing || conversationSearched) && (!postMissing || capReached));
+  const linkTargetMissing = conversationMissing || postMissing;
   const resolvingLink =
     linkTargetMissing &&
-    hasMore === true &&
+    !linkSearchExhausted &&
     !loadFailed &&
     scopeKeyRef.current === scopeKey &&
     !feedLoading &&
@@ -723,14 +753,14 @@ export default function Huddle() {
 
   // Only once the posts are in, and not across a scope change, where the
   // effect above clears the param a render later. Not while older windows
-  // could still hold it (`hasMore`).
+  // could still hold it (`linkSearchExhausted`).
   const conversationUnavailable =
     !!conversationParam &&
     !linkedConversation &&
     scopeKeyRef.current === scopeKey &&
     !feedLoading &&
     !feedError &&
-    hasMore !== true;
+    linkSearchExhausted;
 
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
@@ -751,7 +781,7 @@ export default function Huddle() {
     scopeKeyRef.current === scopeKey &&
     !feedLoading &&
     !feedError &&
-    hasMore !== true;
+    linkSearchExhausted;
 
   // Posting from the inbox's chat input → huddle.createPost. Rejecting tells
   // SuperChat to put the typed text back, so only a failed upload or create
@@ -865,7 +895,7 @@ export default function Huddle() {
       {/* Phones only: clip (not hide) sideways overflow so the page can't be
           dragged horizontally; clip creates no scroll container, so vertical
           scrolling is unchanged. */}
-      <div className="huddle flex h-full min-h-0 gap-0 max-md:overflow-x-clip">
+      <div ref={huddleRootRef} className="huddle flex h-full min-h-0 gap-0 max-md:overflow-x-clip">
         {/* The filters live in the inbox's list header; until the inbox is on
             screen (loading, error, no team) they sit in a column the size of
             that list, so they don't jump when it appears. Phones open on the

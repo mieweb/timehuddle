@@ -2,12 +2,13 @@
  * LoadOlderSentinel — the end of the Huddle conversation list.
  *
  * Seen on screen, it asks for the previous window of posts; the list then grows
- * and pushes it back out of view until the reader scrolls to it again. It
- * re-observes after every load, so a window that didn't fill the list triggers
- * the next one on its own.
+ * and pushes it back out of view until the reader scrolls to it again. When a
+ * list doesn't grow with history (Person, Ticket) the footer stays on screen, so
+ * it asks only once until it has been out of view; after that a button loads
+ * the next window.
  */
 import { Button, Spinner, Text } from '@mieweb/ui';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface LoadOlderSentinelProps {
   /** Older posts exist beyond the loaded window; null while that isn't known yet. */
@@ -31,11 +32,27 @@ export function LoadOlderSentinel({
   onVisibleRef.current = onVisible;
 
   const armed = hasMore === true && !loading && !failed;
+  // False after a load this footer asked for, until it has been seen out of view.
+  const mayAutoLoadRef = useRef(true);
+  const [needsManualLoad, setNeedsManualLoad] = useState(false);
+  // A different feed (hasMore unknown again) starts over.
+  if (hasMore === null) mayAutoLoadRef.current = true;
   useEffect(() => {
     const anchor = anchorRef.current;
     if (!armed || !anchor) return;
+    // A new observer reports the footer's current state straight away.
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) onVisibleRef.current();
+      if (!entries.some((entry) => entry.isIntersecting)) {
+        mayAutoLoadRef.current = true;
+        setNeedsManualLoad(false);
+        return;
+      }
+      if (!mayAutoLoadRef.current) {
+        setNeedsManualLoad(true);
+        return;
+      }
+      mayAutoLoadRef.current = false;
+      onVisibleRef.current();
     });
     observer.observe(anchor);
     return () => observer.disconnect();
@@ -69,6 +86,11 @@ export function LoadOlderSentinel({
       {failed && (
         <Button variant="outline" size="sm" onClick={onRetry}>
           Retry
+        </Button>
+      )}
+      {armed && needsManualLoad && (
+        <Button variant="outline" size="sm" onClick={onVisible}>
+          Load older posts
         </Button>
       )}
     </div>

@@ -40,6 +40,7 @@ export function useClockToggle() {
   const { sessionPost } = useSessionPost(
     requirePlan ? gateTeamId : null,
     activeClockEvent?.id ?? null,
+    activeClockEvent?.startTime ?? null,
   );
   // Every session needs a fresh plan: Clock In is gated whenever the setting
   // is on and no session is active (the plan composer is always shown).

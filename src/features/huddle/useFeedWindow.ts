@@ -96,6 +96,7 @@ export function useFeedWindow(feedKey: string) {
 
   return {
     since,
+    days: state.days,
     hasMore: state.hasMore,
     loadingOlder: state.loadingOlder,
     loadFailed: state.loadFailed,

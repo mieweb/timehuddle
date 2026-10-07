@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LoadOlderSentinel } from './LoadOlderSentinel';
@@ -56,6 +56,32 @@ describe('LoadOlderSentinel', () => {
     expect(live()).toHaveLength(0);
     rerender(<LoadOlderSentinel {...props} loading={false} />);
     expect(live()).toHaveLength(1);
+  });
+
+  it('does not chain loads while the footer stays on screen, and offers a button instead', () => {
+    const onVisible = vi.fn();
+    const { rerender } = render(<LoadOlderSentinel {...props} onVisible={onVisible} />);
+    live()[0].callback([{ isIntersecting: true }]);
+    expect(onVisible).toHaveBeenCalledTimes(1);
+
+    rerender(<LoadOlderSentinel {...props} onVisible={onVisible} loading />);
+    rerender(<LoadOlderSentinel {...props} onVisible={onVisible} loading={false} />);
+    act(() => live()[0].callback([{ isIntersecting: true }]));
+    expect(onVisible).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older posts' }));
+    expect(onVisible).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads again once the footer has scrolled out of view and back', () => {
+    const onVisible = vi.fn();
+    const { rerender } = render(<LoadOlderSentinel {...props} onVisible={onVisible} />);
+    live()[0].callback([{ isIntersecting: true }]);
+    rerender(<LoadOlderSentinel {...props} onVisible={onVisible} loading />);
+    rerender(<LoadOlderSentinel {...props} onVisible={onVisible} loading={false} />);
+    live()[0].callback([{ isIntersecting: false }]);
+    live()[0].callback([{ isIntersecting: true }]);
+    expect(onVisible).toHaveBeenCalledTimes(2);
   });
 
   it('shows progress while loading, politely announced', () => {

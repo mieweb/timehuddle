@@ -12,11 +12,18 @@ import { useEffect, useState } from 'react';
 import type { HuddlePost } from './api';
 import { getDdpClient } from './ddp';
 
-export function useSessionPost(teamId: string | null, clockEventId: string | null) {
+// The plan is posted at clock-in; a day of slack covers one written just before it.
+const PLAN_LEAD_MS = 24 * 60 * 60 * 1000;
+
+export function useSessionPost(
+  teamId: string | null,
+  clockEventId: string | null,
+  sessionStart: number | null,
+) {
   const [sessionPost, setSessionPost] = useState<HuddlePost | null>(null);
 
   useEffect(() => {
-    if (!teamId || !clockEventId) {
+    if (!teamId || !clockEventId || sessionStart === null) {
       setSessionPost(null);
       return;
     }
@@ -38,7 +45,10 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
       setSessionPost(match[0] ?? null);
     };
 
-    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId], sync);
+    // The feed only publishes the last 30 days by default, which a long-running
+    // session's plan post can fall outside of.
+    const since = new Date(sessionStart - PLAN_LEAD_MS).toISOString();
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId, since], sync);
     const offChange = ddp.onCollectionChange('huddlePosts', sync);
     sync();
 
@@ -47,7 +57,7 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
       unsubscribe();
       setSessionPost(null);
     };
-  }, [teamId, clockEventId]);
+  }, [teamId, clockEventId, sessionStart]);
 
   return { sessionPost };
 }
