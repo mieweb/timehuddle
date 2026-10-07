@@ -6,6 +6,7 @@ const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   ticket: 'Added to this ticket',
   redmine: 'Added to this issue',
   clock: 'Added to this session',
+  huddle: 'Posted to Huddle',
 };
 
 export function landedLabel(destination: PulseDestination): string {
@@ -18,30 +19,12 @@ const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   ticket: "It's added to this ticket as soon as it uploads.",
   redmine: "It's added to this issue as soon as it uploads.",
   clock: "It's added to this session as soon as it uploads.",
+  huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",
 };
 
 export function uploadHint(destination: PulseDestination): string {
   return UPLOAD_HINTS[destination.kind];
 }
-
-/** The hint before recording and the line once the video has landed, when the
- * destination kind alone doesn't say it. */
-export interface PulseCopy {
-  hint: string;
-  landed: string;
-}
-
-/**
- * A composer's Pulse button reserves a *library* video and attaches it to the
- * post being written, so it says that rather than "your media library".
- */
-export const COMPOSER_COPY: PulseCopy = {
-  hint: "It's attached to your post as soon as it uploads.",
-  landed: 'Attached to your post',
-};
-
-/** Beside a composer's chip while its link is open and the modal is closed. */
-export const WAITING_MESSAGE = 'Waiting for your Pulse video…';
 
 /** A link's token works for 30 minutes; after that, only a new one will do. */
 export const EXPIRED_MESSAGE = 'This link has expired. Press Pulse again for a new one.';

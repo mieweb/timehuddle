@@ -8,7 +8,7 @@
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
  *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
- *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
+ *      same Photo/Video/Doc/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
  *   3. Recent sessions — the user's last completed sessions on this team.
  *
@@ -119,13 +119,9 @@ export const ClockPage: React.FC = () => {
   // none is — same single-bar treatment as the Huddle composer, aggregated
   // across the pickers and paste so an overlapping pair can't read as idle.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // A Pulse link waiting for its video.
-  const [pulseWaiting, setPulseWaiting] = useState(false);
-  // Posting mid-upload would drop the attachment still on the wire, and
-  // posting with a Pulse video on its way would change composer mode and
-  // unmount the button before the video could attach. Every submit path stays
-  // closed until both have settled; the chip offers to stop waiting.
-  const uploadInFlight = uploadFraction !== null || pulseWaiting;
+  // Posting mid-upload would drop the attachment still on the wire, so every
+  // submit path stays closed until it has settled.
+  const uploadInFlight = uploadFraction !== null;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -596,18 +592,16 @@ export const ClockPage: React.FC = () => {
               onAttachmentRemove={handleAttachmentRemove}
             />
 
-            {/* ── Attach bar — same Photo/Video/Doc/Pulse/Ticket/@Mention controls as Huddle ── */}
+            {/* ── Attach bar — same Photo/Video/Doc/Ticket/@Mention controls as Huddle ── */}
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
-                pulseKey={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
-                onPulseWaitingChange={setPulseWaiting}
               />
             </div>
 

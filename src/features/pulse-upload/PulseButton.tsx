@@ -8,52 +8,30 @@
  * itself calls `usePulseUpload` and renders `PulseChip` and
  * {@link PulseUploadModal} from it.
  */
-import { Button, Text } from '@mieweb/ui';
+import { Text } from '@mieweb/ui';
 import React from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
 import { PulseLogo } from './PulseLogo';
-import {
-  EXPIRED_MESSAGE,
-  WAITING_MESSAGE,
-  keptMessage,
-  landedLabel,
-  type PulseCopy,
-} from './pulseStatus';
+import { EXPIRED_MESSAGE, keptMessage, landedLabel } from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
-import { usePulseUpload, type PulseLink, type PulseUpload } from './usePulseUpload';
+import { usePulseUpload, type PulseUpload } from './usePulseUpload';
 
 interface PulseChipProps {
   pulse: PulseUpload;
   /** What pressing it does, for screen readers: "Add a video with Pulse". */
   ariaLabel: string;
-  /** The landed line in the host's words, when the destination kind's doesn't fit. */
-  copy?: PulseCopy;
-  /**
-   * Given by a host that holds its post for the video (a composer): while the
-   * link is waiting and the modal is closed, the chip says so and offers to
-   * stop waiting, which calls this. Hosts the server delivers for on its own
-   * leave it out: closing the modal there loses nothing.
-   */
-  onCancel?: () => void;
   disabled?: boolean;
 }
 
 /**
  * The Pulse chip, with what went wrong beside it. A video that landed needs
- * no words here: it is in the list or on the post, and the modal has already
- * said so — the chip's row keeps its shape.
+ * no words here: it is where the link said, and the modal has already said so
+ * — the chip's row keeps its shape. Screen readers are still told.
  */
-export const PulseChip: React.FC<PulseChipProps> = ({
-  pulse,
-  ariaLabel,
-  copy,
-  onCancel,
-  disabled,
-}) => {
+export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, disabled }) => {
   const { reserving, error, status, modalOpen, destination } = pulse;
-  const waiting = !modalOpen && !!onCancel && status?.state === 'waiting';
   // Phones have no modal: the same words the modal uses, beside the chip.
   const note = modalOpen
     ? ''
@@ -61,12 +39,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       ? keptMessage(status.reason)
       : status?.state === 'expired'
         ? EXPIRED_MESSAGE
-        : waiting
-          ? WAITING_MESSAGE
-          : '';
-  // Announced, not shown: screen readers still learn the video landed.
-  const announced =
-    !modalOpen && status?.state === 'done' ? (copy?.landed ?? landedLabel(destination)) : '';
+        : '';
+  const announced = !modalOpen && status?.state === 'done' ? landedLabel(destination) : '';
   return (
     <>
       <ComposerChipButton
@@ -94,20 +68,6 @@ export const PulseChip: React.FC<PulseChipProps> = ({
           className={note ? 'pulse-chip-status' : 'pulse-chip-status sr-only'}
         >
           {note || announced}
-          {waiting && (
-            <>
-              {' '}
-              <Button
-                variant="link"
-                size="sm"
-                type="button"
-                onClick={onCancel}
-                aria-label="Stop waiting for the Pulse video"
-              >
-                Cancel
-              </Button>
-            </>
-          )}
         </Text>
       )}
     </>
@@ -117,10 +77,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
 interface PulseButtonProps {
   destination: PulseDestination;
   ariaLabel: string;
-  /** Called once the video has landed: `done`, or `kept` with the reason — and on which link. */
-  onSettled?: (status: PulseUploadStatus, link: PulseLink) => void;
-  /** Hint and landed line in the host's words, when the destination kind's don't fit. */
-  copy?: PulseCopy;
+  /** Called once the video has landed: `done`, or `kept` with the reason. */
+  onSettled?: (status: PulseUploadStatus) => void;
   disabled?: boolean;
 }
 
@@ -128,19 +86,17 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   destination,
   ariaLabel,
   onSettled,
-  copy,
   disabled,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
     <div className="pulse-upload flex flex-wrap items-center gap-2">
-      <PulseChip pulse={pulse} ariaLabel={ariaLabel} copy={copy} disabled={disabled} />
+      <PulseChip pulse={pulse} ariaLabel={ariaLabel} disabled={disabled} />
       <PulseUploadModal
         open={pulse.modalOpen}
         onClose={pulse.closeModal}
         scanLink={pulse.link?.scanLink ?? null}
         destination={pulse.destination}
-        copy={copy}
         status={pulse.status}
       />
     </div>

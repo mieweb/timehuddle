@@ -47,22 +47,15 @@ export interface PulseUpload {
   status: PulseUploadStatus | null;
   modalOpen: boolean;
   closeModal: () => void;
-  /**
-   * Let go of the current link: no more status checks, no modal, no note. A
-   * video that still lands on it is delivered where the link said all the
-   * same (a library video stays in the library); it just isn't announced here.
-   */
-  reset: () => void;
 }
 
 interface Options {
   /**
    * Called once per link when its video has landed — delivered (`done`) or
    * kept (`kept`) — and the person has seen the result: after the modal
-   * closes, or at once on a phone (no modal). `link` is the link it landed
-   * on, for a host that wants the video itself (a composer attaching it).
+   * closes, or at once on a phone (no modal).
    */
-  onSettled?: (status: PulseUploadStatus, link: PulseLink) => void;
+  onSettled?: (status: PulseUploadStatus) => void;
 }
 
 type LiveLink = PulseLink & { destinationKey: string };
@@ -169,7 +162,7 @@ export function usePulseUpload(
     if (!current || !status || !isSettled(status) || modalOpen) return;
     if (notifiedFor.current === current.videoid) return;
     notifiedFor.current = current.videoid;
-    onSettledRef.current?.(status, current);
+    onSettledRef.current?.(status);
   }, [current, status, modalOpen]);
 
   // Phone: straight into the Pulse app (or its store listing). Computer: QR.
@@ -231,13 +224,6 @@ export function usePulseUpload(
   }, [current, status?.state, destinationKey, openLink]);
 
   const closeModal = useCallback(() => setModalOpen(false), []);
-  const reset = useCallback(() => {
-    launch.current();
-    setLink(null);
-    setStatus(null);
-    setModalOpen(false);
-    setError(null);
-  }, []);
 
   return {
     destination,
@@ -248,6 +234,5 @@ export function usePulseUpload(
     status: current ? status : null,
     modalOpen,
     closeModal,
-    reset,
   };
 }

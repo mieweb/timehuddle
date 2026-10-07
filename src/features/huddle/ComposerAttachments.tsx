@@ -1,10 +1,11 @@
 /**
  * Shared attach/ticket/mention controls and chips for post composers — the
  * Clock page's plan/wrap-up composer and the Huddle inbox's message box offer
- * the same Photo/Video/Doc/Pulse/Ticket/@Mention affordances from here.
+ * the same Photo/Video/Doc/Ticket/@Mention affordances from here. Pulse is not
+ * a composer attachment: a Pulse video is delivered by the server to where its
+ * link was reserved for (see PulseButton), so it has its own button.
  */
 import { Badge } from '@mieweb/ui';
-import { PulseComposerButton } from '../pulse-upload/PulseComposerButton';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
@@ -18,35 +19,21 @@ interface ComposerAttachButtonsProps {
   selectedTicketId?: string;
   onTicketSelect: (ticketId: string) => void;
   onMentionSelect: (userId: string, name: string) => void;
-  /**
-   * Which composer this is (the Clock page has one per mode). The Pulse
-   * button is remounted when it changes, so a link handed out for a plan
-   * can't attach its video to the wrap-up. Nothing about a link is kept
-   * otherwise: a video that lands after that is in the library, not lost.
-   */
-  pulseKey?: string;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
   /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
   onError?: (message: string | null) => void;
-  /**
-   * Whether a Pulse link is waiting for its video. Hosts hold their post
-   * while it is, so the video can't miss the post it was recorded for.
-   */
-  onPulseWaitingChange?: (waiting: boolean) => void;
 }
 
-/** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
+/** The Photo / Video / Doc / Ticket / @Mention button row. */
 export function ComposerAttachButtons({
   teamId,
   onAttachmentAdd,
   selectedTicketId,
   onTicketSelect,
   onMentionSelect,
-  pulseKey,
   onUploadProgress,
   onError,
-  onPulseWaitingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -54,13 +41,6 @@ export function ComposerAttachButtons({
         onAttachmentAdd={onAttachmentAdd}
         onUploadProgress={onUploadProgress}
         onError={onError}
-      />
-      {/* A Pulse video lands in the uploader's library; the server says when,
-          and it joins this composer as an attachment to send with the post. */}
-      <PulseComposerButton
-        key={pulseKey}
-        onAttach={onAttachmentAdd}
-        onWaitingChange={onPulseWaitingChange}
       />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />

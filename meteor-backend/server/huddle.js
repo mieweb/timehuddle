@@ -368,6 +368,106 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
 });
 
 // Methods
+/** The team, if `userId` is on it as a member or an admin; throws otherwise. */
+export async function requireTeamMember(userId, teamId) {
+  if (!teamId || typeof teamId !== 'string') {
+    throw new Meteor.Error('bad-request', 'teamId is required');
+  }
+  const team = await getTeam(teamId);
+  if (!team) {
+    throw new Meteor.Error('not-found', 'Team not found');
+  }
+  const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
+  if (!isMember) {
+    throw new Meteor.Error('forbidden', 'Not a team member');
+  }
+  return team;
+}
+
+/**
+ * Create a published Huddle post as `userId`, after the same checks the
+ * `huddle.createPost` method makes (team membership, ticket, mentions, clock
+ * session ownership). Shared with server-side callers — a Pulse upload that
+ * posts itself. Returns `{ id }`.
+ */
+export async function createHuddlePost(
+  userId,
+  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp },
+) {
+  if (!content || typeof content.text !== 'string') {
+    throw new Meteor.Error('bad-request', 'content.text is required');
+  }
+  if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
+    throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
+  }
+  await requireTeamMember(userId, teamId);
+
+  // Validate ticketId if provided
+  if (ticketId) {
+    const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
+    if (!ticket) {
+      throw new Meteor.Error('not-found', 'Ticket not found');
+    }
+    if (ticket.teamId !== teamId) {
+      throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
+    }
+  }
+  
+  // Validate mentions if provided
+  if (content.mentions && Array.isArray(content.mentions)) {
+    for (const mentionedUserId of content.mentions) {
+      const user = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
+      if (!user) {
+        throw new Meteor.Error('not-found', `User ${mentionedUserId} not found`);
+      }
+    }
+  }
+
+  // Validate clockEventId if provided — must be the caller's own session in
+  // this team, so a spoofed id can't later surface someone else's clock-in/
+  // out times through the feed (enrichPost scopes its lookup the same way).
+  if (clockEventId) {
+    if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
+      throw new Meteor.Error('bad-request', 'Invalid clockEventId');
+    }
+    const event = await rawDb()
+      .collection('clockevents')
+      .findOne(
+        { _id: toId(clockEventId), userId, teamId },
+        { projection: { _id: 1 } },
+      );
+    if (!event) {
+      throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
+    }
+  }
+  
+  const doc = {
+    _id: new ObjectId(),
+    teamId,
+    userId,
+    content: {
+      text: content.text,
+      mentions: content.mentions ?? [],
+    },
+    ticketId: ticketId ?? undefined,
+    attachments: attachments ?? [],
+    likes: [],
+    commentCount: 0,
+    ...(postDate ? { postDate } : {}),
+    // Optionally link to a clock session (per-session gate) and/or stamp a
+    // wrap-up at creation — used by the clock-out recovery path when a
+    // session somehow has no plan post.
+    ...(clockEventId ? { clockEventId } : {}),
+    ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  
+  await rawDb().collection('huddlePosts').insertOne(doc);
+  
+  return { id: doc._id.toHexString() };
+}
+
 Meteor.methods({
   async 'huddle.getPosts'({ teamId, since }) {
     // requireIdentity, not this.userId: this is the REST feed refresh the
@@ -453,90 +553,7 @@ Meteor.methods({
     if (draft === true) {
       throw new Meteor.Error('bad-request', 'Drafts are no longer supported; update the app to post');
     }
-    if (!teamId || typeof teamId !== 'string') {
-      throw new Meteor.Error('bad-request', 'teamId is required');
-    }
-    if (!content || typeof content.text !== 'string') {
-      throw new Meteor.Error('bad-request', 'content.text is required');
-    }
-    if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
-      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
-    }
-    
-    const team = await getTeam(teamId);
-    if (!team) {
-      throw new Meteor.Error('not-found', 'Team not found');
-    }
-    
-    const isMember = (team.members ?? []).includes(identity.userId) || (team.admins ?? []).includes(identity.userId);
-    if (!isMember) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
-    }
-
-    // Validate ticketId if provided
-    if (ticketId) {
-      const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
-      if (!ticket) {
-        throw new Meteor.Error('not-found', 'Ticket not found');
-      }
-      if (ticket.teamId !== teamId) {
-        throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
-      }
-    }
-    
-    // Validate mentions if provided
-    if (content.mentions && Array.isArray(content.mentions)) {
-      for (const mentionedUserId of content.mentions) {
-        const user = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
-        if (!user) {
-          throw new Meteor.Error('not-found', `User ${mentionedUserId} not found`);
-        }
-      }
-    }
-
-    // Validate clockEventId if provided — must be the caller's own session in
-    // this team, so a spoofed id can't later surface someone else's clock-in/
-    // out times through the feed (enrichPost scopes its lookup the same way).
-    if (clockEventId) {
-      if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
-        throw new Meteor.Error('bad-request', 'Invalid clockEventId');
-      }
-      const event = await rawDb()
-        .collection('clockevents')
-        .findOne(
-          { _id: toId(clockEventId), userId: identity.userId, teamId },
-          { projection: { _id: 1 } },
-        );
-      if (!event) {
-        throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
-      }
-    }
-    
-    const doc = {
-      _id: new ObjectId(),
-      teamId,
-      userId: identity.userId,
-      content: {
-        text: content.text,
-        mentions: content.mentions ?? [],
-      },
-      ticketId: ticketId ?? undefined,
-      attachments: attachments ?? [],
-      likes: [],
-      commentCount: 0,
-      ...(postDate ? { postDate } : {}),
-      // Optionally link to a clock session (per-session gate) and/or stamp a
-      // wrap-up at creation — used by the clock-out recovery path when a
-      // session somehow has no plan post.
-      ...(clockEventId ? { clockEventId } : {}),
-      ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    await rawDb().collection('huddlePosts').insertOne(doc);
-    
-    return { id: doc._id.toHexString() };
+    return createHuddlePost(identity.userId, { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp });
   },
   
   async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketId }) {
