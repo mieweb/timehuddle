@@ -4,6 +4,8 @@
 import '@mieweb/ychart';
 import React, { useEffect, useRef, useMemo } from 'react';
 
+import { forceYChartHtmlOverlayOnIos } from '../../lib/ychart';
+
 type ChartState = {
   svgWidth: number;
   svgHeight: number;
@@ -74,6 +76,7 @@ const TeamChartMount: React.FC<{ yaml: string }> = ({ yaml }) => {
       if (!el.isConnected) return;
       try {
         instanceRef.current = new window.YChartEditor().initView(chartId, yaml);
+        forceYChartHtmlOverlayOnIos(instanceRef.current.orgChart);
         fitTimerId = window.setTimeout(() => {
           const oc = instanceRef.current?.orgChart;
           if (!oc || !el.isConnected) return;
