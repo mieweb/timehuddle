@@ -47,7 +47,7 @@ test.describe('Tickets', () => {
     await expect(
       page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }),
     ).toBeVisible();
-    await expect(page.getByRole('switch', { name: /Closed/i })).toBeVisible();
+    await expect(page.getByRole('radio', { name: /^Closed tickets/ })).toBeVisible();
     // Sorting and filtering live on the column headers, not a chip bar.
     for (const header of ['Title', 'Issue #', 'Source', 'Status', 'Priority', 'Updated']) {
       await expect(page.getByRole('columnheader', { name: new RegExp(header) })).toBeVisible();

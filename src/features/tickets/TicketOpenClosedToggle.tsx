@@ -1,61 +1,81 @@
 /**
- * TicketOpenClosedToggle — the compact (phone) table's choice between open and
- * closed tickets, shown in the table header beside the list it changes.
+ * TicketOpenClosedToggle — the choice between a view's open and closed tickets,
+ * as a switcher that also says how many there are of each.
  *
- * On a wide screen the same choice is the "Closed" switch in the toolbar
- * (`TicketViewControls`); a phone toolbar has no room for it.
+ * The same control at every width, in two places: beside the search bar on a
+ * wide screen, and in the table's own header on a phone, where the toolbar has
+ * no room for it. The counts are the showing view's, after its search and
+ * filters, so they change with the view and with what is typed.
  */
-import { Button } from '@mieweb/ui';
 import React from 'react';
 
+import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
+
 export interface TicketOpenClosedToggleProps {
+  /** Unique on the page: one of these is mounted per place it shows. */
+  name: string;
   showClosed: boolean;
   onShowClosedChange: (showClosed: boolean) => void;
+  openCount: number;
+  closedCount: number;
+  /** The counts are not known yet. */
+  loading?: boolean;
 }
+
+/** Past this a count is only "a lot", and the control must not grow with it. */
+const COUNT_CAP = 50;
 
 const text = {
   group: 'Tickets shown',
   open: 'Open',
-  closed: 'Close',
-  showOpen: 'Show open tickets',
-  showClosed: 'Show closed tickets',
+  closed: 'Closed',
+  openName: (count: string) => `Open tickets, ${count}`,
+  closedName: (count: string) => `Closed tickets, ${count}`,
+  loadingName: 'loading',
 };
 
-/** The same greens and purples as a row's status dot; the one not chosen is dimmed. */
-const OPTION_CLASS =
-  'ticket-open-closed-option h-auto rounded px-1 py-0.5 text-xs font-semibold tracking-wide uppercase hover:bg-transparent dark:hover:bg-transparent';
-const OPEN_CLASS = 'text-green-600 dark:text-green-400';
-const CLOSED_CLASS = 'text-purple-600 dark:text-purple-400';
-const DIMMED_CLASS = 'opacity-60 hover:opacity-100';
+export const formatTicketCount = (count: number) =>
+  count > COUNT_CAP ? `${COUNT_CAP}+` : String(count);
+
+type Shown = 'open' | 'closed';
 
 export const TicketOpenClosedToggle: React.FC<TicketOpenClosedToggleProps> = ({
+  name,
   showClosed,
   onShowClosedChange,
-}) => (
-  <div
-    role="group"
-    aria-label={text.group}
-    className="ticket-open-closed flex shrink-0 items-center gap-2"
-  >
-    <Button
-      variant="ghost"
-      type="button"
-      aria-pressed={!showClosed}
-      aria-label={text.showOpen}
-      onClick={() => onShowClosedChange(false)}
-      className={`${OPTION_CLASS} ${OPEN_CLASS} ${showClosed ? DIMMED_CLASS : ''}`}
-    >
-      {text.open}
-    </Button>
-    <Button
-      variant="ghost"
-      type="button"
-      aria-pressed={showClosed}
-      aria-label={text.showClosed}
-      onClick={() => onShowClosedChange(true)}
-      className={`${OPTION_CLASS} ${CLOSED_CLASS} ${showClosed ? '' : DIMMED_CLASS}`}
-    >
-      {text.closed}
-    </Button>
-  </div>
-);
+  openCount,
+  closedCount,
+  loading = false,
+}) => {
+  const open = loading ? null : formatTicketCount(openCount);
+  const closed = loading ? null : formatTicketCount(closedCount);
+  // The same green and purple as a row's status dot: a status, not the brand.
+  const options: SegmentedOption<Shown>[] = [
+    {
+      value: 'open',
+      label: text.open,
+      detail: open,
+      accessibleName: text.openName(open ?? text.loadingName),
+      toneClassName: 'text-green-600 dark:text-green-400',
+    },
+    {
+      value: 'closed',
+      label: text.closed,
+      detail: closed,
+      accessibleName: text.closedName(closed ?? text.loadingName),
+      toneClassName: 'text-purple-600 dark:text-purple-400',
+    },
+  ];
+
+  return (
+    <SegmentedSwitcher
+      name={name}
+      label={text.group}
+      hideLabel
+      compact
+      options={options}
+      value={showClosed ? 'closed' : 'open'}
+      onValueChange={(value) => onShowClosedChange(value === 'closed')}
+    />
+  );
+};

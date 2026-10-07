@@ -8,11 +8,12 @@
  * sits above both tabs, on the page, with `TicketViewControls` beside it on a
  * wide screen. On a phone those controls move into the table's own header.
  */
-import { Button, Card, Switch, Text } from '@mieweb/ui';
+import { Button, Card } from '@mieweb/ui';
 import React from 'react';
 
 import { EmptyState } from '../../ui/EmptyState';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
+import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketTable, type TicketTableProps } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import type { TicketTableView } from './useTicketTableView';
@@ -59,15 +60,13 @@ export const TicketViewControls: React.FC<{ view: TicketTableView; loading: bool
   loading,
 }) => (
   <div className="ticket-view-controls flex shrink-0 items-center gap-3 max-md:hidden">
-    <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
-      {loading ? '…' : `${view.openCount} open · ${view.closedCount} closed`}
-    </Text>
-    <Switch
-      size="sm"
-      label="Closed"
-      labelPosition="left"
-      checked={view.showClosed}
-      onCheckedChange={view.setShowClosed}
+    <TicketOpenClosedToggle
+      name="tickets-open-closed-toolbar"
+      showClosed={view.showClosed}
+      onShowClosedChange={view.setShowClosed}
+      openCount={view.openCount}
+      closedCount={view.closedCount}
+      loading={loading}
     />
     {hasActiveFilters(view.filters) && (
       <Button
@@ -145,6 +144,8 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
             onSelectAllChange={view.onSelectAllChange}
             totalCount={view.sortedTickets.length}
             showClosed={view.showClosed}
+            openCount={view.openCount}
+            closedCount={view.closedCount}
             onShowClosedChange={view.setShowClosed}
             emptyState={
               <EmptyState

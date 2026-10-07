@@ -89,15 +89,17 @@ test.describe('Ticket rows on a phone', () => {
   test('switches between open and closed tickets from the header', async ({ page }) => {
     const title = `E2E Phone Closed ${Date.now()}`;
     await tickets.createTicket(title);
-    const showOpen = page.getByRole('button', { name: 'Show open tickets' });
-    const showClosed = page.getByRole('button', { name: 'Show closed tickets' });
+    const showOpen = tickets.openOption;
+    const showClosed = tickets.closedOption;
 
-    await expect(showOpen).toHaveAttribute('aria-pressed', 'true');
-    // The toolbar's switch is the wide screen's way of doing this.
-    await expect(tickets.closedSwitch).toBeHidden();
+    // One switcher only: the toolbar's copy is the wide screen's.
+    await expect(showOpen).toHaveCount(1);
+    await expect(showOpen).toBeChecked();
+    await expect(showOpen).toHaveAccessibleName(/^Open tickets, \d+\+?$/);
+    await expect(page.locator('.ticket-view-controls')).toBeHidden();
 
     await showClosed.click();
-    await expect(showClosed).toHaveAttribute('aria-pressed', 'true');
+    await expect(showClosed).toBeChecked();
     await expect(tickets.rowByTitle(title)).toHaveCount(0);
 
     // Still there when the closed list is empty and the table is not drawn.

@@ -122,6 +122,9 @@ export interface TicketTableProps {
   totalCount: number;
   showClosed: boolean;
   onShowClosedChange: (showClosed: boolean) => void;
+  /** How many open and closed tickets the view has, after its search and filters. */
+  openCount: number;
+  closedCount: number;
   /**
    * Compact (phone) table only: show the select column. A phone row has no
    * checkbox until the page's Select button asks for one; a wide table always
@@ -186,6 +189,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   timerLoadingKey,
   totalCount,
   showClosed,
+  openCount,
+  closedCount,
   onShowClosedChange,
   selecting = false,
   emptyState,
@@ -288,7 +293,15 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   // so the sorting and filtering those columns' headers carry is gathered into
   // one menu, and Open/Closed sits beside it rather than up in the toolbar.
   const openClosedToggle = (
-    <TicketOpenClosedToggle showClosed={showClosed} onShowClosedChange={onShowClosedChange} />
+    <TicketOpenClosedToggle
+      // Two tables are mounted, one per view; each needs its own switcher.
+      name={`tickets-open-closed-${showTimerColumn ? 'board' : 'all'}`}
+      showClosed={showClosed}
+      onShowClosedChange={onShowClosedChange}
+      openCount={openCount}
+      closedCount={closedCount}
+      loading={loading}
+    />
   );
   const sortFilterMenu = (
     <TicketSortFilterMenu
