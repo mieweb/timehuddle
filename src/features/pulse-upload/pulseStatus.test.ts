@@ -14,6 +14,12 @@ describe('followUpNote', () => {
   it('never shows backend notes for other kinds', () => {
     expect(followUpNote({ kind: 'ticket', id: 'abc' }, 'Attached to ticket abc')).toBe('');
     expect(followUpNote({ kind: 'library' }, 'Added to the media library')).toBe('');
+    expect(
+      followUpNote(
+        { kind: 'timesheet-request', id: 'abc' },
+        'Walkthrough added to the change request',
+      ),
+    ).toBe('');
   });
 });
 

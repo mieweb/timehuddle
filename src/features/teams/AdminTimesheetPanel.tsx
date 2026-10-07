@@ -35,7 +35,15 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
+import {
+  ApiError,
+  clockApi,
+  isPendingChange,
+  timesheetApprovalApi,
+  type ClockEvent,
+  type TimesheetChangeRequest,
+} from '../../lib/api';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
@@ -137,7 +145,13 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
-  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  // The change just queued for another admin, so its walkthrough can be added.
+  const [sentForApproval, setSentForApproval] = useState<TimesheetChangeRequest | null>(null);
+  const refreshSentForApproval = async (request: TimesheetChangeRequest) => {
+    const mine = await timesheetApprovalApi.listMine({ teamId: request.teamId }).catch(() => []);
+    const latest = mine.find((r) => r.id === request.id);
+    if (latest) setSentForApproval((current) => (current?.id === latest.id ? latest : current));
+  };
 
   // An admin's own edit is reviewed too, by one of the *other* admins — so this
   // panel needs the same justification the member-facing one collects, or every
@@ -324,7 +338,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         },
         justification,
       );
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      setSentForApproval(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -344,7 +358,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionSaveError(null);
     try {
       const result = await clockApi.deleteEvent(activeSession.id, justification);
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      setSentForApproval(isPendingChange(result) ? result.request : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -494,9 +508,17 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
-      {pendingNotice && (
-        <Alert variant="info" dismissible onDismiss={() => setPendingNotice(null)}>
-          <AlertDescription>{pendingNotice}</AlertDescription>
+      {sentForApproval && (
+        <Alert variant="info" dismissible onDismiss={() => setSentForApproval(null)}>
+          <AlertDescription>
+            <span className="sent-for-approval-notice flex flex-wrap items-center gap-2">
+              Sent to another admin for approval.
+              <ChangeRequestWalkthrough
+                request={sentForApproval}
+                onAdded={() => void refreshSentForApproval(sentForApproval)}
+              />
+            </span>
+          </AlertDescription>
         </Alert>
       )}
 

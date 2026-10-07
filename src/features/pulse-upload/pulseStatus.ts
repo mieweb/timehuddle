@@ -11,6 +11,7 @@ const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   // more is a step after delivery that failed, and is shown.
   'clock-plan': "Plan posted — you're clocked in",
   'clock-wrapup': "Wrap-up posted — you're clocked out",
+  'timesheet-request': 'Walkthrough added — your approver will see it',
 };
 
 export function landedLabel(destination: PulseDestination): string {
@@ -26,6 +27,8 @@ const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",
   'clock-plan': "It's posted as your plan, and you're clocked in, as soon as it uploads.",
   'clock-wrapup': "It's posted as your wrap-up, and you're clocked out, as soon as it uploads.",
+  'timesheet-request':
+    "It's added to your change as a walkthrough for your approver as soon as it uploads.",
 };
 
 export function uploadHint(destination: PulseDestination): string {
