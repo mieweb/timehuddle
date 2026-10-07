@@ -35,6 +35,8 @@ import {
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration } from '../../lib/timeUtils';
+import { useScopeChange } from '../../lib/useScopeChange';
+import { usePauseOnHide } from '../../ui/usePauseOnHide';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   create: 'Add time',
@@ -153,24 +155,36 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Dashboard is kept mounted; leaving it must not leave this playing.
+  const pauseOnHide = usePauseOnHide();
 
   // Claimed per call so a slower response for the team the reviewer just left
   // can't overwrite the current team's queue — which would put another team's
   // requests in front of them, approvable, under this team's timesheet.
   const loadSeqRef = useRef(0);
+  // Kept mounted: a return or a live update reloads quietly behind the queue
+  // shown. A new team clears the old one's queue and open review first, so its
+  // requests are never actionable under this team while the new queue loads.
+  const isNewTeam = useScopeChange();
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current;
-    setLoading(true);
+    if (isNewTeam(teamId ?? null)) {
+      setRequests([]);
+      setActive(null);
+      setNote('');
+      setLoading(true);
+    }
     try {
       const next = await timesheetApprovalApi.listPending(teamId);
       if (loadSeqRef.current !== seq) return;
       setRequests(next);
     } catch {
-      if (loadSeqRef.current === seq) setRequests([]);
+      // A failed reload keeps the queue shown: nothing was decided, and a new
+      // team's queue was already cleared above.
     } finally {
       if (loadSeqRef.current === seq) setLoading(false);
     }
-  }, [teamId]);
+  }, [teamId, isNewTeam]);
 
   // Reported on every change rather than only on load, so a badge elsewhere
   // drops the moment a decision removes a request from this list.
@@ -445,6 +459,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             // Capped so a portrait recording doesn't push the decision buttons
             // off the bottom of a phone screen.
             <video
+              ref={pauseOnHide}
               src={resolveMediaUrl(active.videoUrl)}
               controls
               playsInline

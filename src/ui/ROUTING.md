@@ -60,7 +60,30 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 
-**Huddle stays mounted** behind other pages (`<Activity>` in `AppLayout`), so it keeps its state, scroll and drafts. A hidden `<Activity>` pauses every effect, so it can't write the visible page's URL. The sidebar link back to it is a bare `/app/huddle`, so Huddle remembers its `conversation`, `view` and `q` while on screen and restores them on return; a link that carries any of `conversation`, `post`, `postId`, `view` or `q` wins over the remembered view.
+## Pages Kept Mounted
+
+Most pages unmount when you leave and refetch when you come back. A page listed in `KEPT_ROUTES` in [`AppLayout.tsx`](AppLayout.tsx) is instead mounted on its first visit and kept, hidden by `<Activity mode="hidden">`, behind every other page, so its view, scroll position, drafts and data are still there on return ([#669](https://github.com/mieweb/timehuddle/issues/669)).
+
+| Route                                                                                         | Kept                 | Why                                                                    |
+| --------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| Dashboard, Work, Huddle, Teams, Activity Log, Organization                                    | yes, `<Activity>`    | Visited often, and each holds a load, a view or a draft worth keeping  |
+| Tickets                                                                                       | yes, its own wrapper | Mounted at boot and only made invisible elsewhere, so it keeps running |
+| Clock, Settings, Notifications, Release Notes, Enterprise, Seeder, Hi, Org Members, Org Usage | no                   | Little state to lose, or should show fresh data on arrival             |
+| Profile, Ticket detail, Redmine issue detail                                                  | no                   | Keyed by id: a fresh mount per id is the intended behavior             |
+
+**Deciding for a new route.** Keep it only when all of these hold: users leave it and come back often, it holds state worth keeping (a view, scroll, a half-typed form, an expensive load), and it is not keyed by id. Otherwise let it unmount: a kept page costs memory for the rest of the session.
+
+**What a kept page has to get right:**
+
+- **Effects pause while hidden.** Every effect is cleaned up on hide and run again on show, so its listeners and subscriptions are off while away, and its loads run again on return. A return must reload **quietly**, behind the data already on screen: no spinner and no skeleton. `useScopeChange` ([`lib/useScopeChange.ts`](../lib/useScopeChange.ts)) tells a new team, org, user or week, which should clear and show loading, from a return, which should not.
+- **Reset on a real scope change, not on cleanup.** Clear data when the team, org or user actually changes, never in an effect cleanup, which now also runs on every hide. That includes an open dialog about the old team (an edit, a delete, a ticket picked): close it or clear the pick, or it acts on the old team under the new one. A failed quiet reload keeps what is on screen.
+- **Each kept page sees its own URL.** `AppLayout` gives every kept page the location it was last on screen at, so a hidden page keeps rendering the view it was left on instead of reading the visible page's params (and unmounting its panels meanwhile). The sidebar link back is a bare path, one naming no view, only the scope (`team`, `org`), so on return the remembered view is restored before the page renders, under the scope selected now; a link that names any view param wins. `AppLayout` also restores each kept page's scroll position in `<main>`.
+- **Only the newest load may write.** A load left in flight on hide can answer after the return's load, possibly for another team or week. `useLatestRequest` ([`lib/useLatestRequest.ts`](../lib/useLatestRequest.ts)) retires every earlier load when a new one begins. A save or delete that finishes later still calls the refresh it captured, for the old selection, so a load first checks with `useIsCurrent` ([`lib/useIsCurrent.ts`](../lib/useIsCurrent.ts)) that its scope is still the current one.
+- **A hidden page can't write the URL.** Its effects are paused, but a request it started can still finish, say a delete that then navigates. The router a kept page sees ignores `navigate` and `replace` while it is hidden, so that can't redirect or rewrite the page on screen.
+- **No media, toasts or sounds while hidden.** `<Activity>` keeps the DOM alive, so a playing `<video>` keeps playing: give it `usePauseOnHide` ([`usePauseOnHide.ts`](usePauseOnHide.ts)), which also covers media in a dialog or portal. Huddle pauses everything under its root.
+- **Pull-to-refresh** is registered by an effect, so a hidden page's handler is already off.
+
+**Loading states.** A first load, or a real scope change, shows a skeleton in the shape of the content ([`PageSkeleton.tsx`](PageSkeleton.tsx)), with one polite live region announcing it. `Spinner` stays for inline progress: in a button, a row or a card header.
 
 A signed-out visitor who opens an `/app/...` link signs in and comes back to it ([`lib/returnTo.ts`](../lib/returnTo.ts)).
 

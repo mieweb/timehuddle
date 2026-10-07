@@ -39,6 +39,10 @@ import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
+import { localDateRangeKey } from '../../lib/date';
+import { useIsCurrent } from '../../lib/useIsCurrent';
+import { useLatestRequest } from '../../lib/useLatestRequest';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import {
@@ -162,17 +166,49 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
 
   // A different team's timesheet must not linger while the new one loads.
+  // Only on a real switch: the page is kept mounted, and this effect also runs
+  // each time it is shown again, when the data is still the right team's.
+  // The edit dialog belongs to that team too: one left open across a switch
+  // would save or delete the old team's session under the new one.
+  const isNewTeam = useScopeChange();
   useEffect(() => {
+    if (!isNewTeam(selectedTeamId)) return;
     setData(null);
-  }, [selectedTeamId]);
+    setSessionDialogOpen(false);
+    setActiveSession(null);
+    setSessionSaveError(null);
+    setEditJustification(emptyJustification);
+  }, [selectedTeamId, isNewTeam]);
+
+  // Loading shows for a new team, member or range of days only; a return or a
+  // live update reloads quietly behind the timesheet shown.
+  const isNewRange = useScopeChange();
+  // A load left in flight when the page was hidden, or for the member before a
+  // switch, can answer after the newest; only the newest may write.
+  const beginLoad = useLatestRequest();
+  // A save or delete refreshes the selection it was made under; if the user has
+  // since moved to another team, member or range, that refresh is stale and
+  // does nothing.
+  const selection = `${selectedTeamId}|${selectedMemberId}|${preset}|${customStart}|${customEnd}`;
+  const isCurrentSelection = useIsCurrent(selection);
 
   const fetchData = useCallback(async () => {
-    if (!selectedMemberId) return;
+    if (!isCurrentSelection(selection)) return;
+    const isLatest = beginLoad();
+    // Beginning retired any load in flight, and with it the only finally that
+    // would end its loading state, so a load that stops here ends it itself.
+    if (!selectedMemberId) {
+      setLoading(false);
+      return;
+    }
     let startMs: number;
     let endMs: number;
 
     if (preset === 'custom') {
-      if (!customStart || !customEnd) return;
+      if (!customStart || !customEnd) {
+        setLoading(false);
+        return;
+      }
       startMs = new Date(`${customStart}T00:00:00`).getTime();
       endMs = new Date(`${customEnd}T23:59:59.999`).getTime();
     } else {
@@ -181,17 +217,29 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       endMs = e.getTime();
     }
 
-    setLoading(true);
+    if (isNewRange(`${selectedTeamId}|${selectedMemberId}|${localDateRangeKey(startMs, endMs)}`)) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await clockApi.getTimesheet(selectedMemberId, startMs, endMs);
-      setData(result);
+      if (isLatest()) setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load timesheet');
+      if (isLatest()) setError(e instanceof Error ? e.message : 'Failed to load timesheet');
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
-  }, [selectedMemberId, preset, customStart, customEnd]);
+  }, [
+    selectedTeamId,
+    selectedMemberId,
+    preset,
+    customStart,
+    customEnd,
+    isNewRange,
+    beginLoad,
+    isCurrentSelection,
+    selection,
+  ]);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {

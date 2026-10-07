@@ -27,7 +27,7 @@ import {
   ModalFooter,
   ModalHeader,
   Select,
-  Spinner,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -65,11 +65,15 @@ import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useIsCurrent } from '../../lib/useIsCurrent';
+import { useLatestRequest } from '../../lib/useLatestRequest';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LoadingRegion, SkeletonPanel } from '../../ui/PageSkeleton';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
@@ -138,7 +142,6 @@ export const WorkPage: React.FC = () => {
   const { isClockedIn } = useClockToggle();
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
-  const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
 
   // Selected day (local YYYY-MM-DD) — `?date=`, today when absent. Picking a
@@ -146,6 +149,7 @@ export const WorkPage: React.FC = () => {
   const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
   const selectedDate =
     dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
+  const { navigate } = useRouter();
   const setSelectedDate = useCallback(
     (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
     [setDateParam],
@@ -309,19 +313,31 @@ export const WorkPage: React.FC = () => {
 
   // ── Fetch week totals ──
 
+  // Kept mounted: a return or a live update reloads quietly behind the totals
+  // shown; only a different week shows them as loading. A load for the week
+  // just left can still be in flight on return, so only the newest may write.
+  const isNewWeek = useScopeChange();
+  const beginWeekLoad = useLatestRequest();
+  // A delete refreshes the week it was made in; if the user has since moved to
+  // another week, that refresh is stale and does nothing.
+  const isCurrentWeek = useIsCurrent(toLocalDateStr(weekDays[0]));
   const fetchWeekTotals = useCallback(async () => {
-    setWeekTotalsLoading(true);
+    const weekStart = toLocalDateStr(weekDays[0]);
+    if (!isCurrentWeek(weekStart)) return;
+    const isLatest = beginWeekLoad();
+    if (isNewWeek(weekStart)) setWeekTotalsLoading(true);
     try {
-      const days = await timerApi.getWeek(toLocalDateStr(weekDays[0]));
+      const days = await timerApi.getWeek(weekStart);
+      if (!isLatest()) return;
       const map: Record<string, number> = {};
       for (const d of days) map[d.date] = d.totalSeconds;
       setWeekTotals(map);
     } catch {
       // keep previous
     } finally {
-      setWeekTotalsLoading(false);
+      if (isLatest()) setWeekTotalsLoading(false);
     }
-  }, [weekDays]);
+  }, [weekDays, isNewWeek, beginWeekLoad, isCurrentWeek]);
 
   useEffect(() => {
     void fetchWeekTotals();
@@ -333,7 +349,12 @@ export const WorkPage: React.FC = () => {
   // follows it, fire one each), and an older answer can land last. Only the
   // newest request may write, so a pre-start snapshot never replaces a running row.
   const fetchDaySeq = useRef(0);
+  // An add, edit, delete or copy refreshes the day it was made on; if the user
+  // has since moved to another day, that refresh is stale and does nothing,
+  // rather than claim the newest sequence and show the old day's rows.
+  const isCurrentDay = useIsCurrent(selectedDate);
   const fetchDay = useCallback(async () => {
+    if (!isCurrentDay(selectedDate)) return;
     const seq = ++fetchDaySeq.current;
     try {
       const entries = await timerApi.getDay(selectedDate);
@@ -341,7 +362,7 @@ export const WorkPage: React.FC = () => {
     } catch {
       // keep previous
     }
-  }, [selectedDate]);
+  }, [selectedDate, isCurrentDay]);
 
   useEffect(() => {
     void fetchDay();
@@ -435,8 +456,20 @@ export const WorkPage: React.FC = () => {
 
   // ── Handlers ──
 
+  // The picked ticket belongs to a team. This page is kept mounted, so the
+  // dialog can be left open across a team switch: the pick is cleared then,
+  // and Add only ever submits a ticket of the team now selected.
+  const isNewEntryTeam = useScopeChange();
+  // The ticket list goes too, so the old team's tickets can't be picked while
+  // the new team's load.
+  useEffect(() => {
+    if (!isNewEntryTeam(selectedTeamId)) return;
+    setNewEntryTicketId('');
+    setAllTickets([]);
+  }, [selectedTeamId, isNewEntryTeam]);
+
   const handleCreateEntry = useCallback(async () => {
-    if (!newEntryTicketId) return;
+    if (!newEntryTicketId || !allTickets.some((t) => t.id === newEntryTicketId)) return;
     setNewEntryLoading(true);
     try {
       await timerApi.createEntry({
@@ -455,7 +488,7 @@ export const WorkPage: React.FC = () => {
     } finally {
       setNewEntryLoading(false);
     }
-  }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
+  }, [newEntryTicketId, allTickets, newEntryNote, selectedDate, fetchDay]);
 
   const handleDeleteEntry = useCallback(
     async (entryId: string) => {
@@ -690,9 +723,18 @@ export const WorkPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
-      </div>
+      <AppPage width="wide">
+        <LoadingRegion label="Loading work…">
+          <Card padding="sm">
+            <CardContent className="work-week-skeleton grid grid-cols-7 gap-1">
+              {Array.from({ length: 7 }, (_, i) => (
+                <Skeleton key={i} height={52} className="rounded-lg" />
+              ))}
+            </CardContent>
+          </Card>
+          <SkeletonPanel rows={4} />
+        </LoadingRegion>
+      </AppPage>
     );
   }
 

@@ -18,6 +18,8 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -63,7 +65,7 @@ import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
-import { matchPath, RouterProvider, useRouter } from './router';
+import { matchPath, RouterContext, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
 
@@ -100,6 +102,71 @@ const ROUTES: Record<string, RouteConfig> = {
 
   '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
   '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
+};
+
+/** Routes mounted on their first visit and kept, hidden by <Activity>, behind
+ *  other pages. Tickets is kept too, by its own wrapper below. The policy for
+ *  adding one is in ROUTING.md. */
+const KEPT_ROUTES = [
+  '/app/dashboard',
+  '/app/work',
+  '/app/huddle',
+  '/app/teams',
+  '/app/activity',
+  '/app/organization',
+] as const;
+type KeptRoute = (typeof KEPT_ROUTES)[number];
+/** By route, not path: `/app/teams/:teamId` is the Teams route too. */
+const keptRouteFor = (route: RouteConfig | null): KeptRoute | null =>
+  KEPT_ROUTES.find((path) => ROUTES[path] === route) ?? null;
+
+/** Params that only say which team or org is in scope; any other names a view. */
+const SCOPE_PARAMS = ['team', 'org', 'teamId'];
+
+interface KeptLocation {
+  pathname: string;
+  search: string;
+}
+
+const namesAView = (search: string) =>
+  [...new URLSearchParams(search).keys()].some((key) => !SCOPE_PARAMS.includes(key));
+
+/** The view `remembered` was left on, under the scope `live` selects now. */
+function restoreView(remembered: string, live: string): string {
+  const params = new URLSearchParams(remembered);
+  const liveParams = new URLSearchParams(live);
+  for (const key of SCOPE_PARAMS) {
+    params.delete(key);
+    for (const value of liveParams.getAll(key)) params.append(key, value);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+/** Renders a kept page against its own location, so while hidden it keeps
+ *  seeing the URL it was left on rather than the one now on screen. While
+ *  hidden it cannot write the URL either: its effects are paused, but a request
+ *  it started can still finish (a delete that then navigates, say) and must not
+ *  redirect or rewrite the page now on screen. */
+const KeptLocationProvider: React.FC<{
+  location: KeptLocation;
+  active: boolean;
+  children: React.ReactNode;
+}> = ({ location, active, children }) => {
+  const { navigate, replace } = useRouter();
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const whileShown = useCallback(
+    (write: (path: string) => void) => (path: string) => {
+      if (activeRef.current) write(path);
+    },
+    [],
+  );
+  const value = useMemo(
+    () => ({ navigate: whileShown(navigate), replace: whileShown(replace), ...location }),
+    [whileShown, navigate, replace, location],
+  );
+  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 };
 
 /** Null when nothing matches — the caller shows not-found rather than a page
@@ -152,12 +219,9 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const { pathname, navigate } = useRouter();
+  const { pathname, search, navigate, replace } = useRouter();
 
   const mainRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    mainRef.current?.scrollTo({ top: 0 });
-  }, [pathname]);
 
   // ── Shared notification data handler ──────────────────────────────────────
   const handleNotificationData = useCallback(
@@ -340,18 +404,51 @@ const AppLayoutContent: React.FC = () => {
     !redmineIssueId &&
     pathname === '/app/tickets';
 
-  // Huddle is mounted on its first visit and kept after that: <Activity> hides
-  // it (state, scroll and composer drafts survive; its effects and
-  // subscriptions pause) instead of tearing it down and refetching on return.
-  const isHuddleRoute =
-    !scopeForbidden &&
-    !profileUserId &&
-    !profileUsername &&
-    !ticketDetailId &&
-    !redmineIssueId &&
-    pathname === '/app/huddle';
-  const [huddleVisited, setHuddleVisited] = useState(isHuddleRoute);
-  if (isHuddleRoute && !huddleVisited) setHuddleVisited(true);
+  // A kept page is mounted on its first visit and kept after that: <Activity>
+  // hides it (state, scroll and drafts survive; its effects and subscriptions
+  // pause) instead of tearing it down and refetching on return.
+  const activeKeptRoute =
+    !scopeForbidden && !profileUserId && !profileUsername && !ticketDetailId && !redmineIssueId
+      ? keptRouteFor(route)
+      : null;
+  // Where each kept page was last on screen; a page is mounted once it has an
+  // entry. A return through a link that names no view (the sidebar's bare path)
+  // gets the remembered view back, before the page renders, so it never shows
+  // the default view in between; a link that names a view wins. The URL is
+  // then brought in line below.
+  const [keptLocations, setKeptLocations] = useState<ReadonlyMap<KeptRoute, KeptLocation>>(
+    () => new Map(activeKeptRoute ? [[activeKeptRoute, { pathname, search }]] : []),
+  );
+  const [shownKeptRoute, setShownKeptRoute] = useState(activeKeptRoute);
+  if (activeKeptRoute) {
+    const remembered = keptLocations.get(activeKeptRoute);
+    const returning =
+      Boolean(remembered) && shownKeptRoute !== activeKeptRoute && !namesAView(search);
+    const next = {
+      pathname,
+      search: returning && remembered ? restoreView(remembered.search, search) : search,
+    };
+    if (remembered?.pathname !== next.pathname || remembered?.search !== next.search) {
+      setKeptLocations(new Map(keptLocations).set(activeKeptRoute, next));
+    }
+  }
+  useLayoutEffect(() => {
+    const location = activeKeptRoute ? keptLocations.get(activeKeptRoute) : undefined;
+    if (location && location.search !== search) replace(pathname + location.search);
+    setShownKeptRoute(activeKeptRoute);
+  }, [activeKeptRoute, keptLocations, pathname, search, replace]);
+
+  // A new page opens at the top; a kept page comes back where it was left. Its
+  // position is recorded as it scrolls, since by the time a navigation commits
+  // the page is already hidden and <main> has lost its height.
+  const keptScrollRef = useRef(new Map<KeptRoute, number>());
+  useLayoutEffect(() => {
+    const top = activeKeptRoute ? (keptScrollRef.current.get(activeKeptRoute) ?? 0) : 0;
+    mainRef.current?.scrollTo({ top });
+  }, [pathname]); // per navigation only
+  const recordKeptScroll = (event: React.UIEvent<HTMLElement>) => {
+    if (activeKeptRoute) keptScrollRef.current.set(activeKeptRoute, event.currentTarget.scrollTop);
+  };
 
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -446,7 +543,11 @@ const AppLayoutContent: React.FC = () => {
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
                     <WhatsNewBanner placement="mobile" />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                    <main
+                      ref={mainRef}
+                      onScroll={recordKeptScroll}
+                      className="flex-1 overflow-auto app-main-scroll md:pb-0"
+                    >
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. The
@@ -464,13 +565,23 @@ const AppLayoutContent: React.FC = () => {
                             <TicketsPage />
                           </div>
                         </PageTitleContext.Provider>
-                        {huddleVisited && (
-                          <PageTitleContext.Provider value={isHuddleRoute ? pageTitle : null}>
-                            <Activity mode={isHuddleRoute ? 'visible' : 'hidden'}>
-                              <Huddle />
-                            </Activity>
-                          </PageTitleContext.Provider>
-                        )}
+                        {KEPT_ROUTES.map((path) => {
+                          const location = keptLocations.get(path);
+                          if (!location) return null;
+                          const isActive = path === activeKeptRoute;
+                          return (
+                            <PageTitleContext.Provider
+                              key={path}
+                              value={isActive ? pageTitle : null}
+                            >
+                              <Activity mode={isActive ? 'visible' : 'hidden'}>
+                                <KeptLocationProvider location={location} active={isActive}>
+                                  {React.createElement(ROUTES[path].component)}
+                                </KeptLocationProvider>
+                              </Activity>
+                            </PageTitleContext.Provider>
+                          );
+                        })}
                         {scopeForbidden ? (
                           <NoAccessState
                             kind="forbidden"
@@ -488,8 +599,8 @@ const AppLayoutContent: React.FC = () => {
                           <NoAccessState kind="not-found" resource="page" />
                         ) : (
                           route &&
+                          !activeKeptRoute &&
                           route.component !== TicketsPage &&
-                          route.component !== Huddle &&
                           React.createElement(route.component)
                         )}
                       </PullToRefresh>

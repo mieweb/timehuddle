@@ -61,8 +61,11 @@ import {
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
+import { LoadingRegion, SkeletonPanel, SkeletonStatCards } from '../../ui/PageSkeleton';
 import { useQueryParams, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -203,16 +206,22 @@ export const DashboardPage: React.FC = () => {
   // one jumps straight to that post in the feed. Teams only — a personal
   // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
+  const isNewPostsScope = useScopeChange();
   useEffect(() => {
-    if (!selectedTeamId || isPersonalWorkspace) {
-      setRecentPosts([]);
-      return;
-    }
+    const scope = selectedTeamId && !isPersonalWorkspace ? selectedTeamId : null;
+    // This page is kept mounted, so this effect also re-runs on every return.
+    // Only a new team clears the list; a return keeps it until the subscription
+    // has caught up, rather than blinking empty while the posts come back.
+    const newScope = isNewPostsScope(scope);
+    if (newScope) setRecentPosts([]);
+    if (!scope) return;
+    let live = newScope;
     const ddp = getDdpClient();
     const syncPosts = () => {
+      if (!live) return;
       const docs = ddp.docs('huddlePosts');
       const teamPosts = docs
-        .filter((p) => p.teamId === selectedTeamId && p.status !== 'draft')
+        .filter((p) => p.teamId === scope && p.status !== 'draft')
         .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 10);
@@ -220,13 +229,15 @@ export const DashboardPage: React.FC = () => {
     };
     syncPosts();
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
-    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], syncPosts);
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [scope], () => {
+      live = true;
+      syncPosts();
+    });
     return () => {
       offChange();
       unsubscribe();
-      setRecentPosts([]);
     };
-  }, [selectedTeamId, isPersonalWorkspace]);
+  }, [selectedTeamId, isPersonalWorkspace, isNewPostsScope]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?post=${postId}`);
 
@@ -242,24 +253,38 @@ export const DashboardPage: React.FC = () => {
     return new Date(date).toLocaleDateString();
   };
 
+  // Kept mounted: a return reloads quietly behind the numbers already shown;
+  // only a new team clears the old one's and shows the loading state.
+  const isNewTeam = useScopeChange();
+  // A load for the team just left can still be in flight on return; only the
+  // newest may write.
+  const beginLoad = useLatestRequest();
   const fetchData = useCallback(async () => {
+    const isLatest = beginLoad();
     if (!user || !selectedTeamId) return;
-    setLoading(true);
-    try {
-      const [t, m, r] = await Promise.all([
-        ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
-        teamDashboardApi
-          .getTeamClockStatus(selectedTeamId)
-          .catch(() => [] as TeamMemberClockStatus[]),
-        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
-      ]);
-      setTickets(t);
-      setMemberStatuses(m);
-      setRunningTimers(r);
-    } finally {
-      setLoading(false);
+    if (isNewTeam(selectedTeamId)) {
+      setTickets([]);
+      setMemberStatuses([]);
+      setRunningTimers([]);
+      setLoading(true);
     }
-  }, [user, selectedTeamId]);
+    try {
+      // A failed request is null, not empty, so it keeps what is on screen: a
+      // brief failure on a return mustn't zero the tickets, clock totals or
+      // timers. A new team's data was already cleared above.
+      const [t, m, r] = await Promise.all([
+        ticketApi.getTickets(selectedTeamId).catch(() => null),
+        teamDashboardApi.getTeamClockStatus(selectedTeamId).catch(() => null),
+        teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => null),
+      ]);
+      if (!isLatest()) return;
+      if (t) setTickets(t);
+      if (m) setMemberStatuses(m);
+      if (r) setRunningTimers(r);
+    } finally {
+      if (isLatest()) setLoading(false);
+    }
+  }, [user, selectedTeamId, isNewTeam, beginLoad]);
 
   useEffect(() => {
     fetchData();
@@ -324,9 +349,13 @@ export const DashboardPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading dashboard…" />
-      </div>
+      <AppPage>
+        <LoadingRegion label="Loading dashboard…">
+          <SkeletonStatCards count={4} />
+          <SkeletonPanel rows={4} />
+          <SkeletonPanel rows={3} />
+        </LoadingRegion>
+      </AppPage>
     );
   }
 

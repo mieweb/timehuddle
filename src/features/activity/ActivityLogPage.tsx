@@ -7,7 +7,7 @@
  */
 import { faClockRotateLeft, faListCheck, faStar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
+import { Button, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
@@ -15,8 +15,11 @@ import { timeAgo } from '../../lib/date';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LoadingRegion, SkeletonRows } from '../../ui/PageSkeleton';
 import { linkActivityLabel } from '../tickets/link/ticketLinkStrings';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -168,52 +171,92 @@ export const ActivityLogPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Kept mounted, so this re-runs on every return. A new user loads from
+  // scratch; a return keeps what is loaded (Load more pages included) and adds
+  // the events since on top. When none of the latest page is already shown,
+  // there may be a gap, so the page replaces the list instead.
+  const isNewUser = useScopeChange();
+  // Every change to the list (this load, pull-to-refresh, Load more) begins a
+  // new one, and only the newest may write: a load left in flight when the
+  // page was hidden can't replace newer events, nor a late Load more append a
+  // page to a list that has since been replaced.
+  const beginLoad = useLatestRequest();
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
   useEffect(() => {
+    const isLatest = beginLoad();
     if (!user) return;
-    setLoading(true);
-    setError(null);
+    const newUser = isNewUser(user.id);
+    if (newUser) {
+      setItems([]);
+      setNextCursor(null);
+      setLoading(true);
+      setError(null);
+    }
     activityApi
       .getLog({ limit: 50 })
       .then(({ events, nextCursor: cursor }) => {
-        setItems(events);
-        setNextCursor(cursor);
+        if (!isLatest()) return;
+        setError(null);
+        const shown = new Set(itemsRef.current.map((item) => item.id));
+        const unseen = events.filter((event) => !shown.has(event.id));
+        if (unseen.length === events.length) {
+          setItems(events);
+          setNextCursor(cursor);
+        } else if (unseen.length > 0) {
+          setItems((prev) => [...unseen, ...prev]);
+        }
       })
-      .catch(() => setError('Failed to load activity log.'))
-      .finally(() => setLoading(false));
-  }, [user]);
+      .catch(() => {
+        // A failed quiet reload leaves the log already on screen in place.
+        if (isLatest() && itemsRef.current.length === 0) {
+          setError('Failed to load activity log.');
+        }
+      })
+      .finally(() => {
+        if (isLatest()) setLoading(false);
+      });
+  }, [user, isNewUser, beginLoad]);
 
   useRefresh(
     React.useCallback(async () => {
+      const isLatest = beginLoad();
       if (!user) return;
       setLoading(true);
       try {
         const { events, nextCursor: cursor } = await activityApi.getLog({ limit: 50 });
+        if (!isLatest()) return;
+        setError(null);
         setItems(events);
         setNextCursor(cursor);
       } catch {
-        setError('Failed to load activity log.');
+        if (isLatest()) setError('Failed to load activity log.');
       } finally {
-        setLoading(false);
+        if (isLatest()) setLoading(false);
       }
-    }, [user]),
+    }, [user, beginLoad]),
   );
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
+    const isLatest = beginLoad();
     setLoadingMore(true);
     try {
       const { events, nextCursor: cursor } = await activityApi.getLog({
         limit: 50,
         before: nextCursor,
       });
+      if (!isLatest()) return;
       setItems((prev) => [...prev, ...events]);
       setNextCursor(cursor);
     } catch {
       // silently ignore — user can retry by clicking again
     } finally {
+      // Its own flag, so always cleared: a retired Load more must not leave the
+      // button stuck.
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore]);
+  }, [nextCursor, loadingMore, beginLoad]);
 
   const filteredItems = useMemo(
     () =>
@@ -226,9 +269,9 @@ export const ActivityLogPage: React.FC = () => {
   return (
     <AppPage subtitle="A chronological log of your activity in TimeHuddle.">
       {loading ? (
-        <div className="flex items-center justify-center py-16" aria-label="Loading activity log">
-          <Spinner size="md" />
-        </div>
+        <LoadingRegion label="Loading activity log…">
+          <SkeletonRows count={6} />
+        </LoadingRegion>
       ) : error ? (
         <div className="py-16 text-center">
           <Text variant="destructive" size="sm">
