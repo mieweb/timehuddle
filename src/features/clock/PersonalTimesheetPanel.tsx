@@ -55,9 +55,6 @@ import {
   timesheetApproversFor,
   timesheetVideoRequired,
 } from '../../lib/timesheetApproval';
-import { localDateRangeKey } from '../../lib/date';
-import { useIsCurrent } from '../../lib/useIsCurrent';
-import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
@@ -246,14 +243,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   // its correct result with stale data. Each call claims the next id and
   // only applies its response if it's still the most recent call.
   const fetchRequestIdRef = useRef(0);
-  const isNewRange = useScopeChange();
-  // A save, delete or add refreshes the range it was made under; if the user
-  // has since moved to another range, that refresh is stale and does nothing.
-  const selection = `${user?.id}|${preset}|${customStart}|${customEnd}`;
-  const isCurrentSelection = useIsCurrent(selection);
 
   const fetchData = useCallback(async () => {
-    if (!isCurrentSelection(selection)) return;
     if (!user?.id) return;
     let startMs: number;
     let endMs: number;
@@ -269,9 +260,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
 
     const requestId = ++fetchRequestIdRef.current;
-    // Kept mounted: a return or a live update reloads quietly behind the
-    // timesheet shown; only a new range of days shows loading.
-    if (isNewRange(`${user?.id}|${localDateRangeKey(startMs, endMs)}`)) setLoading(true);
+    setLoading(true);
     setError(null);
     try {
       const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
@@ -283,7 +272,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       if (fetchRequestIdRef.current === requestId) setLoading(false);
     }
-  }, [user?.id, preset, customStart, customEnd, isNewRange, isCurrentSelection, selection]);
+  }, [user?.id, preset, customStart, customEnd]);
 
   useEffect(() => {
     void fetchData();
