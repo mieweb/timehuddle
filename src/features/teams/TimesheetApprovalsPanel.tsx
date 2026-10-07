@@ -35,6 +35,7 @@ import {
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration } from '../../lib/timeUtils';
+import { useScopeChange } from '../../lib/useScopeChange';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   create: 'Add time',
@@ -158,9 +159,12 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   // can't overwrite the current team's queue — which would put another team's
   // requests in front of them, approvable, under this team's timesheet.
   const loadSeqRef = useRef(0);
+  // Kept mounted: a return or a live update reloads quietly behind the queue
+  // shown; only a new team shows loading.
+  const isNewTeam = useScopeChange();
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current;
-    setLoading(true);
+    if (isNewTeam(teamId ?? null)) setLoading(true);
     try {
       const next = await timesheetApprovalApi.listPending(teamId);
       if (loadSeqRef.current !== seq) return;
@@ -170,7 +174,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
     } finally {
       if (loadSeqRef.current === seq) setLoading(false);
     }
-  }, [teamId]);
+  }, [teamId, isNewTeam]);
 
   // Reported on every change rather than only on load, so a badge elsewhere
   // drops the moment a decision removes a request from this list.

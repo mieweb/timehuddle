@@ -7,9 +7,15 @@ import { CompactTicketList } from '../profile/CompactTicketList';
 import { useProfileTickets } from '../profile/useProfileTickets';
 import { WorkSummaryTags } from '../profile/WorkSummaryTags';
 
+/** d3-zoom's transform; opaque here, only handed back to the chart. */
+type ZoomTransform = { x: number; y: number; k: number };
+
 type ChartState = {
   svgWidth: number;
   svgHeight: number;
+  lastTransform?: ZoomTransform;
+  svg?: { call: (fn: unknown, transform: ZoomTransform) => void };
+  zoomBehavior?: { transform: unknown };
   [key: string]: unknown;
 };
 
@@ -107,6 +113,10 @@ const OrganizationChartMount: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<YChartInstance | null>(null);
   const hideTimeoutsRef = useRef<number[]>([]);
+  // The page is kept mounted, and <Activity> runs the cleanup below each time it
+  // is hidden, so the chart is rebuilt on every return. Its pan and zoom are
+  // kept here across that, for the same chart, instead of fitting it again.
+  const savedViewRef = useRef<{ yaml: string; transform: ZoomTransform } | null>(null);
   const chartId = useRef(`oc-${Date.now()}-${Math.random().toString(36).slice(2)}`).current;
   const onMemberDetailsRef = useRef(onMemberDetails);
   onMemberDetailsRef.current = onMemberDetails;
@@ -247,7 +257,13 @@ const OrganizationChartMount: React.FC<{
             state.svgHeight = rect.height;
           }
 
-          orgChart.fit?.({ animate: false });
+          const saved = savedViewRef.current;
+          savedViewRef.current = null;
+          if (saved?.yaml === yaml && state?.svg && state.zoomBehavior) {
+            state.svg.call(state.zoomBehavior.transform, saved.transform);
+          } else {
+            orgChart.fit?.({ animate: false });
+          }
         }, 450);
       } catch (error) {
         if (containerElement.isConnected) {
@@ -264,6 +280,8 @@ const OrganizationChartMount: React.FC<{
 
       const instance = instanceRef.current;
       if (instance) {
+        const transform = instance.orgChart?.getChartState?.().lastTransform;
+        savedViewRef.current = transform ? { yaml, transform } : null;
         instance.orgChart?.clear?.();
         if (instance.orgChart) {
           const orgChart = instance.orgChart;

@@ -61,12 +61,12 @@ import {
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { LoadingRegion, SkeletonPanel, SkeletonStatCards } from '../../ui/PageSkeleton';
 import { useQueryParams, useRouter } from '../../ui/router';
-import { useKeptView } from '../../ui/useKeptView';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
@@ -82,7 +82,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate, pathname } = useRouter();
+  const { navigate } = useRouter();
   const { params, setParams } = useQueryParams();
   const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId, isAdmin } = useTeam();
 
@@ -141,15 +141,6 @@ export const DashboardPage: React.FC = () => {
   // Dropped once the approvals panel has opened it, so returning to this view
   // later doesn't reopen a request the reviewer has already dealt with.
   const clearFocusRequest = useCallback(() => setParams({ request: null }), [setParams]);
-
-  // Kept mounted behind other pages: the sidebar link back is a bare
-  // /app/dashboard, so bring back the tab, view and member left on screen. A
-  // link that names any of them, or a request to review, wins.
-  useKeptView(
-    pathname === '/app/dashboard',
-    { tab: tabParam, view: params.get('view'), member: memberId },
-    ['tab', 'view', 'member', 'request', 'memberId', 'requestId'],
-  );
 
   // Old notification links → the current scheme, in place (no history entry).
   useEffect(() => {
@@ -265,7 +256,11 @@ export const DashboardPage: React.FC = () => {
   // Kept mounted: a return reloads quietly behind the numbers already shown;
   // only a new team clears the old one's and shows the loading state.
   const isNewTeam = useScopeChange();
+  // A load for the team just left can still be in flight on return; only the
+  // newest may write.
+  const beginLoad = useLatestRequest();
   const fetchData = useCallback(async () => {
+    const isLatest = beginLoad();
     if (!user || !selectedTeamId) return;
     if (isNewTeam(selectedTeamId)) {
       setTickets([]);
@@ -281,13 +276,14 @@ export const DashboardPage: React.FC = () => {
           .catch(() => [] as TeamMemberClockStatus[]),
         teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
       ]);
+      if (!isLatest()) return;
       setTickets(t);
       setMemberStatuses(m);
       setRunningTimers(r);
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
-  }, [user, selectedTeamId, isNewTeam]);
+  }, [user, selectedTeamId, isNewTeam, beginLoad]);
 
   useEffect(() => {
     fetchData();

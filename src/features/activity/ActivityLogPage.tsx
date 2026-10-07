@@ -15,6 +15,7 @@ import { timeAgo } from '../../lib/date';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
@@ -175,9 +176,13 @@ export const ActivityLogPage: React.FC = () => {
   // the events since on top. When none of the latest page is already shown,
   // there may be a gap, so the page replaces the list instead.
   const isNewUser = useScopeChange();
+  // The first load can still be in flight when a return starts another; only
+  // the newest may write, so an older answer can't replace newer events.
+  const beginLoad = useLatestRequest();
   const itemsRef = React.useRef(items);
   itemsRef.current = items;
   useEffect(() => {
+    const isLatest = beginLoad();
     if (!user) return;
     const newUser = isNewUser(user.id);
     if (newUser) {
@@ -189,9 +194,11 @@ export const ActivityLogPage: React.FC = () => {
     activityApi
       .getLog({ limit: 50 })
       .then(({ events, nextCursor: cursor }) => {
+        if (!isLatest()) return;
+        setError(null);
         const shown = new Set(itemsRef.current.map((item) => item.id));
         const unseen = events.filter((event) => !shown.has(event.id));
-        if (newUser || unseen.length === events.length) {
+        if (unseen.length === events.length) {
           setItems(events);
           setNextCursor(cursor);
         } else if (unseen.length > 0) {
@@ -200,10 +207,14 @@ export const ActivityLogPage: React.FC = () => {
       })
       .catch(() => {
         // A failed quiet reload leaves the log already on screen in place.
-        if (newUser) setError('Failed to load activity log.');
+        if (isLatest() && itemsRef.current.length === 0) {
+          setError('Failed to load activity log.');
+        }
       })
-      .finally(() => setLoading(false));
-  }, [user, isNewUser]);
+      .finally(() => {
+        if (isLatest()) setLoading(false);
+      });
+  }, [user, isNewUser, beginLoad]);
 
   useRefresh(
     React.useCallback(async () => {

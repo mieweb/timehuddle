@@ -65,6 +65,7 @@ import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
@@ -73,7 +74,6 @@ import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { LoadingRegion, SkeletonPanel } from '../../ui/PageSkeleton';
 import { useQueryParam, useRouter } from '../../ui/router';
-import { useKeptView } from '../../ui/useKeptView';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 import { useTicketStart } from './TicketStartProvider';
@@ -148,10 +148,7 @@ export const WorkPage: React.FC = () => {
   const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
   const selectedDate =
     dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
-  // Kept mounted behind other pages: the sidebar link back is a bare /app/work,
-  // so bring back the day that was on screen.
-  const { navigate, pathname } = useRouter();
-  useKeptView(pathname === '/app/work', { date: dateParam });
+  const { navigate } = useRouter();
   const setSelectedDate = useCallback(
     (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
     [setDateParam],
@@ -316,22 +313,26 @@ export const WorkPage: React.FC = () => {
   // ── Fetch week totals ──
 
   // Kept mounted: a return or a live update reloads quietly behind the totals
-  // shown; only a different week shows them as loading.
+  // shown; only a different week shows them as loading. A load for the week
+  // just left can still be in flight on return, so only the newest may write.
   const isNewWeek = useScopeChange();
+  const beginWeekLoad = useLatestRequest();
   const fetchWeekTotals = useCallback(async () => {
+    const isLatest = beginWeekLoad();
     const weekStart = toLocalDateStr(weekDays[0]);
     if (isNewWeek(weekStart)) setWeekTotalsLoading(true);
     try {
       const days = await timerApi.getWeek(weekStart);
+      if (!isLatest()) return;
       const map: Record<string, number> = {};
       for (const d of days) map[d.date] = d.totalSeconds;
       setWeekTotals(map);
     } catch {
       // keep previous
     } finally {
-      setWeekTotalsLoading(false);
+      if (isLatest()) setWeekTotalsLoading(false);
     }
-  }, [weekDays, isNewWeek]);
+  }, [weekDays, isNewWeek, beginWeekLoad]);
 
   useEffect(() => {
     void fetchWeekTotals();

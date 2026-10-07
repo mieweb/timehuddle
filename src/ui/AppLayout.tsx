@@ -19,6 +19,7 @@ import React, {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -64,7 +65,7 @@ import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
-import { matchPath, RouterProvider, useRouter } from './router';
+import { matchPath, RouterContext, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
 
@@ -119,6 +120,40 @@ type KeptRoute = (typeof KEPT_ROUTES)[number];
 const keptRouteFor = (route: RouteConfig | null): KeptRoute | null =>
   KEPT_ROUTES.find((path) => ROUTES[path] === route) ?? null;
 
+/** Params that only say which team or org is in scope; any other names a view. */
+const SCOPE_PARAMS = ['team', 'org', 'teamId'];
+
+interface KeptLocation {
+  pathname: string;
+  search: string;
+}
+
+const namesAView = (search: string) =>
+  [...new URLSearchParams(search).keys()].some((key) => !SCOPE_PARAMS.includes(key));
+
+/** The view `remembered` was left on, under the scope `live` selects now. */
+function restoreView(remembered: string, live: string): string {
+  const params = new URLSearchParams(remembered);
+  const liveParams = new URLSearchParams(live);
+  for (const key of SCOPE_PARAMS) {
+    params.delete(key);
+    for (const value of liveParams.getAll(key)) params.append(key, value);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+/** Renders a kept page against its own location, so while hidden it keeps
+ *  seeing the URL it was left on rather than the one now on screen. */
+const KeptLocationProvider: React.FC<{ location: KeptLocation; children: React.ReactNode }> = ({
+  location,
+  children,
+}) => {
+  const { navigate, replace } = useRouter();
+  const value = useMemo(() => ({ navigate, replace, ...location }), [navigate, replace, location]);
+  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
+};
+
 /** Null when nothing matches — the caller shows not-found rather than a page
  *  the URL didn't ask for. */
 function match(pathname: string): RouteConfig | null {
@@ -169,7 +204,7 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const { pathname, navigate } = useRouter();
+  const { pathname, search, navigate, replace } = useRouter();
 
   const mainRef = useRef<HTMLElement>(null);
 
@@ -361,12 +396,32 @@ const AppLayoutContent: React.FC = () => {
     !scopeForbidden && !profileUserId && !profileUsername && !ticketDetailId && !redmineIssueId
       ? keptRouteFor(route)
       : null;
-  const [visitedKeptRoutes, setVisitedKeptRoutes] = useState<ReadonlySet<KeptRoute>>(
-    () => new Set(activeKeptRoute ? [activeKeptRoute] : []),
+  // Where each kept page was last on screen; a page is mounted once it has an
+  // entry. A return through a link that names no view (the sidebar's bare path)
+  // gets the remembered view back, before the page renders, so it never shows
+  // the default view in between; a link that names a view wins. The URL is
+  // then brought in line below.
+  const [keptLocations, setKeptLocations] = useState<ReadonlyMap<KeptRoute, KeptLocation>>(
+    () => new Map(activeKeptRoute ? [[activeKeptRoute, { pathname, search }]] : []),
   );
-  if (activeKeptRoute && !visitedKeptRoutes.has(activeKeptRoute)) {
-    setVisitedKeptRoutes(new Set([...visitedKeptRoutes, activeKeptRoute]));
+  const [shownKeptRoute, setShownKeptRoute] = useState(activeKeptRoute);
+  if (activeKeptRoute) {
+    const remembered = keptLocations.get(activeKeptRoute);
+    const returning =
+      Boolean(remembered) && shownKeptRoute !== activeKeptRoute && !namesAView(search);
+    const next = {
+      pathname,
+      search: returning && remembered ? restoreView(remembered.search, search) : search,
+    };
+    if (remembered?.pathname !== next.pathname || remembered?.search !== next.search) {
+      setKeptLocations(new Map(keptLocations).set(activeKeptRoute, next));
+    }
   }
+  useLayoutEffect(() => {
+    const location = activeKeptRoute ? keptLocations.get(activeKeptRoute) : undefined;
+    if (location && location.search !== search) replace(pathname + location.search);
+    setShownKeptRoute(activeKeptRoute);
+  }, [activeKeptRoute, keptLocations, pathname, search, replace]);
 
   // A new page opens at the top; a kept page comes back where it was left. Its
   // position is recorded as it scrolls, since by the time a navigation commits
@@ -495,7 +550,9 @@ const AppLayoutContent: React.FC = () => {
                             <TicketsPage />
                           </div>
                         </PageTitleContext.Provider>
-                        {KEPT_ROUTES.filter((path) => visitedKeptRoutes.has(path)).map((path) => {
+                        {KEPT_ROUTES.map((path) => {
+                          const location = keptLocations.get(path);
+                          if (!location) return null;
                           const isActive = path === activeKeptRoute;
                           return (
                             <PageTitleContext.Provider
@@ -503,7 +560,9 @@ const AppLayoutContent: React.FC = () => {
                               value={isActive ? pageTitle : null}
                             >
                               <Activity mode={isActive ? 'visible' : 'hidden'}>
-                                {React.createElement(ROUTES[path].component)}
+                                <KeptLocationProvider location={location}>
+                                  {React.createElement(ROUTES[path].component)}
+                                </KeptLocationProvider>
                               </Activity>
                             </PageTitleContext.Provider>
                           );

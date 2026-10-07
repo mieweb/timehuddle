@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, orgApi, type OrganizationAdminUser } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { AppPage } from '../../ui/AppPage';
 import { LoadFailedBoundary } from '../../ui/LoadFailedBoundary';
@@ -21,7 +22,11 @@ export const OrganizationPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const isNewOrg = useScopeChange();
+  // A load for the org just left can still be in flight on return; only the
+  // newest may write, and selecting no org retires it too.
+  const beginLoad = useLatestRequest();
   const loadOrganizationData = useCallback(async () => {
+    const isLatest = beginLoad();
     if (!selectedOrgId) {
       isNewOrg(null);
       setOrganizationName(null);
@@ -44,18 +49,20 @@ export const OrganizationPage: React.FC = () => {
         orgApi.getOrganizationById(selectedOrgId),
         orgApi.listOrganizationUsers(selectedOrgId),
       ]);
+      if (!isLatest()) return;
       setOrganizationName(org.name);
       setDisplayUsers(members);
     } catch (err) {
+      if (!isLatest()) return;
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError('Failed to load organization chart data');
       }
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
-  }, [selectedOrgId, isNewOrg]);
+  }, [selectedOrgId, isNewOrg, beginLoad]);
 
   useEffect(() => {
     void loadOrganizationData();

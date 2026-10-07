@@ -61,6 +61,7 @@ import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import { useScopeChange } from '../../lib/useScopeChange';
 import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
@@ -111,13 +112,18 @@ export const TeamsPage: React.FC = () => {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   // Kept mounted: a return or a live update reloads quietly behind the members
-  // shown; only a new team clears the old one's and shows the loading state.
+  // shown; only a new team clears the old one's and shows the loading state. A
+  // load for the team just left can still be in flight on return, so only the
+  // newest may write, and a failed quiet reload keeps the members on screen.
   const isNewTeam = useScopeChange();
+  const beginLoad = useLatestRequest();
   const fetchMembers = useCallback(
     async (teamId: string | null) => {
+      const isLatest = beginLoad();
       const newTeam = isNewTeam(teamId);
       if (!teamId) {
         setMembers([]);
+        setMembersLoading(false);
         return;
       }
       if (newTeam) {
@@ -126,14 +132,14 @@ export const TeamsPage: React.FC = () => {
       }
       try {
         const data = await teamApi.getMembers(teamId);
-        setMembers(data);
+        if (isLatest()) setMembers(data);
       } catch {
-        setMembers([]);
+        if (isLatest() && newTeam) setMembers([]);
       } finally {
-        setMembersLoading(false);
+        if (isLatest()) setMembersLoading(false);
       }
     },
-    [isNewTeam],
+    [isNewTeam, beginLoad],
   );
 
   useEffect(() => {
@@ -238,9 +244,14 @@ export const TeamsPage: React.FC = () => {
   // Inline team-name draft used by the "Team Settings" modal's rename field
   // (kept separate from `formValue`, which drives the create/join/invite forms).
   const [teamNameDraft, setTeamNameDraft] = useState('');
+  // Seeded when Settings opens for a team, not on every run of this effect:
+  // the page is kept mounted, and showing it again must not drop an unsaved
+  // rename.
+  const isNewDraft = useScopeChange();
   useEffect(() => {
-    if (modal === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
-  }, [modal, selectedTeam]);
+    const draftFor = modal === 'settings' && selectedTeam ? selectedTeam.id : null;
+    if (isNewDraft(draftFor) && draftFor && selectedTeam) setTeamNameDraft(selectedTeam.name);
+  }, [modal, selectedTeam, isNewDraft]);
   const inviteSentEmail =
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 

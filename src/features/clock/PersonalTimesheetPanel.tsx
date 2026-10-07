@@ -55,6 +55,7 @@ import {
   timesheetApproversFor,
   timesheetVideoRequired,
 } from '../../lib/timesheetApproval';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
@@ -243,6 +244,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   // its correct result with stale data. Each call claims the next id and
   // only applies its response if it's still the most recent call.
   const fetchRequestIdRef = useRef(0);
+  const isNewRange = useScopeChange();
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
@@ -260,7 +262,9 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
 
     const requestId = ++fetchRequestIdRef.current;
-    setLoading(true);
+    // Kept mounted: a return or a live update reloads quietly behind the
+    // timesheet shown; only a new range shows loading.
+    if (isNewRange(`${user?.id}|${preset}|${customStart}|${customEnd}`)) setLoading(true);
     setError(null);
     try {
       const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
@@ -272,7 +276,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       if (fetchRequestIdRef.current === requestId) setLoading(false);
     }
-  }, [user?.id, preset, customStart, customEnd]);
+  }, [user?.id, preset, customStart, customEnd, isNewRange]);
 
   useEffect(() => {
     void fetchData();
