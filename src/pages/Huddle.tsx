@@ -44,6 +44,7 @@ import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
 import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
+import { useKeptView } from '../ui/useKeptView';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
@@ -135,21 +136,16 @@ export default function Huddle() {
   const postParam = params.get('post') || params.get('postId');
   const [searchQuery, setSearchQuery] = useSearchParam('q');
 
-  // AppLayout keeps Huddle mounted behind other pages, but the sidebar link
-  // back to it carries none of the view. Remember the view while Huddle is on
-  // screen and put it back when it returns to a bare URL; a link that names a
-  // view (a notification, a shared conversation) wins. The layout effect runs
-  // before paint, so the return never flashes the default conversation, and it
-  // re-runs each time <Activity> shows the page again.
+  // AppLayout keeps Huddle mounted behind other pages; bring its view back when
+  // the sidebar returns to a bare /app/huddle. The search draft is remembered,
+  // not the URL's `q`: the URL follows it after a pause, and leaving inside that
+  // pause would otherwise lose what was typed.
   const { pathname } = useRouter();
-  const onScreen = pathname === '/app/huddle';
-  const paramsRef = useRef(params);
-  paramsRef.current = params;
-  const lastViewRef = useRef<Record<string, string | null>>({});
-  useLayoutEffect(() => {
-    if (VIEW_PARAMS.some((key) => paramsRef.current.has(key))) return;
-    setParams(lastViewRef.current);
-  }, [setParams]);
+  useKeptView(
+    pathname === '/app/huddle',
+    { conversation: params.get('conversation'), view: params.get('view'), q: searchQuery },
+    VIEW_PARAMS,
+  );
   // A hidden <Activity> keeps its DOM, so playing media would carry on, audible,
   // behind the next page. Layout-effect cleanups run when it hides.
   const huddleRootRef = useRef<HTMLDivElement>(null);
@@ -158,16 +154,6 @@ export default function Huddle() {
     return () =>
       root?.querySelectorAll<HTMLMediaElement>('video, audio').forEach((media) => media.pause());
   }, []);
-  useEffect(() => {
-    if (!onScreen) return;
-    // The search draft, not the URL's `q`: the URL follows it after a pause, and
-    // leaving inside that pause would otherwise lose what was typed.
-    lastViewRef.current = {
-      conversation: params.get('conversation'),
-      view: params.get('view'),
-      q: searchQuery,
-    };
-  }, [onScreen, params, searchQuery]);
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

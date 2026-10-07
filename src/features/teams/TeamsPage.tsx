@@ -42,6 +42,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
+  Skeleton,
   Spinner,
   Switch,
   Table,
@@ -60,10 +61,12 @@ import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { LoadingRegion, SkeletonPanel } from '../../ui/PageSkeleton';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { getDdpClient } from '../../lib/ddp';
@@ -107,21 +110,31 @@ export const TeamsPage: React.FC = () => {
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
-  const fetchMembers = useCallback(async (teamId: string | null) => {
-    if (!teamId) {
-      setMembers([]);
-      return;
-    }
-    setMembersLoading(true);
-    try {
-      const data = await teamApi.getMembers(teamId);
-      setMembers(data);
-    } catch {
-      setMembers([]);
-    } finally {
-      setMembersLoading(false);
-    }
-  }, []);
+  // Kept mounted: a return or a live update reloads quietly behind the members
+  // shown; only a new team clears the old one's and shows the loading state.
+  const isNewTeam = useScopeChange();
+  const fetchMembers = useCallback(
+    async (teamId: string | null) => {
+      const newTeam = isNewTeam(teamId);
+      if (!teamId) {
+        setMembers([]);
+        return;
+      }
+      if (newTeam) {
+        setMembers([]);
+        setMembersLoading(true);
+      }
+      try {
+        const data = await teamApi.getMembers(teamId);
+        setMembers(data);
+      } catch {
+        setMembers([]);
+      } finally {
+        setMembersLoading(false);
+      }
+    },
+    [isNewTeam],
+  );
 
   useEffect(() => {
     void fetchMembers(selectedTeamId);
@@ -454,9 +467,16 @@ export const TeamsPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading teams…" />
-      </div>
+      <AppPage>
+        <LoadingRegion label="Loading teams…">
+          <div className="teams-pills-skeleton flex gap-2">
+            {[96, 120, 84].map((width) => (
+              <Skeleton key={width} width={width} height={32} className="rounded-full" />
+            ))}
+          </div>
+          <SkeletonPanel rows={5} />
+        </LoadingRegion>
+      </AppPage>
     );
   }
 

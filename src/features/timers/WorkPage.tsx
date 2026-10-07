@@ -27,7 +27,7 @@ import {
   ModalFooter,
   ModalHeader,
   Select,
-  Spinner,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -65,12 +65,15 @@ import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LoadingRegion, SkeletonPanel } from '../../ui/PageSkeleton';
 import { useQueryParam, useRouter } from '../../ui/router';
+import { useKeptView } from '../../ui/useKeptView';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 import { useTicketStart } from './TicketStartProvider';
@@ -138,7 +141,6 @@ export const WorkPage: React.FC = () => {
   const { isClockedIn } = useClockToggle();
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
-  const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
 
   // Selected day (local YYYY-MM-DD) — `?date=`, today when absent. Picking a
@@ -146,6 +148,10 @@ export const WorkPage: React.FC = () => {
   const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
   const selectedDate =
     dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
+  // Kept mounted behind other pages: the sidebar link back is a bare /app/work,
+  // so bring back the day that was on screen.
+  const { navigate, pathname } = useRouter();
+  useKeptView(pathname === '/app/work', { date: dateParam });
   const setSelectedDate = useCallback(
     (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
     [setDateParam],
@@ -309,10 +315,14 @@ export const WorkPage: React.FC = () => {
 
   // ── Fetch week totals ──
 
+  // Kept mounted: a return or a live update reloads quietly behind the totals
+  // shown; only a different week shows them as loading.
+  const isNewWeek = useScopeChange();
   const fetchWeekTotals = useCallback(async () => {
-    setWeekTotalsLoading(true);
+    const weekStart = toLocalDateStr(weekDays[0]);
+    if (isNewWeek(weekStart)) setWeekTotalsLoading(true);
     try {
-      const days = await timerApi.getWeek(toLocalDateStr(weekDays[0]));
+      const days = await timerApi.getWeek(weekStart);
       const map: Record<string, number> = {};
       for (const d of days) map[d.date] = d.totalSeconds;
       setWeekTotals(map);
@@ -321,7 +331,7 @@ export const WorkPage: React.FC = () => {
     } finally {
       setWeekTotalsLoading(false);
     }
-  }, [weekDays]);
+  }, [weekDays, isNewWeek]);
 
   useEffect(() => {
     void fetchWeekTotals();
@@ -690,9 +700,18 @@ export const WorkPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
-      </div>
+      <AppPage width="wide">
+        <LoadingRegion label="Loading work…">
+          <Card padding="sm">
+            <CardContent className="work-week-skeleton grid grid-cols-7 gap-1">
+              {Array.from({ length: 7 }, (_, i) => (
+                <Skeleton key={i} height={52} className="rounded-lg" />
+              ))}
+            </CardContent>
+          </Card>
+          <SkeletonPanel rows={4} />
+        </LoadingRegion>
+      </AppPage>
     );
   }
 

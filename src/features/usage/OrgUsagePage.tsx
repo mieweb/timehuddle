@@ -36,6 +36,7 @@ import { hasOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
 import { AppPage } from '../../ui/AppPage';
+import { LoadFailedBoundary } from '../../ui/LoadFailedBoundary';
 import { useQueryParams } from '../../ui/router';
 import {
   CADENCE_META,
@@ -303,20 +304,22 @@ export const OrgUsagePage: React.FC = () => {
 
           <CadenceLegend report={report} />
 
-          <Suspense
-            fallback={
-              <div className="flex justify-center py-12" aria-live="polite" aria-busy="true">
-                <Spinner />
-                <span className="sr-only">Loading the usage table</span>
-              </div>
-            }
-          >
-            <UsageGrid
-              users={report.users}
-              periodDays={report.periodDays}
-              showOrganization={report.organizations.length > 1}
-            />
-          </Suspense>
+          <LoadFailedBoundary>
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-12" aria-live="polite" aria-busy="true">
+                  <Spinner />
+                  <span className="sr-only">Loading the usage table</span>
+                </div>
+              }
+            >
+              <UsageGrid
+                users={report.users}
+                periodDays={report.periodDays}
+                showOrganization={report.organizations.length > 1}
+              />
+            </Suspense>
+          </LoadFailedBoundary>
 
           <Text variant="muted" size="xs">
             Updated {timeAgo(report.generatedAt)} · days counted in {report.timezone}

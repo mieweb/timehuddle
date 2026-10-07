@@ -7,7 +7,7 @@
  */
 import { faClockRotateLeft, faListCheck, faStar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
+import { Button, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
@@ -15,8 +15,10 @@ import { timeAgo } from '../../lib/date';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LoadingRegion, SkeletonRows } from '../../ui/PageSkeleton';
 import { linkActivityLabel } from '../tickets/link/ticketLinkStrings';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -168,19 +170,40 @@ export const ActivityLogPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Kept mounted, so this re-runs on every return. A new user loads from
+  // scratch; a return keeps what is loaded (Load more pages included) and adds
+  // the events since on top. When none of the latest page is already shown,
+  // there may be a gap, so the page replaces the list instead.
+  const isNewUser = useScopeChange();
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    setError(null);
+    const newUser = isNewUser(user.id);
+    if (newUser) {
+      setItems([]);
+      setNextCursor(null);
+      setLoading(true);
+      setError(null);
+    }
     activityApi
       .getLog({ limit: 50 })
       .then(({ events, nextCursor: cursor }) => {
-        setItems(events);
-        setNextCursor(cursor);
+        const shown = new Set(itemsRef.current.map((item) => item.id));
+        const unseen = events.filter((event) => !shown.has(event.id));
+        if (newUser || unseen.length === events.length) {
+          setItems(events);
+          setNextCursor(cursor);
+        } else if (unseen.length > 0) {
+          setItems((prev) => [...unseen, ...prev]);
+        }
       })
-      .catch(() => setError('Failed to load activity log.'))
+      .catch(() => {
+        // A failed quiet reload leaves the log already on screen in place.
+        if (newUser) setError('Failed to load activity log.');
+      })
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, isNewUser]);
 
   useRefresh(
     React.useCallback(async () => {
@@ -226,9 +249,9 @@ export const ActivityLogPage: React.FC = () => {
   return (
     <AppPage subtitle="A chronological log of your activity in TimeHuddle.">
       {loading ? (
-        <div className="flex items-center justify-center py-16" aria-label="Loading activity log">
-          <Spinner size="md" />
-        </div>
+        <LoadingRegion label="Loading activity log…">
+          <SkeletonRows count={6} />
+        </LoadingRegion>
       ) : error ? (
         <div className="py-16 text-center">
           <Text variant="destructive" size="sm">

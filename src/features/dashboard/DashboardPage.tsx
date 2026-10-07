@@ -61,9 +61,12 @@ import {
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useScopeChange } from '../../lib/useScopeChange';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
+import { LoadingRegion, SkeletonPanel, SkeletonStatCards } from '../../ui/PageSkeleton';
 import { useQueryParams, useRouter } from '../../ui/router';
+import { useKeptView } from '../../ui/useKeptView';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
@@ -79,7 +82,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, pathname } = useRouter();
   const { params, setParams } = useQueryParams();
   const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId, isAdmin } = useTeam();
 
@@ -138,6 +141,15 @@ export const DashboardPage: React.FC = () => {
   // Dropped once the approvals panel has opened it, so returning to this view
   // later doesn't reopen a request the reviewer has already dealt with.
   const clearFocusRequest = useCallback(() => setParams({ request: null }), [setParams]);
+
+  // Kept mounted behind other pages: the sidebar link back is a bare
+  // /app/dashboard, so bring back the tab, view and member left on screen. A
+  // link that names any of them, or a request to review, wins.
+  useKeptView(
+    pathname === '/app/dashboard',
+    { tab: tabParam, view: params.get('view'), member: memberId },
+    ['tab', 'view', 'member', 'request', 'memberId', 'requestId'],
+  );
 
   // Old notification links → the current scheme, in place (no history entry).
   useEffect(() => {
@@ -203,16 +215,22 @@ export const DashboardPage: React.FC = () => {
   // one jumps straight to that post in the feed. Teams only — a personal
   // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
+  const isNewPostsScope = useScopeChange();
   useEffect(() => {
-    if (!selectedTeamId || isPersonalWorkspace) {
-      setRecentPosts([]);
-      return;
-    }
+    const scope = selectedTeamId && !isPersonalWorkspace ? selectedTeamId : null;
+    // This page is kept mounted, so this effect also re-runs on every return.
+    // Only a new team clears the list; a return keeps it until the subscription
+    // has caught up, rather than blinking empty while the posts come back.
+    const newScope = isNewPostsScope(scope);
+    if (newScope) setRecentPosts([]);
+    if (!scope) return;
+    let live = newScope;
     const ddp = getDdpClient();
     const syncPosts = () => {
+      if (!live) return;
       const docs = ddp.docs('huddlePosts');
       const teamPosts = docs
-        .filter((p) => p.teamId === selectedTeamId && p.status !== 'draft')
+        .filter((p) => p.teamId === scope && p.status !== 'draft')
         .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 10);
@@ -220,13 +238,15 @@ export const DashboardPage: React.FC = () => {
     };
     syncPosts();
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
-    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], syncPosts);
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [scope], () => {
+      live = true;
+      syncPosts();
+    });
     return () => {
       offChange();
       unsubscribe();
-      setRecentPosts([]);
     };
-  }, [selectedTeamId, isPersonalWorkspace]);
+  }, [selectedTeamId, isPersonalWorkspace, isNewPostsScope]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?post=${postId}`);
 
@@ -242,9 +262,17 @@ export const DashboardPage: React.FC = () => {
     return new Date(date).toLocaleDateString();
   };
 
+  // Kept mounted: a return reloads quietly behind the numbers already shown;
+  // only a new team clears the old one's and shows the loading state.
+  const isNewTeam = useScopeChange();
   const fetchData = useCallback(async () => {
     if (!user || !selectedTeamId) return;
-    setLoading(true);
+    if (isNewTeam(selectedTeamId)) {
+      setTickets([]);
+      setMemberStatuses([]);
+      setRunningTimers([]);
+      setLoading(true);
+    }
     try {
       const [t, m, r] = await Promise.all([
         ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
@@ -259,7 +287,7 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, selectedTeamId]);
+  }, [user, selectedTeamId, isNewTeam]);
 
   useEffect(() => {
     fetchData();
@@ -324,9 +352,13 @@ export const DashboardPage: React.FC = () => {
 
   if (!teamsReady) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading dashboard…" />
-      </div>
+      <AppPage>
+        <LoadingRegion label="Loading dashboard…">
+          <SkeletonStatCards count={4} />
+          <SkeletonPanel rows={4} />
+          <SkeletonPanel rows={3} />
+        </LoadingRegion>
+      </AppPage>
     );
   }
 

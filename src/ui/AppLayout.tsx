@@ -18,6 +18,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -102,6 +103,22 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
+/** Routes mounted on their first visit and kept, hidden by <Activity>, behind
+ *  other pages. Tickets is kept too, by its own wrapper below. The policy for
+ *  adding one is in ROUTING.md. */
+const KEPT_ROUTES = [
+  '/app/dashboard',
+  '/app/work',
+  '/app/huddle',
+  '/app/teams',
+  '/app/activity',
+  '/app/organization',
+] as const;
+type KeptRoute = (typeof KEPT_ROUTES)[number];
+/** By route, not path: `/app/teams/:teamId` is the Teams route too. */
+const keptRouteFor = (route: RouteConfig | null): KeptRoute | null =>
+  KEPT_ROUTES.find((path) => ROUTES[path] === route) ?? null;
+
 /** Null when nothing matches — the caller shows not-found rather than a page
  *  the URL didn't ask for. */
 function match(pathname: string): RouteConfig | null {
@@ -155,9 +172,6 @@ const AppLayoutContent: React.FC = () => {
   const { pathname, navigate } = useRouter();
 
   const mainRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    mainRef.current?.scrollTo({ top: 0 });
-  }, [pathname]);
 
   // ── Shared notification data handler ──────────────────────────────────────
   const handleNotificationData = useCallback(
@@ -340,18 +354,31 @@ const AppLayoutContent: React.FC = () => {
     !redmineIssueId &&
     pathname === '/app/tickets';
 
-  // Huddle is mounted on its first visit and kept after that: <Activity> hides
-  // it (state, scroll and composer drafts survive; its effects and
-  // subscriptions pause) instead of tearing it down and refetching on return.
-  const isHuddleRoute =
-    !scopeForbidden &&
-    !profileUserId &&
-    !profileUsername &&
-    !ticketDetailId &&
-    !redmineIssueId &&
-    pathname === '/app/huddle';
-  const [huddleVisited, setHuddleVisited] = useState(isHuddleRoute);
-  if (isHuddleRoute && !huddleVisited) setHuddleVisited(true);
+  // A kept page is mounted on its first visit and kept after that: <Activity>
+  // hides it (state, scroll and drafts survive; its effects and subscriptions
+  // pause) instead of tearing it down and refetching on return.
+  const activeKeptRoute =
+    !scopeForbidden && !profileUserId && !profileUsername && !ticketDetailId && !redmineIssueId
+      ? keptRouteFor(route)
+      : null;
+  const [visitedKeptRoutes, setVisitedKeptRoutes] = useState<ReadonlySet<KeptRoute>>(
+    () => new Set(activeKeptRoute ? [activeKeptRoute] : []),
+  );
+  if (activeKeptRoute && !visitedKeptRoutes.has(activeKeptRoute)) {
+    setVisitedKeptRoutes(new Set([...visitedKeptRoutes, activeKeptRoute]));
+  }
+
+  // A new page opens at the top; a kept page comes back where it was left. Its
+  // position is recorded as it scrolls, since by the time a navigation commits
+  // the page is already hidden and <main> has lost its height.
+  const keptScrollRef = useRef(new Map<KeptRoute, number>());
+  useLayoutEffect(() => {
+    const top = activeKeptRoute ? (keptScrollRef.current.get(activeKeptRoute) ?? 0) : 0;
+    mainRef.current?.scrollTo({ top });
+  }, [pathname]); // per navigation only
+  const recordKeptScroll = (event: React.UIEvent<HTMLElement>) => {
+    if (activeKeptRoute) keptScrollRef.current.set(activeKeptRoute, event.currentTarget.scrollTop);
+  };
 
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -446,7 +473,11 @@ const AppLayoutContent: React.FC = () => {
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
                     <WhatsNewBanner placement="mobile" />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                    <main
+                      ref={mainRef}
+                      onScroll={recordKeptScroll}
+                      className="flex-1 overflow-auto app-main-scroll md:pb-0"
+                    >
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. The
@@ -464,13 +495,19 @@ const AppLayoutContent: React.FC = () => {
                             <TicketsPage />
                           </div>
                         </PageTitleContext.Provider>
-                        {huddleVisited && (
-                          <PageTitleContext.Provider value={isHuddleRoute ? pageTitle : null}>
-                            <Activity mode={isHuddleRoute ? 'visible' : 'hidden'}>
-                              <Huddle />
-                            </Activity>
-                          </PageTitleContext.Provider>
-                        )}
+                        {KEPT_ROUTES.filter((path) => visitedKeptRoutes.has(path)).map((path) => {
+                          const isActive = path === activeKeptRoute;
+                          return (
+                            <PageTitleContext.Provider
+                              key={path}
+                              value={isActive ? pageTitle : null}
+                            >
+                              <Activity mode={isActive ? 'visible' : 'hidden'}>
+                                {React.createElement(ROUTES[path].component)}
+                              </Activity>
+                            </PageTitleContext.Provider>
+                          );
+                        })}
                         {scopeForbidden ? (
                           <NoAccessState
                             kind="forbidden"
@@ -488,8 +525,8 @@ const AppLayoutContent: React.FC = () => {
                           <NoAccessState kind="not-found" resource="page" />
                         ) : (
                           route &&
+                          !activeKeptRoute &&
                           route.component !== TicketsPage &&
-                          route.component !== Huddle &&
                           React.createElement(route.component)
                         )}
                       </PullToRefresh>
