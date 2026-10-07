@@ -112,6 +112,16 @@ const PLAN_NOTE = "Plan posted — you're clocked in";
 const WRAPUP_NOTE = "Wrap-up posted — you're clocked out";
 const WALKTHROUGH_NOTE = 'Walkthrough added to the change request';
 
+/** Approval views reload when these prompts change, so an open request shows the walkthrough. */
+function flagWalkthroughForApprovers(requestId) {
+  return rawDb()
+    .collection('notifications')
+    .updateMany(
+      { 'data.type': 'timesheet-change-request', 'data.requestId': requestId },
+      { $set: { 'data.hasWalkthrough': true } },
+    );
+}
+
 function assertPostDate(postDate) {
   // The poster's calendar date, from their device — the server can't know
   // their time zone, and the plan-first gate is per date.
@@ -338,7 +348,10 @@ const DESTINATIONS = {
       const request = await rawDb()
         .collection('timesheetchangerequests')
         .findOne({ _id: new ObjectId(id), userId, videoUrl: video.url }, { projection: { _id: 1 } });
-      return request ? WALKTHROUGH_NOTE : null;
+      if (!request) return null;
+      // A replay after the request write may have missed this step.
+      await flagWalkthroughForApprovers(id);
+      return WALKTHROUGH_NOTE;
     },
     async deliver(userId, { id }, video) {
       // Still pending and still without one: a walkthrough never replaces another.
@@ -349,13 +362,7 @@ const DESTINATIONS = {
           { $set: { videoUrl: video.url } },
         );
       if (!matchedCount) throw new Error('The change request moved on while the walkthrough landed');
-      // Approval views reload when these prompts change, so an open request shows it.
-      await rawDb()
-        .collection('notifications')
-        .updateMany(
-          { 'data.type': 'timesheet-change-request', 'data.requestId': id },
-          { $set: { 'data.hasWalkthrough': true } },
-        );
+      await flagWalkthroughForApprovers(id);
       return WALKTHROUGH_NOTE;
     },
   },
