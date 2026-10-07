@@ -38,6 +38,8 @@ export function uploadHint(destination: PulseDestination): string {
  * delivery failed, and the plain label when nothing did.
  */
 export function followUpNote(destination: PulseDestination, note?: string): string {
+  // Other kinds' notes are for logs ("Attached to ticket <id>"), not people.
+  if (destination.kind !== 'clock-plan' && destination.kind !== 'clock-wrapup') return '';
   return note && note !== landedLabel(destination) ? note : '';
 }
 

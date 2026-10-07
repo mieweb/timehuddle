@@ -300,16 +300,25 @@ export const ClockPage: React.FC = () => {
   // (clocks you out) — the server does both when the upload lands. Owned here,
   // not by a button: clocking in or out swaps the section's pill, while the
   // modal still has to say the video landed.
-  // A landed plan or wrap-up swapped the composer; what the editor held was
-  // for the step the video has just done, so the next one starts clean.
-  const refreshClock = (status: PulseUploadStatus) => {
-    if (status.state === 'done') {
-      setText('');
-      seededTokenRef.current = null;
-      setEditorKey((k) => k + 1);
-    }
-    refetchClock();
-  };
+  // A landed plan or wrap-up swaps the composer; what the editor held was for
+  // the step the video has just done, so the next one starts clean. The mode
+  // change itself remounts the editor (it is in the editor's key), so no
+  // extra remount here: one on top of it unmounted the editor mid-setup.
+  // Only the draft held when that link was handed out is cleared: anything
+  // written since (a plan posted by hand, then a wrap-up begun) is kept.
+  const textRef = useRef(text);
+  textRef.current = text;
+  const planDraftRef = useRef<string | null>(null);
+  const wrapUpDraftRef = useRef<string | null>(null);
+  const refreshClockFor =
+    (draftRef: React.MutableRefObject<string | null>) => (status: PulseUploadStatus) => {
+      if (status.state === 'done' && textRef.current === draftRef.current) {
+        setText('');
+        seededTokenRef.current = null;
+      }
+      draftRef.current = null;
+      refetchClock();
+    };
   // The hooks compare destinations by value and drop a link whose destination
   // changed, so the date and the session a link was reserved for hold still
   // while it is waiting: midnight passing, or a newer shift opened by hand,
@@ -318,15 +327,23 @@ export const ClockPage: React.FC = () => {
   const [postDate, setPostDate] = useState(todayStr);
   const planPulse = usePulseUpload(
     { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate },
-    { onSettled: refreshClock },
+    { onSettled: refreshClockFor(planDraftRef) },
   );
   // The session a wrap-up is for, kept after it ends: the wrap-up landing is
   // what clocks you out, and its link must still be the one being watched.
   const [wrapUpSessionId, setWrapUpSessionId] = useState(activeClockEvent?.id ?? '');
   const wrapUpPulse = usePulseUpload(
     { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate },
-    { onSettled: refreshClock },
+    { onSettled: refreshClockFor(wrapUpDraftRef) },
   );
+  const planLinkId = planPulse.link?.videoid;
+  const wrapUpLinkId = wrapUpPulse.link?.videoid;
+  useEffect(() => {
+    if (planLinkId) planDraftRef.current = textRef.current;
+  }, [planLinkId]);
+  useEffect(() => {
+    if (wrapUpLinkId) wrapUpDraftRef.current = textRef.current;
+  }, [wrapUpLinkId]);
   // Each link holds its own destination still while it is waiting and while
   // its result is on screen: a plan still uploading must not keep the wrap-up
   // from adopting a shift clocked in by hand, and a wrap-up's modal must not
