@@ -327,14 +327,23 @@ export const ClockPage: React.FC = () => {
     { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate },
     { onSettled: refreshClock },
   );
-  const linkWaiting =
-    planPulse.status?.state === 'waiting' || wrapUpPulse.status?.state === 'waiting';
+  // Each link holds its own destination still while it is waiting and while
+  // its result is on screen: a plan still uploading must not keep the wrap-up
+  // from adopting a shift clocked in by hand, and a wrap-up's modal must not
+  // be cleared from under the person by a newer shift.
+  const busy = (pulse: typeof planPulse) => pulse.status?.state === 'waiting' || pulse.modalOpen;
+  const planBusy = busy(planPulse);
+  const wrapUpBusy = busy(wrapUpPulse);
   const activeSessionId = activeClockEvent?.id;
   useEffect(() => {
-    if (linkWaiting) return;
-    if (postDate !== todayStr) setPostDate(todayStr);
-    if (activeSessionId && activeSessionId !== wrapUpSessionId) setWrapUpSessionId(activeSessionId);
-  }, [linkWaiting, postDate, todayStr, activeSessionId, wrapUpSessionId]);
+    // The date is shared by both links, so it moves only when neither is.
+    if (!planBusy && !wrapUpBusy && postDate !== todayStr) setPostDate(todayStr);
+  }, [planBusy, wrapUpBusy, postDate, todayStr]);
+  useEffect(() => {
+    if (!wrapUpBusy && activeSessionId && activeSessionId !== wrapUpSessionId) {
+      setWrapUpSessionId(activeSessionId);
+    }
+  }, [wrapUpBusy, activeSessionId, wrapUpSessionId]);
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;

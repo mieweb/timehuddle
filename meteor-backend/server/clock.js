@@ -773,9 +773,30 @@ Meteor.publish('clock.liveForUser', async function (targetUserId) {
  * one, link the just-posted plan (plan-first flow), fire side-effects. Shared
  * by the `clock.start` method and server-side callers (a Pulse plan video).
  */
-export async function clockStart(userId, { teamId, planPostId } = {}) {
+export async function clockStart(userId, { teamId, planPostId, reuseOpen = false } = {}) {
   const team = await findUserTeam(userId, teamId);
   if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
+
+  // A plan that lands while this team's shift is already open (clocked in by
+  // hand meanwhile) joins that shift instead of restarting it. Decided here,
+  // next to the insert, so the window for a hand clock-in to slip between the
+  // look and the act is as small as the service can make it (#642's unique
+  // open-shift index closes it).
+  if (reuseOpen) {
+    const open = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+    if (open) {
+      if (planPostId && isValidId(planPostId)) {
+        // Not `updatedAt` — linking a session isn't an edit (see below).
+        await rawDb()
+          .collection('huddlePosts')
+          .updateOne(
+            { _id: new ObjectId(planPostId), userId, teamId: String(teamId) },
+            { $set: { clockEventId: open._id.toHexString() } }
+          );
+      }
+      return toPublicClockEvent(open, await findBreaksForEvent(open._id.toHexString()));
+    }
+  }
 
   const now = Date.now();
   await ClockEvents.updateAsync(
@@ -864,8 +885,15 @@ export async function clockStart(userId, { teamId, planPostId } = {}) {
  * jobs, close timers and any open break, recompute, notify, log. Shared by the
  * `clock.stop` method and server-side callers (a Pulse wrap-up video).
  */
-export async function clockStop(userId, { teamId } = {}) {
-  const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
+export async function clockStop(userId, { teamId, clockEventId } = {}) {
+  // With `clockEventId`, only that session, and only while it is still open:
+  // a wrap-up that lands after the person ended it by hand and started another
+  // must not end the new one.
+  const event = await ClockEvents.findOneAsync(
+    clockEventId
+      ? { _id: new ObjectId(clockEventId), userId, teamId, endTime: null }
+      : { userId, teamId, endTime: null }
+  );
   if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
   const team = await findUserTeam(userId, teamId);

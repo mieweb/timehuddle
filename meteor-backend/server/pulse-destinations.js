@@ -178,24 +178,18 @@ async function withFollowUp(note, failure, instead, step) {
  * Clock in to this team with the plan that was just posted, as clocking in by
  * hand would: only this team's clock matters. Clocked in to this team some
  * other way meanwhile: no second session, but the plan becomes that
- * session's. Clocked in and back out of this team by hand since the link was
- * made: that shift is over, so it isn't restarted.
+ * session's (clockStart decides that next to its insert). Clocked in and back
+ * out of this team by hand since the link was made: that shift is over, so it
+ * isn't restarted.
  */
 async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
   const sessions = rawDb().collection('clockevents');
   const open = await sessions.findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
-  if (open) {
-    // Not `updatedAt` — linking a session isn't an edit (see clockStart).
-    await rawDb()
-      .collection('huddlePosts')
-      .updateOne({ _id: new ObjectId(planPostId) }, { $set: { clockEventId: open._id.toHexString() } });
-    return;
-  }
-  if (reservedAt && (await sessions.findOne({ userId, teamId, startTime: { $gte: reservedAt } }))) {
+  if (!open && reservedAt && (await sessions.findOne({ userId, teamId, startTime: { $gte: reservedAt } }))) {
     throw new Meteor.Error('already-clocked-out', 'You clocked in and out while it uploaded');
   }
   const { clockStart } = await clockModule();
-  await clockStart(userId, { teamId, planPostId });
+  await clockStart(userId, { teamId, planPostId, reuseOpen: true });
 }
 
 const DESTINATIONS = {
@@ -303,8 +297,10 @@ const DESTINATIONS = {
           attachment: postAttachment(mediaId, video),
         });
       }
-      if (session.endTime != null) {
-        // Ended by hand meanwhile. A newer shift in this team isn't this wrap-up's to end.
+      // Read again after the write: the session may have been ended by hand
+      // while the wrap-up was appended. A newer shift in this team isn't this
+      // wrap-up's to end, and clockStop below is told which session it may stop.
+      if ((await ownSession(userId, clockEventId)).endTime != null) {
         const open = await rawDb()
           .collection('clockevents')
           .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
@@ -314,7 +310,7 @@ const DESTINATIONS = {
       }
       return withFollowUp(WRAPUP_NOTE, "you weren't clocked out", 'Clock out from the Clock page.', async () => {
         const { clockStop } = await clockModule();
-        await clockStop(userId, { teamId });
+        await clockStop(userId, { teamId, clockEventId });
       });
     },
   },

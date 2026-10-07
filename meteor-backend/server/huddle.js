@@ -477,8 +477,9 @@ export async function createHuddlePost(
 export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment }) {
   await requireTeamMember(userId, teamId);
   const posts = rawDb().collection('huddlePosts');
+  // Legacy posts carry the team id as an ObjectId; the feed matches both forms, so this does too.
   const sessionPost = await posts.findOne(
-    { teamId, userId, clockEventId, ...PUBLISHED },
+    { teamId: { $in: [teamId, toId(teamId)] }, userId, clockEventId, ...PUBLISHED },
     { sort: SESSION_POST_SORT },
   );
   if (!sessionPost) {
