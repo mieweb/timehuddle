@@ -181,7 +181,11 @@ Meteor.methods({
     }
 
     const $set = { updatedAt: new Date() };
-    if (name !== undefined) $set['profile.name'] = name;
+    if (name !== undefined) {
+      const trimmedName = String(name).trim();
+      if (!trimmedName) throw new Meteor.Error('bad-request', 'Name cannot be empty');
+      $set['profile.name'] = trimmedName;
+    }
     if (bio !== undefined) $set.bio = bio;
     if (website !== undefined) $set.website = website;
     if (reportsToUserId !== undefined) $set.reportsToUserId = reportsToUserId;

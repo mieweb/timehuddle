@@ -14,12 +14,15 @@ type ProfileResult = { user: { id: string; name: string | null } };
 
 let jwt: string;
 let userId: string;
+let renamed: Awaited<ReturnType<typeof wormhole<ProfileResult>>>;
 
 beforeAll(async () => {
   await purgeUser(USER.email);
   ({ jwt, userId } = await createUserAndGetJwt(USER));
   const claim = await wormhole('users.claimUsername', { username: USERNAME }, jwt);
   expect(claim.ok).toBe(true);
+  // Every test below reads the renamed state, so each one runs on its own.
+  renamed = await wormhole<ProfileResult>('users.updateProfile', { name: '  Renamed User  ' }, jwt);
 });
 
 afterAll(async () => {
@@ -28,10 +31,9 @@ afterAll(async () => {
 });
 
 describe('users.updateProfile', () => {
-  it('returns the new display name', async () => {
-    const res = await wormhole<ProfileResult>('users.updateProfile', { name: 'Renamed User' }, jwt);
-    expect(res.ok).toBe(true);
-    expect(res.result.user.name).toBe('Renamed User');
+  it('returns the new display name, trimmed', () => {
+    expect(renamed.ok).toBe(true);
+    expect(renamed.result.user.name).toBe('Renamed User');
   });
 
   it('serves the new display name from every profile read', async () => {
@@ -57,5 +59,14 @@ describe('users.updateProfile', () => {
     const res = await wormhole<ProfileResult>('users.updateProfile', { bio: 'Hello' }, jwt);
     expect(res.ok).toBe(true);
     expect(res.result.user.name).toBe('Renamed User');
+  });
+
+  it('rejects a blank display name and keeps the current one', async () => {
+    const res = await wormhole<ProfileResult>('users.updateProfile', { name: '   ' }, jwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/empty/i);
+
+    const byId = await wormhole<ProfileResult>('users.get', { userId }, jwt);
+    expect(byId.result.user.name).toBe('Renamed User');
   });
 });
