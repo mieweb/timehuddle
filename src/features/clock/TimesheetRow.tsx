@@ -300,7 +300,7 @@ export const TimesheetRow: React.FC<Props> = ({
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
               {row.isContinued ? null : changeStatus === 'pending' ? (
-                <span className="pending-approval-status flex flex-wrap items-center gap-2">
+                <div className="pending-approval-status flex flex-wrap items-center gap-2">
                   <Badge
                     variant="warning"
                     size="sm"
@@ -309,7 +309,7 @@ export const TimesheetRow: React.FC<Props> = ({
                     Pending approval
                   </Badge>
                   {showActions && pendingAction}
-                </span>
+                </div>
               ) : changeStatus === 'rejected' ? (
                 <Badge
                   variant="danger"

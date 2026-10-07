@@ -145,13 +145,17 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
-  // The change just queued for another admin, so its walkthrough can be added.
-  const [sentForApproval, setSentForApproval] = useState<TimesheetChangeRequest | null>(null);
-  const refreshSentForApproval = async (request: TimesheetChangeRequest) => {
-    const mine = await timesheetApprovalApi.listMine({ teamId: request.teamId }).catch(() => []);
-    const latest = mine.find((r) => r.id === request.id);
-    if (latest) setSentForApproval((current) => (current?.id === latest.id ? latest : current));
-  };
+  // This admin's own changes waiting for another admin, read from the server so
+  // their walkthrough can still be added after a reload.
+  const [myPending, setMyPending] = useState<TimesheetChangeRequest[]>([]);
+  const loadMyPending = useCallback(() => {
+    if (!selectedTeamId) return setMyPending([]);
+    timesheetApprovalApi
+      .listMine({ teamId: selectedTeamId, status: 'pending' })
+      .then(setMyPending)
+      .catch(() => setMyPending([]));
+  }, [selectedTeamId]);
+  useEffect(loadMyPending, [loadMyPending]);
 
   // An admin's own edit is reviewed too, by one of the *other* admins — so this
   // panel needs the same justification the member-facing one collects, or every
@@ -238,6 +242,10 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       ? data.sessions.filter((s) => s.teamId === selectedTeamId)
       : data.sessions;
   }, [data, selectedTeamId]);
+  const pendingHere = useMemo(() => {
+    const shown = new Set(filteredSessions.map((s) => s.id));
+    return myPending.filter((r) => r.targetId && shown.has(r.targetId));
+  }, [myPending, filteredSessions]);
 
   // Group filtered sessions by calendar day (descending date order)
   const groupedByDay = useMemo(() => {
@@ -338,7 +346,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         },
         justification,
       );
-      setSentForApproval(isPendingChange(result) ? result.request : null);
+      if (isPendingChange(result)) loadMyPending();
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -358,7 +366,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionSaveError(null);
     try {
       const result = await clockApi.deleteEvent(activeSession.id, justification);
-      setSentForApproval(isPendingChange(result) ? result.request : null);
+      if (isPendingChange(result)) loadMyPending();
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -508,16 +516,22 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
-      {sentForApproval && (
-        <Alert variant="info" dismissible onDismiss={() => setSentForApproval(null)}>
+      {pendingHere.length > 0 && (
+        <Alert variant="info" aria-live="polite">
           <AlertDescription>
-            <span className="sent-for-approval-notice flex flex-wrap items-center gap-2">
-              Sent to another admin for approval.
-              <ChangeRequestWalkthrough
-                request={sentForApproval}
-                onAdded={() => void refreshSentForApproval(sentForApproval)}
-              />
-            </span>
+            <Text size="sm" weight="medium">
+              Sent to another admin for approval
+            </Text>
+            <ul className="sent-for-approval-list mt-2 space-y-2">
+              {pendingHere.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2">
+                  <Text size="sm" className="grow">
+                    {r.description}
+                  </Text>
+                  <ChangeRequestWalkthrough request={r} onAdded={loadMyPending} />
+                </li>
+              ))}
+            </ul>
           </AlertDescription>
         </Alert>
       )}

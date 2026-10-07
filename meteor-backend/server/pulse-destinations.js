@@ -349,6 +349,13 @@ const DESTINATIONS = {
           { $set: { videoUrl: video.url } },
         );
       if (!matchedCount) throw new Error('The change request moved on while the walkthrough landed');
+      // Approval views reload when these prompts change, so an open request shows it.
+      await rawDb()
+        .collection('notifications')
+        .updateMany(
+          { 'data.type': 'timesheet-change-request', 'data.requestId': id },
+          { $set: { 'data.hasWalkthrough': true } },
+        );
       return WALKTHROUGH_NOTE;
     },
   },
