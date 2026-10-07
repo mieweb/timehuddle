@@ -983,37 +983,51 @@ export default function Huddle() {
                       isSending: sending || ticketVideos.loading,
                       mentionOptions: mentions.options,
                       leadingSlot: (
-                        // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* A Pulse video posts itself when it lands, so nothing typed
-                              here goes with it. Refetch in case the live feed missed it
-                              (DDP dropped while in the Pulse app). Keyed by team so a
-                              link handed out for one team doesn't announce under another. */}
-                          {postingTeamId && (
-                            <PulseButton
-                              key={postingTeamId}
-                              destination={{ kind: 'huddle', teamId: postingTeamId }}
-                              ariaLabel="Post a video with Pulse"
-                              onSettled={() => void refreshActiveScope()}
+                        // ChatComposer's leadingSlot wrapper has no gap of its own, and the
+                        // CSS module lets its two children join the composer's row.
+                        <>
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            {postingTeamId && (
+                              <TicketPicker
+                                teamId={postingTeamId}
+                                onSelect={setSelectedTicketId}
+                                selectedId={selectedTicketId}
+                              />
+                            )}
+                            <TicketVideoChips videos={ticketVideos.videos} />
+                            <ComposerChips
+                              selectedTicketId={selectedTicketId}
+                              onTicketRemove={() => setSelectedTicketId(undefined)}
+                              mentions={[]}
+                              onMentionRemove={() => {}}
+                              attachments={[]}
+                              onAttachmentRemove={() => {}}
                             />
-                          )}
+                          </div>
+                          {/* After the composer's +, behind a "/" (or): a Pulse video posts
+                              itself when it lands, so nothing typed here goes with it. Refetch
+                              in case the live feed missed it (DDP dropped while in the Pulse
+                              app). Keyed by team so one team's link doesn't announce under
+                              another. */}
                           {postingTeamId && (
-                            <TicketPicker
-                              teamId={postingTeamId}
-                              onSelect={setSelectedTicketId}
-                              selectedId={selectedTicketId}
-                            />
+                            <div
+                              className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
+                            >
+                              <span
+                                className="huddle-composer-or px-1 text-sm text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                /
+                              </span>
+                              <PulseButton
+                                key={postingTeamId}
+                                destination={{ kind: 'huddle', teamId: postingTeamId }}
+                                ariaLabel="Post a video with Pulse"
+                                onSettled={() => void refreshActiveScope()}
+                              />
+                            </div>
                           )}
-                          <TicketVideoChips videos={ticketVideos.videos} />
-                          <ComposerChips
-                            selectedTicketId={selectedTicketId}
-                            onTicketRemove={() => setSelectedTicketId(undefined)}
-                            mentions={[]}
-                            onMentionRemove={() => {}}
-                            attachments={[]}
-                            onAttachmentRemove={() => {}}
-                          />
-                        </div>
+                        </>
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
