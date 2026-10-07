@@ -198,6 +198,8 @@ jobs:
 
       - name: Vite build
         run: npm run build
+        env:
+          CAPACITOR: '1'
 
       - name: Capacitor sync
         run: npx cap sync ios
