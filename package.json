@@ -82,7 +82,7 @@
     "datavis-ace": "^4.1.0",
     "date-fns": "^4.4.0",
     "downshift": "^9.4.0",
-    "katex": "^0.17.0",
+    "katex": "^0.18.2",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.16.1",
     "motion": "^12.34.3",
