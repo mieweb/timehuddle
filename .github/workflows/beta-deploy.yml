@@ -1,0 +1,106 @@
+name: Beta Deployment
+
+# Push to main → auto-deploy frontend to BETA (betahuddle.os.mieweb.org)
+on:
+  push:
+    branches: [main, ci/betahuddle-deploy]
+  workflow_dispatch:
+
+concurrency:
+  group: beta-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy_beta:
+    name: Deploy to BETA
+    runs-on: ubuntu-latest
+    environment:
+      name: beta
+      url: https://betahuddle.os.mieweb.org
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BETA_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p 2180 betahuddle.os.mieweb.org >> ~/.ssh/known_hosts
+
+      - name: Deploy Frontend to BETA (betahuddle.os.mieweb.org:2180)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -p 2180 \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              pdharamkar@betahuddle.os.mieweb.org bash << 'ENDSSH'
+            set -e
+            cd ~/timehuddle || { echo "ERROR: timehuddle directory not found"; exit 1; }
+
+            echo "=== Current status ==="
+            pwd
+            git branch --show-current
+            sudo pm2 list
+
+            echo "=== git fetch + reset to origin/main ==="
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
+            git clean -fd
+            echo "✓ Now at: $(git log -1 --oneline)"
+
+            echo "=== npm install ==="
+            sudo npm install --no-audit --no-fund
+
+            echo "=== npm run build ==="
+            sudo rm -rf dist
+            sudo npm run build
+
+            if [ ! -f "dist/index.html" ]; then
+              echo "ERROR: Build failed - dist/index.html missing"
+              exit 1
+            fi
+
+            echo "=== pm2 restart all ==="
+            sudo pm2 restart all
+            sudo pm2 save
+
+            echo "=== verify frontend is running ==="
+            sleep 3
+            ok=false
+            for i in 1 2 3 4 5; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null) || STATUS="000"
+              if [ "$STATUS" = "200" ]; then
+                echo "✓ BETA frontend OK (HTTP 200) - attempt $i"
+                ok=true
+                break
+              fi
+              echo "Attempt $i: HTTP $STATUS — retrying in 5s"
+              sleep 5
+            done
+
+            if [ "$ok" != "true" ]; then
+              echo "ERROR: BETA frontend not responding after 5 attempts"
+              exit 1
+            fi
+
+            sudo pm2 list
+          ENDSSH
+
+  verify_beta:
+    name: Verify BETA
+    runs-on: ubuntu-latest
+    needs: deploy_beta
+    steps:
+      - name: Verify frontend is accessible
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://betahuddle.os.mieweb.org) || STATUS="000"
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: BETA frontend returned HTTP $STATUS"
+            exit 1
+          fi
+          curl -s https://betahuddle.os.mieweb.org | grep -q "TimeHuddle" || {
+            echo "ERROR: 'TimeHuddle' not found in response"
+            exit 1
+          }
+          echo "✓ BETA frontend verified (commit ${{ github.sha }})"
