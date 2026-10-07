@@ -19,7 +19,7 @@ function toId(id) {
 }
 
 // postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
-const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Drafts (status: 'draft') can no longer be created, but rows saved before
 // they were removed still exist — keep them out of every feed. Absent status =
@@ -466,6 +466,48 @@ export async function createHuddlePost(
   await rawDb().collection('huddlePosts').insertOne(doc);
   
   return { id: doc._id.toHexString() };
+}
+
+/**
+ * Add a wrap-up to `userId`'s post for a clock session: `line` goes under the
+ * plan text and `attachment` joins its attachments. A session with no post
+ * yet gets one, stamped as the wrap-up. Shared with server-side callers — a
+ * Pulse wrap-up video that lands on its own.
+ */
+export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment }) {
+  await requireTeamMember(userId, teamId);
+  const posts = rawDb().collection('huddlePosts');
+  const sessionPost = await posts.findOne(
+    { teamId, userId, clockEventId, ...PUBLISHED },
+    { sort: SESSION_POST_SORT },
+  );
+  if (!sessionPost) {
+    await createHuddlePost(userId, {
+      teamId,
+      content: { text: line, mentions: [] },
+      attachments: [attachment],
+      postDate,
+      clockEventId,
+      wrapUp: true,
+    });
+    return;
+  }
+  // Appended to the post as stored at write time (an update pipeline), so an
+  // edit to the plan made meanwhile isn't overwritten. `$literal`: text
+  // starting with `$` would otherwise read as a field path.
+  const text = { $ifNull: ['$content.text', ''] };
+  await posts.updateOne({ _id: sessionPost._id }, [
+    {
+      $set: {
+        'content.text': {
+          $cond: [{ $eq: [text, ''] }, { $literal: line }, { $concat: [text, '\n\n', { $literal: line }] }],
+        },
+        attachments: { $concatArrays: [{ $ifNull: ['$attachments', []] }, [{ $literal: attachment }]] },
+        wrapUpAt: '$$NOW',
+        updatedAt: '$$NOW',
+      },
+    },
+  ]);
 }
 
 Meteor.methods({

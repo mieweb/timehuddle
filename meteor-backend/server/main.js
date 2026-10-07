@@ -2201,7 +2201,12 @@ Meteor.startup(async() => {
           properties: {
             kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
             id: { type: 'string', description: 'The ticket, Redmine issue or clock session id, for those kinds' },
-            teamId: { type: 'string', description: 'The team to post to, for huddle' },
+            teamId: { type: 'string', description: 'The team to post to, for huddle and clock-plan' },
+            clockEventId: { type: 'string', description: 'The session to wrap up, for clock-wrapup' },
+            postDate: {
+              type: 'string',
+              description: "The poster's calendar date (YYYY-MM-DD), for clock-plan and clock-wrapup",
+            },
           },
           required: ['kind'],
         },

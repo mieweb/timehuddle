@@ -12,6 +12,8 @@
  *   redmine  → an attachment on a Redmine issue (lives only in TimeHuddle)
  *   clock    → an attachment on the uploader's own clock session
  *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
+ *   clock-plan   → a new plan post in that team, then clock in to it
+ *   clock-wrapup → the video and a wrap-up line on the session's post, then clock out
  *
  * Each kind is one entry in DESTINATIONS. `check` runs when the link is
  * minted, so a bad destination fails before anyone records anything, and
@@ -25,11 +27,15 @@ import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
-import { createHuddlePost, requireTeamMember } from './huddle.js';
+import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+// clock.js reaches pulsevault.js through timesheet-change-requests.js, so a
+// static import here would close a cycle; load it when a clock video lands.
+const clockModule = () => import('./clock.js');
 
 const LIBRARY_NOTE = 'Added to the media library';
 
@@ -99,6 +105,91 @@ async function addToLibrary(userId, video) {
 }
 
 const HUDDLE_NOTE = 'Posted to Huddle';
+// The frontend's landed labels for these two kinds are these exact words
+// (pulseStatus.ts): a note that says more is a follow-up that failed.
+const PLAN_NOTE = "Plan posted — you're clocked in";
+const WRAPUP_NOTE = "Wrap-up posted — you're clocked out";
+
+function assertPostDate(postDate) {
+  // The poster's calendar date, from their device — the server can't know
+  // their time zone, and the plan-first gate is per date.
+  if (!POST_DATE_RE.test(postDate ?? '')) throw new Meteor.Error('bad-request', 'Invalid postDate');
+}
+
+/** The uploader's own clock session, by id. */
+async function ownSession(userId, rawId) {
+  requireId(rawId, 'clock session');
+  if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Clock session not found');
+  const session = await rawDb()
+    .collection('clockevents')
+    .findOne({ _id: new ObjectId(rawId.toLowerCase()) }, { projection: { userId: 1, teamId: 1, endTime: 1 } });
+  if (!session) throw new Meteor.Error('not-found', 'Clock session not found');
+  if (session.userId !== userId) throw new Meteor.Error('forbidden', 'Not your clock session');
+  return session;
+}
+
+/** The attachment shape a Huddle post stores for a Pulse video. */
+function postAttachment(mediaId, video) {
+  return { mediaId, type: 'video', url: video.url, filename: video.title };
+}
+
+/** A new Huddle post carrying the video, with the Pulse draft's name as its text. */
+async function postVideo(userId, video, { teamId, postDate }) {
+  const mediaId = await addToLibrary(userId, video);
+  return createHuddlePost(userId, {
+    teamId,
+    content: { text: video.name ?? '', mentions: [] },
+    attachments: [postAttachment(mediaId, video)],
+    ...(postDate ? { postDate } : {}),
+  });
+}
+
+/** This uploader's post in this team carrying the video, if any. */
+function existingPost(userId, teamId, video) {
+  return rawDb()
+    .collection('huddlePosts')
+    .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1 } });
+}
+
+/**
+ * A step after a delivery that already happened (clocking in once the plan is
+ * posted). Its failure can't un-deliver the video, so it comes back in the
+ * note: what did happen, then what didn't and why, or what to do instead.
+ */
+async function withFollowUp(note, failure, instead, step) {
+  try {
+    await step();
+    return note;
+  } catch (err) {
+    console.warn('[pulse-destinations] delivered, but the follow-up failed:', err);
+    const why = err instanceof Meteor.Error && err.reason ? `: ${err.reason.replace(/\.$/, '')}.` : `. ${instead}`;
+    return `${note.split(' — ')[0]}, but ${failure}${why}`;
+  }
+}
+
+/**
+ * Clock in to this team with the plan that was just posted, as clocking in by
+ * hand would: only this team's clock matters. Clocked in to this team some
+ * other way meanwhile: no second session, but the plan becomes that
+ * session's. Clocked in and back out of this team by hand since the link was
+ * made: that shift is over, so it isn't restarted.
+ */
+async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
+  const sessions = rawDb().collection('clockevents');
+  const open = await sessions.findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
+  if (open) {
+    // Not `updatedAt` — linking a session isn't an edit (see clockStart).
+    await rawDb()
+      .collection('huddlePosts')
+      .updateOne({ _id: new ObjectId(planPostId) }, { $set: { clockEventId: open._id.toHexString() } });
+    return;
+  }
+  if (reservedAt && (await sessions.findOne({ userId, teamId, startTime: { $gte: reservedAt } }))) {
+    throw new Meteor.Error('already-clocked-out', 'You clocked in and out while it uploaded');
+  }
+  const { clockStart } = await clockModule();
+  await clockStart(userId, { teamId, planPostId });
+}
 
 const DESTINATIONS = {
   library: {
@@ -139,6 +230,71 @@ const DESTINATIONS = {
         attachments: [{ mediaId, type: 'video', url: video.url, filename: video.title }],
       });
       return HUDDLE_NOTE;
+    },
+  },
+
+  'clock-plan': {
+    async check(userId, { teamId, postDate }) {
+      requireId(teamId, 'team');
+      await requireTeamMember(userId, teamId);
+      assertPostDate(postDate);
+      // When the link was made, so delivery can tell a shift worked by hand
+      // meanwhile. Signed into the token at reserve; unused at delivery.
+      return { teamId, postDate, reservedAt: Date.now() };
+    },
+    async delivered(userId, { teamId }, video) {
+      return (await existingPost(userId, teamId, video)) ? PLAN_NOTE : null;
+    },
+    async deliver(userId, { teamId, postDate, reservedAt }, video) {
+      const { id: planPostId } = await postVideo(userId, video, { teamId, postDate });
+      return withFollowUp(PLAN_NOTE, "you weren't clocked in", 'Clock in from the Clock page.', () =>
+        clockInWithPlan(userId, teamId, planPostId, reservedAt),
+      );
+    },
+  },
+
+  'clock-wrapup': {
+    async check(userId, { clockEventId, postDate }, phase) {
+      const session = await ownSession(userId, clockEventId);
+      // Ending the session some other way while recording is fine: the
+      // wrap-up still lands on its post.
+      if (phase === 'reserve' && session.endTime != null) {
+        throw new Meteor.Error('bad-request', 'That clock session has already ended');
+      }
+      await requireTeamMember(userId, String(session.teamId));
+      assertPostDate(postDate);
+      return { clockEventId: clockEventId.toLowerCase(), postDate };
+    },
+    async delivered(userId, { clockEventId }, video) {
+      const post = await rawDb()
+        .collection('huddlePosts')
+        .findOne({ userId, clockEventId, 'attachments.url': video.url }, { projection: { _id: 1 } });
+      return post ? WRAPUP_NOTE : null;
+    },
+    async deliver(userId, { clockEventId, postDate }, video) {
+      const session = await ownSession(userId, clockEventId);
+      const teamId = String(session.teamId);
+      const mediaId = await addToLibrary(userId, video);
+      await appendWrapUp(userId, {
+        teamId,
+        clockEventId,
+        postDate,
+        line: video.name ? `**Wrap-up:** ${video.name}` : '**Wrap-up**',
+        attachment: postAttachment(mediaId, video),
+      });
+      if (session.endTime != null) {
+        // Ended by hand meanwhile. A newer shift in this team isn't this wrap-up's to end.
+        const open = await rawDb()
+          .collection('clockevents')
+          .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
+        return open
+          ? "Wrap-up posted to your earlier session, and you're still clocked in to your current one"
+          : 'Wrap-up posted to your earlier session';
+      }
+      return withFollowUp(WRAPUP_NOTE, "you weren't clocked out", 'Clock out from the Clock page.', async () => {
+        const { clockStop } = await clockModule();
+        await clockStop(userId, { teamId });
+      });
     },
   },
 
@@ -190,11 +346,13 @@ function kindOf(destination) {
 /**
  * Check that `destination` is somewhere `userId` may send a Pulse video, and
  * return the form to sign into the token. Throws a Meteor.Error if not.
+ * `check(userId, destination, phase)` runs with `phase` 'reserve' here and
+ * 'deliver' from deliverPulseVideo, for a kind that is stricter up front.
  */
 export async function resolvePulseDestination(userId, destination) {
   const kind = kindOf(destination);
   if (!kind) throw new Meteor.Error('bad-request', 'Unknown Pulse destination');
-  return { kind: destination.kind, ...(await kind.check(userId, destination)) };
+  return { kind: destination.kind, ...(await kind.check(userId, destination, 'reserve')) };
 }
 
 /**
@@ -219,7 +377,7 @@ export async function deliverPulseVideo(userId, destination, video) {
   const earlier = await kind.delivered(userId, destination, video);
   if (earlier) return { state: 'done', note: earlier };
   try {
-    await kind.check(userId, destination);
+    await kind.check(userId, destination, 'deliver');
   } catch (err) {
     if (err instanceof Meteor.Error && (err.error === 'not-found' || err.error === 'forbidden')) {
       return { state: 'kept', reason: `${err.reason} — it was gone before the video finished uploading.` };

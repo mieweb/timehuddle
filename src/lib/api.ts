@@ -1999,7 +1999,11 @@ export const timerApi = {
  * meteor-backend/server/pulse-destinations.js).
  */
 export type PulseDestination =
-  { kind: 'library' } | { kind: AttachmentKind; id: string } | { kind: 'huddle'; teamId: string };
+  | { kind: 'library' }
+  | { kind: AttachmentKind; id: string }
+  | { kind: 'huddle'; teamId: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'clock-wrapup'; clockEventId: string; postDate: string };
 
 /**
  * Where a Pulse upload stands. `done` carries the backend's `note` (what it

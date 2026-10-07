@@ -31,7 +31,13 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
+import {
+  clockApi,
+  huddleApi,
+  type ClockEvent,
+  type HuddlePost,
+  type PulseUploadStatus,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -62,6 +68,10 @@ import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
+import { PulseChip } from '../pulse-upload/PulseButton';
+import { PulseLogo } from '../pulse-upload/PulseLogo';
+import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -69,8 +79,12 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
+/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
+const MAIN_ACTION_PILL =
+  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
+
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -282,6 +296,39 @@ export const ClockPage: React.FC = () => {
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText]);
 
+  // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
+  // (clocks you out) — the server does both when the upload lands. Owned here,
+  // not by a button: clocking in or out swaps the section's pill, while the
+  // modal still has to say the video landed.
+  // A landed plan or wrap-up swapped the composer; what the editor held was
+  // for the step the video has just done, so the next one starts clean.
+  const refreshClock = (status: PulseUploadStatus) => {
+    if (status.state === 'done') {
+      setText('');
+      seededTokenRef.current = null;
+      setEditorKey((k) => k + 1);
+    }
+    refetchClock();
+  };
+  const planPulse = usePulseUpload(
+    { kind: 'clock-plan', teamId: gateTeamId ?? '', postDate: toDateString(new Date()) },
+    { onSettled: refreshClock },
+  );
+  // The session a wrap-up is for, kept after it ends: the wrap-up landing is
+  // what clocks you out, and its link must still be the one being watched.
+  const [wrapUpSessionId, setWrapUpSessionId] = useState(activeClockEvent?.id ?? '');
+  if (activeClockEvent && activeClockEvent.id !== wrapUpSessionId) {
+    setWrapUpSessionId(activeClockEvent.id);
+  }
+  const wrapUpPulse = usePulseUpload(
+    { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate: toDateString(new Date()) },
+    { onSettled: refreshClock },
+  );
+  // The one the Pulse section offers now: clock in with a plan, or out with a
+  // wrap-up. Null without a team to clock in to.
+  const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
+  const clockPulseLabel = isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse';
+
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
@@ -429,6 +476,40 @@ export const ClockPage: React.FC = () => {
               : 'Any time you track here gets logged to this workspace.'
           }
         />
+
+        {/* ── Pulse — the other way to clock in or out: a video plan or
+             wrap-up, posted to Huddle by the server, which then clocks you
+             in or out. First on the page, and offered whether or not the
+             team requires a plan. Nothing typed in the composer below goes
+             with it. ── */}
+        {clockPulse && (
+          <section
+            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
+            aria-labelledby="clock-pulse-title"
+          >
+            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
+            <div className="clock-pulse-copy flex-1">
+              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+              </Text>
+              <Text variant="muted" size="sm" className="mt-1">
+                {isClockedIn
+                  ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
+                  : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
+              </Text>
+              <Text variant="muted" size="xs" className="mt-1">
+                Your Pulse draft's name becomes the post's text.
+              </Text>
+            </div>
+            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
+              <PulseChip
+                pulse={clockPulse}
+                ariaLabel={clockPulseLabel}
+                main={{ label: clockPulseLabel, className: MAIN_ACTION_PILL }}
+              />
+            </div>
+          </section>
+        )}
 
         {/* ── Status — eyebrow + big bold session timer ──
              The surface is tinted by state rather than being a fixed dark slab
@@ -652,7 +733,7 @@ export const ClockPage: React.FC = () => {
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock in
               </Button>
@@ -664,7 +745,7 @@ export const ClockPage: React.FC = () => {
                 isLoading={clockOutLoading}
                 aria-label="Clock out"
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock out
               </Button>
@@ -728,6 +809,20 @@ export const ClockPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+      <PulseUploadModal
+        open={planPulse.modalOpen}
+        onClose={planPulse.closeModal}
+        scanLink={planPulse.link?.scanLink ?? null}
+        destination={planPulse.destination}
+        status={planPulse.status}
+      />
+      <PulseUploadModal
+        open={wrapUpPulse.modalOpen}
+        onClose={wrapUpPulse.closeModal}
+        scanLink={wrapUpPulse.link?.scanLink ?? null}
+        destination={wrapUpPulse.destination}
+        status={wrapUpPulse.status}
+      />
     </AppPage>
   );
 };

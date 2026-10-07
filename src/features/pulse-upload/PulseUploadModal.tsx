@@ -8,7 +8,7 @@ import React, { useId } from 'react';
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { PulseLogo } from './PulseLogo';
 import { PulseStoreBadges } from './PulseStoreBadges';
-import { EXPIRED_MESSAGE, keptMessage, landedLabel, uploadHint } from './pulseStatus';
+import { EXPIRED_MESSAGE, followUpNote, keptMessage, landedLabel, uploadHint } from './pulseStatus';
 
 export interface PulseUploadModalProps {
   open: boolean;
@@ -99,7 +99,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
                   aria-hidden="true"
                 />
                 <Text size="sm" weight="medium">
-                  {landedLabel(destination)}
+                  {followUpNote(destination, status.note) || landedLabel(destination)}
                 </Text>
               </span>
             ) : status?.state === 'kept' ? (
