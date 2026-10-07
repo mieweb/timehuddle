@@ -1,6 +1,6 @@
 name: Main Branch Deployment
 
-# Push to main → auto-deploy to DEV and BETA
+# Push to main → auto-deploy to DEV
 # Manual dispatch → choose DEV, BETA or PROD deployment
 on:
   push:
@@ -302,9 +302,7 @@ jobs:
     name: Deploy to BETA
     runs-on: ubuntu-latest
     needs: [checks_frontend, checks_backend]
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'beta')
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'beta'
     concurrency:
       group: beta-deploy
       cancel-in-progress: false
