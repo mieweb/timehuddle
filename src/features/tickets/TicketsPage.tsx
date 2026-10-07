@@ -414,6 +414,20 @@ export const TicketsPage: React.FC = () => {
     clearBoardSelection();
   }, [clearTicketsSelection, clearBoardSelection]);
 
+  // A selection belongs to the table it was made in, at the size it was made.
+  // Switching view, or crossing between the phone and wide layouts, starts
+  // clean: otherwise rows ticked in the wide table stay selected on a phone
+  // with no checkbox showing, and the bulk bar acts on rows nobody can see.
+  const selectionScope = `${activeView}|${compact}`;
+  const lastSelectionScope = React.useRef(selectionScope);
+  useEffect(() => {
+    if (lastSelectionScope.current === selectionScope) return;
+    lastSelectionScope.current = selectionScope;
+    setSelecting(false);
+    clearTicketsSelection();
+    clearBoardSelection();
+  }, [selectionScope, clearTicketsSelection, clearBoardSelection]);
+
   // The search is the exception: one bar sits above both tabs, so its text is
   // one value, applied to whichever table is showing.
   const searchQuery = ticketsView.searchQuery;

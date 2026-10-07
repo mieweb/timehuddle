@@ -86,6 +86,37 @@ test.describe('Ticket rows on a phone', () => {
     await expect(row.getByRole('checkbox')).not.toBeChecked();
   });
 
+  test('drops the selection when the view or the layout changes', async ({ page }) => {
+    const title = `E2E Phone Reset ${Date.now()}`;
+    await tickets.createTicket(title);
+    const row = tickets.rowByTitle(title);
+
+    // Switching view ends selection mode and clears what was ticked.
+    await tickets.selectModeButton.click();
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await tickets.switchToTab('my-board');
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+    await expect(tickets.selectModeButton).toHaveAttribute('aria-pressed', 'false');
+    await tickets.switchToTab('tickets');
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+
+    // A row ticked in the wide table is not left selected, unseen, on a phone.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await page.setViewportSize(PHONE);
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+
+    // And selection mode on a phone does not carry over to the wide table.
+    await tickets.selectModeButton.click();
+    await row.getByRole('checkbox').check();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+  });
+
   test('switches between open and closed tickets from the header', async ({ page }) => {
     const title = `E2E Phone Closed ${Date.now()}`;
     await tickets.createTicket(title);
@@ -212,6 +243,8 @@ test.describe('Ticket rows on a phone', () => {
     await tickets.moveToBoard(title);
     const row = tickets.rowByTitle(title);
     await expect(row).toBeVisible();
+    // Switching view left selection mode; go back in, for the row at its tightest.
+    await tickets.selectModeButton.click();
 
     const overflow = await page.evaluate(() => {
       const area = document.querySelector<HTMLElement>('.ticket-table-scroll');
@@ -220,8 +253,8 @@ test.describe('Ticket rows on a phone', () => {
     expect(overflow).not.toBeNull();
     expect(overflow).toBeLessThanOrEqual(1);
 
-    // Every control on the row is on screen: select (still in selection mode,
-    // the tightest the row gets), timer, and the row menu.
+    // Every control on the row is on screen: select (in selection mode, the
+    // tightest the row gets), timer, and the row menu.
     const controls = [
       row.getByRole('checkbox'),
       tickets.timerButtonForRow(title),
