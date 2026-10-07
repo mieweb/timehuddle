@@ -8,13 +8,19 @@
  * itself calls `usePulseUpload` and renders `PulseChip` and
  * {@link PulseUploadModal} from it.
  */
-import { Text } from '@mieweb/ui';
+import { Button, Text } from '@mieweb/ui';
 import React from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
 import { PulseLogo } from './PulseLogo';
-import { EXPIRED_MESSAGE, keptMessage, landedLabel, type PulseCopy } from './pulseStatus';
+import {
+  EXPIRED_MESSAGE,
+  WAITING_MESSAGE,
+  keptMessage,
+  landedLabel,
+  type PulseCopy,
+} from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
 import { usePulseUpload, type PulseLink, type PulseUpload } from './usePulseUpload';
 
@@ -24,12 +30,26 @@ interface PulseChipProps {
   ariaLabel: string;
   /** The landed line in the host's words, when the destination kind's doesn't fit. */
   copy?: PulseCopy;
+  /**
+   * Given by a host that holds its post for the video (a composer): while the
+   * link is waiting and the modal is closed, the chip says so and offers to
+   * stop waiting, which calls this. Hosts the server delivers for on its own
+   * leave it out: closing the modal there loses nothing.
+   */
+  onCancel?: () => void;
   disabled?: boolean;
 }
 
 /** The Pulse chip, with what went wrong or where the video went beside it. */
-export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, copy, disabled }) => {
+export const PulseChip: React.FC<PulseChipProps> = ({
+  pulse,
+  ariaLabel,
+  copy,
+  onCancel,
+  disabled,
+}) => {
   const { reserving, error, status, modalOpen, destination } = pulse;
+  const waiting = !modalOpen && !!onCancel && status?.state === 'waiting';
   // Phones have no modal: the same words the modal uses, beside the chip.
   const note = modalOpen
     ? ''
@@ -39,7 +59,9 @@ export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, copy, di
         ? keptMessage(status.reason)
         : status?.state === 'expired'
           ? EXPIRED_MESSAGE
-          : '';
+          : waiting
+            ? WAITING_MESSAGE
+            : '';
   return (
     <>
       <ComposerChipButton
@@ -67,6 +89,20 @@ export const PulseChip: React.FC<PulseChipProps> = ({ pulse, ariaLabel, copy, di
           className={note ? 'pulse-chip-status' : 'pulse-chip-status sr-only'}
         >
           {note}
+          {waiting && (
+            <>
+              {' '}
+              <Button
+                variant="link"
+                size="sm"
+                type="button"
+                onClick={onCancel}
+                aria-label="Stop waiting for the Pulse video"
+              >
+                Cancel
+              </Button>
+            </>
+          )}
         </Text>
       )}
     </>

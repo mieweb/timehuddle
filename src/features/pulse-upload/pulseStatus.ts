@@ -40,6 +40,9 @@ export const COMPOSER_COPY: PulseCopy = {
   landed: 'Attached to your post',
 };
 
+/** Beside a composer's chip while its link is open and the modal is closed. */
+export const WAITING_MESSAGE = 'Waiting for your Pulse video…';
+
 /** A link's token works for 30 minutes; after that, only a new one will do. */
 export const EXPIRED_MESSAGE = 'This link has expired. Press Pulse again for a new one.';
 

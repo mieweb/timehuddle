@@ -119,9 +119,13 @@ export const ClockPage: React.FC = () => {
   // none is — same single-bar treatment as the Huddle composer, aggregated
   // across the pickers and paste so an overlapping pair can't read as idle.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // Posting mid-upload would drop the attachment still on the wire, so every
-  // submit path stays closed until it has settled.
-  const uploadInFlight = uploadFraction !== null;
+  // A Pulse link waiting for its video.
+  const [pulseWaiting, setPulseWaiting] = useState(false);
+  // Posting mid-upload would drop the attachment still on the wire, and
+  // posting with a Pulse video on its way would change composer mode and
+  // unmount the button before the video could attach. Every submit path stays
+  // closed until both have settled; the chip offers to stop waiting.
+  const uploadInFlight = uploadFraction !== null || pulseWaiting;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -603,6 +607,7 @@ export const ClockPage: React.FC = () => {
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
+                onPulseWaitingChange={setPulseWaiting}
               />
             </div>
 

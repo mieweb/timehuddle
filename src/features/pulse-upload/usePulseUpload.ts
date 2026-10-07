@@ -47,6 +47,12 @@ export interface PulseUpload {
   status: PulseUploadStatus | null;
   modalOpen: boolean;
   closeModal: () => void;
+  /**
+   * Let go of the current link: no more status checks, no modal, no note. A
+   * video that still lands on it is delivered where the link said all the
+   * same (a library video stays in the library); it just isn't announced here.
+   */
+  reset: () => void;
 }
 
 interface Options {
@@ -225,6 +231,13 @@ export function usePulseUpload(
   }, [current, status?.state, destinationKey, openLink]);
 
   const closeModal = useCallback(() => setModalOpen(false), []);
+  const reset = useCallback(() => {
+    launch.current();
+    setLink(null);
+    setStatus(null);
+    setModalOpen(false);
+    setError(null);
+  }, []);
 
   return {
     destination,
@@ -235,5 +248,6 @@ export function usePulseUpload(
     status: current ? status : null,
     modalOpen,
     closeModal,
+    reset,
   };
 }

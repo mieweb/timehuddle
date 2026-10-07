@@ -18,12 +18,7 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  composerAttachmentToFile,
-  pulseVideoMediaItem,
-  toPostAttachment,
-  uploadMedia,
-} from '../features/huddle/api';
+import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -38,8 +33,7 @@ import {
   withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
-import { PulseButton } from '../features/pulse-upload/PulseButton';
-import { COMPOSER_COPY } from '../features/pulse-upload/pulseStatus';
+import { PulseComposerButton } from '../features/pulse-upload/PulseComposerButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -237,9 +231,8 @@ export default function Huddle() {
   // (already on the backend, so a video id rather than a File) and a ticket.
   // Reset per team so one picked for one team can't land in another's post.
   const [pulseVideos, setPulseVideos] = useState<MediaItem[]>([]);
-  // Bumped when a Pulse video leaves the composer (posted or removed), so the
-  // button starts afresh and its "Attached to your post" line goes with it.
-  const [pulseRound, setPulseRound] = useState(0);
+  // A Pulse link waiting for its video: the post holds for it (see handleMessageSent).
+  const [pulseWaiting, setPulseWaiting] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   // The picked ticket's own videos come along with it.
   const ticketVideos = useTicketVideos(selectedTicketId);
@@ -255,10 +248,8 @@ export default function Huddle() {
   }, [postingTeamId]);
   const attachPulseVideo = (media: MediaItem) =>
     setPulseVideos((prev) => (prev.some((m) => m.id === media.id) ? prev : [...prev, media]));
-  const removePulseVideo = (mediaId: string) => {
+  const removePulseVideo = (mediaId: string) =>
     setPulseVideos((prev) => prev.filter((m) => m.id !== mediaId));
-    setPulseRound((n) => n + 1);
-  };
 
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
@@ -805,6 +796,11 @@ export default function Huddle() {
     const postedPulseIds = new Set(pulseVideos.map((m) => m.id));
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
+      if (pulseWaiting) {
+        throw new Error(
+          'Your Pulse video is still on its way. Send once it is attached, or cancel it.',
+        );
+      }
       if (ticketVideos.loading) {
         throw new Error("The ticket's videos are still loading. Send again in a moment.");
       }
@@ -843,7 +839,6 @@ export default function Huddle() {
     // Clear only what this post actually took: anything staged while it was in
     // flight belongs to the next one.
     setPulseVideos((prev) => prev.filter((m) => !postedPulseIds.has(m.id)));
-    if (postedPulseIds.size > 0) setPulseRound((n) => n + 1);
     setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
 
     // The Personal view reads its own cross-team list, not the team feed —
@@ -1002,21 +997,14 @@ export default function Huddle() {
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own.
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* Keyed by team and round: a link handed out for one
-                              team's post doesn't attach its video to another's,
-                              and a sent post leaves a fresh button behind. The
-                              video itself is in the library either way. */}
+                          {/* Keyed by team: a link handed out for one team's post
+                              doesn't attach its video to another's. The video
+                              itself is in the library either way. */}
                           {postingTeamId && (
-                            <PulseButton
-                              key={`${postingTeamId}:${pulseRound}`}
-                              destination={{ kind: 'library' }}
-                              ariaLabel="Record a video with Pulse"
-                              copy={COMPOSER_COPY}
-                              onSettled={(status, link) => {
-                                if (status.state === 'done') {
-                                  attachPulseVideo(pulseVideoMediaItem(link.videoid));
-                                }
-                              }}
+                            <PulseComposerButton
+                              key={postingTeamId}
+                              onAttach={attachPulseVideo}
+                              onWaitingChange={setPulseWaiting}
                             />
                           )}
                           {postingTeamId && (

@@ -4,9 +4,7 @@
  * the same Photo/Video/Doc/Pulse/Ticket/@Mention affordances from here.
  */
 import { Badge } from '@mieweb/ui';
-import { PulseButton } from '../pulse-upload/PulseButton';
-import { COMPOSER_COPY } from '../pulse-upload/pulseStatus';
-import { pulseVideoMediaItem } from './api';
+import { PulseComposerButton } from '../pulse-upload/PulseComposerButton';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
@@ -31,6 +29,11 @@ interface ComposerAttachButtonsProps {
   onUploadProgress?: (fraction: number | null) => void;
   /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
   onError?: (message: string | null) => void;
+  /**
+   * Whether a Pulse link is waiting for its video. Hosts hold their post
+   * while it is, so the video can't miss the post it was recorded for.
+   */
+  onPulseWaitingChange?: (waiting: boolean) => void;
 }
 
 /** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
@@ -43,6 +46,7 @@ export function ComposerAttachButtons({
   pulseKey,
   onUploadProgress,
   onError,
+  onPulseWaitingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -53,14 +57,10 @@ export function ComposerAttachButtons({
       />
       {/* A Pulse video lands in the uploader's library; the server says when,
           and it joins this composer as an attachment to send with the post. */}
-      <PulseButton
+      <PulseComposerButton
         key={pulseKey}
-        destination={{ kind: 'library' }}
-        ariaLabel="Record a video with Pulse"
-        copy={COMPOSER_COPY}
-        onSettled={(status, link) => {
-          if (status.state === 'done') onAttachmentAdd(pulseVideoMediaItem(link.videoid));
-        }}
+        onAttach={onAttachmentAdd}
+        onWaitingChange={onPulseWaitingChange}
       />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />
