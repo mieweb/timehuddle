@@ -24,6 +24,22 @@ export function uploadHint(destination: PulseDestination): string {
   return UPLOAD_HINTS[destination.kind];
 }
 
+/** The hint before recording and the line once the video has landed, when the
+ * destination kind alone doesn't say it. */
+export interface PulseCopy {
+  hint: string;
+  landed: string;
+}
+
+/**
+ * A composer's Pulse button reserves a *library* video and attaches it to the
+ * post being written, so it says that rather than "your media library".
+ */
+export const COMPOSER_COPY: PulseCopy = {
+  hint: "It's attached to your post as soon as it uploads.",
+  landed: 'Attached to your post',
+};
+
 /** A link's token works for 30 minutes; after that, only a new one will do. */
 export const EXPIRED_MESSAGE = 'This link has expired. Press Pulse again for a new one.';
 
