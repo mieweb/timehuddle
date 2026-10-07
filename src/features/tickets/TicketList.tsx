@@ -12,14 +12,13 @@
  */
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Checkbox, Text } from '@mieweb/ui';
-import { CircleCheck, CircleDot } from 'lucide-react';
+import { Checkbox, Text } from '@mieweb/ui';
 import React from 'react';
 
 import { RowList } from '../../ui/RowList';
-import { SegmentedSwitcher } from '../../ui/SegmentedSwitcher';
 
 import { TicketRow } from './TicketRow';
+import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketSortFilterMenu, type TicketField } from './TicketSortFilterMenu';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
 import {
@@ -35,16 +34,10 @@ import {
   type TicketFilters,
 } from './ticketFilters';
 
-type TicketState = 'open' | 'closed';
-
 const text = {
-  state: 'Ticket state',
-  open: (count: number | null) => (count === null ? 'Open' : `${count} Open`),
-  closed: (count: number | null) => (count === null ? 'Closed' : `${count} Closed`),
   list: (showClosed: boolean) => (showClosed ? 'Closed tickets' : 'Open tickets'),
   selectAll: 'Select all tickets',
   deselectAll: 'Deselect all tickets',
-  clearFilters: 'Clear filters',
   loading: 'Loading tickets',
   count: (count: number, showClosed: boolean) =>
     `${count} ${showClosed ? 'closed' : 'open'} ticket${count === 1 ? '' : 's'}`,
@@ -70,12 +63,12 @@ export interface TicketListProps {
   onSortChange: (field: SortField) => void;
   filters: TicketFilters;
   onFiltersChange: (filters: TicketFilters) => void;
-  filtersActive: boolean;
   onClearFilters: () => void;
   openMenuId: string | null;
   onOpenMenuChange: (menuId: string | null) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
   selectedKeys: Set<string>;
+  selecting: boolean;
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;
   onSelectAllChange: (selected: boolean) => void;
   /** `${sourceId}:${id}` of the ticket whose timer is running, if any. */
@@ -109,12 +102,12 @@ export const TicketList: React.FC<TicketListProps> = ({
   onSortChange,
   filters,
   onFiltersChange,
-  filtersActive,
   onClearFilters,
   openMenuId,
   onOpenMenuChange,
   boundaryRef,
   selectedKeys,
+  selecting,
   onSelectedChange,
   onSelectAllChange,
   runningTicketKey,
@@ -209,42 +202,29 @@ export const TicketList: React.FC<TicketListProps> = ({
 
   const header = (
     <>
-      <Checkbox
-        checked={allSelected}
-        indeterminate={someSelected}
-        disabled={tickets.length === 0}
-        onChange={(e) => onSelectAllChange(e.target.checked)}
-        aria-label={allSelected ? text.deselectAll : text.selectAll}
-      />
-      <SegmentedSwitcher<TicketState>
+      {selecting && (
+        <Checkbox
+          checked={allSelected}
+          indeterminate={someSelected}
+          disabled={tickets.length === 0}
+          onChange={(e) => onSelectAllChange(e.target.checked)}
+          aria-label={allSelected ? text.deselectAll : text.selectAll}
+        />
+      )}
+      <TicketOpenClosedToggle
         name={stateSwitcherName}
-        label={text.state}
-        hideLabel
-        options={[
-          {
-            value: 'open',
-            label: text.open(loading ? null : openCount),
-            icon: <CircleDot className="h-3.5 w-3.5" aria-hidden="true" />,
-          },
-          {
-            value: 'closed',
-            label: text.closed(loading ? null : closedCount),
-            icon: <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />,
-          },
-        ]}
-        value={showClosed ? 'closed' : 'open'}
-        onValueChange={(state) => onShowClosedChange(state === 'closed')}
+        showClosed={showClosed}
+        onShowClosedChange={onShowClosedChange}
+        openCount={openCount}
+        closedCount={closedCount}
+        loading={loading}
       />
       <div className="ticket-list-tools ms-auto flex items-center gap-1">
-        {filtersActive && (
-          <Button variant="ghost" size="sm" className="whitespace-nowrap" onClick={onClearFilters}>
-            {text.clearFilters}
-          </Button>
-        )}
         <TicketSortFilterMenu
           fields={fields}
           sort={sort}
           onSortChange={onSortChange}
+          onClearFilters={onClearFilters}
           openMenuId={openMenuId}
           onOpenMenuChange={onOpenMenuChange}
           boundaryRef={boundaryRef}
@@ -294,6 +274,7 @@ export const TicketList: React.FC<TicketListProps> = ({
             ticket={ticket}
             isCreator={isCreator(ticket)}
             selected={selectedKeys.has(ticket.key)}
+            selecting={selecting}
             onSelectedChange={onSelectedChange}
             isTimerRunning={runningTicketKey === ticket.key}
             timerLoading={timerLoadingKey === ticket.key}

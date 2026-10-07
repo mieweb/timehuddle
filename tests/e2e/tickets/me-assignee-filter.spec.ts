@@ -140,6 +140,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
     await expectRows(page, tickets, title, 1);
 
+    await tickets.sortFilterButton.click();
     await tickets.clearFiltersButton.click();
     await setAssignees(page, tickets, title, [OTHER.name]);
     await tickets.filterBy('Assignees', 'Me');
@@ -221,6 +222,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
     await expectRows(page, tickets, theirs, 0);
 
+    await tickets.sortFilterButton.click();
     await tickets.clearFiltersButton.click();
 
     await expectRows(page, tickets, theirs, 1);

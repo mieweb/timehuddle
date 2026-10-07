@@ -40,6 +40,8 @@ export interface TicketSortFilterMenuProps {
   fields: readonly TicketField[];
   sort: SortSpec;
   onSortChange: (field: SortField) => void;
+  /** Offered at the top of the menu while any filter is on. */
+  onClearFilters: () => void;
   openMenuId: string | null;
   onOpenMenuChange: (menuId: string | null) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
@@ -51,6 +53,7 @@ const text = {
   trigger: 'Sort and filter',
   triggerFiltered: (count: number) =>
     `Sort and filter, ${count} filter${count === 1 ? '' : 's'} on`,
+  clearFilters: 'Clear filters',
   sortBy: 'Sort by',
   sorted: (direction: SortSpec['direction']) =>
     direction === 'asc' ? '(sorted ascending)' : '(sorted descending)',
@@ -118,6 +121,7 @@ export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
   fields,
   sort,
   onSortChange,
+  onClearFilters,
   openMenuId,
   onOpenMenuChange,
   boundaryRef,
@@ -143,6 +147,12 @@ export const TicketSortFilterMenu: React.FC<TicketSortFilterMenuProps> = ({
         </span>
       }
     >
+      {activeFilters > 0 && (
+        <>
+          <DropdownItem onClick={onClearFilters}>{text.clearFilters}</DropdownItem>
+          <DropdownSeparator />
+        </>
+      )}
       {/* Each section is a named group, so a screen reader hears which field a
           choice belongs to, not only the choice. */}
       <div role="group" aria-label={text.sortBy}>

@@ -14,9 +14,12 @@
  * Keyboard model is a radio group: one tab stop, and the arrow keys move the
  * selection, since choosing is the whole interaction.
  */
-import { Button, Tooltip } from '@mieweb/ui';
+import { Button, Tooltip, useMediaQuery } from '@mieweb/ui';
 import { motion, useReducedMotion } from 'motion/react';
 import React, { useRef } from 'react';
+
+/** Tailwind's `md`: below it there is no hover, and so no tooltip. */
+const PHONE_QUERY = '(max-width: 767px)';
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -25,9 +28,18 @@ export interface SegmentedOption<T extends string> {
   icon?: React.ReactNode;
   /**
    * Show the icon alone. The label stays as the option's accessible name, and
-   * as a tooltip shown on hover and on keyboard focus.
+   * shows in a tooltip on a wide screen.
    */
   iconOnly?: boolean;
+  /** A short extra after the label, in quieter text: a count, say. */
+  detail?: React.ReactNode;
+  /** What assistive tech calls the option, when the label alone is not enough. */
+  accessibleName?: string;
+  /**
+   * The option's own text colour, where the colour carries meaning. It is kept
+   * whether or not the option is selected; the one not selected is dimmed.
+   */
+  toneClassName?: string;
 }
 
 export interface SegmentedSwitcherProps<T extends string> {
@@ -41,6 +53,8 @@ export interface SegmentedSwitcherProps<T extends string> {
   /** Unique on the page: it ties the sliding highlight to this switcher alone. */
   name: string;
   disabled?: boolean;
+  /** A lower track, the height of a small `Button`, for a row it shares with some. */
+  compact?: boolean;
 }
 
 export function SegmentedSwitcher<T extends string>({
@@ -51,8 +65,10 @@ export function SegmentedSwitcher<T extends string>({
   name,
   disabled = false,
   hideLabel = false,
+  compact = false,
 }: SegmentedSwitcherProps<T>) {
   const reducedMotion = useReducedMotion();
+  const phone = useMediaQuery(PHONE_QUERY);
   const buttons = useRef(new Map<T, HTMLButtonElement>());
 
   const select = (next: T) => {
@@ -92,7 +108,7 @@ export function SegmentedSwitcher<T extends string>({
         aria-labelledby={`${name}-label`}
         aria-disabled={disabled || undefined}
         onKeyDown={onKeyDown}
-        className="segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted p-1 sm:gap-1"
+        className={`segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted sm:gap-1 ${compact ? 'p-0.5' : 'p-1'}`}
       >
         {options.map((option) => {
           const selected = option.value === value;
@@ -108,18 +124,21 @@ export function SegmentedSwitcher<T extends string>({
               size="sm"
               role="radio"
               aria-checked={selected}
-              aria-label={option.iconOnly ? option.label : undefined}
+              aria-label={option.accessibleName ?? (option.iconOnly ? option.label : undefined)}
               tabIndex={selected ? 0 : -1}
               disabled={disabled}
               onClick={() => select(option.value)}
               className={[
                 // `hover:bg-transparent`: the sliding highlight is the only fill.
-                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md py-1.5 hover:bg-transparent dark:hover:bg-transparent',
+                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md hover:bg-transparent dark:hover:bg-transparent',
+                compact ? 'py-1' : 'py-1.5',
                 // An icon alone is narrower than a word, so it gets more room either side.
                 option.iconOnly ? 'px-3.5 sm:px-5' : 'px-2 sm:px-3',
-                selected
-                  ? 'text-primary-700 dark:text-primary-300'
-                  : 'text-muted-foreground hover:text-foreground',
+                option.toneClassName
+                  ? `${option.toneClassName} ${selected ? '' : 'opacity-60 hover:opacity-100'}`
+                  : selected
+                    ? 'text-primary-700 dark:text-primary-300'
+                    : 'text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
               {selected && (
@@ -139,13 +158,19 @@ export function SegmentedSwitcher<T extends string>({
               <span className="segmented-switcher-text relative flex min-h-5 items-center justify-center gap-1.5">
                 {option.icon}
                 {!option.iconOnly && option.label}
+                {option.detail != null && (
+                  <span className="segmented-switcher-detail text-xs font-normal tabular-nums opacity-80">
+                    {option.detail}
+                  </span>
+                )}
               </span>
             </Button>
           );
-          // An icon alone needs its name shown to someone who can see it: on
-          // hover, and on keyboard focus, which a native `title` never shows.
+          // An icon alone gets its name in a tooltip, on hover and on keyboard
+          // focus. Not on a phone: there is no hover there, and a tooltip that
+          // opens on tap sits over the control it names.
           return option.iconOnly ? (
-            <Tooltip key={option.value} content={option.label} placement="bottom">
+            <Tooltip key={option.value} content={option.label} placement="bottom" disabled={phone}>
               {button}
             </Tooltip>
           ) : (

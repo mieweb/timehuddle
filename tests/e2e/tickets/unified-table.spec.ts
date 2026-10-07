@@ -46,12 +46,23 @@ test.describe('Unified ticket table', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('toggles closed tickets with the Open/Closed switcher', async () => {
-    await expect(tickets.closedSwitch).not.toBeChecked();
+  test('switches between open and closed tickets, with a count of each', async () => {
+    const title = `E2E Open Closed ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.search(title);
+
+    await expect(tickets.openOption).toBeChecked();
+    // The counts are the showing view's, after its search.
+    await expect(tickets.openOption).toHaveAccessibleName('Open tickets, 1');
+    await expect(tickets.closedOption).toHaveAccessibleName('Closed tickets, 0');
+
     await tickets.showClosedTickets();
-    await expect(tickets.closedSwitch).toBeChecked();
+    await expect(tickets.closedOption).toBeChecked();
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+
     await tickets.showOpenTickets();
-    await expect(tickets.closedSwitch).not.toBeChecked();
+    await expect(tickets.openOption).toBeChecked();
+    await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
   test('lists tickets as rows, not a column table', async ({ page }) => {
@@ -110,6 +121,7 @@ test.describe('Unified ticket table', () => {
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
     expect(await tickets.rowsFromSource('huddle').count()).toBeGreaterThan(0);
 
+    await tickets.sortFilterButton.click();
     await tickets.clearFiltersButton.click();
     await expect(tickets.clearFiltersButton).toHaveCount(0);
   });
@@ -133,15 +145,19 @@ test.describe('Unified ticket table', () => {
     expect(await tickets.getTicketCount()).toBe(before);
   });
 
-  test('selects rows, including a tri-state select-all', async ({ page }) => {
+  test('selects rows, including a tri-state select-all', async () => {
     await tickets.createTicket(`E2E Select ${Date.now()}`);
+    await tickets.selectModeButton.click();
 
-    const firstRowCheckbox = page.locator('[data-ticket-id]').first().getByRole('checkbox');
+    const firstRowCheckbox = tickets.activePanel
+      .locator('[data-ticket-id]')
+      .first()
+      .getByRole('checkbox');
     await firstRowCheckbox.check();
     await expect(firstRowCheckbox).toBeChecked();
 
     await tickets.selectAllCheckbox.check();
-    const rowCheckboxes = page.locator('[data-ticket-id]').getByRole('checkbox');
+    const rowCheckboxes = tickets.activePanel.locator('[data-ticket-id]').getByRole('checkbox');
     const count = await rowCheckboxes.count();
     for (let i = 0; i < count; i++) {
       await expect(rowCheckboxes.nth(i)).toBeChecked();
@@ -160,7 +176,7 @@ test.describe('Unified ticket table', () => {
     const row = tickets.rowByTitle(title);
 
     // Selecting the row, and opening its menu, do their own job and stay put.
-    await row.getByRole('checkbox').click();
+    await tickets.selectTicket(title);
     await row.getByRole('button', { name: 'Ticket options' }).click();
     await page.keyboard.press('Escape');
     // The Tickets URL carries `?team=` (deep linking), so only the path is pinned.

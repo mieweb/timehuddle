@@ -18,11 +18,14 @@ export class TicketsPage extends BasePage {
   readonly heading: Locator;
   readonly newTicketButton: Locator;
   readonly searchInput: Locator;
-  readonly openSwitch: Locator;
-  readonly closedSwitch: Locator;
   readonly sortFilterButton: Locator;
+  readonly openOption: Locator;
+  readonly closedOption: Locator;
   readonly clearFiltersButton: Locator;
   readonly selectAllCheckbox: Locator;
+  /** Turns the rows' checkboxes on ("Select") and off ("Done"). */
+  readonly selectModeButton: Locator;
+  readonly doneSelectingButton: Locator;
   readonly ticketsTab: Locator;
   readonly myBoardTab: Locator;
   readonly moveToBoardButton: Locator;
@@ -41,12 +44,14 @@ export class TicketsPage extends BasePage {
     this.searchInput = this.page.getByRole('combobox', {
       name: 'Search tickets and Redmine issues',
     });
-    // Open/Closed is a radio pair in the list header, labelled with its counts.
-    this.openSwitch = this.page.getByRole('radio', { name: /Open$/ });
-    this.closedSwitch = this.page.getByRole('radio', { name: /Closed$/ });
+    // Open/Closed sits in the list header at every width, labelled with its counts.
     this.sortFilterButton = this.page.getByRole('button', { name: /^Sort and filter/ });
-    this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
+    this.openOption = this.page.getByRole('radio', { name: /^Open tickets/ });
+    this.closedOption = this.page.getByRole('radio', { name: /^Closed tickets/ });
+    this.clearFiltersButton = this.page.getByRole('menuitem', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
+    this.selectModeButton = this.page.getByRole('button', { name: 'Select', exact: true });
+    this.doneSelectingButton = this.page.getByRole('button', { name: 'Done', exact: true });
     this.ticketsTab = this.page.getByRole('radio', { name: 'All Sources' });
     this.myBoardTab = this.page.getByRole('radio', { name: 'My Board' });
     this.moveToBoardButton = this.page.getByRole('button', { name: 'Move to My Board' });
@@ -65,6 +70,7 @@ export class TicketsPage extends BasePage {
 
   /** Check a ticket row's selection checkbox by title. */
   async selectTicket(title: string) {
+    if (await this.selectModeButton.isVisible()) await this.selectModeButton.click();
     await this.rowByTitle(title).getByRole('checkbox').click();
   }
 
@@ -262,15 +268,13 @@ export class TicketsPage extends BasePage {
 
   /** Switch to closed tickets */
   async showClosedTickets() {
-    await this.closedSwitch.click();
+    await this.closedOption.click();
     await this.page.waitForTimeout(500);
   }
 
   /** Switch back to open tickets */
   async showOpenTickets() {
-    if (await this.closedSwitch.isChecked()) {
-      await this.openSwitch.click();
-      await this.page.waitForTimeout(500);
-    }
+    await this.openOption.click();
+    await this.page.waitForTimeout(500);
   }
 }

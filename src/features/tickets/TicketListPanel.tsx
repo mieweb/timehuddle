@@ -24,6 +24,7 @@ type SharedListProps = Pick<
   | 'timerLoadingKey'
   | 'onToggleTimer'
   | 'showTimer'
+  | 'selecting'
   | 'onEditRequest'
   | 'onDeleteRequest'
   | 'onChangeStatusRequest'
@@ -98,7 +99,6 @@ export const TicketListPanel: React.FC<TicketListPanelProps> = ({
           onSortChange={view.onSortChange}
           filters={view.filters}
           onFiltersChange={view.setFilters}
-          filtersActive={filtersActive}
           onClearFilters={view.clearFilters}
           openMenuId={view.openFilterMenu}
           onOpenMenuChange={view.onOpenFilterMenuChange}

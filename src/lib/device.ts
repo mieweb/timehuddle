@@ -146,8 +146,14 @@ function navigateExternal(url: string): void {
  * `window.open(url, '_system')` is NOT used: Capacitor's WebView doesn't
  * implement Cordova's `_system` target, so custom schemes and even store URLs
  * fail with "address invalid" / `LSApplicationWorkspaceErrorDomain Code=115`.
+ *
+ * `signal`, once aborted, stops the launch before anything opens.
  */
-export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Promise<void> {
+export async function openNativePulseOrStore(
+  deepLink: string,
+  os: MobileOS,
+  signal?: AbortSignal,
+): Promise<void> {
   const { AppLauncher } = await import('@capacitor/app-launcher');
 
   // The scheme (no query) is what iOS/Android check against the query allow-list.
@@ -158,6 +164,8 @@ export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Pr
   } catch {
     canOpen = false;
   }
+  // The two awaits above take a moment; the caller may have moved on meanwhile.
+  if (signal?.aborted) return;
 
   if (canOpen) {
     await AppLauncher.openUrl({ url: deepLink });

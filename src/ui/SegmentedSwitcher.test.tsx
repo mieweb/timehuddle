@@ -84,11 +84,71 @@ describe('SegmentedSwitcher', () => {
     );
     const iconOnly = screen.getByRole('radio', { name: 'All Sources' });
     expect(iconOnly.textContent).toBe('');
-    // Named for a sighted keyboard user too: the tooltip shows on focus.
+    // On a wide screen its name shows in a tooltip, on focus as well as hover.
     fireEvent.focus(iconOnly);
     expect((await screen.findByRole('tooltip', { hidden: true })).textContent).toBe('All Sources');
     expect(screen.getByTestId('icon')).toBeTruthy();
     // The group keeps its name with the visible label hidden.
     expect(screen.getByRole('radiogroup', { name: 'View' })).toBeTruthy();
+  });
+
+  it('shows no tooltip for an icon-only option on a phone', () => {
+    const wide = window.matchMedia;
+    window.matchMedia = (query: string) => ({ ...wide(query), matches: true }) as MediaQueryList;
+    try {
+      render(
+        <SegmentedSwitcher
+          name="views"
+          label="View"
+          hideLabel
+          options={[
+            { value: 'board', label: 'My Board' },
+            { value: 'all', label: 'All Sources', icon: <svg />, iconOnly: true },
+          ]}
+          value="board"
+          onValueChange={vi.fn()}
+        />,
+      );
+      fireEvent.focus(screen.getByRole('radio', { name: 'All Sources' }));
+      expect(screen.queryByRole('tooltip', { hidden: true })).toBeNull();
+    } finally {
+      window.matchMedia = wide;
+    }
+  });
+
+  it('shows an option\u2019s detail, colours it by tone, and takes its accessible name', () => {
+    render(
+      <SegmentedSwitcher
+        name="shown"
+        label="Tickets shown"
+        hideLabel
+        options={[
+          {
+            value: 'open',
+            label: 'Open',
+            detail: '12',
+            accessibleName: 'Open tickets, 12',
+            toneClassName: 'text-green-600',
+          },
+          {
+            value: 'closed',
+            label: 'Closed',
+            detail: '50+',
+            accessibleName: 'Closed tickets, 50+',
+            toneClassName: 'text-purple-600',
+          },
+        ]}
+        value="open"
+        onValueChange={vi.fn()}
+      />,
+    );
+    const open = screen.getByRole('radio', { name: 'Open tickets, 12' });
+    const closed = screen.getByRole('radio', { name: 'Closed tickets, 50+' });
+    expect(open.textContent).toBe('Open12');
+    expect(open.className).toContain('text-green-600');
+    // The one not chosen keeps its colour and is dimmed.
+    expect(closed.className).toContain('text-purple-600');
+    expect(closed.className).toContain('opacity-60');
+    expect(open.className).not.toContain('opacity-60');
   });
 });

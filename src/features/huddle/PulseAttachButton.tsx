@@ -1,6 +1,5 @@
 import { faQrcode, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { mediaApi, videoApi } from '../../lib/api';
@@ -12,7 +11,8 @@ import {
 } from '../../lib/device';
 import type { MediaItem } from './types';
 import { ComposerChipButton } from './ComposerChipButton';
-import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/PulseUploadButton';
+import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/pulseLinks';
+import { EXPIRED_MESSAGE } from '../pulse-upload/pulseStatus';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import {
   PENDING_TTL_MS,
@@ -44,10 +44,10 @@ interface PulseAttachButtonProps {
 }
 
 /**
- * Pulse video button for the Huddle composer — mirrors the ticket-details
- * {@link PulseUploadButton} (QR-record-with-phone + upload-from-device) but
- * reserves a *library* video (no ticket context) and hands the finished clip
- * back to the composer as an attachment.
+ * Pulse video button for the Huddle composer — QR on a computer, the Pulse app
+ * on a phone, like the ticket page's {@link PulseButton}, but it reserves a
+ * *library* video (no ticket context) and hands the finished clip back to the
+ * composer as an attachment.
  *
  * A library upload completing on the backend inserts a media-library item keyed
  * by `videoid`, so the phone/QR flow is detected by polling `media.list` for the
@@ -63,7 +63,6 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
 }) => {
   const isNative = isNativeApp();
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // Keeps the poll interval off the render cycle — `onAttach` is redefined by
   // the host on every render, and depending on it would restart the timer
   // before it ever fires.
@@ -73,13 +72,12 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
 
   const [modalOpen, setModalOpen] = useState(false);
   const [scanLink, setScanLink] = useState<string | null>(null);
-  const [uploadToken, setUploadToken] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
   const [pending, setPending] = useState<PendingUpload | null>(() => readPending(scope));
+  // The last link ran out (30 minutes) with nothing landing on it.
+  const [expired, setExpired] = useState(false);
 
-  const videoid = pending?.videoid ?? null;
   // A reservation that hasn't resolved yet. Reported to the host (which blocks
   // submit on it) and used here to stop a second reservation overwriting it.
   const hasReservation = !!pending && !pending.done;
@@ -136,6 +134,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       if (Date.now() - pending.reservedAt > PENDING_TTL_MS) {
         clearComposerPulseUpload(scope);
         setPending(null);
+        setExpired(true);
         return;
       }
       try {
@@ -174,8 +173,8 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
       const link = buildUploadDeepLink(videoid, uploadToken);
       attachedRef.current = null;
+      setExpired(false);
       setPending(writePending(scope, videoid));
-      setUploadToken(uploadToken);
       setScanLink(buildScanLink(videoid, uploadToken));
       return { videoid, uploadLink: link };
     } catch {
@@ -207,85 +206,20 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   const handleCancelPending = () => {
     clearComposerPulseUpload(scope);
     setPending(null);
-    setUploadToken(null);
     setScanLink(null);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !videoid || !uploadToken) return;
-
-    setError(null);
-    setProgress(0);
-
-    const upload = new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: { filename: file.name, filetype: file.type, videoid },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress(bytesUploaded, bytesTotal) {
-        setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
-      },
-      onSuccess() {
-        setUploadToken(null);
-        setProgress(null);
-        finishAttach(videoid, file.name, file.size);
-      },
-      async onError(err) {
-        // The backend finalizes the upload the moment the first PATCH completes,
-        // so a duplicate-PATCH 409 (or other late error) can fire even though the
-        // video already landed. Mirror the ticket flow's server-authoritative
-        // behavior: re-check the library before surfacing a failure. The pending
-        // watcher stays running as a second safety net.
-        setProgress(null);
-        try {
-          const items = await mediaApi.list();
-          const match = items.find((m) => m.videoid === videoid || m.id === videoid);
-          if (match) {
-            setUploadToken(null);
-            finishAttach(videoid, match.filename ?? file.name, match.size ?? file.size);
-            return;
-          }
-        } catch {
-          // fall through to surfacing the original error
-        }
-        setError(err instanceof Error ? err.message : 'Upload failed. Try again.');
-      },
-    });
-
-    upload.start();
-  };
-
-  const handleUploadFromDevice = () => {
-    setModalOpen(false);
-    fileInputRef.current?.click();
-  };
-
-  const isUploading = progress !== null;
-  const isWaiting = hasReservation && !isUploading && !modalOpen;
+  const isWaiting = hasReservation && !modalOpen;
 
   return (
     <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".mp4,video/mp4"
-        className="hidden"
-        aria-label="Select MP4 file to upload"
-        onChange={handleFileChange}
-        disabled={isUploading}
-      />
-
       <ComposerChipButton
         onClick={handleClick}
         // A second reservation would overwrite the first in state and in
         // localStorage, orphaning the recording already in progress. The
         // explicit Cancel beside the waiting status is the way out.
-        disabled={isUploading || reserving || isWaiting}
-        aria-label="Record or upload a video with Pulse"
-        aria-busy={isUploading}
+        disabled={reserving || isWaiting}
+        aria-label="Record a video with Pulse"
         leftIcon={
           <FontAwesomeIcon
             icon={isNative ? faVideo : faQrcode}
@@ -294,7 +228,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
           />
         }
       >
-        {reserving ? 'Preparing…' : isUploading ? `${progress}%` : 'Pulse'}
+        {reserving ? 'Preparing…' : 'Pulse'}
       </ComposerChipButton>
 
       {isWaiting && (
@@ -315,6 +249,17 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         </span>
       )}
 
+      {/* Phones never open the modal: say it here when the link ran out. */}
+      {expired && !modalOpen && (
+        <span
+          className="text-xs text-gray-500 dark:text-neutral-400"
+          role="status"
+          aria-live="polite"
+        >
+          {EXPIRED_MESSAGE}
+        </span>
+      )}
+
       {error && (
         <span className="text-xs text-red-500 dark:text-red-400" role="alert">
           {error}
@@ -325,9 +270,8 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         scanLink={scanLink}
-        onUploadFromDevice={handleUploadFromDevice}
-        onDone={() => setModalOpen(false)}
-        doneLabel="Done"
+        destination={{ kind: 'library' }}
+        status={hasReservation ? { state: 'waiting' } : expired ? { state: 'expired' } : null}
       />
     </>
   );

@@ -51,6 +51,7 @@ export interface TicketRowProps {
   /** Whether the signed-in user created this ticket (gates edit/delete). */
   isCreator: boolean;
   selected: boolean;
+  selecting: boolean;
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;
   isTimerRunning: boolean;
   timerLoading: boolean;
@@ -113,6 +114,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
   selected,
+  selecting,
   onSelectedChange,
   isTimerRunning,
   timerLoading,
@@ -191,11 +193,13 @@ export const TicketRow: React.FC<TicketRowProps> = ({
 
   const leading = (
     <>
-      <Checkbox
-        checked={selected}
-        onChange={(e) => onSelectedChange(ticket, e.target.checked)}
-        aria-label={text.select(ticket.title)}
-      />
+      {selecting && (
+        <Checkbox
+          checked={selected}
+          onChange={(e) => onSelectedChange(ticket, e.target.checked)}
+          aria-label={text.select(ticket.title)}
+        />
+      )}
       {showTimer && (
         <TimerToggleButton
           isRunning={isTimerRunning}

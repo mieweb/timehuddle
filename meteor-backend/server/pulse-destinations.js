@@ -10,6 +10,7 @@
  *   library  → the uploader's media library
  *   ticket   → an attachment on a Huddle ticket
  *   redmine  → an attachment on a Redmine issue (lives only in TimeHuddle)
+ *   clock    → an attachment on the uploader's own clock session
  *
  * Each kind is one entry in DESTINATIONS. `check` runs when the link is
  * minted, so a bad destination fails before anyone records anything, and
@@ -22,7 +23,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 
 import { createAttachment } from './attachments.js';
-import { isValidId, rawDb } from './collections.js';
+import { isObjectIdHex, rawDb } from './collections.js';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -102,9 +103,12 @@ const DESTINATIONS = {
     },
   },
 
-  ticket: attachment('ticket', async (userId, { id }) => {
-    requireId(id, 'ticket');
-    if (!isValidId(id)) throw new Meteor.Error('not-found', 'Ticket not found');
+  ticket: attachment('ticket', async (userId, { id: rawId }) => {
+    requireId(rawId, 'ticket');
+    // `isValidId` also takes legacy Meteor ids, which `new ObjectId` throws on.
+    if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Ticket not found');
+    // As `toHexString` writes it, which is how attachments are found again.
+    const id = rawId.toLowerCase();
     // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
@@ -120,6 +124,18 @@ const DESTINATIONS = {
   [REDMINE]: attachment(REDMINE, async (userId, { id }) => {
     requireId(id, 'Redmine issue');
     await resolveTicketRef(userId, REDMINE, id);
+    return { id };
+  }),
+
+  clock: attachment('clock', async (userId, { id: rawId }) => {
+    requireId(rawId, 'clock session');
+    if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Clock session not found');
+    const id = rawId.toLowerCase();
+    const session = await rawDb()
+      .collection('clockevents')
+      .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1 } });
+    if (!session) throw new Meteor.Error('not-found', 'Clock session not found');
+    if (session.userId !== userId) throw new Meteor.Error('forbidden', 'Not your clock session');
     return { id };
   }),
 };

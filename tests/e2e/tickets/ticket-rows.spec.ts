@@ -68,9 +68,83 @@ test.describe('Ticket rows', () => {
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
 
-    // There are no columns at all, and the header keeps select-all.
+    // There are no columns at all.
     await expect(page.getByRole('columnheader')).toHaveCount(0);
+  });
+
+  test('shows checkboxes only while selecting, and drops the selection after', async () => {
+    const title = `E2E Phone Select ${Date.now()}`;
+    await tickets.createTicket(title);
+    const row = tickets.rowByTitle(title);
+
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+    await expect(tickets.selectAllCheckbox).toHaveCount(0);
+
+    await tickets.selectModeButton.click();
+    await expect(tickets.doneSelectingButton).toHaveAttribute('aria-pressed', 'true');
     await expect(tickets.selectAllCheckbox).toBeVisible();
+    await tickets.selectTicket(title);
+    await expect(tickets.moveToBoardButton).toBeVisible();
+
+    // Done hides the checkboxes, so nothing may stay ticked behind them.
+    await tickets.doneSelectingButton.click();
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+    await expect(tickets.moveToBoardButton).toHaveCount(0);
+    await tickets.selectModeButton.click();
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+  });
+
+  test('drops the selection when the view changes, but preserves it when resizing', async ({
+    page,
+  }) => {
+    const title = `E2E Phone Reset ${Date.now()}`;
+    await tickets.createTicket(title);
+    const row = tickets.rowByTitle(title);
+
+    // Switching view ends selection mode and clears what was ticked.
+    await tickets.selectModeButton.click();
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await tickets.switchToTab('my-board');
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+    await expect(tickets.selectModeButton).toHaveAttribute('aria-pressed', 'false');
+    await tickets.switchToTab('tickets');
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+
+    // Resizing never hides a selected row's checkbox or changes selection mode.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await tickets.selectModeButton.click();
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await page.setViewportSize(PHONE);
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await expect(row.getByRole('checkbox')).toBeChecked();
+
+    // The same selection stays visible when the list grows again.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(tickets.deselectAllButton).toBeVisible();
+    await expect(row.getByRole('checkbox')).toBeChecked();
+  });
+
+  test('switches between open and closed tickets from the header', async ({ page }) => {
+    const title = `E2E Phone Closed ${Date.now()}`;
+    await tickets.createTicket(title);
+    const showOpen = tickets.openOption;
+    const showClosed = tickets.closedOption;
+
+    // One switcher only, always in the list header.
+    await expect(showOpen).toHaveCount(1);
+    await expect(showOpen).toBeChecked();
+    await expect(showOpen).toHaveAccessibleName(/^Open tickets, \d+\+?$/);
+    await expect(page.locator('.ticket-view-controls')).toHaveCount(0);
+
+    await showClosed.click();
+    await expect(showClosed).toBeChecked();
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+
+    // Still there when the closed list is empty and the table is not drawn.
+    await showOpen.click();
+    await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
   test('sorts and filters from one menu in the header', async ({ page }) => {
@@ -96,7 +170,9 @@ test.describe('Ticket rows', () => {
     await expect(page.getByRole('menu').getByText('Filter by Source: TimeHuddle')).toBeVisible();
     await page.keyboard.press('Escape');
 
-    await tickets.clearFiltersButton.click();
+    // Clearing them is in the same menu; the toolbar has no room for it here.
+    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
+    await page.getByRole('menuitem', { name: 'Clear filters' }).click();
     await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();
   });
 
@@ -167,15 +243,19 @@ test.describe('Ticket rows', () => {
 
     const title = `E2E Phone Board ${Date.now()}`;
     await tickets.createTicket(title);
+    await tickets.selectModeButton.click();
     await tickets.moveToBoard(title);
     const row = tickets.rowByTitle(title);
     await expect(row).toBeVisible();
+    // Switching view left selection mode; go back in, for the row at its tightest.
+    await tickets.selectModeButton.click();
 
     const overflow = await sidewaysOverflow(page);
     expect(overflow).not.toBeNull();
     expect(overflow).toBeLessThanOrEqual(1);
 
-    // Every control on the row is on screen: select, timer, and the row menu.
+    // Every control on the row is on screen: select (in selection mode, the
+    // tightest the row gets), timer, and the row menu.
     const controls = [
       row.getByRole('checkbox'),
       tickets.timerButtonForRow(title),
@@ -190,7 +270,7 @@ test.describe('Ticket rows', () => {
 
     await tickets.selectTicket(title);
     await expect(tickets.removeFromBoardButton).toBeVisible();
-    await tickets.selectTicket(title);
+    await tickets.doneSelectingButton.click();
 
     await tickets.startTimerButton(title).click();
     await expect(tickets.stopTimerButton(title)).toBeVisible();
@@ -217,11 +297,11 @@ test.describe('Ticket rows', () => {
     expect(Math.abs((await factsTop()) - (await titleTop()))).toBeLessThanOrEqual(8);
     await expect(page.getByRole('columnheader')).toHaveCount(0);
 
-    // Open/Closed sits at the start of the list header, after select-all, at every width.
+    // Open/Closed sits at the start of the list header at every width.
     for (const width of [360, 1440]) {
       await page.setViewportSize({ width, height: 800 });
       const header = await tickets.activePanel.locator('.row-list-header').boundingBox();
-      const open = await tickets.openSwitch.boundingBox();
+      const open = await tickets.openOption.boundingBox();
       expect(header).not.toBeNull();
       expect(open).not.toBeNull();
       expect(open!.x - header!.x, `at ${width}px`).toBeLessThan(80);

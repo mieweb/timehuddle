@@ -8,8 +8,6 @@
  * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
  * assignment); rows gate those controls on each source's capabilities.
  */
-import { faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
   Alert,
@@ -26,7 +24,7 @@ import {
   Textarea,
   useToast,
 } from '@mieweb/ui';
-import { Binoculars } from 'lucide-react';
+import { Binoculars, CheckCheck, Plus } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -105,6 +103,8 @@ const viewText = {
   newTicket: 'New Ticket',
   newTicketPrefix: 'New ',
   ticket: 'Ticket',
+  select: 'Select',
+  doneSelecting: 'Done',
 };
 
 type TicketsView = 'tickets' | 'my-board';
@@ -316,6 +316,8 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
+  // Rows carry no checkbox until Select asks for them, at every width.
+  const [selecting, setSelecting] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement>(null);
   // The empty board's button hides itself by switching views. Focus goes to
   // the option it selected, so a keyboard user is not dropped on the page body.
@@ -397,6 +399,27 @@ export const TicketsPage: React.FC = () => {
   const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
   const boardView = useTicketTableView(boardTickets, meKeys);
+
+  // Leaving selection mode drops the selection: with the checkboxes gone there
+  // would be no way to see, or undo, what was still ticked.
+  const clearTicketsSelection = ticketsView.clearSelection;
+  const clearBoardSelection = boardView.clearSelection;
+  const toggleSelecting = useCallback(() => {
+    setSelecting((on) => !on);
+    clearTicketsSelection();
+    clearBoardSelection();
+  }, [clearTicketsSelection, clearBoardSelection]);
+
+  // A selection belongs to the view it was made in; resizing keeps it visible.
+  const selectionScope = activeView;
+  const lastSelectionScope = React.useRef(selectionScope);
+  useEffect(() => {
+    if (lastSelectionScope.current === selectionScope) return;
+    lastSelectionScope.current = selectionScope;
+    setSelecting(false);
+    clearTicketsSelection();
+    clearBoardSelection();
+  }, [selectionScope, clearTicketsSelection, clearBoardSelection]);
 
   // The search is the exception: one bar sits above both tabs, so its text is
   // one value, applied to whichever table is showing.
@@ -714,7 +737,7 @@ export const TicketsPage: React.FC = () => {
     <Button
       variant="primary"
       size="sm"
-      leftIcon={<FontAwesomeIcon icon={faPlus} />}
+      leftIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
       // Teams arrive asynchronously, so selectedTeam is null on first
       // paint even for users who have one. Without this guard an early
       // click reports "No team available" to a user who has a team.
@@ -732,6 +755,7 @@ export const TicketsPage: React.FC = () => {
 
   // What both tabs' lists share; each tab adds its own view and labels.
   const sharedListProps = {
+    selecting,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -748,15 +772,29 @@ export const TicketsPage: React.FC = () => {
 
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="tickets-views flex min-h-0 flex-1 flex-col">
-          <div ref={switcherRef} className="tickets-view-switcher mb-1.5 shrink-0">
+          <div
+            ref={switcherRef}
+            className="tickets-view-switcher mb-1.5 flex shrink-0 items-center justify-between gap-2"
+          >
             <SegmentedSwitcher
               name="tickets-view"
               label={viewText.switcherLabel}
               hideLabel
+              compact
               options={VIEW_OPTIONS}
               value={activeView}
               onValueChange={setActiveView}
             />
+            <Button
+              variant={selecting ? 'primary' : 'secondary'}
+              size="sm"
+              aria-pressed={selecting}
+              rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+              onClick={toggleSelecting}
+              className="tickets-select-toggle shrink-0 rounded-lg"
+            >
+              {selecting ? viewText.doneSelecting : viewText.select}
+            </Button>
           </div>
 
           {/* One toolbar for both views: it stays put when the tab changes. */}

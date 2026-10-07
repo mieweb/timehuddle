@@ -4,9 +4,8 @@
  * Reused across WorkPage, TicketsPage, the Redmine search suggestions and the
  * Redmine issue page for consistent timer controls.
  */
-import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Tooltip } from '@mieweb/ui';
+import { Pause, Play } from 'lucide-react';
 import React from 'react';
 
 export interface TimerToggleButtonProps {
@@ -42,6 +41,7 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
   'aria-hidden': ariaHidden,
   onMouseDown,
 }) => {
+  const Icon = isRunning ? Pause : Play;
   const buttonContent = (
     <Button
       variant="ghost"
@@ -61,7 +61,8 @@ export const TimerToggleButton: React.FC<TimerToggleButtonProps> = ({
       aria-label={ariaLabel ?? (isRunning ? 'Stop timer' : 'Start timer')}
       style={disabled && !isLoading ? { pointerEvents: 'none' } : undefined}
     >
-      <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+      {/* Filled, so it reads as a solid glyph at this size. */}
+      <Icon className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
       {label && <span className="timer-toggle-label">{label}</span>}
     </Button>
   );

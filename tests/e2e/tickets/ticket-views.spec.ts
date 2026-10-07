@@ -27,7 +27,7 @@ test.describe('Tickets page views', () => {
   });
 
   test('names the icon-only tab All Sources and opens it by keyboard', async ({ page }) => {
-    await expect(page.getByRole('radio', { name: 'Tickets' })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: 'Tickets', exact: true })).toHaveCount(0);
     await tickets.myBoardTab.focus();
     await page.keyboard.press('ArrowRight');
     await expect(tickets.ticketsTab).toHaveAttribute('aria-checked', 'true');

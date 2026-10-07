@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildScanLink, buildUploadDeepLink, pulseServerBase } from './PulseUploadButton';
+import { buildScanLink, buildUploadDeepLink, pulseServerBase } from './pulseLinks';
 
 describe('pulseServerBase', () => {
   it('appends the /pulsevault mount prefix to the backend origin', () => {
