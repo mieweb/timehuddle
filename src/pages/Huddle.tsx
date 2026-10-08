@@ -156,7 +156,8 @@ export default function Huddle() {
       const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
       if (!anchor) return;
       const url = new URL(anchor.href, window.location.origin);
-      if (url.origin !== window.location.origin || !url.pathname.startsWith('/app/')) return;
+      const inApp = url.pathname === '/app' || url.pathname.startsWith('/app/');
+      if (url.origin !== window.location.origin || !inApp) return;
       event.preventDefault();
       navigate(`${url.pathname}${url.search}`);
     },

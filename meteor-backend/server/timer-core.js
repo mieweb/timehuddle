@@ -42,10 +42,12 @@ export async function closeRunningForUser(userId, now) {
   const running = await timers().findOne({ userId, endTime: null });
   if (!running) return null;
   const durationSeconds = Math.max(0, Math.floor((now - running.startTime) / 1000));
-  await timers().updateOne(
+  const closed = await timers().updateOne(
     { _id: running._id, endTime: null },
     { $set: { endTime: now, durationSeconds } }
   );
+  // Someone else (another tab, a clock-out) closed it first: nothing to say.
+  if (!closed.modifiedCount) return null;
   await postTimerUpdate(TimerUpdate.STOPPED, running, { at: justBefore(now) });
   return running._id.toHexString();
 }
@@ -57,22 +59,23 @@ export async function closeRunningForUser(userId, now) {
 export async function closeAllForUser(userId, now) {
   const running = await timers().find({ userId, endTime: null }).toArray();
   if (running.length === 0) return 0;
-  const bulkOps = running.map((s) => ({
-    updateOne: {
-      filter: { _id: s._id, endTime: null },
-      update: {
+  // One at a time, so each "Stopped" is said only by the call that closed it.
+  let closedCount = 0;
+  for (const session of running) {
+    const closed = await timers().updateOne(
+      { _id: session._id, endTime: null },
+      {
         $set: {
           endTime: now,
-          durationSeconds: Math.max(0, Math.floor((now - s.startTime) / 1000)),
+          durationSeconds: Math.max(0, Math.floor((now - session.startTime) / 1000)),
         },
-      },
-    },
-  }));
-  const result = await timers().bulkWrite(bulkOps);
-  for (const session of running) {
+      }
+    );
+    if (!closed.modifiedCount) continue;
+    closedCount += 1;
     await postTimerUpdate(TimerUpdate.STOPPED, session, { at: justBefore(now) });
   }
-  return result.modifiedCount;
+  return closedCount;
 }
 
 /** Find the timer session that closed exactly at `endTime` for the user. */

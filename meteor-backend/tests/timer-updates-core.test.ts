@@ -41,6 +41,10 @@ describe('timerUpdateText', () => {
     ).toBe('*Started [#abc: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/abc)*');
   });
 
+  it('keeps a title with line breaks on one line', () => {
+    expect(ticketName('huddle', 'abc', 'Fix\r\nlogin\n\nredirect')).toBe('#abc: Fix login redirect');
+  });
+
   it('falls back to the reference alone when a Huddle ticket has no title', () => {
     expect(ticketName('huddle', '64f0c1a2b3c4d5e6f7a3fa2c', '  ')).toBe('#3fa2c');
   });

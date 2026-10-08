@@ -46,7 +46,9 @@ export function huddleTicketRef(ticketId) {
 export function ticketName(source, ticketId, title) {
   if (source === 'redmine') return `#${ticketId}`;
   const ref = huddleTicketRef(ticketId);
-  return title?.trim() ? `${ref}: ${title.trim()}` : ref;
+  // One line: a title may hold line breaks, and an update is a single line.
+  const oneLine = title?.replace(/\s+/g, ' ').trim();
+  return oneLine ? `${ref}: ${oneLine}` : ref;
 }
 
 /** A title is user text going into markdown: its own markup must not take effect. */

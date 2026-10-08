@@ -105,13 +105,19 @@ function isPreviousDate(date, tz) {
   return date < todayInTz(tz);
 }
 
-/** Close the caller's running session, if any, and return it as it was. */
+/**
+ * Close the caller's running session, if any, and return it as it was. Null
+ * when nothing was running, or when something else closed it first.
+ */
 async function closeRunningSession(userId, now) {
   const running = await Timers.findOneAsync({ userId, endTime: null });
   if (!running) return null;
   const durationSeconds = Math.max(0, Math.floor((now - running.startTime) / 1000));
-  await Timers.updateAsync(running._id, { $set: { endTime: now, durationSeconds } });
-  return running;
+  const closed = await Timers.updateAsync(
+    { _id: running._id, endTime: null },
+    { $set: { endTime: now, durationSeconds } },
+  );
+  return closed ? running : null;
 }
 
 /**
@@ -707,7 +713,12 @@ Meteor.methods({
     if (session.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
     if (session.endTime !== null) throw new Meteor.Error('already-stopped', 'Session already stopped');
     const durationSeconds = Math.max(0, Math.floor((now - session.startTime) / 1000));
-    await Timers.updateAsync(session._id, { $set: { endTime: now, durationSeconds } });
+    // Claimed in the write itself, so of two stops at once only one goes on.
+    const closed = await Timers.updateAsync(
+      { _id: session._id, endTime: null },
+      { $set: { endTime: now, durationSeconds } },
+    );
+    if (!closed) throw new Meteor.Error('already-stopped', 'Session already stopped');
     const updated = await Timers.findOneAsync(session._id);
     let update = null;
     if (discardUpdate === true) await discardTimerUpdate(userId, session);

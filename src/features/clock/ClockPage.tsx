@@ -31,7 +31,7 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { clockApi, huddleApi, timerApi, type ClockEvent, type HuddlePost } from '../../lib/api';
+import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -337,11 +337,6 @@ export const ClockPage: React.FC = () => {
     setPosting(true);
     setPostError(null);
     try {
-      // The ticket timer stops first, so Huddle reads in the order things
-      // happened: "Stopped …", then the wrap-up, then "Clocked out". Best
-      // effort: clocking out closes the timer anyway.
-      if (runningTicket) await timerApi.stopSession(runningTicket.sessionId).catch(() => {});
-
       // Use sessionPost from DDP if available, otherwise fall back to the
       // cached post ID (handles the race where the plan post was just created
       // but hasn't arrived via DDP subscription yet).
