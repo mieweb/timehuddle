@@ -66,10 +66,13 @@ import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
 import {
+  boardEntryKeys,
   huddleSource,
   invalidateRedmineCache,
+  isOnBoard,
   linkedIssueKey,
   redmineSource,
+  ticketKey,
   ticketRefOf,
   useUnavailableRedmineBoardIds,
   useUnifiedTickets,
@@ -77,6 +80,7 @@ import {
 } from './sources';
 import { removalText } from './ticketRemovalStrings';
 import type { TicketTimerOutcome } from './startTicketTimer';
+import { useBoardActions } from './useBoardActions';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useMyBoardKeys } from './useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
@@ -353,7 +357,7 @@ export const TicketsPage: React.FC = () => {
   const boardLoading = ticketsLoading || !boardLoaded;
   // A board entry for a Redmine issue shows as the ticket linked to that issue.
   const boardTickets = useMemo(
-    () => allTickets.filter((t) => boardKeys.has(t.key) || boardKeys.has(linkedIssueKey(t) ?? '')),
+    () => allTickets.filter((t) => isOnBoard(t, boardKeys)),
     [allTickets, boardKeys],
   );
 
@@ -481,7 +485,7 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  // ── Ticket timers (started from My Board and Redmine suggestions) ──
+  // ── Ticket timers (started from either table and Redmine suggestions) ──
 
   const handleToggleTimer = useCallback(
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
@@ -495,8 +499,10 @@ export const TicketsPage: React.FC = () => {
         kind: 'ticket',
         ticket,
         label,
-        inTable: ticketByKey.has(ticket.key),
-        onBoard: boardKeys.has(ticket.key),
+        // An issue on the board is a table row for that alone, even before the
+        // refetch that lists it: nothing to pin.
+        inTable: ticketByKey.has(ticket.key) || isOnBoard(ticket, boardKeys),
+        onBoard: isOnBoard(ticket, boardKeys),
       });
     },
     [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys],
@@ -700,25 +706,70 @@ export const TicketsPage: React.FC = () => {
     [ticketByKey, requestDelete],
   );
 
+  // The writes tell every board reader to look again (`useBoardActions`); the
+  // board shown here is updated at once rather than after that read.
+  const boardActions = useBoardActions();
+
   /** Put rows on My Board. Resolves to whether they were added; a failure is toasted. */
   const addToBoard = useCallback(
     (keys: string[]) =>
-      myBoardApi.addMany(keys.map(ticketRefOf)).then(
-        () => {
-          setBoardKeys((prev) => new Set([...prev, ...keys]));
-          return true;
-        },
-        // A full board is refused with the server's own explanation.
-        (err: unknown) => {
-          toast.error(
-            err instanceof ApiError && err.code === 'board-full'
-              ? err.message
-              : removalText.boardAddFailed,
-          );
-          return false;
-        },
+      boardActions.add(keys).then((added) => {
+        if (added) setBoardKeys((prev) => new Set([...prev, ...keys]));
+        return added;
+      }),
+    [boardActions, setBoardKeys],
+  );
+
+  /** Take rows off My Board; `undoLabel` as in `useBoardActions`. */
+  const removeFromBoard = useCallback(
+    (keys: string[], undoLabel?: string) =>
+      boardActions.remove(keys, undoLabel).then((removed) => {
+        if (removed) {
+          setBoardKeys((prev) => {
+            const next = new Set(prev);
+            for (const key of keys) next.delete(key);
+            return next;
+          });
+        }
+        return removed;
+      }),
+    [boardActions, setBoardKeys],
+  );
+
+  // A suggestion's board button, for an issue that may not be a table row yet.
+  const boardRedmineIssueIds = useMemo(
+    () =>
+      new Set(
+        [...boardKeys]
+          .map(ticketRefOf)
+          .filter((ref) => ref.sourceId === 'redmine')
+          .map((ref) => Number(ref.ticketId)),
       ),
-    [setBoardKeys, toast],
+    [boardKeys],
+  );
+  const handleSuggestionBoard = useCallback(
+    (issue: RedmineIssue) => {
+      const key = ticketKey('redmine', String(issue.id));
+      return boardKeys.has(key)
+        ? removeFromBoard([key], timerLabel('redmine', String(issue.id)))
+        : addToBoard([key]);
+    },
+    [boardKeys, addToBoard, removeFromBoard],
+  );
+
+  // One row's board button: on puts it there, off takes it away again.
+  const [boardLoadingKey, setBoardLoadingKey] = useState<string | null>(null);
+  const handleToggleBoard = useCallback(
+    (ticket: UnifiedTicket) => {
+      const entryKeys = boardEntryKeys(ticket, boardKeys);
+      setBoardLoadingKey(ticket.key);
+      void (
+        entryKeys.length > 0
+          ? removeFromBoard(entryKeys, timerLabel(ticket.sourceId, ticket.id, ticket.title))
+          : addToBoard([ticket.key])
+      ).finally(() => setBoardLoadingKey(null));
+    },
+    [boardKeys, addToBoard, removeFromBoard],
   );
 
   const handleMoveToBoard = useCallback(() => {
@@ -765,28 +816,10 @@ export const TicketsPage: React.FC = () => {
     // the ticket off has to take that entry off too.
     const keys = [...boardView.selectedKeys].flatMap((key) => {
       const ticket = ticketByKey.get(key);
-      const alias = ticket ? linkedIssueKey(ticket) : null;
-      return alias && boardKeys.has(alias) ? [key, alias] : [key];
+      return ticket ? boardEntryKeys(ticket, boardKeys) : [key];
     });
-    const refs = keys.map(ticketRefOf);
-    void myBoardApi.removeMany(refs).then(
-      () => {
-        setBoardKeys((prev) => {
-          const next = new Set(prev);
-          for (const key of keys) next.delete(key);
-          return next;
-        });
-        boardView.clearSelection();
-        // A Redmine issue on the board is a table row for that reason alone
-        // (`board`), so the table may lose it too.
-        if (refs.some((ref) => ref.sourceId === 'redmine')) {
-          invalidateRedmineCache();
-          void refetch();
-        }
-      },
-      () => toast.error(removalText.boardRemoveFailed),
-    );
-  }, [boardView, ticketByKey, boardKeys, refetch, toast]);
+    void removeFromBoard(keys).then((removed) => removed && boardView.clearSelection());
+  }, [boardView, ticketByKey, boardKeys, removeFromBoard]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
@@ -819,6 +852,10 @@ export const TicketsPage: React.FC = () => {
     runningTicketKey: runningTicket?.key ?? null,
     timerLoadingKey,
     onToggleTimer: handleToggleTimer,
+    isOnBoard: (t: UnifiedTicket) => isOnBoard(t, boardKeys),
+    boardKnown,
+    boardLoadingKey,
+    onToggleBoard: handleToggleBoard,
     onEditRequest: (t: UnifiedTicket) => void openEditModal(t),
     onDeleteRequest: (t: UnifiedTicket) => requestDelete([t]),
     onChangeStatusRequest: handleChangeStatusRequest,
@@ -870,6 +907,9 @@ export const TicketsPage: React.FC = () => {
               tableIssueIds={tableRedmineIssueIds}
               runningIssueId={runningRedmineIssueId}
               onToggleTimer={handleSuggestionTimer}
+              boardIssueIds={boardRedmineIssueIds}
+              boardKnown={boardKnown}
+              onToggleBoard={handleSuggestionBoard}
               inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
             />
 
@@ -907,7 +947,7 @@ export const TicketsPage: React.FC = () => {
           >
             <TicketTablePanel
               {...sharedTableProps}
-              showTimerColumn
+              boardView
               view={boardView}
               loading={boardLoading}
               // Unresolvable board entries, announced politely.

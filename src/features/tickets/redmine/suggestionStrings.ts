@@ -32,8 +32,10 @@ export const suggestionText = {
   startTimer: (id: number) => `Start a timer on #${id}`,
   stopTimer: (id: number) => `Stop the timer on #${id}`,
   hide: (id: number) => `Hide #${id} from suggestions`,
-  rowShortcuts: 'Press Delete to hide, Shift+Enter to start a timer.',
-  searchRowShortcuts: 'Press Shift+Enter to start a timer.',
+  rowShortcuts:
+    'Press Delete to hide, Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
+  searchRowShortcuts:
+    'Press Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
 
   loadingSuggestions: 'Loading your Redmine issues…',
   searching: 'Searching Redmine…',

@@ -13,6 +13,7 @@
 import { test, expect } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 import { TicketsPage } from '../pages/TicketsPage';
 
 test.describe('Unified ticket table', () => {
@@ -205,13 +206,63 @@ test.describe('Unified ticket table', () => {
     await expect(page.getByRole('navigation', { name: 'Ticket pages' })).toHaveCount(0);
   });
 
-  test('offers no way to start a timer — that lives only on My Board (M3 D1)', async ({ page }) => {
+  test('a row comes off My Board and goes back on with one press each (#672)', async ({ page }) => {
+    const title = `E2E Board Toggle ${Date.now()}`;
+    // A ticket you create starts on your board.
+    await tickets.createTicket(title);
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+    await expect(tickets.startTimerButton(title)).toBeVisible();
+
+    await tickets.removeFromBoardRowButton(title).click();
+
+    await expect(page.getByText(`${title} removed from My Board`)).toBeVisible();
+    await expect(tickets.addToBoardRowButton(title)).toBeVisible();
+    // Off the board, the start button says it will add the ticket first.
+    await expect(tickets.addAndStartButton(title)).toHaveText('Add & Start');
+    await tickets.switchToTab('my-board');
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+
+    await tickets.switchToTab('tickets');
+    await tickets.addToBoardRowButton(title).click();
+
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+    await tickets.switchToTab('my-board');
+    await expect(tickets.rowByTitle(title)).toBeVisible();
+  });
+
+  test('Undo puts a ticket back on My Board (#672)', async ({ page }) => {
+    const title = `E2E Board Undo ${Date.now()}`;
+    await tickets.createTicket(title);
+
+    await tickets.removeFromBoardRowButton(title).click();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+  });
+
+  test('starts a timer from an All Sources row, adding the ticket to My Board (#672)', async ({
+    page,
+  }) => {
+    await new ClockPage(page).ensureClockedIn();
+    await tickets.goto();
+    const title = `E2E Add And Start ${Date.now()}`;
+    await tickets.createTicket(title);
+    await tickets.removeFromBoardRowButton(title).click();
+
+    await tickets.addAndStartButton(title).click();
+
+    await expect(page.getByText(`Timer started on ${title} and added to My Board`)).toBeVisible();
+    await expect(tickets.stopTimerButton(title)).toBeVisible();
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+    await tickets.stopTimerButton(title).click();
+    await expect(tickets.startTimerButton(title)).toBeVisible();
+  });
+
+  test('keeps the timer out of the row menu: it is a button on the row', async ({ page }) => {
     const title = `E2E Timer Menu ${Date.now()}`;
     await tickets.createTicket(title);
 
     const row = tickets.rowByTitle(title).first();
-    await expect(row.getByRole('button', { name: /start timer|stop timer/i })).toHaveCount(0);
-
     await row.getByRole('button', { name: 'Ticket options' }).click();
     await expect(page.getByRole('menuitem', { name: /timer/i })).toHaveCount(0);
     await page.keyboard.press('Escape');

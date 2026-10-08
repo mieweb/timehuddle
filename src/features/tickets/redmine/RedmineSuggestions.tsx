@@ -14,6 +14,7 @@
 import {
   Badge,
   Button,
+  ButtonGroup,
   Input,
   ScrollArea,
   SearchIcon,
@@ -36,6 +37,10 @@ import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { ticketDetailPath } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
+
+import { ticketTimerText as timerText } from '../../timers/ticketTimerStrings';
+import { BoardToggleButton } from '../BoardToggleButton';
+import { boardText } from '../boardStrings';
 
 import { suggestionText as text } from './suggestionStrings';
 import {
@@ -60,6 +65,12 @@ interface RedmineSuggestionsProps {
   runningIssueId: number | null;
   /** Start a timer on the issue, or stop it when it is the running one. */
   onToggleTimer: (issue: RedmineIssue) => Promise<TicketTimerOutcome>;
+  /** Redmine issue ids on My Board. Off it, starting a timer adds the issue first. */
+  boardIssueIds: ReadonlySet<number>;
+  /** The board has been read, so `boardIssueIds` is a fact — see `useMyBoardKeys`. */
+  boardKnown: boolean;
+  /** Put the issue on My Board, or take it off when it is there. */
+  onToggleBoard: (issue: RedmineIssue) => Promise<unknown>;
   inputClassName?: string;
 }
 
@@ -113,6 +124,9 @@ export function RedmineSuggestions({
   tableIssueIds,
   runningIssueId,
   onToggleTimer,
+  boardIssueIds,
+  boardKnown,
+  onToggleBoard,
   inputClassName,
 }: RedmineSuggestionsProps) {
   const { navigate } = useRouter();
@@ -124,6 +138,9 @@ export function RedmineSuggestions({
   // double-click lands before the state does); the state drives the spinner.
   const [timerIssueId, setTimerIssueId] = useState<number | null>(null);
   const timerBusy = useRef(false);
+  // The same for a row being put on or taken off My Board.
+  const [boardIssueId, setBoardIssueId] = useState<number | null>(null);
+  const boardBusy = useRef(false);
   const shortcutsId = useId();
   const searchShortcutsId = useId();
 
@@ -171,6 +188,25 @@ export function RedmineSuggestions({
       void loadSuggestions({ force: true });
     },
     [onToggleTimer, loadSuggestions],
+  );
+
+  const toggleBoard = useCallback(
+    async (issue: RedmineIssue) => {
+      if (!boardKnown || boardBusy.current) return;
+      boardBusy.current = true;
+      setBoardIssueId(issue.id);
+      try {
+        // The toasts are the parent's (`useBoardActions`).
+        await onToggleBoard(issue);
+      } finally {
+        boardBusy.current = false;
+        setBoardIssueId(null);
+      }
+      // Being on the board is a reason to suggest an issue, so the list changes.
+      invalidateSuggestionsCache();
+      void loadSuggestions({ force: true });
+    },
+    [boardKnown, onToggleBoard, loadSuggestions],
   );
 
   const hide = useCallback(
@@ -251,6 +287,10 @@ export function RedmineSuggestions({
     if (event.key === 'Delete' && row.section === 'suggested') {
       stopDownshift();
       void hide(row.issue);
+    } else if (event.key === 'Enter' && event.altKey) {
+      // The menu stays open: the row is still there, with its new state.
+      stopDownshift();
+      void toggleBoard(row.issue);
     } else if (event.key === 'Enter' && event.shiftKey) {
       stopDownshift();
       closeMenu();
@@ -368,6 +408,11 @@ export function RedmineSuggestions({
                           running={row.issue.id === runningIssueId}
                           timerBusy={timerIssueId !== null}
                           timerLoading={timerIssueId === row.issue.id}
+                          onBoard={boardIssueIds.has(row.issue.id)}
+                          boardKnown={boardKnown}
+                          boardBusy={boardIssueId !== null}
+                          boardLoading={boardIssueId === row.issue.id}
+                          onToggleBoard={() => void toggleBoard(row.issue)}
                           onToggleTimer={() => {
                             // Like Shift+Enter: close first, so nothing is left
                             // open behind a clock-in prompt.
@@ -468,6 +513,13 @@ function SuggestionSkeletons({ count }: { count: number }) {
 const CHIP_CLASS =
   'shrink-0 font-normal dark:bg-neutral-700 group-aria-selected:bg-neutral-200 dark:group-aria-selected:bg-neutral-600';
 
+/**
+ * The "Add & Start" button: its words give way to the icon on a narrow row, and
+ * on touch, where the actions show on every row.
+ */
+const ADD_AND_START_CLASS =
+  'h-7 max-sm:w-7 max-sm:px-0 max-sm:[&_.timer-toggle-label]:hidden pointer-coarse:w-7 pointer-coarse:px-0 pointer-coarse:[&_.timer-toggle-label]:hidden';
+
 /** Stop an action's click from also choosing the row, and keep focus in the input. */
 const keepFocus = (event: React.MouseEvent) => {
   event.preventDefault();
@@ -483,6 +535,13 @@ interface IssueRowProps {
   /** …and it is this row's. */
   timerLoading: boolean;
   onToggleTimer: () => void;
+  onBoard: boolean;
+  boardKnown: boolean;
+  /** A board add or removal is in flight, on this row or another. */
+  boardBusy: boolean;
+  /** …and it is this row's. */
+  boardLoading: boolean;
+  onToggleBoard: () => void;
   onHide?: () => void;
 }
 
@@ -493,11 +552,11 @@ interface IssueRowProps {
  * - reason chip: at the end on wide screens with a mouse, until the row is
  *   highlighted or hovered; under the title on touch, or on a highlighted
  *   narrow row
- * - timer and hide: on the highlighted or hovered row, always on touch
+ * - My Board, timer and hide: on the highlighted or hovered row, always on touch
  *
  * The actions are mouse-only (`tabIndex={-1}`, `aria-hidden`): a combobox
- * option cannot hold its own buttons, so the keyboard gets Delete and
- * Shift+Enter instead, announced through the row's `aria-describedby`.
+ * option cannot hold its own buttons, so the keyboard gets Delete, Shift+Enter
+ * and Alt+Enter instead, announced through the row's `aria-describedby`.
  */
 function IssueRow({
   issue,
@@ -506,8 +565,22 @@ function IssueRow({
   timerBusy,
   timerLoading,
   onToggleTimer,
+  onBoard,
+  boardKnown,
+  boardBusy,
+  boardLoading,
+  onToggleBoard,
   onHide,
 }: IssueRowProps) {
+  const label = `#${issue.id}`;
+  // Starting a timer puts the issue on My Board, so off the board the button
+  // says it will: in words where the row has the room, a wide one with a mouse.
+  const addsToBoard = boardKnown && !onBoard && !running;
+  const timerName = running
+    ? text.stopTimer(issue.id)
+    : addsToBoard
+      ? timerText.addAndStartLabel(label)
+      : text.startTimer(issue.id);
   return (
     <>
       <Text
@@ -551,19 +624,37 @@ function IssueRow({
         </Badge>
       )}
 
-      <span
-        className="redmine-suggestion-actions hidden shrink-0 items-center gap-1 group-hover:flex group-aria-selected:flex pointer-coarse:flex"
+      <ButtonGroup
+        orientation="horizontal"
+        className="redmine-suggestion-actions hidden shrink-0 gap-1 group-hover:flex group-aria-selected:flex pointer-coarse:flex"
         aria-hidden="true"
       >
-        <TimerToggleButton
-          isRunning={running}
-          isLoading={timerLoading}
-          disabled={timerBusy}
+        <BoardToggleButton
+          onBoard={onBoard}
+          isLoading={boardLoading}
+          // Not while this row's timer is starting (see `TicketTableRow`), nor
+          // while another row's board action is, nor before the board is read.
+          disabled={timerLoading || !boardKnown || (boardBusy && !boardLoading)}
           className="h-7 w-7"
           tabIndex={-1}
           aria-hidden
-          title={running ? text.stopTimer(issue.id) : text.startTimer(issue.id)}
-          ariaLabel={running ? text.stopTimer(issue.id) : text.startTimer(issue.id)}
+          ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
+          onMouseDown={keepFocus}
+          onClick={(event) => {
+            keepFocus(event);
+            onToggleBoard();
+          }}
+        />
+        <TimerToggleButton
+          isRunning={running}
+          isLoading={timerLoading}
+          disabled={timerBusy || boardLoading}
+          label={addsToBoard ? timerText.addAndStart : undefined}
+          className={addsToBoard ? ADD_AND_START_CLASS : 'h-7 w-7'}
+          tabIndex={-1}
+          aria-hidden
+          title={timerName}
+          ariaLabel={timerName}
           onMouseDown={keepFocus}
           onClick={(event) => {
             keepFocus(event);
@@ -588,7 +679,7 @@ function IssueRow({
             </Button>
           </Tooltip>
         )}
-      </span>
+      </ButtonGroup>
     </>
   );
 }

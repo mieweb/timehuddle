@@ -229,9 +229,9 @@ test.describe('Ticket rows on a phone', () => {
     expect(clipped).toBe(false);
   });
 
-  test('My Board fits a 360px screen, timer column included', async ({ page }) => {
-    // My Board adds the ▶/⏸ column, so it is the tightest layout there is;
-    // 360px is the narrowest phone the app supports.
+  test('My Board fits a 360px screen, board and timer buttons included', async ({ page }) => {
+    // Both views carry the My Board toggle and the ▶/⏸ button ahead of the
+    // title; 360px is the narrowest phone the app supports.
     const narrow = { width: 360, height: 740 };
     await new ClockPage(page).ensureClockedIn();
     await page.setViewportSize(narrow);
@@ -254,9 +254,10 @@ test.describe('Ticket rows on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
 
     // Every control on the row is on screen: select (in selection mode, the
-    // tightest the row gets), timer, and the row menu.
+    // tightest the row gets), the board toggle, timer, and the row menu.
     const controls = [
       row.getByRole('checkbox'),
+      tickets.removeFromBoardRowButton(title),
       tickets.timerButtonForRow(title),
       row.getByRole('button', { name: 'Ticket options' }),
     ];
@@ -275,6 +276,18 @@ test.describe('Ticket rows on a phone', () => {
     await expect(tickets.stopTimerButton(title)).toBeVisible();
     await tickets.stopTimerButton(title).click();
     await expect(tickets.startTimerButton(title)).toBeVisible();
+
+    // All Sources has the same two buttons, and fits as well.
+    await tickets.switchToTab('tickets');
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+    const allSourcesOverflow = await page.evaluate(() => {
+      const area = document.querySelector<HTMLElement>(
+        '.tickets-view-panel:not(.hidden) .ticket-table-scroll',
+      );
+      return area ? area.scrollWidth - area.clientWidth : null;
+    });
+    expect(allSourcesOverflow).not.toBeNull();
+    expect(allSourcesOverflow).toBeLessThanOrEqual(1);
   });
 
   test('goes back to one column per fact on a wide screen', async ({ page }) => {

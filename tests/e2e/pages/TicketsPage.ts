@@ -73,11 +73,31 @@ export class TicketsPage extends BasePage {
   }
 
   /**
-   * The ▶/⏸ button on a My Board row. My Board is the only place in the app
-   * that starts a ticket timer (M3 D1), so this exists nowhere else.
+   * The ▶/⏸ button on a row, on either view. Off My Board its name says the
+   * start adds the ticket first (see `addAndStartButton`).
    */
   timerButtonForRow(title: string): Locator {
     return this.rowByTitle(title).getByRole('button', { name: /start timer|stop timer/i });
+  }
+
+  /** A row's My Board toggle, while the ticket is off the board. */
+  addToBoardRowButton(title: string): Locator {
+    return this.rowByTitle(title).getByRole('button', {
+      name: `Add ${title} to My Board`,
+      exact: true,
+    });
+  }
+
+  /** A row's My Board toggle, while the ticket is on the board. */
+  removeFromBoardRowButton(title: string): Locator {
+    return this.rowByTitle(title).getByRole('button', { name: `Remove ${title} from My Board` });
+  }
+
+  /** The start button of a row that is off My Board: it adds the ticket, then starts. */
+  addAndStartButton(title: string): Locator {
+    return this.rowByTitle(title).getByRole('button', {
+      name: `Add ${title} to My Board and start timer`,
+    });
   }
 
   startTimerButton(title: string): Locator {

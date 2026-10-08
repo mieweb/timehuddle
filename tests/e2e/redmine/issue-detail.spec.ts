@@ -384,8 +384,13 @@ test.describe('Redmine issue page timer', () => {
     return { starts, stops, boardAdds };
   }
 
+  // Off My Board the start button says it adds the issue first (#672).
   const startButton = (page: Page) =>
-    page.getByRole('button', { name: `Start a timer on #${ISSUE_ID}` });
+    page.getByRole('button', {
+      name: new RegExp(
+        `^(Start a timer on #${ISSUE_ID}|Add #${ISSUE_ID} to My Board and start timer)$`,
+      ),
+    });
   const stopButton = (page: Page) =>
     page.getByRole('button', { name: `Stop the timer on #${ISSUE_ID}` });
 
@@ -414,6 +419,27 @@ test.describe('Redmine issue page timer', () => {
     await expect(startButton(page)).toBeVisible();
   });
 
+  test('the header toggle puts the issue on My Board and takes it off (#672)', async ({ page }) => {
+    const { boardAdds } = await stubTimer(page);
+    const rm = await openIssue(page, { 'issues.get': detailResponse() });
+    const add = page.getByRole('button', { name: `Add #${ISSUE_ID} to My Board`, exact: true });
+    const remove = page.getByRole('button', { name: `Remove #${ISSUE_ID} from My Board` });
+
+    await expect(add).toHaveText('Add to My Board');
+    await add.click();
+
+    // Added only: no timer, and nothing to pin (the board alone lists it).
+    await expect(remove).toHaveText('On My Board');
+    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
+    expect(rm.calls('prefs.set')).toHaveLength(0);
+    await expect(startButton(page)).toHaveText('Start timer');
+
+    await remove.click();
+
+    await expect(page.getByText(`#${ISSUE_ID} removed from My Board`)).toBeVisible();
+    await expect(add).toBeVisible();
+  });
+
   test('an issue not in your table is pinned and added to My Board', async ({ page }) => {
     await clock.ensureClockedIn();
     const { boardAdds } = await stubTimer(page);
@@ -422,6 +448,7 @@ test.describe('Redmine issue page timer', () => {
       'prefs.set': { ok: true },
     });
 
+    await expect(startButton(page)).toHaveText('Add & Start');
     await startButton(page).click();
 
     await expect(
