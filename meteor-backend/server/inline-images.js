@@ -14,7 +14,7 @@
 import { Meteor } from 'meteor/meteor';
 import fsp from 'fs/promises';
 import { rawDb } from './collections';
-import { MEDIA_DIR, storeMedia } from './uploads';
+import { MEDIA_DIR, discardMedia, storeMedia } from './uploads';
 import { isInsideMeteorBuild } from './storage-paths';
 
 // Same raster set MarkdownContent renders inline. Anything else (SVG, which can
@@ -44,8 +44,14 @@ function decode(base64) {
 
 /** `text` with every inline base64 image stored as media and linked by path. */
 export async function externalizeInlineImages(text, userId) {
-  if (!hasInlineImages(text)) return text;
+  return (await externalize(text, userId)).text;
+}
+
+/** The rewritten text, and the media documents stored for it. */
+async function externalize(text, userId) {
+  if (!hasInlineImages(text)) return { text, media: [] };
   const replacements = new Map();
+  const media = [];
   for (const [dataUrl, rawMime, base64] of text.matchAll(INLINE_IMAGE)) {
     if (replacements.has(dataUrl)) continue; // the same image pasted twice → one file
     const buffer = decode(base64);
@@ -56,8 +62,49 @@ export async function externalizeInlineImages(text, userId) {
       fsp.writeFile(dest, buffer),
     );
     replacements.set(dataUrl, doc.url);
+    media.push(doc);
   }
-  return text.replace(INLINE_IMAGE, (dataUrl) => replacements.get(dataUrl) ?? dataUrl);
+  return {
+    text: text.replace(INLINE_IMAGE, (dataUrl) => replacements.get(dataUrl) ?? dataUrl),
+    media,
+  };
+}
+
+const MIGRATE_ATTEMPTS = 3;
+
+/**
+ * Migrate one post. The write is a compare-and-swap on the text it read: the
+ * migration runs while the app is serving, and a plain write would overwrite
+ * an edit saved in between with the older text. When the text has moved on,
+ * the files made for the old text are discarded and the post is read again.
+ * Returns true when the post was rewritten.
+ */
+async function migratePost(posts, backups, post) {
+  let current = post;
+  for (let attempt = 0; attempt < MIGRATE_ATTEMPTS && current; attempt++) {
+    const original = current.content?.text;
+    const { text, media } = await externalize(original, current.userId);
+    // Nothing that could be stored (an image that doesn't decode stays inline).
+    if (text === original) return false;
+    // The text this write replaces — kept before the post changes.
+    await backups.updateOne(
+      { _id: current._id },
+      { $set: { text: original, backedUpAt: new Date() } },
+      { upsert: true },
+    );
+    const { matchedCount } = await posts.updateOne(
+      { _id: current._id, 'content.text': original },
+      { $set: { 'content.text': text } },
+    );
+    if (matchedCount) return true;
+    await discardMedia(media);
+    current = await posts.findOne(
+      { _id: current._id },
+      { projection: { userId: 1, 'content.text': 1 } },
+    );
+  }
+  if (current) console.warn(`[inline-images] post ${post._id} kept changing; left for next start`);
+  return false;
 }
 
 /**
@@ -66,8 +113,9 @@ export async function externalizeInlineImages(text, userId) {
  * content didn't change for its readers, only where its image lives.
  *
  * The base64 in the post is the image's only copy, so: never write into a
- * directory a rebuild wipes, and keep each post's original text in
- * `inlineImageBackups` (restorable with a $set of `content.text`).
+ * directory a rebuild wipes, keep the text each write replaced in
+ * `inlineImageBackups` (restorable with a $set of `content.text`), and never
+ * write over an edit made while the migration ran (see migratePost).
  */
 export async function migrateInlinePostImages() {
   if (isInsideMeteorBuild(MEDIA_DIR)) {
@@ -83,16 +131,7 @@ export async function migrateInlinePostImages() {
   let migrated = 0;
   for await (const post of cursor) {
     try {
-      await backups.updateOne(
-        { _id: post._id },
-        { $setOnInsert: { text: post.content.text, backedUpAt: new Date() } },
-        { upsert: true },
-      );
-      const text = await externalizeInlineImages(post.content.text, post.userId);
-      // An image that doesn't decode stays inline, and the post with it.
-      if (text === post.content.text) continue;
-      await posts.updateOne({ _id: post._id }, { $set: { 'content.text': text } });
-      migrated++;
+      if (await migratePost(posts, backups, post)) migrated++;
     } catch (err) {
       console.error(`[inline-images] post ${post._id} not migrated:`, err);
     }

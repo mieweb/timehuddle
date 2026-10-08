@@ -407,6 +407,15 @@ export async function storeMedia({ userId, mimeType, size, title }, write) {
   return doc;
 }
 
+/** Undo storeMedia for documents nothing ended up referencing. */
+export async function discardMedia(docs) {
+  if (!docs.length) return;
+  for (const doc of docs) unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+  await rawDb()
+    .collection('mediaitems')
+    .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+}
+
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────
 
 WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
