@@ -1227,6 +1227,13 @@ export const huddleApi = {
   getPosts: (teamId: string, since?: string) =>
     wormholeCall<HuddleFeedPage>('huddle.getPosts', since ? { teamId, since } : { teamId }),
 
+  /** Whether the team has published posts before `since` — `hasMore` without
+   *  the posts, for a feed already receiving them over the live subscription. */
+  hasPostsBefore: (teamId: string, since: string) =>
+    wormholeCall<HuddleFeedPage>('huddle.getPosts', { teamId, since, withPosts: false }).then(
+      (r) => r.hasMore,
+    ),
+
   /** The caller's own published posts across every team they belong to (the
    *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
