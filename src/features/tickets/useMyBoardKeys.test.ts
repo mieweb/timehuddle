@@ -62,6 +62,7 @@ describe('useMyBoardKeys', () => {
     await act(async () => first.resolve([]));
     // Loaded and empty: now "nothing on it" is a fact.
     expect(result.current.boardLoaded).toBe(true);
+    expect(result.current.boardKnown).toBe(true);
 
     rerender({ userId: 'u2' });
     expect(result.current.boardLoaded).toBe(false);
@@ -74,6 +75,20 @@ describe('useMyBoardKeys', () => {
     const { result } = renderHook(() => useMyBoardKeys('u1'));
     await waitFor(() => expect(result.current.boardLoaded).toBe(true));
     expect(result.current.boardKeys.size).toBe(0);
+    // Answered, but not known: an empty board here is not a fact to act on.
+    expect(result.current.boardKnown).toBe(false);
+  });
+
+  it('knows the board once a later read succeeds', async () => {
+    api.list.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([entry('a')]);
+    const { result } = renderHook(() => useMyBoardKeys('u1'));
+    await waitFor(() => expect(result.current.boardLoaded).toBe(true));
+    expect(result.current.boardKnown).toBe(false);
+
+    act(() => result.current.loadBoard());
+
+    await waitFor(() => expect(result.current.boardKnown).toBe(true));
+    expect([...result.current.boardKeys]).toEqual(['huddle:a']);
   });
 
   it('drops an answer that was asked for the previous user', async () => {

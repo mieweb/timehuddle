@@ -350,7 +350,7 @@ export const TicketsPage: React.FC = () => {
 
   // My Board membership, as identity only. Emptied and reloaded when the
   // signed-in user changes: this page stays mounted, and opens on the board.
-  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded } =
+  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown } =
     useMyBoardKeys(userId);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
@@ -789,7 +789,8 @@ export const TicketsPage: React.FC = () => {
   const [gettingAssigned, setGettingAssigned] = useState(false);
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
-  const offerAssigned = boardLoaded && boardKeys.size === 0 && assignedOffBoard.length > 0;
+  // Only for a board known to be empty: after a failed read it merely looks so.
+  const offerAssigned = boardKnown && boardKeys.size === 0 && assignedOffBoard.length > 0;
 
   const handleGetAssigned = useCallback(() => {
     const keys = assignedOffBoard.slice(0, STARTER_LIMIT).map((t) => t.key);
@@ -948,7 +949,8 @@ export const TicketsPage: React.FC = () => {
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <>
-                  {assignedNotice.open && assignedOffBoard.length > 0 && (
+                  {/* Counted against the board, so not until the board is known. */}
+                  {boardKnown && assignedNotice.open && assignedOffBoard.length > 0 && (
                     <div
                       role="status"
                       className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
