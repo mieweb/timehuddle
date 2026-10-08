@@ -10,6 +10,7 @@
  */
 import {
   Button,
+  ButtonGroup,
   Alert,
   AlertDescription,
   Input,
@@ -25,7 +26,7 @@ import {
   useMediaQuery,
   useToast,
 } from '@mieweb/ui';
-import { Binoculars, CheckCheck, Plus } from 'lucide-react';
+import { Binoculars, CheckCheck, Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -48,6 +49,15 @@ import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
+import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
+import {
+  ASSIGNED_FILTERS,
+  STARTER_LIMIT,
+  assignedToMe,
+  isApproximate,
+  starterText,
+  useAssignedNotice,
+} from './assignedStarter';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { COMPACT_QUERY } from './TicketTable';
@@ -336,7 +346,7 @@ export const TicketsPage: React.FC = () => {
 
   // My Board membership, as identity only. Emptied and reloaded when the
   // signed-in user changes: this page stays mounted, and opens on the board.
-  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded } =
+  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown } =
     useMyBoardKeys(userId);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
@@ -690,24 +700,65 @@ export const TicketsPage: React.FC = () => {
     [ticketByKey, requestDelete],
   );
 
+  /** Put rows on My Board. Resolves to whether they were added; a failure is toasted. */
+  const addToBoard = useCallback(
+    (keys: string[]) =>
+      myBoardApi.addMany(keys.map(ticketRefOf)).then(
+        () => {
+          setBoardKeys((prev) => new Set([...prev, ...keys]));
+          return true;
+        },
+        // A full board is refused with the server's own explanation.
+        (err: unknown) => {
+          toast.error(
+            err instanceof ApiError && err.code === 'board-full'
+              ? err.message
+              : removalText.boardAddFailed,
+          );
+          return false;
+        },
+      ),
+    [setBoardKeys, toast],
+  );
+
   const handleMoveToBoard = useCallback(() => {
-    const keys = [...ticketsView.selectedKeys];
-    const refs = keys.map(ticketRefOf);
-    void myBoardApi
-      .addMany(refs)
-      .then(() => {
-        setBoardKeys((prev) => new Set([...prev, ...keys]));
-        ticketsView.clearSelection();
-      })
-      // A full board is refused with the server's own explanation.
-      .catch((err) =>
-        toast.error(
-          err instanceof ApiError && err.code === 'board-full'
-            ? err.message
-            : removalText.boardAddFailed,
-        ),
-      );
-  }, [ticketsView, toast]);
+    void addToBoard([...ticketsView.selectedKeys]).then(
+      (added) => added && ticketsView.clearSelection(),
+    );
+  }, [addToBoard, ticketsView]);
+
+  // ── First fill of an empty board ──
+  // The assigned issues not on the board yet: what the button adds from, and
+  // what the notice counts afterwards.
+  const assignedIssues = useMemo(() => assignedToMe(allTickets, meKeys), [allTickets, meKeys]);
+  const assignedOffBoard = useMemo(
+    () => assignedIssues.filter((t) => !boardKeys.has(t.key)),
+    [assignedIssues, boardKeys],
+  );
+  const assignedNotice = useAssignedNotice(userId);
+  const showAssignedNotice = assignedNotice.show;
+  const [gettingAssigned, setGettingAssigned] = useState(false);
+  // For the first fill only: once the board holds anything, more is added by
+  // searching or from All Sources.
+  // Only for a board known to be empty: after a failed read it merely looks so.
+  const offerAssigned = boardKnown && boardKeys.size === 0 && assignedOffBoard.length > 0;
+
+  const handleGetAssigned = useCallback(() => {
+    const keys = assignedOffBoard.slice(0, STARTER_LIMIT).map((t) => t.key);
+    const moreRemain = assignedOffBoard.length > keys.length;
+    setGettingAssigned(true);
+    void addToBoard(keys)
+      .then((added) => added && moreRemain && showAssignedNotice())
+      .finally(() => setGettingAssigned(false));
+  }, [assignedOffBoard, addToBoard, showAssignedNotice]);
+
+  /** All Sources, narrowed to the user's assigned issues. */
+  const showAssignedInAllSources = useCallback(() => {
+    setSearchQuery('');
+    ticketsView.setFilters(ASSIGNED_FILTERS);
+    ticketsView.setShowClosed(false);
+    browseAllSources();
+  }, [setSearchQuery, ticketsView, browseAllSources]);
 
   const handleRemoveFromBoard = useCallback(() => {
     // A ticket can be on the board through the issue it is linked to; taking
@@ -861,36 +912,73 @@ export const TicketsPage: React.FC = () => {
               loading={boardLoading}
               // Unresolvable board entries, announced politely.
               afterBulkBar={
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
-                >
-                  {unresolvedBoard && (
-                    <>
+                <>
+                  {/* Counted against the board, so not until the board is known. */}
+                  {boardKnown && assignedNotice.open && assignedOffBoard.length > 0 && (
+                    <div
+                      role="status"
+                      className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
+                    >
                       <Text size="xs" variant="muted">
-                        {unresolvedBoard.message}
+                        {starterText.moreAssigned(
+                          assignedOffBoard.length,
+                          isApproximate(assignedIssues),
+                        )}
                       </Text>
-                      {removeUnavailableFailed && (
-                        <Text size="xs" variant="destructive">
-                          {removalText.removeUnavailableFailed}
-                        </Text>
-                      )}
-                      {unresolvedBoard.removableKeys.length > 0 && (
+                      {/* The link stays with the sentence; Dismiss goes to the far end. */}
+                      <ButtonGroup split className="board-assigned-notice-actions flex-1">
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={showAssignedInAllSources}
+                          aria-label={starterText.showThemLabel}
+                        >
+                          {starterText.showThem}
+                        </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
-                          onClick={handleRemoveUnavailable}
-                          aria-label={removalText.removeUnavailableLabel(
-                            unresolvedBoard.removableKeys.length,
-                          )}
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={assignedNotice.dismiss}
+                          aria-label={starterText.dismiss}
                         >
-                          {removalText.removeUnavailable}
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
-                      )}
-                    </>
+                      </ButtonGroup>
+                    </div>
                   )}
-                </div>
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="board-unresolved-notice flex flex-wrap items-center gap-2 empty:hidden"
+                  >
+                    {unresolvedBoard && (
+                      <>
+                        <Text size="xs" variant="muted">
+                          {unresolvedBoard.message}
+                        </Text>
+                        {removeUnavailableFailed && (
+                          <Text size="xs" variant="destructive">
+                            {removalText.removeUnavailableFailed}
+                          </Text>
+                        )}
+                        {unresolvedBoard.removableKeys.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleRemoveUnavailable}
+                            aria-label={removalText.removeUnavailableLabel(
+                              unresolvedBoard.removableKeys.length,
+                            )}
+                          >
+                            {removalText.removeUnavailable}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </>
               }
               canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
               onBulkDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
@@ -901,15 +989,30 @@ export const TicketsPage: React.FC = () => {
                 closed: 'No closed tickets on your board',
                 hint: viewText.emptyBoardHint,
               }}
+              // Wraps on a phone, where the two labels do not fit one row.
               emptyAction={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
-                  onClick={browseAllSources}
-                >
-                  {viewText.browseAllSources}
-                </Button>
+                <ButtonGroup className="empty-board-actions max-w-full flex-wrap justify-center gap-2">
+                  {offerAssigned && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      leftIcon={<UserRoundArrowLeft className="h-4 w-4" aria-hidden="true" />}
+                      isLoading={gettingAssigned}
+                      loadingText={starterText.getting}
+                      onClick={handleGetAssigned}
+                    >
+                      {starterText.getAssigned}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    leftIcon={<Binoculars className="h-4 w-4" aria-hidden="true" />}
+                    onClick={browseAllSources}
+                  >
+                    {viewText.browseAllSources}
+                  </Button>
+                </ButtonGroup>
               }
               emptyNotice={unresolvedBoardNotice}
             />
