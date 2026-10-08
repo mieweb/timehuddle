@@ -84,8 +84,8 @@ describe('startTicketTimer', () => {
   });
 
   it('passes on a discard of the update of the ticket it takes over from', async () => {
-    await startTicketTimer(issue, { inTable: true, onBoard: true, discardUpdate: true });
-    expect(createEntry).toHaveBeenCalledWith(expect.objectContaining({ discardUpdate: true }));
+    await startTicketTimer(issue, { inTable: true, onBoard: true, discardSessionId: 's0' });
+    expect(createEntry).toHaveBeenCalledWith(expect.objectContaining({ discardSessionId: 's0' }));
   });
 
   it('throws when the timer itself is refused', async () => {

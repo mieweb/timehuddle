@@ -1896,8 +1896,9 @@ export const timerApi = {
    * `source` defaults to `'huddle'` server-side. Starting a timer requires an
    * active shift and rejects with `no-active-shift` when there is none.
    *
-   * A start posts an update to Huddle. `discardUpdate` removes the update of
-   * the ticket it takes over from, for a stint the user chose not to keep.
+   * A start posts an update to Huddle. `discardSessionId` names the running
+   * session whose own update to remove, for a stint the user chose not to
+   * keep; it is ignored unless that is the session the start takes over from.
    */
   createEntry: (data: {
     ticketId: string;
@@ -1906,15 +1907,15 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
-    discardUpdate?: boolean;
+    discardSessionId?: string;
   }) =>
     wormholeCall<{ entry: WorkItem; session: Timer | null; update?: TimerUpdateRef | null }>(
       'timers.createEntry',
       { ...data, tz: clientTz() },
     ),
 
-  /** Start a timer for a WorkItem. Closes any open timer first. `discardUpdate` as in `createEntry`. */
-  startSession: (entryId: string, now?: number, discardUpdate = false) =>
+  /** Start a timer for a WorkItem. Closes any open timer first. `discardSessionId` as in `createEntry`. */
+  startSession: (entryId: string, now?: number, discardSessionId?: string) =>
     wormholeCall<{
       session: Timer;
       closedSessionId?: string | null;
@@ -1923,7 +1924,7 @@ export const timerApi = {
       entryId,
       now: now ?? Date.now(),
       tz: clientTz(),
-      discardUpdate,
+      discardSessionId,
     }),
 
   /**

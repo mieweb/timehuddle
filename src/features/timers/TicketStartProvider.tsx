@@ -191,11 +191,13 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const key = requestKey(request);
       // Starting one timer stops any other (`closeRunningSession`).
       const running = runningRef.current;
-      let discardUpdate = false;
+      // The session the question was about, so that one's update is discarded
+      // and no other, whatever is running by the time the start lands.
+      let discardSessionId: string | undefined;
       if (running && running.key !== key && isShortStint(running)) {
         const discard = await askShortStint('switch', running);
         if (discard === null) return 'cancelled';
-        discardUpdate = discard;
+        if (discard) discardSessionId = running.sessionId;
       }
 
       return exclusive(key, async () => {
@@ -205,12 +207,16 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (request.kind === 'ticket') {
             ({ outcome, update } = await startTicketTimer(request.ticket, {
               ...request,
-              discardUpdate,
+              discardSessionId,
             }));
             // A pinned issue joins the Redmine rows, which are cached per session.
             if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
           } else {
-            const started = await timerApi.startSession(request.entryId, Date.now(), discardUpdate);
+            const started = await timerApi.startSession(
+              request.entryId,
+              Date.now(),
+              discardSessionId,
+            );
             update = started?.update;
             outcome = 'started';
           }

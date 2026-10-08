@@ -64,8 +64,11 @@ export interface StartTicketTimerOptions {
   inTable: boolean;
   /** My Board already has this ticket. */
   onBoard: boolean;
-  /** Remove the Huddle update of the ticket this start takes over from. */
-  discardUpdate?: boolean;
+  /**
+   * The running session whose Huddle update the user chose to discard. Named
+   * by id, so the server discards that one and no other.
+   */
+  discardSessionId?: string;
 }
 
 /**
@@ -96,7 +99,7 @@ function pinRedmineIssue(issueId: number): Promise<boolean> {
  */
 export async function startTicketTimer(
   ticket: TimerTicket,
-  { inTable, onBoard, discardUpdate = false }: StartTicketTimerOptions,
+  { inTable, onBoard, discardSessionId }: StartTicketTimerOptions,
 ): Promise<TicketTimerStart> {
   const result = await timerApi.createEntry({
     ticketId: ticket.id,
@@ -104,7 +107,7 @@ export async function startTicketTimer(
     date: toLocalDateStr(new Date()),
     startNow: true,
     notifyAdmins: false,
-    discardUpdate,
+    discardSessionId,
   });
   const update = result.update ?? null;
   if (!result.session) return { outcome: 'failed', update: null };

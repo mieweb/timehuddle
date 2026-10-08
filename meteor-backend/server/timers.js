@@ -122,13 +122,19 @@ async function closeRunningSession(userId, now) {
 
 /**
  * Tell the team's Huddle about a session that just started (#681): "Started",
- * or "Switched to" when it took over from another ticket. `discardPrevious`
- * removes that other ticket's own update first, for a stint its owner chose
- * not to keep. Best-effort: the session is running either way.
+ * or "Switched to" when it took over from another ticket.
+ *
+ * `discardSessionId` names the session whose own update its owner chose not
+ * to keep. It is honoured only when that is the session this start closed: if
+ * another tab has moved on since the question was asked, the update of
+ * whatever is running now is kept and this reads as an ordinary switch.
+ * Best-effort: the session is running either way.
  * @returns {Promise<{ postId: string, teamId: string } | null>}
  */
-async function announceStart(userId, session, previous, discardPrevious) {
-  if (previous && discardPrevious) await discardTimerUpdate(userId, previous);
+async function announceStart(userId, session, previous, discardSessionId) {
+  const discardPrevious =
+    typeof discardSessionId === 'string' && previous?._id.toHexString() === discardSessionId;
+  if (discardPrevious) await discardTimerUpdate(userId, previous);
   const action = startAction({
     previousWorkItemId: previous?.workItemId ?? null,
     workItemId: session.workItemId,
@@ -600,7 +606,7 @@ Meteor.methods({
     startNow = false,
     notifyAdmins = true,
     tz,
-    discardUpdate = false,
+    discardSessionId,
   } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
@@ -655,7 +661,7 @@ Meteor.methods({
       });
       const started = await Timers.findOneAsync(sessionId);
       session = toPublicSession(started);
-      update = await announceStart(userId, started, previous, discardUpdate === true);
+      update = await announceStart(userId, started, previous, discardSessionId);
       pinTimedRedmineIssue(userId, ticketSource, ticketId);
     }
 
@@ -668,7 +674,7 @@ Meteor.methods({
   },
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
-  async 'timers.startSession'({ entryId, now = Date.now(), tz, discardUpdate = false } = {}) {
+  async 'timers.startSession'({ entryId, now = Date.now(), tz, discardSessionId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
@@ -690,7 +696,7 @@ Meteor.methods({
       ...(await redmineStampFor(entry)),
     });
     const session = await Timers.findOneAsync(sessionId);
-    const update = await announceStart(userId, session, previous, discardUpdate === true);
+    const update = await announceStart(userId, session, previous, discardSessionId);
     pinTimedRedmineIssue(userId, entry.source, entry.ticketId);
     return {
       session: toPublicSession(session),

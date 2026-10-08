@@ -170,10 +170,24 @@ describe('timer updates in Huddle', () => {
   });
 
   it('a discarded switch removes the short ticket’s update and reads as a start', async () => {
-    await start(ticketA);
-    await start(ticketB, { discardUpdate: true });
+    const short = await start(ticketA);
+    await start(ticketB, { discardSessionId: short.result.session.id });
 
     expect(await updates()).toEqual([`*Started ${link('Bravo', ticketB)}*`]);
+  });
+
+  it('a discard naming a session that is no longer the running one discards nothing', async () => {
+    // Another tab moved from Alpha to Bravo while the question about Alpha was open.
+    const asked = await start(ticketA);
+    await start(ticketB);
+    const ticketC = await insertTicket('Charlie');
+    await start(ticketC, { discardSessionId: asked.result.session.id });
+
+    expect(await updates()).toEqual([
+      `*Started ${link('Alpha', ticketA)}*`,
+      `*Switched to ${link('Bravo', ticketB)}*`,
+      `*Switched to ${link('Charlie', ticketC)}*`,
+    ]);
   });
 
   it('a discarded stop removes the update and posts nothing', async () => {

@@ -117,7 +117,7 @@ describe('TicketStartProvider', () => {
     expect(outcome).toBe('started-and-added');
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
-      { ...redmineStart, discardUpdate: false },
+      { ...redmineStart, discardSessionId: undefined },
     );
     expect(toast.success).toHaveBeenCalledWith('Started #15', expect.anything());
   });
@@ -167,7 +167,8 @@ describe('TicketStartProvider', () => {
 
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
-      { ...redmineStart, discardUpdate: true },
+      // By id: the session the question was about.
+      { ...redmineStart, discardSessionId: 's0' },
     );
   });
 
@@ -186,7 +187,7 @@ describe('TicketStartProvider', () => {
     });
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
-      { ...redmineStart, discardUpdate: false },
+      { ...redmineStart, discardSessionId: undefined },
     );
 
     mockStart.mockClear();
@@ -251,7 +252,7 @@ describe('TicketStartProvider', () => {
       });
     });
 
-    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number), false);
+    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number), undefined);
     expect(toast.success).toHaveBeenCalledWith('Started Fix login', expect.anything());
   });
 
