@@ -138,6 +138,8 @@ export interface TicketTableProps {
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /** Whether a ticket is on My Board — see `TicketTableRow`. */
   isOnBoard: (ticket: UnifiedTicket) => boolean;
+  /** The board has been read, so `isOnBoard` is a fact — see `useMyBoardKeys`. */
+  boardKnown: boolean;
   /** `${sourceId}:${id}` of the row being put on or taken off the board, if any. */
   boardLoadingKey: string | null;
   onToggleBoard: (ticket: UnifiedTicket) => void;
@@ -204,6 +206,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   emptyState,
   onToggleTimer,
   isOnBoard,
+  boardKnown,
   boardLoadingKey,
   onToggleBoard,
   boardView = false,
@@ -439,6 +442,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   timerDisabled={timerLoadingKey !== null}
                   onToggleTimer={onToggleTimer}
                   onBoard={isOnBoard(ticket)}
+                  boardKnown={boardKnown}
                   boardLoading={boardLoadingKey === ticket.key}
                   onToggleBoard={onToggleBoard}
                   showSelectColumn={showSelectColumn}

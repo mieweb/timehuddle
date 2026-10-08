@@ -64,6 +64,11 @@ export interface TicketTableRowProps {
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /** Whether the ticket is on My Board; off it, starting a timer adds it first. */
   onBoard: boolean;
+  /**
+   * The board has been read. Until then "not on it" is not known, so the
+   * toggle is off and the timer makes no promise about adding.
+   */
+  boardKnown: boolean;
   boardLoading: boolean;
   onToggleBoard: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
@@ -124,6 +129,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   timerDisabled = false,
   onToggleTimer,
   onBoard,
+  boardKnown,
   boardLoading,
   onToggleBoard,
   onEditRequest,
@@ -337,7 +343,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   );
   // Starting a timer puts the ticket on My Board, so off the board the button
   // says it will. In words on a wide row; a phone row has room for the icon only.
-  const addsToBoard = !onBoard && !isTimerRunning;
+  const addsToBoard = boardKnown && !onBoard && !isTimerRunning;
   // On a phone, the height of the toolbar's buttons rather than a full icon button.
   const quickButtonClass = 'h-8 shrink-0';
   const boardButton = (
@@ -346,7 +352,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       isLoading={boardLoading}
       // Not while this row's timer is starting: the start decides whether to
       // add the ticket from where the board stood when it was pressed.
-      disabled={timerLoading}
+      disabled={timerLoading || !boardKnown}
       onClick={() => onToggleBoard(ticket)}
       ariaLabel={onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)}
       className={`${quickButtonClass} w-8`}

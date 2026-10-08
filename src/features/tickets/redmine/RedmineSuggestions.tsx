@@ -67,6 +67,8 @@ interface RedmineSuggestionsProps {
   onToggleTimer: (issue: RedmineIssue) => Promise<TicketTimerOutcome>;
   /** Redmine issue ids on My Board. Off it, starting a timer adds the issue first. */
   boardIssueIds: ReadonlySet<number>;
+  /** The board has been read, so `boardIssueIds` is a fact — see `useMyBoardKeys`. */
+  boardKnown: boolean;
   /** Put the issue on My Board, or take it off when it is there. */
   onToggleBoard: (issue: RedmineIssue) => Promise<unknown>;
   inputClassName?: string;
@@ -123,6 +125,7 @@ export function RedmineSuggestions({
   runningIssueId,
   onToggleTimer,
   boardIssueIds,
+  boardKnown,
   onToggleBoard,
   inputClassName,
 }: RedmineSuggestionsProps) {
@@ -189,7 +192,7 @@ export function RedmineSuggestions({
 
   const toggleBoard = useCallback(
     async (issue: RedmineIssue) => {
-      if (boardBusy.current) return;
+      if (!boardKnown || boardBusy.current) return;
       boardBusy.current = true;
       setBoardIssueId(issue.id);
       try {
@@ -203,7 +206,7 @@ export function RedmineSuggestions({
       invalidateSuggestionsCache();
       void loadSuggestions({ force: true });
     },
-    [onToggleBoard, loadSuggestions],
+    [boardKnown, onToggleBoard, loadSuggestions],
   );
 
   const hide = useCallback(
@@ -406,6 +409,8 @@ export function RedmineSuggestions({
                           timerBusy={timerIssueId !== null}
                           timerLoading={timerIssueId === row.issue.id}
                           onBoard={boardIssueIds.has(row.issue.id)}
+                          boardKnown={boardKnown}
+                          boardBusy={boardIssueId !== null}
                           boardLoading={boardIssueId === row.issue.id}
                           onToggleBoard={() => void toggleBoard(row.issue)}
                           onToggleTimer={() => {
@@ -531,6 +536,10 @@ interface IssueRowProps {
   timerLoading: boolean;
   onToggleTimer: () => void;
   onBoard: boolean;
+  boardKnown: boolean;
+  /** A board add or removal is in flight, on this row or another. */
+  boardBusy: boolean;
+  /** …and it is this row's. */
   boardLoading: boolean;
   onToggleBoard: () => void;
   onHide?: () => void;
@@ -557,6 +566,8 @@ function IssueRow({
   timerLoading,
   onToggleTimer,
   onBoard,
+  boardKnown,
+  boardBusy,
   boardLoading,
   onToggleBoard,
   onHide,
@@ -564,7 +575,7 @@ function IssueRow({
   const label = `#${issue.id}`;
   // Starting a timer puts the issue on My Board, so off the board the button
   // says it will: in words where the row has the room, a wide one with a mouse.
-  const addsToBoard = !onBoard && !running;
+  const addsToBoard = boardKnown && !onBoard && !running;
   const timerName = running
     ? text.stopTimer(issue.id)
     : addsToBoard
@@ -621,8 +632,9 @@ function IssueRow({
         <BoardToggleButton
           onBoard={onBoard}
           isLoading={boardLoading}
-          // Not while this row's timer is starting: see `TicketTableRow`.
-          disabled={timerLoading}
+          // Not while this row's timer is starting (see `TicketTableRow`), nor
+          // while another row's board action is, nor before the board is read.
+          disabled={timerLoading || !boardKnown || (boardBusy && !boardLoading)}
           className="h-7 w-7"
           tabIndex={-1}
           aria-hidden

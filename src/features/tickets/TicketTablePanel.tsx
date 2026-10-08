@@ -26,6 +26,7 @@ type SharedTableProps = Pick<
   | 'timerLoadingKey'
   | 'onToggleTimer'
   | 'isOnBoard'
+  | 'boardKnown'
   | 'boardLoadingKey'
   | 'onToggleBoard'
   | 'boardView'
