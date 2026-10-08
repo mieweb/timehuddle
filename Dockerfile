@@ -68,12 +68,14 @@ RUN HOME=/root \
 # Only Node.js + MongoDB + pre-built artifacts. No Meteor, no build tools.
 FROM node:22-slim
 
-# MongoDB + minimal runtime deps
+# MongoDB + minimal runtime deps. ffmpeg: PulseVault conforms every uploaded
+# video to faststart H.264/AAC MP4 with it, and serves uploads as-is without.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     ca-certificates \
     procps \
+    ffmpeg \
     && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
        | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
     && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" \

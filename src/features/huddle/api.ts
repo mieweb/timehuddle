@@ -1,7 +1,7 @@
 // Huddle feature API helpers
-import { teamApi, ticketApi, mediaApi, videoApi, MEDIA_PATH_PREFIXES } from '@lib/api';
+import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
-import * as tus from 'tus-js-client';
+import { isVideoFile, uploadVideoToLibrary } from '../pulse-upload/videoFile';
 import type { TeamMember, MediaItem } from './types';
 
 export type PostAttachment = HuddlePost['attachments'][number];
@@ -149,14 +149,14 @@ export type UploadProgress = (fraction: number) => void;
 /**
  * Upload a media file (photo, video, doc).
  *
- * Videos stream to PulseVault over TUS; images and documents go to Meteor's
- * multipart media endpoint. Both report byte progress through `onProgress` so
- * the composer can show one progress bar regardless of which path a file took
- * — a several-second video upload with no feedback is indistinguishable from a
- * broken button.
+ * Videos stream to PulseVault over TUS and resolve once the server has
+ * conformed them, so a post never carries a video that won't play; images and
+ * documents go to Meteor's multipart media endpoint. Both report byte progress
+ * through `onProgress` so the composer can show one progress bar regardless of
+ * which path a file took.
  */
 export async function uploadMedia(file: File, onProgress?: UploadProgress): Promise<MediaItem> {
-  if (!file.type.startsWith('video/')) {
+  if (!isVideoFile(file)) {
     const item = await mediaApi.uploadImage(file, onProgress);
     onProgress?.(1);
     // `filename` off the wire is the storage name the backend generated
@@ -166,39 +166,13 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
     return { ...item, filename: item.title ?? item.filename };
   }
 
-  // Videos go through PulseVault TUS
-  const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
-
-  await new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: {
-        filename: file.name,
-        filetype: file.type,
-        videoid,
-      },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress(bytesUploaded, bytesTotal) {
-        if (bytesTotal > 0) onProgress?.(bytesUploaded / bytesTotal);
-      },
-      onSuccess() {
-        onProgress?.(1);
-        resolve();
-      },
-      onError(err) {
-        reject(err);
-      },
-    });
-    upload.start();
-  });
+  const videoid = await uploadVideoToLibrary(file, onProgress);
 
   return {
     id: videoid,
     type: 'video',
     size: file.size,
-    mimeType: file.type,
+    mimeType: 'video/mp4',
     // Path only — the reader binds it to the current backend origin.
     url: `/pulsevault/artifacts/${videoid}`,
     filename: file.name,

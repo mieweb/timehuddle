@@ -12,6 +12,7 @@ import { ComposerChipButton } from './ComposerChipButton';
 import { useRef, useState } from 'react';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import type { MediaItem } from './types';
+import { VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 type FileKind = 'photo' | 'video' | 'doc';
 
@@ -91,7 +92,7 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: At
       <input
         ref={videoInputRef}
         type="file"
-        accept="video/*"
+        accept={VIDEO_FILE_ACCEPT}
         className="hidden"
         aria-label="Choose a video to attach"
         onChange={(e) => {

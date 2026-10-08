@@ -279,7 +279,7 @@ export async function attachFile(page: Page, kind: 'image' | 'doc' | 'video'): P
   const accept = {
     image: 'input[type="file"][accept="image/*"]',
     doc: 'input[type="file"][accept=".pdf,.doc,.docx,.txt"]',
-    video: 'input[type="file"][accept="video/*"]',
+    video: 'input[type="file"][aria-label="Choose a video to attach"]',
   }[kind];
 
   const chipsBefore = await attachmentChipCount(page);

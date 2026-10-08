@@ -33,7 +33,7 @@ import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 import {
   createPulseVaultCore,
   createLocalStorage,
-  createMp4Sniffer,
+  createVideoValidator,
   issueCapabilityToken,
   createCapabilityAuthorize,
 } from '@mieweb/pulsevault/core';
@@ -110,29 +110,34 @@ function artifactPath(artifactId) {
 
 /**
  * Extension → MIME for every video container accepted here: `.mp4` from the
- * Pulse app, and `.mov`/`.m4v` from the iOS camera roll through the web
- * fallback (ISO-BMFF like `.mp4`, so `createMp4Sniffer` accepts them;
- * PulseVault serves them with these types). Also the `mimeType` recorded on
- * the media item.
+ * Pulse app, and whatever a file picker hands over (a camera-roll `.mov`, a
+ * browser recording's `.webm`, …). Conform (`webReady`) turns each into an
+ * `.mp4` once it lands; a video it couldn't convert keeps its own type.
  */
 const VIDEO_CONTENT_TYPES = {
   '.mp4': 'video/mp4',
   '.mov': 'video/quicktime',
   '.m4v': 'video/x-m4v',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.3gp': 'video/3gpp',
+  '.avi': 'video/x-msvideo',
 };
 
 /**
  * The video a finished upload delivers, as pulse-destinations.js takes it.
  * `name` is the Pulse draft's title (`Upload-Metadata.name`), when sent.
+ * `ext` is the uploaded file's; anything conform didn't skip is served as an MP4.
  */
-function describeVideo({ artifactId, ext, size, name }) {
+function describeVideo({ artifactId, ext, size, name, webReady }) {
+  const servedExt = webReady && webReady.action !== 'skipped' ? '.mp4' : ext;
   return {
     artifactId,
     url: artifactPath(artifactId),
     name: name || null,
     title: `Video ${artifactId.slice(0, 8)}`,
-    filename: `${artifactId}${ext}`,
-    mimeType: VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4',
+    filename: `${artifactId}${servedExt}`,
+    mimeType: VIDEO_CONTENT_TYPES[servedExt] ?? 'video/mp4',
     size,
   };
 }
@@ -153,13 +158,13 @@ const core = createPulseVaultCore({
   // A video that landed stays: its pairing token can no longer delete it, nor
   // the files related to it.
   lockWhenReady: true,
-  // Web-playability backstop: phones routinely upload MP4s with the moov atom
-  // at the end (a stall before frame one) or HEVC video (undecodable in
-  // Firefox and most Chrome). PulseVault fixes each video once, in the
-  // background after Pulse's final PATCH is answered, and only then calls
-  // `onUploadComplete` — so nothing is attached while its bytes are still
-  // being rewritten. Fail-open: without ffmpeg on PATH it serves the original.
-  webReady: { completeAfter: true },
+  // Conform: every finished video is served in the one format the Pulse app
+  // records (faststart H.264/AAC MP4, longest edge ≤ 1920, orientation kept);
+  // a Pulse upload is left as it is. Runs in the background after the final
+  // PATCH, one at a time, and only then calls `onUploadComplete` — so nothing
+  // is delivered while its bytes are still being rewritten. Without ffmpeg on
+  // PATH it serves the original (see the startup check below).
+  webReady: { completeAfter: true, concurrency: 1 },
   // A pulse uploads a .pulse beat manifest, .vtt captions and a .jpg
   // thumbnail alongside its video, so every kind is accepted. Video is
   // derived from VIDEO_CONTENT_TYPES so the accepted extensions can't drift
@@ -196,21 +201,7 @@ const core = createPulseVaultCore({
       throw err;
     }
   },
-  validatePayload: async (request, ctx) => {
-    console.log('[pulsevault][hook] validatePayload called', ctx.artifactId, 'kind:', ctx.kind);
-    if (ctx.kind !== 'video') {
-      console.log('[pulsevault][hook] validatePayload skipped (not video)', ctx.artifactId, ctx.kind);
-      return;
-    }
-    const sniff = createMp4Sniffer(storage);
-    try {
-      await sniff(request, ctx);
-      console.log('[pulsevault][hook] validatePayload passed', ctx.artifactId);
-    } catch (err) {
-      console.log('[pulsevault][hook] validatePayload REJECTED', ctx.artifactId, err.message);
-      throw err;
-    }
-  },
+  validatePayload: createVideoValidator({ logger: console }),
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind, ctx.replay ? '(replay)' : '');
     // Only the video is attached: its captions, manifest and thumbnail are
@@ -234,6 +225,14 @@ const core = createPulseVaultCore({
       console.log('[pulsevault] web-ready', event.artifactId, event.webReady);
     }
   },
+});
+
+// Without ffmpeg every upload still works, but is served as uploaded: an
+// iPhone HEVC or a WebM then won't play in every browser. Said once, loudly.
+Meteor.startup(async () => {
+  if (!(await core.conformAvailable())) {
+    console.error('[pulsevault] conform unavailable: ffmpeg/ffprobe not on PATH — videos are served as uploaded');
+  }
 });
 
 /** Decode a TUS Upload-Metadata header into a plain object (values are base64). */
