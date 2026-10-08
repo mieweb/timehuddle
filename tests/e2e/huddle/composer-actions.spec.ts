@@ -218,7 +218,9 @@ test.describe('Huddle composer — upload progress', () => {
     const progressBar = page.locator('[data-testid="post-progress-bar"]');
     const progressVisible = progressBar.waitFor({ state: 'visible', timeout: 20000 });
 
-    await page.locator('input[type="file"][accept="video/*"]').setInputFiles(FIXTURE.video);
+    await page
+      .locator('input[type="file"][aria-label="Choose a video to attach"]')
+      .setInputFiles(FIXTURE.video);
     await progressVisible;
 
     // Upload phase is determinate and labelled distinctly from the post phase.
@@ -236,7 +238,9 @@ test.describe('Huddle composer — upload progress', () => {
 
   test('the Video button reports its own upload state', async ({ page }) => {
     await composerEditor(page).fill(`Video button state ${Date.now()}`);
-    await page.locator('input[type="file"][accept="video/*"]').setInputFiles(FIXTURE.video);
+    await page
+      .locator('input[type="file"][aria-label="Choose a video to attach"]')
+      .setInputFiles(FIXTURE.video);
 
     // The pressed button becomes the busy one, so it's clear *which* attachment
     // is in flight when several kinds are available.
