@@ -21,8 +21,11 @@ const RUNS = Number(arg('runs', 3));
 const KBPS = Number(arg('kbps', 0));
 const EMAIL = arg('email', 'perfprobe@test.local');
 const PASSWORD = arg('password', 'PerfProbe1!');
-const OLDER_DAY = arg('older-day', 'Mon, Sep 14'); // a day outside the newest week
-const OLDER_TEXT = arg('older-text', 'Update 57');
+// Which day to open after the first load, counted from the newest (0). The
+// seed spreads posts over 30 days, so day 18 is well past the first week on
+// whatever date the benchmark runs.
+const OLDER_INDEX = Number(arg('older-index', 18));
+const DAY_LABEL = /^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}/; // "Mon, Sep 14"
 if (!TEAM) throw new Error('--team is required (printed by seed-huddle-heavy.js)');
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
@@ -103,15 +106,17 @@ async function run(browser, state) {
   // An older day: scroll the list until it is there (lazy windows load on
   // scroll), then open it and wait for its posts.
   const clickStart = Date.now();
-  const older = list.getByRole('button', { name: new RegExp(`^${OLDER_DAY}`) });
-  for (let i = 0; i < 40 && !(await older.count()); i++) {
+  const days = list.getByRole('button', { name: DAY_LABEL });
+  for (let i = 0; i < 40 && (await days.count()) <= OLDER_INDEX; i++) {
     await list.getByRole('listitem').last().scrollIntoViewIfNeeded();
     await page.waitForTimeout(250);
   }
-  await older.first().click();
+  const older = days.nth(OLDER_INDEX);
+  const olderDay = (await older.textContent()).match(DAY_LABEL)[0];
+  await older.click();
   await page
-    .getByRole('group', { name: `Chat: ${OLDER_DAY}` })
-    .getByText(OLDER_TEXT, { exact: false })
+    .getByRole('group', { name: `Chat: ${olderDay}` })
+    .getByText('Update', { exact: false })
     .first()
     .waitFor({ timeout: 180000 });
   const olderDayMs = Date.now() - clickStart;

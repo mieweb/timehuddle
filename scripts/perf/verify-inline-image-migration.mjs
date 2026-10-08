@@ -6,16 +6,14 @@
 //   pm2 restart timehuddle-meteor        # migration runs on startup
 //   node scripts/perf/verify-inline-image-migration.mjs check before.json
 //
-// Never point MONGO_URL at production.
+// Never point MONGO_URL at production. Images are compared as BACKEND_URL serves them.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 import { MongoClient } from '../../meteor-backend/node_modules/mongodb/lib/index.js';
 
 const MONGO_URL = process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?replicaSet=rs0';
 const BACKEND = process.env.BACKEND_URL ?? 'http://localhost:3100';
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.resolve('uploads');
 // Mirrors meteor-backend/server/inline-images.js: the formats it stores, base64
 // possibly wrapped across lines, ending where the link or attribute does.
 const FORMATS = 'png|jpe?g|gif|webp|avif';
@@ -98,14 +96,15 @@ if (mode === 'snapshot') {
       const dataUrl = stored[i];
       if (!dataUrl) continue;
       rebuilt = rebuilt.split(url).join(dataUrl);
-      const onDisk = fs.readFileSync(path.join(UPLOADS_DIR, 'media', path.basename(url)));
+      // Compare what the backend serves, so this holds wherever its UPLOADS_DIR is.
       const original = Buffer.from(dataUrl.split(',')[1].replace(/\s+/g, ''), 'base64');
-      if (!onDisk.equals(original))
-        failures.push(`${old.id}: ${url} differs from the original image bytes`);
       const res = await fetch(`${BACKEND}${url}`);
+      const served = Buffer.from(await res.arrayBuffer());
       if (res.status !== 200) failures.push(`${old.id}: ${url} served ${res.status}`);
       else if (!res.headers.get('content-type')?.startsWith('image/'))
         failures.push(`${old.id}: ${url} served as ${res.headers.get('content-type')}`);
+      else if (!served.equals(original))
+        failures.push(`${old.id}: ${url} differs from the original image bytes`);
       images++;
     }
     if (rebuilt !== old.text) failures.push(`${old.id}: text changed beyond the image swap`);
