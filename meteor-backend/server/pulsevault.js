@@ -201,7 +201,7 @@ const core = createPulseVaultCore({
       throw err;
     }
   },
-  validatePayload: createVideoValidator({ logger: console }),
+  validatePayload: createVideoValidator(),
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind, ctx.replay ? '(replay)' : '');
     // Only the video is attached: its captions, manifest and thumbnail are
