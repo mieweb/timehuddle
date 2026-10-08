@@ -160,6 +160,49 @@ describe('huddle post authoring over REST', () => {
     await db.collection('mediaitems').deleteOne({ url });
   });
 
+  it('stores each supported format, keeps the text around it, and leaves the rest inline', async () => {
+    const png =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const jpeg =
+      '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABQb/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCKALXj/9k=';
+    const heic = 'data:image/heic;base64,AAAAGGZ0eXBoZWlj';
+    const text = [
+      `![jpg](data:image/jpg;base64,${jpeg})`, // the non-standard jpg spelling
+      `![wrapped](data:image/png;base64,${png.replace(/(.{20})/g, '$1\n')} "A title")`,
+      'prose right after the image',
+      `![phone photo](${heic})`, // not shown inline by browsers: left as is
+      `![broken](data:image/png;base64,abc*def)`, // not valid base64: left as is
+    ].join('\n');
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId, content: { text, mentions: [] }, postDate: todayString() },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    const saved: string = post!.content.text;
+    const [jpgUrl, pngUrl] = [...saved.matchAll(/\/uploads\/media\/[^)\s"]+/g)].map((m) => m[0]);
+    expect(saved).toBe(
+      [
+        `![jpg](${jpgUrl})`,
+        `![wrapped](${pngUrl} "A title")`,
+        'prose right after the image',
+        `![phone photo](${heic})`,
+        `![broken](data:image/png;base64,abc*def)`,
+      ].join('\n'),
+    );
+    expect(jpgUrl).toMatch(/\.jpg$/);
+    const media = await db
+      .collection('mediaitems')
+      .find({ url: { $in: [jpgUrl, pngUrl] } })
+      .toArray();
+    expect(media.map((m) => m.mimeType).sort()).toEqual(['image/jpeg', 'image/png']);
+    expect(media.find((m) => m.url === pngUrl)?.size).toBe(70);
+    await db.collection('mediaitems').deleteMany({ url: { $in: [jpgUrl, pngUrl] } });
+  });
+
   it('answers only hasMore when asked without posts', async () => {
     const since = new Date(Date.now() - 86_400_000).toISOString();
     const res = await wormhole<{ posts: unknown[]; hasMore: boolean }>(

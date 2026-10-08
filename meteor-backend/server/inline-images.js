@@ -17,12 +17,29 @@ import { rawDb } from './collections';
 import { MEDIA_DIR, storeMedia } from './uploads';
 import { isInsideMeteorBuild } from './storage-paths';
 
-// Same raster set MarkdownContent renders inline (SVG excluded: it can carry markup).
-const INLINE_IMAGE = /data:(image\/(?:png|jpe?g|gif|webp|avif));base64,([A-Za-z0-9+/=]+)/gi;
+// Same raster set MarkdownContent renders inline. Anything else (SVG, which can
+// carry markup; HEIC, BMP, TIFF, which browsers don't show inline) is left as is.
+const FORMATS = 'png|jpe?g|gif|webp|avif';
+const HAS_INLINE_IMAGE = new RegExp(`data:image/(?:${FORMATS});base64,`, 'i');
+// The base64 may be wrapped across lines. It ends where the markdown link or
+// HTML attribute holding it does (or at the end of the text), so the words
+// after an image are never taken for more base64.
+const INLINE_IMAGE = new RegExp(
+  `data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
+  'gi',
+);
 
-/** True when `text` still carries an inline base64 image. */
+/** True when `text` carries an inline base64 image this module can store. */
 export function hasInlineImages(text) {
-  return typeof text === 'string' && text.includes('data:image/');
+  return typeof text === 'string' && HAS_INLINE_IMAGE.test(text);
+}
+
+/** The image bytes, or null when `base64` doesn't decode cleanly (left inline). */
+function decode(base64) {
+  const clean = base64.replace(/\s+/g, '');
+  const buffer = Buffer.from(clean, 'base64');
+  const roundTrip = buffer.toString('base64').replace(/=+$/, '');
+  return buffer.length && roundTrip === clean.replace(/=+$/, '') ? buffer : null;
 }
 
 /** `text` with every inline base64 image stored as media and linked by path. */
@@ -31,8 +48,10 @@ export async function externalizeInlineImages(text, userId) {
   const replacements = new Map();
   for (const [dataUrl, rawMime, base64] of text.matchAll(INLINE_IMAGE)) {
     if (replacements.has(dataUrl)) continue; // the same image pasted twice → one file
-    const mimeType = rawMime.toLowerCase() === 'image/jpg' ? 'image/jpeg' : rawMime.toLowerCase();
-    const buffer = Buffer.from(base64, 'base64');
+    const buffer = decode(base64);
+    if (!buffer) continue;
+    const mime = rawMime.toLowerCase();
+    const mimeType = mime === 'image/jpg' ? 'image/jpeg' : mime;
     const doc = await storeMedia({ userId, mimeType, size: buffer.length }, (dest) =>
       fsp.writeFile(dest, buffer),
     );
@@ -58,7 +77,7 @@ export async function migrateInlinePostImages() {
   const backups = rawDb().collection('inlineImageBackups');
   const posts = rawDb().collection('huddlePosts');
   const cursor = posts.find(
-    { 'content.text': { $regex: 'data:image/' } },
+    { 'content.text': { $regex: HAS_INLINE_IMAGE.source, $options: 'i' } },
     { projection: { userId: 1, 'content.text': 1 } },
   );
   let migrated = 0;
@@ -70,6 +89,8 @@ export async function migrateInlinePostImages() {
         { upsert: true },
       );
       const text = await externalizeInlineImages(post.content.text, post.userId);
+      // An image that doesn't decode stays inline, and the post with it.
+      if (text === post.content.text) continue;
       await posts.updateOne({ _id: post._id }, { $set: { 'content.text': text } });
       migrated++;
     } catch (err) {
