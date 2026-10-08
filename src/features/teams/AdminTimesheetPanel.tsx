@@ -33,12 +33,20 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
+import {
+  ApiError,
+  clockApi,
+  isPendingChange,
+  timesheetApprovalApi,
+  type ClockEvent,
+  type TimesheetChangeRequest,
+} from '../../lib/api';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
-import { getDdpClient } from '../../lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import {
@@ -137,7 +145,33 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
-  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  // This admin's own changes waiting for another admin, read from the server so
+  // their walkthrough can still be added after a reload.
+  const [myPending, setMyPending] = useState<TimesheetChangeRequest[]>([]);
+  // A slower answer for the team just left must not overwrite this team's list.
+  const myPendingSeqRef = useRef(0);
+  const loadMyPending = useCallback(() => {
+    const seq = ++myPendingSeqRef.current;
+    if (!selectedTeamId) return setMyPending([]);
+    timesheetApprovalApi
+      .listMine({ teamId: selectedTeamId, status: 'pending' })
+      .catch(() => [])
+      .then((requests) => {
+        if (myPendingSeqRef.current === seq) setMyPending(requests);
+      });
+  }, [selectedTeamId]);
+  useEffect(loadMyPending, [loadMyPending]);
+  // Another admin deciding one of these takes it off the list.
+  useEffect(
+    () =>
+      subscribeNewNotifications((n) => {
+        const type = (n.data as Record<string, unknown> | undefined)?.type;
+        if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+          loadMyPending();
+        }
+      }),
+    [loadMyPending],
+  );
 
   // An admin's own edit is reviewed too, by one of the *other* admins — so this
   // panel needs the same justification the member-facing one collects, or every
@@ -224,6 +258,10 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       ? data.sessions.filter((s) => s.teamId === selectedTeamId)
       : data.sessions;
   }, [data, selectedTeamId]);
+  const pendingHere = useMemo(() => {
+    const shown = new Set(filteredSessions.map((s) => s.id));
+    return myPending.filter((r) => r.targetId && shown.has(r.targetId));
+  }, [myPending, filteredSessions]);
 
   // Group filtered sessions by calendar day (descending date order)
   const groupedByDay = useMemo(() => {
@@ -324,7 +362,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         },
         justification,
       );
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      if (isPendingChange(result)) loadMyPending();
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -344,7 +382,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionSaveError(null);
     try {
       const result = await clockApi.deleteEvent(activeSession.id, justification);
-      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
+      if (isPendingChange(result)) loadMyPending();
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditJustification(emptyJustification);
@@ -494,9 +532,23 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
-      {pendingNotice && (
-        <Alert variant="info" dismissible onDismiss={() => setPendingNotice(null)}>
-          <AlertDescription>{pendingNotice}</AlertDescription>
+      {pendingHere.length > 0 && (
+        <Alert variant="info" aria-live="polite">
+          <AlertDescription>
+            <Text size="sm" weight="medium">
+              Sent to another admin for approval
+            </Text>
+            <ul className="sent-for-approval-list mt-2 space-y-2">
+              {pendingHere.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2">
+                  <Text size="sm" className="grow">
+                    {r.description}
+                  </Text>
+                  <ChangeRequestWalkthrough request={r} onAdded={loadMyPending} />
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
         </Alert>
       )}
 

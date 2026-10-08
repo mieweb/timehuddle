@@ -14,6 +14,7 @@
  *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
  *   clock-plan   → a new plan post in that team, then clock in to it
  *   clock-wrapup → the video and a wrap-up line on the session's post, then clock out
+ *   timesheet-request → the walkthrough on the uploader's own pending timesheet change
  *
  * Each kind is one entry in DESTINATIONS. `check` runs when the link is
  * minted, so a bad destination fails before anyone records anything, and
@@ -109,6 +110,17 @@ const HUDDLE_NOTE = 'Posted to Huddle';
 // (pulseStatus.ts): a note that says more is a follow-up that failed.
 const PLAN_NOTE = "Plan posted — you're clocked in";
 const WRAPUP_NOTE = "Wrap-up posted — you're clocked out";
+const WALKTHROUGH_NOTE = 'Walkthrough added to the change request';
+
+/** Approval views reload when these prompts change, so an open request shows the walkthrough. */
+function flagWalkthroughForApprovers(requestId) {
+  return rawDb()
+    .collection('notifications')
+    .updateMany(
+      { 'data.type': 'timesheet-change-request', 'data.requestId': requestId },
+      { $set: { 'data.hasWalkthrough': true } },
+    );
+}
 
 function assertPostDate(postDate) {
   // The poster's calendar date, from their device — the server can't know
@@ -312,6 +324,46 @@ const DESTINATIONS = {
         const { clockStop } = await clockModule();
         await clockStop(userId, { teamId, clockEventId });
       });
+    },
+  },
+
+  'timesheet-request': {
+    async check(userId, { id: rawId }) {
+      requireId(rawId, 'change request');
+      if (!isObjectIdHex(rawId)) throw new Meteor.Error('not-found', 'Change request not found');
+      const id = rawId.toLowerCase();
+      const request = await rawDb()
+        .collection('timesheetchangerequests')
+        .findOne({ _id: new ObjectId(id) }, { projection: { userId: 1, status: 1, videoUrl: 1 } });
+      if (!request) throw new Meteor.Error('not-found', 'Change request not found');
+      if (request.userId !== userId) throw new Meteor.Error('forbidden', 'Not your change request');
+      // Refusals as not-found, so a video that arrives too late is kept, not replayed.
+      if (request.status !== 'pending') {
+        throw new Meteor.Error('not-found', 'That change is no longer waiting for approval');
+      }
+      if (request.videoUrl) throw new Meteor.Error('not-found', 'That change already has a walkthrough');
+      return { id };
+    },
+    async delivered(userId, { id }, video) {
+      const request = await rawDb()
+        .collection('timesheetchangerequests')
+        .findOne({ _id: new ObjectId(id), userId, videoUrl: video.url }, { projection: { _id: 1 } });
+      if (!request) return null;
+      // A replay after the request write may have missed this step.
+      await flagWalkthroughForApprovers(id);
+      return WALKTHROUGH_NOTE;
+    },
+    async deliver(userId, { id }, video) {
+      // Still pending and still without one: a walkthrough never replaces another.
+      const { matchedCount } = await rawDb()
+        .collection('timesheetchangerequests')
+        .updateOne(
+          { _id: new ObjectId(id), userId, status: 'pending', videoUrl: { $in: [null, ''] } },
+          { $set: { videoUrl: video.url } },
+        );
+      if (!matchedCount) throw new Error('The change request moved on while the walkthrough landed');
+      await flagWalkthroughForApprovers(id);
+      return WALKTHROUGH_NOTE;
     },
   },
 
