@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isBeforeWindow, resolveSince } from './huddle-window-core';
+import { externalizeInlineImages } from './inline-images';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -254,6 +255,9 @@ async function enrichComment(comment) {
 
 // Publication with real-time updates
 Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
+  // Don't hold the connection's other subscriptions (teams, notifications,
+  // tickets) behind this one's initial send — it is the largest on the page.
+  this.unblock();
   if (!teamId || typeof teamId !== 'string') {
     throw new Meteor.Error('bad-request', 'teamId is required');
   }
@@ -446,7 +450,7 @@ export async function createHuddlePost(
     teamId,
     userId,
     content: {
-      text: content.text,
+      text: await externalizeInlineImages(content.text, userId),
       mentions: content.mentions ?? [],
     },
     ticketId: ticketId ?? undefined,
@@ -512,7 +516,7 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
 }
 
 Meteor.methods({
-  async 'huddle.getPosts'({ teamId, since }) {
+  async 'huddle.getPosts'({ teamId, since, withPosts = true }) {
     // requireIdentity, not this.userId: this is the REST feed refresh the
     // composer runs right after creating a post (huddle.createPost is REST for
     // the same reason — the WebView drops DDP while backgrounded). Over the
@@ -537,6 +541,11 @@ Meteor.methods({
     const sinceDate = requireSince(since);
     // Legacy posts store teamId as an ObjectId — match both forms.
     const filter = { teamId: { $in: [teamId, toId(teamId)] }, ...PUBLISHED };
+    // `withPosts: false` answers only `hasMore` — for a client already receiving
+    // the window's posts from the huddlePosts.byTeam subscription.
+    if (withPosts === false) {
+      return { posts: [], hasMore: await hasPostsBefore(filter, sinceDate) };
+    }
     const posts = await rawDb().collection('huddlePosts')
       .find({ ...filter, createdAt: { $gte: sinceDate } })
       .sort({ createdAt: -1 })
@@ -650,7 +659,7 @@ Meteor.methods({
       {
         $set: {
           content: {
-            text: content.text,
+            text: await externalizeInlineImages(content.text, identity.userId),
             mentions: content.mentions ?? [],
           },
           // Only touch attachments/ticketId when the editor sends them, so the

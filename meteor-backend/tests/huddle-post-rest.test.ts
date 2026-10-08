@@ -136,6 +136,42 @@ describe('huddle post authoring over REST', () => {
     expect(post!.content.text).toBe('After edit');
   });
 
+  it('stores a pasted inline image as media instead of base64 in the post', async () => {
+    // A 1×1 PNG, the shape the editor inlined pasted screenshots in.
+    const png =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: `Look:\n\n![shot](data:image/png;base64,${png})`, mentions: [] },
+        postDate: todayString(),
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    expect(post!.content.text).not.toContain('data:image/');
+    const [, url] = post!.content.text.match(/!\[shot\]\((\/uploads\/media\/[^)]+)\)/)!;
+    const media = await db.collection('mediaitems').findOne({ url });
+    expect(media).toMatchObject({ userId: authorUserId, mimeType: 'image/png', size: 70 });
+    await db.collection('mediaitems').deleteOne({ url });
+  });
+
+  it('answers only hasMore when asked without posts', async () => {
+    const since = new Date(Date.now() - 86_400_000).toISOString();
+    const res = await wormhole<{ posts: unknown[]; hasMore: boolean }>(
+      'huddle.getPosts',
+      { teamId, since, withPosts: false },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.posts).toEqual([]);
+    expect(typeof res.result.hasMore).toBe('boolean');
+  });
+
   it('keeps draft rows saved before drafts were removed out of the feed', async () => {
     const db = await getDb();
     const legacyDraft = {
