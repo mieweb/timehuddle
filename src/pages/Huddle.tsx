@@ -152,7 +152,8 @@ export default function Huddle() {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         return;
       }
-      const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+      if (!(event.target instanceof Element)) return;
+      const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
       if (!anchor) return;
       const url = new URL(anchor.href, window.location.origin);
       if (url.origin !== window.location.origin || !url.pathname.startsWith('/app/')) return;

@@ -20,6 +20,22 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const hex = (id) => (typeof id === 'string' ? id : id?.toHexString?.());
 
 /**
+ * Whether the person is on the team now. A work item outlives membership, and
+ * someone who has left a team must not go on posting to its Huddle. A team's
+ * id is a string or, for older teams, an ObjectId.
+ */
+async function isOnTeam(teamId, userId) {
+  const ids = isValidId(teamId) ? [teamId, new ObjectId(teamId)] : [teamId];
+  const team = await rawDb()
+    .collection('teams')
+    .findOne(
+      { _id: { $in: ids }, $or: [{ members: userId }, { admins: userId }] },
+      { projection: { _id: 1 } },
+    );
+  return team !== null;
+}
+
+/**
  * Where an update goes and how it names its ticket. A Huddle ticket's update
  * goes to the ticket's team. A Redmine issue has no team, so its update goes
  * to the team of the shift the session runs inside.
@@ -65,7 +81,7 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
       .findOne({ _id: new ObjectId(session.workItemId) });
     if (!workItem) return null;
     const audience = await audienceFor(session, workItem);
-    if (!audience) return null;
+    if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
 
     const now = at === undefined ? new Date() : new Date(at);
     const post = {
@@ -94,13 +110,19 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
   }
 }
 
-/** Remove the update a session opened with, when its owner chose to discard it. */
+/**
+ * Remove the update a session opened with, when its owner chose to discard it,
+ * along with any replies to it (as `huddle.deletePost` does).
+ */
 export async function discardTimerUpdate(userId, session) {
   try {
     if (!isValidId(session?.huddlePostId)) return;
-    await rawDb()
+    const removed = await rawDb()
       .collection('huddlePosts')
       .deleteOne({ _id: new ObjectId(session.huddlePostId), userId });
+    if (removed.deletedCount) {
+      await rawDb().collection('huddleComments').deleteMany({ postId: session.huddlePostId });
+    }
   } catch (err) {
     console.error('[timer-updates] could not discard the update:', err);
   }

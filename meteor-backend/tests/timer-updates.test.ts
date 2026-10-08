@@ -189,6 +189,33 @@ describe('timer updates in Huddle', () => {
     expect(await updates()).toEqual([]);
   });
 
+  it('posts nothing to a team the person has left', async () => {
+    const started = await start(ticketA);
+    await wormhole('timers.stopSession', { sessionId: started.result.session.id }, jwt);
+    const db = await getDb();
+    await db.collection('huddlePosts').deleteMany({ teamId });
+    // Still clocked in, and the work item is still theirs; only membership is gone.
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(teamId) }, { $set: { members: [], admins: [] } });
+
+    try {
+      const res = await wormhole<{ session: { id: string }; update: Update }>(
+        'timers.startSession',
+        { entryId: started.result.entry.id },
+        jwt,
+      );
+
+      expect(res.ok).toBe(true);
+      expect(res.result.update).toBeNull();
+      expect(await updates()).toEqual([]);
+    } finally {
+      await db
+        .collection('teams')
+        .updateOne({ _id: new ObjectId(teamId) }, { $set: { members: [userId], admins: [userId] } });
+    }
+  });
+
   it('starts the timer even when the update cannot be posted', async () => {
     // A work item whose ticket is gone has no team to post to.
     const db = await getDb();
