@@ -24,6 +24,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Checkbox,
   DropdownContent,
   DropdownItem,
@@ -343,6 +344,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
     <BoardToggleButton
       onBoard={onBoard}
       isLoading={boardLoading}
+      // Not while this row's timer is starting: the start decides whether to
+      // add the ticket from where the board stood when it was pressed.
+      disabled={timerLoading}
       onClick={() => onToggleBoard(ticket)}
       ariaLabel={onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)}
       className={`${quickButtonClass} w-8`}
@@ -352,7 +356,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
     <TimerToggleButton
       isRunning={isTimerRunning}
       isLoading={timerLoading}
-      disabled={timerDisabled}
+      disabled={timerDisabled || boardLoading}
       onClick={() => onToggleTimer(ticket)}
       label={addsToBoard && !compact ? ticketTimerText.addAndStart : undefined}
       ariaLabel={
@@ -376,8 +380,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
           the timer on top as the one pressed most: it is pulled up to centre on
           the title's first line, beside the status dot (a 32px button on a
           20px line). */}
-      <div
-        className={`ticket-row-quick-actions flex gap-1 ${compact ? '-mt-1.5 flex-col items-start' : 'items-center'}`}
+      <ButtonGroup
+        orientation={compact ? 'vertical' : 'horizontal'}
+        className={`ticket-row-quick-actions gap-1 ${compact ? '-mt-1.5 items-start' : 'justify-start'}`}
       >
         {compact ? (
           <>
@@ -390,7 +395,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
             {timerButton}
           </>
         )}
-      </div>
+      </ButtonGroup>
     </TableCell>
   );
 

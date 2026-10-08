@@ -14,6 +14,7 @@
 import {
   Badge,
   Button,
+  ButtonGroup,
   Input,
   ScrollArea,
   SearchIcon,
@@ -612,13 +613,16 @@ function IssueRow({
         </Badge>
       )}
 
-      <span
-        className="redmine-suggestion-actions hidden shrink-0 items-center gap-1 group-hover:flex group-aria-selected:flex pointer-coarse:flex"
+      <ButtonGroup
+        orientation="horizontal"
+        className="redmine-suggestion-actions hidden shrink-0 gap-1 group-hover:flex group-aria-selected:flex pointer-coarse:flex"
         aria-hidden="true"
       >
         <BoardToggleButton
           onBoard={onBoard}
           isLoading={boardLoading}
+          // Not while this row's timer is starting: see `TicketTableRow`.
+          disabled={timerLoading}
           className="h-7 w-7"
           tabIndex={-1}
           aria-hidden
@@ -632,7 +636,7 @@ function IssueRow({
         <TimerToggleButton
           isRunning={running}
           isLoading={timerLoading}
-          disabled={timerBusy}
+          disabled={timerBusy || boardLoading}
           label={addsToBoard ? timerText.addAndStart : undefined}
           className={addsToBoard ? ADD_AND_START_CLASS : 'h-7 w-7'}
           tabIndex={-1}
@@ -663,7 +667,7 @@ function IssueRow({
             </Button>
           </Tooltip>
         )}
-      </span>
+      </ButtonGroup>
     </>
   );
 }

@@ -6,6 +6,7 @@
  * two behave alike: off the board the timer reads "Add & Start", because
  * starting one puts the ticket there.
  */
+import { ButtonGroup } from '@mieweb/ui';
 import React, { useState } from 'react';
 
 import type { TicketSourceId } from '../../../lib/api';
@@ -72,11 +73,13 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
   };
 
   return (
-    <div className="ticket-quick-actions flex shrink-0 flex-wrap items-center gap-2">
+    <ButtonGroup className="ticket-quick-actions shrink-0 gap-2">
       <BoardToggleButton
         onBoard={onBoard}
         isLoading={boardBusy}
-        disabled={!boardLoaded}
+        // Not while the timer is starting: the start decides whether to add the
+        // ticket from where the board stood when it was pressed.
+        disabled={!boardLoaded || busyKey === key}
         onClick={toggleBoard}
         showLabel
         ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
@@ -84,6 +87,7 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
       <TimerToggleButton
         isRunning={isTiming}
         isLoading={busyKey === key}
+        disabled={boardBusy}
         onClick={toggleTimer}
         label={
           isTiming
@@ -101,6 +105,6 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
         }
         className="ticket-quick-timer shrink-0"
       />
-    </div>
+    </ButtonGroup>
   );
 };
