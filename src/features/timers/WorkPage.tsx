@@ -20,7 +20,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   Input,
@@ -873,8 +872,7 @@ export const WorkPage: React.FC = () => {
                 <TableHead className="w-10" />
                 <TableHead>Work Item</TableHead>
                 <TableHead className="text-right">Time</TableHead>
-                {/* Sized to its content: Pulse or "Walkthrough added" can sit beside the menu. */}
-                <TableHead className="w-px" />
+                <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -942,14 +940,20 @@ export const WorkPage: React.FC = () => {
                             Running
                           </Badge>
                         )}
-                        {awaitingApproval && (
-                          <Badge
-                            variant="warning"
-                            size="sm"
-                            title="Waiting for an admin to approve your change"
-                          >
-                            Pending approval
-                          </Badge>
+                        {pendingRequest && (
+                          <>
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              title="Waiting for an admin to approve your change"
+                            >
+                              Pending approval
+                            </Badge>
+                            <ChangeRequestWalkthrough
+                              request={pendingRequest}
+                              onAdded={loadMyRequests}
+                            />
+                          </>
                         )}
                       </div>
                     </TableCell>
@@ -960,32 +964,21 @@ export const WorkPage: React.FC = () => {
                       </Text>
                     </TableCell>
 
-                    <TableCell className="py-2 text-right whitespace-nowrap">
-                      <ButtonGroup
-                        orientation="horizontal"
-                        className="work-item-actions justify-end"
+                    <TableCell className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(de)}
+                        aria-label="Edit work item"
+                        title={
+                          awaitingApproval
+                            ? 'A change to this entry is already awaiting review.'
+                            : undefined
+                        }
+                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
                       >
-                        {pendingRequest && (
-                          <ChangeRequestWalkthrough
-                            request={pendingRequest}
-                            onAdded={loadMyRequests}
-                          />
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(de)}
-                          aria-label="Edit work item"
-                          title={
-                            awaitingApproval
-                              ? 'A change to this entry is already awaiting review.'
-                              : undefined
-                          }
-                          disabled={deletingEntryId === de.entry.id || awaitingApproval}
-                        >
-                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                        </Button>
-                      </ButtonGroup>
+                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );

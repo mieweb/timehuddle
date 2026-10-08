@@ -74,27 +74,26 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     'aria-busy': reserving,
     'aria-label': ariaLabel,
   };
+  const pulseControl = main ? (
+    <Button
+      type="button"
+      variant="primary"
+      size="lg"
+      leftIcon={<PulseLogo inverse className="h-5" />}
+      className={cn('pulse-button', main.className)}
+      {...shared}
+    >
+      {reserving ? 'Opening Pulse…' : main.label}
+    </Button>
+  ) : (
+    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
+      Pulse
+    </ComposerChipButton>
+  );
   return (
     <>
-      {main ? (
-        <Button
-          type="button"
-          variant="primary"
-          size="lg"
-          leftIcon={<PulseLogo inverse className="h-5" />}
-          className={cn('pulse-button', main.className)}
-          {...shared}
-        >
-          {reserving ? 'Opening Pulse…' : main.label}
-        </Button>
-      ) : (
-        <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
-          Pulse
-        </ComposerChipButton>
-      )}
-
       {allowFile && (
-        <>
+        <span className="pulse-upload-chips inline-flex items-center gap-2">
           <input
             ref={fileInput}
             type="file"
@@ -107,6 +106,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
               if (file) void pulse.upload(file);
             }}
           />
+          {pulseControl}
           <ComposerChipButton
             onClick={() => fileInput.current?.click()}
             disabled={disabled || reserving || sending}
@@ -122,8 +122,9 @@ export const PulseChip: React.FC<PulseChipProps> = ({
           >
             Upload
           </ComposerChipButton>
-        </>
+        </span>
       )}
+      {!allowFile && pulseControl}
 
       {error && (
         <Text as="span" size="xs" className="text-red-500 dark:text-red-400" role="alert">
