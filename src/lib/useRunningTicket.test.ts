@@ -64,6 +64,7 @@ describe('useRunningTicket', () => {
   });
 
   it('loads the work-item day from the session date (overnight timers)', async () => {
+    const STARTED_AT = Date.now() - 3_600_000;
     localStorage.setItem('meteor_resume_token', 'tok');
     mockGetRunning.mockResolvedValue({
       id: 'sess1',
@@ -71,7 +72,7 @@ describe('useRunningTicket', () => {
       userId: 'u1',
       clockEventId: 'ce1',
       date: '2026-09-03',
-      startTime: Date.now() - 3_600_000,
+      startTime: STARTED_AT,
       endTime: null,
       createdAt: '2026-09-03T20:00:00.000Z',
     });
@@ -100,6 +101,7 @@ describe('useRunningTicket', () => {
         title: 'Overnight ticket',
         url: '/app/tickets/tkt1',
         sessionId: 'sess1',
+        startTime: STARTED_AT,
       });
     });
     expect(mockGetDay).toHaveBeenCalledWith('2026-09-03');

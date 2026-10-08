@@ -1704,15 +1704,15 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.createEntry', {
     description: 'Create a WorkItem for a ticket on a given date',
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' } }, required: ['ticketId', 'date'] },
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' }, discardSessionId: { type: 'string' } }, required: ['ticketId', 'date'] },
   });
   Wormhole.expose('timers.startSession', {
     description: 'Start a timer for a WorkItem',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' }, discardSessionId: { type: 'string' } }, required: ['entryId'] },
   });
   Wormhole.expose('timers.stopSession', {
     description: 'Stop a running timer session',
-    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, now: { type: 'number' } }, required: ['sessionId'] },
+    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, now: { type: 'number' }, discardUpdate: { type: 'boolean' } }, required: ['sessionId'] },
   });
   Wormhole.expose('timers.updateEntry', {
     description: 'Update a WorkItem note, duration, and/or ticket',

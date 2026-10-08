@@ -47,13 +47,13 @@ test.describe('Clock in, then start a ticket timer', () => {
     await page.getByRole('button', { name: 'Clock In Now' }).click();
 
     await expect(tickets.stopTimerButton(title)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(`Timer started on ${title}. It's on My Board`)).toBeVisible();
+    await expect(page.getByText(`Started ${title}`)).toBeVisible();
 
     await tickets.stopTimerButton(title).click();
-    await expect(page.getByText(`Timer stopped on ${title}`)).toBeVisible();
+    await expect(page.getByText(`Stopped ${title}`)).toBeVisible();
   });
 
-  test('switching tickets names the one that stopped', async ({ page }) => {
+  test('switching tickets says only what started', async ({ page }) => {
     await clock.ensureClockedIn();
     const stamp = Date.now();
     const first = `E2E Switch From ${stamp}`;
@@ -70,9 +70,7 @@ test.describe('Clock in, then start a ticket timer', () => {
     await expect(tickets.stopTimerButton(first)).toBeVisible({ timeout: 10000 });
     await tickets.startTimerButton(second).click();
 
-    await expect(
-      page.getByText(`Stopped ${first}. Timer started on ${second}. It's on My Board`),
-    ).toBeVisible();
+    await expect(page.getByText(`Started ${second}`)).toBeVisible();
     await expect(tickets.startTimerButton(first)).toBeVisible();
 
     // With a timer running, the Clock page says clocking out will stop it.
@@ -101,7 +99,7 @@ test.describe('Clock in, then start a ticket timer', () => {
     await page.getByRole('button', { name: 'Clock In Now' }).click();
 
     await expect(row.getByRole('button', { name: 'Stop timer' })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(`Timer started on ${title}`)).toBeVisible();
+    await expect(page.getByText(`Started ${title}`)).toBeVisible();
     await row.getByRole('button', { name: 'Stop timer' }).click();
   });
 
@@ -130,7 +128,7 @@ test.describe('Clock in, then start a ticket timer', () => {
 
     // Back where the start was asked for, with the timer running.
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/, { timeout: 15000 });
-    await expect(page.getByText(`Timer started on ${title}. It's on My Board`)).toBeVisible();
+    await expect(page.getByText(`Started ${title}`)).toBeVisible();
     await tickets.switchToTab('my-board');
     await expect(tickets.stopTimerButton(title)).toBeVisible({ timeout: 10000 });
 

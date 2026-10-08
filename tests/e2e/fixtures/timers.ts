@@ -16,6 +16,26 @@ export const jsonResult = (result: unknown) => ({
   body: JSON.stringify({ result }),
 });
 
+/**
+ * Leaving a ticket after under two minutes asks whether to keep its Huddle
+ * update (#681), and almost every spec stops or switches within seconds. This
+ * answers "Keep update" whenever the question comes up, so those specs read as
+ * they did. A spec about the question itself removes the handler first
+ * (`askAboutShortStints`).
+ */
+export const shortStintQuestion = (page: Page) =>
+  page.getByRole('heading', { name: 'Keep this update?' });
+
+export function keepShortStintUpdates(page: Page): Promise<void> {
+  return page.addLocatorHandler(shortStintQuestion(page), async () => {
+    await page.getByRole('button', { name: 'Keep update' }).click();
+  });
+}
+
+export function askAboutShortStints(page: Page): Promise<void> {
+  return page.removeLocatorHandler(shortStintQuestion(page));
+}
+
 export interface BoardRef {
   sourceId: string;
   ticketId: string;

@@ -316,7 +316,7 @@ test.describe('Redmine suggestion timers', () => {
     await input.press('ArrowDown');
     await input.press('Shift+Enter');
 
-    await expect(page.getByText('Timer started on #15 and added to My Board')).toBeVisible();
+    await expect(page.getByText('Started #15')).toBeVisible();
     expect(bodies[0]).toMatchObject({ ticketId: '15', source: 'redmine', startNow: true });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '15' }] });
   });
@@ -332,7 +332,7 @@ test.describe('Redmine suggestion timers', () => {
     await row.getByLabel('Start a timer on #23').click();
 
     // Already on My Board, so it is not added a second time.
-    await expect(page.getByText("Timer started on #23. It's on My Board")).toBeVisible();
+    await expect(page.getByText('Started #23')).toBeVisible();
     expect(boardAdds).toHaveLength(0);
     expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
@@ -401,7 +401,7 @@ test.describe('Redmine suggestion timers', () => {
     await row.hover();
     await row.getByLabel('Add #31 to My Board and start timer').click();
 
-    await expect(page.getByText('Timer started on #31 and added to My Board')).toBeVisible();
+    await expect(page.getByText('Started #31')).toBeVisible();
     expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '31' }] });
     await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
@@ -428,7 +428,7 @@ test.describe('Redmine suggestion timers', () => {
 
     await expect(
       page.getByText(
-        "Timer started on #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
+        "Started #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
       ),
     ).toBeVisible();
     expect(bodies[0]).toMatchObject({ ticketId: '31', source: 'redmine' });

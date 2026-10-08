@@ -181,7 +181,7 @@ export function RedmineSuggestions({
         timerBusy.current = false;
         setTimerIssueId(null);
       }
-      if (outcome === 'failed' || outcome === 'clock-in') return;
+      if (outcome === 'failed' || outcome === 'cancelled' || outcome === 'clock-in') return;
       // The chip already follows the live timer (`runningIssueId`); refetching
       // brings the order and the server-side pin up to date as well.
       invalidateSuggestionsCache();

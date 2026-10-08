@@ -1,5 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { keepShortStintUpdates } from '../fixtures/timers';
 
 /**
  * TicketsPage - Page object for the unified ticket table.
@@ -59,6 +60,8 @@ export class TicketsPage extends BasePage {
     this.bulkDeleteButton = this.page.getByRole('button', { name: 'Delete selected tickets' });
     this.archiveButton = this.page.getByRole('button', { name: 'Archive' });
     this.closeIssuesButton = this.page.getByRole('button', { name: 'Close Issues' });
+    // Specs here stop and switch timers within seconds; see the fixture.
+    void keepShortStintUpdates(page);
   }
 
   /** Switch between the All Sources (`tickets`) and My Board tabs (same URL). */

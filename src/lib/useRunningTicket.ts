@@ -23,6 +23,8 @@ export type RunningTicket = {
   /** In-app route for a Huddle ticket, the instance URL for a Redmine issue. */
   url: string | null;
   sessionId: string;
+  /** When this session started, epoch ms. */
+  startTime: number;
 };
 
 export function useRunningTicket(enabled: boolean): RunningTicket | null {
@@ -53,6 +55,7 @@ export function useRunningTicket(enabled: boolean): RunningTicket | null {
         title: displayTitle || ticketId,
         url: displayUrl,
         sessionId: session.id,
+        startTime: session.startTime,
       });
     } catch {
       setRunning(null);

@@ -21,7 +21,13 @@ import {
   type RedmineStub,
   type StubValue,
 } from '../fixtures/redmine';
-import { jsonResult, stubMyBoard, stubRunningTimer, stubTimerCreate } from '../fixtures/timers';
+import {
+  jsonResult,
+  keepShortStintUpdates,
+  stubMyBoard,
+  stubRunningTimer,
+  stubTimerCreate,
+} from '../fixtures/timers';
 
 const ISSUE_ID = 15;
 
@@ -348,6 +354,7 @@ test.describe('Redmine issue page timer', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     clock = new ClockPage(page);
+    await keepShortStintUpdates(page);
   });
 
   /**
@@ -403,7 +410,7 @@ test.describe('Redmine issue page timer', () => {
     await startButton(page).click();
 
     // Assigned to you and already on My Board: the timer just starts.
-    await expect(page.getByText(`Timer started on #${ISSUE_ID}. It's on My Board`)).toBeVisible();
+    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
     expect(starts[0]).toMatchObject({
       ticketId: String(ISSUE_ID),
       source: 'redmine',
@@ -414,7 +421,7 @@ test.describe('Redmine issue page timer', () => {
 
     await stopButton(page).click();
 
-    await expect(page.getByText(`Timer stopped on #${ISSUE_ID}`)).toBeVisible();
+    await expect(page.getByText(`Stopped #${ISSUE_ID}`)).toBeVisible();
     expect(stops[0]).toMatchObject({ sessionId: 's1' });
     await expect(startButton(page)).toBeVisible();
   });
@@ -451,9 +458,7 @@ test.describe('Redmine issue page timer', () => {
     await expect(startButton(page)).toHaveText('Add & Start');
     await startButton(page).click();
 
-    await expect(
-      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
-    ).toBeVisible();
+    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
     expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
   });
@@ -470,9 +475,7 @@ test.describe('Redmine issue page timer', () => {
 
     await startButton(page).click();
 
-    await expect(
-      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
-    ).toBeVisible();
+    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
     expect(rm.calls('prefs.set')).toHaveLength(0);
     expect(boardAdds).toHaveLength(1);
   });
@@ -504,9 +507,7 @@ test.describe('Redmine issue page timer', () => {
     expect(starts).toHaveLength(0);
     await page.getByRole('button', { name: 'Clock In Now' }).click();
 
-    await expect(
-      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
-    ).toBeVisible();
+    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
     expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
     expect(boardAdds).toHaveLength(1);
   });
@@ -541,9 +542,7 @@ test.describe('Redmine issue page timer', () => {
     await expect(page).toHaveURL(new RegExp(`/app/tickets/redmine/${ISSUE_ID}$`), {
       timeout: 15000,
     });
-    await expect(
-      page.getByText(`Timer started on #${ISSUE_ID} and added to My Board`),
-    ).toBeVisible();
+    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
     expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
     expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
     expect(boardAdds).toHaveLength(1);

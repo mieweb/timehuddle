@@ -28,6 +28,8 @@ import { pinIssueIfUnset } from './redmine-prefs';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
 import { redmineStampFor } from './timer-core';
+import { discardTimerUpdate, postTimerUpdate } from './timer-updates';
+import { TimerUpdate, startAction } from './timer-updates-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -103,12 +105,42 @@ function isPreviousDate(date, tz) {
   return date < todayInTz(tz);
 }
 
+/**
+ * Close the caller's running session, if any, and return it as it was. Null
+ * when nothing was running, or when something else closed it first.
+ */
 async function closeRunningSession(userId, now) {
   const running = await Timers.findOneAsync({ userId, endTime: null });
   if (!running) return null;
   const durationSeconds = Math.max(0, Math.floor((now - running.startTime) / 1000));
-  await Timers.updateAsync(running._id, { $set: { endTime: now, durationSeconds } });
-  return running._id.toHexString();
+  const closed = await Timers.updateAsync(
+    { _id: running._id, endTime: null },
+    { $set: { endTime: now, durationSeconds } },
+  );
+  return closed ? running : null;
+}
+
+/**
+ * Tell the team's Huddle about a session that just started (#681): "Started",
+ * or "Switched to" when it took over from another ticket.
+ *
+ * `discardSessionId` names the session whose own update its owner chose not
+ * to keep. It is honoured only when that is the session this start closed: if
+ * another tab has moved on since the question was asked, the update of
+ * whatever is running now is kept and this reads as an ordinary switch.
+ * Best-effort: the session is running either way.
+ * @returns {Promise<{ postId: string, teamId: string } | null>}
+ */
+async function announceStart(userId, session, previous, discardSessionId) {
+  const discardPrevious =
+    typeof discardSessionId === 'string' && previous?._id.toHexString() === discardSessionId;
+  if (discardPrevious) await discardTimerUpdate(userId, previous);
+  const action = startAction({
+    previousWorkItemId: previous?.workItemId ?? null,
+    workItemId: session.workItemId,
+    discardPrevious,
+  });
+  return action ? postTimerUpdate(action, session, { remember: true }) : null;
 }
 
 /**
@@ -566,7 +598,16 @@ Meteor.methods({
    * `{userId, source, ticketId, date}` — without `source`, Redmine issue #42
    * and a Huddle ticket would share a row.
    */
-  async 'timers.createEntry'({ ticketId, source, date, note, startNow = false, notifyAdmins = true, tz } = {}) {
+  async 'timers.createEntry'({
+    ticketId,
+    source,
+    date,
+    note,
+    startNow = false,
+    notifyAdmins = true,
+    tz,
+    discardSessionId,
+  } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticketSource = normalizeSource(source);
@@ -603,10 +644,11 @@ Meteor.methods({
     }
 
     let session = null;
+    let update = null;
     if (startNow) {
       if (isPreviousDate(date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
       const clockEventId = await requireActiveShift(userId);
-      await closeRunningSession(userId, Date.now());
+      const previous = await closeRunningSession(userId, Date.now());
       const sessionId = await Timers.insertAsync({
         workItemId: entry._id.toHexString(),
         userId,
@@ -617,7 +659,9 @@ Meteor.methods({
         createdAt: new Date(),
         ...(await redmineStampFor(entry)),
       });
-      session = toPublicSession(await Timers.findOneAsync(sessionId));
+      const started = await Timers.findOneAsync(sessionId);
+      session = toPublicSession(started);
+      update = await announceStart(userId, started, previous, discardSessionId);
       pinTimedRedmineIssue(userId, ticketSource, ticketId);
     }
 
@@ -626,11 +670,11 @@ Meteor.methods({
       notifyTimesheetAdmins(userId, ticketId, date, 'added').catch(() => {});
     }
 
-    return { entry: toPublicEntry(entry, display), session };
+    return { entry: toPublicEntry(entry, display), session, update };
   },
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
-  async 'timers.startSession'({ entryId, now = Date.now(), tz } = {}) {
+  async 'timers.startSession'({ entryId, now = Date.now(), tz, discardSessionId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
@@ -640,7 +684,7 @@ Meteor.methods({
     if (isPreviousDate(entry.date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
 
     const clockEventId = await requireActiveShift(userId);
-    const closedSessionId = await closeRunningSession(userId, now);
+    const previous = await closeRunningSession(userId, now);
     const sessionId = await Timers.insertAsync({
       workItemId: entryId,
       userId,
@@ -652,12 +696,21 @@ Meteor.methods({
       ...(await redmineStampFor(entry)),
     });
     const session = await Timers.findOneAsync(sessionId);
+    const update = await announceStart(userId, session, previous, discardSessionId);
     pinTimedRedmineIssue(userId, entry.source, entry.ticketId);
-    return { session: toPublicSession(session), closedSessionId };
+    return {
+      session: toPublicSession(session),
+      closedSessionId: previous?._id.toHexString() ?? null,
+      update,
+    };
   },
 
-  /** Stop a running timer session. */
-  async 'timers.stopSession'({ sessionId, now = Date.now() } = {}) {
+  /**
+   * Stop a running timer session, and say so in Huddle. `discardUpdate` is for
+   * a stint its owner chose not to keep: the session's own "Started" update is
+   * removed instead, and nothing is posted.
+   */
+  async 'timers.stopSession'({ sessionId, now = Date.now(), discardUpdate = false } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(sessionId)) throw new Meteor.Error('not-found', 'Session not found');
@@ -666,9 +719,17 @@ Meteor.methods({
     if (session.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
     if (session.endTime !== null) throw new Meteor.Error('already-stopped', 'Session already stopped');
     const durationSeconds = Math.max(0, Math.floor((now - session.startTime) / 1000));
-    await Timers.updateAsync(session._id, { $set: { endTime: now, durationSeconds } });
+    // Claimed in the write itself, so of two stops at once only one goes on.
+    const closed = await Timers.updateAsync(
+      { _id: session._id, endTime: null },
+      { $set: { endTime: now, durationSeconds } },
+    );
+    if (!closed) throw new Meteor.Error('already-stopped', 'Session already stopped');
     const updated = await Timers.findOneAsync(session._id);
-    return { session: toPublicSession(updated) };
+    let update = null;
+    if (discardUpdate === true) await discardTimerUpdate(userId, session);
+    else update = await postTimerUpdate(TimerUpdate.STOPPED, session);
+    return { session: toPublicSession(updated), update };
   },
 
   /** Update a WorkItem's note, duration, and/or ticket. */

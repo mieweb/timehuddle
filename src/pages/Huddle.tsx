@@ -140,8 +140,28 @@ export default function Huddle() {
   // view (a notification, a shared conversation) wins. The layout effect runs
   // before paint, so the return never flashes the default conversation, and it
   // re-runs each time <Activity> shows the page again.
-  const { pathname } = useRouter();
+  const { pathname, navigate } = useRouter();
   const onScreen = pathname === '/app/huddle';
+
+  // A post can link into the app: a timer update links its ticket. The chat
+  // opens a link in a new tab; one that stays in the app opens here instead.
+  // A modified click (new tab, new window) is left to the browser.
+  const openAppLinkHere = useCallback(
+    (event: React.MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (!(event.target instanceof Element)) return;
+      const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+      if (!anchor) return;
+      const url = new URL(anchor.href, window.location.origin);
+      const inApp = url.pathname === '/app' || url.pathname.startsWith('/app/');
+      if (url.origin !== window.location.origin || !inApp) return;
+      event.preventDefault();
+      navigate(`${url.pathname}${url.search}`);
+    },
+    [navigate],
+  );
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const lastViewRef = useRef<Record<string, string | null>>({});
@@ -883,7 +903,11 @@ export default function Huddle() {
         )}
 
         {/* Feed */}
-        <div ref={feedRef} className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          ref={feedRef}
+          className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto"
+          onClickCapture={openAppLinkHere}
+        >
           {scope === 'team' && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">

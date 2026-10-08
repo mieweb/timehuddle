@@ -251,7 +251,7 @@ test.describe('Unified ticket table', () => {
 
     await tickets.addAndStartButton(title).click();
 
-    await expect(page.getByText(`Timer started on ${title} and added to My Board`)).toBeVisible();
+    await expect(page.getByText(`Started ${title}`)).toBeVisible();
     await expect(tickets.stopTimerButton(title)).toBeVisible();
     await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
     await tickets.stopTimerButton(title).click();
