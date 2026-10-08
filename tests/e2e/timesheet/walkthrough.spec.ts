@@ -51,6 +51,45 @@ async function sendChangeForApproval(page: Page, teamId: string): Promise<Change
   return result.request;
 }
 
+/** A ticket timer for today on the shared team, then a duration edit that waits for an admin. */
+async function sendTimerChangeForApproval(page: Page, teamId: string): Promise<ChangeRequest> {
+  const token = await getSessionToken(page);
+  const now = new Date();
+  const date = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join('-');
+  await call(page.request, token, 'clock_start', { teamId });
+  const ticket = await call<{ id?: string; _id?: string }>(page.request, token, 'tickets_create', {
+    teamId,
+    title: `Walkthrough timer ${Date.now()}`,
+  });
+  const { entry, session } = await call<{ entry: { id: string }; session: { id: string } }>(
+    page.request,
+    token,
+    'timers_createEntry',
+    {
+      ticketId: ticket.id ?? ticket._id,
+      date,
+      startNow: true,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
+  );
+  await call(page.request, token, 'timers_stopSession', { sessionId: session.id, now: Date.now() });
+  await call(page.request, token, 'clock_stop', { teamId });
+  const result = await call<{ pending?: boolean; request: ChangeRequest }>(
+    page.request,
+    token,
+    'timers_updateEntry',
+    {
+      entryId: entry.id,
+      durationSeconds: 3600,
+      description: 'Worked an hour on this before starting the timer.',
+    },
+  );
+  expect(result.pending).toBe(true);
+  return result.request;
+}
+
 test.describe('Timesheet — Pulse walkthrough on a pending change', () => {
   test.setTimeout(90000);
 
@@ -90,6 +129,23 @@ test.describe('Timesheet — Pulse walkthrough on a pending change', () => {
 
       await page.reload();
       await expect(page.getByText('Walkthrough added').first()).toBeVisible({ timeout: 20000 });
+    } finally {
+      await call(page.request, token, 'timesheetApprovals_cancel', { requestId: change.id });
+    }
+  });
+
+  test('a pending ticket-timer change offers Pulse on the Work page', async ({ page }) => {
+    await loginAs(page, TEST_USERS.member1);
+    const teamId = await selectSharedTestTeam(page);
+    const token = await getSessionToken(page);
+    const change = await sendTimerChangeForApproval(page, teamId);
+
+    try {
+      await page.goto('/app/work');
+      await expect(page.getByText('Pending approval').first()).toBeVisible({ timeout: 20000 });
+      await expect(
+        page.getByRole('button', { name: 'Add a walkthrough with Pulse' }).first(),
+      ).toBeVisible();
     } finally {
       await call(page.request, token, 'timesheetApprovals_cancel', { requestId: change.id });
     }
