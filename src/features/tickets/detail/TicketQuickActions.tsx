@@ -45,7 +45,7 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
   const { user } = useSession();
   const runningTicket = useRunningTicket(true);
   const { start, stop, busyKey } = useTicketStart();
-  const { boardKeys, boardLoaded } = useMyBoardKeys(user?.id ?? null);
+  const { boardKeys, boardKnown } = useMyBoardKeys(user?.id ?? null);
   const boardActions = useBoardActions();
   const [boardBusy, setBoardBusy] = useState(false);
 
@@ -54,8 +54,9 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
   const entryKeys = [key, linkedKey].filter((k): k is string => !!k && boardKeys.has(k));
   const onBoard = entryKeys.length > 0;
   const isTiming = runningTicket?.key === key;
-  // Until the board has answered, "not on it" is not known: say nothing about adding.
-  const addsToBoard = boardLoaded && !onBoard && !isTiming;
+  // Until a read of the board has succeeded, "not on it" is not known: say
+  // nothing about adding, and offer no toggle.
+  const addsToBoard = boardKnown && !onBoard && !isTiming;
 
   const toggleBoard = () => {
     setBoardBusy(true);
@@ -79,7 +80,7 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
         isLoading={boardBusy}
         // Not while the timer is starting: the start decides whether to add the
         // ticket from where the board stood when it was pressed.
-        disabled={!boardLoaded || busyKey === key}
+        disabled={!boardKnown || busyKey === key}
         onClick={toggleBoard}
         showLabel
         ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
