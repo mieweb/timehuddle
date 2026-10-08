@@ -8,7 +8,7 @@
  *      gate is on and no ticket is running. Break/Resume lives here, beside
  *      the timer, so it stays on screen whichever composer is open below.
  *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
- *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
+ *      same Photo/Video/Doc/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
  *   3. Recent sessions — the user's last completed sessions on this team.
  *
@@ -31,7 +31,13 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
+import {
+  clockApi,
+  huddleApi,
+  type ClockEvent,
+  type HuddlePost,
+  type PulseUploadStatus,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -52,7 +58,6 @@ import {
   restoreImageAltText,
   toPostAttachment,
 } from '../huddle/api';
-import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -63,6 +68,10 @@ import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
+import { PulseChip } from '../pulse-upload/PulseButton';
+import { PulseLogo } from '../pulse-upload/PulseLogo';
+import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -70,8 +79,12 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
+/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
+const MAIN_ACTION_PILL =
+  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
+
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -120,13 +133,9 @@ export const ClockPage: React.FC = () => {
   // none is — same single-bar treatment as the Huddle composer, aggregated
   // across the pickers and paste so an overlapping pair can't read as idle.
   const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // A Pulse recording reserved but not yet attached.
-  const [pulsePending, setPulsePending] = useState(false);
-  // Posting mid-upload would drop the attachment still on the wire, and posting
-  // with a Pulse recording outstanding would clear its reservation and change
-  // composer mode — unmounting the watcher before the clip lands. Every submit
-  // path stays closed until both have settled.
-  const uploadInFlight = uploadFraction !== null || pulsePending;
+  // Posting mid-upload would drop the attachment still on the wire, so every
+  // submit path stays closed until it has settled.
+  const uploadInFlight = uploadFraction !== null;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -136,15 +145,8 @@ export const ClockPage: React.FC = () => {
     (media: MediaItem) => setAttachments((prev) => [...prev, media]),
     [],
   );
-  const handleAttachmentRemove = (mediaId: string) => {
-    // Removing the Pulse video chip also forgets its persisted upload, so a
-    // recording that finishes afterward doesn't reattach itself.
-    const removed = attachments.find((m) => m.id === mediaId);
-    if (removed?.type === 'video' && composerMode) {
-      clearComposerPulseUpload(`clock-${composerMode}`);
-    }
+  const handleAttachmentRemove = (mediaId: string) =>
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
-  };
   // Same paste/drop-a-screenshot handling as the Huddle composer — both share
   // the editor, so both must keep base64 images out of the post text.
   // Pasted/dropped images are written back into the document so the writer sees
@@ -294,6 +296,90 @@ export const ClockPage: React.FC = () => {
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText]);
 
+  // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
+  // (clocks you out) — the server does both when the upload lands. Owned here,
+  // not by a button: clocking in or out swaps the section's pill, while the
+  // modal still has to say the video landed.
+  // A landed plan or wrap-up swaps the composer; what the editor held was for
+  // the step the video has just done, so the next one starts clean. The mode
+  // change itself remounts the editor (it is in the editor's key), so no
+  // extra remount here: one on top of it unmounted the editor mid-setup.
+  // Only the draft held when that link was handed out is cleared: anything
+  // written since (a plan posted by hand, then a wrap-up begun) is kept. The
+  // generation advances on each hand post, so equal text in a later draft
+  // still counts as later.
+  const textRef = useRef(text);
+  textRef.current = text;
+  const draftGenRef = useRef(0);
+  type DraftSnapshot = { text: string; gen: number } | null;
+  const planDraftRef = useRef<DraftSnapshot>(null);
+  const wrapUpDraftRef = useRef<DraftSnapshot>(null);
+  const refreshClockFor =
+    (draftRef: React.MutableRefObject<DraftSnapshot>) => (status: PulseUploadStatus) => {
+      const draft = draftRef.current;
+      if (
+        status.state === 'done' &&
+        draft?.gen === draftGenRef.current &&
+        draft.text === textRef.current
+      ) {
+        setText('');
+        seededTokenRef.current = null;
+      }
+      draftRef.current = null;
+      refetchClock();
+    };
+  // The hooks compare destinations by value and drop a link whose destination
+  // changed, so the date, team and session a link was reserved for hold still
+  // while it is waiting: midnight passing, a team switch, or a newer shift
+  // opened by hand must not stop the watch on a video that will still land
+  // where it said.
+  const todayStr = toDateString(new Date());
+  const [postDate, setPostDate] = useState(todayStr);
+  const [planTeamId, setPlanTeamId] = useState(gateTeamId ?? '');
+  const planPulse = usePulseUpload(
+    { kind: 'clock-plan', teamId: planTeamId, postDate },
+    { onSettled: refreshClockFor(planDraftRef) },
+  );
+  // The session a wrap-up is for, kept after it ends: the wrap-up landing is
+  // what clocks you out, and its link must still be the one being watched.
+  const [wrapUpSessionId, setWrapUpSessionId] = useState(activeClockEvent?.id ?? '');
+  const wrapUpPulse = usePulseUpload(
+    { kind: 'clock-wrapup', clockEventId: wrapUpSessionId, postDate },
+    { onSettled: refreshClockFor(wrapUpDraftRef) },
+  );
+  const planLinkId = planPulse.link?.videoid;
+  const wrapUpLinkId = wrapUpPulse.link?.videoid;
+  useEffect(() => {
+    if (planLinkId) planDraftRef.current = { text: textRef.current, gen: draftGenRef.current };
+  }, [planLinkId]);
+  useEffect(() => {
+    if (wrapUpLinkId) wrapUpDraftRef.current = { text: textRef.current, gen: draftGenRef.current };
+  }, [wrapUpLinkId]);
+  // Each link holds its own destination still while it is waiting and while
+  // its result is on screen: a plan still uploading must not keep the wrap-up
+  // from adopting a shift clocked in by hand, and a wrap-up's modal must not
+  // be cleared from under the person by a newer shift.
+  const busy = (pulse: typeof planPulse) => pulse.status?.state === 'waiting' || pulse.modalOpen;
+  const planBusy = busy(planPulse);
+  const wrapUpBusy = busy(wrapUpPulse);
+  const activeSessionId = activeClockEvent?.id;
+  useEffect(() => {
+    // The date is shared by both links, so it moves only when neither is.
+    if (!planBusy && !wrapUpBusy && postDate !== todayStr) setPostDate(todayStr);
+  }, [planBusy, wrapUpBusy, postDate, todayStr]);
+  useEffect(() => {
+    if (!wrapUpBusy && activeSessionId && activeSessionId !== wrapUpSessionId) {
+      setWrapUpSessionId(activeSessionId);
+    }
+  }, [wrapUpBusy, activeSessionId, wrapUpSessionId]);
+  useEffect(() => {
+    if (!planBusy && (gateTeamId ?? '') !== planTeamId) setPlanTeamId(gateTeamId ?? '');
+  }, [planBusy, gateTeamId, planTeamId]);
+  // The one the Pulse section offers now: clock in with a plan, or out with a
+  // wrap-up. Null without a team to clock in to.
+  const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
+  const clockPulseLabel = isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse';
+
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
@@ -320,7 +406,7 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
-      clearComposerPulseUpload('clock-plan');
+      draftGenRef.current += 1;
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -385,9 +471,9 @@ export const ClockPage: React.FC = () => {
           attachments: postAttachments,
         });
       }
+      draftGenRef.current += 1;
       setText('');
       cachedPlanPostIdRef.current = null;
-      clearComposerPulseUpload('clock-wrapup');
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
@@ -443,6 +529,40 @@ export const ClockPage: React.FC = () => {
               : 'Any time you track here gets logged to this workspace.'
           }
         />
+
+        {/* ── Pulse — the other way to clock in or out: a video plan or
+             wrap-up, posted to Huddle by the server, which then clocks you
+             in or out. First on the page, and offered whether or not the
+             team requires a plan. Nothing typed in the composer below goes
+             with it. ── */}
+        {clockPulse && (
+          <section
+            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
+            aria-labelledby="clock-pulse-title"
+          >
+            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
+            <div className="clock-pulse-copy flex-1">
+              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+              </Text>
+              <Text variant="muted" size="sm" className="mt-1">
+                {isClockedIn
+                  ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
+                  : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
+              </Text>
+              <Text variant="muted" size="xs" className="mt-1">
+                Your Pulse draft's name becomes the post's text.
+              </Text>
+            </div>
+            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
+              <PulseChip
+                pulse={clockPulse}
+                ariaLabel={clockPulseLabel}
+                main={{ label: clockPulseLabel, className: MAIN_ACTION_PILL }}
+              />
+            </div>
+          </section>
+        )}
 
         {/* ── Status — eyebrow + big bold session timer ──
              The surface is tinted by state rather than being a fixed dark slab
@@ -606,18 +726,16 @@ export const ClockPage: React.FC = () => {
               onAttachmentRemove={handleAttachmentRemove}
             />
 
-            {/* ── Attach bar — same Photo/Video/Doc/Pulse/Ticket/@Mention controls as Huddle ── */}
+            {/* ── Attach bar — same Photo/Video/Doc/Ticket/@Mention controls as Huddle ── */}
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
-                pulseScope={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
-                onPulsePendingChange={setPulsePending}
               />
             </div>
 
@@ -668,7 +786,7 @@ export const ClockPage: React.FC = () => {
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock in
               </Button>
@@ -680,7 +798,7 @@ export const ClockPage: React.FC = () => {
                 isLoading={clockOutLoading}
                 aria-label="Clock out"
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+                className={MAIN_ACTION_PILL}
               >
                 Clock out
               </Button>
@@ -744,6 +862,20 @@ export const ClockPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+      <PulseUploadModal
+        open={planPulse.modalOpen}
+        onClose={planPulse.closeModal}
+        scanLink={planPulse.link?.scanLink ?? null}
+        destination={planPulse.destination}
+        status={planPulse.status}
+      />
+      <PulseUploadModal
+        open={wrapUpPulse.modalOpen}
+        onClose={wrapUpPulse.closeModal}
+        scanLink={wrapUpPulse.link?.scanLink ?? null}
+        destination={wrapUpPulse.destination}
+        status={wrapUpPulse.status}
+      />
     </AppPage>
   );
 };

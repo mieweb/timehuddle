@@ -499,7 +499,9 @@ export const TicketsPage: React.FC = () => {
         kind: 'ticket',
         ticket,
         label,
-        inTable: ticketByKey.has(ticket.key),
+        // An issue on the board is a table row for that alone, even before the
+        // refetch that lists it: nothing to pin.
+        inTable: ticketByKey.has(ticket.key) || isOnBoard(ticket, boardKeys),
         onBoard: isOnBoard(ticket, boardKeys),
       });
     },
@@ -851,6 +853,7 @@ export const TicketsPage: React.FC = () => {
     timerLoadingKey,
     onToggleTimer: handleToggleTimer,
     isOnBoard: (t: UnifiedTicket) => isOnBoard(t, boardKeys),
+    boardKnown,
     boardLoadingKey,
     onToggleBoard: handleToggleBoard,
     onEditRequest: (t: UnifiedTicket) => void openEditModal(t),
@@ -905,6 +908,7 @@ export const TicketsPage: React.FC = () => {
               runningIssueId={runningRedmineIssueId}
               onToggleTimer={handleSuggestionTimer}
               boardIssueIds={boardRedmineIssueIds}
+              boardKnown={boardKnown}
               onToggleBoard={handleSuggestionBoard}
               inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
             />

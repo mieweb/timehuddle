@@ -18,6 +18,7 @@ import {
   AlertDescription,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
@@ -59,6 +60,7 @@ import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { ChangeRequestWalkthrough } from './ChangeRequestWalkthrough';
 import { TimesheetRow } from './TimesheetRow';
 import {
   emptyJustification,
@@ -803,15 +805,18 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                     <Text size="sm" className="grow">
                       {describePendingAddition(r, teams)}
                     </Text>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      isLoading={withdrawing === r.id}
-                      onClick={() => void withdrawRequest(r.id)}
-                      aria-label={`Withdraw ${describePendingAddition(r, teams)}`}
-                    >
-                      Withdraw
-                    </Button>
+                    <ButtonGroup orientation="horizontal" className="pending-addition-actions">
+                      <ChangeRequestWalkthrough request={r} onAdded={loadMyRequests} />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isLoading={withdrawing === r.id}
+                        onClick={() => void withdrawRequest(r.id)}
+                        aria-label={`Withdraw ${describePendingAddition(r, teams)}`}
+                      >
+                        Withdraw
+                      </Button>
+                    </ButtonGroup>
                   </li>
                 ))}
               </ul>
@@ -869,6 +874,11 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                             : undefined
                         }
                         changeNote={request?.responseNote ?? undefined}
+                        pendingAction={
+                          request?.status === 'pending' ? (
+                            <ChangeRequestWalkthrough request={request} onAdded={loadMyRequests} />
+                          ) : undefined
+                        }
                       />
                     );
                   })}

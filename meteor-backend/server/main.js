@@ -2200,7 +2200,16 @@ Meteor.startup(async() => {
           description: 'Where the finished video lands (see pulse-destinations.js)',
           properties: {
             kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
-            id: { type: 'string', description: 'The ticket or Redmine issue id, for those kinds' },
+            id: {
+              type: 'string',
+              description: 'The ticket, Redmine issue, clock session or timesheet change request id, for those kinds',
+            },
+            teamId: { type: 'string', description: 'The team to post to, for huddle and clock-plan' },
+            clockEventId: { type: 'string', description: 'The session to wrap up, for clock-wrapup' },
+            postDate: {
+              type: 'string',
+              description: "The poster's calendar date (YYYY-MM-DD), for clock-plan and clock-wrapup",
+            },
           },
           required: ['kind'],
         },
