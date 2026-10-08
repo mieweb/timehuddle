@@ -6,6 +6,11 @@ const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   ticket: 'Added to this ticket',
   redmine: 'Added to this issue',
   clock: 'Added to this session',
+  huddle: 'Posted to Huddle',
+  // Exactly the backend's notes (pulse-destinations.js): a note that says
+  // more is a step after delivery that failed, and is shown.
+  'clock-plan': "Plan posted — you're clocked in",
+  'clock-wrapup': "Wrap-up posted — you're clocked out",
 };
 
 export function landedLabel(destination: PulseDestination): string {
@@ -18,10 +23,24 @@ const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   ticket: "It's added to this ticket as soon as it uploads.",
   redmine: "It's added to this issue as soon as it uploads.",
   clock: "It's added to this session as soon as it uploads.",
+  huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",
+  'clock-plan': "It's posted as your plan, and you're clocked in, as soon as it uploads.",
+  'clock-wrapup': "It's posted as your wrap-up, and you're clocked out, as soon as it uploads.",
 };
 
 export function uploadHint(destination: PulseDestination): string {
   return UPLOAD_HINTS[destination.kind];
+}
+
+/**
+ * What a delivered video's note adds to the landed label, if anything: the
+ * backend says "Plan posted, but you weren't clocked in: …" when a step after
+ * delivery failed, and the plain label when nothing did.
+ */
+export function followUpNote(destination: PulseDestination, note?: string): string {
+  // Other kinds' notes are for logs ("Attached to ticket <id>"), not people.
+  if (destination.kind !== 'clock-plan' && destination.kind !== 'clock-wrapup') return '';
+  return note && note !== landedLabel(destination) ? note : '';
 }
 
 /** A link's token works for 30 minutes; after that, only a new one will do. */

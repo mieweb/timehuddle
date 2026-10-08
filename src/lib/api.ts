@@ -1993,10 +1993,17 @@ export const timerApi = {
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Where a Pulse video lands: the uploader's media library, or the attachments
- * of a ticket, a Redmine issue or a clock session.
+ * Where a Pulse video lands: the uploader's media library, the attachments of
+ * a ticket, a Redmine issue or a clock session, or a new post in a team's
+ * Huddle. The server delivers it there the moment it lands (see
+ * meteor-backend/server/pulse-destinations.js).
  */
-export type PulseDestination = { kind: 'library' } | { kind: AttachmentKind; id: string };
+export type PulseDestination =
+  | { kind: 'library' }
+  | { kind: AttachmentKind; id: string }
+  | { kind: 'huddle'; teamId: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'clock-wrapup'; clockEventId: string; postDate: string };
 
 /**
  * Where a Pulse upload stands. `done` carries the backend's `note` (what it
