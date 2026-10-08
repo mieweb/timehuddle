@@ -96,6 +96,9 @@ test.describe('Real-time Work Page Timers', () => {
     await expect(workRow(session2, title).getByText('Running')).toBeVisible({ timeout: 10000 });
 
     await tickets.stopTimerButton(title).click();
+    // Checked in this tab first: a stop this quick asks about the ticket's
+    // Huddle update, and the page object answers it on its own page.
+    await expect(tickets.startTimerButton(title)).toBeVisible({ timeout: 10000 });
     await expect(workRow(session2, title).getByText('Running')).toHaveCount(0, { timeout: 10000 });
     await boardTab.close();
   });

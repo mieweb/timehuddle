@@ -14,8 +14,18 @@ import { rawDb, isValidId } from './collections';
 import { normalizeSource, refKey, resolveTicketRefs, sourceSelector } from './ticket-refs';
 import { sumClosedSessions, ticketDayKey, ticketDayTotals } from './redmine-net-hours';
 import { linkedIssueIdOf } from './ticket-link-core';
+import { postTimerUpdate } from './timer-updates';
+import { TimerUpdate } from './timer-updates-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+/**
+ * When a "Stopped" update says a timer stopped, for one closed by the clock (a
+ * break, a clock-out): a moment before `now`. The Huddle feed orders by time,
+ * and "Clocked out at…" is stamped at `now` itself, so the timer reads as
+ * stopping first, which is the order it happened in.
+ */
+const justBefore = (now) => now - 1;
 
 function timers() {
   return rawDb().collection('timers');
@@ -24,7 +34,10 @@ function workItems() {
   return rawDb().collection('workitems');
 }
 
-/** Close the user's single running timer session (if any). Returns its hex id or null. */
+/**
+ * Close the user's single running timer session (if any), and say so in Huddle
+ * (#681). Returns its hex id or null.
+ */
 export async function closeRunningForUser(userId, now) {
   const running = await timers().findOne({ userId, endTime: null });
   if (!running) return null;
@@ -33,10 +46,14 @@ export async function closeRunningForUser(userId, now) {
     { _id: running._id, endTime: null },
     { $set: { endTime: now, durationSeconds } }
   );
+  await postTimerUpdate(TimerUpdate.STOPPED, running, { at: justBefore(now) });
   return running._id.toHexString();
 }
 
-/** Close every running timer session for the user. Returns how many were closed. */
+/**
+ * Close every running timer session for the user, and say so in Huddle (#681).
+ * Returns how many were closed.
+ */
 export async function closeAllForUser(userId, now) {
   const running = await timers().find({ userId, endTime: null }).toArray();
   if (running.length === 0) return 0;
@@ -52,6 +69,9 @@ export async function closeAllForUser(userId, now) {
     },
   }));
   const result = await timers().bulkWrite(bulkOps);
+  for (const session of running) {
+    await postTimerUpdate(TimerUpdate.STOPPED, session, { at: justBefore(now) });
+  }
   return result.modifiedCount;
 }
 
@@ -170,7 +190,8 @@ export async function redmineClosedSecondsUntil(userId, ticketId, date, cutoffMs
 }
 
 /**
- * Start a fresh running timer for a work item (used when a break ends).
+ * Start a fresh running timer for a work item (used when a break ends), and
+ * say so in Huddle (#681).
  * `clockEventId` ties the new session to the shift it resumes inside, the same
  * way `timers.startSession` does, so the Dashboard timesheet can nest it.
  */
@@ -190,6 +211,7 @@ export async function restartTimerForWorkItem(userId, workItemId, now, clockEven
     ...(await redmineStampFor(workItem)),
   };
   await timers().insertOne(session);
+  await postTimerUpdate(TimerUpdate.RESUMED, session, { remember: true });
   return session;
 }
 

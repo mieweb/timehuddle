@@ -7,8 +7,10 @@
  * page — goes through `useTicketStart().start`, so being clocked out is handled
  * the same way everywhere:
  *
- * - Clocked in: the timer starts, and a toast confirms it. When it stopped
- *   another ticket's timer, the toast names that one too.
+ * - Clocked in: the timer starts, and a toast confirms it, with a way to open
+ *   the update the start posted to Huddle (#681).
+ * - Leaving a ticket after under two minutes (a switch, or a stop) first asks
+ *   whether to keep that ticket's update in Huddle or discard it.
  * - Clocked out: one "Clock In Required" prompt, owned here. **Clock In Now**
  *   clocks in, then starts the timer.
  * - Clocked out on a plan-required team: the prompt sends the user to the Clock
@@ -32,13 +34,14 @@ import {
 } from '@mieweb/ui';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { timerApi } from '../../lib/api';
+import { timerApi, type TimerUpdateRef } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
 import { useRouter } from '../../ui/router';
 import { invalidateRedmineCache } from '../tickets/sources';
 import {
+  SHORT_STINT_MS,
   startTicketTimer,
   timerErrorMessage,
   toastTimerOutcome,
@@ -99,6 +102,15 @@ function requestKey(request: TicketStartRequest): string {
     : request.ticketKey;
 }
 
+/** A ticket left after a very short stint, and what the user is asked about its update. */
+interface ShortStintQuestion {
+  kind: 'switch' | 'stop';
+  label: string;
+  answer: (choice: 'keep' | 'discard' | 'cancel') => void;
+}
+
+const isShortStint = (running: RunningTicket) => Date.now() - running.startTime < SHORT_STINT_MS;
+
 function refreshTimerViews() {
   window.dispatchEvent(new CustomEvent('tickets:refetch'));
   window.dispatchEvent(new CustomEvent('work:refetch'));
@@ -135,6 +147,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [prompt, setPrompt] = useState<TicketStartRequest | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTicketStart | null>(null);
+  const [stintQuestion, setStintQuestion] = useState<ShortStintQuestion | null>(null);
 
   // Read inside the callbacks below without re-creating them on every change.
   const runningRef = useRef<RunningTicket | null>(runningTicket);
@@ -146,27 +159,59 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setPending(next);
   }, []);
 
+  /**
+   * Ask what to do with the update of a ticket being left after a short stint.
+   * Resolves to whether to discard it, or null when the user backed out.
+   */
+  const askShortStint = useCallback(
+    (kind: ShortStintQuestion['kind'], running: RunningTicket): Promise<boolean | null> =>
+      new Promise((resolve) => {
+        setStintQuestion({
+          kind,
+          label: timerLabel(running.source, running.id, running.title),
+          answer: (choice) => {
+            setStintQuestion(null);
+            resolve(choice === 'cancel' ? null : choice === 'discard');
+          },
+        });
+      }),
+    [],
+  );
+
+  /** The toast's "View post": the update, in its team's Huddle. */
+  const viewPostAction = useCallback(
+    (update: TimerUpdateRef | null | undefined) =>
+      update ? () => navigate(`/app/huddle?team=${update.teamId}&post=${update.postId}`) : null,
+    [navigate],
+  );
+
   /** Start now: the user is (or has just been) clocked in. */
   const runStart = useCallback(
     async (request: TicketStartRequest): Promise<TicketTimerOutcome> => {
       const key = requestKey(request);
-      // Starting one timer stops any other (`closeRunningSession`); the server
-      // doesn't say which, so note it before the start.
+      // Starting one timer stops any other (`closeRunningSession`).
       const running = runningRef.current;
-      const stoppedLabel =
-        running && running.key !== key
-          ? timerLabel(running.source, running.id, running.title)
-          : null;
+      let discardUpdate = false;
+      if (running && running.key !== key && isShortStint(running)) {
+        const discard = await askShortStint('switch', running);
+        if (discard === null) return 'cancelled';
+        discardUpdate = discard;
+      }
 
       return exclusive(key, async () => {
         let outcome: TicketTimerOutcome;
+        let update: TimerUpdateRef | null | undefined;
         try {
           if (request.kind === 'ticket') {
-            outcome = await startTicketTimer(request.ticket, request);
+            ({ outcome, update } = await startTicketTimer(request.ticket, {
+              ...request,
+              discardUpdate,
+            }));
             // A pinned issue joins the Redmine rows, which are cached per session.
             if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
           } else {
-            await timerApi.startSession(request.entryId, Date.now());
+            const started = await timerApi.startSession(request.entryId, Date.now(), discardUpdate);
+            update = started?.update;
             outcome = 'started';
           }
         } catch (err) {
@@ -177,12 +222,12 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           toast.error(timerErrorMessage(null));
           return outcome;
         }
-        toastTimerOutcome(toast, outcome, request.label, stoppedLabel);
+        toastTimerOutcome(toast, outcome, request.label, viewPostAction(update));
         refreshTimerViews();
         return outcome;
       });
     },
-    [toast, exclusive],
+    [toast, exclusive, askShortStint, viewPostAction],
   );
 
   const start = useCallback(
@@ -198,19 +243,29 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   );
 
   const stop = useCallback(
-    ({ sessionId, ticketKey, label }: TicketStopRequest): Promise<TicketTimerOutcome> =>
-      exclusive(ticketKey, async () => {
+    async ({ sessionId, ticketKey, label }: TicketStopRequest): Promise<TicketTimerOutcome> => {
+      const running = runningRef.current;
+      let discardUpdate = false;
+      if (running?.sessionId === sessionId && isShortStint(running)) {
+        const discard = await askShortStint('stop', running);
+        if (discard === null) return 'cancelled';
+        discardUpdate = discard;
+      }
+
+      return exclusive(ticketKey, async () => {
+        let update: TimerUpdateRef | null | undefined;
         try {
-          await timerApi.stopSession(sessionId, Date.now());
+          update = (await timerApi.stopSession(sessionId, Date.now(), discardUpdate))?.update;
         } catch {
           toast.error(text.errorStop);
           return 'failed';
         }
-        toastTimerOutcome(toast, 'stopped', label);
+        toastTimerOutcome(toast, 'stopped', label, viewPostAction(update));
         refreshTimerViews();
         return 'stopped';
-      }),
-    [toast, exclusive],
+      });
+    },
+    [toast, exclusive, askShortStint, viewPostAction],
   );
 
   const closePrompt = () => {
@@ -307,6 +362,39 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 {text.clockInNow}
               </Button>
             )}
+          </ButtonGroup>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={stintQuestion !== null}
+        onOpenChange={(open) => {
+          // Closing it any other way backs out: the timer stays as it was.
+          if (!open) stintQuestion?.answer('cancel');
+        }}
+        size="sm"
+        aria-labelledby="short-stint-title"
+      >
+        <ModalHeader>
+          <ModalTitle id="short-stint-title">{text.shortStintTitle}</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <Text size="sm" className="short-stint-body">
+            {stintQuestion &&
+              (stintQuestion.kind === 'switch'
+                ? text.shortStintSwitch(stintQuestion.label)
+                : text.shortStintStop(stintQuestion.label))}
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <ButtonGroup>
+            <Button variant="outline" onClick={() => stintQuestion?.answer('discard')}>
+              {text.discardUpdate}
+            </Button>
+            <Button variant="primary" onClick={() => stintQuestion?.answer('keep')}>
+              {text.keepUpdate}
+            </Button>
           </ButtonGroup>
         </ModalFooter>
       </Modal>

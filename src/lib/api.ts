@@ -1881,11 +1881,23 @@ export interface TicketSession {
   durationSeconds: number | null;
 }
 
+/**
+ * The Huddle update a timer start or stop posted on the user's behalf, for
+ * linking to it. Null when nothing was posted.
+ */
+export interface TimerUpdateRef {
+  postId: string;
+  teamId: string;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
    * `source` defaults to `'huddle'` server-side. Starting a timer requires an
    * active shift and rejects with `no-active-shift` when there is none.
+   *
+   * A start posts an update to Huddle. `discardUpdate` removes the update of
+   * the ticket it takes over from, for a stint the user chose not to keep.
    */
   createEntry: (data: {
     ticketId: string;
@@ -1894,26 +1906,36 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
+    discardUpdate?: boolean;
   }) =>
-    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', {
-      ...data,
-      tz: clientTz(),
-    }),
+    wormholeCall<{ entry: WorkItem; session: Timer | null; update?: TimerUpdateRef | null }>(
+      'timers.createEntry',
+      { ...data, tz: clientTz() },
+    ),
 
-  /** Start a timer for a WorkItem. Closes any open timer first. */
-  startSession: (entryId: string, now?: number) =>
-    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', {
+  /** Start a timer for a WorkItem. Closes any open timer first. `discardUpdate` as in `createEntry`. */
+  startSession: (entryId: string, now?: number, discardUpdate = false) =>
+    wormholeCall<{
+      session: Timer;
+      closedSessionId?: string | null;
+      update?: TimerUpdateRef | null;
+    }>('timers.startSession', {
       entryId,
       now: now ?? Date.now(),
       tz: clientTz(),
+      discardUpdate,
     }),
 
-  /** Stop a running timer. */
-  stopSession: (sessionId: string, now?: number) =>
-    wormholeCall<{ session: Timer }>('timers.stopSession', {
+  /**
+   * Stop a running timer, which posts an update to Huddle. `discardUpdate`
+   * removes the session's own "Started" update instead and posts nothing.
+   */
+  stopSession: (sessionId: string, now?: number, discardUpdate = false) =>
+    wormholeCall<{ session: Timer; update?: TimerUpdateRef | null }>('timers.stopSession', {
       sessionId,
       now: now ?? Date.now(),
-    }).then((r) => r.session),
+      discardUpdate,
+    }),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (

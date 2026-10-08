@@ -51,6 +51,19 @@ const mockRunning = vi.mocked(useRunningTicket);
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const clock = { isClockedIn: true, planMissing: false, clockIn: vi.fn() };
+const UPDATE = { postId: 'p1', teamId: 't1' };
+
+/** A ticket that has been running for `ageMs`. */
+const runningFor = (ageMs: number): RunningTicket => ({
+  key: 'huddle:abc',
+  source: 'huddle',
+  id: 'abc',
+  title: 'Fix login',
+  url: null,
+  sessionId: 's0',
+  startTime: Date.now() - ageMs,
+});
+const MINUTE = 60 * 1000;
 let running: RunningTicket | null = null;
 
 function applyMocks() {
@@ -84,8 +97,9 @@ beforeEach(() => {
   clock.planMissing = false;
   clock.clockIn.mockResolvedValue(true);
   running = null;
-  mockStart.mockResolvedValue('started-and-added');
+  mockStart.mockResolvedValue({ outcome: 'started-and-added', update: UPDATE });
   vi.mocked(timerApi.startSession).mockResolvedValue({} as never);
+  vi.mocked(timerApi.stopSession).mockResolvedValue({} as never);
   applyMocks();
 });
 
@@ -101,19 +115,28 @@ describe('TicketStartProvider', () => {
     });
 
     expect(outcome).toBe('started-and-added');
-    expect(mockStart).toHaveBeenCalledWith({ sourceId: 'redmine', id: '15' }, redmineStart);
-    expect(toast.success).toHaveBeenCalledWith('Timer started on #15 and added to My Board');
+    expect(mockStart).toHaveBeenCalledWith(
+      { sourceId: 'redmine', id: '15' },
+      { ...redmineStart, discardUpdate: false },
+    );
+    expect(toast.success).toHaveBeenCalledWith('Started #15', expect.anything());
   });
 
-  it('names the ticket whose timer it stopped', async () => {
-    running = {
-      key: 'huddle:abc',
-      source: 'huddle',
-      id: 'abc',
-      title: 'Fix login',
-      url: null,
-      sessionId: 's0',
-    };
+  it('offers the update it posted, and opens it in that team’s Huddle', async () => {
+    const { result } = renderProvider();
+
+    await act(async () => {
+      await result.current.start(redmineStart);
+    });
+
+    const { action } = toast.success.mock.calls[0][1];
+    expect(action.label).toBe('View post');
+    action.onClick();
+    expect(navigate).toHaveBeenCalledWith('/app/huddle?team=t1&post=p1');
+  });
+
+  it('says only what started when it took over from a ticket worked on for a while', async () => {
+    running = runningFor(10 * MINUTE);
     applyMocks();
     const { result } = renderProvider();
 
@@ -121,9 +144,99 @@ describe('TicketStartProvider', () => {
       await result.current.start(redmineStart);
     });
 
-    expect(toast.success).toHaveBeenCalledWith(
-      'Stopped Fix login. Timer started on #15 and added to My Board',
+    expect(screen.queryByText('Keep this update?')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith('Started #15', expect.anything());
+  });
+
+  it('switching away after under two minutes asks, and Discard starts with the update discarded', async () => {
+    running = runningFor(MINUTE / 2);
+    applyMocks();
+    const { result } = renderProvider();
+
+    let started!: Promise<unknown>;
+    act(() => {
+      started = result.current.start(redmineStart);
+    });
+    expect(await screen.findByText(/switching away from Fix login/)).toBeTruthy();
+    expect(mockStart).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard update' }));
+    await act(async () => {
+      await started;
+    });
+
+    expect(mockStart).toHaveBeenCalledWith(
+      { sourceId: 'redmine', id: '15' },
+      { ...redmineStart, discardUpdate: true },
     );
+  });
+
+  it('Keep starts as usual, and closing the question leaves the timer alone', async () => {
+    running = runningFor(MINUTE / 2);
+    applyMocks();
+    const { result } = renderProvider();
+
+    let first!: Promise<unknown>;
+    act(() => {
+      first = result.current.start(redmineStart);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep update' }));
+    await act(async () => {
+      await first;
+    });
+    expect(mockStart).toHaveBeenCalledWith(
+      { sourceId: 'redmine', id: '15' },
+      { ...redmineStart, discardUpdate: false },
+    );
+
+    mockStart.mockClear();
+    let second!: Promise<unknown>;
+    act(() => {
+      second = result.current.start(redmineStart);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /close/i }));
+    let outcome;
+    await act(async () => {
+      outcome = await second;
+    });
+    expect(outcome).toBe('cancelled');
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('stopping after under two minutes asks, in its own words', async () => {
+    running = runningFor(MINUTE / 2);
+    applyMocks();
+    const { result } = renderProvider();
+
+    let stopped!: Promise<unknown>;
+    act(() => {
+      stopped = result.current.stop({
+        sessionId: 's0',
+        ticketKey: 'huddle:abc',
+        label: 'Fix login',
+      });
+    });
+    expect(await screen.findByText(/stopping Fix login/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard update' }));
+    await act(async () => {
+      await stopped;
+    });
+
+    expect(timerApi.stopSession).toHaveBeenCalledWith('s0', expect.any(Number), true);
+    expect(toast.info).toHaveBeenCalledWith('Stopped Fix login', expect.anything());
+  });
+
+  it('stops a longer stint without asking', async () => {
+    running = runningFor(10 * MINUTE);
+    applyMocks();
+    const { result } = renderProvider();
+
+    await act(async () => {
+      await result.current.stop({ sessionId: 's0', ticketKey: 'huddle:abc', label: 'Fix login' });
+    });
+
+    expect(timerApi.stopSession).toHaveBeenCalledWith('s0', expect.any(Number), false);
   });
 
   it('starts a Work page entry by its session', async () => {
@@ -138,8 +251,8 @@ describe('TicketStartProvider', () => {
       });
     });
 
-    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number));
-    expect(toast.success).toHaveBeenCalledWith('Timer started on Fix login');
+    expect(timerApi.startSession).toHaveBeenCalledWith('w1', expect.any(Number), false);
+    expect(toast.success).toHaveBeenCalledWith('Started Fix login', expect.anything());
   });
 
   it('shows why a start was refused', async () => {
@@ -169,7 +282,7 @@ describe('TicketStartProvider', () => {
 
     await waitFor(() => expect(mockStart).toHaveBeenCalled());
     expect(clock.clockIn).toHaveBeenCalled();
-    expect(toast.success).toHaveBeenCalledWith('Timer started on #15 and added to My Board');
+    expect(toast.success).toHaveBeenCalledWith('Started #15', expect.anything());
   });
 
   it('plan required: sends the user to plan, then starts and returns once clocked in', async () => {
