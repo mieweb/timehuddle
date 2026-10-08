@@ -20,6 +20,18 @@ export function timerLabel(source: TicketSourceId, id: string, title?: string | 
 }
 
 export const ticketTimerText = {
+  /** The timer button where it has room for words, and its name for one ticket. */
+  start: 'Start timer',
+  stop: 'Stop timer',
+  startLabel: (label: string) => `Start a timer on ${label}`,
+  stopLabel: (label: string) => `Stop the timer on ${label}`,
+  /**
+   * The start button of a ticket that is not on My Board: starting puts it
+   * there, so the button says so before it is pressed.
+   */
+  addAndStart: 'Add & Start',
+  addAndStartLabel: (label: string) => `Add ${label} to My Board and start timer`,
+
   started: (label: string) => `Timer started on ${label}`,
   startedAndAdded: (label: string) => `Timer started on ${label} and added to My Board`,
   startedOnBoard: (label: string) => `Timer started on ${label}. It's on My Board`,

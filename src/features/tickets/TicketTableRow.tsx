@@ -5,8 +5,8 @@
  * action is gated on `ticket.capabilities`, so a source cannot render a control
  * it is unable to perform (Redmine issues, for instance, are never deleted).
  *
- * Timers are the exception to "actions live in the ⋮ menu": a row starts one
- * only from My Board's ▶/⏸ column, never from the menu.
+ * My Board and the timer are the exception to "actions live in the ⋮ menu":
+ * every row carries both buttons ahead of its title, on both views.
  */
 import {
   faEllipsisVertical,
@@ -43,7 +43,10 @@ import { OverflowTooltip } from '../../ui/OverflowTooltip';
 import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { ticketTimerText } from '../timers/ticketTimerStrings';
 
+import { BoardToggleButton } from './BoardToggleButton';
+import { boardText } from './boardStrings';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { SOURCE_LABELS, displaySourceId, ticketDetailPath, type UnifiedTicket } from './sources';
 
@@ -58,12 +61,10 @@ export interface TicketTableRowProps {
   /** Another row's timer start or stop is in flight. */
   timerDisabled?: boolean;
   onToggleTimer: (ticket: UnifiedTicket) => void;
-  /**
-   * My Board only. Renders the ▶/⏸ column between the checkbox and Title
-   * cells. My Board is the only *table* that starts a ticket timer, so no other
-   * table passes this. (Redmine search suggestions start one too.)
-   */
-  showTimerColumn?: boolean;
+  /** Whether the ticket is on My Board; off it, starting a timer adds it first. */
+  onBoard: boolean;
+  boardLoading: boolean;
+  onToggleBoard: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -83,8 +84,8 @@ const TITLE_CLASS =
 
 /**
  * A compact row's first line: the height of one line of the title. The status
- * dot and the timer button are each centred in a box this tall, so they sit on
- * one centre line whatever their own sizes are.
+ * dot is centred in a box this tall, and the timer button, on top of the board
+ * button it is stacked with, is centred on the same line.
  */
 const FIRST_LINE_CLASS = 'h-5';
 
@@ -121,7 +122,9 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   timerLoading,
   timerDisabled = false,
   onToggleTimer,
-  showTimerColumn = false,
+  onBoard,
+  boardLoading,
+  onToggleBoard,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -331,32 +334,63 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       />
     </TableCell>
   );
+  // Starting a timer puts the ticket on My Board, so off the board the button
+  // says it will. In words on a wide row; a phone row has room for the icon only.
+  const addsToBoard = !onBoard && !isTimerRunning;
+  // On a phone, the height of the toolbar's buttons rather than a full icon button.
+  const quickButtonClass = 'h-8 shrink-0';
+  const boardButton = (
+    <BoardToggleButton
+      onBoard={onBoard}
+      isLoading={boardLoading}
+      onClick={() => onToggleBoard(ticket)}
+      ariaLabel={onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)}
+      className={`${quickButtonClass} w-8`}
+    />
+  );
   const timerButton = (
     <TimerToggleButton
       isRunning={isTimerRunning}
       isLoading={timerLoading}
       disabled={timerDisabled}
       onClick={() => onToggleTimer(ticket)}
+      label={addsToBoard && !compact ? ticketTimerText.addAndStart : undefined}
       ariaLabel={
-        isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+        isTimerRunning
+          ? `Stop timer for ${ticket.title}`
+          : addsToBoard
+            ? ticketTimerText.addAndStartLabel(ticket.title)
+            : `Start timer for ${ticket.title}`
       }
-      // On a phone, the height of the toolbar's buttons rather than a full icon button.
-      className={compact ? 'h-8 w-8 shrink-0' : ''}
+      className={`${quickButtonClass} ${addsToBoard && !compact ? '' : 'w-8'}`}
     />
   );
-  const timerCell = showTimerColumn && (
+  const quickActionsCell = (
     <TableCell
-      className={compact ? `${showSelectColumn ? 'pl-2' : 'pl-4'} pr-0 pt-3 align-top` : 'pl-2'}
+      className={
+        compact ? `${showSelectColumn ? 'pl-2' : 'pl-4'} pr-0 pt-3 pb-2 align-top` : 'pl-2'
+      }
       data-row-control
     >
-      {compact ? (
-        // Centred on the title's first line, so it lines up with the status dot.
-        <div className={`ticket-row-timer flex items-center ${FIRST_LINE_CLASS}`}>
-          {timerButton}
-        </div>
-      ) : (
-        timerButton
-      )}
+      {/* On a phone the two are stacked, to leave the width to the title, with
+          the timer on top as the one pressed most: it is pulled up to centre on
+          the title's first line, beside the status dot (a 32px button on a
+          20px line). */}
+      <div
+        className={`ticket-row-quick-actions flex gap-1 ${compact ? '-mt-1.5 flex-col items-start' : 'items-center'}`}
+      >
+        {compact ? (
+          <>
+            {timerButton}
+            {boardButton}
+          </>
+        ) : (
+          <>
+            {boardButton}
+            {timerButton}
+          </>
+        )}
+      </div>
     </TableCell>
   );
 
@@ -390,10 +424,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   const factCells = compact ? (
     // Phone: no sideways scroll, and no column per fact. The title, in full;
     // then where the ticket sits; then who has it and what state it is in.
-    // Whichever cell comes first lines up with the page's gutter.
-    <TableCell
-      className={`py-3 pe-1 align-top ${showSelectColumn || showTimerColumn ? 'ps-2' : 'ps-4'}`}
-    >
+    <TableCell className="py-3 ps-2 pe-1 align-top">
       <div className="ticket-row-compact flex min-w-0 items-start gap-2">
         <span className={`ticket-row-status flex shrink-0 items-center ${FIRST_LINE_CLASS}`}>
           {statusDot}
@@ -488,7 +519,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       onClick={openFromRow}
     >
       {selectCell}
-      {timerCell}
+      {quickActionsCell}
       {factCells}
 
       <TableCell

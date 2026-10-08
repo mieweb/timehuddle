@@ -33,7 +33,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
-  myBoardApi,
   redmineApi,
   timerApi,
   type RedmineFormOptions,
@@ -45,11 +44,9 @@ import {
 } from '../../../lib/api';
 import { useRefresh } from '../../../lib/RefreshContext';
 import { useBackgroundRefresh } from '../../../lib/useBackgroundRefresh';
-import { useRunningTicket } from '../../../lib/useRunningTicket';
 import { AppPage } from '../../../ui/AppPage';
 import { MarkdownContent } from '../../../ui/MarkdownContent';
 import { useRouter } from '../../../ui/router';
-import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import {
   UNASSIGNED,
@@ -61,13 +58,12 @@ import {
   toOptions,
 } from '../redmine/redmineForm';
 import { invalidateRedmineCache } from '../sources';
-import { useTicketStart } from '../../timers/TicketStartProvider';
-import { timerLabel } from '../../timers/ticketTimerStrings';
 
 import { fromJournals, fromRedmineTimeEntries, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
 import { TicketAttachmentsCard } from './TicketAttachmentsCard';
+import { TicketQuickActions } from './TicketQuickActions';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -108,9 +104,6 @@ export interface RedmineIssueDetailPageProps {
 
 export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ issueId }) => {
   const { navigate } = useRouter();
-  const runningTicket = useRunningTicket(true);
-  const { start: startTimer, stop: stopTimer, busyKey } = useTicketStart();
-
   const [loaded, setLoaded] = useState<LoadedIssue | null>(null);
   const [options, setOptions] = useState<RedmineFormOptions | null>(null);
   const [sessions, setSessions] = useState<TicketSession[]>([]);
@@ -124,8 +117,6 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
 
-  const [onBoard, setOnBoard] = useState(false);
-
   /**
    * Load everything. `quiet` refreshes in place: no page spinner, and a failure
    * keeps what is on screen rather than replacing the page with an error.
@@ -138,19 +129,15 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
         setLoadError(null);
       }
       try {
-        const [result, mySessions, boardEntries] = await Promise.all([
+        const [result, mySessions] = await Promise.all([
           redmineApi.issues.get(issueId),
           timerApi.getTicketSessions(String(issueId), 'redmine').catch(() => []),
-          myBoardApi.list().catch(() => []),
         ]);
         const formOptions = result.issue.project
           ? await redmineApi.projects.formOptions(result.issue.project.id).catch(() => null)
           : null;
         setLoaded(result);
         setSessions(mySessions);
-        setOnBoard(
-          boardEntries.some((e) => e.sourceId === 'redmine' && e.ticketId === String(issueId)),
-        );
         setOptions(formOptions);
         setStale(false);
         return true;
@@ -221,9 +208,6 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
     [issue, load],
   );
 
-  const ticketKey = `redmine:${issueId}`;
-  const isTiming = runningTicket?.key === ticketKey;
-
   // Redmine can't tell us when the issue changes (no webhooks), so the page asks
   // again: on returning to the tab, and every few minutes while you're active
   // on it. Never while an edit is open or a save is stale: a refresh would move
@@ -237,8 +221,8 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
   );
 
   // Any timer start or stop (here, or one that waited for a clock-in) fires
-  // tickets:refetch: reload in place for the new session and board state, and
-  // any time logged since. Mid-edit, only the timer state is refreshed.
+  // tickets:refetch: reload in place for the new session, and any time logged
+  // since. Mid-edit, only the sessions are refreshed.
   useEffect(() => {
     const refreshTimerState = () => {
       if (!refreshPausedRef.current) {
@@ -249,41 +233,19 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
         .getTicketSessions(String(issueId), 'redmine')
         .then(setSessions)
         .catch(() => {});
-      void myBoardApi
-        .list()
-        .then((entries) =>
-          setOnBoard(
-            entries.some((e) => e.sourceId === 'redmine' && e.ticketId === String(issueId)),
-          ),
-        )
-        .catch(() => {});
     };
     window.addEventListener('tickets:refetch', refreshTimerState);
     return () => window.removeEventListener('tickets:refetch', refreshTimerState);
   }, [issueId, load]);
 
-  /** Stop this issue's timer, or start one: pinned into the table and on My Board. */
-  const toggleTimer = () => {
-    const label = timerLabel('redmine', String(issueId));
-    if (isTiming && runningTicket) {
-      void stopTimer({ sessionId: runningTicket.sessionId, ticketKey, label });
-      return;
-    }
-    // Pinned, or assigned to me and not removed, means the table already has it:
-    // nothing to pin. Anything else is pinned, which is harmless when it is in
-    // the table anyway (assigned to one of my groups): at the pin cap the server
-    // accepts an issue assigned to me through a group, as the table does.
-    const inTable =
-      !!loaded?.pinned ||
-      (!loaded?.removed && loaded?.me != null && issue?.assignedTo?.id === loaded.me);
-    void startTimer({
-      kind: 'ticket',
-      ticket: { sourceId: 'redmine', id: String(issueId) },
-      label,
-      inTable,
-      onBoard,
-    });
-  };
+  // Starting a timer pins an issue the table does not have yet. Pinned, or
+  // assigned to me and not removed, means the table already has it: nothing to
+  // pin. Anything else is pinned, which is harmless when it is in the table
+  // anyway (assigned to one of my groups): at the pin cap the server accepts an
+  // issue assigned to me through a group, as the table does.
+  const inTable =
+    !!loaded?.pinned ||
+    (!loaded?.removed && loaded?.me != null && issue?.assignedTo?.id === loaded.me);
 
   const saveDescription = async () => {
     if (await save({ description: descDraft })) setEditingDesc(false);
@@ -343,16 +305,7 @@ export const RedmineIssueDetailPage: React.FC<RedmineIssueDetailPageProps> = ({ 
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
             {issue.subject}
           </h1>
-          <TimerToggleButton
-            isRunning={isTiming}
-            isLoading={busyKey === ticketKey}
-            onClick={toggleTimer}
-            label={isTiming ? 'Stop timer' : 'Start timer'}
-            ariaLabel={
-              isTiming ? `Stop the timer on #${issue.id}` : `Start a timer on #${issue.id}`
-            }
-            className="redmine-issue-timer shrink-0"
-          />
+          <TicketQuickActions sourceId="redmine" id={String(issueId)} inTable={inTable} />
         </div>
         <div className="redmine-issue-title-meta mt-1.5 flex flex-wrap items-center gap-2">
           <Text size="sm" variant="muted" className="font-mono">
