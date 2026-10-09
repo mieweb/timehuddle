@@ -36,8 +36,8 @@ test.describe('Real-time Huddle Posts', () => {
     teamId = await selectSharedTestTeam(session1);
     await selectSharedTestTeam(session2);
 
-    await session1.goto('http://localhost:3002/app/huddle');
-    await session2.goto('http://localhost:3002/app/huddle');
+    await session1.goto('/app/huddle');
+    await session2.goto('/app/huddle');
   });
 
   test.afterEach(async () => {

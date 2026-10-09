@@ -56,6 +56,7 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 
 
 export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),

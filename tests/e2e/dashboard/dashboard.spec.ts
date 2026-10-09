@@ -53,10 +53,10 @@ test.describe('Dashboard', () => {
     // Clock in first via the Clock page
     await page.goto('/app/clock');
     await page.getByRole('heading', { level: 1, name: /Clock/i }).waitFor({ state: 'visible' });
-    await page.getByRole('button', { name: 'Clock in' }).click();
+    await page.getByRole('button', { name: 'Clock in', exact: true }).click();
     // Wait for clock out button to confirm we're clocked in
     await page
-      .getByRole('button', { name: 'Clock out' })
+      .getByRole('button', { name: 'Clock out', exact: true })
       .waitFor({ state: 'visible', timeout: 5000 });
 
     // Navigate back to dashboard
@@ -79,12 +79,12 @@ test.describe('Dashboard', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Clock/i })).toBeVisible();
 
     // Verify still clocked in
-    await expect(page.getByRole('button', { name: 'Clock out' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Clock out', exact: true })).toBeVisible();
 
     // Clock out to clean up
-    await page.getByRole('button', { name: 'Clock out' }).click();
+    await page.getByRole('button', { name: 'Clock out', exact: true }).click();
     await page
-      .getByRole('button', { name: 'Clock in' })
+      .getByRole('button', { name: 'Clock in', exact: true })
       .waitFor({ state: 'visible', timeout: 5000 });
   });
 });
