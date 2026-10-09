@@ -140,9 +140,10 @@ export function getActivitiesForUser(userId, account) {
  * The activities one project allows, read once per project and then served from
  * cache, so a push costs one call per project however many issues share it.
  *
- * A project whose list cannot be read falls back to the instance's `enumeration`, which is what was offered before projects were consulted: Redmine
- * still has the last word on the entry, and blocking the row would stop time
- * that it may well accept.
+ * A project whose list cannot be read falls back to the instance's
+ * `enumeration`, which is what was offered before projects were consulted.
+ * Redmine still has the last word on the entry, and blocking the row would stop
+ * time that it may well accept.
  */
 async function getProjectActivities(userId, account, projectId, enumeration) {
   try {
