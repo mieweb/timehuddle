@@ -58,7 +58,7 @@ async function externalize(text, userId) {
     if (!buffer) continue;
     const mime = rawMime.toLowerCase();
     const mimeType = mime === 'image/jpg' ? 'image/jpeg' : mime;
-    const doc = await storeMedia({ userId, mimeType, size: buffer.length }, (dest) =>
+    const doc = await storeMedia({ userId, mimeType, size: buffer.length, embedded: true }, (dest) =>
       fsp.writeFile(dest, buffer),
     );
     replacements.set(dataUrl, doc.url);

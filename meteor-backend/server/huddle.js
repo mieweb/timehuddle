@@ -278,7 +278,24 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   
   const db = rawDb();
   const collection = db.collection('huddlePosts');
-  
+
+  // Watch from before the snapshot is read, so a post written while the
+  // snapshot is being enriched and sent isn't in neither. The listener attaches
+  // after the send; the stream replays everything since this operation time.
+  const { operationTime } = await db.command({ ping: 1 });
+  const changeStream = collection.watch([], {
+    fullDocument: 'updateLookup',
+    ...(operationTime ? { startAtOperationTime: operationTime } : {}),
+  });
+  changeStream.on('error', (err) => {
+    console.error('[huddle] change stream error:', err);
+  });
+  this.onStop(() => {
+    changeStream.close().catch(err => {
+      console.error('[huddle] failed to close change stream:', err);
+    });
+  });
+
   // Initial fetch and send — published posts only (drafts are author-only
   // and never appear in the team feed), from the window onward.
   const inWindow = { createdAt: { $gte: sinceDate } };
@@ -312,10 +329,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   }
   
   this.ready();
-  
-  // Set up change stream for real-time updates
-  const changeStream = collection.watch([], { fullDocument: 'updateLookup' });
-  
+
   const self = this;
   changeStream.on('change', Meteor.bindEnvironment(async (change) => {
     try {
@@ -359,16 +373,6 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
       console.error('[huddle] change stream error:', err);
     }
   }));
-  
-  changeStream.on('error', (err) => {
-    console.error('[huddle] change stream error:', err);
-  });
-  
-  this.onStop(() => {
-    changeStream.close().catch(err => {
-      console.error('[huddle] failed to close change stream:', err);
-    });
-  });
 });
 
 // Methods

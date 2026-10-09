@@ -378,9 +378,11 @@ WebApp.connectHandlers.use('/api/me/background', async (req, res, next) => {
 /**
  * Store one media file under /uploads/media and record it in `mediaitems`.
  * `write(dest)` puts the bytes at `dest` (a rename for multipart uploads, a
- * writeFile for decoded inline images). Returns the inserted document.
+ * writeFile for decoded inline images). `embedded` marks media that only a
+ * post's text references, so it stays out of the library and profile Feed.
+ * Returns the inserted document.
  */
-export async function storeMedia({ userId, mimeType, size, title }, write) {
+export async function storeMedia({ userId, mimeType, size, title, embedded }, write) {
   const ext = MIME_TO_EXT[mimeType];
   if (!ext) throw new Error(`Unsupported media type ${mimeType}`);
   await fsp.mkdir(MEDIA_DIR, { recursive: true });
@@ -401,11 +403,16 @@ export async function storeMedia({ userId, mimeType, size, title }, write) {
     filename,
     size,
     ...(title ? { title } : {}),
+    ...(embedded ? { embedded: true } : {}),
     uploadedAt: new Date(),
   };
   await rawDb().collection('mediaitems').insertOne(doc);
   return doc;
 }
+
+// Library and profile listings skip post-embedded media: it belongs to the
+// post's team, not to everyone who may view the author's profile.
+const LIBRARY_ITEMS = { embedded: { $ne: true } };
 
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
@@ -552,7 +559,7 @@ Meteor.methods({
     const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId })
+      .find({ userId, ...LIBRARY_ITEMS })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -568,7 +575,7 @@ Meteor.methods({
     await requireProfileAccess(userId, targetUserId, 'Not a teammate');
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId })
+      .find({ userId: targetUserId, ...LIBRARY_ITEMS })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -626,5 +633,5 @@ import { MediaItems } from './collections.js';
 
 Meteor.publish('media.liveForUser', async function () {
   if (!this.userId) return this.ready();
-  return MediaItems.find({ userId: this.userId });
+  return MediaItems.find({ userId: this.userId, ...LIBRARY_ITEMS });
 });
