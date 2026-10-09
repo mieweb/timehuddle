@@ -31,7 +31,6 @@ import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { RedmineIssue, RedmineRelevantIssue } from '../../../lib/api';
-import { OverflowTooltip } from '../../../ui/OverflowTooltip';
 import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
@@ -514,15 +513,8 @@ const CHIP_CLASS =
   'shrink-0 font-normal dark:bg-neutral-700 group-aria-selected:bg-neutral-200 dark:group-aria-selected:bg-neutral-600';
 
 /**
- * The "Add & Start" button: its words give way to the icon on a narrow row, and
- * on touch, where the actions show on every row.
- */
-const ADD_AND_START_CLASS =
-  'h-7 max-sm:w-7 max-sm:px-0 max-sm:[&_.timer-toggle-label]:hidden pointer-coarse:w-7 pointer-coarse:px-0 pointer-coarse:[&_.timer-toggle-label]:hidden';
-
-/**
  * For the actions that wait for the highlighted or hovered row. `invisible`, not
- * `hidden`: the space stays, so the always-visible timer button holds its place.
+ * `hidden`: the space stays, so a wrapped title does not rewrap on hover.
  */
 const ON_ACTIVE_ROW_CLASS =
   'invisible group-hover:visible group-aria-selected:visible pointer-coarse:visible';
@@ -557,9 +549,9 @@ interface IssueRowProps {
  * priority so a row stays readable at 320 px:
  * - project: second line, `sm` and up
  * - reason chip: under the title, ahead of the project
- * - timer: always
+ * - timer: always, at the start of the row
  * - My Board and hide: on the highlighted or hovered row, always on touch. They
- *   keep their space when hidden, so the timer button does not move.
+ *   keep their space when hidden, so the title does not rewrap on hover.
  *
  * The actions are mouse-only (`tabIndex={-1}`, `aria-hidden`): a combobox
  * option cannot hold its own buttons, so the keyboard gets Delete, Shift+Enter
@@ -580,8 +572,8 @@ function IssueRow({
   onHide,
 }: IssueRowProps) {
   const label = `#${issue.id}`;
-  // Starting a timer puts the issue on My Board, so off the board the button
-  // says it will: in words where the row has the room, a wide one with a mouse.
+  // Starting a timer puts the issue on My Board, so off the board the button's
+  // tooltip says it will.
   const addsToBoard = boardKnown && !onBoard && !running;
   const timerName = running
     ? text.stopTimer(issue.id)
@@ -590,6 +582,22 @@ function IssueRow({
       : text.startTimer(issue.id);
   return (
     <>
+      <TimerToggleButton
+        isRunning={running}
+        isLoading={timerLoading}
+        disabled={timerBusy || boardLoading}
+        className="h-7 w-7 shrink-0"
+        tabIndex={-1}
+        aria-hidden
+        title={timerName}
+        ariaLabel={timerName}
+        onMouseDown={keepFocus}
+        onClick={(event) => {
+          keepFocus(event);
+          onToggleTimer();
+        }}
+      />
+
       <Text
         as="span"
         size="xs"
@@ -600,9 +608,7 @@ function IssueRow({
       </Text>
 
       <span className="redmine-suggestion-body min-w-0 flex-1">
-        <OverflowTooltip content={issue.subject}>
-          <span className="block min-w-0 truncate">{issue.subject}</span>
-        </OverflowTooltip>
+        <span className="redmine-suggestion-title block break-words">{issue.subject}</span>
         <span className="redmine-suggestion-meta flex min-w-0 items-center gap-2 empty:hidden">
           {reason && (
             <Badge size="sm" variant="secondary" className={CHIP_CLASS}>
@@ -636,22 +642,6 @@ function IssueRow({
           onClick={(event) => {
             keepFocus(event);
             onToggleBoard();
-          }}
-        />
-        <TimerToggleButton
-          isRunning={running}
-          isLoading={timerLoading}
-          disabled={timerBusy || boardLoading}
-          label={addsToBoard ? timerText.addAndStart : undefined}
-          className={addsToBoard ? ADD_AND_START_CLASS : 'h-7 w-7'}
-          tabIndex={-1}
-          aria-hidden
-          title={timerName}
-          ariaLabel={timerName}
-          onMouseDown={keepFocus}
-          onClick={(event) => {
-            keepFocus(event);
-            onToggleTimer();
           }}
         />
         {onHide && (
