@@ -105,7 +105,7 @@ export function report(name: string, samples: Sample[]): Sample {
   console.log(`\n[perf] ${name}  (${samples.length} runs, network=${NETWORK})`);
   console.table(rows);
 
-  const dir = path.join(__dirname, '..', 'results');
+  const dir = process.env.PERF_RESULTS_DIR ?? path.join(__dirname, '..', 'results');
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     path.join(dir, `${name}.json`),
