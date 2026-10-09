@@ -1217,23 +1217,6 @@ Meteor.startup(async() => {
     },
   });
 
-  Wormhole.expose('redmine.activities.list', {
-    description:
-      "The instance's time-entry activities plus which one the caller's time logs under",
-    inputSchema: { type: 'object', properties: {} },
-  });
-
-  Wormhole.expose('redmine.activities.setDefault', {
-    description: "Set the caller's default Redmine time-entry activity",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        activityId: { type: 'number', description: 'Redmine time-entry activity id' },
-      },
-      required: ['activityId'],
-    },
-  });
-
   Wormhole.expose('redmine.timeEntries.preview', {
     description:
       'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',

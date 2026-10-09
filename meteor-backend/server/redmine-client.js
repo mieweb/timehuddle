@@ -457,6 +457,18 @@ export async function listTimeEntryActivities(account) {
 }
 
 /**
+ * The time-entry activities one project allows, via
+ * `GET /projects/{id}.json?include=time_entry_activities`: active ones only, as
+ * `{id, name}`. Null when the response carries no such list.
+ */
+export async function listProjectTimeEntryActivities(account, projectId) {
+  const data = await redmineRequest(`/projects/${projectId}.json?include=time_entry_activities`, {
+    account,
+  });
+  return data?.project?.time_entry_activities ?? null;
+}
+
+/**
  * Fetch several issues by id in one request.
  *
  * `status_id=*` is required: `/issues.json` defaults to open issues only, and a

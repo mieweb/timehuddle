@@ -2300,8 +2300,6 @@ export interface RedmineStatus {
   redmineName?: string;
   baseUrl?: string;
   linkedAt?: string | null;
-  /** The user's chosen time-entry activity, or null until they pick one. */
-  defaultActivityId?: number | null;
   /** Whether this deployment lets users link their own Redmine URL (dev/test only). */
   customUrlAllowed?: boolean;
   /** The server's Redmine URL — what a custom URL field starts from. */
@@ -2340,8 +2338,10 @@ export interface RedmineTimeEntryRow {
   issueMissing: boolean;
   activityId: number | null;
   activityName: string | null;
-  /** Which rule chose the activity: `tracker`, `chosen`, `named`, … */
+  /** Which rule chose the activity: `tracker`, `is_default`, `named`, … */
   activityReason: string;
+  /** The activities this issue's project allows: the only ones the row may be sent under. */
+  activityOptions: { id: number; name: string }[];
   blockedReason: RedmineBlockedReason | null;
 }
 
@@ -2540,31 +2540,6 @@ export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
   confirmed: boolean;
 }
 
-/** A Redmine time-entry activity. Redmine rejects a time entry without one. */
-export interface RedmineActivity {
-  id: number;
-  name: string;
-  isDefault: boolean;
-}
-
-/**
- * Which rule chose the active activity — lets the UI say so rather than pick
- * silently. `tracker` means it was derived from the issue's Redmine tracker.
- */
-export type RedmineActivityReason =
-  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
-
-/**
- * Response for `redmine.activities.*`. An empty `activities` on a connected
- * account means the instance has none configured and cannot receive time.
- */
-export interface RedmineActivityList {
-  connected: boolean;
-  activities: RedmineActivity[];
-  selectedId: number | null;
-  selectedReason: RedmineActivityReason;
-}
-
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
@@ -2679,16 +2654,6 @@ export const redmineApi = {
     /** A project's trackers, assignable users and the instance's priorities. */
     formOptions: (projectId: number): Promise<RedmineFormOptions> =>
       wormholeCall<RedmineFormOptions>('redmine.projects.formOptions', { projectId }),
-  },
-
-  activities: {
-    /** The instance's time-entry activities and which one is active. */
-    list: (): Promise<RedmineActivityList> =>
-      wormholeCall<RedmineActivityList>('redmine.activities.list', {}),
-
-    /** Set the activity the caller's synced time is logged under. */
-    setDefault: (activityId: number): Promise<RedmineActivityList> =>
-      wormholeCall<RedmineActivityList>('redmine.activities.setDefault', { activityId }),
   },
 
   timeEntries: {

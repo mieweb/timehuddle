@@ -23,9 +23,11 @@ import {
  */
 const asRedmineWouldStore = (hours: number) => Math.round((Math.round(hours * 60) / 60) * 100) / 100;
 
-const resolver = (trackerName: string | null) =>
-  trackerName === 'Bug'
-    ? { activityId: 9, activityName: 'Development', reason: 'tracker' }
+const DEVELOPMENT = { id: 9, name: 'Development' };
+
+const resolver = (issue: { trackerName: string | null } | null) =>
+  issue?.trackerName === 'Bug'
+    ? { activityId: 9, activityName: 'Development', reason: 'tracker', options: [DEVELOPMENT] }
     : { activityId: null, activityName: null, reason: 'none' };
 
 const issues = new Map([
@@ -111,6 +113,7 @@ describe('buildPushRows', () => {
       subject: 'Fix the clock',
       activityId: 9,
       activityReason: 'tracker',
+      activityOptions: [DEVELOPMENT],
       blockedReason: null,
     });
   });
@@ -156,7 +159,7 @@ describe('buildPushRows', () => {
     });
   });
 
-  it('blocks a row whose activity could not be resolved', () => {
+  it('blocks a row whose project has no usable activity', () => {
     // Feature maps to nothing in this stub resolver.
     const [row] = buildPushRows(
       [{ ticketId: '20', date: '2026-09-19', seconds: 3600 }],
@@ -164,6 +167,7 @@ describe('buildPushRows', () => {
       resolver,
     );
     expect(row.blockedReason).toBe('no-activity');
+    expect(row.activityOptions).toEqual([]);
   });
 
   it('tolerates a non-array input', () => {
