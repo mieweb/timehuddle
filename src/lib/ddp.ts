@@ -312,6 +312,9 @@ class DdpClient {
     if (loginResult?.token) {
       localStorage.setItem('meteor_resume_token', loginResult.token);
     }
+    // This socket is now authenticated; skip the redundant resume-login round trip
+    // that ensureAuthed() would otherwise make on the next session fetch.
+    this.authPromise = Promise.resolve();
   }
 
   async signUpWithPassword(email: string, password: string, name: string): Promise<void> {
@@ -415,6 +418,12 @@ class DdpClient {
     createdAt: string | null;
     releaseNotesSeenVersion: string | null;
   } | null> {
+    // No stored session means nothing to restore: answer now instead of holding the
+    // login form behind the socket handshake, and warm the socket for the sign-in.
+    if (!localStorage.getItem('meteor_resume_token')) {
+      void this.ensureConnected().catch(() => {});
+      return null;
+    }
     try {
       // Use a timeout to prevent hanging
       const authedWithTimeout = Promise.race([

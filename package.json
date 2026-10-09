@@ -31,6 +31,7 @@
     "test:e2e": "playwright test -c tests/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/playwright.config.ts --headed",
     "test:e2e:ui": "playwright test -c tests/playwright.config.ts --ui",
+    "test:performance": "playwright test -c tests/performance/playwright.config.ts",
     "test:all": "npm run test:unit && npm run test",
     "test:watch": "vitest",
     "prepare": "node scripts/prepare-husky.cjs",

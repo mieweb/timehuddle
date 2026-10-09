@@ -102,7 +102,8 @@ import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
 // The signed-in shell is its own chunk: the login form and landing page paint
 // without first downloading every app page.
-const AppLayout = lazy(() => import('./ui/AppLayout').then((m) => ({ default: m.AppLayout })));
+const loadAppLayout = () => import('./ui/AppLayout').then((m) => ({ default: m.AppLayout }));
+const AppLayout = lazy(loadAppLayout);
 
 // A deploy replaces dist/, so a tab opened before it can ask for a page chunk
 // whose hash no longer exists. Reload to pick up the new build instead of failing.
@@ -317,6 +318,14 @@ const App: React.FC = () => {
     };
   }, [user, needsUsernameClaim]);
 
+  // While signed out, fetch the shell chunk in idle time so signing in doesn't
+  // wait on it after the credentials round trip.
+  React.useEffect(() => {
+    if (user || loading) return;
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1));
+    idle(() => void loadAppLayout());
+  }, [user, loading]);
+
   // Reset token: check URL params (web) or deep link (native).
   const resetToken =
     _deepLinkToken ??
@@ -349,6 +358,11 @@ const App: React.FC = () => {
   // AppLayout's router reads it.
   restoreReturnTo();
 
+  // /login only renders the sign-in form; once signed in it isn't an app route,
+  // so land on the app instead of the "page doesn't exist" screen.
+  if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+    window.history.replaceState(null, '', '/app');
+  }
   // If the user is already authenticated and there are OAuth 2.0 authorization
   // params in the URL (e.g. redirected here from TimeHarbor), forward them
   // back to Better Auth's authorization endpoint so it can issue the code.
