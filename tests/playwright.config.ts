@@ -85,8 +85,7 @@ export default defineConfig({
   webServer: process.env.SKIP_WEBSERVER
     ? undefined
     : {
-        command:
-          `API_TARGET=http://localhost:3101 VITE_TIMECORE_URL=http://localhost:3101 VITE_CACHE_DIR=node_modules/.vite-e2e npm run dev -- --port ${e2ePort} --strictPort`,
+        command: `API_TARGET=http://localhost:3101 VITE_TIMECORE_URL=http://localhost:3101 VITE_CACHE_DIR=node_modules/.vite-e2e npm run dev -- --port ${e2ePort} --strictPort`,
         url: `http://localhost:${e2ePort}`,
         timeout: 120000,
         reuseExistingServer: !process.env.CI,
