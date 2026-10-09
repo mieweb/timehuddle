@@ -1,4 +1,4 @@
-import type { Browser, Page } from '@playwright/test';
+import type { Browser, BrowserContextOptions, Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -22,9 +22,12 @@ const NETWORK_PROFILES = {
 export const RUNS = Number(process.env.PERF_RUNS ?? 3);
 const NETWORK = (process.env.PERF_NETWORK ?? 'none') as keyof typeof NETWORK_PROFILES;
 
-/** Fresh browser context = cold HTTP cache, no stored session. */
-export async function newColdPage(browser: Browser): Promise<Page> {
-  const context = await browser.newContext();
+/** Fresh browser context = cold HTTP cache; no stored session unless `storageState` is given. */
+export async function newColdPage(
+  browser: Browser,
+  storageState?: BrowserContextOptions['storageState'],
+): Promise<Page> {
+  const context = await browser.newContext({ storageState });
   const page = await context.newPage();
 
   // LCP/CLS are only observable live; buffer them so they can be read after load.
@@ -78,6 +81,71 @@ export async function collectLoadMetrics(page: Page): Promise<Sample> {
   });
 }
 
+export interface EndpointCost {
+  endpoint: string;
+  calls: number;
+  totalMs: number;
+  maxMs: number;
+  decodedKB: number;
+}
+
+/** Counts DDP websocket frames/bytes received from now on; call before navigating. */
+export function trackWebSocket(page: Page): () => Sample {
+  let frames = 0;
+  let bytes = 0;
+  page.on('websocket', (ws) =>
+    ws.on('framereceived', (frame) => {
+      frames += 1;
+      bytes += Buffer.byteLength(frame.payload);
+    }),
+  );
+  return () => ({ wsFrames: frames, wsKB: Math.round((bytes / 1024) * 10) / 10 });
+}
+
+/** `/api/*` fetches that started at or after `sinceMs` (page clock), grouped by endpoint. */
+export function collectApiCalls(page: Page, sinceMs = 0): Promise<EndpointCost[]> {
+  return page.evaluate((since) => {
+    const entries = (
+      performance.getEntriesByType('resource') as PerformanceResourceTiming[]
+    ).filter(
+      (r) => r.initiatorType === 'fetch' && r.startTime >= since && r.name.includes('/api/'),
+    );
+    const byEndpoint = new Map<
+      string,
+      { calls: number; total: number; max: number; bytes: number }
+    >();
+    for (const r of entries) {
+      const key = new URL(r.name).pathname.replace(/^\/api\//, '');
+      const cost = byEndpoint.get(key) ?? { calls: 0, total: 0, max: 0, bytes: 0 };
+      cost.calls += 1;
+      cost.total += r.duration;
+      cost.max = Math.max(cost.max, r.duration);
+      cost.bytes += r.decodedBodySize;
+      byEndpoint.set(key, cost);
+    }
+    return [...byEndpoint.entries()]
+      .map(([endpoint, c]) => ({
+        endpoint,
+        calls: c.calls,
+        totalMs: Math.round(c.total),
+        maxMs: Math.round(c.max),
+        decodedKB: Math.round((c.bytes / 1024) * 10) / 10,
+      }))
+      .sort((a, b) => b.totalMs - a.totalMs);
+  }, sinceMs);
+}
+
+/** Numeric summary of an API-cost breakdown, for the median table. */
+export function apiTotals(costs: EndpointCost[]): Sample {
+  const calls = costs.reduce((sum, c) => sum + c.calls, 0);
+  return {
+    apiCalls: calls,
+    apiDuplicateCalls: calls - costs.length,
+    apiDecodedKB: Math.round(costs.reduce((sum, c) => sum + c.decodedKB, 0) * 10) / 10,
+    slowestApiMs: Math.max(0, ...costs.map((c) => c.maxMs)),
+  };
+}
+
 /** ms since navigation start, read inside the page. */
 export const sinceNavigationStart = (page: Page): Promise<number> =>
   page.evaluate(() => Math.round(performance.now()));
@@ -95,6 +163,19 @@ export function summarize(samples: Sample[]): Sample {
   );
 }
 
+function resultsDir(): string {
+  const dir = process.env.PERF_RESULTS_DIR ?? path.join(__dirname, '..', 'results');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Prints a per-endpoint cost table and writes it to results/<name>.json. */
+export function reportEndpoints(name: string, costs: EndpointCost[]): void {
+  console.log(`\n[perf] ${name}  (API calls, last run)`);
+  console.table(costs);
+  writeFileSync(path.join(resultsDir(), `${name}.json`), JSON.stringify({ name, costs }, null, 2));
+}
+
 /** Prints a median/min/max table and writes raw samples to results/<name>.json. */
 export function report(name: string, samples: Sample[]): Sample {
   const summary = summarize(samples);
@@ -105,10 +186,8 @@ export function report(name: string, samples: Sample[]): Sample {
   console.log(`\n[perf] ${name}  (${samples.length} runs, network=${NETWORK})`);
   console.table(rows);
 
-  const dir = process.env.PERF_RESULTS_DIR ?? path.join(__dirname, '..', 'results');
-  mkdirSync(dir, { recursive: true });
   writeFileSync(
-    path.join(dir, `${name}.json`),
+    path.join(resultsDir(), `${name}.json`),
     JSON.stringify({ name, network: NETWORK, runs: samples, summary }, null, 2),
   );
   return summary;

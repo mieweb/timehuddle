@@ -7,12 +7,7 @@ import {
   sinceNavigationStart,
   type Sample,
 } from './helpers/metrics';
-
-// Perf account created once on the target env via the signup form.
-const PERF_USER = {
-  email: process.env.PERF_EMAIL ?? 'perf-bot@test.local',
-  password: process.env.PERF_PASSWORD ?? 'PerfTest1!',
-};
+import { PERF_USER } from './helpers/user';
 
 const LOGIN_PATH = process.env.PERF_LOGIN_PATH ?? '/login';
 const SIGNUP_PATH = `${LOGIN_PATH}?mode=signup`;
@@ -131,24 +126,27 @@ test.describe('signup page', () => {
     expect.soft(m.formReady, 'form ready').toBeLessThan(BUDGET.formReady);
   });
 
-  // Creates one real account per run on the target env (no delete API) — kept to a single sample.
+  // Every sample creates a real account (no delete API): one by default, raise PERF_SIGNUP_RUNS locally.
   test('sign up: submit to username prompt', async ({ browser }) => {
-    const page = await newColdPage(browser);
-    const load = await measurePageLoad(page, SIGNUP_PATH, signupHeading);
-    const unique = `perf-signup-${Date.now()}@test.local`;
-    await page.getByRole('textbox', { name: 'First name' }).fill('Perf');
-    await page.getByRole('textbox', { name: 'Last name' }).fill('Signup');
-    await page.getByRole('textbox', { name: 'Email address' }).fill(unique);
-    await page.getByRole('textbox', { name: 'Password', exact: true }).fill(PERF_USER.password);
-    await page.getByRole('textbox', { name: 'Confirm password' }).fill(PERF_USER.password);
+    const samples = await sample(Number(process.env.PERF_SIGNUP_RUNS ?? 1), async () => {
+      const page = await newColdPage(browser);
+      const load = await measurePageLoad(page, SIGNUP_PATH, signupHeading);
+      const unique = `perf-signup-${Date.now()}@test.local`;
+      await page.getByRole('textbox', { name: 'First name' }).fill('Perf');
+      await page.getByRole('textbox', { name: 'Last name' }).fill('Signup');
+      await page.getByRole('textbox', { name: 'Email address' }).fill(unique);
+      await page.getByRole('textbox', { name: 'Password', exact: true }).fill(PERF_USER.password);
+      await page.getByRole('textbox', { name: 'Confirm password' }).fill(PERF_USER.password);
 
-    const start = Date.now();
-    await page.getByRole('button', { name: 'Create account', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Username Required' }).waitFor();
-    const signupToDialog = Date.now() - start;
-    await page.context().close();
+      const start = Date.now();
+      await page.getByRole('button', { name: 'Create account', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Username Required' }).waitFor();
+      const signupToDialog = Date.now() - start;
+      await page.context().close();
+      return { formReady: load.formReady, signupToDialog };
+    });
 
-    const m = report('signup-flow', [{ formReady: load.formReady, signupToDialog }]);
+    const m = report('signup-flow', samples);
     expect.soft(m.signupToDialog, 'submit → username prompt').toBeLessThan(BUDGET.signupToDialog);
   });
 });

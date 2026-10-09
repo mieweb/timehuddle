@@ -754,3 +754,102 @@ describe('tickets (wormhole)', () => {
     });
   });
 });
+
+describe('tickets.dashboardSummary (wormhole)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  let summaryTeamId: string;
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const team = {
+      _id: new ObjectId(),
+      name: 'WH Summary Team',
+      members: [ownerId, memberId],
+      admins: [ownerId],
+      code: 'WHSUMMARY',
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertOne(team);
+    summaryTeamId = team._id.toHexString();
+
+    const now = new Date();
+    const longAgo = new Date(Date.now() - 3 * DAY_MS);
+    const ticket = (fields: Record<string, unknown>) => ({
+      teamId: summaryTeamId,
+      title: 'Summary ticket',
+      github: '',
+      createdBy: ownerId,
+      createdAt: longAgo,
+      updatedAt: longAgo,
+      ...fields,
+    });
+    await db.collection('tickets').insertMany([
+      ticket({ status: 'open', priority: 'high', assignedTo: [ownerId] }),
+      ticket({ status: 'open', assignedTo: [] }),
+      ticket({ status: 'in-progress', priority: 'urgent', assignedTo: [memberId] }),
+      ticket({ status: 'closed', assignedTo: [ownerId], updatedAt: now }),
+      ticket({ status: 'closed', assignedTo: [ownerId] }),
+      ticket({ status: 'deleted', priority: 'high', assignedTo: [ownerId] }),
+    ]);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teams').deleteMany({ code: 'WHSUMMARY' });
+    await db.collection('tickets').deleteMany({ teamId: summaryTeamId });
+  });
+
+  const window = () => ({ since: Date.now() - HOUR_MS, until: Date.now() + HOUR_MS });
+
+  it('counts team-wide and for the caller, ignoring deleted tickets', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toEqual({
+      open: 3,
+      unassignedOpen: 1,
+      closedToday: 1,
+      highPriorityOpen: 2,
+      myOpen: 1,
+      myClosedToday: 1,
+      myHighPriorityOpen: 1,
+    });
+  });
+
+  it('scopes the "my" counts to the caller', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toMatchObject({ open: 3, myOpen: 1, myClosedToday: 0, myHighPriorityOpen: 1 });
+  });
+
+  it('returns zeros for a team with no tickets', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId, since: Date.now() - HOUR_MS, until: Date.now() + HOUR_MS, },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(Object.keys(res.result)).toHaveLength(7);
+  });
+
+  it('rejects outsiders and missing day bounds', async () => {
+    const outsider = await wormhole(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      outsiderJwt,
+    );
+    expect(outsider.ok).toBe(false);
+
+    const noBounds = await wormhole('tickets.dashboardSummary', { teamId: summaryTeamId }, ownerJwt);
+    expect(noBounds.ok).toBe(false);
+  });
+});

@@ -125,6 +125,59 @@ Meteor.methods({
   },
 
   /**
+   * Ticket counts for the dashboard stat cards, so the page doesn't download
+   * every ticket to count them. `since`/`until` bound "today" in the caller's
+   * timezone (ms epoch), which only the client knows.
+   */
+  async 'tickets.dashboardSummary'({ teamId, since, until } = {}) {
+    const { userId } = await requireIdentity(this);
+    await requireTeamMembership(userId, teamId);
+    if (!Number.isFinite(since) || !Number.isFinite(until)) {
+      throw new Meteor.Error('validation-error', 'since and until are required');
+    }
+
+    const count = (condition) => ({ $sum: { $cond: [condition, 1, 0] } });
+    const assignees = { $ifNull: ['$assignedTo', []] };
+    const done = { $in: ['$status', ['closed', 'done']] };
+    const open = { $not: [done] };
+    const highPriority = { $in: ['$priority', ['high', 'urgent']] };
+    const closedToday = {
+      $and: [done, { $gte: ['$updatedAt', new Date(since)] }, { $lt: ['$updatedAt', new Date(until)] }],
+    };
+    const mine = { $in: [userId, assignees] };
+
+    const [row] = await Tickets.rawCollection()
+      .aggregate([
+        { $match: { teamId, status: { $ne: 'deleted' } } },
+        {
+          $group: {
+            _id: null,
+            open: count(open),
+            unassignedOpen: count({ $and: [open, { $eq: [{ $size: assignees }, 0] }] }),
+            closedToday: count(closedToday),
+            highPriorityOpen: count({ $and: [highPriority, open] }),
+            myOpen: count({ $and: [mine, open] }),
+            myClosedToday: count({ $and: [mine, closedToday] }),
+            myHighPriorityOpen: count({ $and: [mine, highPriority, open] }),
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
+    return (
+      row ?? {
+        open: 0,
+        unassignedOpen: 0,
+        closedToday: 0,
+        highPriorityOpen: 0,
+        myOpen: 0,
+        myClosedToday: 0,
+        myHighPriorityOpen: 0,
+      }
+    );
+  },
+
+  /**
    * Create a ticket. Mirrors TicketService.create: the creator is assigned
    * unless `assignedToUserIds` names the team members to assign instead.
    */

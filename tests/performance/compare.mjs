@@ -9,8 +9,13 @@ if (!beforeDir || !afterDir) {
   process.exit(1);
 }
 
-const load = (dir, name) =>
-  JSON.parse(readFileSync(path.join(dir, `${name}.json`), 'utf8')).summary;
+const load = (dir, name) => {
+  try {
+    return JSON.parse(readFileSync(path.join(dir, `${name}.json`), 'utf8')).summary;
+  } catch {
+    return null;
+  }
+};
 
 // [result file, metric, label, unit]
 const ROWS = [
@@ -26,12 +31,20 @@ const ROWS = [
   ['signup-page-cold', 'fcp', 'Signup page: first contentful paint', 'ms'],
   ['signup-page-cold', 'formReady', 'Signup page: form usable', 'ms'],
   ['signup-flow', 'signupToDialog', 'Sign up: submit to username prompt', 'ms'],
+  ['dashboard-signin', 'signInToDashboard', 'Dashboard: sign in to ready', 'ms'],
+  ['dashboard-signin', 'apiCalls', 'Dashboard: API calls', ''],
+  ['dashboard-signin', 'apiDuplicateCalls', 'Dashboard: duplicate API calls', ''],
+  ['dashboard-signin', 'apiDecodedKB', 'Dashboard: API data', 'KB'],
+  ['dashboard-signin', 'wsFrames', 'Dashboard: live-data (DDP) messages', ''],
+  ['dashboard-signin', 'wsKB', 'Dashboard: live-data (DDP) data', 'KB'],
+  ['dashboard-returning', 'visitToDashboard', 'Dashboard: returning visit to ready', 'ms'],
 ];
 
 console.log('| Metric | Before | After | Change |\n|---|---:|---:|---:|');
 for (const [file, metric, label, unit] of ROWS) {
-  const before = load(beforeDir, file)[metric];
-  const after = load(afterDir, file)[metric];
+  const before = load(beforeDir, file)?.[metric];
+  const after = load(afterDir, file)?.[metric];
+  if (before === undefined || after === undefined) continue;
   const pct = before ? Math.round(((after - before) / before) * 100) : 0;
   const sign = pct > 0 ? '+' : '';
   console.log(`| ${label} | ${before} ${unit} | ${after} ${unit} | ${sign}${pct}% |`);
