@@ -294,7 +294,8 @@ export const WorkPage: React.FC = () => {
 
     const loadTickets = async () => {
       try {
-        const tickets = await ticketApi.getTickets(selectedTeamId);
+        // Titles and status only: descriptions are never shown on this page.
+        const tickets = await ticketApi.getTickets(selectedTeamId, { brief: true });
         if (cancelled) return;
         setAllTickets(tickets);
       } catch {
@@ -395,25 +396,38 @@ export const WorkPage: React.FC = () => {
 
   // ── Real-time clock updates (Meteor DDP, oplog-backed) ──
 
-  useEffect(() => {
-    if (teams.length === 0) return;
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
 
-    const teamIds = teams.map((t) => t.id);
+  useEffect(() => {
+    if (!teamIdsKey) return;
+
+    const teamIds = teamIdsKey.split(',');
     const ddp = getDdpClient();
 
     // On any clock event change (clock in/out from any writer), refetch the
-    // current day and week totals.
+    // current day and week totals. The first batch is what was just fetched.
+    let ready = false;
     const offChange = ddp.onCollectionChange('clockevents', () => {
+      if (!ready) return;
       void fetchDay();
       void fetchWeekTotals();
     });
-    const unsubscribe = ddp.subscribe('clock.liveForTeams', [teamIds]);
+    const unsubscribe = ddp.subscribe('clock.liveForTeams', [teamIds], () => {
+      ready = true;
+    });
 
     return () => {
       offChange();
       unsubscribe();
     };
-  }, [teams, fetchDay, fetchWeekTotals]);
+  }, [teamIdsKey, fetchDay, fetchWeekTotals]);
 
   // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
 
@@ -422,12 +436,16 @@ export const WorkPage: React.FC = () => {
 
     // The user's running timers are published reactively; a start/stop/delete
     // from any writer (Meteor or the Fastify REST mutations) shows up via the
-    // oplog. On any change, refetch the current day and week totals.
+    // oplog. On any change after the first batch, refetch the current day and week totals.
+    let ready = false;
     const offChange = ddp.onCollectionChange('timers', () => {
+      if (!ready) return;
       void fetchDay();
       void fetchWeekTotals();
     });
-    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
+    const unsubscribe = ddp.subscribe('timers.liveForUser', [], () => {
+      ready = true;
+    });
 
     return () => {
       offChange();

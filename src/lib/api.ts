@@ -1085,10 +1085,19 @@ export interface TicketDashboardSummary {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string, options: { brief?: boolean } = {}) =>
+  /**
+   * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
+   * one person's tickets that are not closed, reviewed or deleted.
+   */
+  getTickets: (
+    teamId: string,
+    options: { brief?: boolean; assignedTo?: string; activeOnly?: boolean } = {},
+  ) =>
     wormholeCall<Array<Record<string, unknown>>>('tickets.list', {
       teamId,
       ...(options.brief ? { brief: true } : {}),
+      ...(options.assignedTo ? { assignedTo: options.assignedTo } : {}),
+      ...(options.activeOnly ? { activeOnly: true } : {}),
     }).then((tickets) => tickets.map(toTicket)),
 
   /** Dashboard counts, computed server-side. `since`/`until` bound "today" (ms epoch). */
