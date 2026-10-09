@@ -388,30 +388,34 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   await fsp.mkdir(MEDIA_DIR, { recursive: true });
   const filename = `${userId}-${randomBytes(8).toString('hex')}.${ext}`;
   const dest = path.join(MEDIA_DIR, filename);
+  const type = mimeType.startsWith('video/')
+    ? 'video'
+    : mimeType.startsWith('image/')
+      ? 'image'
+      : 'document';
+  const doc = {
+    _id: new ObjectId(),
+    userId,
+    type,
+    mimeType,
+    url: `/uploads/media/${filename}`,
+    filename,
+    size,
+    ...(title ? { title } : {}),
+    ...(embedded ? { embedded: true } : {}),
+    uploadedAt: new Date(),
+  };
   try {
     await write(dest);
-
-    const type = mimeType.startsWith('video/')
-      ? 'video'
-      : mimeType.startsWith('image/')
-        ? 'image'
-        : 'document';
-    const doc = {
-      _id: new ObjectId(),
-      userId,
-      type,
-      mimeType,
-      url: `/uploads/media/${filename}`,
-      filename,
-      size,
-      ...(title ? { title } : {}),
-      ...(embedded ? { embedded: true } : {}),
-      uploadedAt: new Date(),
-    };
     await rawDb().collection('mediaitems').insertOne(doc);
     return doc;
   } catch (err) {
     unlinkSafe(dest);
+    try {
+      await rawDb().collection('mediaitems').deleteOne({ _id: doc._id });
+    } catch (cleanupError) {
+      console.error('[uploads] failed to clean up media record after store error:', cleanupError);
+    }
     throw err;
   }
 }

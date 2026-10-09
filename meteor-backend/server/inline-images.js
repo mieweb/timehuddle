@@ -30,6 +30,7 @@ const INLINE_IMAGE = new RegExp(
   `(?<=\\]\\(\\s*|\\bsrc\\s*=\\s*["'])data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
   'gi',
 );
+const INLINE_MEDIA_URL = /\/uploads\/media\/[^\s)"'<>]+/g;
 
 /** True when `text` carries an inline base64 image this module can store. */
 export function hasInlineImages(text) {
@@ -52,22 +53,61 @@ export async function externalizeInlineImages(text, userId) {
   if (!hasInlineImages(text)) return { text, media: [] };
   const replacements = new Map();
   const media = [];
-  for (const [dataUrl, rawMime, base64] of text.matchAll(INLINE_IMAGE)) {
-    if (replacements.has(dataUrl)) continue; // the same image pasted twice → one file
-    const buffer = decode(base64);
-    if (!buffer) continue;
-    const mime = rawMime.toLowerCase();
-    const mimeType = mime === 'image/jpg' ? 'image/jpeg' : mime;
-    const doc = await storeMedia({ userId, mimeType, size: buffer.length, embedded: true }, (dest) =>
-      fsp.writeFile(dest, buffer),
-    );
-    replacements.set(dataUrl, doc.url);
-    media.push(doc);
+  try {
+    for (const [dataUrl, rawMime, base64] of text.matchAll(INLINE_IMAGE)) {
+      if (replacements.has(dataUrl)) continue; // the same image pasted twice → one file
+      const buffer = decode(base64);
+      if (!buffer) continue;
+      const mime = rawMime.toLowerCase();
+      const mimeType = mime === 'image/jpg' ? 'image/jpeg' : mime;
+      const doc = await storeMedia({ userId, mimeType, size: buffer.length, embedded: true }, (dest) =>
+        fsp.writeFile(dest, buffer),
+      );
+      replacements.set(dataUrl, doc.url);
+      media.push(doc);
+    }
+  } catch (err) {
+    try {
+      await discardMedia(media);
+    } catch (cleanupError) {
+      console.error('[inline-images] failed to clean up after externalization error:', cleanupError);
+    }
+    throw err;
   }
   return {
     text: text.replace(INLINE_IMAGE, (dataUrl) => replacements.get(dataUrl) ?? dataUrl),
     media,
   };
+}
+
+/** Remove embedded media no longer referenced by any post. */
+export async function discardUnreferencedInlineImages(text) {
+  if (typeof text !== 'string') return;
+  const urls = [...new Set([...text.matchAll(INLINE_MEDIA_URL)].map(([url]) => url))];
+  if (urls.length === 0) return;
+
+  try {
+    const db = rawDb();
+    const posts = db.collection('huddlePosts');
+    const candidates = await db
+      .collection('mediaitems')
+      .find({ embedded: true, url: { $in: urls } })
+      .toArray();
+    const unreferenced = [];
+
+    for (const media of candidates) {
+      const escapedUrl = media.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const reference = await posts.findOne(
+        { 'content.text': { $regex: escapedUrl } },
+        { projection: { _id: 1 } },
+      );
+      if (!reference) unreferenced.push(media);
+    }
+
+    await discardMedia(unreferenced);
+  } catch (err) {
+    console.error('[inline-images] failed to clean up unreferenced media:', err);
+  }
 }
 
 const MIGRATE_ATTEMPTS = 3;

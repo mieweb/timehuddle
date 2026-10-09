@@ -3,7 +3,7 @@ import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isBeforeWindow, resolveSince } from './huddle-window-core';
 import { discardMedia } from './uploads';
-import { externalizeInlineImages } from './inline-images';
+import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -694,6 +694,7 @@ Meteor.methods({
       await discardMedia(media);
       throw new Meteor.Error('not-found', 'Post not found');
     }
+    await discardUnreferencedInlineImages(post.content?.text);
     
     return { id: postId };
   },
@@ -771,7 +772,10 @@ Meteor.methods({
     await rawDb().collection('huddleComments').deleteMany({ postId });
     
     // Delete the post
-    await rawDb().collection('huddlePosts').deleteOne({ _id: toId(postId) });
+    const { deletedCount } = await rawDb()
+      .collection('huddlePosts')
+      .deleteOne({ _id: toId(postId) });
+    if (deletedCount) await discardUnreferencedInlineImages(post.content?.text);
     
     return 'ok';
   },
