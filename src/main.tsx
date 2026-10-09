@@ -208,13 +208,16 @@ _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim, refetch } = useSession();
+  // Once-per-user effects key on the id: `user` is a new object after every
+  // session refetch (e.g. marking release notes read), which would rerun them.
+  const userId = user?.id ?? null;
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
   const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {
-    if (user) void autoRegisterPush(user.id);
-  }, [user]);
+    if (userId) void autoRegisterPush(userId);
+  }, [userId]);
 
   // Apply a pending team/org join from a social sign-in (?join=/?invite=/
   // ?org_invite=). Social sign-in redirects away to the IdP and back, so it
@@ -253,7 +256,7 @@ const App: React.FC = () => {
   // Skipped on native Capacitor (APNs handles it), when permission not granted,
   // or when the user has not opted in to push notifications (unsubscribed).
   React.useEffect(() => {
-    if (!user || Capacitor.isNativePlatform()) return;
+    if (!userId || Capacitor.isNativePlatform()) return;
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     let cancelled = false;
@@ -288,10 +291,10 @@ const App: React.FC = () => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [user]);
+  }, [userId]);
 
   React.useEffect(() => {
-    if (!user || needsUsernameClaim) {
+    if (!userId || needsUsernameClaim) {
       setOwnershipChecked(false);
       setShowTakeOwnershipModal(false);
       return;
@@ -316,7 +319,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user, needsUsernameClaim]);
+  }, [userId, needsUsernameClaim]);
 
   // While signed out, fetch the shell chunk in idle time so signing in doesn't
   // wait on it after the credentials round trip.

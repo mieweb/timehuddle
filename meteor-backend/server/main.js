@@ -1394,8 +1394,16 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('clock.events', {
-    description: 'All clock events for the caller (their own history)',
-    inputSchema: { type: 'object', properties: {} },
+    description:
+      'Clock events for the caller, newest first; optionally only one team, only completed ones, at most `limit`',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string', description: 'Only this team' },
+        completed: { type: 'boolean', description: 'Only finished sessions' },
+        limit: { type: 'number', description: 'At most this many (1-100)' },
+      },
+    },
   });
 
   Wormhole.expose('clock.timesheet', {

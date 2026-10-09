@@ -261,8 +261,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refetchEnterprises]);
 
   useEffect(() => {
+    // The session fetched the list a moment ago and seeds it above; the fetch that
+    // matters is the one after the personal team exists, which can auto-join an org.
+    if (userId && !teamsReady) return;
     refetchOrganizations();
-  }, [refetchOrganizations, teamsReady, username]);
+  }, [refetchOrganizations, teamsReady, username, userId]);
 
   // Retry org fetch once if empty — handles race condition where
   // Accounts.onLogin auto-join hasn't completed when the first fetch fires.
@@ -560,6 +563,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
+  // When the last REST read of the active clock started.
+  const clockFetchedAt = useRef(0);
 
   const refetchClock = useCallback(async () => {
     if (!userId) {
@@ -567,6 +572,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setClockReady(true);
       return;
     }
+    clockFetchedAt.current = Date.now();
     try {
       const event = await clockApi.getActive();
       setActiveClockEvent(event);
@@ -615,6 +621,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
     const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
       applyLiveDocs();
+      // The initial fetch usually started moments ago; asking again returns the same event.
+      if (Date.now() - clockFetchedAt.current < 2000) return;
       // Only refetch if we have a valid token — avoids 500 errors when
       // the subscription ready fires before auth is fully established
       if (localStorage.getItem('meteor_resume_token')) {

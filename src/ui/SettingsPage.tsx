@@ -336,6 +336,17 @@ const PushNotificationsSettings: React.FC = () => {
 
 const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
   const { user, refetch } = useSession();
+  const { teams, teamsReady } = useTeam();
+  // Rerun the teammate lookup only when the set of shared teams changes.
+  const sharedTeamIds = React.useMemo(
+    () =>
+      teams
+        .filter((team) => !team.isPersonal)
+        .map((team) => team.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
   const [website, setWebsite] = useState('');
@@ -365,15 +376,14 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
   }, [user?.id, refreshTrigger]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !teamsReady) return;
     let cancelled = false;
 
     void (async () => {
       try {
-        const { teams } = await teamApi.getTeams();
-        const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
+        const nonPersonalTeamIds = sharedTeamIds ? sharedTeamIds.split(',') : [];
 
-        if (nonPersonalTeams.length === 0) {
+        if (nonPersonalTeamIds.length === 0) {
           if (!cancelled) {
             setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
           }
@@ -381,7 +391,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
         }
 
         const memberLists = await Promise.all(
-          nonPersonalTeams.map((team) => teamApi.getMembers(team.id)),
+          nonPersonalTeamIds.map((teamId) => teamApi.getMembers(teamId)),
         );
         const teammateOptions = new Map<string, { value: string; label: string }>();
 
@@ -411,7 +421,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, teamsReady, sharedTeamIds]);
 
   const handleSave = async () => {
     setBusy(true);

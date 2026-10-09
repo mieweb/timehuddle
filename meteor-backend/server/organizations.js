@@ -27,6 +27,13 @@ const DEFAULT_ORG_KEY = process.env.DEFAULT_ORG_KEY || 'default';
 const ELEVATED_ROLES = ['owner', 'admin'];
 
 Meteor.startup(async () => {
+  // Membership is looked up by org and user on nearly every authorized request.
+  try {
+    await rawDb().collection('org_members').createIndex({ orgId: 1, userId: 1 });
+    await rawDb().collection('org_members').createIndex({ userId: 1 });
+  } catch (error) {
+    console.error('[organizations] failed to create membership indexes:', error);
+  }
   try {
     await rawDb().collection('org_invitations').createIndex(
       { orgId: 1, email: 1 },

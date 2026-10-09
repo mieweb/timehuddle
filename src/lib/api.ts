@@ -1619,8 +1619,9 @@ export const clockApi = {
   /** Get the current user's active clock event (any team), or null. */
   getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
 
-  /** Get all clock events for the current user. */
-  getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
+  /** The caller's latest completed sessions on a team, newest first. */
+  getRecentSessions: (teamId: string, limit: number) =>
+    wormholeCall<ClockEvent[]>('clock.events', { teamId, completed: true, limit }),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
   getTimesheet: (userId: string, startMs: number, endMs: number) =>

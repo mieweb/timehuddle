@@ -1,13 +1,15 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { test, type Locator, type Page } from '@playwright/test';
 import {
   RUNS,
   apiTotals,
   collectApiCalls,
+  collectJs,
   newColdPage,
   report,
   reportEndpoints,
   sinceNavigationStart,
   trackWebSocket,
+  withinBudget,
   type EndpointCost,
   type Sample,
 } from './metrics';
@@ -65,12 +67,13 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
 
         await page.waitForLoadState('networkidle');
         costs = await collectApiCalls(page, mark);
+        const js = await collectJs(page, mark);
         await page.context().close();
-        return { signInToReady, ...apiTotals(costs), ...ws() };
+        return { signInToReady, ...apiTotals(costs), ...ws(), ...js };
       });
       const m = report(`${name}-signin`, samples);
       reportEndpoints(`${name}-signin-api`, costs);
-      expect.soft(m.signInToReady, `sign in → ${name}`).toBeLessThan(budgetMs);
+      withinBudget(m.signInToReady, budgetMs, `sign in → ${name}`);
     });
 
     test(`returning visit to ${name} (signed in, cold cache)`, async ({ browser }) => {
@@ -92,12 +95,13 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
 
         await page.waitForLoadState('networkidle');
         costs = await collectApiCalls(page);
+        const js = await collectJs(page);
         await page.context().close();
-        return { visitToReady, ...apiTotals(costs), ...ws() };
+        return { visitToReady, ...apiTotals(costs), ...ws(), ...js };
       });
       const m = report(`${name}-returning`, samples);
       reportEndpoints(`${name}-returning-api`, costs);
-      expect.soft(m.visitToReady, `visit → ${name}`).toBeLessThan(budgetMs);
+      withinBudget(m.visitToReady, budgetMs, `visit → ${name}`);
     });
   });
 }

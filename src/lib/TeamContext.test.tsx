@@ -95,8 +95,7 @@ describe('TeamContext organization refetch', () => {
     // First call returns empty (race condition with auto-join),
     // subsequent calls return the org.
     listOrganizationsMock
-      .mockResolvedValueOnce([]) // initial fetch when userId appears
-      .mockResolvedValueOnce([]) // retry fetch (still empty during username claim)
+      .mockResolvedValueOnce([]) // fetch once teams have loaded
       .mockResolvedValue([defaultOrg]); // after username claim
 
     // Start with a user who has no username yet (needs claim)

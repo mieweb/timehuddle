@@ -72,6 +72,9 @@ export default defineConfig({
       // @mieweb/ui's barrel keeps CountryCodeDropdown alive, dragging 566 KB of
       // libphonenumber into the login-page entry chunk. The app uses no phone/country picker.
       'google-libphonenumber': path.resolve(__dirname, 'src/lib/libphonenumber-stub.ts'),
+      // Kerebron's AdvancedEditorKit always bundles its ProseMirror dev panel (166 KB),
+      // which only a developer toggling it from the editor would ever open.
+      'prosemirror-dev-toolkit': path.resolve(__dirname, 'src/lib/prosemirror-dev-toolkit-stub.ts'),
       ...capacitorStubs,
     },
   },
