@@ -112,14 +112,14 @@ const LINKED_TO_REDMINE =
 const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
 
 Meteor.methods({
-  /** List non-deleted tickets for a team (newest first). */
-  async 'tickets.list'({ teamId } = {}) {
+  /** List non-deleted tickets for a team (newest first). `brief` leaves out descriptions. */
+  async 'tickets.list'({ teamId, brief } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     const docs = await Tickets.find(
       { teamId, status: { $ne: 'deleted' } },
-      { sort: { createdAt: -1 } }
+      { sort: { createdAt: -1 }, ...(brief ? { fields: { description: 0 } } : {}) }
     ).fetchAsync();
     return docs.map(toPublicTicket);
   },
@@ -523,6 +523,11 @@ Meteor.publish('tickets.byTeam', async function (teamIds) {
   const allowedIds = memberTeams.map((t) => t._id.toHexString());
   if (!allowedIds.length) return this.ready();
 
-  return Tickets.find({ teamId: { $in: allowedIds }, status: { $ne: 'deleted' } });
+  // Descriptions are left out: the table never shows them, and the edit form
+  // fetches the full ticket when it opens.
+  return Tickets.find(
+    { teamId: { $in: allowedIds }, status: { $ne: 'deleted' } },
+    { fields: { description: 0 } }
+  );
 });
 
