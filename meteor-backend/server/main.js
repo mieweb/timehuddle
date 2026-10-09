@@ -913,6 +913,19 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('tickets.dashboardSummary', {
+    description: 'Ticket counts for the dashboard (open, unassigned, closed today, high priority), team-wide and for the caller',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string', description: 'Team id (24-char hex)' },
+        since: { type: 'number', description: 'Start of "today" in ms epoch (caller timezone)' },
+        until: { type: 'number', description: 'End of "today" in ms epoch (caller timezone)' },
+      },
+      required: ['teamId', 'since', 'until'],
+    },
+  });
+
   Wormhole.expose('tickets.get', {
     description: 'Get a single ticket by ID',
     inputSchema: {

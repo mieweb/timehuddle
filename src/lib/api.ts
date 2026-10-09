@@ -1074,11 +1074,25 @@ function toTicket(raw: Record<string, unknown>): Ticket {
   };
 }
 
+export interface TicketDashboardSummary {
+  open: number;
+  unassignedOpen: number;
+  closedToday: number;
+  highPriorityOpen: number;
+  myOpen: number;
+  myClosedToday: number;
+  myHighPriorityOpen: number;
+}
+
 export const ticketApi = {
   getTickets: (teamId: string) =>
     wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
       tickets.map(toTicket),
     ),
+
+  /** Dashboard counts, computed server-side. `since`/`until` bound "today" (ms epoch). */
+  getDashboardSummary: (teamId: string, since: number, until: number) =>
+    wormholeCall<TicketDashboardSummary>('tickets.dashboardSummary', { teamId, since, until }),
 
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
@@ -1673,6 +1687,7 @@ export interface TeamRunningTimer {
   userImage: string | null;
   ticketId: string;
   ticketTitle: string;
+  ticketPriority: string | null;
   startTime: number;
 }
 
