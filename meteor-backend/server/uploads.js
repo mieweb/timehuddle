@@ -387,27 +387,33 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   if (!ext) throw new Error(`Unsupported media type ${mimeType}`);
   await fsp.mkdir(MEDIA_DIR, { recursive: true });
   const filename = `${userId}-${randomBytes(8).toString('hex')}.${ext}`;
-  await write(path.join(MEDIA_DIR, filename));
+  const dest = path.join(MEDIA_DIR, filename);
+  try {
+    await write(dest);
 
-  const type = mimeType.startsWith('video/')
-    ? 'video'
-    : mimeType.startsWith('image/')
-      ? 'image'
-      : 'document';
-  const doc = {
-    _id: new ObjectId(),
-    userId,
-    type,
-    mimeType,
-    url: `/uploads/media/${filename}`,
-    filename,
-    size,
-    ...(title ? { title } : {}),
-    ...(embedded ? { embedded: true } : {}),
-    uploadedAt: new Date(),
-  };
-  await rawDb().collection('mediaitems').insertOne(doc);
-  return doc;
+    const type = mimeType.startsWith('video/')
+      ? 'video'
+      : mimeType.startsWith('image/')
+        ? 'image'
+        : 'document';
+    const doc = {
+      _id: new ObjectId(),
+      userId,
+      type,
+      mimeType,
+      url: `/uploads/media/${filename}`,
+      filename,
+      size,
+      ...(title ? { title } : {}),
+      ...(embedded ? { embedded: true } : {}),
+      uploadedAt: new Date(),
+    };
+    await rawDb().collection('mediaitems').insertOne(doc);
+    return doc;
+  } catch (err) {
+    unlinkSafe(dest);
+    throw err;
+  }
 }
 
 // Library and profile listings skip post-embedded media: it belongs to the

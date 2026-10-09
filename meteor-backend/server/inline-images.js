@@ -23,9 +23,11 @@ const FORMATS = 'png|jpe?g|gif|webp|avif';
 const HAS_INLINE_IMAGE = new RegExp(`data:image/(?:${FORMATS});base64,`, 'i');
 // The base64 may be wrapped across lines. It ends where the markdown link or
 // HTML attribute holding it does (or at the end of the text), so the words
-// after an image are never taken for more base64.
+// after an image are never taken for more base64. Only a markdown image/link
+// destination or a `src` attribute counts: a bare data URL in prose or a code
+// block stays as written.
 const INLINE_IMAGE = new RegExp(
-  `data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
+  `(?<=\\]\\(\\s*|\\bsrc\\s*=\\s*["'])data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
   'gi',
 );
 
@@ -42,13 +44,11 @@ function decode(base64) {
   return buffer.length && roundTrip === clean.replace(/=+$/, '') ? buffer : null;
 }
 
-/** `text` with every inline base64 image stored as media and linked by path. */
+/**
+ * The rewritten text, and the media documents stored for it. Callers that
+ * don't end up saving the text must `discardMedia(media)`.
+ */
 export async function externalizeInlineImages(text, userId) {
-  return (await externalize(text, userId)).text;
-}
-
-/** The rewritten text, and the media documents stored for it. */
-async function externalize(text, userId) {
   if (!hasInlineImages(text)) return { text, media: [] };
   const replacements = new Map();
   const media = [];
@@ -83,7 +83,7 @@ async function migratePost(posts, backups, post) {
   let current = post;
   for (let attempt = 0; attempt < MIGRATE_ATTEMPTS && current; attempt++) {
     const original = current.content?.text;
-    const { text, media } = await externalize(original, current.userId);
+    const { text, media } = await externalizeInlineImages(original, current.userId);
     // Nothing that could be stored (an image that doesn't decode stays inline).
     if (text === original) return false;
     // The text this write replaces — kept before the post changes.

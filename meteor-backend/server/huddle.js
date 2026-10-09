@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isBeforeWindow, resolveSince } from './huddle-window-core';
+import { discardMedia } from './uploads';
 import { externalizeInlineImages } from './inline-images';
 import { ObjectId } from 'mongodb';
 
@@ -449,12 +450,13 @@ export async function createHuddlePost(
     }
   }
   
+  const { text, media } = await externalizeInlineImages(content.text, userId);
   const doc = {
     _id: new ObjectId(),
     teamId,
     userId,
     content: {
-      text: await externalizeInlineImages(content.text, userId),
+      text,
       mentions: content.mentions ?? [],
     },
     ticketId: ticketId ?? undefined,
@@ -471,7 +473,12 @@ export async function createHuddlePost(
     updatedAt: new Date(),
   };
   
-  await rawDb().collection('huddlePosts').insertOne(doc);
+  try {
+    await rawDb().collection('huddlePosts').insertOne(doc);
+  } catch (err) {
+    await discardMedia(media);
+    throw err;
+  }
   
   return { id: doc._id.toHexString() };
 }
@@ -658,23 +665,35 @@ Meteor.methods({
       }
     }
 
-    await rawDb().collection('huddlePosts').updateOne(
-      { _id: toId(postId) },
-      {
-        $set: {
-          content: {
-            text: await externalizeInlineImages(content.text, identity.userId),
-            mentions: content.mentions ?? [],
+    const { text, media } = await externalizeInlineImages(content.text, identity.userId);
+    let matchedCount;
+    try {
+      ({ matchedCount } = await rawDb().collection('huddlePosts').updateOne(
+        { _id: toId(postId) },
+        {
+          $set: {
+            content: {
+              text,
+              mentions: content.mentions ?? [],
+            },
+            // Only touch attachments/ticketId when the editor sends them, so the
+            // plan-first clock flow (which omits them) leaves them untouched.
+            ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
+            ...(ticketId !== undefined ? { ticketId: ticketId ?? undefined } : {}),
+            ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
+            updatedAt: new Date(),
           },
-          // Only touch attachments/ticketId when the editor sends them, so the
-          // plan-first clock flow (which omits them) leaves them untouched.
-          ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
-          ...(ticketId !== undefined ? { ticketId: ticketId ?? undefined } : {}),
-          ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
-          updatedAt: new Date(),
-        },
-      }
-    );
+        }
+      ));
+    } catch (err) {
+      await discardMedia(media);
+      throw err;
+    }
+    // Deleted since it was read: nothing references the new files.
+    if (!matchedCount) {
+      await discardMedia(media);
+      throw new Meteor.Error('not-found', 'Post not found');
+    }
     
     return { id: postId };
   },

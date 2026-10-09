@@ -15,11 +15,12 @@ import { MongoClient } from '../../meteor-backend/node_modules/mongodb/lib/index
 const MONGO_URL = process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?replicaSet=rs0';
 const BACKEND = process.env.BACKEND_URL ?? 'http://localhost:3100';
 // Mirrors meteor-backend/server/inline-images.js: the formats it stores, base64
-// possibly wrapped across lines, ending where the link or attribute does.
+// possibly wrapped across lines, ending where the link or attribute does, and
+// only inside a markdown destination or `src` attribute.
 const FORMATS = 'png|jpe?g|gif|webp|avif';
 const HAS_INLINE = new RegExp(`data:image/(?:${FORMATS});base64,`, 'i');
 const INLINE = new RegExp(
-  `data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
+  `(?<=\\]\\(\\s*|\\bsrc\\s*=\\s*["'])data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
   'gi',
 );
 const [mode, file] = process.argv.slice(2);
