@@ -36,6 +36,24 @@ export function askAboutShortStints(page: Page): Promise<void> {
   return page.removeLocatorHandler(shortStintQuestion(page));
 }
 
+/**
+ * Let a real stop or start through, and have its answer say the session it
+ * closed left `unsent` time to send to Redmine (#688). The test backend has no
+ * linked Redmine account, so on its own it always answers null.
+ */
+export async function reportUnsentRedmine(
+  page: Page,
+  method: 'timers.stopSession' | 'timers.createEntry' | 'timers.startSession',
+  unsent: { ticketId: string; date: string; hours: number },
+): Promise<void> {
+  await page.route(`**/api/${method.replace('.', '_')}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.result) body.result.unsentRedmine = unsent;
+    await route.fulfill({ response, json: body });
+  });
+}
+
 export interface BoardRef {
   sourceId: string;
   ticketId: string;

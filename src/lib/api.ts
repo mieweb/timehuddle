@@ -1890,6 +1890,17 @@ export interface TimerUpdateRef {
   teamId: string;
 }
 
+/**
+ * What a timer session that just closed left to send to Redmine: its issue-day
+ * and the hours not yet sent. Null when there is nothing worth sending (not a
+ * Redmine issue, no linked account, or under a minute).
+ */
+export interface UnsentRedmineTime {
+  ticketId: string;
+  date: string;
+  hours: number;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
@@ -1909,10 +1920,13 @@ export const timerApi = {
     startNow?: boolean;
     discardSessionId?: string;
   }) =>
-    wormholeCall<{ entry: WorkItem; session: Timer | null; update?: TimerUpdateRef | null }>(
-      'timers.createEntry',
-      { ...data, tz: clientTz() },
-    ),
+    wormholeCall<{
+      entry: WorkItem;
+      session: Timer | null;
+      update?: TimerUpdateRef | null;
+      /** From the session this start closed, if any. */
+      unsentRedmine?: UnsentRedmineTime | null;
+    }>('timers.createEntry', { ...data, tz: clientTz() }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. `discardSessionId` as in `createEntry`. */
   startSession: (entryId: string, now?: number, discardSessionId?: string) =>
@@ -1920,6 +1934,7 @@ export const timerApi = {
       session: Timer;
       closedSessionId?: string | null;
       update?: TimerUpdateRef | null;
+      unsentRedmine?: UnsentRedmineTime | null;
     }>('timers.startSession', {
       entryId,
       now: now ?? Date.now(),
@@ -1932,7 +1947,11 @@ export const timerApi = {
    * removes the session's own "Started" update instead and posts nothing.
    */
   stopSession: (sessionId: string, now?: number, discardUpdate = false) =>
-    wormholeCall<{ session: Timer; update?: TimerUpdateRef | null }>('timers.stopSession', {
+    wormholeCall<{
+      session: Timer;
+      update?: TimerUpdateRef | null;
+      unsentRedmine?: UnsentRedmineTime | null;
+    }>('timers.stopSession', {
       sessionId,
       now: now ?? Date.now(),
       discardUpdate,
@@ -2378,6 +2397,11 @@ export interface RedmineTimeEntryPushResult {
   results: RedmineTimeEntryPushOutcome[];
 }
 
+/** One ticket-day's outcome, with the activity it was sent under. */
+export interface RedmineTicketDaySendOutcome extends RedmineTimeEntryPushOutcome {
+  activityName?: string | null;
+}
+
 /** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
 export interface RedmineNamed {
   id: number;
@@ -2670,6 +2694,24 @@ export const redmineApi = {
      */
     push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
+
+    /**
+     * Send one ticket-day's unsent time as a single entry, with an optional
+     * comment: what the prompt shown when a ticket timer ends calls.
+     *
+     * **Irreversible**, like `push`, but allowed while clocked in. The hours
+     * and the activity are worked out server-side.
+     */
+    sendTicketDay: (
+      ticketId: string,
+      date: string,
+      comment?: string,
+    ): Promise<RedmineTicketDaySendOutcome> =>
+      wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
+        ticketId,
+        date,
+        comment,
+      }),
 
     /**
      * Never send one ticket-day's unsent time to Redmine. Nothing is written to

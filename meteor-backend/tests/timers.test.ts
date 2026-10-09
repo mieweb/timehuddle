@@ -548,6 +548,38 @@ describe('timers (wormhole)', () => {
       expect(onTicket.result.sessions).toHaveLength(5);
     });
 
+    it('reports nothing to send to Redmine for a user with no linked account (#688)', async () => {
+      // The prompt for a comment is only for time that can be sent. The field is
+      // always present, and null here; a stop or a switch must not fail over it.
+      await setLink('688');
+      const first = await startNow();
+      const switched = await wormhole<{ session: { id: string }; unsentRedmine: unknown }>(
+        'timers.createEntry',
+        { ticketId, date: today, startNow: true, notifyAdmins: false },
+        jwt,
+      );
+      expect(switched.ok).toBe(true);
+      expect(switched.result.unsentRedmine).toBeNull();
+
+      const stopped = await wormhole<{ unsentRedmine: unknown }>(
+        'timers.stopSession',
+        { sessionId: switched.result.session.id },
+        jwt,
+      );
+      expect(stopped.ok).toBe(true);
+      expect(stopped.result.unsentRedmine).toBeNull();
+
+      const restarted = await wormhole<{ session: { id: string }; unsentRedmine: unknown }>(
+        'timers.startSession',
+        { entryId: first.result.entry.id },
+        jwt,
+      );
+      expect(restarted.ok).toBe(true);
+      expect(restarted.result.unsentRedmine).toBeNull();
+      await stop(restarted.result.session.id);
+      await setLink(null);
+    });
+
     describe('moving an entry to another linked ticket', () => {
       const SENT_ENTRY_ID = 990_000_636;
       let fromId: string;

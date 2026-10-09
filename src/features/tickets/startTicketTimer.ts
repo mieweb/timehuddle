@@ -20,6 +20,7 @@ import {
   timerApi,
   type TicketSourceId,
   type TimerUpdateRef,
+  type UnsentRedmineTime,
 } from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
 
@@ -52,6 +53,8 @@ export type TicketTimerOutcome =
 export interface TicketTimerStart {
   outcome: TicketTimerOutcome;
   update: TimerUpdateRef | null;
+  /** What the ticket this start took over from left to send to Redmine. */
+  unsentRedmine?: UnsentRedmineTime | null;
 }
 
 export interface TimerTicket {
@@ -111,19 +114,20 @@ export async function startTicketTimer(
   });
   const update = result.update ?? null;
   if (!result.session) return { outcome: 'failed', update: null };
+  const unsentRedmine = result.unsentRedmine ?? null;
 
   // At the pin cap it never joins the table, so it stays off My Board too:
   // My Board shows only rows the table has.
   if (ticket.sourceId === 'redmine' && !inTable && (await pinRedmineIssue(Number(ticket.id)))) {
-    return { outcome: 'started-pin-limit', update };
+    return { outcome: 'started-pin-limit', update, unsentRedmine };
   }
 
-  if (onBoard) return { outcome: 'started-on-board', update };
+  if (onBoard) return { outcome: 'started-on-board', update, unsentRedmine };
   try {
     await myBoardApi.addMany([{ sourceId: ticket.sourceId, ticketId: ticket.id }]);
-    return { outcome: 'started-and-added', update };
+    return { outcome: 'started-and-added', update, unsentRedmine };
   } catch {
-    return { outcome: 'started', update };
+    return { outcome: 'started', update, unsentRedmine };
   }
 }
 
