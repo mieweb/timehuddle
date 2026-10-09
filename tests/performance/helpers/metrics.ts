@@ -1,4 +1,4 @@
-import type { Browser, BrowserContextOptions, Page } from '@playwright/test';
+import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -21,6 +21,17 @@ const NETWORK_PROFILES = {
 
 export const RUNS = Number(process.env.PERF_RUNS ?? 3);
 const NETWORK = (process.env.PERF_NETWORK ?? 'none') as keyof typeof NETWORK_PROFILES;
+// Baseline captures (e.g. of `main`) record numbers without failing on the budget.
+const REPORT_ONLY = Boolean(process.env.PERF_REPORT_ONLY);
+
+/** Soft budget check; with PERF_REPORT_ONLY an overrun is only logged. */
+export function withinBudget(value: number, budget: number, label: string): void {
+  if (!REPORT_ONLY) {
+    expect.soft(value, label).toBeLessThan(budget);
+  } else if (value >= budget) {
+    console.log(`[perf] over budget (report only): ${label} ${value} >= ${budget}`);
+  }
+}
 
 /** Fresh browser context = cold HTTP cache; no stored session unless `storageState` is given. */
 export async function newColdPage(
@@ -100,6 +111,20 @@ export function trackWebSocket(page: Page): () => Sample {
     }),
   );
   return () => ({ wsFrames: frames, wsKB: Math.round((bytes / 1024) * 10) / 10 });
+}
+
+/** JS fetched at or after `sinceMs` (page clock): what opening this page had to download. */
+export function collectJs(page: Page, sinceMs = 0): Promise<Sample> {
+  return page.evaluate((since) => {
+    const js = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter(
+      (r) => r.startTime >= since && /\.m?js(\?|$)/.test(r.name),
+    );
+    const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
+    return {
+      jsFiles: js.length,
+      jsDecodedKB: kb(js.reduce((sum, r) => sum + r.decodedBodySize, 0)),
+    };
+  }, sinceMs);
 }
 
 /** `/api/*` fetches that started at or after `sinceMs` (page clock), grouped by endpoint. */

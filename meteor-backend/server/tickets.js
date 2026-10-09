@@ -111,6 +111,15 @@ const LINKED_TO_REDMINE =
 // as well as in the form: this method is callable without the form.
 const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
 
+// Lists, the live feed and the dashboard summary all read one team's tickets.
+Meteor.startup(async () => {
+  try {
+    await Tickets.createIndexAsync({ teamId: 1, createdAt: -1 });
+  } catch (error) {
+    console.error('[tickets] failed to create team index:', error);
+  }
+});
+
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). `brief` leaves out descriptions. */
   async 'tickets.list'({ teamId, brief } = {}) {

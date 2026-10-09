@@ -1,10 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 import {
   RUNS,
   collectLoadMetrics,
   newColdPage,
   report,
   sinceNavigationStart,
+  withinBudget,
   type Sample,
 } from './helpers/metrics';
 import { PERF_USER } from './helpers/user';
@@ -72,10 +73,10 @@ test.describe('login page', () => {
       return metrics;
     });
     const m = report('login-page-cold', samples);
-    expect.soft(m.fcp, 'FCP').toBeLessThan(BUDGET.fcp);
-    expect.soft(m.lcp, 'LCP').toBeLessThan(BUDGET.lcp);
-    expect.soft(m.cls, 'CLS').toBeLessThan(BUDGET.cls);
-    expect.soft(m.formReady, 'form ready').toBeLessThan(BUDGET.formReady);
+    withinBudget(m.fcp, BUDGET.fcp, 'FCP');
+    withinBudget(m.lcp, BUDGET.lcp, 'LCP');
+    withinBudget(m.cls, BUDGET.cls, 'CLS');
+    withinBudget(m.formReady, BUDGET.formReady, 'form ready');
   });
 
   test('warm load (repeat visit)', async ({ browser }) => {
@@ -107,7 +108,7 @@ test.describe('login page', () => {
       return { formReady: load.formReady, loginToShell, visitToShell };
     });
     const m = report('login-flow', samples);
-    expect.soft(m.loginToShell, 'submit → app shell').toBeLessThan(BUDGET.loginToShell);
+    withinBudget(m.loginToShell, BUDGET.loginToShell, 'submit → app shell');
   });
 });
 
@@ -120,10 +121,10 @@ test.describe('signup page', () => {
       return metrics;
     });
     const m = report('signup-page-cold', samples);
-    expect.soft(m.fcp, 'FCP').toBeLessThan(BUDGET.fcp);
-    expect.soft(m.lcp, 'LCP').toBeLessThan(BUDGET.lcp);
-    expect.soft(m.cls, 'CLS').toBeLessThan(BUDGET.cls);
-    expect.soft(m.formReady, 'form ready').toBeLessThan(BUDGET.formReady);
+    withinBudget(m.fcp, BUDGET.fcp, 'FCP');
+    withinBudget(m.lcp, BUDGET.lcp, 'LCP');
+    withinBudget(m.cls, BUDGET.cls, 'CLS');
+    withinBudget(m.formReady, BUDGET.formReady, 'form ready');
   });
 
   // Every sample creates a real account (no delete API): one by default, raise PERF_SIGNUP_RUNS locally.
@@ -147,6 +148,6 @@ test.describe('signup page', () => {
     });
 
     const m = report('signup-flow', samples);
-    expect.soft(m.signupToDialog, 'submit → username prompt').toBeLessThan(BUDGET.signupToDialog);
+    withinBudget(m.signupToDialog, BUDGET.signupToDialog, 'submit → username prompt');
   });
 });

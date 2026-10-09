@@ -504,6 +504,8 @@ class DdpClient {
         break;
       }
       case 'ready':
+        // Listeners see the subscription's documents before its ready callback runs.
+        this.flushNotify();
         for (const subId of data.subs ?? []) {
           this.readySubs.add(subId);
           this.subReadyListeners.get(subId)?.();
@@ -528,12 +530,15 @@ class DdpClient {
    */
   private notify(collection: string): void {
     this.pendingNotify.add(collection);
-    this.notifyTimer ??= setTimeout(() => {
-      this.notifyTimer = null;
-      const changed = [...this.pendingNotify];
-      this.pendingNotify.clear();
-      for (const name of changed) for (const fn of this.listeners.get(name) ?? []) fn();
-    }, 16);
+    this.notifyTimer ??= setTimeout(() => this.flushNotify(), 16);
+  }
+
+  private flushNotify(): void {
+    if (this.notifyTimer) clearTimeout(this.notifyTimer);
+    this.notifyTimer = null;
+    const changed = [...this.pendingNotify];
+    this.pendingNotify.clear();
+    for (const name of changed) for (const fn of this.listeners.get(name) ?? []) fn();
   }
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
