@@ -165,6 +165,41 @@ describe('redmine (wormhole)', () => {
     expect(res.result.issues).toEqual([]);
   });
 
+  describe('sending one ticket-day when a timer ends (#688)', () => {
+    const send = (params: Record<string, unknown>, jwt = jwtB) =>
+      wormhole('redmine.timeEntries.sendTicketDay', params, jwt);
+
+    it('rejects an unauthenticated call', async () => {
+      const res = await send({ ticketId: '15', date: '2026-09-21' }, 'invalid-jwt');
+      expect(res.ok).toBe(false);
+    });
+
+    it('rejects anything that is not an issue id and a day', async () => {
+      for (const params of [
+        {},
+        { ticketId: 'abc', date: '2026-09-21' },
+        { ticketId: '15', date: '21/09/2026' },
+        { ticketId: '15' },
+      ]) {
+        const res = await send(params);
+        expect(res.ok).toBe(false);
+        expect(res.error).toMatch(/ticket id and a YYYY-MM-DD date/i);
+      }
+    });
+
+    it('rejects a comment longer than Redmine accepts, before any Redmine call', async () => {
+      const res = await send({ ticketId: '15', date: '2026-09-21', comment: 'x'.repeat(1025) });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/1024 characters/);
+    });
+
+    it('needs a linked account', async () => {
+      const res = await send({ ticketId: '15', date: '2026-09-21', comment: 'Fixed the clock' });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/connect your redmine account/i);
+    });
+  });
+
   it('disconnect clears the link and is idempotent', async () => {
     const first = await wormhole<{ connected: boolean }>('redmine.disconnect', {}, jwtA);
     expect(first.ok).toBe(true);

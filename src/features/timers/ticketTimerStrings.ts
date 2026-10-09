@@ -74,4 +74,32 @@ export const ticketTimerText = {
   cancelPendingStart: 'Cancel',
   cancelPendingStartLabel: (label: string) => `Don't start the timer on ${label}`,
   clockOutStopsTimer: (label: string) => `Clocking out will stop the timer on ${label}.`,
+
+  /**
+   * Asked when a timer on a Redmine issue ends (#688): the time is sent to
+   * Redmine with the comment, or without one. `time` is `h:mm`.
+   */
+  redmineSendTitle: 'Send time to Redmine',
+  redmineSendBody: (time: string, issue: string) =>
+    `${time} on ${issue} is ready to send. Add a comment about the work, or send it without one.`,
+  redmineSendPermanent: 'A sent entry can only be changed in Redmine.',
+  redmineSendCommentLabel: 'Comment',
+  redmineSendCommentPlaceholder: 'What did you work on?',
+  redmineSendWithComment: 'Send with comment',
+  redmineSendWithoutComment: 'Send without comment',
+  redmineSent: (time: string, issue: string, activity?: string | null) =>
+    activity
+      ? `Sent ${time} on ${issue} to Redmine as ${activity}`
+      : `Sent ${time} on ${issue} to Redmine`,
+  /** `reason` is a sentence fragment from `redminePushStrings`. */
+  redmineNotSent: (issue: string, reason: string) =>
+    `Time on ${issue} was not sent to Redmine: ${reason}. It is waiting on the Clock page.`,
+  /** Another tab or the push dialog got there first. */
+  redmineAlreadySent: (issue: string) => `Time on ${issue} was already sent to Redmine.`,
+  /** The send itself could not be made; the prompt stays open. */
+  redmineSendFailed:
+    'Could not send the time to Redmine. Try again, or close this to send it later.',
+  /** The entry exists, but its read-back did not confirm it. */
+  redmineSentUnverified: (issue: string, reason: string) =>
+    `Time on ${issue} went to Redmine, but: ${reason}. Check the entry in Redmine.`,
 };

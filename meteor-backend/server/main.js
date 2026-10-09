@@ -1236,6 +1236,20 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('redmine.timeEntries.sendTicketDay', {
+    description:
+      "Send one ticket-day's unsent time to Redmine as a single entry, with an optional comment. Irreversible.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+        comment: { type: 'string', description: "The entry's comment; optional" },
+      },
+      required: ['ticketId', 'date'],
+    },
+  });
+
   Wormhole.expose('redmine.timeEntries.push', {
     description:
       'Create one Redmine time entry per confirmed ticket-day. Irreversible: entries cannot be edited or deleted afterwards.',
