@@ -520,6 +520,13 @@ const CHIP_CLASS =
 const ADD_AND_START_CLASS =
   'h-7 max-sm:w-7 max-sm:px-0 max-sm:[&_.timer-toggle-label]:hidden pointer-coarse:w-7 pointer-coarse:px-0 pointer-coarse:[&_.timer-toggle-label]:hidden';
 
+/**
+ * For the actions that wait for the highlighted or hovered row. `invisible`, not
+ * `hidden`: the space stays, so the always-visible timer button holds its place.
+ */
+const ON_ACTIVE_ROW_CLASS =
+  'invisible group-hover:visible group-aria-selected:visible pointer-coarse:visible';
+
 /** Stop an action's click from also choosing the row, and keep focus in the input. */
 const keepFocus = (event: React.MouseEvent) => {
   event.preventDefault();
@@ -549,10 +556,10 @@ interface IssueRowProps {
  * One suggestion. Only `#id` and the title always show; the rest is placed by
  * priority so a row stays readable at 320 px:
  * - project: second line, `sm` and up
- * - reason chip: at the end on wide screens with a mouse, until the row is
- *   highlighted or hovered; under the title on touch, or on a highlighted
- *   narrow row
- * - My Board, timer and hide: on the highlighted or hovered row, always on touch
+ * - reason chip: under the title, ahead of the project
+ * - timer: always
+ * - My Board and hide: on the highlighted or hovered row, always on touch. They
+ *   keep their space when hidden, so the timer button does not move.
  *
  * The actions are mouse-only (`tabIndex={-1}`, `aria-hidden`): a combobox
  * option cannot hold its own buttons, so the keyboard gets Delete, Shift+Enter
@@ -597,36 +604,22 @@ function IssueRow({
           <span className="block min-w-0 truncate">{issue.subject}</span>
         </OverflowTooltip>
         <span className="redmine-suggestion-meta flex min-w-0 items-center gap-2 empty:hidden">
+          {reason && (
+            <Badge size="sm" variant="secondary" className={CHIP_CLASS}>
+              {reason}
+            </Badge>
+          )}
           {issue.project && (
             <Text as="span" size="xs" variant="muted" className="hidden truncate sm:block">
               {issue.project.name}
             </Text>
           )}
-          {reason && (
-            <Badge
-              size="sm"
-              variant="secondary"
-              className={`hidden pointer-coarse:inline-flex max-sm:group-aria-selected:inline-flex ${CHIP_CLASS}`}
-            >
-              {reason}
-            </Badge>
-          )}
         </span>
       </span>
 
-      {reason && (
-        <Badge
-          size="sm"
-          variant="secondary"
-          className={`hidden sm:pointer-fine:inline-flex sm:pointer-fine:group-hover:hidden sm:pointer-fine:group-aria-selected:hidden ${CHIP_CLASS}`}
-        >
-          {reason}
-        </Badge>
-      )}
-
       <ButtonGroup
         orientation="horizontal"
-        className="redmine-suggestion-actions hidden shrink-0 gap-1 group-hover:flex group-aria-selected:flex pointer-coarse:flex"
+        className="redmine-suggestion-actions shrink-0 gap-1"
         aria-hidden="true"
       >
         <BoardToggleButton
@@ -635,7 +628,7 @@ function IssueRow({
           // Not while this row's timer is starting (see `TicketTableRow`), nor
           // while another row's board action is, nor before the board is read.
           disabled={timerLoading || !boardKnown || (boardBusy && !boardLoading)}
-          className="h-7 w-7"
+          className={`h-7 w-7 ${ON_ACTIVE_ROW_CLASS}`}
           tabIndex={-1}
           aria-hidden
           ariaLabel={onBoard ? boardText.removeLabel(label) : boardText.addLabel(label)}
@@ -666,7 +659,7 @@ function IssueRow({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 [&_[data-slot=button-label]]:flex"
+              className={`h-7 w-7 [&_[data-slot=button-label]]:flex ${ON_ACTIVE_ROW_CLASS}`}
               tabIndex={-1}
               aria-label={text.hide(issue.id)}
               onMouseDown={keepFocus}
