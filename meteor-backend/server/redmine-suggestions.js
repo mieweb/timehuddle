@@ -33,6 +33,7 @@ import {
   listIssuesByIds,
   listProjectMemberships,
   listProjects,
+  mapInChunks,
   onDefaultRedmine,
   optionalRedmineBaseUrl,
   searchIssues,
@@ -110,15 +111,6 @@ Meteor.startup(async () => {
     console.error('[redmine] failed to create issue-preference indexes:', error);
   }
 });
-
-/** Map `items` through `fn`, at most `size` at a time, keeping the results in order. */
-async function mapInChunks(items, size, fn) {
-  const results = [];
-  for (let start = 0; start < items.length; start += size) {
-    results.push(...(await Promise.all(items.slice(start, start + size).map(fn))));
-  }
-  return results;
-}
 
 /**
  * The users the caller shares a project with — the only roster a non-admin key

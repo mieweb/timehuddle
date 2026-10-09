@@ -36,7 +36,11 @@ import {
   tooManyRedmineRequests,
 } from './redmine-account';
 import { toStatus } from './redmine-status';
-import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
+import {
+  getActivitiesByProject,
+  getActivitiesForUser,
+  pickDefaultActivity,
+} from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -57,7 +61,7 @@ export function enforceRedmineLimit(limiter, userId) {
 
 
 /**
- * What one user may ask of the account, activity and push methods below. Each
+ * What one user may ask of the account and push methods below. Each
  * can reach Redmine, and none is called more than a few times a minute by a
  * person using the app, so one shared, generous bound covers them.
  */
@@ -234,26 +238,6 @@ async function withPushLock(userId, work) {
   }
 }
 
-/** The activity enumeration, with a Redmine failure mapped for the client. */
-async function activitiesOrMeteorError(userId, account) {
-  try {
-    return await getActivitiesForUser(userId, account);
-  } catch (err) {
-    throw toRedmineMeteorError(err);
-  }
-}
-
-/** What both activity methods answer: the list, and which one applies and why. */
-function activitySelection(activities, chosenId) {
-  const { activity, reason } = pickDefaultActivity(activities, chosenId);
-  return {
-    connected: true,
-    activities,
-    selectedId: activity?.id ?? null,
-    selectedReason: reason,
-  };
-}
-
 /**
  * The unsynced ticket-days for a user, shaped for the dialog.
  *
@@ -273,32 +257,44 @@ async function buildPreviewRows(userId, account) {
   // A Redmine outage must not blank the dialog: without issue detail every row
   // is reported as `issue-unavailable`, which is the truth rather than silence.
   let issuesById = new Map();
-  let activities = [];
+  let enumeration = [];
+  let activitiesByProject = new Map();
   try {
-    const [issues, fetchedActivities] = await Promise.all([
+    const [issues, fetchedEnumeration] = await Promise.all([
       listIssuesByIds(account, issueIds),
       getActivitiesForUser(userId, account),
     ]);
     issuesById = new Map(
       issues.map((issue) => [
         String(issue.id),
-        { subject: issue.subject ?? '', trackerName: issue.tracker?.name ?? null },
+        {
+          subject: issue.subject ?? '',
+          trackerName: issue.tracker?.name ?? null,
+          projectId: issue.project?.id ?? null,
+        },
       ]),
     );
-    activities = fetchedActivities;
+    enumeration = fetchedEnumeration;
+    // Each project is asked once, however many of the issues share it.
+    const projectIds = [...issuesById.values()].map((issue) => issue.projectId);
+    activitiesByProject = await getActivitiesByProject(
+      userId,
+      account,
+      [...new Set(projectIds.filter((id) => id != null))],
+      enumeration,
+    );
   } catch {
     /* fall through with empty maps */
   }
 
-  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
-  const chosenId = link?.defaultActivityId ?? null;
-
-  const resolveActivity = (trackerName) => {
-    const { activity, reason } = pickDefaultActivity(activities, chosenId, trackerName);
+  const resolveActivity = (issue) => {
+    const allowed = activitiesByProject.get(issue?.projectId) ?? [];
+    const { activity, reason } = pickDefaultActivity(allowed, issue?.trackerName ?? null);
     return {
       activityId: activity?.id ?? null,
       activityName: activity?.name ?? null,
       reason,
+      options: allowed.map(({ id, name }) => ({ id, name })),
     };
   };
 
@@ -468,53 +464,6 @@ Meteor.methods({
   },
 
   /**
-   * The instance's time-entry activities, plus which one the caller's time will
-   * be logged under and why.
-   *
-   * Returns `{ connected: false, activities: [] }` for an unlinked user so
-   * Settings can render its state without a second round-trip, matching
-   * `redmine.status`. An empty `activities` on a connected account means the
-   * instance has none configured and cannot receive time at all.
-   */
-  async 'redmine.activities.list'() {
-    const { userId } = await requireIdentity(this);
-
-    const account = await findRedmineAccount(userId);
-    if (!account) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
-    enforceRedmineLimit(accountLimiter, userId);
-
-    const activities = await activitiesOrMeteorError(userId, account);
-    const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
-    return activitySelection(activities, link?.defaultActivityId ?? null);
-  },
-
-  /**
-   * Persist the caller's preferred activity onto their `redmine_links` row —
-   * already the per-user Redmine config surface, so no new collection.
-   *
-   * The id is validated against the live enumeration so a stale client cannot
-   * store one the instance does not have.
-   */
-  async 'redmine.activities.setDefault'({ activityId } = {}) {
-    const { userId } = await requireIdentity(this);
-    enforceRedmineLimit(accountLimiter, userId);
-
-    if (!Number.isInteger(activityId)) {
-      throw new Meteor.Error('bad-request', 'An activity id is required.');
-    }
-
-    const account = await requireRedmineAccount(userId);
-    const activities = await activitiesOrMeteorError(userId, account);
-
-    if (!activities.some((a) => a.id === activityId)) {
-      throw new Meteor.Error('bad-request', 'That activity does not exist on this Redmine instance.');
-    }
-
-    await RedmineLinks.updateAsync({ userId }, { $set: { defaultActivityId: activityId } });
-    return activitySelection(activities, activityId);
-  },
-
-  /**
    * What a push would send, for the confirmation dialog.
    *
    * Pure read — it creates nothing in Redmine. Rows that cannot be sent are
@@ -621,16 +570,6 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
   const previewRows = await buildPreviewRows(userId, account);
   const byKey = new Map(previewRows.map((row) => [ticketDayKey(row.ticketId, row.date), row]));
 
-  // The same enumeration the rows were resolved from, served from cache. If it
-  // cannot be fetched the set stays empty, so every override is rejected as
-  // unverifiable rather than trusted.
-  let validActivityIds = new Set();
-  try {
-    validActivityIds = new Set((await getActivitiesForUser(userId, account)).map((a) => a.id));
-  } catch {
-    /* unreachable — handled per row below */
-  }
-
   // A ticket-day listed twice would otherwise have its unsent time sent twice.
   const handled = new Set();
 
@@ -654,14 +593,14 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       continue;
     }
 
-    // An override is honoured only if this instance really has that activity,
-    // matching the check `redmine.activities.setDefault` makes. An invalid one
-    // rejects the row instead of falling back to the default: the entry is
-    // permanent, and writing an activity the user did not choose is worse than
-    // writing nothing.
+    // An override is honoured only if the issue's project allows that activity:
+    // the same list the row's drop-down was built from. An invalid one rejects
+    // the row instead of falling back to the default: the entry is permanent,
+    // and writing an activity the user did not choose is worse than writing
+    // nothing.
     let activityId = row.activityId;
     if (requested.activityId != null) {
-      if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {
+      if (!row.activityOptions.some((option) => option.id === requested.activityId)) {
         results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
         continue;
       }

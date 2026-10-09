@@ -44,9 +44,6 @@ import type { Page, Route } from '@playwright/test';
 
 export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
 
-export type RedmineActivityReason =
-  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
-
 export interface RedmineStatusShape {
   connected: boolean;
   redmineUserId?: number;
@@ -54,7 +51,6 @@ export interface RedmineStatusShape {
   redmineName?: string;
   baseUrl?: string;
   linkedAt?: string | null;
-  defaultActivityId?: number | null;
   customUrlAllowed?: boolean;
   defaultBaseUrl?: string | null;
 }
@@ -71,6 +67,7 @@ export interface RedmineRowShape {
   activityId: number | null;
   activityName: string | null;
   activityReason: string;
+  activityOptions: { id: number; name: string }[];
   blockedReason: RedmineBlockedReason | null;
 }
 
@@ -190,18 +187,6 @@ const DISCONNECTED: Record<string, unknown> = {
     defaultPriorityId: null,
     me: null,
   },
-  'activities.list': {
-    connected: false,
-    activities: [],
-    selectedId: null,
-    selectedReason: 'none',
-  },
-  'activities.setDefault': {
-    connected: false,
-    activities: [],
-    selectedId: null,
-    selectedReason: 'none',
-  },
   'timeEntries.preview': { connected: false, idle: true, rows: [], baseUrl: null },
   'timeEntries.push': { results: [] },
 };
@@ -317,7 +302,6 @@ export function connectedStatus(
     redmineName: 'Test User',
     baseUrl: BASE_URL,
     linkedAt: '2026-01-05T09:00:00.000Z',
-    defaultActivityId: 9,
     ...rest,
   };
 }
@@ -343,6 +327,11 @@ export function previewRow(overrides: Partial<RedmineRowShape> = {}): RedmineRow
     activityId: 9,
     activityName: 'Development',
     activityReason: 'tracker',
+    activityOptions: [
+      { id: 8, name: 'Design' },
+      { id: 9, name: 'Development' },
+      { id: 10, name: 'QA' },
+    ],
     blockedReason: null,
     ...overrides,
   };
@@ -409,27 +398,6 @@ export function issueDetail(overrides: Partial<RedmineIssueShape> = {}): Redmine
       { id: 3, name: 'Resolved', isClosed: false },
       { id: 5, name: 'Closed', isClosed: true },
     ],
-    ...overrides,
-  };
-}
-
-export function activityList(
-  overrides: Partial<{
-    connected: boolean;
-    activities: { id: number; name: string; isDefault: boolean }[];
-    selectedId: number | null;
-    selectedReason: RedmineActivityReason;
-  }> = {},
-) {
-  return {
-    connected: true,
-    activities: [
-      { id: 8, name: 'Design', isDefault: false },
-      { id: 9, name: 'Development', isDefault: true },
-      { id: 10, name: 'QA', isDefault: false },
-    ],
-    selectedId: 9,
-    selectedReason: 'chosen' as RedmineActivityReason,
     ...overrides,
   };
 }

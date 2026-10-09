@@ -180,6 +180,19 @@ const LIST_TIMEOUT_MS = 30_000;
 const OUTBOUND_LIMIT_PER_MINUTE = 600;
 const outboundLimiter = createRateLimiter({ limit: OUTBOUND_LIMIT_PER_MINUTE, windowMs: 60 * 1000 });
 
+/**
+ * Map `items` through `fn`, at most `size` at a time, keeping the results in
+ * order. For one-request-per-item reads, so a long list is not sent to Redmine
+ * all at once.
+ */
+export async function mapInChunks(items, size, fn) {
+  const results = [];
+  for (let start = 0; start < items.length; start += size) {
+    results.push(...(await Promise.all(items.slice(start, start + size).map(fn))));
+  }
+  return results;
+}
+
 /** Whether `err` is the outbound budget refusing a request before it was sent. */
 export function isRedmineBudgetExhausted(err) {
   return err?.budgetExhausted === true;
@@ -454,6 +467,18 @@ async function requestOrNull(path, account) {
 export async function listTimeEntryActivities(account) {
   const data = await redmineRequest('/enumerations/time_entry_activities.json', { account });
   return data?.time_entry_activities ?? [];
+}
+
+/**
+ * The time-entry activities one project allows, via
+ * `GET /projects/{id}.json?include=time_entry_activities`: active ones only, as
+ * `{id, name}`. Null when the response carries no such list.
+ */
+export async function listProjectTimeEntryActivities(account, projectId) {
+  const data = await redmineRequest(`/projects/${projectId}.json?include=time_entry_activities`, {
+    account,
+  });
+  return data?.project?.time_entry_activities ?? null;
 }
 
 /**

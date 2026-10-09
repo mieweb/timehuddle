@@ -17,7 +17,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { ClockPage } from '../pages/ClockPage';
 import {
-  activityList,
   connectedStatus,
   preview,
   previewRow,
@@ -39,7 +38,6 @@ const confirmButton = (page: Page) => page.getByRole('button', { name: /^Send \d
 async function openClock(page: Page, overrides: Record<string, StubValue>): Promise<RedmineStub> {
   const rm = await stubRedmine(page, {
     status: connectedStatus(),
-    'activities.list': activityList(),
     ...overrides,
   });
   await page.goto('/app/clock');
@@ -151,7 +149,7 @@ test.describe('Redmine push panel', () => {
     await expect(blockedRow.getByRole('combobox')).toHaveCount(0);
   });
 
-  test('a row with no resolvable activity is blocked and says so', async ({ page }) => {
+  test('a row whose project allows no activity is blocked and says so', async ({ page }) => {
     await openClock(page, {
       'timeEntries.preview': preview({
         rows: [
@@ -160,6 +158,7 @@ test.describe('Redmine push panel', () => {
             ticketId: '42',
             activityId: null,
             activityName: null,
+            activityOptions: [],
             blockedReason: 'no-activity',
           }),
         ],
@@ -169,8 +168,32 @@ test.describe('Redmine push panel', () => {
     await sendButton(page).click();
 
     await expect(entriesTable(page).locator('tbody tr').filter({ hasText: '#42' })).toContainText(
-      'No activity could be resolved',
+      'This issue’s project allows no activity in Redmine',
     );
+  });
+
+  test('a row offers only the activities its project allows', async ({ page }) => {
+    const date = today();
+    await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [
+          previewRow({ ticketId: '15' }),
+          // This issue's project has Design switched off.
+          previewRow({
+            ticketId: '42',
+            activityOptions: [
+              { id: 9, name: 'Development' },
+              { id: 10, name: 'QA' },
+            ],
+          }),
+        ],
+      }),
+    });
+
+    await sendButton(page).click();
+    await page.getByRole('combobox', { name: `Activity for issue 42 on ${date}` }).click();
+
+    await expect(page.getByRole('option')).toHaveText(['Development', 'QA']);
   });
 
   test('sub-minute time is withheld entirely — no row, no block, no panel', async ({ page }) => {

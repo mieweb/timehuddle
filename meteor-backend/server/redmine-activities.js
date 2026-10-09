@@ -10,13 +10,17 @@
  * instance-specific and an admin can renumber them, which would silently log
  * time under the wrong activity with no signal.
  */
-import { listTimeEntryActivities } from './redmine-client';
+import {
+  listProjectTimeEntryActivities,
+  listTimeEntryActivities,
+  mapInChunks,
+} from './redmine-client';
 import { createUserTtlCache } from './redmine-cache';
 
 /**
- * The activity enumeration, per user, for an hour. It is instance-wide and
- * changes approximately never, while re-fetching it on every sync would add a
- * round trip to every write.
+ * The activity enumeration and each project's allowed activities, per user, for
+ * an hour. Both change approximately never, while re-fetching them on every sync
+ * would add a round trip per project to every write.
  */
 const cache = createUserTtlCache(60 * 60 * 1000);
 
@@ -57,7 +61,7 @@ export function activityForTracker(activities, trackerName) {
   return wanted ? findByName(activities, wanted) : null;
 }
 
-/** Shape a raw Redmine activity enumeration entry into our DTO. */
+/** Shape a raw Redmine activity into our DTO. */
 function toActivity(raw) {
   return {
     id: raw.id,
@@ -69,36 +73,50 @@ function toActivity(raw) {
 /**
  * Shape a raw `time_entry_activities` array into our DTO list.
  * Non-array input yields an empty list.
+ *
+ * Inactive activities are left out: Redmine refuses an entry under one, so they
+ * are never offered. Only an explicit `active: false` marks one inactive; a
+ * project's list and older Redmine versions omit the flag.
  */
 export function toActivityList(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((entry) => entry && entry.id != null).map(toActivity);
+  return raw.filter((entry) => entry && entry.id != null && entry.active !== false).map(toActivity);
+}
+
+/**
+ * Shape a project's raw `time_entry_activities` into our DTO list. Redmine lists
+ * only the ones the project allows, by id and name, so `isDefault` is carried
+ * over from the instance's `enumeration`: by id, else by name, because a project
+ * that overrides an activity gets its own copy under a new id and the same name.
+ *
+ * Returns null when the project did not say (an older Redmine ignores the
+ * include), which is not the same as a project that allows none.
+ */
+export function toProjectActivities(raw, enumeration) {
+  if (!Array.isArray(raw)) return null;
+  return toActivityList(raw).map((activity) => ({
+    ...activity,
+    isDefault:
+      (enumeration.find((a) => a.id === activity.id) ?? findByName(enumeration, activity.name))
+        ?.isDefault ?? false,
+  }));
 }
 
 /**
  * Choose which activity to log time under.
  *
- * Order: the user's explicit choice (when it still exists in the enumeration) →
- * the issue's tracker → the instance default → one named "Development" →
- * the first → none. `reason` is returned so the UI can surface which rule fired
- * instead of choosing silently on the user's behalf — a logged entry is
- * permanent, so a wrong activity cannot be corrected afterwards.
+ * `activities` is what the issue's project allows. Order: the issue's tracker →
+ * the instance default → one named "Development" → the first → none. This is
+ * only the starting point: the push dialog shows it on the row and lets the
+ * user change it, because a logged entry is permanent and a wrong activity
+ * cannot be corrected afterwards. `reason` says which rule fired.
  *
- * **Why the explicit choice outranks the tracker:** `TRACKER_ACTIVITY` is
- * degenerate on this instance (every tracker → `Development`), so tracker-first
- * would swallow the user's setting entirely — a designer who picked `Design`
- * would still log `Development` on every issue. A deliberate choice beats an
- * inference; the tracker is the smart default for the user who has not made one.
- *
- * @returns {{activity: object|null, reason: 'chosen'|'tracker'|'is_default'|'named'|'first'|'none'}}
+ * @returns {{activity: object|null, reason: 'tracker'|'is_default'|'named'|'first'|'none'}}
  */
-export function pickDefaultActivity(activities, chosenId, trackerName) {
+export function pickDefaultActivity(activities, trackerName) {
   if (!Array.isArray(activities) || activities.length === 0) {
     return { activity: null, reason: 'none' };
   }
-
-  const chosen = chosenId == null ? null : activities.find((a) => a.id === chosenId);
-  if (chosen) return { activity: chosen, reason: 'chosen' };
 
   const fromTracker = activityForTracker(activities, trackerName);
   if (fromTracker) return { activity: fromTracker, reason: 'tracker' };
@@ -113,11 +131,48 @@ export function pickDefaultActivity(activities, chosenId, trackerName) {
 }
 
 /**
- * The activity enumeration visible to `account`'s key, served from cache when fresh.
- * Only successful fetches are cached, so a transient failure is retried.
+ * The instance's active activities visible to `account`'s key, served from cache
+ * when fresh. Only successful fetches are cached, so a transient failure is retried.
  */
 export function getActivitiesForUser(userId, account) {
   return cache.get(userId, 'activities', async () =>
     toActivityList(await listTimeEntryActivities(account)),
   );
+}
+
+/**
+ * The activities one project allows, read once per project and then served from
+ * cache, so a push costs one call per project however many issues share it.
+ *
+ * A project whose list cannot be read falls back to the instance's
+ * `enumeration`, which is what was offered before projects were consulted.
+ * Redmine still has the last word on the entry, and blocking the row would stop
+ * time that it may well accept.
+ */
+async function getProjectActivities(userId, account, projectId, enumeration) {
+  try {
+    const allowed = await cache.get(userId, `project-activities|${projectId}`, async () =>
+      toProjectActivities(await listProjectTimeEntryActivities(account, projectId), enumeration),
+    );
+    if (allowed) return allowed;
+  } catch {
+    /* unreadable: fall back below */
+  }
+  return enumeration;
+}
+
+/** How many projects are asked for their activities at a time. */
+const PROJECT_CONCURRENCY = 5;
+
+/**
+ * The allowed activities of each project in `projectIds`, read a few at a time:
+ * a burst that Redmine refused would put those projects on the instance-wide
+ * fallback, which is the list this lookup exists to narrow.
+ * @returns {Promise<Map<number, Array>>} keyed by project id
+ */
+export async function getActivitiesByProject(userId, account, projectIds, enumeration) {
+  const lists = await mapInChunks(projectIds, PROJECT_CONCURRENCY, (projectId) =>
+    getProjectActivities(userId, account, projectId, enumeration),
+  );
+  return new Map(projectIds.map((projectId, index) => [projectId, lists[index]]));
 }

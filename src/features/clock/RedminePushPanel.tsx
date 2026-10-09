@@ -46,7 +46,6 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 
 import {
   redmineApi,
-  type RedmineActivity,
   type RedmineTimeEntryPreview,
   type RedmineTimeEntryPushOutcome,
   type RedmineTimeEntryRow,
@@ -59,7 +58,7 @@ const rowKey = (row: { ticketId: string; date: string }) => `${row.ticketId}@${r
 const BLOCKED_TEXT: Record<string, string> = {
   'too-short': 'Under a minute — Redmine rejects a zero-hour entry',
   'issue-unavailable': 'Issue could not be loaded from Redmine',
-  'no-activity': 'No activity could be resolved',
+  'no-activity': 'This issue’s project allows no activity in Redmine',
 };
 
 const FAILURE_TEXT: Record<string, string> = {
@@ -71,7 +70,7 @@ const FAILURE_TEXT: Record<string, string> = {
   unconfirmed: 'Sent, but Redmine did not let us confirm it',
   'push-interrupted': 'Not sent: another push took over. Try again',
   'already-synced-or-gone': 'Already sent, or no longer eligible',
-  'invalid-activity': 'That activity no longer exists in Redmine',
+  'invalid-activity': 'This issue’s project does not allow that activity',
 };
 
 /**
@@ -103,7 +102,6 @@ function asClock(hours: number): string {
 
 export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClockedIn }) => {
   const [preview, setPreview] = useState<RedmineTimeEntryPreview | null>(null);
-  const [activities, setActivities] = useState<RedmineActivity[]>([]);
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [pushing, setPushing] = useState(false);
@@ -121,12 +119,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
   const load = useCallback(async () => {
     try {
-      const [next, activityList] = await Promise.all([
-        redmineApi.timeEntries.preview(),
-        redmineApi.activities.list(),
-      ]);
-      setPreview(next);
-      setActivities(activityList.activities);
+      setPreview(await redmineApi.timeEntries.preview());
       setError(null);
     } catch {
       // An unlinked or unreachable Redmine is the normal case on this page, not
@@ -153,11 +146,6 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     [rows],
   );
   const totalHours = useMemo(() => sendable.reduce((sum, row) => sum + row.hours, 0), [sendable]);
-
-  const activityOptions = useMemo(
-    () => activities.map((a) => ({ value: String(a.id), label: a.name })),
-    [activities],
-  );
 
   const resultByKey = useMemo(
     () => new Map((results ?? []).map((r) => [`${r.ticketId}@${r.date}`, r])),
@@ -324,7 +312,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                           hideLabel
                           size="sm"
                           value={String(overrides[key] ?? row.activityId ?? '')}
-                          options={activityOptions}
+                          // Only what this issue's project allows.
+                          options={row.activityOptions.map((a) => ({
+                            value: String(a.id),
+                            label: a.name,
+                          }))}
                           onValueChange={(v) =>
                             setOverrides((prev) => ({ ...prev, [key]: Number(v) }))
                           }
