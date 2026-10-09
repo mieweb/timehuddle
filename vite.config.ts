@@ -69,6 +69,9 @@ export default defineConfig({
     alias: {
       '@ui': path.resolve(__dirname, 'src/ui'),
       '@lib': path.resolve(__dirname, 'src/lib'),
+      // @mieweb/ui's barrel keeps CountryCodeDropdown alive, dragging 566 KB of
+      // libphonenumber into the login-page entry chunk. The app uses no phone/country picker.
+      'google-libphonenumber': path.resolve(__dirname, 'src/lib/libphonenumber-stub.ts'),
       ...capacitorStubs,
     },
   },
