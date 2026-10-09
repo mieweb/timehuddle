@@ -76,7 +76,8 @@ _log('main.tsx evaluated');
 
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
+import { Spinner } from '@mieweb/ui';
 import { createRoot } from 'react-dom/client';
 
 // Debug: check Capacitor bridge detection
@@ -93,12 +94,19 @@ import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { rememberReturnTo, restoreReturnTo } from './lib/returnTo';
-import { AppLayout } from './ui/AppLayout';
 import { InstallerModal } from './ui/InstallerModal';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
 import { OtaUpdateGate } from './ui/OtaUpdateGate';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
+
+// The signed-in shell is its own chunk: the login form and landing page paint
+// without first downloading every app page.
+const AppLayout = lazy(() => import('./ui/AppLayout').then((m) => ({ default: m.AppLayout })));
+
+// A deploy replaces dist/, so a tab opened before it can ask for a page chunk
+// whose hash no longer exists. Reload to pick up the new build instead of failing.
+window.addEventListener('vite:preloadError', () => window.location.reload());
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -365,17 +373,33 @@ const App: React.FC = () => {
   // start waiting on a clock-in), and a session can change hands without passing
   // through signed-out — another tab signs in, then this one's socket reconnects.
   // A new key remounts the shell, so nothing one user left behind reaches the next.
+  const shell = (
+    <Suspense
+      fallback={
+        <div
+          className="shell-loading flex h-dvh items-center justify-center"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <Spinner />
+          <span className="sr-only">Loading TimeHuddle</span>
+        </div>
+      }
+    >
+      <AppLayout key={user.id} />
+    </Suspense>
+  );
   if (needsUsernameClaim)
     return (
       <>
-        <AppLayout key={user.id} />
+        {shell}
         <UsernameClaimModal />
       </>
     );
 
   return (
     <>
-      <AppLayout key={user.id} />
+      {shell}
       {ownershipChecked && showTakeOwnershipModal && (
         <InstallerModal onTaken={() => setShowTakeOwnershipModal(false)} />
       )}

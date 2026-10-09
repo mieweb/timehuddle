@@ -9,14 +9,19 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import Busboy from 'busboy';
+import { persistentDir, isInsideMeteorBuild } from './storage-paths';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads');
+// Outside Meteor's build output, which a rebuild wipes — see storage-paths.js.
+const UPLOADS_DIR = persistentDir(process.env.UPLOADS_DIR, 'uploads');
 const PROFILE_DIR = path.join(UPLOADS_DIR, 'profile');
-const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
+export const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
+const VIDEOS_DIR = persistentDir(process.env.VIDEOS_DIR, 'data/videos');
+if (isInsideMeteorBuild(UPLOADS_DIR)) {
+  console.warn(`[uploads] UPLOADS_DIR ${UPLOADS_DIR} is inside Meteor's build output — a rebuild deletes it`);
+}
 
 // Incoming files land here first, then get renamed into place. Same volume as
 // the destinations, so the rename is atomic and free. Never served: the
@@ -368,6 +373,66 @@ WebApp.connectHandlers.use('/api/me/background', async (req, res, next) => {
   next();
 });
 
+// ── Media storage ─────────────────────────────────────────────────────────────
+
+/**
+ * Store one media file under /uploads/media and record it in `mediaitems`.
+ * `write(dest)` puts the bytes at `dest` (a rename for multipart uploads, a
+ * writeFile for decoded inline images). `embedded` marks media that only a
+ * post's text references, so it stays out of the library and profile Feed.
+ * Returns the inserted document.
+ */
+export async function storeMedia({ userId, mimeType, size, title, embedded }, write) {
+  const ext = MIME_TO_EXT[mimeType];
+  if (!ext) throw new Error(`Unsupported media type ${mimeType}`);
+  await fsp.mkdir(MEDIA_DIR, { recursive: true });
+  const filename = `${userId}-${randomBytes(8).toString('hex')}.${ext}`;
+  const dest = path.join(MEDIA_DIR, filename);
+  const type = mimeType.startsWith('video/')
+    ? 'video'
+    : mimeType.startsWith('image/')
+      ? 'image'
+      : 'document';
+  const doc = {
+    _id: new ObjectId(),
+    userId,
+    type,
+    mimeType,
+    url: `/uploads/media/${filename}`,
+    filename,
+    size,
+    ...(title ? { title } : {}),
+    ...(embedded ? { embedded: true } : {}),
+    uploadedAt: new Date(),
+  };
+  try {
+    await write(dest);
+    await rawDb().collection('mediaitems').insertOne(doc);
+    return doc;
+  } catch (err) {
+    unlinkSafe(dest);
+    try {
+      await rawDb().collection('mediaitems').deleteOne({ _id: doc._id });
+    } catch (cleanupError) {
+      console.error('[uploads] failed to clean up media record after store error:', cleanupError);
+    }
+    throw err;
+  }
+}
+
+// Library and profile listings skip post-embedded media: it belongs to the
+// post's team, not to everyone who may view the author's profile.
+const LIBRARY_ITEMS = { embedded: { $ne: true } };
+
+/** Undo storeMedia for documents nothing ended up referencing. */
+export async function discardMedia(docs) {
+  if (!docs.length) return;
+  for (const doc of docs) unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+  await rawDb()
+    .collection('mediaitems')
+    .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+}
+
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────
 
 WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
@@ -384,34 +449,10 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
     file = await parseMultipart(req, allowedMimes);
     if (file.size === 0) throw new Error('Empty file');
 
-    const ext = MIME_TO_EXT[file.mimeType];
-    await fsp.mkdir(MEDIA_DIR, { recursive: true });
-    const hex = randomBytes(8).toString('hex');
-    const filename = `${identity.userId}-${hex}.${ext}`;
-    await fsp.rename(file.path, path.join(MEDIA_DIR, filename));
-
-    const url = `/uploads/media/${filename}`;
-    
-    // Classify file type based on MIME type
-    let type = 'image';
-    if (file.mimeType.startsWith('video/')) {
-      type = 'video';
-    } else if (!file.mimeType.startsWith('image/')) {
-      type = 'document';
-    }
-    
-    const doc = {
-      _id: new ObjectId(),
-      userId: identity.userId,
-      type,
-      mimeType: file.mimeType,
-      url,
-      filename,
-      size: file.size,
-      ...(file.filename ? { title: file.filename } : {}),
-      uploadedAt: new Date(),
-    };
-    await rawDb().collection('mediaitems').insertOne(doc);
+    const doc = await storeMedia(
+      { userId: identity.userId, mimeType: file.mimeType, size: file.size, title: file.filename },
+      (dest) => fsp.rename(file.path, dest),
+    );
 
     return sendJson(res, 200, {
       item: {
@@ -528,7 +569,7 @@ Meteor.methods({
     const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId })
+      .find({ userId, ...LIBRARY_ITEMS })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -544,7 +585,7 @@ Meteor.methods({
     await requireProfileAccess(userId, targetUserId, 'Not a teammate');
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId })
+      .find({ userId: targetUserId, ...LIBRARY_ITEMS })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -602,5 +643,5 @@ import { MediaItems } from './collections.js';
 
 Meteor.publish('media.liveForUser', async function () {
   if (!this.userId) return this.ready();
-  return MediaItems.find({ userId: this.userId });
+  return MediaItems.find({ userId: this.userId, ...LIBRARY_ITEMS });
 });

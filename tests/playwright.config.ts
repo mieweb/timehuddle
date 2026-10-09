@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const e2ePort = process.env.E2E_PORT ?? '3003';
+
 export default defineConfig({
   testDir: './e2e',
   // Migration tests are one-time processes — excluded from the regular suite.
@@ -38,7 +40,7 @@ export default defineConfig({
     // Base URL for tests — dedicated e2e frontend (see webServer below),
     // isolated from the pm2-managed dev frontend on :3000 so test runs never
     // touch the dev database.
-    baseURL: 'http://localhost:3002',
+    baseURL: `http://localhost:${e2ePort}`,
 
     // Browser settings
     ...devices['Desktop Chrome'],
@@ -76,16 +78,15 @@ export default defineConfig({
   // Web server configuration
   // Note: Set SKIP_WEBSERVER=1 if servers are already running locally
   //
-  // Runs its own Vite instance on :3002 pointed at the isolated
+  // Runs its own Vite instance on the E2E port pointed at the isolated
   // timehuddle-meteor-test backend (:3101 / timehuddle_test db) instead of
   // reusing the pm2-managed dev frontend (:3000 -> :3100 / timehuddle db).
   // Requires timehuddle-meteor-test to already be running (pm2).
   webServer: process.env.SKIP_WEBSERVER
     ? undefined
     : {
-        command:
-          'API_TARGET=http://localhost:3101 VITE_TIMECORE_URL=http://localhost:3101 npm run dev -- --port 3002 --strictPort',
-        url: 'http://localhost:3002',
+        command: `API_TARGET=http://localhost:3101 VITE_TIMECORE_URL=http://localhost:3101 VITE_CACHE_DIR=node_modules/.vite-e2e npm run dev -- --port ${e2ePort} --strictPort`,
+        url: `http://localhost:${e2ePort}`,
         timeout: 120000,
         reuseExistingServer: !process.env.CI,
         cwd: '..',

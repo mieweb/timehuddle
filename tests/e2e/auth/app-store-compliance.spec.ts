@@ -59,7 +59,7 @@ test.describe('App Store compliance — Account deletion (5.1.1(v))', () => {
   test('exposes a Delete account option in Settings', async ({ page }) => {
     await signUpThrowawayUser(page);
 
-    await page.goto('http://localhost:3002/app/settings');
+    await page.goto('/app/settings');
     const deleteButton = page.getByRole('button', { name: 'Delete account' });
     await expect(deleteButton).toBeVisible();
   });
@@ -67,7 +67,7 @@ test.describe('App Store compliance — Account deletion (5.1.1(v))', () => {
   test('cancelling the confirmation keeps the account intact', async ({ page }) => {
     const user = await signUpThrowawayUser(page);
 
-    await page.goto('http://localhost:3002/app/settings');
+    await page.goto('/app/settings');
 
     // Dismiss the native confirm() dialog — deletion must NOT proceed.
     page.once('dialog', (dialog) => {
@@ -92,7 +92,7 @@ test.describe('App Store compliance — Account deletion (5.1.1(v))', () => {
   test('confirming deletion removes the account and signs the user out', async ({ page }) => {
     await signUpThrowawayUser(page);
 
-    await page.goto('http://localhost:3002/app/settings');
+    await page.goto('/app/settings');
 
     // Accept the native confirm() dialog — deletion proceeds.
     page.once('dialog', (dialog) => {
@@ -110,7 +110,7 @@ test.describe('App Store compliance — Account deletion (5.1.1(v))', () => {
   test('a deleted account can no longer sign in', async ({ page }) => {
     const user = await signUpThrowawayUser(page);
 
-    await page.goto('http://localhost:3002/app/settings');
+    await page.goto('/app/settings');
     page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Delete account' }).click();
 

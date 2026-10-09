@@ -23,8 +23,9 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
+import { persistentDir } from './storage-paths';
 
-const OTA_DIR = process.env.OTA_DIR || path.resolve(process.cwd(), 'data/ota');
+const OTA_DIR = persistentDir(process.env.OTA_DIR, 'data/ota');
 const OTA_CHANNELS = ['testflight', 'production'];
 const PUBLISH_TOKEN = process.env.OTA_PUBLISH_TOKEN || '';
 const MAX_BUNDLE_BYTES = 150 * 1024 * 1024;

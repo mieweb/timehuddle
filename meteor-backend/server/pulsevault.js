@@ -43,10 +43,11 @@ import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
+import { persistentDir } from './storage-paths';
 
 // Reuse the same directory/env-var convention as uploads.js's `VIDEOS_DIR`
 // (used there to clean up video files on `media.remove`).
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
+const VIDEOS_DIR = persistentDir(process.env.VIDEOS_DIR, 'data/videos');
 
 const CAPABILITY_KEY_ID = 'v1';
 const CAPABILITY_SECRET = process.env.PULSEVAULT_SECRET || 'dev-insecure-pulsevault-secret';

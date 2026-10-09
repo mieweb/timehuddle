@@ -1582,7 +1582,14 @@ Meteor.startup(async() => {
       "Published huddle posts for a team, newest first, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' }, since: { type: 'string', description: 'ISO date string' } },
+      properties: {
+        teamId: { type: 'string' },
+        since: { type: 'string', description: 'ISO date string' },
+        withPosts: {
+          type: 'boolean',
+          description: 'false returns only `hasMore` (posts: []), for a client on the live subscription',
+        },
+      },
       required: ['teamId'],
     },
   });

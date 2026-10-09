@@ -377,33 +377,36 @@ export default function Huddle() {
   const { since: teamSince, settle: settleTeam } = teamWindow;
   const teamSinceRef = useRef(teamSince);
   teamSinceRef.current = teamSince;
-  const refreshFeed = useCallback(async () => {
-    if (!selectedTeamId) return;
+  /** Resolves false when the fetch failed. */
+  const refreshFeed = useCallback(async (): Promise<boolean> => {
+    if (!selectedTeamId) return true;
     try {
       const page = await huddleApi.getPosts(selectedTeamId, teamSince);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed; the
       // same goes for one answered for a window that has since widened.
       if (selectedTeamIdRef.current !== selectedTeamId || teamSinceRef.current !== teamSince)
-        return;
+        return true;
       restPostsRef.current = new Map(page.posts.map((post) => [post.id, post]));
       syncPosts();
       // A fetched snapshot is real data, even when it is empty.
       setLoading(false);
       setError(null);
       settleTeam(teamFeedKey, { ok: true, hasMore: page.hasMore });
+      return true;
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
       settleTeam(teamFeedKey, { ok: false });
+      return false;
     }
   }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, settleTeam]);
 
   // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
   // is active.
-  const refreshActiveScope = useCallback(
-    () => (scope === 'me' ? refreshMyPosts() : refreshFeed()),
-    [scope, refreshMyPosts, refreshFeed],
-  );
+  const refreshActiveScope = useCallback(async () => {
+    if (scope === 'me') await refreshMyPosts();
+    else await refreshFeed();
+  }, [scope, refreshMyPosts, refreshFeed]);
   useRefresh(refreshActiveScope);
 
   // A post's `session.endTime` is a snapshot from when it was last fetched —
@@ -452,44 +455,72 @@ export default function Huddle() {
     setError(null);
   }, [selectedTeamId]);
 
-  // Neither route delivered: say so rather than show an empty feed, which
-  // would read as "no posts" (and offer the starter conversation).
+  // The live subscription hasn't delivered in time: fetch over REST, and only
+  // when that fails too say so — an empty feed would read as "no posts" (and
+  // offer the starter conversation).
+  const refreshFeedRef = useRef(refreshFeed);
+  refreshFeedRef.current = refreshFeed;
   useEffect(() => {
     if (!loading || !selectedTeamId) return;
     const loadingFallback = setTimeout(() => {
-      setLoading(false);
-      setError('Failed to load posts. Pull down to retry.');
+      void refreshFeedRef.current().then((ok) => {
+        if (ok) return;
+        setLoading(false);
+        setError('Failed to load posts. Pull down to retry.');
+      });
     }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(loadingFallback);
   }, [loading, selectedTeamId]);
 
   // Subscribe to the live DDP publication for the team's posts in the window.
-  // Widening the window re-subscribes; the REST snapshot (kept until the new
-  // fetch replaces it) holds the screen steady while the subscription restarts.
+  // The subscription is the one source of the posts: REST only answers whether
+  // older posts exist (fetching them there too downloaded every post twice),
+  // unless the socket is down — then REST carries the feed instead.
   useEffect(() => {
     if (!selectedTeamId) return;
 
     const ddp = getDdpClient();
+    let cancelled = false;
+    let offChange = () => {};
+    let markReady = () => {};
+    const ready = new Promise<void>((resolve) => (markReady = resolve));
+    // The feed is rebuilt from the DDP cache only once the window's posts are
+    // all in, then on every change. Not before: returning to a paused Huddle
+    // re-subscribes, and the cache is empty until the posts arrive again —
+    // syncing then would blank the feed and lose the open conversation and the
+    // list's scroll position.
     const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId, teamSince], () => {
+      if (cancelled) return;
       setLoading(false);
       setError(null);
+      syncPosts();
+      offChange();
+      offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+      markReady();
     });
 
-    // Sync immediately in case data is already cached
-    syncPosts();
-
-    // REST fallback: populate the feed even if the DDP socket is down (it's
-    // dropped while the app is backgrounded for a Pulse recording).
-    void refreshFeed();
-
-    // Then keep syncing on every change
-    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+    if (ddp.status === 'failed') {
+      // Dropped while the app was backgrounded for a Pulse recording.
+      void refreshFeed();
+    } else {
+      // Settle the window once its posts are in, so the list's end doesn't ask
+      // for an older window before this one has rendered.
+      void Promise.all([huddleApi.hasPostsBefore(selectedTeamId, teamSince), ready])
+        .then(([hasMore]) => {
+          if (!cancelled) settleTeam(teamFeedKey, { ok: true, hasMore });
+        })
+        .catch((err) => {
+          console.error('[Huddle] hasPostsBefore failed:', err);
+          if (!cancelled) settleTeam(teamFeedKey, { ok: false });
+        });
+    }
 
     return () => {
+      cancelled = true;
       unsub();
       offChange();
     };
-  }, [selectedTeamId, teamSince, syncPosts, refreshFeed]);
+  }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, refreshFeed, settleTeam]);
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
