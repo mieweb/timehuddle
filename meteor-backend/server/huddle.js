@@ -666,9 +666,9 @@ Meteor.methods({
     }
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
-    let matchedCount;
+    let replacedPost;
     try {
-      ({ matchedCount } = await rawDb().collection('huddlePosts').updateOne(
+      replacedPost = await rawDb().collection('huddlePosts').findOneAndUpdate(
         { _id: toId(postId) },
         {
           $set: {
@@ -683,18 +683,19 @@ Meteor.methods({
             ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
             updatedAt: new Date(),
           },
-        }
-      ));
+        },
+        { returnDocument: 'before' },
+      );
     } catch (err) {
       await discardMedia(media);
       throw err;
     }
     // Deleted since it was read: nothing references the new files.
-    if (!matchedCount) {
+    if (!replacedPost) {
       await discardMedia(media);
       throw new Meteor.Error('not-found', 'Post not found');
     }
-    await discardUnreferencedInlineImages(post.content?.text);
+    await discardUnreferencedInlineImages(replacedPost.content?.text);
     
     return { id: postId };
   },
@@ -771,11 +772,12 @@ Meteor.methods({
     // Delete all comments for this post
     await rawDb().collection('huddleComments').deleteMany({ postId });
     
-    // Delete the post
-    const { deletedCount } = await rawDb()
+    // Delete and capture the latest version atomically, including any edits
+    // that landed after the authorization read above.
+    const deletedPost = await rawDb()
       .collection('huddlePosts')
-      .deleteOne({ _id: toId(postId) });
-    if (deletedCount) await discardUnreferencedInlineImages(post.content?.text);
+      .findOneAndDelete({ _id: toId(postId) });
+    if (deletedPost) await discardUnreferencedInlineImages(deletedPost.content?.text);
     
     return 'ok';
   },
