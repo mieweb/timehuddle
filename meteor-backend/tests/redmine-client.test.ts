@@ -20,6 +20,7 @@ import {
   isRedmineTimeout,
   linkedRedmineBaseUrl,
   listAssignedIssues,
+  mapInChunks,
   normalizeRedmineUrl,
 } from '../server/redmine-client';
 import { withEnv } from './env';
@@ -157,5 +158,30 @@ describe('the outbound budget', () => {
 
   it('leaves another user\u2019s budget alone', async () => {
     await expect(getCurrentUser({ ...account, userId: 'other-user' })).resolves.toEqual({ id: 1 });
+  });
+});
+
+describe('mapInChunks', () => {
+  it('runs at most `size` at a time and keeps the results in order', async () => {
+    let running = 0;
+    let peak = 0;
+
+    const results = await mapInChunks([1, 2, 3, 4, 5, 6, 7], 3, async (n: number) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      // Later items finish first, so order cannot come from completion time.
+      await new Promise((resolve) => setTimeout(resolve, 8 - n));
+      running -= 1;
+      return n * 10;
+    });
+
+    expect(results).toEqual([10, 20, 30, 40, 50, 60, 70]);
+    expect(peak).toBe(3);
+  });
+
+  it('answers an empty list without calling `fn`', async () => {
+    const fn = vi.fn();
+    await expect(mapInChunks([], 5, fn)).resolves.toEqual([]);
+    expect(fn).not.toHaveBeenCalled();
   });
 });

@@ -10,7 +10,11 @@
  * instance-specific and an admin can renumber them, which would silently log
  * time under the wrong activity with no signal.
  */
-import { listProjectTimeEntryActivities, listTimeEntryActivities } from './redmine-client';
+import {
+  listProjectTimeEntryActivities,
+  listTimeEntryActivities,
+  mapInChunks,
+} from './redmine-client';
 import { createUserTtlCache } from './redmine-cache';
 
 /**
@@ -157,13 +161,18 @@ async function getProjectActivities(userId, account, projectId, enumeration) {
   return enumeration;
 }
 
+/** How many projects are asked for their activities at a time. */
+const PROJECT_CONCURRENCY = 5;
+
 /**
- * The allowed activities of each project in `projectIds`.
+ * The allowed activities of each project in `projectIds`, read a few at a time:
+ * a burst that Redmine refused would put those projects on the instance-wide
+ * fallback, which is the list this lookup exists to narrow.
  * @returns {Promise<Map<number, Array>>} keyed by project id
  */
 export async function getActivitiesByProject(userId, account, projectIds, enumeration) {
-  const lists = await Promise.all(
-    projectIds.map((projectId) => getProjectActivities(userId, account, projectId, enumeration)),
+  const lists = await mapInChunks(projectIds, PROJECT_CONCURRENCY, (projectId) =>
+    getProjectActivities(userId, account, projectId, enumeration),
   );
   return new Map(projectIds.map((projectId, index) => [projectId, lists[index]]));
 }

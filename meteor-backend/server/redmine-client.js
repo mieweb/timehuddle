@@ -180,6 +180,19 @@ const LIST_TIMEOUT_MS = 30_000;
 const OUTBOUND_LIMIT_PER_MINUTE = 600;
 const outboundLimiter = createRateLimiter({ limit: OUTBOUND_LIMIT_PER_MINUTE, windowMs: 60 * 1000 });
 
+/**
+ * Map `items` through `fn`, at most `size` at a time, keeping the results in
+ * order. For one-request-per-item reads, so a long list is not sent to Redmine
+ * all at once.
+ */
+export async function mapInChunks(items, size, fn) {
+  const results = [];
+  for (let start = 0; start < items.length; start += size) {
+    results.push(...(await Promise.all(items.slice(start, start + size).map(fn))));
+  }
+  return results;
+}
+
 /** Whether `err` is the outbound budget refusing a request before it was sent. */
 export function isRedmineBudgetExhausted(err) {
   return err?.budgetExhausted === true;
