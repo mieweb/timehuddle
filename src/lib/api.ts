@@ -1085,10 +1085,11 @@ export interface TicketDashboardSummary {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
-      tickets.map(toTicket),
-    ),
+  getTickets: (teamId: string, options: { brief?: boolean } = {}) =>
+    wormholeCall<Array<Record<string, unknown>>>('tickets.list', {
+      teamId,
+      ...(options.brief ? { brief: true } : {}),
+    }).then((tickets) => tickets.map(toTicket)),
 
   /** Dashboard counts, computed server-side. `since`/`until` bound "today" (ms epoch). */
   getDashboardSummary: (teamId: string, since: number, until: number) =>

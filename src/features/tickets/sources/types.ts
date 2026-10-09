@@ -144,6 +144,11 @@ export interface TicketSource<Raw = unknown> {
   isAvailable: (ctx: TicketSourceContext) => boolean;
   fetch: (ctx: TicketSourceContext) => Promise<Raw[]>;
   toUnified: (raw: Raw, ctx: TicketSourceContext) => UnifiedTicket;
+  /**
+   * Re-resolves member names on a row already normalized, so member data arriving
+   * later renames people without fetching the source again.
+   */
+  relabel?: (item: UnifiedTicket, ctx: TicketSourceContext) => UnifiedTicket;
 }
 
 /**
@@ -157,6 +162,7 @@ export interface AnyTicketSource {
   capabilities: SourceCapabilities;
   isAvailable: (ctx: TicketSourceContext) => boolean;
   load: (ctx: TicketSourceContext) => Promise<UnifiedTicket[]>;
+  relabel?: (item: UnifiedTicket, ctx: TicketSourceContext) => UnifiedTicket;
 }
 
 export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
@@ -165,6 +171,7 @@ export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
     label: source.label,
     capabilities: source.capabilities,
     isAvailable: source.isAvailable,
+    relabel: source.relabel,
     load: async (ctx) => {
       const raw = await source.fetch(ctx);
       return raw.map((item) => source.toUnified(item, ctx));

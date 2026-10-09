@@ -908,6 +908,7 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         teamId: { type: 'string', description: 'Team id (24-char hex)' },
+        brief: { type: 'boolean', description: 'Leave out ticket descriptions' },
       },
       required: ['teamId'],
     },

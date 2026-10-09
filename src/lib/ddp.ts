@@ -73,6 +73,8 @@ class DdpClient {
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
   private listeners = new Map<string, Set<Listener>>();
+  private pendingNotify = new Set<string>();
+  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
   private authPromise: Promise<void> | null = null;
   /** Subscriptions to restore after a reconnect. */
@@ -519,8 +521,19 @@ class DdpClient {
     return store;
   }
 
+  /**
+   * Listeners run at most once per frame per collection: a subscription's initial
+   * `added` flood (hundreds of documents) would otherwise rebuild every listener's
+   * derived state once per document.
+   */
   private notify(collection: string): void {
-    for (const fn of this.listeners.get(collection) ?? []) fn();
+    this.pendingNotify.add(collection);
+    this.notifyTimer ??= setTimeout(() => {
+      this.notifyTimer = null;
+      const changed = [...this.pendingNotify];
+      this.pendingNotify.clear();
+      for (const name of changed) for (const fn of this.listeners.get(name) ?? []) fn();
+    }, 16);
   }
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
