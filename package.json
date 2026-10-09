@@ -45,7 +45,8 @@
     "prod:android": "CAPACITOR=1 VITE_PUBLIC_APP_URL=https://huddle.os.mieweb.org vite build --mode production && OTA_CHANNEL=production npx cap sync android && npx cap open android",
     "ota:testflight": "CAPACITOR=1 VITE_PUBLIC_APP_URL=https://timehuddledev.os.mieweb.org vite build --mode testflight && node scripts/publish-ota.mjs --channel testflight",
     "ota:production": "CAPACITOR=1 VITE_PUBLIC_APP_URL=https://huddle.os.mieweb.org vite build --mode production && node scripts/publish-ota.mjs --channel production",
-    "ota:min-version": "node scripts/ota-min-version.mjs"
+    "ota:min-version": "node scripts/ota-min-version.mjs",
+    "test:performance:compare": "node tests/performance/compare.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

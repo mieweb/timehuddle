@@ -50,6 +50,24 @@ async function measurePageLoad(
   return { ...(await collectLoadMetrics(page)), formReady };
 }
 
+test.beforeAll(async ({ browser }) => {
+  // A fresh environment (PR preview) has no perf account; PERF_PROVISION=1 creates it.
+  if (!process.env.PERF_PROVISION) return;
+  const page = await newColdPage(browser);
+  await page.goto(SIGNUP_PATH);
+  await signupHeading(page).waitFor();
+  await page.getByRole('textbox', { name: 'First name' }).fill('Perf');
+  await page.getByRole('textbox', { name: 'Last name' }).fill('Bot');
+  await page.getByRole('textbox', { name: 'Email address' }).fill(PERF_USER.email);
+  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(PERF_USER.password);
+  await page.getByRole('textbox', { name: 'Confirm password' }).fill(PERF_USER.password);
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Username Required' });
+  await dialog.getByRole('button', { name: 'Claim username' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  await page.context().close();
+});
+
 test.describe('login page', () => {
   test('cold load', async ({ browser }) => {
     const samples = await sample(RUNS, async () => {
