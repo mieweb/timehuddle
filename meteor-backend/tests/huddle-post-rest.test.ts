@@ -218,8 +218,15 @@ describe('huddle post authoring over REST', () => {
     expect(updated.ok).toBe(true);
     expect(await db.collection('mediaitems').findOne({ url })).toBeTruthy();
 
+    const backup = {
+      _id: new ObjectId(reference.result.id),
+      text: `![shared](data:image/png;base64,${TINY_PNG_BASE64})`,
+      backedUpAt: new Date(),
+    };
+    await db.collection('inlineImageBackups').insertOne(backup);
     await deletePostViaDdp(reference.result.id);
     expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
+    expect(await db.collection('inlineImageBackups').findOne({ _id: backup._id })).toBeNull();
     expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
   });
 

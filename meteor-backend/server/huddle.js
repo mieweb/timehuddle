@@ -777,7 +777,10 @@ Meteor.methods({
     const deletedPost = await rawDb()
       .collection('huddlePosts')
       .findOneAndDelete({ _id: toId(postId) });
-    if (deletedPost) await discardUnreferencedInlineImages(deletedPost.content?.text);
+    if (deletedPost) {
+      await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
+      await discardUnreferencedInlineImages(deletedPost.content?.text);
+    }
     
     return 'ok';
   },
