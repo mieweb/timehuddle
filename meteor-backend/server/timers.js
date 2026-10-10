@@ -495,9 +495,9 @@ Meteor.methods({
 
     const tickets = await Tickets.find(
       { teamId },
-      { fields: { title: 1 } }
+      { fields: { title: 1, priority: 1 } }
     ).fetchAsync();
-    const ticketMap = new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+    const ticketMap = new Map(tickets.map((t) => [t._id.toHexString(), t]));
     const ticketIds = [...ticketMap.keys()];
     if (!ticketIds.length) return { timers: [] };
 
@@ -542,7 +542,8 @@ Meteor.methods({
           userName: profile?.displayName || nameMap.get(timer.userId) || 'Unknown',
           userImage: profile?.avatar ?? imageMap.get(timer.userId) ?? null,
           ticketId: workItem?.ticketId ?? '',
-          ticketTitle: workItem ? (ticketMap.get(workItem.ticketId) ?? '') : '',
+          ticketTitle: workItem ? (ticketMap.get(workItem.ticketId)?.title ?? '') : '',
+          ticketPriority: workItem ? (ticketMap.get(workItem.ticketId)?.priority ?? null) : null,
           startTime: timer.startTime,
         };
       }),

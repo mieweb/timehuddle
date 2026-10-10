@@ -5,18 +5,19 @@
  * Tests exercise the full wormhole stack: REST → Meteor method → MongoDB.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import {
-  createUserAndGetJwt,
-  wormhole,
-  getDb,
-  closeDb,
-  purgeUser,
-  ObjectId,
-} from './helpers';
+import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } from './helpers';
 
 const OWNER = { name: 'Ticket Owner', email: 'wh-ticket-owner@test.dev', password: 'Password1!' };
-const MEMBER = { name: 'Ticket Member', email: 'wh-ticket-member@test.dev', password: 'Password1!' };
-const OUTSIDER = { name: 'Ticket Outsider', email: 'wh-ticket-outsider@test.dev', password: 'Password1!' };
+const MEMBER = {
+  name: 'Ticket Member',
+  email: 'wh-ticket-member@test.dev',
+  password: 'Password1!',
+};
+const OUTSIDER = {
+  name: 'Ticket Outsider',
+  email: 'wh-ticket-outsider@test.dev',
+  password: 'Password1!',
+};
 
 let ownerJwt: string;
 let memberJwt: string;
@@ -39,7 +40,9 @@ beforeAll(async () => {
   outsiderJwt = outsider.jwt;
 
   ownerId = String((await db.collection('users').findOne({ 'emails.address': OWNER.email }))!._id);
-  memberId = String((await db.collection('users').findOne({ 'emails.address': MEMBER.email }))!._id);
+  memberId = String(
+    (await db.collection('users').findOne({ 'emails.address': MEMBER.email }))!._id,
+  );
 
   const teamDoc = {
     _id: new ObjectId(),
@@ -109,7 +112,9 @@ describe('tickets (wormhole)', () => {
       'tickets.updateStatus',
       { ticketId, status: 'in-progress' },
       ownerJwt,
-    );    if (!res.ok) console.error('Update failed:', res.error);    expect(res.ok).toBe(true);
+    );
+    if (!res.ok) console.error('Update failed:', res.error);
+    expect(res.ok).toBe(true);
     expect(res.result.status).toBe('in-progress');
   });
 
@@ -176,7 +181,7 @@ describe('tickets (wormhole)', () => {
   it('reassigns ticket to different user', async () => {
     // First assign to owner
     await wormhole('tickets.assign', { ticketId, assignedToUserIds: [ownerId] }, ownerJwt);
-    
+
     // Then reassign to member
     const res = await wormhole<{ id: string; assignedTo: string[] }>(
       'tickets.assign',
@@ -190,11 +195,7 @@ describe('tickets (wormhole)', () => {
   });
 
   it('rejects assignment with invalid user ID (empty string)', async () => {
-    const res = await wormhole(
-      'tickets.assign',
-      { ticketId, assignedToUserIds: [''] },
-      ownerJwt,
-    );
+    const res = await wormhole('tickets.assign', { ticketId, assignedToUserIds: [''] }, ownerJwt);
     expect(res.ok).toBe(false);
     expect(res.error).toContain('assignedToUserIds must be an array of user ids');
   });
@@ -223,7 +224,7 @@ describe('tickets (wormhole)', () => {
     const db = await getDb();
     const outsiderDoc = await db.collection('users').findOne({ 'emails.address': OUTSIDER.email });
     const outsiderId = String(outsiderDoc!._id);
-    
+
     const res = await wormhole(
       'tickets.assign',
       { ticketId, assignedToUserIds: [outsiderId] },
@@ -451,10 +452,18 @@ describe('tickets (wormhole)', () => {
     it('only stores an https link, on create and on update', async () => {
       await seedLink(null);
       for (const github of ['javascript:alert(1)', 'data:text/html,x', 'http://github.com/a/b']) {
-        const created = await wormhole('tickets.create', { teamId, title: 'Bad link', github }, ownerJwt);
+        const created = await wormhole(
+          'tickets.create',
+          { teamId, title: 'Bad link', github },
+          ownerJwt,
+        );
         expect(created.ok, github).toBe(false);
         expect(created.error, github).toMatch(/https:\/\//);
-        const updated = await wormhole('tickets.update', { ticketId: linkTicketId, github }, ownerJwt);
+        const updated = await wormhole(
+          'tickets.update',
+          { ticketId: linkTicketId, github },
+          ownerJwt,
+        );
         expect(updated.ok, github).toBe(false);
       }
       const ok = await wormhole<{ github: string }>(
@@ -545,11 +554,9 @@ describe('tickets (wormhole)', () => {
         );
         expect(mine.error).toMatch(/You are timing this ticket. Stop your timer/);
 
-        const status = await wormhole<{ lock: { holders: Array<{ userId: string; name: string }> } }>(
-          'tickets.lockStatus',
-          { ticketId: linkTicketId },
-          ownerJwt,
-        );
+        const status = await wormhole<{
+          lock: { holders: Array<{ userId: string; name: string }> };
+        }>('tickets.lockStatus', { ticketId: linkTicketId }, ownerJwt);
         expect(status.result.lock.holders).toEqual([{ userId: memberId, name: 'Ticket Member' }]);
       });
 
@@ -752,5 +759,131 @@ describe('tickets (wormhole)', () => {
       );
       expect(res.ok).toBe(true);
     });
+  });
+});
+
+describe('tickets.dashboardSummary (wormhole)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  let summaryTeamId: string;
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const team = {
+      _id: new ObjectId(),
+      name: 'WH Summary Team',
+      members: [ownerId, memberId],
+      admins: [ownerId],
+      code: 'WHSUMMARY',
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertOne(team);
+    summaryTeamId = team._id.toHexString();
+
+    const now = new Date();
+    const longAgo = new Date(Date.now() - 3 * DAY_MS);
+    const ticket = (fields: Record<string, unknown>) => ({
+      teamId: summaryTeamId,
+      title: 'Summary ticket',
+      github: '',
+      createdBy: ownerId,
+      createdAt: longAgo,
+      updatedAt: longAgo,
+      ...fields,
+    });
+    await db
+      .collection('tickets')
+      .insertMany([
+        ticket({ status: 'open', priority: 'high', assignedTo: [ownerId], description: 'Steps' }),
+        ticket({ status: 'open', assignedTo: [] }),
+        ticket({ status: 'in-progress', priority: 'critical', assignedTo: [memberId] }),
+        ticket({ status: 'closed', assignedTo: [ownerId], updatedAt: now }),
+        ticket({ status: 'reviewed', priority: 'high', assignedTo: [ownerId], updatedAt: now }),
+        ticket({ status: 'closed', assignedTo: [ownerId] }),
+        ticket({ status: 'deleted', priority: 'high', assignedTo: [ownerId] }),
+      ]);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teams').deleteMany({ code: 'WHSUMMARY' });
+    await db.collection('tickets').deleteMany({ teamId: summaryTeamId });
+  });
+
+  const window = () => ({ since: Date.now() - HOUR_MS, until: Date.now() + HOUR_MS });
+
+  it("lists only one assignee's open tickets, without descriptions when brief", async () => {
+    const res = await wormhole<
+      Array<{ assignedTo: string[]; status: string; description?: string }>
+    >(
+      'tickets.list',
+      { teamId: summaryTeamId, assignedTo: ownerId, activeOnly: true, brief: true },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toHaveLength(1);
+    expect(res.result[0].assignedTo).toContain(ownerId);
+    expect(res.result[0].status).toBe('open');
+    expect(res.result[0].description ?? null).toBeNull();
+  });
+
+  it('counts team-wide and for the caller, ignoring deleted tickets', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toEqual({
+      open: 3,
+      unassignedOpen: 1,
+      closedToday: 2,
+      highPriorityOpen: 2,
+      myOpen: 1,
+      myClosedToday: 2,
+      myHighPriorityOpen: 1,
+    });
+  });
+
+  it('scopes the "my" counts to the caller', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toMatchObject({
+      open: 3,
+      myOpen: 1,
+      myClosedToday: 0,
+      myHighPriorityOpen: 1,
+    });
+  });
+
+  it('returns zeros for a team with no tickets', async () => {
+    const res = await wormhole<Record<string, number>>(
+      'tickets.dashboardSummary',
+      { teamId, since: Date.now() - HOUR_MS, until: Date.now() + HOUR_MS },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(Object.keys(res.result)).toHaveLength(7);
+  });
+
+  it('rejects outsiders and missing day bounds', async () => {
+    const outsider = await wormhole(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId, ...window() },
+      outsiderJwt,
+    );
+    expect(outsider.ok).toBe(false);
+
+    const noBounds = await wormhole(
+      'tickets.dashboardSummary',
+      { teamId: summaryTeamId },
+      ownerJwt,
+    );
+    expect(noBounds.ok).toBe(false);
   });
 });

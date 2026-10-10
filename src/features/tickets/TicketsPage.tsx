@@ -137,7 +137,7 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
 ];
 
 /**
- * Both views stay mounted, so each keeps its filters, sort, page and selection
+ * Both views stay mounted once shown, so each keeps its filters, sort, page and selection
  * while the other is showing; the one not showing is only hidden.
  */
 const viewPanelClass = (showing: boolean) =>
@@ -160,20 +160,43 @@ export const TicketsPage: React.FC = () => {
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
 
+  // Stable key derived from sorted team IDs — effects below only rerun when the
+  // actual set of teams changes, not on every new array reference.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
+  // Rosters are reactive through TeamContext, so members are refetched when any
+  // team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => `${t.id}:${[...t.members, ...t.admins].sort().join(',')}`)
+        .sort()
+        .join('|'),
+    [teams],
+  );
+
   // Fetch members for all teams
   useEffect(() => {
-    if (!teams.length) return;
+    if (!rosterKey) return;
     void Promise.all(
-      teams.map(async (t) => {
+      rosterKey.split('|').map(async (entry) => {
+        const teamId = entry.slice(0, entry.indexOf(':'));
         try {
-          const members = await teamApi.getMembers(t.id);
-          return [t.id, members] as [string, TeamMember[]];
+          const members = await teamApi.getMembers(teamId);
+          return [teamId, members] as [string, TeamMember[]];
         } catch {
-          return [t.id, []] as [string, TeamMember[]];
+          return [teamId, []] as [string, TeamMember[]];
         }
       }),
     ).then((entries) => setMembersByTeam(new Map(entries)));
-  }, [teams]);
+  }, [rosterKey]);
 
   // Flat deduplicated member list across all teams
   const allMembers = useMemo(() => {
@@ -238,17 +261,6 @@ export const TicketsPage: React.FC = () => {
   // Redmine issues are edited in their own dialog, under the user's personal
   // Redmine key. A new one is created with a ticket, in the New Ticket dialog.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
-
-  // Stable key derived from sorted team IDs — the subscription only reconnects
-  // when the actual set of teams changes, not on every new array reference.
-  const teamIdsKey = useMemo(
-    () =>
-      teams
-        .map((t: Team) => t.id)
-        .sort()
-        .join(','),
-    [teams],
-  );
 
   // Links already covered by a Redmine fetch, read by the live feed below.
   const seenLinkKeys = React.useRef(new Set<string>());
@@ -332,6 +344,10 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
+  // The All Sources table is a few hundred rows; render it from the first visit on,
+  // not while the page is opening on My Board.
+  const [allSourcesOpened, setAllSourcesOpened] = useState(false);
+  if (activeView === 'tickets' && !allSourcesOpened) setAllSourcesOpened(true);
   // On a phone the rows carry no checkbox until Select asks for them; the wide
   // table always has its select column, so this is only read when compact.
   const compact = useMediaQuery(COMPACT_QUERY);
@@ -920,25 +936,27 @@ export const TicketsPage: React.FC = () => {
           </div>
 
           {/* ── All Sources tab ── */}
-          <section
-            aria-label={viewText.allSources}
-            className={viewPanelClass(activeView === 'tickets')}
-          >
-            <TicketTablePanel
-              {...sharedTableProps}
-              view={ticketsView}
-              loading={ticketsLoading}
-              canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
-              onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
-              primaryLabel="Move to My Board"
-              onPrimaryAction={handleMoveToBoard}
-              emptyText={{
-                open: 'No open tickets',
-                closed: 'No closed tickets',
-                hint: 'Create one to get started.',
-              }}
-            />
-          </section>
+          {allSourcesOpened && (
+            <section
+              aria-label={viewText.allSources}
+              className={viewPanelClass(activeView === 'tickets')}
+            >
+              <TicketTablePanel
+                {...sharedTableProps}
+                view={ticketsView}
+                loading={ticketsLoading}
+                canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
+                onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
+                primaryLabel="Move to My Board"
+                onPrimaryAction={handleMoveToBoard}
+                emptyText={{
+                  open: 'No open tickets',
+                  closed: 'No closed tickets',
+                  hint: 'Create one to get started.',
+                }}
+              />
+            </section>
+          )}
 
           {/* ── My Board tab ── */}
           <section

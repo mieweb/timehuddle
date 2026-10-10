@@ -106,10 +106,13 @@ export const OrganizationMembersPage: React.FC = () => {
         return;
       }
 
-      const result = await orgApi.listMembers(selectedOrgId);
+      // The picker options are optional; a search failure must not hide the member list.
+      const [result, searchableUsers] = await Promise.all([
+        orgApi.listMembers(selectedOrgId),
+        orgApi.searchUsers(selectedOrgId, '').catch(() => []),
+      ]);
       setUsers(result);
 
-      const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
       setUserOptions(
         searchableUsers.map((u) => ({
           value: u.id,
@@ -140,11 +143,15 @@ export const OrganizationMembersPage: React.FC = () => {
 
     const ddp = getDdpClient();
 
-    // On any org_members change (role updates, add/remove members), refetch the list.
+    // The subscription's first batch is the members just loaded above; only
+    // changes after it (role updates, add/remove members) need a reload.
+    let ready = false;
     const offChange = ddp.onCollectionChange('org_members', () => {
-      void loadUsers();
+      if (ready) void loadUsers();
     });
-    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId]);
+    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId], () => {
+      ready = true;
+    });
 
     return () => {
       offChange();

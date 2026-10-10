@@ -106,9 +106,10 @@ describe('useUnifiedTickets', () => {
     expect(result.current.tickets.map((t) => t.key)).toEqual(['huddle:2']);
   });
 
-  it('loads again when the member data changes', async () => {
+  it('relabels rows when the member data changes, without loading again', async () => {
     const load = vi.fn(async () => [ticket('huddle:1')]);
-    mockSources.value = [fakeSource('huddle', load)];
+    const relabel = vi.fn((item: UnifiedTicket) => ({ ...item, title: 'relabelled' }));
+    mockSources.value = [{ ...fakeSource('huddle', load), relabel }];
 
     const { result, rerender } = renderHook(
       (props: TicketSourceContext) => useUnifiedTickets(props),
@@ -119,7 +120,8 @@ describe('useUnifiedTickets', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     rerender({ ...ctx, membersKey: 'u1:Riley' });
-    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.tickets[0].title).toBe('relabelled'));
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it('renders the healthy source when another fails', async () => {

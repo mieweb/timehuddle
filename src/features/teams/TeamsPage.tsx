@@ -66,7 +66,6 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { getDdpClient } from '../../lib/ddp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,26 +122,16 @@ export const TeamsPage: React.FC = () => {
     }
   }, []);
 
+  // The roster is reactive through TeamContext (DDP), so members are fetched again
+  // only when this team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(() => {
+    const team = teams.find((t) => t.id === selectedTeamId);
+    return team ? [...team.members, ...team.admins].sort().join(',') : '';
+  }, [teams, selectedTeamId]);
+
   useEffect(() => {
     void fetchMembers(selectedTeamId);
-  }, [selectedTeamId, fetchMembers]);
-
-  // ── Real-time team updates (Meteor DDP, oplog-backed) ──
-  // Teams are already reactive via TeamContext, but we need to refetch members
-  // when the team document changes (members/admins arrays updated)
-  useEffect(() => {
-    if (!selectedTeamId) return;
-
-    const ddp = getDdpClient();
-
-    const offChange = ddp.onCollectionChange('teams', () => {
-      void fetchMembers(selectedTeamId);
-    });
-
-    return () => {
-      offChange();
-    };
-  }, [selectedTeamId, fetchMembers]);
+  }, [selectedTeamId, rosterKey, fetchMembers]);
 
   // Pull-to-refresh: refetch members + teams
   useRefresh(

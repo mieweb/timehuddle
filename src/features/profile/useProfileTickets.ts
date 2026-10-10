@@ -37,7 +37,7 @@ export const useProfileTickets = (userId: string, teams: Team[]) => {
     Promise.all(
       teams.map((team) =>
         ticketApi
-          .getTickets(team.id)
+          .getTickets(team.id, { brief: true, assignedTo: userId, activeOnly: true })
           .then((tickets) => tickets.map((t) => ({ ticket: t, teamName: team.name }))),
       ),
     )
