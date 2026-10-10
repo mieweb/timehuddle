@@ -362,9 +362,10 @@ const App: React.FC = () => {
   restoreReturnTo();
 
   // /login only renders the sign-in form; once signed in it isn't an app route,
-  // so land on the app instead of the "page doesn't exist" screen.
+  // so land on the app instead of the "page doesn't exist" screen. The query
+  // string is kept — it may carry the OAuth authorize params read just below.
   if (typeof window !== 'undefined' && window.location.pathname === '/login') {
-    window.history.replaceState(null, '', '/app');
+    window.history.replaceState(null, '', '/app' + window.location.search + window.location.hash);
   }
   // If the user is already authenticated and there are OAuth 2.0 authorization
   // params in the URL (e.g. redirected here from TimeHarbor), forward them
