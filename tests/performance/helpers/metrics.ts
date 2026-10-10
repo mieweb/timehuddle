@@ -20,7 +20,12 @@ const NETWORK_PROFILES = {
 } as const;
 
 export const RUNS = Number(process.env.PERF_RUNS ?? 3);
-const NETWORK = (process.env.PERF_NETWORK ?? 'none') as keyof typeof NETWORK_PROFILES;
+const NETWORK_KEYS = Object.keys(NETWORK_PROFILES) as (keyof typeof NETWORK_PROFILES)[];
+const rawNetwork = process.env.PERF_NETWORK ?? 'none';
+if (!NETWORK_KEYS.includes(rawNetwork as keyof typeof NETWORK_PROFILES)) {
+  throw new Error(`PERF_NETWORK must be one of ${NETWORK_KEYS.join(', ')}, got "${rawNetwork}"`);
+}
+const NETWORK = rawNetwork as keyof typeof NETWORK_PROFILES;
 // Baseline captures (e.g. of `main`) record numbers without failing on the budget.
 const REPORT_ONLY = Boolean(process.env.PERF_REPORT_ONLY);
 
