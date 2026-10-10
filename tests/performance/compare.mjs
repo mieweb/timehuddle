@@ -31,28 +31,37 @@ const ROWS = [
   ['signup-page-cold', 'fcp', 'Signup page: first contentful paint', 'ms'],
   ['signup-page-cold', 'formReady', 'Signup page: form usable', 'ms'],
   ['signup-flow', 'signupToDialog', 'Sign up: submit to username prompt', 'ms'],
-  ['dashboard-signin', 'signInToReady', 'Dashboard: sign in to ready', 'ms'],
-  ['dashboard-returning', 'visitToReady', 'Dashboard: returning visit to ready', 'ms'],
-  ['dashboard-signin', 'apiCalls', 'Dashboard: API calls', ''],
-  ['dashboard-signin', 'apiDuplicateCalls', 'Dashboard: duplicate API calls', ''],
-  ['dashboard-signin', 'apiDecodedKB', 'Dashboard: API data', 'KB'],
-  ['dashboard-signin', 'wsFrames', 'Dashboard: live-data (DDP) messages', ''],
-  ['dashboard-signin', 'wsKB', 'Dashboard: live-data (DDP) data', 'KB'],
-  ['teams-signin', 'signInToReady', 'Teams: sign in to ready', 'ms'],
-  ['teams-returning', 'visitToReady', 'Teams: returning visit to ready', 'ms'],
-  ['teams-signin', 'apiCalls', 'Teams: API calls', ''],
-  ['teams-signin', 'apiDuplicateCalls', 'Teams: duplicate API calls', ''],
-  ['teams-signin', 'apiDecodedKB', 'Teams: API data', 'KB'],
-  ['teams-signin', 'wsFrames', 'Teams: live-data (DDP) messages', ''],
-  ['teams-signin', 'wsKB', 'Teams: live-data (DDP) data', 'KB'],
-  ['tickets-signin', 'signInToReady', 'Tickets: sign in to ready', 'ms'],
-  ['tickets-returning', 'visitToReady', 'Tickets: returning visit to ready', 'ms'],
-  ['tickets-signin', 'apiCalls', 'Tickets: API calls', ''],
-  ['tickets-signin', 'apiDuplicateCalls', 'Tickets: duplicate API calls', ''],
-  ['tickets-signin', 'apiDecodedKB', 'Tickets: API data', 'KB'],
-  ['tickets-signin', 'wsFrames', 'Tickets: live-data (DDP) messages', ''],
-  ['tickets-signin', 'wsKB', 'Tickets: live-data (DDP) data', 'KB'],
 ];
+
+// [flow name from definePageFlowTests, label]
+const PAGE_FLOWS = [
+  ['dashboard', 'Dashboard'],
+  ['teams', 'Teams'],
+  ['tickets', 'Tickets'],
+  ['clock', 'Clock'],
+  ['activity', 'Activity'],
+  ['settings', 'Settings'],
+  ['enterprise', 'Enterprise'],
+  ['members', 'Members'],
+  ['usage', 'Usage'],
+  ['whats-new', "What's New"],
+  ['work', 'Work'],
+  ['profile', 'Profile'],
+  ['profile-work', 'Profile, work tab'],
+  ['profile-teammate', 'Teammate profile'],
+];
+
+for (const [name, label] of PAGE_FLOWS) {
+  ROWS.push(
+    [`${name}-signin`, 'signInToReady', `${label}: sign in to ready`, 'ms'],
+    [`${name}-returning`, 'visitToReady', `${label}: returning visit to ready`, 'ms'],
+    [`${name}-signin`, 'apiCalls', `${label}: API calls`, ''],
+    [`${name}-signin`, 'apiDuplicateCalls', `${label}: duplicate API calls`, ''],
+    [`${name}-signin`, 'apiDecodedKB', `${label}: API data`, 'KB'],
+    [`${name}-signin`, 'wsFrames', `${label}: live-data (DDP) messages`, ''],
+    [`${name}-signin`, 'wsKB', `${label}: live-data (DDP) data`, 'KB'],
+  );
+}
 
 console.log('| Metric | Before | After | Change |\n|---|---:|---:|---:|');
 for (const [file, metric, label, unit] of ROWS) {
