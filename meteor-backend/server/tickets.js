@@ -159,9 +159,9 @@ Meteor.methods({
 
     const count = (condition) => ({ $sum: { $cond: [condition, 1, 0] } });
     const assignees = { $ifNull: ['$assignedTo', []] };
-    const done = { $in: ['$status', ['closed', 'done']] };
+    const done = { $in: ['$status', ['closed', 'reviewed']] };
     const open = { $not: [done] };
-    const highPriority = { $in: ['$priority', ['high', 'urgent']] };
+    const highPriority = { $in: ['$priority', ['high', 'critical']] };
     const closedToday = {
       $and: [
         done,

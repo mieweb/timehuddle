@@ -797,8 +797,9 @@ describe('tickets.dashboardSummary (wormhole)', () => {
       .insertMany([
         ticket({ status: 'open', priority: 'high', assignedTo: [ownerId], description: 'Steps' }),
         ticket({ status: 'open', assignedTo: [] }),
-        ticket({ status: 'in-progress', priority: 'urgent', assignedTo: [memberId] }),
+        ticket({ status: 'in-progress', priority: 'critical', assignedTo: [memberId] }),
         ticket({ status: 'closed', assignedTo: [ownerId], updatedAt: now }),
+        ticket({ status: 'reviewed', priority: 'high', assignedTo: [ownerId], updatedAt: now }),
         ticket({ status: 'closed', assignedTo: [ownerId] }),
         ticket({ status: 'deleted', priority: 'high', assignedTo: [ownerId] }),
       ]);
@@ -837,10 +838,10 @@ describe('tickets.dashboardSummary (wormhole)', () => {
     expect(res.result).toEqual({
       open: 3,
       unassignedOpen: 1,
-      closedToday: 1,
+      closedToday: 2,
       highPriorityOpen: 2,
       myOpen: 1,
-      myClosedToday: 1,
+      myClosedToday: 2,
       myHighPriorityOpen: 1,
     });
   });

@@ -106,9 +106,10 @@ export const OrganizationMembersPage: React.FC = () => {
         return;
       }
 
+      // The picker options are optional; a search failure must not hide the member list.
       const [result, searchableUsers] = await Promise.all([
         orgApi.listMembers(selectedOrgId),
-        orgApi.searchUsers(selectedOrgId, ''),
+        orgApi.searchUsers(selectedOrgId, '').catch(() => []),
       ]);
       setUsers(result);
 

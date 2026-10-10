@@ -667,7 +667,7 @@ export const DashboardPage: React.FC = () => {
                     const priority = timer.ticketPriority;
                     const elapsedSec = Math.floor((currentTime - timer.startTime) / 1000);
                     const priorityColor =
-                      priority === 'high' || priority === 'urgent'
+                      priority === 'high' || priority === 'critical'
                         ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
                         : priority === 'medium'
                           ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
@@ -684,9 +684,7 @@ export const DashboardPage: React.FC = () => {
                             <span
                               className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium capitalize ${priorityColor}`}
                             >
-                              {priority === 'urgent'
-                                ? 'High'
-                                : priority.charAt(0).toUpperCase() + priority.slice(1)}
+                              {priority.charAt(0).toUpperCase() + priority.slice(1)}
                             </span>
                           )}
                           <div className="min-w-0 flex-1">

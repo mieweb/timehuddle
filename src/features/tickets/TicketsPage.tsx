@@ -171,11 +171,23 @@ export const TicketsPage: React.FC = () => {
     [teams],
   );
 
+  // Rosters are reactive through TeamContext, so members are refetched when any
+  // team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => `${t.id}:${[...t.members, ...t.admins].sort().join(',')}`)
+        .sort()
+        .join('|'),
+    [teams],
+  );
+
   // Fetch members for all teams
   useEffect(() => {
-    if (!teamIdsKey) return;
+    if (!rosterKey) return;
     void Promise.all(
-      teamIdsKey.split(',').map(async (teamId) => {
+      rosterKey.split('|').map(async (entry) => {
+        const teamId = entry.slice(0, entry.indexOf(':'));
         try {
           const members = await teamApi.getMembers(teamId);
           return [teamId, members] as [string, TeamMember[]];
@@ -184,7 +196,7 @@ export const TicketsPage: React.FC = () => {
         }
       }),
     ).then((entries) => setMembersByTeam(new Map(entries)));
-  }, [teamIdsKey]);
+  }, [rosterKey]);
 
   // Flat deduplicated member list across all teams
   const allMembers = useMemo(() => {
