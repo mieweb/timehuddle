@@ -1,4 +1,7 @@
+import type * as tus from 'tus-js-client';
 import { describe, expect, it } from 'vitest';
+
+import { videoApi } from '../../lib/api';
 
 import { isVideoFile, MAX_VIDEO_BYTES, uploadErrorMessage, videoFileProblem } from './videoFile';
 
@@ -45,5 +48,20 @@ describe('uploadErrorMessage', () => {
     const hint = "The upload didn't finish. Check your connection and try again.";
     expect(uploadErrorMessage(tusError(500, 'Internal error'))).toBe(hint);
     expect(uploadErrorMessage(new Error('network'))).toBe(hint);
+  });
+});
+
+describe('videoApi.shouldRetryUpload', () => {
+  const retries = (err: object) => videoApi.shouldRetryUpload(err as tus.DetailedError);
+
+  it('gives up on a refusal, which the same bytes would get again', () => {
+    expect(retries(tusError(422, "That file isn't a video."))).toBe(false);
+    expect(retries(tusError(413, 'That file is larger than 500 MB.'))).toBe(false);
+    expect(retries(tusError(409, 'Upload-Offset conflict'))).toBe(false);
+  });
+
+  it('retries a server error or a dropped connection', () => {
+    expect(retries(tusError(500, 'Internal error'))).toBe(true);
+    expect(retries(new Error('network'))).toBe(true);
   });
 });

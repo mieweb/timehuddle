@@ -2083,11 +2083,21 @@ export const videoApi = {
   uploadRetryDelays: [3000, 5000, 10000] as number[],
 
   /**
-   * Don't retry a `409 Upload-Offset conflict`: it means a concurrent/duplicate
-   * PATCH already advanced the offset, so retrying only conflicts again. Every
-   * upload path shares this so ticket and huddle behave identically.
+   * PulseVault's refusals of the file itself ("That file isn't a video.",
+   * "That file is larger than 500 MB."), whose body is written to be shown.
    */
-  shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
+  uploadRefusalStatuses: [400, 413, 422] as number[],
+
+  /**
+   * Don't retry a refusal: the same bytes are refused again. Nor a `409
+   * Upload-Offset conflict`: it means a concurrent/duplicate PATCH already
+   * advanced the offset, so retrying only conflicts again. Every upload path
+   * shares this so ticket and huddle behave identically.
+   */
+  shouldRetryUpload: (err: DetailedError): boolean => {
+    const status = err.originalResponse?.getStatus() ?? 0;
+    return status !== 409 && !videoApi.uploadRefusalStatuses.includes(status);
+  },
 
   /**
    * Where a Pulse upload stands, from PulseVault's status route read with the

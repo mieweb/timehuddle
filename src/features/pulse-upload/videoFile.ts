@@ -34,12 +34,12 @@ export function videoFileProblem(file: File): string | null {
   return null;
 }
 
-/** The server's own words for a refusal (413/422/400 are written to be shown), or a plain retry hint. */
+/** The server's own words for a refusal (`videoApi.uploadRefusalStatuses`), or a plain retry hint. */
 export function uploadErrorMessage(err: unknown): string {
   const response = (err as tus.DetailedError | undefined)?.originalResponse;
-  const status = response?.getStatus();
+  const status = response?.getStatus() ?? 0;
   const body = response?.getBody()?.trim();
-  if (body && (status === 400 || status === 413 || status === 422)) return body;
+  if (body && videoApi.uploadRefusalStatuses.includes(status)) return body;
   return "The upload didn't finish. Check your connection and try again.";
 }
 
