@@ -4,8 +4,18 @@
  * Fixture: enterprise > org > team, with an enterprise admin, an org owner, a
  * team admin and a plain team member.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } from './helpers';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import {
+  createUserAndGetJwt,
+  wormhole,
+  getDb,
+  closeDb,
+  purgeUser,
+  ObjectId,
+  DDPConnection,
+  type SettingValue,
+} from './helpers';
+import { METEOR_URL } from './setup';
 
 const USERS = {
   entAdmin: { name: 'Set Ent Admin', email: 'wh-set-ent-admin@test.dev', password: 'Password1!' },
@@ -14,7 +24,7 @@ const USERS = {
   member: { name: 'Set Member', email: 'wh-set-member@test.dev', password: 'Password1!' },
 };
 
-type Settings = { requirePlanForClock: boolean; autoAcceptJoins: boolean };
+type Settings = { requirePlanForClock: SettingValue; autoAcceptJoins: SettingValue };
 type TeamsList = { teams: Array<{ id: string; settings: Settings }> };
 
 const jwts = {} as Record<keyof typeof USERS, string>;
@@ -132,7 +142,12 @@ describe('org defaults', () => {
       jwts.orgOwner,
     );
     expect(res.ok).toBe(true);
-    expect((await teamSettings()).requirePlanForClock).toBe(false);
+    expect((await teamSettings()).requirePlanForClock).toEqual({
+      value: false,
+      source: 'org',
+      sourceId: orgId.toHexString(),
+      locked: false,
+    });
   });
 
   it('an org inherits the enterprise default, and so does its team', async () => {
@@ -142,7 +157,10 @@ describe('org defaults', () => {
       jwts.entAdmin,
     );
     expect(res.ok).toBe(true);
-    expect((await teamSettings()).autoAcceptJoins).toBe(true);
+    expect((await teamSettings()).autoAcceptJoins).toMatchObject({
+      value: true,
+      source: 'enterprise',
+    });
 
     const org = await wormhole<{ organization: { allowAutoJoin: boolean } }>(
       'orgs.get',
@@ -184,7 +202,11 @@ describe('locks', () => {
     );
     expect(write.ok).toBe(false);
     expect(write.error).toMatch(/locked by the organization/);
-    expect((await teamSettings()).autoAcceptJoins).toBe(false);
+    expect((await teamSettings()).autoAcceptJoins).toMatchObject({
+      value: false,
+      source: 'org',
+      locked: true,
+    });
   });
 
   it('an enterprise lock blocks an org write', async () => {
@@ -230,7 +252,10 @@ describe('reset to inherited', () => {
       { teamId: teamId.toHexString(), requirePlanForClock: true },
       jwts.teamAdmin,
     );
-    expect((await teamSettings()).requirePlanForClock).toBe(true);
+    expect((await teamSettings()).requirePlanForClock).toMatchObject({
+      value: true,
+      source: 'team',
+    });
 
     const reset = await wormhole(
       'teams.updateSettings',
@@ -238,7 +263,10 @@ describe('reset to inherited', () => {
       jwts.teamAdmin,
     );
     expect(reset.ok).toBe(true);
-    expect((await teamSettings()).requirePlanForClock).toBe(false);
+    expect((await teamSettings()).requirePlanForClock).toMatchObject({
+      value: false,
+      source: 'org',
+    });
 
     const db = await getDb();
     const team = await db.collection('teams').findOne({ _id: teamId });
@@ -350,5 +378,56 @@ describe('plan requirement notifications', () => {
     );
     expect(res.ok).toBe(true);
     expect(await planNotifiedTeamIds(ids.member)).toContain(ownValueTeamId.toHexString());
+  });
+});
+
+describe('teams.byUser publication', () => {
+  let ddp: DDPConnection;
+
+  const published = (id: ObjectId) => ddp.docs.get('teams')?.get(id.toHexString());
+
+  async function waitForPublished(check: () => boolean) {
+    for (let i = 0; i < 50 && !check(); i += 1) await new Promise((r) => setTimeout(r, 100));
+    expect(check()).toBe(true);
+  }
+
+  beforeEach(async () => {
+    await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { requirePlanForClock: false } },
+      jwts.orgOwner,
+    );
+    ddp = new DDPConnection(METEOR_URL.replace('http://', 'ws://') + '/websocket');
+    await ddp.connect();
+    await ddp.login(USERS.member.email, USERS.member.password);
+    await ddp.subscribe('teams.byUser');
+  });
+
+  afterEach(() => ddp.close());
+
+  it('publishes resolved settings instead of the stored ones', async () => {
+    expect(published(teamId)?.settings).toMatchObject({
+      requirePlanForClock: { value: false, source: 'org', locked: false },
+      autoAcceptJoins: { value: false, source: 'system', locked: false },
+    });
+    expect(published(ownValueTeamId)?.settings).toMatchObject({
+      requirePlanForClock: { value: false, source: 'team' },
+    });
+  });
+
+  it('pushes a change to the team as resolved settings', async () => {
+    await wormhole(
+      'teams.updateSettings',
+      { teamId: teamId.toHexString(), requirePlanForClock: true },
+      jwts.teamAdmin,
+    );
+    await waitForPublished(
+      () =>
+        (published(teamId)?.settings as { requirePlanForClock: SettingValue } | undefined)
+          ?.requirePlanForClock.source === 'team',
+    );
+    expect(published(teamId)?.settings).toMatchObject({
+      requirePlanForClock: { value: true, source: 'team' },
+    });
   });
 });

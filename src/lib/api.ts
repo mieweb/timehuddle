@@ -1306,6 +1306,20 @@ export const huddleApi = {
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
+/** Where a team setting's effective value comes from. */
+export type SettingSource = 'team' | 'parentTeam' | 'org' | 'enterprise' | 'system' | 'personal';
+
+/** A setting as the server resolved it: the client never applies its own default. */
+export interface ResolvedSetting {
+  value: boolean;
+  source: SettingSource;
+  locked: boolean;
+  /** The team, org or enterprise the value comes from; absent for 'system' and 'personal'. */
+  sourceId?: string;
+}
+
+export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
+
 export interface Team {
   id: string;
   orgId: string;
@@ -1316,10 +1330,7 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
-  settings?: {
-    requirePlanForClock?: boolean;
-    autoAcceptJoins?: boolean;
-  };
+  settings: Record<TeamSettingKey, ResolvedSetting>;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -1399,10 +1410,8 @@ export const teamApi = {
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
-  updateSettings: (
-    id: string,
-    settings: { requirePlanForClock?: boolean; autoAcceptJoins?: boolean },
-  ) =>
+  /** `true`/`false` sets a setting on the team; `null` resets it to the inherited value. */
+  updateSettings: (id: string, settings: Partial<Record<TeamSettingKey, boolean | null>>) =>
     wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
       (r) => r.team,
     ),

@@ -194,13 +194,16 @@ export const TeamsPage: React.FC = () => {
   const [autoAcceptJoins, setAutoAcceptJoins] = useState(false);
   const [savingAutoAccept, setSavingAutoAccept] = useState(false);
 
-  useEffect(() => {
-    setRequirePlanForClock(selectedTeam?.settings?.requirePlanForClock ?? false);
-  }, [selectedTeam?.id, selectedTeam?.settings?.requirePlanForClock]);
+  const planSetting = selectedTeam?.settings.requirePlanForClock.value;
+  const autoAcceptSetting = selectedTeam?.settings.autoAcceptJoins.value;
 
   useEffect(() => {
-    setAutoAcceptJoins(selectedTeam?.settings?.autoAcceptJoins ?? false);
-  }, [selectedTeam?.id, selectedTeam?.settings?.autoAcceptJoins]);
+    if (planSetting !== undefined) setRequirePlanForClock(planSetting);
+  }, [selectedTeam?.id, planSetting]);
+
+  useEffect(() => {
+    if (autoAcceptSetting !== undefined) setAutoAcceptJoins(autoAcceptSetting);
+  }, [selectedTeam?.id, autoAcceptSetting]);
 
   // Pending/sent team invitations shown in the Team Settings modal
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);

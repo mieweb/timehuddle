@@ -208,15 +208,15 @@ flowchart LR
 
 ## Milestone 6 — Client consumes resolved values only
 
-- [ ] Server: change `teams.byUser` ([teams.js L134](../meteor-backend/server/teams.js#L134)) to a transformed publication (`observeChanges` + `this.added/changed/removed`) that publishes `settings` as the resolved object. Org/enterprise changes won't re-trigger this observer — after `orgs.updateSettings`/`enterprises.updateSettings` succeed, the client must refetch teams (via the existing `TeamContext` refresh).
-- [ ] Update the `Team` type (`settings`) in [api.ts](../src/lib/api.ts) / [TeamContext.tsx](../src/lib/TeamContext.tsx) to `Record<'requirePlanForClock' | 'autoAcceptJoins', { value: boolean; source: SettingSource; locked: boolean; sourceId?: string }>`. Add `null` to `teamApi.updateSettings` param types.
-- [ ] [ddp.ts L642](../src/lib/ddp.ts#L642): pass the resolved settings through — no `Boolean(...)`.
-- [ ] [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38): `gateTeam?.settings.requirePlanForClock.value` — no `!!` fallback beyond a missing team.
-- [ ] [TeamsPage.tsx L198–L203](../src/features/teams/TeamsPage.tsx#L198): remove `?? false`.
-- [ ] `grep -rn "requirePlanForClock\|autoAcceptJoins" src` — no `?? false`, `Boolean(`, or `!!` defaults remain.
-- [ ] Update affected client tests (e.g. [TeamContext.test.tsx](../src/lib/TeamContext.test.tsx)).
+- [x] Server: change `teams.byUser` ([teams.js L134](../meteor-backend/server/teams.js#L134)) to a transformed publication (`observeChanges` + `this.added/changed/removed`) that publishes `settings` as the resolved object. Org/enterprise changes won't re-trigger this observer — after `orgs.updateSettings`/`enterprises.updateSettings` succeed, the client must refetch teams (via the existing `TeamContext` refresh).
+- [x] Update the `Team` type (`settings`) in [api.ts](../src/lib/api.ts) / [TeamContext.tsx](../src/lib/TeamContext.tsx) to `Record<'requirePlanForClock' | 'autoAcceptJoins', { value: boolean; source: SettingSource; locked: boolean; sourceId?: string }>`. Add `null` to `teamApi.updateSettings` param types.
+- [x] [ddp.ts L642](../src/lib/ddp.ts#L642): pass the resolved settings through — no `Boolean(...)`.
+- [x] [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38): `gateTeam?.settings.requirePlanForClock.value` — no `!!` fallback beyond a missing team.
+- [x] [TeamsPage.tsx L198–L203](../src/features/teams/TeamsPage.tsx#L198): remove `?? false`.
+- [x] `grep -rn "requirePlanForClock\|autoAcceptJoins" src` — no `?? false`, `Boolean(`, or `!!` defaults remain.
+- [x] Update affected client tests (e.g. [TeamContext.test.tsx](../src/lib/TeamContext.test.tsx)).
 
-**Done when:** `npm run typecheck` and `npm test` pass; clock gate in the UI matches the server gate for an inherited value.
+**Done when:** `npm run typecheck` and `npm test` pass; clock gate in the UI matches the server gate for an inherited value. _(Met for typecheck, lint, unit tests and the full backend integration suite; `useClockToggle.test.ts` covers an org-inherited gate, and `settings-hierarchy.test.ts` covers the publication over DDP. Notes: `teams.create` no longer writes `settings.requirePlanForClock`, so new teams inherit (system default `true`). `teams.byUser` re-sends every published team's settings when one team's settings change, so a parent's change reaches its sub-teams; org/enterprise changes still need the client to call the new `refreshTeamSettings()` in `TeamContext` (refetch plus a fresh live subscription) — a plain `refetchTeams()` would be overwritten by stale cached DDP docs on the next team change. Milestone 7 must call `refreshTeamSettings` after org/enterprise saves.)_
 
 ---
 

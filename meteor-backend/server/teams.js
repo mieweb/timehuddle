@@ -10,7 +10,13 @@ import {
   isTeamAdminOrOrgOwner,
 } from './org-helpers';
 import { createNotification } from './notify-core';
-import { resolveSettings, resolveSettingsForTeams, addMemberToTeamOrgIfAllowed, settingsUpdateFor } from './settings';
+import {
+  resolveSettings,
+  resolveSettingsForTeams,
+  addMemberToTeamOrgIfAllowed,
+  settingsUpdateFor,
+  publicTeamSettings,
+} from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
 import { sendEmail } from './email';
 import {
@@ -124,10 +130,7 @@ function publicTeamShape(team, resolved) {
     admins: team.admins,
     code: team.code,
     isPersonal: team.isPersonal ?? false,
-    settings: {
-      requirePlanForClock: resolved.requirePlanForClock.value,
-      autoAcceptJoins: resolved.autoAcceptJoins.value,
-    },
+    settings: publicTeamSettings(resolved),
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
   };
@@ -142,10 +145,61 @@ async function toPublicTeams(teams) {
   return teams.map((team, i) => publicTeamShape(team, resolved[i]));
 }
 
-Meteor.publish('teams.byUser', function () {
+// Publishes the user's teams with `settings` replaced by the resolved values,
+// so the client never sees raw (possibly absent) settings. Org and enterprise
+// changes do not reach this observer; the client resubscribes after saving them.
+Meteor.publish('teams.byUser', async function () {
   if (!this.userId) return this.ready();
-  const userId = this.userId;
-  return Teams.find({ members: userId });
+  const docs = new Map();
+  const sent = new Map();
+  const hexOf = (id) => (typeof id === 'string' ? id : id.toHexString());
+
+  // Sends `settings` for a team unless the client already has these values.
+  const sendSettings = async (id, extraFields = {}) => {
+    const resolved = publicTeamSettings(await resolveSettings(docs.get(hexOf(id))));
+    const serialized = JSON.stringify(resolved);
+    if (sent.get(hexOf(id)) === serialized && !Object.keys(extraFields).length) return;
+    const isNew = !sent.has(hexOf(id));
+    sent.set(hexOf(id), serialized);
+    const fields = { ...extraFields, settings: resolved };
+    if (isNew) this.added('teams', id, fields);
+    else this.changed('teams', id, fields);
+  };
+
+  const fail = (error) => {
+    console.error('[teams.byUser] could not resolve settings:', error);
+    this.error(new Meteor.Error('internal-error', 'Could not load team settings'));
+  };
+
+  const handle = await Teams.find({ members: this.userId }).observeChangesAsync({
+    added: async (id, fields) => {
+      docs.set(hexOf(id), { _id: id, ...fields });
+      await sendSettings(id, fields).catch(fail);
+    },
+    changed: async (id, fields) => {
+      const doc = { ...docs.get(hexOf(id)), ...fields };
+      for (const key of Object.keys(fields)) if (fields[key] === undefined) delete doc[key];
+      docs.set(hexOf(id), doc);
+      try {
+        await sendSettings(id, fields);
+        // A parent's change can change what its published sub-teams inherit.
+        if ('settings' in fields) {
+          for (const other of docs.values()) {
+            if (hexOf(other._id) !== hexOf(id)) await sendSettings(other._id);
+          }
+        }
+      } catch (error) {
+        fail(error);
+      }
+    },
+    removed: (id) => {
+      docs.delete(hexOf(id));
+      sent.delete(hexOf(id));
+      this.removed('teams', id);
+    },
+  });
+  this.onStop(() => handle.stop());
+  this.ready();
 });
 
 Meteor.methods({
@@ -244,8 +298,6 @@ Meteor.methods({
       admins: [userId],
       code: generateTeamCode(),
       isPersonal: false,
-      // New teams start plan-first; older teams without the field read as off.
-      settings: { requirePlanForClock: true },
       createdAt: new Date(),
     };
     await Teams.insertAsync(doc);

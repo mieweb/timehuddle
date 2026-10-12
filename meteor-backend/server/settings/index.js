@@ -77,6 +77,14 @@ async function resolveTeam(team, loader) {
   return resolveFromChain(chain, { isPersonal: team.isPersonal === true });
 }
 
+// The team-level settings a client sees: each is { value, source, locked, sourceId? }.
+export function publicTeamSettings(resolved) {
+  return {
+    requirePlanForClock: resolved.requirePlanForClock,
+    autoAcceptJoins: resolved.autoAcceptJoins,
+  };
+}
+
 export function resolveSettings(team) {
   return resolveTeam(team, createLoader());
 }

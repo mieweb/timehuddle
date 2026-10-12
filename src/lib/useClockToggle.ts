@@ -27,7 +27,7 @@ export function useClockToggle() {
 
   const isClockedIn = !!activeClockEvent;
 
-  // ── Plan-first gates (team setting, default off) — per session ──
+  // ── Plan-first gates (resolved team setting) — per session ──
   // Clock In targets the selected team; Clock Out targets the team of the
   // active session (which may differ if the user switched teams after
   // clocking in). Gate against whichever applies.
@@ -35,7 +35,7 @@ export function useClockToggle() {
   const gateTeam = activeClockEvent
     ? (teams.find((t) => t.id === activeClockEvent.teamId) ?? null)
     : selectedTeam;
-  const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
+  const requirePlan = !!gateTeam && gateTeam.settings.requirePlanForClock.value;
   // The published post linked to THIS clock session (one post per session).
   const { sessionPost } = useSessionPost(
     requirePlan ? gateTeamId : null,
