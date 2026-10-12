@@ -6,7 +6,7 @@
  * (Milestone 3): gate off → clock in/out unchanged; gate on → clock-out is
  * blocked until today's post has a wrap-up.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import {
   createUserAndGetJwt,
   wormhole,
@@ -261,6 +261,113 @@ describe('plan-first clock flow (wormhole)', () => {
     const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
     expect(start.ok).toBe(true);
     const stop = await wormhole<{ id: string }>('clock.stop', { teamId }, memberJwt);
+    expect(stop.ok).toBe(true);
+  });
+});
+
+describe('plan requirement from the hierarchy (wormhole)', () => {
+  const orgId = new ObjectId();
+  const inheritingTeamId = new ObjectId();
+  const ownFalseTeamId = new ObjectId();
+  const personalTeamId = new ObjectId();
+  const teamIds = [inheritingTeamId, ownFalseTeamId, personalTeamId];
+
+  async function setOrg(settings: Record<string, boolean>, settingsLocks: Record<string, true> = {}) {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $set: { settings, settingsLocks } });
+  }
+
+  async function clockInThenOut(team: ObjectId) {
+    const id = team.toHexString();
+    const start = await wormhole('clock.start', { teamId: id }, memberJwt);
+    expect(start.ok).toBe(true);
+    return wormhole('clock.stop', { teamId: id }, memberJwt);
+  }
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const now = new Date();
+    await db.collection('organizations').insertOne({
+      _id: orgId,
+      name: 'WH Plan Hierarchy Org',
+      slug: `wh-plan-hierarchy-${orgId.toHexString()}`,
+      owners: [],
+      admins: [],
+      settings: {},
+      settingsLocks: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    const base = {
+      orgId: orgId.toHexString(),
+      members: [memberUserId],
+      admins: [],
+      createdAt: now,
+    };
+    await db.collection('teams').insertMany([
+      { ...base, _id: inheritingTeamId, name: 'WH Plan Inheriting', code: 'WHPLANH1', isPersonal: false },
+      {
+        ...base,
+        _id: ownFalseTeamId,
+        name: 'WH Plan Migrated',
+        code: 'WHPLANH2',
+        isPersonal: false,
+        settings: { requirePlanForClock: false },
+      },
+      { ...base, _id: personalTeamId, name: 'WH Plan Personal', code: 'WHPLANH3', isPersonal: true },
+    ]);
+  });
+
+  afterEach(async () => {
+    const db = await getDb();
+    await db
+      .collection('clockevents')
+      .deleteMany({ teamId: { $in: teamIds.map((id) => id.toHexString()) } });
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teams').deleteMany({ _id: { $in: teamIds } });
+    await db.collection('organizations').deleteMany({ _id: orgId });
+  });
+
+  it('blocks clock-out when the requirement is inherited from the org', async () => {
+    await setOrg({ requirePlanForClock: true });
+    const stop = await clockInThenOut(inheritingTeamId);
+    expect(stop.ok).toBe(false);
+    expect(stop.error).toMatch(/wrap-up/i);
+  });
+
+  it('blocks clock-out on the system default when nothing is set above', async () => {
+    await setOrg({});
+    const stop = await clockInThenOut(inheritingTeamId);
+    expect(stop.ok).toBe(false);
+  });
+
+  it('lets a team clock out when the org default is off', async () => {
+    await setOrg({ requirePlanForClock: false });
+    const stop = await clockInThenOut(inheritingTeamId);
+    expect(stop.ok).toBe(true);
+  });
+
+  it('blocks clock-out when the org locked the requirement over a team value of false', async () => {
+    await setOrg({ requirePlanForClock: true }, { requirePlanForClock: true });
+    const stop = await clockInThenOut(ownFalseTeamId);
+    expect(stop.ok).toBe(false);
+    expect(stop.error).toMatch(/wrap-up/i);
+  });
+
+  it('keeps a migrated team (explicit false) ungated under an unlocked org default', async () => {
+    await setOrg({ requirePlanForClock: true });
+    const stop = await clockInThenOut(ownFalseTeamId);
+    expect(stop.ok).toBe(true);
+  });
+
+  it('never blocks a Personal team, even under a locked org requirement', async () => {
+    await setOrg({ requirePlanForClock: true }, { requirePlanForClock: true });
+    const stop = await clockInThenOut(personalTeamId);
     expect(stop.ok).toBe(true);
   });
 });
