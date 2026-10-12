@@ -75,19 +75,14 @@ test.describe('Huddle clock lines', () => {
     const oneId = await getUserIdByEmail(TEST_USERS.member1.email);
     const twoId = await getUserIdByEmail(TEST_USERS.member2.email);
 
+    // Recorded as each insert lands, so afterAll cleans up even if a later one fails.
     const oneSession = await seedClockSession({
       userId: oneId,
       teamId,
       startTime: oneStart,
       endTime: oneEnd,
     });
-    const twoSession = await seedClockSession({
-      userId: twoId,
-      teamId,
-      startTime: twoStart,
-      endTime: null,
-    });
-    sessionIds.push(oneSession, twoSession);
+    sessionIds.push(oneSession);
     postIds.push(
       await insertPost({
         teamId,
@@ -96,6 +91,15 @@ test.describe('Huddle clock lines', () => {
         createdAt: oneStart - PLAN_LEAD,
         clockEventId: oneSession,
       }),
+    );
+    const twoSession = await seedClockSession({
+      userId: twoId,
+      teamId,
+      startTime: twoStart,
+      endTime: null,
+    });
+    sessionIds.push(twoSession);
+    postIds.push(
       await insertPost({
         teamId,
         userId: twoId,

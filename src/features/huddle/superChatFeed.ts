@@ -140,9 +140,10 @@ function collectSessions(posts: HuddlePost[]): SessionInfo[] {
 
 interface ClockLineContext {
   viewer: InboxViewer;
-  /** Person/Ticket threads span several days, so each line names its day. */
+  /** Person threads span several days, so each line names its day. */
   includeDay: boolean;
-  now: number;
+  /** When the "still clocked in" line sorts: now, but never above a post already in the thread. */
+  liveAt: number;
 }
 
 function clockLineWhen(epochMs: number, includeDay: boolean): string {
@@ -162,7 +163,7 @@ function clockLine(id: string, text: string, epochMs: number): SuperChatMessage 
 
 function systemMessagesForSession(
   session: SessionInfo,
-  { viewer, includeDay, now }: ClockLineContext,
+  { viewer, includeDay, liveAt }: ClockLineContext,
 ): SuperChatMessage[] {
   const isViewer = session.userId === viewer.userId;
   const who = isViewer ? THREAD_TEXT.you : session.userName;
@@ -180,7 +181,7 @@ function systemMessagesForSession(
       clockLine(
         `${clockEventId}:still-in`,
         THREAD_TEXT.stillClockedIn(who, isViewer, clockLineWhen(startTime, includeDay)),
-        now,
+        liveAt,
       ),
     );
     return messages;
@@ -368,8 +369,8 @@ export function postsToConversations(
 
     const lineContext: ClockLineContext = {
       viewer,
-      includeDay: threadBy === 'person' || threadBy === 'ticket',
-      now,
+      includeDay: threadBy === 'person',
+      liveAt: Math.max(now, ...groupPosts.map((p) => new Date(p.createdAt).getTime() + 1)),
     };
     const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
     // Session view: a thread of posts made without clocking in says so up

@@ -138,6 +138,24 @@ describe('postsToConversations', () => {
       expect(conversation.thread.at(-1)?.text).toBe('Aisha Khan is still clocked in · since 08:58');
     });
 
+    it('keeps the still-clocked-in line last when a post lands after the minute NOW was rounded to', () => {
+      const live = { startTime: SEP_29_0858, endTime: null };
+      const posts = [
+        makePost({ id: 'plan', clockEventId: 'evt-1', session: live }),
+        makePost({
+          id: 'late-reply',
+          clockEventId: 'evt-1',
+          session: live,
+          createdAt: new Date(NOW + 30_000).toISOString(),
+        }),
+      ];
+      const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+      const sorted = [...conversation.thread].sort(
+        (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+      );
+      expect(sorted.at(-1)?.id).toBe('evt-1:still-in');
+    });
+
     it('drops the still-clocked-in line once the session ends', () => {
       const posts = [
         makePost({
