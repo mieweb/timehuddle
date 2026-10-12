@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { ensureDefaultOrganization } from './org-helpers';
+import { settingsUpdateFor } from './settings';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -104,6 +105,35 @@ Meteor.methods({
         owners,
         admins,
         members,
+        settings: enterprise.settings ?? {},
+        settingsLocks: enterprise.settingsLocks ?? {},
+      },
+    };
+  },
+
+  async 'enterprises.updateSettings'({ enterpriseId, settings, locks }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
+    if (settings === undefined && locks === undefined) {
+      throw new Meteor.Error('bad-request', 'settings or locks is required');
+    }
+    const enterprise = await rawDb().collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) throw new Meteor.Error('not-found', 'Enterprise not found');
+    const isAdmin = (enterprise.owners ?? []).includes(userId) || (enterprise.admins ?? []).includes(userId);
+    if (!isAdmin) throw new Meteor.Error('forbidden', 'Not an enterprise owner or admin');
+
+    const update = settingsUpdateFor({ level: 'enterprise', entity: enterprise, settings, locks });
+    const result = await rawDb().collection('enterprises').findOneAndUpdate(
+      { _id: enterprise._id },
+      update,
+      { returnDocument: 'after' },
+    );
+    return {
+      enterprise: {
+        id: result._id.toHexString(),
+        settings: result.settings ?? {},
+        settingsLocks: result.settingsLocks ?? {},
       },
     };
   },

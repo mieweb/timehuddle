@@ -3,10 +3,12 @@
  * resolves it with the pure resolver. Every server read of a hierarchical
  * setting goes through here, never through the raw `settings` field.
  */
+import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from '../collections';
 import { addOrgMember } from '../org-helpers';
 import { resolveFromChain } from './resolve';
+import { SettingsInputError, buildSettingsUpdate, toMongoUpdate } from './write';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -95,4 +97,15 @@ export async function addMemberToTeamOrgIfAllowed(team, userId) {
   if (!isValidId(team.orgId)) return;
   const resolved = await resolveSettings(team);
   if (resolved.allowAutoJoin.value) await addOrgMember(team.orgId, userId, 'member', true);
+}
+
+// Validates a settings/locks patch and returns the Mongo update, throwing Meteor.Error.
+export function settingsUpdateFor({ level, entity, resolved, settings, locks }) {
+  try {
+    const built = buildSettingsUpdate({ level, current: entity, resolved, settings, locks });
+    return toMongoUpdate(built, new Date());
+  } catch (error) {
+    if (error instanceof SettingsInputError) throw new Meteor.Error(error.code, error.message);
+    throw error;
+  }
 }

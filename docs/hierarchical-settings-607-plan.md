@@ -175,24 +175,24 @@ flowchart LR
 
 ## Milestone 4 — Write APIs with locks and reset
 
-- [ ] **`teams.updateSettings`** ([teams.js L459](../meteor-backend/server/teams.js#L459)):
-  - [ ] Accept `true | false | null` per key (`null` → `$unset`, i.e. reset to inherited).
-  - [ ] Reject (`Meteor.Error('forbidden', 'Setting is locked by …')`) any write to a key that the resolver reports as `locked` from above.
-  - [ ] Reject keys whose registry `levels` doesn't include `'team'`.
-  - [ ] Keep the existing permission check (`isTeamAdminOrOrgOwner`).
-- [ ] **`orgs.updateSettings`** ([organizations.js L370](../meteor-backend/server/organizations.js#L370)): accept `{ orgId, settings: {...}, locks: {...} }` with the same `true | false | null` rules; reject writes locked by the enterprise. Keep accepting the old `{ orgId, allowAutoJoin }` shape so the current UI keeps working until Milestone 7. Permission: existing `buildOrgAccess().canManage`.
-- [ ] `orgs.create` / `orgs.update`: write `allowAutoJoin` into `settings.allowAutoJoin`.
-- [ ] **New `enterprises.updateSettings`** in [enterprises.js](../meteor-backend/server/enterprises.js) with `{ enterpriseId, settings, locks }`. Permission: caller is in enterprise `owners` or `admins` (same check the file already uses).
-- [ ] Return the updated entity with **resolved** settings (teams) or raw `settings` + `settingsLocks` (org/enterprise — these are the edit view).
-- [ ] Declare new/changed params in the Wormhole `expose` calls in [main.js](../meteor-backend/server/main.js#L1914).
-- [ ] Integration tests (new file `meteor-backend/tests/settings-hierarchy.test.ts`):
-  - [ ] Org admin sets `requirePlanForClock: true`; a team with no explicit value resolves `true` with `source: 'org'`.
-  - [ ] Org locks `autoAcceptJoins: false`; `teams.updateSettings({ autoAcceptJoins: true })` is rejected.
-  - [ ] Enterprise default is inherited by an org and its teams.
-  - [ ] `teams.updateSettings({ requirePlanForClock: null })` resets the team to the inherited value.
-  - [ ] A non-admin cannot call `orgs.updateSettings` / `enterprises.updateSettings`.
+- [x] **`teams.updateSettings`** ([teams.js L459](../meteor-backend/server/teams.js#L459)):
+  - [x] Accept `true | false | null` per key (`null` → `$unset`, i.e. reset to inherited).
+  - [x] Reject (`Meteor.Error('forbidden', 'Setting is locked by …')`) any write to a key that the resolver reports as `locked` from above.
+  - [x] Reject keys whose registry `levels` doesn't include `'team'`.
+  - [x] Keep the existing permission check (`isTeamAdminOrOrgOwner`).
+- [x] **`orgs.updateSettings`** ([organizations.js L370](../meteor-backend/server/organizations.js#L370)): accept `{ orgId, settings: {...}, locks: {...} }` with the same `true | false | null` rules; reject writes locked by the enterprise. Keep accepting the old `{ orgId, allowAutoJoin }` shape so the current UI keeps working until Milestone 7. Permission: existing `buildOrgAccess().canManage`.
+- [x] `orgs.create` / `orgs.update`: write `allowAutoJoin` into `settings.allowAutoJoin`.
+- [x] **New `enterprises.updateSettings`** in [enterprises.js](../meteor-backend/server/enterprises.js) with `{ enterpriseId, settings, locks }`. Permission: caller is in enterprise `owners` or `admins` (same check the file already uses).
+- [x] Return the updated entity with **resolved** settings (teams) or raw `settings` + `settingsLocks` (org/enterprise — these are the edit view).
+- [x] Declare new/changed params in the Wormhole `expose` calls in [main.js](../meteor-backend/server/main.js#L1914).
+- [x] Integration tests (new file `meteor-backend/tests/settings-hierarchy.test.ts`):
+  - [x] Org admin sets `requirePlanForClock: true`; a team with no explicit value resolves `true` with `source: 'org'`.
+  - [x] Org locks `autoAcceptJoins: false`; `teams.updateSettings({ autoAcceptJoins: true })` is rejected.
+  - [x] Enterprise default is inherited by an org and its teams.
+  - [x] `teams.updateSettings({ requirePlanForClock: null })` resets the team to the inherited value.
+  - [x] A non-admin cannot call `orgs.updateSettings` / `enterprises.updateSettings`.
 
-**Done when:** all new tests pass; locked writes are rejected server-side.
+**Done when:** all new tests pass; locked writes are rejected server-side. _(Met: unit tests in `settings-write.test.ts`, integration in `settings-hierarchy.test.ts`; full integration suite has only the pre-existing ticket failure. Notes: write rules live in `settings/write.js` (pure) behind `settingsUpdateFor`; a lock is only accepted on a level that holds a value for the key, and a locked value cannot be reset without unlocking. Team responses still carry flat resolved booleans, so the `source: 'org'` assertion lands with the object shape in M6; M4 asserts the resolved value. `orgs.get`/list and `enterprises.get` now include raw `settings` and `settingsLocks` for the edit view.)_
 
 ---
 

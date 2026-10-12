@@ -9,7 +9,7 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { resolveOrgSettings } from './settings';
+import { resolveOrgSettings, settingsUpdateFor } from './settings';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -96,6 +96,8 @@ async function toOrgSummary(org, role) {
     name: org.name,
     slug: org.slug,
     allowAutoJoin: (await resolveOrgSettings(org)).allowAutoJoin.value,
+    settings: org.settings ?? {},
+    settingsLocks: org.settingsLocks ?? {},
     role,
   };
 }
@@ -369,26 +371,39 @@ Meteor.methods({
     return { organization: await toOrgSummary(updated, access.role) };
   },
 
-  async 'orgs.updateSettings'({ orgId, allowAutoJoin }) {
+  async 'orgs.updateSettings'({ orgId, allowAutoJoin, settings, locks }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
-    if (typeof allowAutoJoin !== 'boolean') throw new Meteor.Error('bad-request', 'allowAutoJoin is required');
+    // The old `{ orgId, allowAutoJoin }` call is still accepted.
+    const settingsPatch = settings ?? (allowAutoJoin === undefined ? undefined : { allowAutoJoin });
+    if (settingsPatch === undefined && locks === undefined) {
+      throw new Meteor.Error('bad-request', 'settings or locks is required');
+    }
     const db = rawDb();
     const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
+    const update = settingsUpdateFor({
+      level: 'org',
+      entity: org,
+      resolved: await resolveOrgSettings(org),
+      settings: settingsPatch,
+      locks,
+    });
     const result = await db.collection('organizations').findOneAndUpdate(
       { _id: new ObjectId(orgId) },
-      { $set: { 'settings.allowAutoJoin': allowAutoJoin, updatedAt: new Date() } },
+      update,
       { returnDocument: 'after' },
     );
     return {
       organization: {
         orgId: result._id.toHexString(),
         allowAutoJoin: (await resolveOrgSettings(result)).allowAutoJoin.value,
+        settings: result.settings ?? {},
+        settingsLocks: result.settingsLocks ?? {},
       },
     };
   },

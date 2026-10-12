@@ -10,7 +10,7 @@ import {
   isTeamAdminOrOrgOwner,
 } from './org-helpers';
 import { createNotification } from './notify-core';
-import { resolveSettings, resolveSettingsForTeams, addMemberToTeamOrgIfAllowed } from './settings';
+import { resolveSettings, resolveSettingsForTeams, addMemberToTeamOrgIfAllowed, settingsUpdateFor } from './settings';
 import { sendEmail } from './email';
 import {
   INVITATION_LIFETIME_MS,
@@ -462,25 +462,21 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
-    if (requirePlanForClock === undefined && autoAcceptJoins === undefined) {
+    const settings = Object.fromEntries(
+      Object.entries({ requirePlanForClock, autoAcceptJoins }).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(settings).length === 0) {
       throw new Meteor.Error('bad-request', 'No settings provided');
-    }
-    if (requirePlanForClock !== undefined && typeof requirePlanForClock !== 'boolean') {
-      throw new Meteor.Error('bad-request', 'requirePlanForClock must be a boolean');
-    }
-    if (autoAcceptJoins !== undefined && typeof autoAcceptJoins !== 'boolean') {
-      throw new Meteor.Error('bad-request', 'autoAcceptJoins must be a boolean');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
     if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
-    const planWasRequired = (await resolveSettings(team)).requirePlanForClock.value;
-    const $set = { updatedAt: new Date() };
-    if (requirePlanForClock !== undefined) $set['settings.requirePlanForClock'] = requirePlanForClock;
-    if (autoAcceptJoins !== undefined) $set['settings.autoAcceptJoins'] = autoAcceptJoins;
-    await Teams.updateAsync(team._id, { $set });
+    const resolved = await resolveSettings(team);
+    const planWasRequired = resolved.requirePlanForClock.value;
+    const update = settingsUpdateFor({ level: 'team', entity: team, resolved, settings });
+    await Teams.updateAsync(team._id, update);
     const updated = await Teams.findOneAsync(team._id);
 
     // Notify all members (except the admin making the change) when plan-gate is enabled
