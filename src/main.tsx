@@ -94,6 +94,7 @@ import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { rememberReturnTo, restoreReturnTo } from './lib/returnTo';
+import { redirectSignedInRootToDashboard } from './lib/rootRedirect';
 import { InstallerModal } from './ui/InstallerModal';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
@@ -432,9 +433,13 @@ function renderRoot() {
         );
         return;
       }
-      _root = createRoot(el);
-      _root.render(<LandingPage />);
-      return;
+      // Signed in: replace the URL with the dashboard and mount the app below,
+      // so the landing page never paints.
+      if (!redirectSignedInRootToDashboard()) {
+        _root = createRoot(el);
+        _root.render(<LandingPage />);
+        return;
+      }
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
       _root.render(<InboxPage />);
