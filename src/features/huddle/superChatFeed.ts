@@ -54,6 +54,17 @@ export interface InboxViewer {
 export const SYSTEM_PARTICIPANT_ID = 'system';
 const OFF_THE_CLOCK = 'Off the clock';
 
+/** User-facing thread line text, kept in one place for translation. */
+const THREAD_TEXT = {
+  you: 'You',
+  unknown: 'Unknown',
+  clockedIn: (who: string, when: string) => `${who} clocked in · ${when}`,
+  clockedOut: (who: string, when: string) => `${who} clocked out · ${when}`,
+  stillClockedIn: (who: string, isViewer: boolean, since: string) =>
+    `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
+  postedWithoutClockingIn: 'Posted without clocking in',
+} as const;
+
 /** "YYYY-MM-DD" for the given epoch ms, based on the local calendar date. */
 function localDateKey(epochMs: number): string {
   const d = new Date(epochMs);
@@ -96,46 +107,92 @@ function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
 
 interface SessionInfo {
   clockEventId: string;
+  userId: string;
+  userName: string;
   startTime: number;
   endTime: number | null;
+  /** Earliest post in the session — a plan posted just before the clock started. */
+  firstPostAt: number;
 }
 
 /** Every distinct clock session referenced by a group's posts, oldest first. */
 function collectSessions(posts: HuddlePost[]): SessionInfo[] {
   const byId = new Map<string, SessionInfo>();
   for (const post of posts) {
-    if (post.clockEventId && post.session && !byId.has(post.clockEventId)) {
-      byId.set(post.clockEventId, {
-        clockEventId: post.clockEventId,
-        startTime: post.session.startTime,
-        endTime: post.session.endTime,
-      });
+    if (!post.clockEventId || !post.session) continue;
+    const createdAt = new Date(post.createdAt).getTime();
+    const existing = byId.get(post.clockEventId);
+    if (existing) {
+      existing.firstPostAt = Math.min(existing.firstPostAt, createdAt);
+      continue;
     }
+    byId.set(post.clockEventId, {
+      clockEventId: post.clockEventId,
+      userId: post.userId,
+      userName: authorName(post),
+      startTime: post.session.startTime,
+      endTime: post.session.endTime,
+      firstPostAt: createdAt,
+    });
   }
   return [...byId.values()].sort((a, b) => a.startTime - b.startTime);
 }
 
-function systemMessagesForSession(session: SessionInfo): SuperChatMessage[] {
-  const messages: SuperChatMessage[] = [
-    {
-      id: `${session.clockEventId}:clock-in`,
-      type: 'system',
-      participantId: SYSTEM_PARTICIPANT_ID,
-      text: `Clocked in at ${formatClockTime(session.startTime)}`,
-      time: new Date(session.startTime),
-    },
+interface ClockLineContext {
+  viewer: InboxViewer;
+  /** Person/Ticket threads span several days, so each line names its day. */
+  includeDay: boolean;
+  now: number;
+}
+
+function clockLineWhen(epochMs: number, includeDay: boolean): string {
+  const time = formatClockTime(epochMs);
+  return includeDay ? `${formatDayLabel(localDateKey(epochMs))} · ${time}` : time;
+}
+
+function clockLine(id: string, text: string, epochMs: number): SuperChatMessage {
+  return {
+    id,
+    type: 'system',
+    participantId: SYSTEM_PARTICIPANT_ID,
+    text,
+    time: new Date(epochMs),
+  };
+}
+
+function systemMessagesForSession(
+  session: SessionInfo,
+  { viewer, includeDay, now }: ClockLineContext,
+): SuperChatMessage[] {
+  const isViewer = session.userId === viewer.userId;
+  const who = isViewer ? THREAD_TEXT.you : session.userName;
+  const { clockEventId, startTime, endTime } = session;
+  const messages = [
+    clockLine(
+      `${clockEventId}:clock-in`,
+      THREAD_TEXT.clockedIn(who, clockLineWhen(startTime, includeDay)),
+      // Above the plan posted just before the clock started (SuperChat orders by time).
+      Math.min(startTime, session.firstPostAt),
+    ),
   ];
-  if (session.endTime != null) {
-    messages.push({
-      id: `${session.clockEventId}:clock-out`,
-      type: 'system',
-      participantId: SYSTEM_PARTICIPANT_ID,
-      text: `Clocked out at ${formatClockTime(session.endTime)}`,
-      time: new Date(session.endTime),
-    });
+  if (endTime == null) {
+    messages.push(
+      clockLine(
+        `${clockEventId}:still-in`,
+        THREAD_TEXT.stillClockedIn(who, isViewer, clockLineWhen(startTime, includeDay)),
+        now,
+      ),
+    );
+    return messages;
   }
+  let outText = THREAD_TEXT.clockedOut(who, clockLineWhen(endTime, includeDay));
+  // Shift length stays admin-only, matching the session title.
+  if (viewer.isAdmin) outText += ` · ${formatDuration((endTime - startTime) / 1000)}`;
+  messages.push(clockLine(`${clockEventId}:clock-out`, outText, endTime));
   return messages;
 }
+
+const isClockIn = (m: SuperChatMessage) => m.id.endsWith(':clock-in');
 
 /**
  * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
@@ -213,8 +270,12 @@ export function stripInboxDecorations(editedText: string, shownText: string, bod
   return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function authorName(post: HuddlePost): string {
+  return post.userName || post.userInitials || THREAD_TEXT.unknown;
+}
+
 function displayName(post: HuddlePost, viewer: InboxViewer): string {
-  return post.userId === viewer.userId ? 'You' : post.userName || post.userInitials || 'Unknown';
+  return post.userId === viewer.userId ? THREAD_TEXT.you : authorName(post);
 }
 
 function buildTitle(
@@ -299,13 +360,18 @@ export function postsToConversations(
         participants.set(post.userId, {
           id: post.userId,
           kind: 'human',
-          name: post.userName || post.userInitials || 'Unknown',
+          name: authorName(post),
           color: avatarColorToCss(getUserColor(post.userId)),
         });
       }
     }
 
-    const systemMessages = sessions.flatMap(systemMessagesForSession);
+    const lineContext: ClockLineContext = {
+      viewer,
+      includeDay: threadBy === 'person' || threadBy === 'ticket',
+      now,
+    };
+    const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
     // Session view: a thread of posts made without clocking in says so up
     // front, rather than looking like a shift with its clock lines missing.
     const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
@@ -315,7 +381,7 @@ export function postsToConversations(
         id: `${key}:off-the-clock`,
         type: 'system',
         participantId: SYSTEM_PARTICIPANT_ID,
-        text: 'Posted without clocking in',
+        text: THREAD_TEXT.postedWithoutClockingIn,
         time: new Date(earliest - 1),
       });
     }
@@ -335,8 +401,12 @@ export function postsToConversations(
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));
 
+    // On a tie the clock-in goes first, above the plan it shares a moment with;
+    // SuperChat's own sort by time is stable, so it keeps this order.
     const thread = [...systemMessages, ...postMessages].sort(
-      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+      (a, b) =>
+        new Date(a.time).getTime() - new Date(b.time).getTime() ||
+        Number(isClockIn(b)) - Number(isClockIn(a)),
     );
 
     const isLive = sessions.some((s) => s.endTime == null);

@@ -107,7 +107,7 @@ describe('postsToConversations', () => {
   });
 
   describe('live sessions', () => {
-    it('marks a live session (no endTime) as "● Live" with no clock-out message', () => {
+    it('marks a live session (no endTime) as "● Live" and ends it with a still-clocked-in line', () => {
       const posts = [
         makePost({
           id: 'p1',
@@ -118,11 +118,27 @@ describe('postsToConversations', () => {
       const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
       expect(conversation.title).toContain('● Live');
       const systemMessages = conversation.thread.filter((m) => m.type === 'system');
-      expect(systemMessages).toHaveLength(1);
-      expect(systemMessages[0].text).toContain('Clocked in');
+      expect(systemMessages.map((m) => m.text)).toEqual([
+        'You clocked in · 08:58',
+        'You are still clocked in · since 08:58',
+      ]);
+      expect(conversation.thread.at(-1)?.id).toBe('evt-1:still-in');
+      expect(conversation.thread.some((m) => m.id === 'evt-1:clock-out')).toBe(false);
     });
 
-    it('adds both clock-in and clock-out messages for a finished session', () => {
+    it('says "is still clocked in" with the name for someone else', () => {
+      const posts = [
+        makePost({
+          id: 'p1',
+          clockEventId: 'evt-1',
+          session: { startTime: SEP_29_0858, endTime: null },
+        }),
+      ];
+      const [conversation] = postsToConversations(posts, 'session', VIEWER_OTHER_MEMBER, NOW);
+      expect(conversation.thread.at(-1)?.text).toBe('Aisha Khan is still clocked in · since 08:58');
+    });
+
+    it('drops the still-clocked-in line once the session ends', () => {
       const posts = [
         makePost({
           id: 'p1',
@@ -133,9 +149,111 @@ describe('postsToConversations', () => {
       const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
       expect(conversation.title).not.toContain('Live');
       const systemMessages = conversation.thread.filter((m) => m.type === 'system');
-      expect(systemMessages).toHaveLength(2);
-      expect(systemMessages[0].text).toContain('Clocked in');
-      expect(systemMessages[1].text).toContain('Clocked out');
+      expect(systemMessages.map((m) => m.text)).toEqual([
+        'You clocked in · 08:58',
+        'You clocked out · 10:32',
+      ]);
+    });
+  });
+
+  describe('clock lines', () => {
+    const closed = { startTime: SEP_29_0858, endTime: SEP_29_1032 };
+    const systemTexts = (conversation: { thread: { type?: string; text?: string }[] }) =>
+      conversation.thread.filter((m) => m.type === 'system').map((m) => m.text);
+
+    it('names the person, and says "You" for the viewer', () => {
+      const posts = [makePost({ id: 'p1', clockEventId: 'evt-1', session: closed })];
+      const [asOther] = postsToConversations(posts, 'session', VIEWER_OTHER_MEMBER, NOW);
+      expect(systemTexts(asOther)).toEqual([
+        'Aisha Khan clocked in · 08:58',
+        'Aisha Khan clocked out · 10:32',
+      ]);
+    });
+
+    it('attributes each line in a Day thread with two people on overlapping shifts', () => {
+      const posts = [
+        makePost({ id: 'aisha', postDate: '2026-09-29', clockEventId: 'evt-a', session: closed }),
+        makePost({
+          id: 'ravi',
+          userId: 'user-ravi',
+          userName: 'Ravi Shah',
+          postDate: '2026-09-29',
+          createdAt: new Date(localMs(2026, 9, 29, 9, 30)).toISOString(),
+          clockEventId: 'evt-r',
+          session: { startTime: localMs(2026, 9, 29, 9, 30), endTime: null },
+        }),
+      ];
+      const [conversation] = postsToConversations(posts, 'day', VIEWER_OTHER_MEMBER, NOW);
+      expect(systemTexts(conversation)).toEqual([
+        'Aisha Khan clocked in · 08:58',
+        'Ravi Shah clocked in · 09:30',
+        'Aisha Khan clocked out · 10:32',
+        'Ravi Shah is still clocked in · since 09:30',
+      ]);
+    });
+
+    it('shows the shift length on clock-out to admins only', () => {
+      const posts = [makePost({ id: 'p1', clockEventId: 'evt-1', session: closed })];
+      const [adminView] = postsToConversations(posts, 'session', VIEWER_ADMIN, NOW);
+      const [memberView] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+      expect(systemTexts(adminView)).toContain('Aisha Khan clocked out · 10:32 · 1h 34m');
+      expect(systemTexts(memberView)).toContain('You clocked out · 10:32');
+    });
+
+    it('includes the day in Person threads, not in Session or Day threads', () => {
+      const posts = [makePost({ id: 'p1', clockEventId: 'evt-1', session: closed })];
+      const [person] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW);
+      expect(systemTexts(person)).toEqual([
+        'You clocked in · Tue, Sep 29 · 08:58',
+        'You clocked out · Tue, Sep 29 · 10:32',
+      ]);
+      for (const threadBy of ['session', 'day'] as const) {
+        const [conversation] = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW);
+        expect(systemTexts(conversation)[0]).toBe('You clocked in · 08:58');
+      }
+    });
+
+    it('puts the clock-in above a plan posted just before the clock started', () => {
+      const posts = [
+        makePost({
+          id: 'plan',
+          createdAt: new Date(SEP_29_0858 - 20_000).toISOString(),
+          clockEventId: 'evt-1',
+          session: closed,
+        }),
+      ];
+      for (const threadBy of ['session', 'day', 'person'] as const) {
+        const [conversation] = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW);
+        // SuperChat re-sorts the thread by time (stably), so the times must agree.
+        const bySuperChat = [...conversation.thread].sort(
+          (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+        );
+        expect(bySuperChat.map((m) => m.id)).toEqual(['evt-1:clock-in', 'plan', 'evt-1:clock-out']);
+      }
+    });
+
+    it("keeps another session's post where it was when reordering a clock-in", () => {
+      const posts = [
+        makePost({
+          id: 'other',
+          userId: 'user-ravi',
+          userName: 'Ravi Shah',
+          createdAt: new Date(SEP_29_0858 - 60_000).toISOString(),
+        }),
+        makePost({
+          id: 'plan',
+          createdAt: new Date(SEP_29_0858 - 20_000).toISOString(),
+          clockEventId: 'evt-1',
+          session: closed,
+        }),
+      ];
+      const [conversation] = postsToConversations(posts, 'day', VIEWER_MEMBER, NOW);
+      expect(conversation.thread.map((m) => m.id)).toEqual([
+        'other',
+        'evt-1:clock-in',
+        'plan',
+        'evt-1:clock-out',
+      ]);
     });
   });
 
