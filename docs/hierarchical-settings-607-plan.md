@@ -198,11 +198,11 @@ flowchart LR
 
 ## Milestone 5 — Notifications on effective-value changes
 
-- [ ] Extract the existing notification block from [teams.js L483–L499](../meteor-backend/server/teams.js#L483-L499) into `notifyPlanRequired(team, actorUserId)`. Keep the **same title and body text**. `teams.updateSettings` now calls the helper — but only when the **resolved** value goes `false → true` (compare resolved before vs. after, not the raw field).
-- [ ] In `orgs.updateSettings` and `enterprises.updateSettings`: when `requirePlanForClock` or its lock changes, resolve every affected non-personal team **before and after** the write, and call `notifyPlanRequired` for each team whose value went `false → true`. Teams with their own explicit value (and no lock) must not be notified.
-- [ ] Integration test: org turns on the default → members of an inheriting team get a notification; members of a team with explicit `false` do not.
+- [x] Extract the existing notification block from [teams.js L483–L499](../meteor-backend/server/teams.js#L483-L499) into `notifyPlanRequired(team, actorUserId)`. Keep the **same title and body text**. `teams.updateSettings` now calls the helper — but only when the **resolved** value goes `false → true` (compare resolved before vs. after, not the raw field).
+- [x] In `orgs.updateSettings` and `enterprises.updateSettings`: when `requirePlanForClock` or its lock changes, resolve every affected non-personal team **before and after** the write, and call `notifyPlanRequired` for each team whose value went `false → true`. Teams with their own explicit value (and no lock) must not be notified.
+- [x] Integration test: org turns on the default → members of an inheriting team get a notification; members of a team with explicit `false` do not.
 
-**Done when:** the test passes and the existing team-level notification still fires.
+**Done when:** the test passes and the existing team-level notification still fires. _(Met, in `settings-hierarchy.test.ts`. The shared `writeNotifyingPlanChanges` in `settings/notify.js` serves teams, orgs and enterprises; it reloads teams before the second resolve. The notification's `data.teamId` is now the hex id — it used to be `ObjectID("…")` from `String()` on a Meteor id.)_
 
 ---
 

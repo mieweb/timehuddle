@@ -9,7 +9,8 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { resolveOrgSettings, settingsUpdateFor } from './settings';
+import { resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import { writeNotifyingPlanChanges } from './settings/notify';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -393,11 +394,14 @@ Meteor.methods({
       settings: settingsPatch,
       locks,
     });
-    const result = await db.collection('organizations').findOneAndUpdate(
-      { _id: new ObjectId(orgId) },
-      update,
-      { returnDocument: 'after' },
-    );
+    const result = await writeNotifyingPlanChanges({
+      teams: await teamsInOrg(orgId),
+      actorUserId: userId,
+      write: () =>
+        db.collection('organizations').findOneAndUpdate({ _id: new ObjectId(orgId) }, update, {
+          returnDocument: 'after',
+        }),
+    });
     return {
       organization: {
         orgId: result._id.toHexString(),

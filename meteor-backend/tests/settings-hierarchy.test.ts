@@ -22,6 +22,7 @@ const ids = {} as Record<keyof typeof USERS, string>;
 const enterpriseId = new ObjectId();
 const orgId = new ObjectId();
 const teamId = new ObjectId();
+const ownValueTeamId = new ObjectId();
 
 async function teamSettings(): Promise<Settings> {
   const res = await wormhole<TeamsList>('teams.list', {}, jwts.teamAdmin);
@@ -83,11 +84,22 @@ beforeAll(async () => {
     isPersonal: false,
     createdAt: now,
   });
+  await db.collection('teams').insertOne({
+    _id: ownValueTeamId,
+    orgId: orgId.toHexString(),
+    name: 'Settings Team With Own Value',
+    members: [ids.teamAdmin, ids.member],
+    admins: [ids.teamAdmin],
+    code: 'WHSETT02',
+    isPersonal: false,
+    settings: { requirePlanForClock: false },
+    createdAt: now,
+  });
 }, 60000);
 
 afterAll(async () => {
   const db = await getDb();
-  await db.collection('teams').deleteMany({ _id: teamId });
+  await db.collection('teams').deleteMany({ _id: { $in: [teamId, ownValueTeamId] } });
   await db.collection('organizations').deleteMany({ _id: orgId });
   await db.collection('enterprises').deleteMany({ _id: enterpriseId });
   await db.collection('org_members').deleteMany({ orgId: orgId.toHexString() });
@@ -106,6 +118,10 @@ beforeEach(async () => {
     { $set: { settings: {}, settingsLocks: {} } },
   );
   await db.collection('teams').updateOne({ _id: teamId }, { $unset: { settings: '' } });
+  await db
+    .collection('teams')
+    .updateOne({ _id: ownValueTeamId }, { $set: { settings: { requirePlanForClock: false } } });
+  await db.collection('notifications').deleteMany({ userId: { $in: [ids.member, ids.teamAdmin] } });
 });
 
 describe('org defaults', () => {
@@ -257,5 +273,82 @@ describe('permissions', () => {
       jwts.member,
     );
     expect(res.ok).toBe(false);
+  });
+});
+
+describe('plan requirement notifications', () => {
+  async function planNotifiedTeamIds(userId: string): Promise<string[]> {
+    const db = await getDb();
+    const rows = await db
+      .collection('notifications')
+      .find({ userId, 'data.type': 'team-setting-change' })
+      .toArray();
+    return rows.map((row) => row.data.teamId);
+  }
+
+  async function orgSets(requirePlanForClock: boolean) {
+    const res = await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { requirePlanForClock } },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+  }
+
+  it('an org default turning on notifies an inheriting team but not one with its own value', async () => {
+    await orgSets(false);
+    expect(await planNotifiedTeamIds(ids.member)).toEqual([]);
+
+    await orgSets(true);
+    expect(await planNotifiedTeamIds(ids.member)).toEqual([teamId.toHexString()]);
+    expect(await planNotifiedTeamIds(ids.teamAdmin)).toEqual([teamId.toHexString()]);
+  });
+
+  it('turning the default off, or leaving it on, notifies nobody', async () => {
+    await orgSets(true);
+    await orgSets(false);
+    await orgSets(false);
+    expect(await planNotifiedTeamIds(ids.member)).toEqual([]);
+  });
+
+  it('an enterprise default turning on reaches the teams below it', async () => {
+    await wormhole(
+      'enterprises.updateSettings',
+      { enterpriseId: enterpriseId.toHexString(), settings: { requirePlanForClock: false } },
+      jwts.entAdmin,
+    );
+    const res = await wormhole(
+      'enterprises.updateSettings',
+      { enterpriseId: enterpriseId.toHexString(), settings: { requirePlanForClock: true } },
+      jwts.entAdmin,
+    );
+    expect(res.ok).toBe(true);
+    expect(await planNotifiedTeamIds(ids.member)).toEqual([teamId.toHexString()]);
+  });
+
+  it('a team switching its own value on notifies its members except the admin', async () => {
+    await orgSets(false);
+    const res = await wormhole(
+      'teams.updateSettings',
+      { teamId: teamId.toHexString(), requirePlanForClock: true },
+      jwts.teamAdmin,
+    );
+    expect(res.ok).toBe(true);
+    expect(await planNotifiedTeamIds(ids.member)).toEqual([teamId.toHexString()]);
+    expect(await planNotifiedTeamIds(ids.teamAdmin)).toEqual([]);
+  });
+
+  it('a lock turning the requirement on overrides a team that had it off', async () => {
+    const res = await wormhole(
+      'orgs.updateSettings',
+      {
+        orgId: orgId.toHexString(),
+        settings: { requirePlanForClock: true },
+        locks: { requirePlanForClock: true },
+      },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+    expect(await planNotifiedTeamIds(ids.member)).toContain(ownValueTeamId.toHexString());
   });
 });

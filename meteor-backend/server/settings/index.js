@@ -92,6 +92,29 @@ export async function resolveOrgSettings(org) {
   return resolveFromChain(chain);
 }
 
+// Current copies of `teams`, in the same order, so a resolve sees their latest own settings.
+export async function reloadTeams(teams) {
+  const ids = teams.map((team) => idOf(team._id));
+  const fresh = await rawDb()
+    .collection('teams')
+    .find({ _id: { $in: ids.map(toDocId) } })
+    .toArray();
+  const byId = new Map(fresh.map((team) => [idOf(team._id), team]));
+  return ids.map((id, i) => byId.get(id) ?? teams[i]);
+}
+
+// Non-personal teams an org-level change can affect.
+export function teamsInOrg(orgId) {
+  return rawDb().collection('teams').find({ orgId, isPersonal: { $ne: true } }).toArray();
+}
+
+// Non-personal teams an enterprise-level change can affect.
+export async function teamsInEnterprise(enterpriseId) {
+  const orgs = await rawDb().collection('organizations').find({ enterpriseId }, { projection: { _id: 1 } }).toArray();
+  const orgIds = orgs.map((org) => idOf(org._id));
+  return rawDb().collection('teams').find({ orgId: { $in: orgIds }, isPersonal: { $ne: true } }).toArray();
+}
+
 // The one place the org auto-join rule is applied when someone joins a team.
 export async function addMemberToTeamOrgIfAllowed(team, userId) {
   if (!isValidId(team.orgId)) return;

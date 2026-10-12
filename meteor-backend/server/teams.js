@@ -11,6 +11,7 @@ import {
 } from './org-helpers';
 import { createNotification } from './notify-core';
 import { resolveSettings, resolveSettingsForTeams, addMemberToTeamOrgIfAllowed, settingsUpdateFor } from './settings';
+import { writeNotifyingPlanChanges } from './settings/notify';
 import { sendEmail } from './email';
 import {
   INVITATION_LIFETIME_MS,
@@ -474,28 +475,13 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     const resolved = await resolveSettings(team);
-    const planWasRequired = resolved.requirePlanForClock.value;
     const update = settingsUpdateFor({ level: 'team', entity: team, resolved, settings });
-    await Teams.updateAsync(team._id, update);
+    await writeNotifyingPlanChanges({
+      teams: [team],
+      actorUserId: userId,
+      write: () => Teams.updateAsync(team._id, update),
+    });
     const updated = await Teams.findOneAsync(team._id);
-
-    // Notify all members (except the admin making the change) when plan-gate is enabled
-    if (requirePlanForClock === true && !planWasRequired) {
-      const memberIds = Array.from(new Set([...team.members, ...team.admins])).filter(
-        (id) => id !== userId,
-      );
-      const teamLabel = team.name ?? 'Your team';
-      await Promise.allSettled(
-        memberIds.map((memberId) =>
-          createNotification({
-            userId: memberId,
-            title: `${teamLabel} now requires a plan before clocking in`,
-            body: 'Write a short plan on the Clock In/Out page before starting your next shift.',
-            data: { type: 'team-setting-change', url: '/app/clock', teamId: String(team._id) },
-          }),
-        ),
-      );
-    }
 
     return { team: await toPublicTeam(updated) };
   },
