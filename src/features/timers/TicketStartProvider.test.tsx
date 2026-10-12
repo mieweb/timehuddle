@@ -26,7 +26,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return {
     ApiError: actual.ApiError,
     timerApi: { startSession: vi.fn(), stopSession: vi.fn() },
-    redmineApi: { timeEntries: { sendTicketDay: vi.fn() } },
+    redmineApi: { timeEntries: { sendTicketDay: vi.fn(), preview: vi.fn() } },
   };
 });
 
@@ -47,6 +47,7 @@ vi.mock('../../ui/router', () => ({
 
 const mockStart = vi.mocked(startTicketTimer);
 const mockSend = vi.mocked(redmineApi.timeEntries.sendTicketDay);
+const mockPreview = vi.mocked(redmineApi.timeEntries.preview);
 const mockClockToggle = vi.mocked(useClockToggle);
 const mockRunning = vi.mocked(useRunningTicket);
 
@@ -347,7 +348,12 @@ describe('TicketStartProvider', () => {
         await result.current.stop({ sessionId: 's0', ticketKey: 'redmine:15', label: '#15' });
       });
     };
-    const comment = () => screen.getByLabelText('Comment');
+    const comment = () => screen.getByLabelText('Comment (optional)');
+
+    // The prompt reads the issue's activities; none here, so the server picks.
+    beforeEach(() => {
+      mockPreview.mockResolvedValue({ connected: true, idle: false, rows: [], baseUrl: null });
+    });
 
     // Some of these end with the prompt still open, which the next would find.
     afterEach(cleanup);
@@ -364,35 +370,85 @@ describe('TicketStartProvider', () => {
       window.addEventListener('redmine:time-sent', heard);
       await stopIssue();
 
-      expect(await screen.findByText(/0:31 on #15 is ready to send/)).toBeTruthy();
-      // Nothing goes until a button is pressed.
+      // The entry, as a card: the issue and its hours.
+      expect(await screen.findByText('Send time to Redmine')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^0:31 on issue 15/ })).toBeTruthy();
+      // Nothing goes until Send is pressed.
       expect(mockSend).not.toHaveBeenCalled();
+      expect(mockPreview).toHaveBeenCalledWith({ ticketId: '15', date: UNSENT.date });
 
       fireEvent.change(comment(), { target: { value: '  Fixed the clock  ' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Send with comment' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
       await waitFor(() =>
         expect(toast.success).toHaveBeenCalledWith('Sent 0:31 on #15 to Redmine as Development'),
       );
-      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, 'Fixed the clock');
-      expect(screen.queryByText(/is ready to send/)).toBeNull();
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: undefined,
+      });
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
       window.removeEventListener('redmine:time-sent', heard);
     });
 
-    it('sends without a comment, leaving out whatever was typed', async () => {
+    it('sends without a comment when none was written', async () => {
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
       await stopIssue();
 
-      expect(
-        (screen.getByRole('button', { name: 'Send with comment' }) as HTMLButtonElement).disabled,
-      ).toBe(true);
-      fireEvent.click(await screen.findByRole('button', { name: 'Send without comment' }));
+      // A comment of spaces is no comment.
+      fireEvent.change(comment(), { target: { value: '   ' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
 
       await waitFor(() =>
         expect(toast.success).toHaveBeenCalledWith('Sent 0:31 on #15 to Redmine'),
       );
-      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, undefined);
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: undefined,
+        activityId: undefined,
+      });
+    });
+
+    it('Enter in the comment sends, and not with Shift held', async () => {
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue();
+
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.keyDown(comment(), { key: 'Enter', shiftKey: true });
+      expect(mockSend).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(comment(), { key: 'Enter' });
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: undefined,
+      });
+    });
+
+    it('Ctrl+Enter or Cmd+Enter sends from anywhere in the prompt, once', async () => {
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue();
+
+      // From a button, not the comment field.
+      fireEvent.keyDown(await screen.findByRole('button', { name: 'Later' }), {
+        key: 'Enter',
+        metaKey: true,
+      });
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: undefined,
+        activityId: undefined,
+      });
+    });
+
+    it('Later closes the prompt and sends nothing', async () => {
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Later' }));
+
+      await waitFor(() => expect(screen.queryByText('Send time to Redmine')).toBeNull());
+      expect(mockSend).not.toHaveBeenCalled();
     });
 
     it('a switch starts the next timer first, then asks about the ticket it left', async () => {
@@ -415,7 +471,9 @@ describe('TicketStartProvider', () => {
       // The start is over and confirmed while the prompt is still open.
       expect(outcome).toBe('started-and-added');
       expect(toast.success).toHaveBeenCalledWith('Started #16', expect.anything());
-      expect(await screen.findByText(/0:31 on #15 is ready to send/)).toBeTruthy();
+      // The entry, as a card: the issue and its hours.
+      expect(await screen.findByText('Send time to Redmine')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^0:31 on issue 15/ })).toBeTruthy();
       expect(mockSend).not.toHaveBeenCalled();
     });
 
@@ -430,14 +488,14 @@ describe('TicketStartProvider', () => {
       });
       await stopIssue();
 
-      fireEvent.click(await screen.findByRole('button', { name: 'Send without comment' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
 
       await waitFor(() =>
         expect(toast.error).toHaveBeenCalledWith(
           'Time on #15 was not sent to Redmine: Redmine: Activity is not included in the list. It is waiting on the Clock page.',
         ),
       );
-      expect(screen.queryByText(/is ready to send/)).toBeNull();
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
     });
 
     it('stays open with the comment when the send could not be made', async () => {
@@ -447,7 +505,7 @@ describe('TicketStartProvider', () => {
       await stopIssue();
 
       fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Send with comment' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
       expect((await screen.findByRole('alert')).textContent).toBe(
         'A push to Redmine is already running.',
@@ -460,7 +518,7 @@ describe('TicketStartProvider', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: /close/i }));
 
-      await waitFor(() => expect(screen.queryByText(/is ready to send/)).toBeNull());
+      await waitFor(() => expect(screen.queryByText('Send time to Redmine')).toBeNull());
       expect(mockSend).not.toHaveBeenCalled();
     });
 
@@ -471,7 +529,7 @@ describe('TicketStartProvider', () => {
         await result.current.stop({ sessionId: 's0', ticketKey: 'huddle:abc', label: 'Fix login' });
       });
 
-      expect(screen.queryByText(/is ready to send/)).toBeNull();
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
     });
   });
 });

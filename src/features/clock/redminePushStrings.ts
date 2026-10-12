@@ -11,6 +11,9 @@ import type { RedmineTimeEntryPushOutcome } from '../../lib/api';
  */
 export const REDMINE_TIME_SENT_EVENT = 'redmine:time-sent';
 
+/** The server's `MAX_COMMENT_LENGTH`: the longest comment Redmine accepts on a time entry. */
+export const REDMINE_COMMENT_MAX_LENGTH = 1024;
+
 /** Plain-English reasons, so a blocked row explains itself instead of just being disabled. */
 export const BLOCKED_TEXT: Record<string, string> = {
   'too-short': 'Under a minute — Redmine rejects a zero-hour entry',
@@ -57,3 +60,41 @@ export function asClock(hours: number): string {
   const totalMinutes = Math.round(hours * 60);
   return `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, '0')}`;
 }
+
+/**
+ * Hours for display: as time worked (`0:09`), or as Redmine stores them
+ * (`0.15 h`) when `decimal`.
+ */
+export function hoursLabel(hours: number, decimal: boolean): string {
+  return decimal ? `${hours.toFixed(2)} h` : asClock(hours);
+}
+
+/** How the entry card names the current day. */
+export const ENTRY_TODAY = 'Today';
+
+/**
+ * A logged day as people say it: "Today", else a short date in the reader's
+ * own format ("Oct 12"), with the year only when it is not this one. `date` is
+ * `YYYY-MM-DD`, read as a local day (a `Date` parse would treat it as UTC).
+ */
+export function entryDayLabel(date: string, today: Date = new Date()): string {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return date;
+  if (year === today.getFullYear() && month === today.getMonth() + 1 && day === today.getDate()) {
+    return ENTRY_TODAY;
+  }
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(year === today.getFullYear() ? {} : { year: 'numeric' }),
+  });
+}
+
+/** Words on the entry card, shared by both dialogs that send time. */
+export const entryCardText = {
+  activity: 'Activity',
+  comment: 'Comment',
+  commentPlaceholder: 'Optional',
+  showAsTime: 'Show as time',
+  showAsRedmineHours: 'Show as Redmine hours',
+};

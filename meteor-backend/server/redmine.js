@@ -310,6 +310,36 @@ function requireTicketDay(ticketId, date) {
 }
 
 /**
+ * A time entry's comment as it will be sent: trimmed, or '' for none. Refuses
+ * anything that is not text, or is longer than Redmine accepts.
+ */
+function requireComment(comment) {
+  if (comment != null && typeof comment !== 'string') {
+    throw new Meteor.Error('bad-request', 'The comment must be text.');
+  }
+  const text = (comment ?? '').trim();
+  if (text.length > MAX_COMMENT_LENGTH) {
+    throw new Meteor.Error(
+      'bad-request',
+      `Keep the comment to ${MAX_COMMENT_LENGTH} characters or fewer.`,
+    );
+  }
+  return text;
+}
+
+/**
+ * The activity a row goes under: the one asked for, when the issue's project
+ * allows it (the list the row's drop-down was built from), else the row's
+ * default when none was asked for. Null for one the project does not allow:
+ * the entry is permanent, and writing an activity the user did not choose is
+ * worse than writing nothing.
+ */
+function chosenActivity(row, requestedId) {
+  if (requestedId == null) return { id: row.activityId, name: row.activityName };
+  return row.activityOptions.find((option) => option.id === requestedId) ?? null;
+}
+
+/**
  * The unsynced ticket-days for a user, shaped for the dialog.
  *
  * Shared by `preview` and `push` so the two can never disagree about what is
@@ -541,15 +571,23 @@ Meteor.methods({
    * still returned, carrying a `blockedReason`, so the dialog can explain the
    * omission rather than quietly showing a shorter list than the user's day.
    */
-  async 'redmine.timeEntries.preview'() {
+  async 'redmine.timeEntries.preview'({ ticketId, date } = {}) {
     const { userId } = await requireIdentity(this);
+    // One ticket-day only, for the prompt shown when a timer ends (#688): it
+    // needs that issue's activities, not every unsent day.
+    const one = ticketId != null || date != null;
+    if (one) requireTicketDay(ticketId, date);
 
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
     enforceRedmineLimit(accountLimiter, userId);
 
     const idle = await isIdleForPush(userId);
-    const rows = await buildPreviewRows(userId, account);
+    const rows = await buildPreviewRows(
+      userId,
+      account,
+      one ? { only: ticketDayKey(ticketId, date) } : {},
+    );
     return { connected: true, idle, rows, baseUrl: account.baseUrl };
   },
 
@@ -596,6 +634,9 @@ Meteor.methods({
     if (!Array.isArray(entries) || entries.length === 0) {
       throw new Meteor.Error('bad-request', 'Nothing to send.');
     }
+    // Checked before anything is sent: a bad comment on one row must not leave
+    // the rows before it already written.
+    for (const entry of entries) requireComment(entry?.comment);
 
     const account = await requireRedmineAccount(userId);
 
@@ -630,21 +671,16 @@ Meteor.methods({
    * two can never send the same time twice. Unlike `push` it is allowed while
    * clocked in or with another timer running. Only closed sessions are ever
    * summed, so neither can put partial time in the entry. The activity is the
-   * one the issue's project rules choose; there is no override.
+   * one the issue's project rules choose, unless `activityId` names another
+   * that the project allows.
    */
-  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment } = {}) {
+  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment, activityId } = {}) {
     const { userId } = await requireIdentity(this);
     enforceRedmineLimit(accountLimiter, userId);
     requireTicketDay(ticketId, date);
-    if (comment != null && typeof comment !== 'string') {
-      throw new Meteor.Error('bad-request', 'The comment must be text.');
-    }
-    const text = (comment ?? '').trim();
-    if (text.length > MAX_COMMENT_LENGTH) {
-      throw new Meteor.Error(
-        'bad-request',
-        `Keep the comment to ${MAX_COMMENT_LENGTH} characters or fewer.`,
-      );
+    const text = requireComment(comment);
+    if (activityId != null && !Number.isInteger(activityId)) {
+      throw new Meteor.Error('bad-request', 'The activity must be an id.');
     }
     const account = await requireRedmineAccount(userId);
 
@@ -653,10 +689,13 @@ Meteor.methods({
       if (!row) return { ticketId, date, ok: false, reason: 'already-synced-or-gone' };
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
 
-      const outcome = await pushOneEntry(userId, account, row, row.activityId, text);
+      const activity = chosenActivity(row, activityId);
+      if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
+
+      const outcome = await pushOneEntry(userId, account, row, activity.id, text);
       // As in `push`: logged time is one of the relevant list's signals.
       bustUserCaches(userId);
-      return { ...outcome, activityName: row.activityName };
+      return { ...outcome, activityName: activity.name };
     });
   },
 });
@@ -694,18 +733,11 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       continue;
     }
 
-    // An override is honoured only if the issue's project allows that activity:
-    // the same list the row's drop-down was built from. An invalid one rejects
-    // the row instead of falling back to the default: the entry is permanent,
-    // and writing an activity the user did not choose is worse than writing
-    // nothing.
-    let activityId = row.activityId;
-    if (requested.activityId != null) {
-      if (!row.activityOptions.some((option) => option.id === requested.activityId)) {
-        results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
-        continue;
-      }
-      activityId = requested.activityId;
+    // An override the project does not allow rejects the row (`chosenActivity`).
+    const activity = chosenActivity(row, requested.activityId);
+    if (!activity) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
+      continue;
     }
 
     // Renewed before every write, so the lock cannot go stale under a long
@@ -716,7 +748,9 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       continue;
     }
 
-    results.push(await pushOneEntry(userId, account, row, activityId));
+    results.push(
+      await pushOneEntry(userId, account, row, activity.id, requireComment(requested.comment)),
+    );
   }
 
   return results;

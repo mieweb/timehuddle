@@ -2377,6 +2377,8 @@ export interface RedmineTimeEntryPushRequest {
   date: string;
   /** Optional override of the resolved activity. */
   activityId?: number;
+  /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
+  comment?: string;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2681,9 +2683,12 @@ export const redmineApi = {
   },
 
   timeEntries: {
-    /** What a push would send. Read-only — creates nothing in Redmine. */
-    preview: (): Promise<RedmineTimeEntryPreview> =>
-      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', {}),
+    /**
+     * What a push would send. Read-only — creates nothing in Redmine. With
+     * `only`, that one ticket-day: its hours and the activities its project allows.
+     */
+    preview: (only?: { ticketId: string; date: string }): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', { ...only }),
 
     /**
      * Send the confirmed ticket-days to Redmine.
@@ -2700,17 +2705,19 @@ export const redmineApi = {
      * comment: what the prompt shown when a ticket timer ends calls.
      *
      * **Irreversible**, like `push`, but allowed while clocked in. The hours
-     * and the activity are worked out server-side.
+     * are worked out server-side, and so is the activity unless `activityId`
+     * names another that the issue's project allows.
      */
     sendTicketDay: (
       ticketId: string,
       date: string,
-      comment?: string,
+      { comment, activityId }: { comment?: string; activityId?: number } = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
         date,
         comment,
+        activityId,
       }),
 
     /**

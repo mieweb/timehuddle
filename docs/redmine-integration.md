@@ -42,9 +42,9 @@ Your sessions show up on the Work page, nested under the right shift in the Dash
 
 ### 6. Send your time to Redmine
 
-**When a timer ends.** Stop a timer on a Redmine issue, or start another ticket, and TimeHuddle offers to send that issue's unsent time for the day straight away. You can add a sentence about the work, which becomes the entry's comment in Redmine, or send it without one. This works while you're still clocked in, and the next timer is already running while you answer. The activity is chosen for you from the ones the issue's project allows, and the confirmation says which. Close the prompt and nothing is sent; the time waits for the Clock page.
+**When a timer ends.** Stop a timer on a Redmine issue, or start another ticket, and TimeHuddle offers to send that issue's unsent time for the day straight away. You can add a sentence about the work, which becomes the entry's comment in Redmine, or send it without one. This works while you're still clocked in, and the next timer is already running while you answer. The activity is chosen for you from the ones the issue's project allows; you can pick another of them, and the list filters as you type. **Send** (or Enter) sends it; **Later** (or Esc) sends nothing, and the time waits for the Clock page.
 
-**From the Clock page.** Anything not sent that way (a prompt you closed, an entry Redmine refused, a timer that ended because you clocked out or took a break) is on the Clock page. Once you're clocked out with no timer running, press **Send work entries to Redmine**. You get a summary first: one row per issue per day, the hours, and which Redmine activity each will be logged under (overridable per row). Nothing is sent until you confirm.
+**From the Clock page.** Anything not sent that way (a prompt you closed, an entry Redmine refused, a timer that ended because you clocked out or took a break) is on the Clock page. Once you're clocked out with no timer running, press **Send work entries to Redmine**. You get a summary first: one card per issue per day, with the hours, which Redmine activity it will be logged under (changeable per entry), and room for a comment about the work. Press the hours to read them as Redmine stores them. Nothing is sent until you confirm.
 
 After each entry is created, TimeHuddle reads it back from Redmine to confirm the hours were stored as sent.
 

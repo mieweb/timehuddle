@@ -80,13 +80,20 @@ export const ticketTimerText = {
    * Redmine with the comment, or without one. `time` is `h:mm`.
    */
   redmineSendTitle: 'Send time to Redmine',
-  redmineSendBody: (time: string, issue: string) =>
-    `${time} on ${issue} is ready to send. Add a comment about the work, or send it without one.`,
   redmineSendPermanent: 'A sent entry can only be changed in Redmine.',
-  redmineSendCommentLabel: 'Comment',
-  redmineSendCommentPlaceholder: 'What did you work on?',
-  redmineSendWithComment: 'Send with comment',
-  redmineSendWithoutComment: 'Send without comment',
+  redmineSendActivityLabel: 'Activity',
+  /** Shown in the activity field until the issue's activities have been read. */
+  redmineSendActivityLoading: 'Loading activities…',
+  /** The activity list can be long (a project may allow dozens), so it filters as you type. */
+  redmineSendActivitySearch: 'Search activities',
+  redmineSendActivityNoMatch: 'No activity matches',
+  redmineSendCommentLabel: 'Comment (optional)',
+  /** Sends the time, with the comment when one was written. */
+  redmineSend: 'Send',
+  /** Closes the prompt; the time stays unsent, in the push dialog. */
+  redmineSendLater: 'Later',
+  /** The keys that do the same as the two buttons. */
+  redmineSendShortcuts: 'Enter sends · Esc dismisses',
   redmineSent: (time: string, issue: string, activity?: string | null) =>
     activity
       ? `Sent ${time} on ${issue} to Redmine as ${activity}`

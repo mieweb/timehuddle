@@ -67,27 +67,132 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     const rm = await stubRedmine(page, {
       status: connectedStatus(),
       'timeEntries.sendTicketDay': sent(),
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15', seconds: 1860 })] }),
     });
     const title = await timedTicket(page, 'Send Comment');
 
     await tickets.stopTimerButton(title).click();
 
     await expect(prompt(page)).toBeVisible();
-    await expect(
-      prompt(page).getByText('0:31 on #15 is ready to send.', { exact: false }),
-    ).toBeVisible();
+    // The entry, as a card: the issue with its subject, hours and day.
+    await expect(prompt(page)).toContainText('#15 Fix the intake form validation');
+    await expect(prompt(page)).toContainText('0:31');
     // The timer has already stopped, and nothing has been sent yet.
     await expect(tickets.startTimerButton(title)).toBeVisible();
     expect(rm.callCount('timeEntries.sendTicketDay')).toBe(0);
 
-    await prompt(page).getByLabel('Comment').fill('Fixed the intake form validation');
-    await prompt(page).getByRole('button', { name: 'Send with comment' }).click();
+    // It read this issue's activities, and nothing else.
+    expect(rm.calls('timeEntries.preview')).toContainEqual({ ticketId: '15', date: UNSENT.date });
+
+    await prompt(page).getByLabel('Comment (optional)').fill('Fixed the intake form validation');
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
     await expect(prompt(page)).toHaveCount(0);
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
       { ticketId: '15', date: UNSENT.date, comment: 'Fixed the intake form validation' },
     ]);
+  });
+
+  test('the activity can be changed to another the project allows', async ({ page }) => {
+    const rm = await stubRedmine(page, {
+      status: connectedStatus(),
+      'timeEntries.sendTicketDay': sent({ activityName: 'QA' }),
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15', seconds: 1860 })] }),
+    });
+    const title = await timedTicket(page, 'Send Activity');
+
+    await tickets.stopTimerButton(title).click();
+
+    // The project's own pick is shown, and its other activities are offered.
+    const activity = prompt(page).getByRole('combobox', { name: 'Activity' });
+    await expect(activity).toContainText('Development');
+    await activity.click();
+    await page.getByRole('option', { name: 'QA', exact: true }).click();
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
+
+    await expect(page.getByText('Sent 0:31 on #15 to Redmine as QA')).toBeVisible();
+    expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
+      { ticketId: '15', date: UNSENT.date, activityId: 10 },
+    ]);
+  });
+
+  test('the activity list filters as you type', async ({ page }) => {
+    const rm = await stubRedmine(page, {
+      status: connectedStatus(),
+      'timeEntries.sendTicketDay': sent({ activityName: 'QA' }),
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15', seconds: 1860 })] }),
+    });
+    const title = await timedTicket(page, 'Send Search');
+
+    await tickets.stopTimerButton(title).click();
+    await prompt(page).getByRole('combobox', { name: 'Activity' }).click();
+    await page.getByPlaceholder('Search activities').fill('qa');
+
+    await expect(page.getByRole('option', { name: 'QA', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Design' })).toHaveCount(0);
+    await page.getByRole('option', { name: 'QA', exact: true }).click();
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
+
+    await expect(page.getByText('Sent 0:31 on #15 to Redmine as QA')).toBeVisible();
+    expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
+      { ticketId: '15', date: UNSENT.date, activityId: 10 },
+    ]);
+  });
+
+  test('Enter in the comment sends, and Cmd/Ctrl+Enter sends from anywhere', async ({ page }) => {
+    const rm = await stubRedmine(page, {
+      status: connectedStatus(),
+      'timeEntries.sendTicketDay': sent(),
+    });
+    const first = await timedTicket(page, 'Send Enter');
+
+    await tickets.stopTimerButton(first).click();
+    const comment = prompt(page).getByLabel('Comment (optional)');
+    await comment.fill('Fixed the form');
+    await comment.press('Enter');
+
+    await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
+    await expect(prompt(page)).toHaveCount(0);
+
+    const second = await timedTicket(page, 'Send Mod Enter');
+    await tickets.stopTimerButton(second).click();
+    await expect(prompt(page)).toBeVisible();
+    await prompt(page).getByRole('button', { name: 'Later' }).focus();
+    await page.keyboard.press('ControlOrMeta+Enter');
+
+    await expect(prompt(page)).toHaveCount(0);
+    expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
+      { ticketId: '15', date: UNSENT.date, comment: 'Fixed the form' },
+      { ticketId: '15', date: UNSENT.date },
+    ]);
+  });
+
+  test('the prompt fits a phone, with nothing cut off', async ({ page }) => {
+    await stubRedmine(page, {
+      status: connectedStatus(),
+      'timeEntries.sendTicketDay': sent(),
+      'timeEntries.preview': preview({ rows: [previewRow({ ticketId: '15', seconds: 1860 })] }),
+    });
+    const title = await timedTicket(page, 'Send Phone');
+    const narrow = { width: 360, height: 740 };
+    await page.setViewportSize(narrow);
+
+    await tickets.stopTimerButton(title).click();
+    await expect(prompt(page)).toBeVisible();
+
+    for (const control of [
+      prompt(page).getByRole('combobox', { name: 'Activity' }),
+      prompt(page).getByLabel('Comment (optional)'),
+      prompt(page).getByRole('button', { name: 'Later' }),
+      prompt(page).getByRole('button', { name: 'Send', exact: true }),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(narrow.width);
+    }
+    await prompt(page).getByRole('button', { name: 'Later' }).click();
   });
 
   test('the time can be sent without a comment', async ({ page }) => {
@@ -99,8 +204,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
 
     await tickets.stopTimerButton(title).click();
 
-    await expect(prompt(page).getByRole('button', { name: 'Send with comment' })).toBeDisabled();
-    await prompt(page).getByRole('button', { name: 'Send without comment' }).click();
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([{ ticketId: '15', date: UNSENT.date }]);
@@ -127,7 +231,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     await expect(page.getByText(`Started ${second}`)).toBeVisible();
     expect(rm.callCount('timeEntries.sendTicketDay')).toBe(0);
 
-    await prompt(page).getByRole('button', { name: 'Send without comment' }).click();
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
     await expect(prompt(page)).toHaveCount(0);
     await expect(tickets.stopTimerButton(second)).toBeVisible();
 
@@ -150,7 +254,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     const title = await timedTicket(page, 'Send Refused');
 
     await tickets.stopTimerButton(title).click();
-    await prompt(page).getByRole('button', { name: 'Send without comment' }).click();
+    await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(
       page.getByText(
@@ -161,6 +265,20 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     const clock = new ClockPage(page);
     await clock.ensureClockedOut();
     await expect(page.getByText('Redmine time ready to send')).toBeVisible();
+  });
+
+  test('Later sends nothing', async ({ page }) => {
+    const rm = await stubRedmine(page, {
+      status: connectedStatus(),
+      'timeEntries.sendTicketDay': sent(),
+    });
+    const title = await timedTicket(page, 'Send Not Now');
+
+    await tickets.stopTimerButton(title).click();
+    await prompt(page).getByRole('button', { name: 'Later' }).click();
+
+    await expect(prompt(page)).toHaveCount(0);
+    expect(rm.callCount('timeEntries.sendTicketDay')).toBe(0);
   });
 
   test('closing the prompt sends nothing', async ({ page }) => {
