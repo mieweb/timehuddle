@@ -41,6 +41,15 @@ function dayLabel(epochMs: number): string {
   });
 }
 
+/**
+ * `now`, or the last moment of yesterday when going `span` back from now crosses
+ * local midnight — so everything seeded within `span` lands on one calendar day.
+ */
+function sameDayReference(now: number, span: number): number {
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  return now - span < midnight ? midnight - 1 : now;
+}
+
 const messageLog = (page: Page) => page.getByRole('log', { name: 'Messages' });
 
 async function threadText(page: Page): Promise<string> {
@@ -58,7 +67,8 @@ test.describe('Huddle clock lines', () => {
   const twoName = TEST_USERS.member2.name;
 
   // Member One: a finished 20-minute shift. Member Two: started after it, still live.
-  const now = Date.now();
+  // Both plans must share a day, or the Day thread splits in two just after midnight.
+  const now = sameDayReference(Date.now(), 30 * MINUTE + PLAN_LEAD);
   const oneStart = now - 30 * MINUTE;
   const oneEnd = oneStart + 20 * MINUTE;
   const twoStart = now - 25 * MINUTE;
