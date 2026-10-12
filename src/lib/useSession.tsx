@@ -45,6 +45,32 @@ const SessionContext = createContext<SessionState>({
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+type SessionOrganization = NonNullable<TimecoreUser['organizations']>[number];
+
+/** Never rejects: a failed org load must not block sign-in. */
+async function loadOrganizations(): Promise<SessionOrganization[]> {
+  try {
+    console.log('[TimeHuddle] fetchSession: calling orgApi.listOrganizations()...');
+    const orgs = await orgApi.listOrganizations();
+    // Filter out orgs where role is null
+    const organizations = orgs.filter(
+      (o): o is typeof o & { role: 'owner' | 'admin' | 'member' } => o.role !== null,
+    );
+    console.log(
+      `[TimeHuddle] fetchSession: loaded ${organizations.length} organizations`,
+      organizations,
+    );
+    return organizations;
+  } catch (err) {
+    console.error(
+      '[TimeHuddle] fetchSession: failed to load organizations:',
+      err instanceof Error ? err.message : String(err),
+      err,
+    );
+    return [];
+  }
+}
+
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<TimecoreUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +83,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const t = performance.now();
     try {
       const ddp = getDdpClient();
+      // With a stored session the org list can load alongside getMe instead of after it.
+      const orgsInFlight = localStorage.getItem('meteor_resume_token') ? loadOrganizations() : null;
       const meteorUser = await ddp.getCurrentUser();
 
       if (meteorUser) {
@@ -64,33 +92,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`,
         );
 
-        // Fetch organizations for the user
-        let organizations: Array<{
-          id: string;
-          name: string;
-          slug: string;
-          enterpriseId: string | null;
-          role: 'owner' | 'admin' | 'member';
-          allowAutoJoin: boolean;
-        }> = [];
-        try {
-          console.log('[TimeHuddle] fetchSession: calling orgApi.listOrganizations()...');
-          const orgs = await orgApi.listOrganizations();
-          // Filter out orgs where role is null
-          organizations = orgs.filter(
-            (o): o is typeof o & { role: 'owner' | 'admin' | 'member' } => o.role !== null,
-          );
-          console.log(
-            `[TimeHuddle] fetchSession: loaded ${organizations.length} organizations`,
-            organizations,
-          );
-        } catch (err) {
-          console.error(
-            '[TimeHuddle] fetchSession: failed to load organizations:',
-            err instanceof Error ? err.message : String(err),
-            err,
-          );
-        }
+        const organizations = await (orgsInFlight ?? loadOrganizations());
 
         setUser({
           id: meteorUser.id,

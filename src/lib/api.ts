@@ -1074,11 +1074,35 @@ function toTicket(raw: Record<string, unknown>): Ticket {
   };
 }
 
+export interface TicketDashboardSummary {
+  open: number;
+  unassignedOpen: number;
+  closedToday: number;
+  highPriorityOpen: number;
+  myOpen: number;
+  myClosedToday: number;
+  myHighPriorityOpen: number;
+}
+
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
-      tickets.map(toTicket),
-    ),
+  /**
+   * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
+   * one person's tickets that are not closed, reviewed or deleted.
+   */
+  getTickets: (
+    teamId: string,
+    options: { brief?: boolean; assignedTo?: string; activeOnly?: boolean } = {},
+  ) =>
+    wormholeCall<Array<Record<string, unknown>>>('tickets.list', {
+      teamId,
+      ...(options.brief ? { brief: true } : {}),
+      ...(options.assignedTo ? { assignedTo: options.assignedTo } : {}),
+      ...(options.activeOnly ? { activeOnly: true } : {}),
+    }).then((tickets) => tickets.map(toTicket)),
+
+  /** Dashboard counts, computed server-side. `since`/`until` bound "today" (ms epoch). */
+  getDashboardSummary: (teamId: string, since: number, until: number) =>
+    wormholeCall<TicketDashboardSummary>('tickets.dashboardSummary', { teamId, since, until }),
 
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
@@ -1604,8 +1628,9 @@ export const clockApi = {
   /** Get the current user's active clock event (any team), or null. */
   getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
 
-  /** Get all clock events for the current user. */
-  getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
+  /** The caller's latest completed sessions on a team, newest first. */
+  getRecentSessions: (teamId: string, limit: number) =>
+    wormholeCall<ClockEvent[]>('clock.events', { teamId, completed: true, limit }),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
   getTimesheet: (userId: string, startMs: number, endMs: number) =>
@@ -1673,6 +1698,7 @@ export interface TeamRunningTimer {
   userImage: string | null;
   ticketId: string;
   ticketTitle: string;
+  ticketPriority: string | null;
   startTime: number;
 }
 

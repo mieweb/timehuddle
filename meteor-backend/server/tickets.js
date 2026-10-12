@@ -27,9 +27,14 @@ const ALL_PRIORITIES = ['low', 'medium', 'high', 'critical'];
 /** Mirror of backend activity.service.ts getActor(). */
 async function getActor(userId) {
   const user = isValidId(userId)
-    ? await rawDb().collection('users').findOne({ _id: String(userId) })
+    ? await rawDb()
+        .collection('users')
+        .findOne({ _id: String(userId) })
     : null;
-  return { id: userId, name: user?.profile?.name ?? user?.emails?.[0]?.address?.split('@')[0] ?? 'Someone' };
+  return {
+    id: userId,
+    name: user?.profile?.name ?? user?.emails?.[0]?.address?.split('@')[0] ?? 'Someone',
+  };
 }
 
 /**
@@ -100,8 +105,8 @@ async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTi
           teamId,
           url: `/app/tickets`,
         },
-      }).catch((err) => console.error(`[ticket] notify assignee ${uid} failed:`, err))
-    )
+      }).catch((err) => console.error(`[ticket] notify assignee ${uid} failed:`, err)),
+    ),
   );
 }
 
@@ -111,17 +116,90 @@ const LINKED_TO_REDMINE =
 // as well as in the form: this method is callable without the form.
 const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
 
+// Lists, the live feed and the dashboard summary all read one team's tickets.
+Meteor.startup(async () => {
+  try {
+    await Tickets.createIndexAsync({ teamId: 1, createdAt: -1 });
+  } catch (error) {
+    console.error('[tickets] failed to create team index:', error);
+  }
+});
+
 Meteor.methods({
-  /** List non-deleted tickets for a team (newest first). */
-  async 'tickets.list'({ teamId } = {}) {
+  /**
+   * List non-deleted tickets for a team (newest first). `brief` leaves out descriptions;
+   * `assignedTo` + `activeOnly` narrow it to one person's tickets that are still open.
+   */
+  async 'tickets.list'({ teamId, brief, assignedTo, activeOnly } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     const docs = await Tickets.find(
-      { teamId, status: { $ne: 'deleted' } },
-      { sort: { createdAt: -1 } }
+      {
+        teamId,
+        status: { $nin: activeOnly ? ['deleted', 'closed', 'reviewed'] : ['deleted'] },
+        ...(typeof assignedTo === 'string' && assignedTo ? { assignedTo } : {}),
+      },
+      { sort: { createdAt: -1 }, ...(brief ? { fields: { description: 0 } } : {}) },
     ).fetchAsync();
     return docs.map(toPublicTicket);
+  },
+
+  /**
+   * Ticket counts for the dashboard stat cards, so the page doesn't download
+   * every ticket to count them. `since`/`until` bound "today" in the caller's
+   * timezone (ms epoch), which only the client knows.
+   */
+  async 'tickets.dashboardSummary'({ teamId, since, until } = {}) {
+    const { userId } = await requireIdentity(this);
+    await requireTeamMembership(userId, teamId);
+    if (!Number.isFinite(since) || !Number.isFinite(until)) {
+      throw new Meteor.Error('validation-error', 'since and until are required');
+    }
+
+    const count = (condition) => ({ $sum: { $cond: [condition, 1, 0] } });
+    const assignees = { $ifNull: ['$assignedTo', []] };
+    const done = { $in: ['$status', ['closed', 'reviewed']] };
+    const open = { $not: [done] };
+    const highPriority = { $in: ['$priority', ['high', 'critical']] };
+    const closedToday = {
+      $and: [
+        done,
+        { $gte: ['$updatedAt', new Date(since)] },
+        { $lt: ['$updatedAt', new Date(until)] },
+      ],
+    };
+    const mine = { $in: [userId, assignees] };
+
+    const [row] = await Tickets.rawCollection()
+      .aggregate([
+        { $match: { teamId, status: { $ne: 'deleted' } } },
+        {
+          $group: {
+            _id: null,
+            open: count(open),
+            unassignedOpen: count({ $and: [open, { $eq: [{ $size: assignees }, 0] }] }),
+            closedToday: count(closedToday),
+            highPriorityOpen: count({ $and: [highPriority, open] }),
+            myOpen: count({ $and: [mine, open] }),
+            myClosedToday: count({ $and: [mine, closedToday] }),
+            myHighPriorityOpen: count({ $and: [mine, highPriority, open] }),
+          },
+        },
+        { $project: { _id: 0 } },
+      ])
+      .toArray();
+    return (
+      row ?? {
+        open: 0,
+        unassignedOpen: 0,
+        closedToday: 0,
+        highPriorityOpen: 0,
+        myOpen: 0,
+        myClosedToday: 0,
+        myHighPriorityOpen: 0,
+      }
+    );
   },
 
   /**
@@ -137,7 +215,10 @@ Meteor.methods({
     }
     const clearPriority = priority === 'none' || priority === '' || priority === null;
     if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
-      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
+      throw new Meteor.Error(
+        'validation-error',
+        `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`,
+      );
     }
     if (typeof github === 'string' && github.trim() && !isHttpsUrl(github.trim())) {
       throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
@@ -159,8 +240,8 @@ Meteor.methods({
     const createdTicketId = doc._id.toHexString();
     // A new ticket starts on its creator's My Board. Best-effort: a full board,
     // or a failed write, must not fail the create.
-    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId: createdTicketId }).catch((err) =>
-      console.error('[ticket] add to My Board failed:', err),
+    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId: createdTicketId }).catch(
+      (err) => console.error('[ticket] add to My Board failed:', err),
     );
     await emitTicketActivity(identity.userId, teamId, 'ticket.created', {
       ticketId: createdTicketId,
@@ -182,11 +263,17 @@ Meteor.methods({
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
     await assertUnlocked(ticket, userId);
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
-      throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
+      throw new Meteor.Error(
+        'validation-error',
+        `status must be one of ${ALL_STATUSES.join(', ')}`,
+      );
     }
     const clearPriority = priority === 'none' || priority === '' || priority === null;
     if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
-      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
+      throw new Meteor.Error(
+        'validation-error',
+        `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`,
+      );
     }
     const $set = {
       ...(status !== undefined ? { status } : {}),
@@ -234,7 +321,8 @@ Meteor.methods({
       $set.title = title.trim();
     }
     if (github !== undefined) {
-      if (typeof github !== 'string') throw new Meteor.Error('validation-error', 'github must be a string');
+      if (typeof github !== 'string')
+        throw new Meteor.Error('validation-error', 'github must be a string');
       if (github.trim() && !isHttpsUrl(github.trim())) {
         throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
       }
@@ -321,7 +409,9 @@ Meteor.methods({
             .find({ _id: { $in: assignedToUserIds } })
             .toArray()
             .then((users) =>
-              users.map((u) => u.profile?.name ?? u.emails?.[0]?.address?.split('@')[0] ?? 'Unknown').join(', ')
+              users
+                .map((u) => u.profile?.name ?? u.emails?.[0]?.address?.split('@')[0] ?? 'Unknown')
+                .join(', '),
             )
         : '';
 
@@ -349,7 +439,10 @@ Meteor.methods({
     const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     if (!ALL_STATUSES.includes(status)) {
-      throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
+      throw new Meteor.Error(
+        'validation-error',
+        `status must be one of ${ALL_STATUSES.join(', ')}`,
+      );
     }
     if (!Array.isArray(ticketIds)) {
       throw new Meteor.Error('validation-error', 'ticketIds must be an array');
@@ -376,7 +469,7 @@ Meteor.methods({
     const modified = await Tickets.updateAsync(
       { _id: { $in: validIds }, teamId },
       { $set },
-      { multi: true }
+      { multi: true },
     );
     const updatedTickets = await Tickets.find({ _id: { $in: validIds }, teamId }).fetchAsync();
     await Promise.all(
@@ -387,8 +480,8 @@ Meteor.methods({
           teamId,
           action: 'batch-status-changed',
           status,
-        })
-      )
+        }),
+      ),
     );
     return { modified, lockedIds };
   },
@@ -421,10 +514,12 @@ Meteor.methods({
     if (ticket === 'forbidden') throw new Meteor.Error('forbidden', 'Not authorized');
     const { MongoInternals } = require('meteor/mongo');
     const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
-    await rawDb().collection('tickets').updateOne(
-      { _id: new ObjectId(ticketId) },
-      { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
-    );
+    await rawDb()
+      .collection('tickets')
+      .updateOne(
+        { _id: new ObjectId(ticketId) },
+        { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } },
+      );
     return { ok: true };
   },
 
@@ -439,14 +534,18 @@ Meteor.methods({
     // Verify user can update every ticket
     for (const ticketId of ticketIds) {
       const ticket = await requireTicketPermission(userId, ticketId, 'update');
-      if (ticket === 'not-found') throw new Meteor.Error('not-found', `Ticket ${ticketId} not found`);
-      if (ticket === 'forbidden') throw new Meteor.Error('forbidden', 'Not authorized for all tickets');
+      if (ticket === 'not-found')
+        throw new Meteor.Error('not-found', `Ticket ${ticketId} not found`);
+      if (ticket === 'forbidden')
+        throw new Meteor.Error('forbidden', 'Not authorized for all tickets');
     }
-    const validIds = ticketIds.filter(id => /^[0-9a-f]{24}$/i.test(id));
-    const result = await rawDb().collection('tickets').updateMany(
-      { _id: { $in: validIds.map(id => new ObjectId(id)) } },
-      { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
-    );
+    const validIds = ticketIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
+    const result = await rawDb()
+      .collection('tickets')
+      .updateMany(
+        { _id: { $in: validIds.map((id) => new ObjectId(id)) } },
+        { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } },
+      );
     return { modifiedCount: result.modifiedCount };
   },
 });
@@ -470,6 +569,10 @@ Meteor.publish('tickets.byTeam', async function (teamIds) {
   const allowedIds = memberTeams.map((t) => t._id.toHexString());
   if (!allowedIds.length) return this.ready();
 
-  return Tickets.find({ teamId: { $in: allowedIds }, status: { $ne: 'deleted' } });
+  // Descriptions are left out: the table never shows them, and the edit form
+  // fetches the full ticket when it opens.
+  return Tickets.find(
+    { teamId: { $in: allowedIds }, status: { $ne: 'deleted' } },
+    { fields: { description: 0 } },
+  );
 });
-

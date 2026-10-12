@@ -4,14 +4,7 @@
  * Fixture: USER in a team. Tests clock in/out/pause/resume lifecycle.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import {
-  createUserAndGetJwt,
-  wormhole,
-  getDb,
-  closeDb,
-  purgeUser,
-  ObjectId,
-} from './helpers';
+import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } from './helpers';
 
 const USER = { name: 'Clock User', email: 'wh-clock-user@test.dev', password: 'Password1!' };
 
@@ -122,6 +115,40 @@ describe('clock (wormhole)', () => {
     expect(res.result.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('narrows clock events to one team, completed only, newest first, up to a limit', async () => {
+    const db = await getDb();
+    const otherTeamId = new ObjectId().toHexString();
+    const hour = 60 * 60 * 1000;
+    const base = Date.now() - 48 * hour;
+    await db.collection('clockevents').insertMany([
+      { userId, teamId, startTime: base, endTime: base + hour, accumulatedTime: 0 },
+      { userId, teamId, startTime: base + 2 * hour, endTime: base + 3 * hour, accumulatedTime: 0 },
+      {
+        userId,
+        teamId: otherTeamId,
+        startTime: base + 4 * hour,
+        endTime: base + 5 * hour,
+        accumulatedTime: 0,
+      },
+      { userId, teamId, startTime: base + 6 * hour, endTime: null, accumulatedTime: 0 },
+    ]);
+    try {
+      const res = await wormhole<
+        Array<{ teamId: string; startTime: number; endTime: number | null }>
+      >('clock.events', { teamId, completed: true, limit: 2 }, jwt);
+      expect(res.ok).toBe(true);
+      expect(res.result).toHaveLength(2);
+      expect(res.result.every((e) => e.teamId === teamId && e.endTime !== null)).toBe(true);
+      expect(res.result[0].startTime).toBeGreaterThan(res.result[1].startTime);
+
+      const badLimit = await wormhole('clock.events', { limit: 0 }, jwt);
+      expect(badLimit.ok).toBe(false);
+    } finally {
+      await db.collection('clockevents').deleteMany({ userId, teamId: otherTeamId });
+      await db.collection('clockevents').deleteMany({ userId, teamId, endTime: null });
+    }
+  });
+
   describe('createManual', () => {
     const oneHour = 60 * 60 * 1000;
     let manualStart: number;
@@ -155,7 +182,7 @@ describe('clock (wormhole)', () => {
     // Dashboard links members to /app/profile/:username, falling back to the raw
     // Meteor userId when no username is set — teamStatus must expose username
     // so that fallback path isn't the only one ever exercised.
-    it('includes each member\'s username so the dashboard can link to their profile', async () => {
+    it("includes each member's username so the dashboard can link to their profile", async () => {
       const claim = await wormhole<{ username: string }>(
         'users.claimUsername',
         { username: 'whclockstatususer' },

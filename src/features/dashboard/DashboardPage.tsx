@@ -49,7 +49,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ticketApi,
-  type Ticket,
+  type TicketDashboardSummary,
   teamApi,
   type TeamMember,
   teamDashboardApi,
@@ -75,6 +75,25 @@ import { TimesheetApprovalsPanel } from '../teams/TimesheetApprovalsPanel';
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
 
+const EMPTY_SUMMARY: TicketDashboardSummary = {
+  open: 0,
+  unassignedOpen: 0,
+  closedToday: 0,
+  highPriorityOpen: 0,
+  myOpen: 0,
+  myClosedToday: 0,
+  myHighPriorityOpen: 0,
+};
+
+/** Local-midnight bounds of today, which only the browser's timezone can say. */
+function todayBounds(): { since: number; until: number } {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { since: start.getTime(), until: end.getTime() };
+}
+
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
 export const DashboardPage: React.FC = () => {
@@ -88,7 +107,7 @@ export const DashboardPage: React.FC = () => {
   const isPersonalWorkspace = Boolean(selectedTeam?.isPersonal);
   const canViewTimesheet = isAdmin && !isPersonalWorkspace;
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [summary, setSummary] = useState<TicketDashboardSummary>(EMPTY_SUMMARY);
   const [memberStatuses, setMemberStatuses] = useState<TeamMemberClockStatus[]>([]);
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -246,14 +265,15 @@ export const DashboardPage: React.FC = () => {
     if (!user || !selectedTeamId) return;
     setLoading(true);
     try {
-      const [t, m, r] = await Promise.all([
-        ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
+      const { since, until } = todayBounds();
+      const [s, m, r] = await Promise.all([
+        ticketApi.getDashboardSummary(selectedTeamId, since, until).catch(() => EMPTY_SUMMARY),
         teamDashboardApi
           .getTeamClockStatus(selectedTeamId)
           .catch(() => [] as TeamMemberClockStatus[]),
         teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
       ]);
-      setTickets(t);
+      setSummary(s);
       setMemberStatuses(m);
       setRunningTimers(r);
     } finally {
@@ -269,41 +289,10 @@ export const DashboardPage: React.FC = () => {
 
   // ─── Derived stats ───────────────────────────────────────────────────────────
 
-  const openTickets = tickets.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const closedToday = tickets.filter((t) => {
-    if (t.status !== 'closed' && t.status !== 'done') return false;
-    if (!t.updatedAt) return false;
-    const updated = new Date(t.updatedAt);
-    const today = new Date();
-    return (
-      updated.getFullYear() === today.getFullYear() &&
-      updated.getMonth() === today.getMonth() &&
-      updated.getDate() === today.getDate()
-    );
-  });
-  const highPriority = tickets.filter((t) => t.priority === 'high' || t.priority === 'urgent');
-  const overdue = highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const unassignedOpen = openTickets.filter((t) => !t.assignedTo);
-
   const todayTotalSeconds = memberStatuses.reduce((sum, m) => sum + m.todaySeconds, 0);
   const membersClocked = memberStatuses.filter((m) => m.isClockedIn);
 
   const myStatus = memberStatuses.find((m) => m.userId === user?.id) ?? null;
-  const myTickets = tickets.filter((t) => user && t.assignedTo.includes(user.id));
-  const myOpenTickets = myTickets.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const myClosedToday = myTickets.filter((t) => {
-    if (t.status !== 'closed' && t.status !== 'done') return false;
-    if (!t.updatedAt) return false;
-    const updated = new Date(t.updatedAt);
-    const today = new Date();
-    return (
-      updated.getFullYear() === today.getFullYear() &&
-      updated.getMonth() === today.getMonth() &&
-      updated.getDate() === today.getDate()
-    );
-  });
-  const myHighPriority = myTickets.filter((t) => t.priority === 'high' || t.priority === 'urgent');
-  const myOverdue = myHighPriority.filter((t) => t.status !== 'closed' && t.status !== 'done');
   const myRunningTimers = runningTimers.filter((t) => t.userId === user?.id);
   const visibleRunningTimers = tab === 'me' ? myRunningTimers : runningTimers;
 
@@ -517,11 +506,11 @@ export const DashboardPage: React.FC = () => {
                     Open tickets
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(tab === 'me' ? myOpenTickets.length : openTickets.length)}
+                    {String(tab === 'me' ? summary.myOpen : summary.open)}
                   </Text>
-                  {tab === 'team' && unassignedOpen.length > 0 && (
+                  {tab === 'team' && summary.unassignedOpen > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
-                      {unassignedOpen.length} unassigned
+                      {summary.unassignedOpen} unassigned
                     </Text>
                   )}
                 </div>
@@ -539,7 +528,7 @@ export const DashboardPage: React.FC = () => {
                     Closed today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(tab === 'me' ? myClosedToday.length : closedToday.length)}
+                    {String(tab === 'me' ? summary.myClosedToday : summary.closedToday)}
                   </Text>
                 </div>
               </CardContent>
@@ -556,15 +545,11 @@ export const DashboardPage: React.FC = () => {
                     High priority
                   </Text>
                   <Text size="lg" weight="semibold" className="text-red-600 dark:text-red-400">
-                    {String(
-                      (tab === 'me' ? myHighPriority : highPriority).filter(
-                        (t) => t.status !== 'closed' && t.status !== 'done',
-                      ).length,
-                    )}
+                    {String(tab === 'me' ? summary.myHighPriorityOpen : summary.highPriorityOpen)}
                   </Text>
-                  {(tab === 'me' ? myOverdue : overdue).length > 0 && (
+                  {(tab === 'me' ? summary.myHighPriorityOpen : summary.highPriorityOpen) > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
-                      {(tab === 'me' ? myOverdue : overdue).length} overdue
+                      {tab === 'me' ? summary.myHighPriorityOpen : summary.highPriorityOpen} overdue
                     </Text>
                   )}
                 </div>
@@ -679,12 +664,12 @@ export const DashboardPage: React.FC = () => {
               ) : (
                 <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {visibleRunningTimers.map((timer) => {
-                    const ticket = tickets.find((t) => t.id === timer.ticketId);
+                    const priority = timer.ticketPriority;
                     const elapsedSec = Math.floor((currentTime - timer.startTime) / 1000);
                     const priorityColor =
-                      ticket?.priority === 'high' || ticket?.priority === 'urgent'
+                      priority === 'high' || priority === 'critical'
                         ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                        : ticket?.priority === 'medium'
+                        : priority === 'medium'
                           ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
                           : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
                     return (
@@ -695,14 +680,11 @@ export const DashboardPage: React.FC = () => {
                           className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
                           aria-label={`View ticket: ${timer.ticketTitle}`}
                         >
-                          {ticket?.priority && (
+                          {priority && (
                             <span
                               className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium capitalize ${priorityColor}`}
                             >
-                              {ticket.priority === 'urgent'
-                                ? 'High'
-                                : ticket.priority.charAt(0).toUpperCase() +
-                                  ticket.priority.slice(1)}
+                              {priority.charAt(0).toUpperCase() + priority.slice(1)}
                             </span>
                           )}
                           <div className="min-w-0 flex-1">

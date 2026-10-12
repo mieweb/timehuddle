@@ -102,7 +102,8 @@ import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
 // The signed-in shell is its own chunk: the login form and landing page paint
 // without first downloading every app page.
-const AppLayout = lazy(() => import('./ui/AppLayout').then((m) => ({ default: m.AppLayout })));
+const loadAppLayout = () => import('./ui/AppLayout').then((m) => ({ default: m.AppLayout }));
+const AppLayout = lazy(loadAppLayout);
 
 // A deploy replaces dist/, so a tab opened before it can ask for a page chunk
 // whose hash no longer exists. Reload to pick up the new build instead of failing.
@@ -207,13 +208,16 @@ _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim, refetch } = useSession();
+  // Once-per-user effects key on the id: `user` is a new object after every
+  // session refetch (e.g. marking release notes read), which would rerun them.
+  const userId = user?.id ?? null;
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
   const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {
-    if (user) void autoRegisterPush(user.id);
-  }, [user]);
+    if (userId) void autoRegisterPush(userId);
+  }, [userId]);
 
   // Apply a pending team/org join from a social sign-in (?join=/?invite=/
   // ?org_invite=). Social sign-in redirects away to the IdP and back, so it
@@ -252,7 +256,7 @@ const App: React.FC = () => {
   // Skipped on native Capacitor (APNs handles it), when permission not granted,
   // or when the user has not opted in to push notifications (unsubscribed).
   React.useEffect(() => {
-    if (!user || Capacitor.isNativePlatform()) return;
+    if (!userId || Capacitor.isNativePlatform()) return;
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     let cancelled = false;
@@ -287,10 +291,10 @@ const App: React.FC = () => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [user]);
+  }, [userId]);
 
   React.useEffect(() => {
-    if (!user || needsUsernameClaim) {
+    if (!userId || needsUsernameClaim) {
       setOwnershipChecked(false);
       setShowTakeOwnershipModal(false);
       return;
@@ -315,7 +319,15 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user, needsUsernameClaim]);
+  }, [userId, needsUsernameClaim]);
+
+  // While signed out, fetch the shell chunk in idle time so signing in doesn't
+  // wait on it after the credentials round trip.
+  React.useEffect(() => {
+    if (user || loading) return;
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1));
+    idle(() => void loadAppLayout());
+  }, [user, loading]);
 
   // Reset token: check URL params (web) or deep link (native).
   const resetToken =
@@ -349,6 +361,12 @@ const App: React.FC = () => {
   // AppLayout's router reads it.
   restoreReturnTo();
 
+  // /login only renders the sign-in form; once signed in it isn't an app route,
+  // so land on the app instead of the "page doesn't exist" screen. The query
+  // string is kept — it may carry the OAuth authorize params read just below.
+  if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+    window.history.replaceState(null, '', '/app' + window.location.search + window.location.hash);
+  }
   // If the user is already authenticated and there are OAuth 2.0 authorization
   // params in the URL (e.g. redirected here from TimeHarbor), forward them
   // back to Better Auth's authorization endpoint so it can issue the code.

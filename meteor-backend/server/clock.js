@@ -222,6 +222,18 @@ export async function applyClockCreateManual({
   return toPublicClockEvent(created, []);
 }
 
+// History reads one user's events newest first; team status reads a team's day;
+// every read then loads the breaks of the events it found.
+Meteor.startup(async () => {
+  try {
+    await ClockEvents.createIndexAsync({ userId: 1, startTime: -1 });
+    await ClockEvents.createIndexAsync({ teamId: 1, startTime: -1 });
+    await ClockBreaks.createIndexAsync({ clockEventId: 1 });
+  } catch (error) {
+    console.error('[clock] failed to create indexes:', error);
+  }
+});
+
 Meteor.methods({
   /** The caller's active clock event in a team, or null. */
   async 'clock.active'({ teamId } = {}) {
@@ -268,14 +280,26 @@ Meteor.methods({
     };
   },
 
-  /** All clock events for the caller (their own history & timesheet). */
-  async 'clock.events'() {
+  /**
+   * The caller's clock events, newest first. With no options: their whole history
+   * (timesheet). `teamId`, `completed` and `limit` narrow it, e.g. to the last few
+   * finished sessions on one team.
+   */
+  async 'clock.events'({ teamId, completed, limit } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    const events = await ClockEvents.find(
-      { userId },
-      { sort: { startTime: -1 } }
-    ).fetchAsync();
+    if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= 100)) {
+      throw new Meteor.Error('validation-error', 'limit must be an integer from 1 to 100');
+    }
+    const selector = {
+      userId,
+      ...(typeof teamId === 'string' && teamId ? { teamId } : {}),
+      ...(completed ? { endTime: { $ne: null } } : {}),
+    };
+    const events = await ClockEvents.find(selector, {
+      sort: { startTime: -1 },
+      ...(limit ? { limit } : {}),
+    }).fetchAsync();
     const eventIds = events.map((e) => e._id.toHexString());
     const allBreaks = await findBreaksForEvents(eventIds);
     const breaksByEventId = new Map();

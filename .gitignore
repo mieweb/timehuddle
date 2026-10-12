@@ -27,6 +27,7 @@ _build
 /test-results/
 /playwright-report/
 .playwright-mcp/
+tests/performance/results/
 
 # Local runtime secrets (never commit)
 settings.json
