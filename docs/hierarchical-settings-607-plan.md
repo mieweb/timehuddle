@@ -5,7 +5,7 @@ Branch: `feature/607-hierarchical-settings` (from `main`)
 Related: #572 / PR #589 (`requirePlanForClock` default on for new teams)
 
 > **How to use this plan.** Work the milestones in order — each one builds on the
-> previous. Tick a box only when the item is done *and* verified. Each milestone ends
+> previous. Tick a box only when the item is done _and_ verified. Each milestone ends
 > with a **Done when** check; do not start the next milestone until it passes.
 > If something in the code doesn't match what this plan says, stop and ask — don't
 > improvise a different design.
@@ -33,7 +33,7 @@ flowchart LR
 
 ## Out of scope — do NOT do these
 
-- Making `AUTO_CLOCKOUT_MS`, `SHIFT_END_MS` ([agenda.js](../meteor-backend/server/agenda.js)) or `MEAL_BREAK_THRESHOLD_SECONDS` ([clock-core.js](../meteor-backend/server/clock-core.js)) configurable. The registry should make this *possible later* — do not add them.
+- Making `AUTO_CLOCKOUT_MS`, `SHIFT_END_MS` ([agenda.js](../meteor-backend/server/agenda.js)) or `MEAL_BREAK_THRESHOLD_SECONDS` ([clock-core.js](../meteor-backend/server/clock-core.js)) configurable. The registry should make this _possible later_ — do not add them.
 - User-level preferences (theme, brand, notification prefs).
 - Permission-model changes beyond what locks need.
 - Audit history of settings changes.
@@ -43,24 +43,24 @@ flowchart LR
 
 ## Where things live today (reference)
 
-| What | File | Notes |
-| --- | --- | --- |
-| Team public shape + `?? false` defaults | [teams.js `toPublicTeam`](../meteor-backend/server/teams.js#L113-L132) | |
-| Team DDP publication (raw docs) | [teams.js `teams.byUser`](../meteor-backend/server/teams.js#L134-L138) | Client can't see resolved values |
-| Team settings write + plan notification | [teams.js `teams.updateSettings`](../meteor-backend/server/teams.js#L459-L501) | Permission: `isTeamAdminOrOrgOwner` |
-| `autoAcceptJoins` read | [teams.js](../meteor-backend/server/teams.js#L277) | |
-| Org `allowAutoJoin` check before `addOrgMember` (×5) | [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136) | The duplicated "cascade" |
-| Org `allowAutoJoin` storage/API | [organizations.js](../meteor-backend/server/organizations.js#L97) (`toOrgSummary`), [L288 create](../meteor-backend/server/organizations.js#L288), [L340 update](../meteor-backend/server/organizations.js#L340), [L370 updateSettings](../meteor-backend/server/organizations.js#L370), [L395 orgs.join](../meteor-backend/server/organizations.js#L395) | Read as `!== false` |
-| Default-org `allowAutoJoin` | [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79), [L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381) | Query on the field — must keep working |
-| Enterprise doc | [enterprises.js](../meteor-backend/server/enterprises.js) | No settings today |
-| Permission helpers | [org-helpers.js `isTeamAdminOrOrgOwner`](../meteor-backend/server/org-helpers.js#L217), [organizations.js `buildOrgAccess`](../meteor-backend/server/organizations.js#L79), [permissions.js `isEnterpriseElevatedForTeamOrg`](../meteor-backend/server/permissions.js#L75) | Reuse; don't add new roles |
-| Clock-out wrap-up gate | [clock.js L917](../meteor-backend/server/clock.js#L917) | |
-| Wormhole method exposure | [main.js L1914](../meteor-backend/server/main.js#L1914), [L2119](../meteor-backend/server/main.js#L2119) | New/changed method params must be declared here |
-| Startup migration pattern | [inline-images.js `migrateInlinePostImages`](../meteor-backend/server/inline-images.js#L160-L185) | Idempotent, runs in `Meteor.startup` |
-| Client fallbacks to remove | [ddp.ts L642](../src/lib/ddp.ts#L642), [TeamsPage.tsx L198](../src/features/teams/TeamsPage.tsx#L198), [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38) | |
-| Client settings UI | [TeamsPage.tsx L965–L1030](../src/features/teams/TeamsPage.tsx#L965), [OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431), [EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx) | |
-| API client types | [api.ts](../src/lib/api.ts) (`teamApi.updateSettings`, `orgApi.updateSettings`) | |
-| Plan-gate tests | [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts) | `cd meteor-backend && npm run test:integration` |
+| What                                                 | File                                                                                                                                                                                                                                                                                                                                                      | Notes                                           |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Team public shape + `?? false` defaults              | [teams.js `toPublicTeam`](../meteor-backend/server/teams.js#L113-L132)                                                                                                                                                                                                                                                                                    |                                                 |
+| Team DDP publication (raw docs)                      | [teams.js `teams.byUser`](../meteor-backend/server/teams.js#L134-L138)                                                                                                                                                                                                                                                                                    | Client can't see resolved values                |
+| Team settings write + plan notification              | [teams.js `teams.updateSettings`](../meteor-backend/server/teams.js#L459-L501)                                                                                                                                                                                                                                                                            | Permission: `isTeamAdminOrOrgOwner`             |
+| `autoAcceptJoins` read                               | [teams.js](../meteor-backend/server/teams.js#L277)                                                                                                                                                                                                                                                                                                        |                                                 |
+| Org `allowAutoJoin` check before `addOrgMember` (×5) | [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136)                                                                | The duplicated "cascade"                        |
+| Org `allowAutoJoin` storage/API                      | [organizations.js](../meteor-backend/server/organizations.js#L97) (`toOrgSummary`), [L288 create](../meteor-backend/server/organizations.js#L288), [L340 update](../meteor-backend/server/organizations.js#L340), [L370 updateSettings](../meteor-backend/server/organizations.js#L370), [L395 orgs.join](../meteor-backend/server/organizations.js#L395) | Read as `!== false`                             |
+| Default-org `allowAutoJoin`                          | [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79), [L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381)                                                                                                                                                                | Query on the field — must keep working          |
+| Enterprise doc                                       | [enterprises.js](../meteor-backend/server/enterprises.js)                                                                                                                                                                                                                                                                                                 | No settings today                               |
+| Permission helpers                                   | [org-helpers.js `isTeamAdminOrOrgOwner`](../meteor-backend/server/org-helpers.js#L217), [organizations.js `buildOrgAccess`](../meteor-backend/server/organizations.js#L79), [permissions.js `isEnterpriseElevatedForTeamOrg`](../meteor-backend/server/permissions.js#L75)                                                                                | Reuse; don't add new roles                      |
+| Clock-out wrap-up gate                               | [clock.js L917](../meteor-backend/server/clock.js#L917)                                                                                                                                                                                                                                                                                                   |                                                 |
+| Wormhole method exposure                             | [main.js L1914](../meteor-backend/server/main.js#L1914), [L2119](../meteor-backend/server/main.js#L2119)                                                                                                                                                                                                                                                  | New/changed method params must be declared here |
+| Startup migration pattern                            | [inline-images.js `migrateInlinePostImages`](../meteor-backend/server/inline-images.js#L160-L185)                                                                                                                                                                                                                                                         | Idempotent, runs in `Meteor.startup`            |
+| Client fallbacks to remove                           | [ddp.ts L642](../src/lib/ddp.ts#L642), [TeamsPage.tsx L198](../src/features/teams/TeamsPage.tsx#L198), [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38)                                                                                                                                                                                          |                                                 |
+| Client settings UI                                   | [TeamsPage.tsx L965–L1030](../src/features/teams/TeamsPage.tsx#L965), [OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431), [EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)                                                                                                                       |                                                 |
+| API client types                                     | [api.ts](../src/lib/api.ts) (`teamApi.updateSettings`, `orgApi.updateSettings`)                                                                                                                                                                                                                                                                           |                                                 |
+| Plan-gate tests                                      | [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts)                                                                                                                                                                                                                                                                                            | `cd meteor-backend && npm run test:integration` |
 
 ---
 
@@ -78,9 +78,25 @@ flowchart LR
    `meteor-backend/server/settings/registry.js`
    ```js
    export const SETTINGS = {
-     requirePlanForClock: { type: 'boolean', default: true,  levels: ['enterprise', 'org', 'team'], personalExempt: true,  exemptValue: false },
-     autoAcceptJoins:     { type: 'boolean', default: false, levels: ['enterprise', 'org', 'team'], personalExempt: false },
-     allowAutoJoin:       { type: 'boolean', default: true,  levels: ['enterprise', 'org'],         personalExempt: false },
+     requirePlanForClock: {
+       type: 'boolean',
+       default: true,
+       levels: ['enterprise', 'org', 'team'],
+       personalExempt: true,
+       exemptValue: false,
+     },
+     autoAcceptJoins: {
+       type: 'boolean',
+       default: false,
+       levels: ['enterprise', 'org', 'team'],
+       personalExempt: false,
+     },
+     allowAutoJoin: {
+       type: 'boolean',
+       default: true,
+       levels: ['enterprise', 'org'],
+       personalExempt: false,
+     },
    };
    ```
 3. **Resolver** — split in two:
@@ -97,10 +113,10 @@ flowchart LR
 
 ## Milestone 0 — Setup and baseline
 
-- [x] Check out the working branch, run `nvm use`. *(Work is on `feat/require-plan-default-572`, rebased onto `origin/main`, instead of `feature/607-hierarchical-settings`.)*
+- [x] Check out the working branch, run `nvm use`. _(Work is on `feat/require-plan-default-572`, rebased onto `origin/main`, instead of `feature/607-hierarchical-settings`.)_
 - [ ] Start the stack and confirm you can toggle the two team settings on the Teams page today.
 - [x] Run and record the baseline: `npm run lint` ✅, `npm run typecheck` ✅, `npm run test:unit` ✅ (54 files, 567 tests), `cd meteor-backend && npm run test:integration` ⚠️ 598 passed, 1 pre-existing failure (`keeps one link per ticket…` — expects a GitHub-specific error, gets a generic one; unrelated to settings). Playwright e2e (`test:all`) not run at baseline.
-- [x] Check whether PR #589 has merged into `main`. *(No — the #572 work is the 4 commits on this branch. They set `settings.requirePlanForClock: true` on new teams and backfill existing non-personal teams to `true` in a `teams.js` startup block. This conflicts with Milestone 2; see the note there.)*
+- [x] Check whether PR #589 has merged into `main`. _(No — the #572 work is the 4 commits on this branch. They set `settings.requirePlanForClock: true` on new teams and backfill existing non-personal teams to `true` in a `teams.js` startup block. This conflicts with Milestone 2; see the note there.)_
 - [ ] Read every file in the reference table above once.
 
 **Done when:** all baseline commands pass (or pre-existing failures are written down in the PR description).
@@ -123,7 +139,7 @@ flowchart LR
   - [x] Personal team → `requirePlanForClock` is `false` even if org/enterprise set or lock it to `true`.
   - [x] A key not allowed at a level (e.g. `allowAutoJoin` on a team) is ignored by the resolver.
 
-**Done when:** new tests pass; no existing file was changed except new ones. *(11/11 pass. Resolver decision added: a lock only counts at a level that holds a value for the key — Milestone 4 should reject locking an unset key.)*
+**Done when:** new tests pass; no existing file was changed except new ones. _(11/11 pass. Resolver decision added: a lock only counts at a level that holds a value for the key — Milestone 4 should reject locking an unset key.)_
 
 ---
 
@@ -250,17 +266,17 @@ Use `@mieweb/ui` only (`Switch`, `Card`/`CardHeader`/`CardContent`, `Badge`, `Bu
 
 ## Acceptance criteria (from the issue — the PR is done when all are ticked)
 
-- [ ] Each setting is defined once in a server-side registry with its system default. *(M1)*
-- [ ] A single resolver returns the effective value and source for every team setting. *(M1, M3)*
-- [ ] An org admin can set a default for `requirePlanForClock` and `autoAcceptJoins`; teams without an explicit value inherit it. *(M4, M7)*
-- [ ] An enterprise admin can set defaults that orgs and teams inherit. *(M4, M7)*
-- [ ] A higher level can lock a setting; lower levels cannot override it (UI disabled, server rejects writes). *(M4, M7)*
-- [ ] Sub-teams inherit from their parent team before the org. *(M1)*
-- [ ] Personal teams are never gated by `requirePlanForClock`. *(M1, M8)*
-- [ ] Existing teams keep their current behaviour after migration. *(M2, M8)*
-- [ ] The `allowAutoJoin` / `autoAcceptJoins` interplay is resolved in one place; the duplicated checks are removed. *(M3)*
-- [ ] `clock.js` and `useClockToggle.ts` enforce the same effective value. *(M3, M6)*
-- [ ] No client code applies its own default for team settings. *(M6)*
-- [ ] Team settings UI shows the source of inherited values and supports resetting to inherited. *(M7)*
-- [ ] Members are notified when an inherited change turns the plan requirement on for their team. *(M5)*
-- [ ] Resolver and plan-gate tests pass; a release note describes the change. *(M1, M8)*
+- [ ] Each setting is defined once in a server-side registry with its system default. _(M1)_
+- [ ] A single resolver returns the effective value and source for every team setting. _(M1, M3)_
+- [ ] An org admin can set a default for `requirePlanForClock` and `autoAcceptJoins`; teams without an explicit value inherit it. _(M4, M7)_
+- [ ] An enterprise admin can set defaults that orgs and teams inherit. _(M4, M7)_
+- [ ] A higher level can lock a setting; lower levels cannot override it (UI disabled, server rejects writes). _(M4, M7)_
+- [ ] Sub-teams inherit from their parent team before the org. _(M1)_
+- [ ] Personal teams are never gated by `requirePlanForClock`. _(M1, M8)_
+- [ ] Existing teams keep their current behaviour after migration. _(M2, M8)_
+- [ ] The `allowAutoJoin` / `autoAcceptJoins` interplay is resolved in one place; the duplicated checks are removed. _(M3)_
+- [ ] `clock.js` and `useClockToggle.ts` enforce the same effective value. _(M3, M6)_
+- [ ] No client code applies its own default for team settings. _(M6)_
+- [ ] Team settings UI shows the source of inherited values and supports resetting to inherited. _(M7)_
+- [ ] Members are notified when an inherited change turns the plan requirement on for their team. _(M5)_
+- [ ] Resolver and plan-gate tests pass; a release note describes the change. _(M1, M8)_
