@@ -4,6 +4,7 @@ import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import { createNotification } from './notify-core';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
+import { addMemberToTeamOrgIfAllowed } from './settings';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -128,14 +129,7 @@ Meteor.methods({
     );
 
     // Auto-add to org if allowAutoJoin is enabled (consistent with invite flow)
-    const db = rawDb();
-    const { addOrgMember } = await import('./org-helpers.js');
-    const org = team.orgId && isValidId(team.orgId)
-      ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-      : null;
-    if (org?.settings?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, request.userId, 'member', true);
-    }
+    await addMemberToTeamOrgIfAllowed(team, request.userId);
 
     await TeamJoinRequests.rawCollection().updateOne(
       { _id: request._id },

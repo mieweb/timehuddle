@@ -145,7 +145,7 @@ flowchart LR
 
 ## Milestone 2 — Storage and migration
 
-- [x] Add `settings: {}` and `settingsLocks: {}` to new enterprises in `enterprises.create` and new orgs in `orgs.create` / [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79) (also the default enterprise). Do **not** add `settings.requirePlanForClock` to new teams — absent means inherit (which ends at system default `true`, the #572 intent). _(`teams.create` still writes the #572 explicit `true` until Milestone 3 — absent reads as off until the resolver is wired in, so removing it earlier would break the #572 default. Remove it in M3.)_
+- [x] Add `settings: {}` and `settingsLocks: {}` to new enterprises in `enterprises.create` and new orgs in `orgs.create` / [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79) (also the default enterprise). Do **not** add `settings.requirePlanForClock` to new teams — absent means inherit (which ends at system default `true`, the #572 intent). _(`teams.create` still writes the #572 explicit `true` until Milestone 6 — the client still reads the raw publication, where absent reads as off, so removing it earlier would make the UI and the server disagree. Remove it in M6.)_
 - [x] Create `meteor-backend/server/settings/migrate.js` — an idempotent startup migration following the [inline-images.js](../meteor-backend/server/inline-images.js#L160-L185) pattern:
   - [x] **Teams:** for every team where `isPersonal !== true` **and** `settings.requirePlanForClock` does not exist → `$set: { 'settings.requirePlanForClock': false }`. (Keeps existing teams exactly as they behave today.) _(Runs once, guarded by a `migrations` marker doc: after M3 an absent value on a new team means inherit, so re-pinning on every startup would switch those teams off. This replaces the #572 backfill-to-`true` block that was in `teams.js`.)_
   - [x] **Orgs:** for every org with a top-level `allowAutoJoin` field → copy it to `settings.allowAutoJoin` and `$unset` the top-level field. Orgs without the field get nothing (absent = inherit = default `true`, same as today's `!== false`).
@@ -160,16 +160,16 @@ flowchart LR
 
 ## Milestone 3 — Server consumers use the resolver
 
-- [ ] Implement `resolveSettings(team)` in `meteor-backend/server/settings/index.js` (loads parent chain via `parentTeamId`, org via `orgId`, enterprise via `org.enterpriseId`). Guard against a `parentTeamId` cycle (stop after a visited id repeats).
-- [ ] Add `resolveSettingsForTeams(teams)` that loads each org/enterprise **once** for a list (used by `teams.list` and the publication).
-- [ ] Make `toPublicTeam` return resolved settings. Because resolving is async, change it to `async toPublicTeam(team, resolved?)` and update every caller in `teams.js` to `await` it (search for `toPublicTeam(`). Remove the `?? false` lines.
-- [ ] [clock.js L917](../meteor-backend/server/clock.js#L917): replace `team?.settings?.requirePlanForClock` with `(await resolveSettings(team)).requirePlanForClock.value`. Also apply it at clock-in if the server gates clock-in on the plan.
-- [ ] [teams.js L277](../meteor-backend/server/teams.js#L277): read `autoAcceptJoins` from the resolver.
-- [ ] **One place for the org auto-join check:** add `addMemberToTeamOrgIfAllowed(team, userId)` in `settings/index.js` (or `org-helpers.js`) that resolves `allowAutoJoin` and calls `addOrgMember`. Replace all five hand-coded checks: [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136).
-- [ ] [organizations.js L97](../meteor-backend/server/organizations.js#L97) and [L395](../meteor-backend/server/organizations.js#L395): read `allowAutoJoin` via the resolver (org → enterprise → system).
-- [ ] `grep -rn "settings?.requirePlanForClock\|settings?.autoAcceptJoins\|allowAutoJoin !== false\|allowAutoJoin === false" meteor-backend/server` returns only the settings module.
+- [x] Implement `resolveSettings(team)` in `meteor-backend/server/settings/index.js` (loads parent chain via `parentTeamId`, org via `orgId`, enterprise via `org.enterpriseId`). Guard against a `parentTeamId` cycle (stop after a visited id repeats).
+- [x] Add `resolveSettingsForTeams(teams)` that loads each org/enterprise **once** for a list (used by `teams.list` and the publication).
+- [x] Make `toPublicTeam` return resolved settings. Because resolving is async, change it to `async toPublicTeam(team, resolved?)` and update every caller in `teams.js` to `await` it (search for `toPublicTeam(`). Remove the `?? false` lines.
+- [x] [clock.js L917](../meteor-backend/server/clock.js#L917): replace `team?.settings?.requirePlanForClock` with `(await resolveSettings(team)).requirePlanForClock.value`. Also apply it at clock-in if the server gates clock-in on the plan.
+- [x] [teams.js L277](../meteor-backend/server/teams.js#L277): read `autoAcceptJoins` from the resolver.
+- [x] **One place for the org auto-join check:** add `addMemberToTeamOrgIfAllowed(team, userId)` in `settings/index.js` (or `org-helpers.js`) that resolves `allowAutoJoin` and calls `addOrgMember`. Replace all five hand-coded checks: [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136).
+- [x] [organizations.js L97](../meteor-backend/server/organizations.js#L97) and [L395](../meteor-backend/server/organizations.js#L395): read `allowAutoJoin` via the resolver (org → enterprise → system).
+- [x] `grep -rn "settings?.requirePlanForClock\|settings?.autoAcceptJoins\|allowAutoJoin !== false\|allowAutoJoin === false" meteor-backend/server` returns only the settings module.
 
-**Done when:** existing integration tests still pass, and the grep above is clean.
+**Done when:** existing integration tests still pass, and the grep above is clean. _(Met: only the pre-existing ticket failure remains. Notes: `toPublicTeam` returns the resolved **values** as flat booleans for now — the `{ value, source, locked }` object shape lands with the client in M6 so the app keeps working in between. The server only gates clock-out, so there was no clock-in gate to change. `teams.updateSettings` now compares the resolved value before the write for its notification. Raw-inserted non-personal test teams with no `settings` now resolve to the default `true`, so the integration fixtures that clock out pin `requirePlanForClock: false`.)_
 
 ---
 

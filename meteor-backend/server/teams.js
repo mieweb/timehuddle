@@ -10,6 +10,7 @@ import {
   isTeamAdminOrOrgOwner,
 } from './org-helpers';
 import { createNotification } from './notify-core';
+import { resolveSettings, resolveSettingsForTeams, addMemberToTeamOrgIfAllowed } from './settings';
 import { sendEmail } from './email';
 import {
   INVITATION_LIFETIME_MS,
@@ -110,7 +111,7 @@ function toPublicInvitation(doc, invitedByName) {
   };
 }
 
-function toPublicTeam(team) {
+function publicTeamShape(team, resolved) {
   const id = team._id?.toHexString ? team._id.toHexString() : String(team._id);
   return {
     id,
@@ -123,12 +124,21 @@ function toPublicTeam(team) {
     code: team.code,
     isPersonal: team.isPersonal ?? false,
     settings: {
-      requirePlanForClock: team.settings?.requirePlanForClock ?? false,
-      autoAcceptJoins: team.settings?.autoAcceptJoins ?? false,
+      requirePlanForClock: resolved.requirePlanForClock.value,
+      autoAcceptJoins: resolved.autoAcceptJoins.value,
     },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
   };
+}
+
+async function toPublicTeam(team) {
+  return publicTeamShape(team, await resolveSettings(team));
+}
+
+async function toPublicTeams(teams) {
+  const resolved = await resolveSettingsForTeams(teams);
+  return teams.map((team, i) => publicTeamShape(team, resolved[i]));
 }
 
 Meteor.publish('teams.byUser', function () {
@@ -180,7 +190,7 @@ Meteor.methods({
     });
 
     return {
-      teams: teams.map(toPublicTeam).sort((a, b) => {
+      teams: (await toPublicTeams(teams)).sort((a, b) => {
         if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
         return a.name.localeCompare(b.name);
       }),
@@ -190,7 +200,7 @@ Meteor.methods({
 
   async 'teams.ensurePersonal'() {
     const identity = await requireIdentity(this);
-    return { team: toPublicTeam(await ensurePersonalTeam(identity.userId)) };
+    return { team: await toPublicTeam(await ensurePersonalTeam(identity.userId)) };
   },
 
   async 'teams.create'({ name, description, orgId: requestedOrgId, parentTeamId }) {
@@ -239,7 +249,7 @@ Meteor.methods({
     };
     await Teams.insertAsync(doc);
     await addOrgMember(orgId, userId, 'member', true);
-    return { team: toPublicTeam(doc) };
+    return { team: await toPublicTeam(doc) };
   },
 
   async 'teams.join'({ teamCode }) {
@@ -270,23 +280,18 @@ Meteor.methods({
         });
 
         const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-        return { status: 'joined', team: toPublicTeam(updatedTeam) };
+        return { status: 'joined', team: await toPublicTeam(updatedTeam) };
       }
     }
 
     // Team setting: auto-accept join requests — add the member immediately
     // instead of creating a pending request awaiting admin approval.
-    if (team.settings?.autoAcceptJoins) {
+    if ((await resolveSettings(team)).autoAcceptJoins.value) {
       await Teams.updateAsync(new Mongo.ObjectID(teamId), {
         $addToSet: { members: identity.userId },
         $set: { updatedAt: new Date() },
       });
-      if (team.orgId && isValidId(team.orgId)) {
-        const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
-        if (org?.settings?.allowAutoJoin !== false) {
-          await addOrgMember(team.orgId, identity.userId, 'member', true);
-        }
-      }
+      await addMemberToTeamOrgIfAllowed(team, identity.userId);
       // Clear any stale pending request for this user/team now that they're a
       // full member — otherwise it lingers in the admin approval queue.
       await TeamJoinRequests.rawCollection().deleteMany({
@@ -295,7 +300,7 @@ Meteor.methods({
         status: 'pending',
       });
       const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-      return { status: 'joined', team: toPublicTeam(updatedTeam) };
+      return { status: 'joined', team: await toPublicTeam(updatedTeam) };
     }
 
     const existing = await TeamJoinRequests.rawCollection().findOne({
@@ -398,19 +403,14 @@ Meteor.methods({
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
 
     if (team.members.includes(identity.userId)) {
-      return { ok: true, team: toPublicTeam(team) };
+      return { ok: true, team: await toPublicTeam(team) };
     }
 
     await Teams.updateAsync(team._id, {
       $addToSet: { members: identity.userId },
       $set: { updatedAt: new Date() },
     });
-    const org = team.orgId && isValidId(team.orgId)
-      ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-      : null;
-    if (org?.settings?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, identity.userId, 'member', true);
-    }
+    await addMemberToTeamOrgIfAllowed(team, identity.userId);
 
     // Clear any stale pending request for this user/team now that they're a
     // full member — otherwise it lingers in the admin approval queue.
@@ -422,7 +422,7 @@ Meteor.methods({
     });
 
     const updated = await Teams.findOneAsync(team._id);
-    return { ok: true, team: toPublicTeam(updated) };
+    return { ok: true, team: await toPublicTeam(updated) };
   },
 
   async 'teams.subteams'({ teamId }) {
@@ -438,7 +438,7 @@ Meteor.methods({
       { parentTeamId: teamId, orgId: parent.orgId },
       { sort: { name: 1 } },
     ).fetchAsync();
-    return { teams: subs.map(toPublicTeam) };
+    return { teams: await toPublicTeams(subs) };
   },
 
   async 'teams.rename'({ teamId, newName }) {
@@ -455,7 +455,7 @@ Meteor.methods({
     }
     await Teams.updateAsync(team._id, { $set: { name: newName.trim(), updatedAt: new Date() } });
     const updated = await Teams.findOneAsync(team._id);
-    return { team: toPublicTeam(updated) };
+    return { team: await toPublicTeam(updated) };
   },
 
   async 'teams.updateSettings'({ teamId, requirePlanForClock, autoAcceptJoins }) {
@@ -476,6 +476,7 @@ Meteor.methods({
     if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
+    const planWasRequired = (await resolveSettings(team)).requirePlanForClock.value;
     const $set = { updatedAt: new Date() };
     if (requirePlanForClock !== undefined) $set['settings.requirePlanForClock'] = requirePlanForClock;
     if (autoAcceptJoins !== undefined) $set['settings.autoAcceptJoins'] = autoAcceptJoins;
@@ -483,7 +484,7 @@ Meteor.methods({
     const updated = await Teams.findOneAsync(team._id);
 
     // Notify all members (except the admin making the change) when plan-gate is enabled
-    if (requirePlanForClock === true && !team.settings?.requirePlanForClock) {
+    if (requirePlanForClock === true && !planWasRequired) {
       const memberIds = Array.from(new Set([...team.members, ...team.admins])).filter(
         (id) => id !== userId,
       );
@@ -500,7 +501,7 @@ Meteor.methods({
       );
     }
 
-    return { team: toPublicTeam(updated) };
+    return { team: await toPublicTeam(updated) };
   },
 
   async 'teams.delete'({ teamId }) {
@@ -585,13 +586,7 @@ Meteor.methods({
         $set: { updatedAt: new Date() },
       });
 
-      const db = rawDb();
-      const org = team.orgId && isValidId(team.orgId)
-        ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-        : null;
-      if (org?.settings?.allowAutoJoin !== false) {
-        await addOrgMember(team.orgId, invitedId, 'member', true);
-      }
+      await addMemberToTeamOrgIfAllowed(team, invitedId);
 
       return { ok: true, status: 'joined' };
     }
@@ -726,14 +721,12 @@ Meteor.methods({
       $addToSet: { members: identity.userId },
       $set: { updatedAt: new Date() },
     });
-    const org = team.orgId && isValidId(team.orgId)
-      ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-      : null;
-    if (org?.settings?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, identity.userId, 'member', true);
-    }
+    await addMemberToTeamOrgIfAllowed(team, identity.userId);
 
-    return { ok: true, team: toPublicTeam({ ...team, members: [...new Set([...team.members, identity.userId])] }) };
+    return {
+      ok: true,
+      team: await toPublicTeam({ ...team, members: [...new Set([...team.members, identity.userId])] }),
+    };
   },
 
   async 'teams.getPendingInvitations'({ teamId }) {

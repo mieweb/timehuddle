@@ -9,6 +9,7 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
+import { resolveOrgSettings } from './settings';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -88,13 +89,13 @@ async function buildOrgAccess(userId, org) {
   };
 }
 
-function toOrgSummary(org, role) {
+async function toOrgSummary(org, role) {
   return {
     id: org._id.toHexString(),
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
-    allowAutoJoin: org.settings?.allowAutoJoin !== false,
+    allowAutoJoin: (await resolveOrgSettings(org)).allowAutoJoin.value,
     role,
   };
 }
@@ -316,7 +317,7 @@ Meteor.methods({
     };
     await db.collection('organizations').insertOne(org);
     await addOrgMember(org._id.toHexString(), userId, 'owner', false);
-    return { organization: toOrgSummary(org, 'owner') };
+    return { organization: await toOrgSummary(org, 'owner') };
   },
 
   async 'orgs.get'({ orgId }) {
@@ -332,7 +333,7 @@ Meteor.methods({
     const access = await buildOrgAccess(userId, org);
     return {
       organization: {
-        ...toOrgSummary(org, membership?.role ?? entRole ?? 'member'),
+        ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
       },
     };
@@ -365,7 +366,7 @@ Meteor.methods({
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
-    return { organization: toOrgSummary(updated, access.role) };
+    return { organization: await toOrgSummary(updated, access.role) };
   },
 
   async 'orgs.updateSettings'({ orgId, allowAutoJoin }) {
@@ -384,7 +385,12 @@ Meteor.methods({
       { $set: { 'settings.allowAutoJoin': allowAutoJoin, updatedAt: new Date() } },
       { returnDocument: 'after' },
     );
-    return { organization: { orgId: result._id.toHexString(), allowAutoJoin: result.settings?.allowAutoJoin !== false } };
+    return {
+      organization: {
+        orgId: result._id.toHexString(),
+        allowAutoJoin: (await resolveOrgSettings(result)).allowAutoJoin.value,
+      },
+    };
   },
 
   async 'orgs.join'({ orgId }) {
@@ -393,7 +399,9 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    if (org.settings?.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    if (!(await resolveOrgSettings(org)).allowAutoJoin.value) {
+      throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    }
     const membership = await addOrgMember(orgId, userId, 'member', true);
     if (membership === 'not-found') throw new Meteor.Error('not-found', 'Organization not found');
     return { membership: { orgId: membership.orgId, role: membership.role } };
@@ -669,7 +677,7 @@ Meteor.methods({
 
     await addOrgMember(invitation.orgId, identity.userId, 'member', false);
 
-    return { ok: true, organization: toOrgSummary(org, 'member') };
+    return { ok: true, organization: await toOrgSummary(org, 'member') };
   },
 
   async 'orgs.getPendingInvitations'({ orgId }) {
