@@ -70,7 +70,7 @@ test.describe('Huddle Feed Refresh', () => {
 
     await loginAs(page, TEST_USERS.admin1);
     await selectSharedTestTeam(page);
-    await page.goto('http://localhost:3002/app/huddle');
+    await page.goto('/app/huddle');
     await page.waitForLoadState('networkidle');
   });
 

@@ -15,6 +15,8 @@
 import React, {
   Activity,
   createContext,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -22,31 +24,12 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ToastProvider } from '@mieweb/ui';
+import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
-import { ClockPage } from '../features/clock/ClockPage';
-import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { NotificationsPage } from '../features/notifications/NotificationsPage';
-import { ProfilePage } from '../features/profile/ProfilePage';
-import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
-import { SeederPage } from '../features/seeder/SeederPage';
-import { TeamsPage } from '../features/teams/TeamsPage';
-import { TicketsPage } from '../features/tickets/TicketsPage';
-import { RedmineIssueDetailPage } from '../features/tickets/detail/RedmineIssueDetailPage';
-import { TicketDetailPage } from '../features/tickets/detail/TicketDetailPage';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
-import { WorkPage } from '../features/timers/WorkPage';
-import { ActivityLogPage } from '../features/activity/ActivityLogPage';
-import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
-import { OrgUsagePage } from '../features/usage/OrgUsagePage';
-import Huddle from '../pages/Huddle';
-import { HiPage } from '../pages/HiPage';
-import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
-import { OrganizationPage } from '../features/org/OrganizationPage';
-import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { AppToasts } from './AppToasts';
@@ -71,11 +54,81 @@ import { Sidebar } from './Sidebar';
 export type { RouterCtx } from './router';
 export { RouterContext, useRouter } from './router';
 
+// ─── Pages (code-split) ───────────────────────────────────────────────────────
+// Each page is its own chunk so the shell paints without downloading every
+// page's dependencies (the Kerebron editor alone is several hundred KB).
+
+/** React.lazy for a named export. */
+function lazyNamed<K extends string, M extends Record<K, React.ComponentType<any>>>(
+  load: () => Promise<M>,
+  name: K,
+) {
+  return lazy(() => load().then((m) => ({ default: m[name] })));
+}
+
+const ClockPage = lazyNamed(() => import('../features/clock/ClockPage'), 'ClockPage');
+const DashboardPage = lazyNamed(
+  () => import('../features/dashboard/DashboardPage'),
+  'DashboardPage',
+);
+const NotificationsPage = lazyNamed(
+  () => import('../features/notifications/NotificationsPage'),
+  'NotificationsPage',
+);
+const ProfilePage = lazyNamed(() => import('../features/profile/ProfilePage'), 'ProfilePage');
+const ReleaseNotesPage = lazyNamed(
+  () => import('../features/release-notes/ReleaseNotesPage'),
+  'ReleaseNotesPage',
+);
+const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'SeederPage');
+const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
+const TicketsPage = lazyNamed(() => import('../features/tickets/TicketsPage'), 'TicketsPage');
+const RedmineIssueDetailPage = lazyNamed(
+  () => import('../features/tickets/detail/RedmineIssueDetailPage'),
+  'RedmineIssueDetailPage',
+);
+const TicketDetailPage = lazyNamed(
+  () => import('../features/tickets/detail/TicketDetailPage'),
+  'TicketDetailPage',
+);
+const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
+const ActivityLogPage = lazyNamed(
+  () => import('../features/activity/ActivityLogPage'),
+  'ActivityLogPage',
+);
+const OrganizationMembersPage = lazyNamed(
+  () => import('../features/org/OrganizationMembersPage'),
+  'OrganizationMembersPage',
+);
+const OrgUsagePage = lazyNamed(() => import('../features/usage/OrgUsagePage'), 'OrgUsagePage');
+const Huddle = lazy(() => import('../pages/Huddle'));
+const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
+const OrganizationOverviewPage = lazyNamed(
+  () => import('../features/org/OrganizationOverviewPage'),
+  'OrganizationOverviewPage',
+);
+const OrganizationPage = lazyNamed(
+  () => import('../features/org/OrganizationPage'),
+  'OrganizationPage',
+);
+const EnterprisePage = lazyNamed(
+  () => import('../features/enterprise/EnterprisePage'),
+  'EnterprisePage',
+);
+
+/** Shown in place of a page while its chunk downloads. */
+const PageLoading: React.FC = () => (
+  <div className="page-loading flex justify-center py-12" aria-live="polite" aria-busy="true">
+    <Spinner />
+    <span className="sr-only">Loading page</span>
+  </div>
+);
+
 // ─── Route registry ───────────────────────────────────────────────────────────
 
 interface RouteConfig {
   title: string;
-  component: React.FC;
+  component: React.ComponentType;
 }
 
 const ROUTES: Record<string, RouteConfig> = {
@@ -461,37 +514,45 @@ const AppLayoutContent: React.FC = () => {
                                 : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
                             }
                           >
-                            <TicketsPage />
+                            {/* Own boundary: this always-mounted page loads in
+                                the background without blanking the visible one. */}
+                            <Suspense fallback={isTicketsRoute ? <PageLoading /> : null}>
+                              <TicketsPage />
+                            </Suspense>
                           </div>
                         </PageTitleContext.Provider>
                         {huddleVisited && (
                           <PageTitleContext.Provider value={isHuddleRoute ? pageTitle : null}>
                             <Activity mode={isHuddleRoute ? 'visible' : 'hidden'}>
-                              <Huddle />
+                              <Suspense fallback={<PageLoading />}>
+                                <Huddle />
+                              </Suspense>
                             </Activity>
                           </PageTitleContext.Provider>
                         )}
-                        {scopeForbidden ? (
-                          <NoAccessState
-                            kind="forbidden"
-                            resource={teamForbidden ? 'team' : 'org'}
-                          />
-                        ) : profileUserId ? (
-                          <ProfilePage key={profileUserId} userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage key={profileUsername} username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : redmineIssueId ? (
-                          <RedmineIssueDetailPage issueId={redmineIssueId} />
-                        ) : pathNotFound ? (
-                          <NoAccessState kind="not-found" resource="page" />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          route.component !== Huddle &&
-                          React.createElement(route.component)
-                        )}
+                        <Suspense fallback={<PageLoading />}>
+                          {scopeForbidden ? (
+                            <NoAccessState
+                              kind="forbidden"
+                              resource={teamForbidden ? 'team' : 'org'}
+                            />
+                          ) : profileUserId ? (
+                            <ProfilePage key={profileUserId} userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage key={profileUsername} username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : redmineIssueId ? (
+                            <RedmineIssueDetailPage issueId={redmineIssueId} />
+                          ) : pathNotFound ? (
+                            <NoAccessState kind="not-found" resource="page" />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            route.component !== Huddle &&
+                            React.createElement(route.component)
+                          )}
+                        </Suspense>
                       </PullToRefresh>
                     </main>
                   </div>

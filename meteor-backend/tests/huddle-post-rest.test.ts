@@ -12,12 +12,23 @@
  * transports stay green.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser, ObjectId } from './helpers';
+import {
+  createUserAndGetJwt,
+  DDPConnection,
+  wormhole,
+  getDb,
+  closeDb,
+  purgeUser,
+  ObjectId,
+} from './helpers';
+import { METEOR_URL } from './setup';
 
 const AUTHOR = { name: 'REST Author', email: 'wh-post-author@test.dev', password: 'Password1!' };
 const OUTSIDER = { name: 'REST Outsider', email: 'wh-post-outsider@test.dev', password: 'Password1!' };
 
 const TEAM_CODE = 'WHPOST01';
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 function todayString(): string {
   const d = new Date();
@@ -30,6 +41,17 @@ let authorJwt: string;
 let outsiderJwt: string;
 let authorUserId: string;
 let teamId: string;
+
+async function deletePostViaDdp(postId: string) {
+  const ddp = new DDPConnection(METEOR_URL.replace(/^http/, 'ws') + '/websocket');
+  try {
+    await ddp.connect();
+    await ddp.login(AUTHOR.email, AUTHOR.password);
+    return await ddp.call('huddle.deletePost', [{ postId }]);
+  } finally {
+    ddp.close();
+  }
+}
 
 beforeAll(async () => {
   await purgeUser(AUTHOR.email);
@@ -134,6 +156,133 @@ describe('huddle post authoring over REST', () => {
       _id: new ObjectId(created.result.id),
     });
     expect(post!.content.text).toBe('After edit');
+  });
+
+  it('stores a pasted inline image as media instead of base64 in the post', async () => {
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: `Look:\n\n![shot](data:image/png;base64,${TINY_PNG_BASE64})`, mentions: [] },
+        postDate: todayString(),
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    expect(post!.content.text).not.toContain('data:image/');
+    const [, url] = post!.content.text.match(/!\[shot\]\((\/uploads\/media\/[^)]+)\)/)!;
+    const media = await db.collection('mediaitems').findOne({ url });
+    expect(media).toMatchObject({ userId: authorUserId, mimeType: 'image/png', size: 70, embedded: true });
+    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(200);
+
+    const updated = await wormhole(
+      'huddle.updatePost',
+      { postId: res.result.id, content: { text: 'Screenshot removed', mentions: [] } },
+      authorJwt,
+    );
+    expect(updated.ok).toBe(true);
+    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
+    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
+  });
+
+  it('keeps embedded media while another post references it, then removes it on delete', async () => {
+    const created = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: `![shot](data:image/png;base64,${TINY_PNG_BASE64})`, mentions: [] },
+        postDate: todayString(),
+      },
+      authorJwt,
+    );
+    expect(created.ok).toBe(true);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(created.result.id) });
+    const [, url] = post!.content.text.match(/!\[shot\]\((\/uploads\/media\/[^)]+)\)/)!;
+    const reference = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId, content: { text: `![shared](${url})`, mentions: [] }, postDate: todayString() },
+      authorJwt,
+    );
+    expect(reference.ok).toBe(true);
+
+    const updated = await wormhole(
+      'huddle.updatePost',
+      { postId: created.result.id, content: { text: 'Screenshot moved', mentions: [] } },
+      authorJwt,
+    );
+    expect(updated.ok).toBe(true);
+    expect(await db.collection('mediaitems').findOne({ url })).toBeTruthy();
+
+    const backup = {
+      _id: new ObjectId(reference.result.id),
+      text: `![shared](data:image/png;base64,${TINY_PNG_BASE64})`,
+      backedUpAt: new Date(),
+    };
+    await db.collection('inlineImageBackups').insertOne(backup);
+    await deletePostViaDdp(reference.result.id);
+    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
+    expect(await db.collection('inlineImageBackups').findOne({ _id: backup._id })).toBeNull();
+    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
+  });
+
+  it('stores each supported format, keeps the text around it, and leaves the rest inline', async () => {
+    const png = TINY_PNG_BASE64;
+    const jpeg =
+      '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABQb/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCKALXj/9k=';
+    const heic = 'data:image/heic;base64,AAAAGGZ0eXBoZWlj';
+    const text = [
+      `![jpg](data:image/jpg;base64,${jpeg})`, // the non-standard jpg spelling
+      `![wrapped](data:image/png;base64,${png.replace(/(.{20})/g, '$1\n')} "A title")`,
+      'prose right after the image',
+      `![phone photo](${heic})`, // not shown inline by browsers: left as is
+      `![broken](data:image/png;base64,abc*def)`, // not valid base64: left as is
+    ].join('\n');
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId, content: { text, mentions: [] }, postDate: todayString() },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    const saved: string = post!.content.text;
+    const [jpgUrl, pngUrl] = [...saved.matchAll(/\/uploads\/media\/[^)\s"]+/g)].map((m) => m[0]);
+    expect(saved).toBe(
+      [
+        `![jpg](${jpgUrl})`,
+        `![wrapped](${pngUrl} "A title")`,
+        'prose right after the image',
+        `![phone photo](${heic})`,
+        `![broken](data:image/png;base64,abc*def)`,
+      ].join('\n'),
+    );
+    expect(jpgUrl).toMatch(/\.jpg$/);
+    const media = await db
+      .collection('mediaitems')
+      .find({ url: { $in: [jpgUrl, pngUrl] } })
+      .toArray();
+    expect(media.map((m) => m.mimeType).sort()).toEqual(['image/jpeg', 'image/png']);
+    expect(media.find((m) => m.url === pngUrl)?.size).toBe(70);
+    await deletePostViaDdp(res.result.id);
+    expect(await db.collection('mediaitems').find({ url: { $in: [jpgUrl, pngUrl] } }).toArray()).toHaveLength(0);
+  });
+
+  it('answers only hasMore when asked without posts', async () => {
+    const since = new Date(Date.now() - 86_400_000).toISOString();
+    const res = await wormhole<{ posts: unknown[]; hasMore: boolean }>(
+      'huddle.getPosts',
+      { teamId, since, withPosts: false },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.posts).toEqual([]);
+    expect(typeof res.result.hasMore).toBe('boolean');
   });
 
   it('keeps draft rows saved before drafts were removed out of the feed', async () => {

@@ -22,6 +22,8 @@ export const BRAND_KEY = 'app:brand' as const;
 export const SIDEBAR_KEY = 'app:sidebar' as const;
 /** Last app version this browser has thrown confetti for on the release notes page. */
 export const RELEASE_CELEBRATED_KEY = 'app:release-celebrated' as const;
+/** Prefix, per user: the "more issues assigned to you" notice on My Board is showing. */
+export const BOARD_ASSIGNED_NOTICE_KEY = 'app:board-assigned-notice' as const;
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 

@@ -28,12 +28,20 @@ export interface MyBoardKeys {
    * Until then an empty `boardKeys` means "not known yet", not "nothing on it".
    */
   boardLoaded: boolean;
+  /**
+   * True once a read of this user's board has succeeded, so `boardKeys` is
+   * what the board holds. After a failed first read the board is loaded but
+   * not known: empty then means "couldn't tell", and nothing should be offered
+   * on the strength of it.
+   */
+  boardKnown: boolean;
 }
 
 export function useMyBoardKeys(userId: string | null): MyBoardKeys {
   const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
   const [unavailableHuddleKeys, setUnavailableHuddleKeys] = useState<Set<string>>(new Set());
   const [boardLoaded, setBoardLoaded] = useState(false);
+  const [boardKnown, setBoardKnown] = useState(false);
 
   // Reads are numbered so only the latest one is kept; a change of user retires
   // whatever is in flight.
@@ -48,6 +56,7 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
         if (read !== latestRead.current) return;
         setBoardKeys(new Set(entries.map(keyOf)));
         setUnavailableHuddleKeys(new Set(entries.filter((e) => e.unavailable).map(keyOf)));
+        setBoardKnown(true);
       })
       .catch(() => {})
       .finally(() => {
@@ -63,11 +72,12 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
       setBoardKeys(new Set());
       setUnavailableHuddleKeys(new Set());
       setBoardLoaded(false);
+      setBoardKnown(false);
     }
     loadBoard();
     window.addEventListener('tickets:refetch', loadBoard);
     return () => window.removeEventListener('tickets:refetch', loadBoard);
   }, [loadBoard, userId]);
 
-  return { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded };
+  return { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown };
 }
