@@ -145,16 +145,16 @@ flowchart LR
 
 ## Milestone 2 — Storage and migration
 
-- [ ] Add `settings: {}` and `settingsLocks: {}` to new enterprises in `enterprises.create` and new orgs in `orgs.create` / [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79). Do **not** add `settings.requirePlanForClock` to new teams — absent means inherit (which ends at system default `true`, the #572 intent).
-- [ ] Create `meteor-backend/server/settings/migrate.js` — an idempotent startup migration following the [inline-images.js](../meteor-backend/server/inline-images.js#L160-L185) pattern:
-  - [ ] **Teams:** for every team where `isPersonal !== true` **and** `settings.requirePlanForClock` does not exist → `$set: { 'settings.requirePlanForClock': false }`. (Keeps existing teams exactly as they behave today.)
-  - [ ] **Orgs:** for every org with a top-level `allowAutoJoin` field → copy it to `settings.allowAutoJoin` and `$unset` the top-level field. Orgs without the field get nothing (absent = inherit = default `true`, same as today's `!== false`).
-  - [ ] Log a one-line count per collection; log nothing when there is nothing to do.
-- [ ] Register the migration in `Meteor.startup` and import it from [main.js](../meteor-backend/server/main.js).
-- [ ] Update everything that reads/writes the top-level org `allowAutoJoin` to use `settings.allowAutoJoin` instead: [org-helpers.js L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381) (query becomes `'settings.allowAutoJoin': { $ne: false }`), and the seeder presets in `src/features/seeder/presets/*.yaml` if the seeder writes the field directly.
-- [ ] Run the migration twice against a local DB copy; confirm the second run changes nothing.
+- [x] Add `settings: {}` and `settingsLocks: {}` to new enterprises in `enterprises.create` and new orgs in `orgs.create` / [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79) (also the default enterprise). Do **not** add `settings.requirePlanForClock` to new teams — absent means inherit (which ends at system default `true`, the #572 intent). _(`teams.create` still writes the #572 explicit `true` until Milestone 3 — absent reads as off until the resolver is wired in, so removing it earlier would break the #572 default. Remove it in M3.)_
+- [x] Create `meteor-backend/server/settings/migrate.js` — an idempotent startup migration following the [inline-images.js](../meteor-backend/server/inline-images.js#L160-L185) pattern:
+  - [x] **Teams:** for every team where `isPersonal !== true` **and** `settings.requirePlanForClock` does not exist → `$set: { 'settings.requirePlanForClock': false }`. (Keeps existing teams exactly as they behave today.) _(Runs once, guarded by a `migrations` marker doc: after M3 an absent value on a new team means inherit, so re-pinning on every startup would switch those teams off. This replaces the #572 backfill-to-`true` block that was in `teams.js`.)_
+  - [x] **Orgs:** for every org with a top-level `allowAutoJoin` field → copy it to `settings.allowAutoJoin` and `$unset` the top-level field. Orgs without the field get nothing (absent = inherit = default `true`, same as today's `!== false`).
+  - [x] Log a one-line count per collection; log nothing when there is nothing to do.
+- [x] Register the migration in `Meteor.startup` and import it from [main.js](../meteor-backend/server/main.js).
+- [x] Update everything that reads/writes the top-level org `allowAutoJoin` to use `settings.allowAutoJoin` instead: [org-helpers.js L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381) (query becomes `'settings.allowAutoJoin': { $ne: false }`), the five hand-coded checks and `organizations.js` (M3 replaces them with the resolver), `scripts/fix-org-members.js`, and the tests/e2e fixtures that wrote the field. _(`src/features/seeder/presets/*.yaml` left as is: the seeder's `/v1/seed/import` backend no longer exists in this repo, so nothing reads the presets' `allowAutoJoin` today.)_
+- [x] Run the migration twice against a local DB copy; confirm the second run changes nothing. _(Covered by `meteor-backend/tests/settings-migrate.test.ts` against the test DB.)_
 
-**Done when:** after migration, every existing non-personal team has an explicit `requirePlanForClock`, no org has a top-level `allowAutoJoin`, and the app behaves exactly as before.
+**Done when:** after migration, every existing non-personal team has an explicit `requirePlanForClock`, no org has a top-level `allowAutoJoin`, and the app behaves exactly as before. _(Integration suite: only the pre-existing ticket failure remains.)_
 
 ---
 

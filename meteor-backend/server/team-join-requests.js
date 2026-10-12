@@ -133,7 +133,7 @@ Meteor.methods({
     const org = team.orgId && isValidId(team.orgId)
       ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
       : null;
-    if (org?.allowAutoJoin !== false) {
+    if (org?.settings?.allowAutoJoin !== false) {
       await addOrgMember(team.orgId, request.userId, 'member', true);
     }
 

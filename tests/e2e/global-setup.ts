@@ -155,7 +155,7 @@ export default async function globalSetup(): Promise<void> {
       _id: new ObjectId(),
       slug: 'default',
       name: 'Default Organization',
-      allowAutoJoin: true,
+      settings: { allowAutoJoin: true },
       owners: [] as string[],
       admins: [] as string[],
       createdAt: new Date(),
@@ -164,13 +164,17 @@ export default async function globalSetup(): Promise<void> {
     await db.collection('organizations').insertOne(orgDoc);
     defaultOrg = orgDoc;
   } else {
-    await db
-      .collection('organizations')
-      .updateOne(
-        { _id: defaultOrg._id },
-        { $set: { name: 'Default Organization', allowAutoJoin: true, updatedAt: new Date() } },
-      );
-    defaultOrg = { ...defaultOrg, name: 'Default Organization', allowAutoJoin: true };
+    await db.collection('organizations').updateOne(
+      { _id: defaultOrg._id },
+      {
+        $set: {
+          name: 'Default Organization',
+          'settings.allowAutoJoin': true,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    defaultOrg = { ...defaultOrg, name: 'Default Organization', settings: { allowAutoJoin: true } };
   }
   const orgId = defaultOrg._id.toHexString();
 

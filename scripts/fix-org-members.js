@@ -83,7 +83,7 @@ async function main() {
           // User is in a team but not in org_members
           const org = await db
             .collection('organizations')
-            .findOne({ _id: new ObjectId(orgId) }, { projection: { name: 1, allowAutoJoin: 1 } });
+            .findOne({ _id: new ObjectId(orgId) }, { projection: { name: 1, settings: 1 } });
 
           // Get user info for better logging
           const user = await db
@@ -104,7 +104,7 @@ async function main() {
             userName: user?.name,
             userEmail: user?.email,
             orgName: org?.name,
-            allowAutoJoin: org?.allowAutoJoin,
+            allowAutoJoin: org?.settings?.allowAutoJoin,
           });
 
           if (!DRY_RUN) {

@@ -94,7 +94,7 @@ function toOrgSummary(org, role) {
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
-    allowAutoJoin: org.allowAutoJoin !== false,
+    allowAutoJoin: org.settings?.allowAutoJoin !== false,
     role,
   };
 }
@@ -309,7 +309,8 @@ Meteor.methods({
       name: trimmedName,
       owners: [userId],
       admins: [],
-      allowAutoJoin: allowAutoJoin !== false,
+      settings: typeof allowAutoJoin === 'boolean' ? { allowAutoJoin } : {},
+      settingsLocks: {},
       createdAt: now,
       updatedAt: now,
     };
@@ -360,7 +361,7 @@ Meteor.methods({
       }
       updates.slug = newSlug;
     }
-    if (allowAutoJoin !== undefined) updates.allowAutoJoin = allowAutoJoin;
+    if (allowAutoJoin !== undefined) updates['settings.allowAutoJoin'] = allowAutoJoin;
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
@@ -380,10 +381,10 @@ Meteor.methods({
 
     const result = await db.collection('organizations').findOneAndUpdate(
       { _id: new ObjectId(orgId) },
-      { $set: { allowAutoJoin, updatedAt: new Date() } },
+      { $set: { 'settings.allowAutoJoin': allowAutoJoin, updatedAt: new Date() } },
       { returnDocument: 'after' },
     );
-    return { organization: { orgId: result._id.toHexString(), allowAutoJoin: result.allowAutoJoin !== false } };
+    return { organization: { orgId: result._id.toHexString(), allowAutoJoin: result.settings?.allowAutoJoin !== false } };
   },
 
   async 'orgs.join'({ orgId }) {
@@ -392,7 +393,7 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    if (org.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    if (org.settings?.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
     const membership = await addOrgMember(orgId, userId, 'member', true);
     if (membership === 'not-found') throw new Meteor.Error('not-found', 'Organization not found');
     return { membership: { orgId: membership.orgId, role: membership.role } };

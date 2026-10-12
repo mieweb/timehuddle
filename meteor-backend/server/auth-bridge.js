@@ -378,7 +378,7 @@ Accounts.onLogin(async (info) => {
     // Find default org with allowAutoJoin enabled
     const defaultOrg = await db.collection('organizations').findOne({ 
       slug: process.env.DEFAULT_ORG_KEY || 'default',
-      allowAutoJoin: true
+      'settings.allowAutoJoin': { $ne: false }
     });
     
     if (!defaultOrg || !defaultOrg._id) {

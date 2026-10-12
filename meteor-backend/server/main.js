@@ -39,6 +39,7 @@ import './usage';
 // M2 — Collaboration
 import './teams';
 import './team-join-requests';
+import { migrateSettings } from './settings/migrate';
 
 // PulseVault — video upload + serving
 import './pulsevault';
@@ -71,6 +72,14 @@ import { apiBodyLimitMiddleware } from './api-body-limit';
 // "unrecognized options" — the module itself does nothing without the flag.
 Meteor.startup(async () => {
   await import('./dev-quick-login');
+});
+
+Meteor.startup(async () => {
+  try {
+    await migrateSettings(rawDb());
+  } catch (error) {
+    console.error('[settings] migration failed:', error);
+  }
 });
 
 /**

@@ -46,6 +46,8 @@ async function ensureDefaultEnterprise() {
           slug: DEFAULT_ENTERPRISE_SLUG,
           owners: [],
           admins: [],
+          settings: {},
+          settingsLocks: {},
           createdAt: now,
           updatedAt: now,
         },
@@ -76,7 +78,8 @@ export async function ensureDefaultOrganization() {
           name: DEFAULT_ORG_NAME,
           owners: [],
           admins: [],
-          allowAutoJoin: true,
+          settings: {},
+          settingsLocks: {},
           createdAt: now,
           updatedAt: now,
         },
@@ -90,7 +93,6 @@ export async function ensureDefaultOrganization() {
   const existing = await db.collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
   const updates = {};
   if (!existing.enterpriseId) updates.enterpriseId = defaultEnterprise._id.toHexString();
-  if (existing.allowAutoJoin === undefined) updates.allowAutoJoin = true;
   if (Object.keys(updates).length > 0) {
     updates.updatedAt = new Date();
     await db.collection('organizations').updateOne({ _id: existing._id }, { $set: updates });

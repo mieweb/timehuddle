@@ -511,7 +511,7 @@ describe('teams.getPendingInvitations / teams.revokeInvite', () => {
       slug: `invitation-settings-org-${orgId.toHexString()}`,
       owners: [orgOwnerId],
       admins: [],
-      allowAutoJoin: false,
+      settings: { allowAutoJoin: false },
       createdAt: new Date(),
       updatedAt: new Date(),
     });

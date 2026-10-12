@@ -64,6 +64,8 @@ Meteor.methods({
       slug,
       owners: [userId],
       admins: [],
+      settings: {},
+      settingsLocks: {},
       createdAt: now,
       updatedAt: now,
     };
