@@ -255,7 +255,7 @@ Use `@mieweb/ui` only (`Switch`, `Card`/`CardHeader`/`CardContent`, `Badge`, `Bu
   - [x] Migrated existing team (explicit `false`) is not blocked.
 - [x] Add a release note per [release-notes/README.md](../release-notes/README.md) (decide the version using its rules; add to an untagged note if one exists). Describe it for users: org/enterprise admins can set team defaults and lock them; teams show where a setting comes from. _(Added to the unreleased `1.0.6.md` — latest tag is 1.0.5 — with PR #589 in its list. The #572 section that sat in `1.0.3.md` was removed: it said existing teams were switched on, which is no longer true.)_
 - [ ] Final validation:
-  - [ ] `npm run test:all`
+  - [x] `npm run test:all` _(unit: 55 files / 585 tests; Playwright: 427 passed, 6 skipped, 0 failed. Run as `npm run test:unit` and the full Playwright suite.)_
   - [x] `npm run lint && npm run typecheck`
   - [x] `npm run format`
   - [x] `cd meteor-backend && npm run test:integration`
