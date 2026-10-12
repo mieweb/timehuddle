@@ -700,14 +700,15 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
-      };
+      } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
 
-  updateSettings: (id: string, allowAutoJoin: boolean) =>
-    wormholeCall<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
-      'orgs.updateSettings',
-      { orgId: id, allowAutoJoin },
-    ).then((r) => r.organization),
+  /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
+  updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
+    wormholeCall<{ organization: { orgId: string } & SettingsEditView }>('orgs.updateSettings', {
+      orgId: id,
+      ...patch,
+    }).then((r) => r.organization),
 
   joinOrganization: (id: string) =>
     wormholeCall<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
@@ -825,8 +826,14 @@ export const enterpriseApi = {
           username: string | null;
           role: 'owner' | 'admin';
         }>;
-      };
+      } & SettingsEditView;
     }>('enterprises.get', { enterpriseId: id }).then((r) => r.enterprise),
+
+  updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
+    wormholeCall<{ enterprise: { id: string } & SettingsEditView }>('enterprises.updateSettings', {
+      enterpriseId: id,
+      ...patch,
+    }).then((r) => r.enterprise),
 
   updateName: (id: string, name: string) =>
     wormholeCall<{
@@ -1319,6 +1326,19 @@ export interface ResolvedSetting {
 }
 
 export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
+
+/** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
+export type DefaultSettingKey = TeamSettingKey | 'allowAutoJoin';
+
+/** `true`/`false` sets a value (or locks); `null` resets it to inherited (or unlocks). */
+export type SettingsPatch = Partial<Record<DefaultSettingKey, boolean | null>>;
+
+/** An org's or enterprise's own settings, its locks, and what each resolves to. */
+export interface SettingsEditView {
+  settings: Partial<Record<DefaultSettingKey, boolean>>;
+  settingsLocks: Partial<Record<DefaultSettingKey, true>>;
+  effectiveSettings: Record<DefaultSettingKey, ResolvedSetting>;
+}
 
 export interface Team {
   id: string;

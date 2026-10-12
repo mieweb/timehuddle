@@ -16,13 +16,42 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ApiError, enterpriseApi, orgApi } from '../../lib/api';
+import { ApiError, enterpriseApi, orgApi, type SettingsPatch } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getEnterpriseRole } from '../../lib/organizationAccess';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
 
 type EnterpriseDetail = Awaited<ReturnType<typeof enterpriseApi.get>>;
+
+const DEFAULT_ROWS: DefaultSettingRow[] = [
+  {
+    key: 'requirePlanForClock',
+    title: 'Require a plan for every clock-in/out',
+    description: 'Organizations and teams without their own choice follow this.',
+    lockable: true,
+  },
+  {
+    key: 'autoAcceptJoins',
+    title: 'Auto-accept join requests',
+    description: 'Anyone joining a team with its code is added without admin approval.',
+    lockable: true,
+  },
+  {
+    key: 'allowAutoJoin',
+    title: 'Auto-join the organization',
+    description: 'People who join a team are added to its organization too.',
+    lockable: true,
+  },
+];
+
+const DEFAULTS_STRINGS = {
+  title: 'Defaults',
+  description:
+    'Defaults for every organization and team in this enterprise. They can override a default unless it is locked.',
+  failedToSave: 'Failed to update settings',
+} as const;
 
 const roleOptions = [
   { value: 'owner', label: 'Owner' },
@@ -47,12 +76,15 @@ export const EnterprisePage: React.FC = () => {
     setSelectedEnterpriseId,
     refetchEnterprises,
     refetchOrganizations,
+    refreshTeamSettings,
     setSelectedOrgId,
   } = useTeam();
   const { navigate } = useRouter();
   const [enterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enterpriseName, setEnterpriseName] = useState('');
   const [memberUserId, setMemberUserId] = useState('');
@@ -156,7 +188,7 @@ export const EnterprisePage: React.FC = () => {
     setError(null);
     try {
       const updated = await enterpriseApi.updateName(selectedEnterpriseId, nextName);
-      setEnterprise(updated);
+      setEnterprise((prev) => (prev ? { ...prev, ...updated } : prev));
       setEnterpriseName(updated.name);
       refetchEnterprises();
     } catch (err) {
@@ -169,6 +201,25 @@ export const EnterprisePage: React.FC = () => {
       setSaving(false);
     }
   }, [enterpriseName, refetchEnterprises, selectedEnterpriseId]);
+
+  const handleSaveSettings = useCallback(
+    async (patch: { settings?: SettingsPatch; locks?: SettingsPatch }) => {
+      if (!selectedEnterpriseId) return;
+      setSavingSettings(true);
+      setSettingsError(null);
+      try {
+        const view = await enterpriseApi.updateSettings(selectedEnterpriseId, patch);
+        setEnterprise((prev) => (prev ? { ...prev, ...view } : prev));
+        refreshTeamSettings();
+        refetchOrganizations();
+      } catch (err) {
+        setSettingsError(err instanceof ApiError ? err.message : DEFAULTS_STRINGS.failedToSave);
+      } finally {
+        setSavingSettings(false);
+      }
+    },
+    [selectedEnterpriseId, refreshTeamSettings, refetchOrganizations],
+  );
 
   const handleAssignRole = useCallback(async () => {
     if (!selectedEnterpriseId || !memberUserId.trim()) return;
@@ -412,6 +463,19 @@ export const EnterprisePage: React.FC = () => {
                     </div>
                   </CardContent>
                 </Card>
+
+                <DefaultsCard
+                  level="enterprise"
+                  title={DEFAULTS_STRINGS.title}
+                  description={DEFAULTS_STRINGS.description}
+                  rows={DEFAULT_ROWS}
+                  view={enterprise}
+                  names={{}}
+                  saving={savingSettings}
+                  error={settingsError}
+                  onSave={(patch) => void handleSaveSettings(patch)}
+                  className="border border-neutral-200/70 dark:border-neutral-800"
+                />
 
                 <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">
                   <CardHeader>

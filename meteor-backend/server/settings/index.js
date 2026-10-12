@@ -100,6 +100,18 @@ export async function resolveOrgSettings(org) {
   return resolveFromChain(chain);
 }
 
+// An enterprise has nothing above it: its own value, then the default.
+export function resolveEnterpriseSettings(enterprise) {
+  return resolveFromChain([
+    {
+      level: 'enterprise',
+      id: idOf(enterprise._id),
+      settings: enterprise.settings,
+      settingsLocks: enterprise.settingsLocks,
+    },
+  ]);
+}
+
 // Current copies of `teams`, in the same order, so a resolve sees their latest own settings.
 export async function reloadTeams(teams) {
   const ids = teams.map((team) => idOf(team._id));

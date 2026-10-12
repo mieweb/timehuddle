@@ -226,23 +226,23 @@ Use `@mieweb/ui` only (`Switch`, `Card`/`CardHeader`/`CardContent`, `Badge`, `Bu
 
 **Strings:** the app has no i18n library yet. Put every new user-facing string in one `const` object at the top of the component file (e.g. `const STRINGS = { inheritedFrom: (name) => … }`) so they can be moved to `t()` later. Do not add an i18n dependency.
 
-- [ ] **Team settings** ([TeamsPage.tsx L965](../src/features/teams/TeamsPage.tsx#L965)):
-  - [ ] Each `Switch` shows the effective value.
-  - [ ] Under it, a `Text`/`Badge` showing the source: "Set on this team", "Inherited from parent team", "Inherited from Org X", "Inherited from Enterprise Y", "Default". (Use `sourceId` to look up the name; fall back to "organization"/"enterprise" if unavailable.)
-  - [ ] "Reset to inherited" button — shown only when `source === 'team'`; calls `updateSettings` with `null`.
-  - [ ] When `locked`: `Switch` is `disabled` and the text reads "Locked by Org X" / "Locked by Enterprise Y".
-  - [ ] Hide `requirePlanForClock` (or show it disabled with "Not applicable to personal teams") for personal teams.
-- [ ] **Organization settings** ([OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431)): a `Card` "Team defaults" with, per key, a default `Switch` and a "Lock for all teams" `Switch`. Move the existing `allowAutoJoin` toggle onto the new `{ settings, locks }` API. Show "Locked by Enterprise" where applicable. Refetch teams after save.
-- [ ] **Enterprise settings** ([EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)): same "Defaults" `Card` for enterprise owners/admins. Refetch teams after save.
-- [ ] Add `orgApi.updateSettings` (new shape) and `enterpriseApi.updateSettings` in [api.ts](../src/lib/api.ts).
-- [ ] Accessibility: every `Switch` has a visible label or `aria-label`; the source/lock text is linked via `aria-describedby`; save errors use `Alert`/`Toast` (aria-live).
-- [ ] Manual smoke test in the browser (record results in the PR):
-  - [ ] Org default on → inheriting team shows "Inherited from Org X" and clock-in requires a plan.
-  - [ ] Org lock on → team switch disabled with "Locked by Org X".
-  - [ ] Team override → "Set on this team"; Reset → back to inherited.
-  - [ ] Personal team never asks for a plan.
+- [x] **Team settings** ([TeamsPage.tsx L965](../src/features/teams/TeamsPage.tsx#L965)):
+  - [x] Each `Switch` shows the effective value.
+  - [x] Under it, a `Text`/`Badge` showing the source: "Set on this team", "Inherited from parent team", "Inherited from Org X", "Inherited from Enterprise Y", "Default". (Use `sourceId` to look up the name; fall back to "organization"/"enterprise" if unavailable.)
+  - [x] "Reset to inherited" button — shown only when `source === 'team'`; calls `updateSettings` with `null`.
+  - [x] When `locked`: `Switch` is `disabled` and the text reads "Locked by Org X" / "Locked by Enterprise Y".
+  - [x] Hide `requirePlanForClock` (or show it disabled with "Not applicable to personal teams") for personal teams.
+- [x] **Organization settings** ([OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431)): a `Card` "Team defaults" with, per key, a default `Switch` and a "Lock for all teams" `Switch`. Move the existing `allowAutoJoin` toggle onto the new `{ settings, locks }` API. Show "Locked by Enterprise" where applicable. Refetch teams after save.
+- [x] **Enterprise settings** ([EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)): same "Defaults" `Card` for enterprise owners/admins. Refetch teams after save.
+- [x] Add `orgApi.updateSettings` (new shape) and `enterpriseApi.updateSettings` in [api.ts](../src/lib/api.ts).
+- [x] Accessibility: every `Switch` has a visible label or `aria-label`; the source/lock text is linked via `aria-describedby`; save errors use `Alert`/`Toast` (aria-live).
+- [x] Manual smoke test in the browser (record results in the PR):
+  - [x] Org default on → inheriting team shows "Inherited from Org X" and clock-in requires a plan.
+  - [x] Org lock on → team switch disabled with "Locked by Org X".
+  - [x] Team override → "Set on this team"; Reset → back to inherited.
+  - [x] Personal team never asks for a plan.
 
-**Done when:** all smoke checks pass and every changed page imports from `@mieweb/ui`.
+**Done when:** all smoke checks pass and every changed page imports from `@mieweb/ui`. _(Met. Smoke-tested in the browser with the dev role logins: org default off + inheriting team showed "Inherited from Medical Informatics Engineering" and the clock page asked for a plan once the default was on; an org lock disabled the team switch with "Locked by Medical Informatics Engineering"; a team override showed "Set on this team" and Reset returned it to inherited; an enterprise lock disabled the org switch with "Locked by Default Enterprise"; org and enterprise saves reached an open team page without a reload. The Personal-team check is covered by an integration test in Milestone 8, not the browser. Notes: shared UI lives in `src/features/settings/` (`TeamSettingRow`, `DefaultsCard`, `settingsCopy.ts`); `orgs.get`/`enterprises.get` return `effectiveSettings` so the client never defaults a value; the old toolbar auto-join toggle moved into the Team defaults card; org and enterprise saves call `refreshTeamSettings()`.)_
 
 ---
 

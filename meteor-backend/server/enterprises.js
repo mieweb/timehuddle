@@ -3,7 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { ensureDefaultOrganization } from './org-helpers';
-import { settingsUpdateFor, teamsInEnterprise } from './settings';
+import { resolveEnterpriseSettings, settingsUpdateFor, teamsInEnterprise } from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -108,6 +108,7 @@ Meteor.methods({
         members,
         settings: enterprise.settings ?? {},
         settingsLocks: enterprise.settingsLocks ?? {},
+        effectiveSettings: resolveEnterpriseSettings(enterprise),
       },
     };
   },
@@ -138,6 +139,7 @@ Meteor.methods({
         id: result._id.toHexString(),
         settings: result.settings ?? {},
         settingsLocks: result.settingsLocks ?? {},
+        effectiveSettings: resolveEnterpriseSettings(result),
       },
     };
   },

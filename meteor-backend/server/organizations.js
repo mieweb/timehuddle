@@ -91,14 +91,16 @@ async function buildOrgAccess(userId, org) {
 }
 
 async function toOrgSummary(org, role) {
+  const effectiveSettings = await resolveOrgSettings(org);
   return {
     id: org._id.toHexString(),
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
-    allowAutoJoin: (await resolveOrgSettings(org)).allowAutoJoin.value,
+    allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
+    effectiveSettings,
     role,
   };
 }
@@ -402,12 +404,14 @@ Meteor.methods({
           returnDocument: 'after',
         }),
     });
+    const effectiveSettings = await resolveOrgSettings(result);
     return {
       organization: {
         orgId: result._id.toHexString(),
-        allowAutoJoin: (await resolveOrgSettings(result)).allowAutoJoin.value,
+        allowAutoJoin: effectiveSettings.allowAutoJoin.value,
         settings: result.settings ?? {},
         settingsLocks: result.settingsLocks ?? {},
+        effectiveSettings,
       },
     };
   },

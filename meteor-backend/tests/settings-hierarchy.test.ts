@@ -162,12 +162,14 @@ describe('org defaults', () => {
       source: 'enterprise',
     });
 
-    const org = await wormhole<{ organization: { allowAutoJoin: boolean } }>(
-      'orgs.get',
-      { orgId: orgId.toHexString() },
-      jwts.orgOwner,
-    );
+    const org = await wormhole<{
+      organization: { allowAutoJoin: boolean; effectiveSettings: Record<string, SettingValue> };
+    }>('orgs.get', { orgId: orgId.toHexString() }, jwts.orgOwner);
     expect(org.result.organization.allowAutoJoin).toBe(true);
+    expect(org.result.organization.effectiveSettings.autoAcceptJoins).toMatchObject({
+      value: true,
+      source: 'enterprise',
+    });
   });
 
   it('the old allowAutoJoin call still works', async () => {
