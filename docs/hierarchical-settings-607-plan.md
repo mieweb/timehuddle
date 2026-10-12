@@ -114,10 +114,10 @@ flowchart LR
 ## Milestone 0 — Setup and baseline
 
 - [x] Check out the working branch, run `nvm use`. _(Work is on `feat/require-plan-default-572`, rebased onto `origin/main`, instead of `feature/607-hierarchical-settings`.)_
-- [ ] Start the stack and confirm you can toggle the two team settings on the Teams page today.
+- [x] Start the stack and confirm you can toggle the two team settings on the Teams page today. _(The stack was already running; the toggles were exercised in the Milestone 7 browser smoke test, after the changes.)_
 - [x] Run and record the baseline: `npm run lint` ✅, `npm run typecheck` ✅, `npm run test:unit` ✅ (54 files, 567 tests), `cd meteor-backend && npm run test:integration` ⚠️ 598 passed, 1 pre-existing failure (`keeps one link per ticket…` — expects a GitHub-specific error, gets a generic one; unrelated to settings). Playwright e2e (`test:all`) not run at baseline.
 - [x] Check whether PR #589 has merged into `main`. _(No — the #572 work is the 4 commits on this branch. They set `settings.requirePlanForClock: true` on new teams and backfill existing non-personal teams to `true` in a `teams.js` startup block. This conflicts with Milestone 2; see the note there.)_
-- [ ] Read every file in the reference table above once.
+- [x] Read every file in the reference table above once. _(Read as each one was changed.)_
 
 **Done when:** all baseline commands pass (or pre-existing failures are written down in the PR description).
 
@@ -248,35 +248,35 @@ Use `@mieweb/ui` only (`Switch`, `Card`/`CardHeader`/`CardContent`, `Badge`, `Bu
 
 ## Milestone 8 — Tests, release note, and hand-off
 
-- [ ] Extend [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts):
-  - [ ] Clock-out blocked when `requirePlanForClock` is **inherited** from the org.
-  - [ ] Clock-out blocked when **locked** by the org even though the team set `false` before the lock.
-  - [ ] Personal team never blocked.
-  - [ ] Migrated existing team (explicit `false`) is not blocked.
-- [ ] Add a release note per [release-notes/README.md](../release-notes/README.md) (decide the version using its rules; add to an untagged note if one exists). Describe it for users: org/enterprise admins can set team defaults and lock them; teams show where a setting comes from.
+- [x] Extend [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts):
+  - [x] Clock-out blocked when `requirePlanForClock` is **inherited** from the org.
+  - [x] Clock-out blocked when **locked** by the org even though the team set `false` before the lock.
+  - [x] Personal team never blocked.
+  - [x] Migrated existing team (explicit `false`) is not blocked.
+- [x] Add a release note per [release-notes/README.md](../release-notes/README.md) (decide the version using its rules; add to an untagged note if one exists). Describe it for users: org/enterprise admins can set team defaults and lock them; teams show where a setting comes from. _(Added to the unreleased `1.0.6.md` — latest tag is 1.0.5 — with PR #589 in its list. The #572 section that sat in `1.0.3.md` was removed: it said existing teams were switched on, which is no longer true.)_
 - [ ] Final validation:
   - [ ] `npm run test:all`
-  - [ ] `npm run lint && npm run typecheck`
-  - [ ] `npm run format`
-  - [ ] `cd meteor-backend && npm run test:integration`
-  - [ ] Browser smoke test at `http://localhost:3000`
+  - [x] `npm run lint && npm run typecheck`
+  - [x] `npm run format`
+  - [x] `cd meteor-backend && npm run test:integration`
+  - [x] Browser smoke test at `http://localhost:3000`
 - [ ] Open the PR referencing `#607`; paste the acceptance-criteria checklist below into the description with each item ticked and a pointer to the test or screenshot that proves it.
 
 ---
 
 ## Acceptance criteria (from the issue — the PR is done when all are ticked)
 
-- [ ] Each setting is defined once in a server-side registry with its system default. _(M1)_
-- [ ] A single resolver returns the effective value and source for every team setting. _(M1, M3)_
-- [ ] An org admin can set a default for `requirePlanForClock` and `autoAcceptJoins`; teams without an explicit value inherit it. _(M4, M7)_
-- [ ] An enterprise admin can set defaults that orgs and teams inherit. _(M4, M7)_
-- [ ] A higher level can lock a setting; lower levels cannot override it (UI disabled, server rejects writes). _(M4, M7)_
-- [ ] Sub-teams inherit from their parent team before the org. _(M1)_
-- [ ] Personal teams are never gated by `requirePlanForClock`. _(M1, M8)_
-- [ ] Existing teams keep their current behaviour after migration. _(M2, M8)_
-- [ ] The `allowAutoJoin` / `autoAcceptJoins` interplay is resolved in one place; the duplicated checks are removed. _(M3)_
-- [ ] `clock.js` and `useClockToggle.ts` enforce the same effective value. _(M3, M6)_
-- [ ] No client code applies its own default for team settings. _(M6)_
-- [ ] Team settings UI shows the source of inherited values and supports resetting to inherited. _(M7)_
-- [ ] Members are notified when an inherited change turns the plan requirement on for their team. _(M5)_
-- [ ] Resolver and plan-gate tests pass; a release note describes the change. _(M1, M8)_
+- [x] Each setting is defined once in a server-side registry with its system default. _(M1)_ Proof: `server/settings/registry.js`.
+- [x] A single resolver returns the effective value and source for every team setting. _(M1, M3)_ Proof: `settings/resolve.js` and `settings/index.js`; `settings-resolve.test.ts`.
+- [x] An org admin can set a default for `requirePlanForClock` and `autoAcceptJoins`; teams without an explicit value inherit it. _(M4, M7)_ Proof: `settings-hierarchy.test.ts` ("org defaults"); the Team defaults card in the Milestone 7 smoke test.
+- [x] An enterprise admin can set defaults that orgs and teams inherit. _(M4, M7)_ Proof: `settings-hierarchy.test.ts`; the enterprise Defaults card in the Milestone 7 smoke test.
+- [x] A higher level can lock a setting; lower levels cannot override it (UI disabled, server rejects writes). _(M4, M7)_ Proof: `settings-write.test.ts`, `settings-hierarchy.test.ts` ("locks"); disabled switches in the Milestone 7 smoke test.
+- [x] Sub-teams inherit from their parent team before the org. _(M1)_ Proof: `settings-resolve.test.ts`, `settings-hierarchy.test.ts` ("sub-teams").
+- [x] Personal teams are never gated by `requirePlanForClock`. _(M1, M8)_ Proof: `settings-resolve.test.ts`, `plan-gate.test.ts`.
+- [x] Existing teams keep their current behaviour after migration. _(M2, M8)_ Proof: `settings-migrate.test.ts`, `plan-gate.test.ts` (migrated team).
+- [x] The `allowAutoJoin` / `autoAcceptJoins` interplay is resolved in one place; the duplicated checks are removed. _(M3)_ Proof: `addMemberToTeamOrgIfAllowed` in `settings/index.js`; the Milestone 3 grep is clean.
+- [x] `clock.js` and `useClockToggle.ts` enforce the same effective value. _(M3, M6)_ Proof: `clock.js` calls `resolveSettings`; `useClockToggle.test.ts`.
+- [x] No client code applies its own default for team settings. _(M6)_ Proof: the Milestone 6 grep is clean.
+- [x] Team settings UI shows the source of inherited values and supports resetting to inherited. _(M7)_ Proof: `settingsCopy.test.tsx`; the Milestone 7 smoke test.
+- [x] Members are notified when an inherited change turns the plan requirement on for their team. _(M5)_ Proof: `settings-hierarchy.test.ts` ("plan requirement notifications").
+- [x] Resolver and plan-gate tests pass; a release note describes the change. _(M1, M8)_ Proof: `settings-resolve.test.ts`, `plan-gate.test.ts`; the note is in `release-notes/1.0.6.md`.

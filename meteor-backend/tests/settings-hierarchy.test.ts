@@ -433,3 +433,44 @@ describe('teams.byUser publication', () => {
     });
   });
 });
+
+describe('sub-teams', () => {
+  const parentId = new ObjectId();
+  const childId = new ObjectId();
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const base = {
+      orgId: orgId.toHexString(),
+      members: [ids.teamAdmin],
+      admins: [ids.teamAdmin],
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertMany([
+      { ...base, _id: parentId, name: 'Settings Parent', code: 'WHSETP01', settings: { autoAcceptJoins: true } },
+      { ...base, _id: childId, name: 'Settings Child', code: 'WHSETP02', parentTeamId: parentId.toHexString() },
+    ]);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teams').deleteMany({ _id: { $in: [parentId, childId] } });
+  });
+
+  it('a sub-team inherits its parent team before the org', async () => {
+    await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { autoAcceptJoins: false } },
+      jwts.orgOwner,
+    );
+    const res = await wormhole<TeamsList>('teams.list', {}, jwts.teamAdmin);
+    const child = res.result.teams.find((t) => t.id === childId.toHexString());
+    expect(child?.settings.autoAcceptJoins).toEqual({
+      value: true,
+      source: 'parentTeam',
+      sourceId: parentId.toHexString(),
+      locked: false,
+    });
+  });
+});
