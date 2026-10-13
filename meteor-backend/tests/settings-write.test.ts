@@ -122,6 +122,18 @@ describe('buildSettingsUpdate', () => {
     expect(unlock.$unset).toEqual({ 'settingsLocks.autoAcceptJoins': '' });
   });
 
+  it('writes the stored value with a lock on it, so a concurrent reset cannot orphan the lock', () => {
+    const update = buildSettingsUpdate({
+      level: 'org',
+      current: { settings: { autoAcceptJoins: false } },
+      locks: { autoAcceptJoins: true },
+    });
+    expect(update.$set).toEqual({
+      'settingsLocks.autoAcceptJoins': true,
+      'settings.autoAcceptJoins': false,
+    });
+  });
+
   it('refuses a lock on a value that is not set', () => {
     expect(() =>
       buildSettingsUpdate({ level: 'org', locks: { requirePlanForClock: true } }),

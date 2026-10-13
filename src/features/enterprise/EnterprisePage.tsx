@@ -80,7 +80,8 @@ export const EnterprisePage: React.FC = () => {
     setSelectedOrgId,
   } = useTeam();
   const { navigate } = useRouter();
-  const [enterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
+  const [loadedEnterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
+  const loadSeqRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -117,6 +118,8 @@ export const EnterprisePage: React.FC = () => {
   const editSlugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
+  // Never show or edit another enterprise's data while a newer selection loads.
+  const enterprise = loadedEnterprise?.id === selectedEnterpriseId ? loadedEnterprise : null;
   const enterpriseAutoJoin = enterprise?.effectiveSettings.allowAutoJoin;
   const autoJoinLocked = enterpriseAutoJoin?.locked === true;
   const handleOpenCreateOrg = useCallback(() => {
@@ -132,6 +135,7 @@ export const EnterprisePage: React.FC = () => {
   );
 
   const loadEnterprise = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     if (!selectedEnterpriseId) {
       setEnterprise(null);
       return;
@@ -148,16 +152,18 @@ export const EnterprisePage: React.FC = () => {
     setError(null);
     try {
       const detail = await enterpriseApi.get(selectedEnterpriseId);
+      if (seq !== loadSeqRef.current) return;
       setEnterprise(detail);
       setEnterpriseName(detail.name);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError('Failed to load enterprise details');
       }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [selectedEnterpriseId]);
 
@@ -194,7 +200,7 @@ export const EnterprisePage: React.FC = () => {
     setError(null);
     try {
       const updated = await enterpriseApi.updateName(selectedEnterpriseId, nextName);
-      setEnterprise((prev) => (prev ? { ...prev, ...updated } : prev));
+      setEnterprise((prev) => (prev?.id === selectedEnterpriseId ? { ...prev, ...updated } : prev));
       setEnterpriseName(updated.name);
       refetchEnterprises();
     } catch (err) {
@@ -215,7 +221,7 @@ export const EnterprisePage: React.FC = () => {
       setSettingsError(null);
       try {
         const view = await enterpriseApi.updateSettings(selectedEnterpriseId, patch);
-        setEnterprise((prev) => (prev ? { ...prev, ...view } : prev));
+        setEnterprise((prev) => (prev?.id === selectedEnterpriseId ? { ...prev, ...view } : prev));
         refreshTeamSettings();
         refetchOrganizations();
       } catch (err) {

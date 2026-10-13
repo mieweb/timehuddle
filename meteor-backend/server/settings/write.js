@@ -77,6 +77,8 @@ function applyLocksPatch(patch, level, resolved, next) {
     if (value === true) {
       next.set[`settingsLocks.${key}`] = true;
       next.locks[key] = true;
+      // Written with the lock so a concurrent reset can't leave a lock without a value.
+      if (next.settings[key] !== undefined) next.set[`settings.${key}`] = next.settings[key];
     } else if (value === false || value === null) {
       next.unset[`settingsLocks.${key}`] = '';
       delete next.locks[key];
