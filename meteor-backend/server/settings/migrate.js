@@ -71,5 +71,9 @@ export async function migrateSettings(db) {
 
   const teams = await pinExistingTeamPlanSetting(db, claimedAt);
   if (teams) console.log(`[settings] pinned requirePlanForClock=false on ${teams} team(s)`);
-  await migrations.updateOne({ _id: MARKER_ID }, { $set: { status: 'done', ranAt: new Date() } });
+  // Only the instance that still owns the claim may mark it done; a taken-over claim has a new `claimedAt`.
+  await migrations.updateOne(
+    { _id: MARKER_ID, claimedAt },
+    { $set: { status: 'done', ranAt: new Date() } },
+  );
 }

@@ -160,10 +160,10 @@ Meteor.publish('teams.byUser', async function () {
   const hexOf = (id) => (typeof id === 'string' ? id : id.toHexString());
 
   // Sends `settings` for a team unless the client already has these values.
-  const sendSettings = async (id, extraFields = {}) => {
+  const sendSettings = async (id, extraFields = {}, resolvedNow) => {
     const doc = docs.get(hexOf(id));
     if (!doc) return;
-    const resolved = await resolveSettings(doc);
+    const resolved = resolvedNow ?? (await resolveSettings(doc));
     const resolvedSettings = publicTeamSettings(resolved);
     const serialized = JSON.stringify(resolvedSettings);
     if (sent.get(hexOf(id)) === serialized && !Object.keys(extraFields).length) return;
@@ -180,8 +180,11 @@ Meteor.publish('teams.byUser', async function () {
   };
 
   // Teams already sent to the client; one still being added catches up on its own.
+  // Resolved together so each org and enterprise is read once, not once per team.
   const resendAll = async () => {
-    for (const key of [...sent.keys()]) await sendSettings(docs.get(key)?._id ?? key);
+    const targets = [...sent.keys()].map((key) => docs.get(key)).filter(Boolean);
+    const resolved = await resolveSettingsForTeams(targets);
+    for (const [i, doc] of targets.entries()) await sendSettings(doc._id, {}, resolved[i]);
   };
 
   // Every update runs here in order, so an older resolve can't land after a newer one.
