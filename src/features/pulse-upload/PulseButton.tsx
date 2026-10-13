@@ -160,6 +160,12 @@ interface PulseButtonProps {
   allowFile?: boolean;
   /** Just the icons, where a label beside them names them (see PulseChip). */
   iconOnly?: boolean;
+  /**
+   * Put what's happening ("Uploading… 42%", "Processing your video…", an
+   * error) on its own line under the buttons, aligned to their `start` or
+   * `end`, instead of beside them.
+   */
+  notesBelow?: 'start' | 'end';
 }
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
@@ -169,10 +175,18 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   disabled,
   allowFile,
   iconOnly,
+  notesBelow,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
-    <div className="pulse-upload flex flex-wrap items-center gap-2">
+    <div
+      className={cn(
+        'pulse-upload flex gap-2',
+        notesBelow
+          ? cn('flex-col gap-1', notesBelow === 'end' ? 'items-end text-end' : 'items-start')
+          : 'flex-wrap items-center',
+      )}
+    >
       <PulseChip
         pulse={pulse}
         ariaLabel={ariaLabel}
