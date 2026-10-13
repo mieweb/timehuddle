@@ -54,6 +54,10 @@ export function uploadVideoFile(
       endpoint: videoApi.uploadEndpoint(),
       retryDelays: videoApi.uploadRetryDelays,
       onShouldRetry: videoApi.shouldRetryUpload,
+      // Every upload has its own reservation and token, so an earlier upload
+      // of the same file can never be resumed: don't remember it (tus would
+      // probe the old URL first, and its localStorage entries pile up).
+      storeFingerprintForResuming: false,
       metadata: { filename: file.name, filetype: file.type, videoid },
       headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress: (sent, total) => {
