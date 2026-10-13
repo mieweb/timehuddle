@@ -27,6 +27,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Checkbox,
   DropdownContent,
   DropdownItem,
@@ -43,6 +44,10 @@ import { useRouter } from '../../ui/router';
 import { RowListItem } from '../../ui/RowList';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
+import { ticketTimerText } from '../timers/ticketTimerStrings';
+
+import { BoardToggleButton } from './BoardToggleButton';
+import { boardText } from './boardStrings';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { SOURCE_LABELS, displaySourceId, ticketDetailPath, type UnifiedTicket } from './sources';
 
@@ -58,12 +63,15 @@ export interface TicketRowProps {
   /** Another row's timer start or stop is in flight. */
   timerDisabled?: boolean;
   onToggleTimer: (ticket: UnifiedTicket) => void;
+  /** Whether the ticket is on My Board; off it, starting a timer adds it first. */
+  onBoard: boolean;
   /**
-   * My Board only. Renders the ▶/⏸ button between the checkbox and the title.
-   * My Board is the only *list* that starts a ticket timer, so no other list
-   * passes this. (Redmine search suggestions start one too.)
+   * The board has been read. Until then "not on it" is not known, so the
+   * toggle is off and the timer makes no promise about adding.
    */
-  showTimer?: boolean;
+  boardKnown: boolean;
+  boardLoading: boolean;
+  onToggleBoard: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -120,7 +128,10 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   timerLoading,
   timerDisabled = false,
   onToggleTimer,
-  showTimer = false,
+  onBoard,
+  boardKnown,
+  boardLoading,
+  onToggleBoard,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -191,6 +202,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     };
   }, [menuOpen]);
 
+  const addsToBoard = boardKnown && !onBoard && !isTimerRunning;
   const leading = (
     <>
       {selecting && (
@@ -200,16 +212,42 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           aria-label={text.select(ticket.title)}
         />
       )}
-      {showTimer && (
+      {/* My Board and the timer are on every row, ahead of its title. */}
+      <ButtonGroup orientation="horizontal" className="ticket-row-quick-actions gap-1">
+        <BoardToggleButton
+          onBoard={onBoard}
+          isLoading={boardLoading}
+          // Not while this row's timer is starting: the start decides whether to
+          // add the ticket from where the board stood when it was pressed.
+          disabled={timerLoading || !boardKnown}
+          onClick={() => onToggleBoard(ticket)}
+          ariaLabel={
+            onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
+          }
+          className="h-8 w-8 shrink-0"
+        />
         <TimerToggleButton
           isRunning={isTimerRunning}
           isLoading={timerLoading}
-          disabled={timerDisabled}
+          disabled={timerDisabled || boardLoading}
           onClick={() => onToggleTimer(ticket)}
-          ariaLabel={isTimerRunning ? text.stopTimer(ticket.title) : text.startTimer(ticket.title)}
-          className="h-8 w-8"
+          // Starting a timer puts the ticket on My Board, so off the board the
+          // button says so: in words where the row has room, by name otherwise.
+          label={addsToBoard ? ticketTimerText.addAndStart : undefined}
+          ariaLabel={
+            isTimerRunning
+              ? text.stopTimer(ticket.title)
+              : addsToBoard
+                ? ticketTimerText.addAndStartLabel(ticket.title)
+                : text.startTimer(ticket.title)
+          }
+          className={`h-8 shrink-0 ${
+            addsToBoard
+              ? 'w-8 px-0 @3xl:w-auto @3xl:px-3 [&_.timer-toggle-label]:hidden @3xl:[&_.timer-toggle-label]:inline'
+              : 'w-8'
+          }`}
         />
-      )}
+      </ButtonGroup>
       <FontAwesomeIcon
         icon={icon}
         className={`ticket-row-status shrink-0 text-sm ${iconClass}`}

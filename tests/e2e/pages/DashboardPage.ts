@@ -38,8 +38,13 @@ export class DashboardPage extends BasePage {
   /**
    * Check if sidebar is visible (indicates authenticated state)
    */
-  async hasSidebar(): Promise<boolean> {
-    return await this.sidebar.isVisible();
+  async hasSidebar(timeout = 10000): Promise<boolean> {
+    // The signed-in shell is a lazy chunk: the URL can reach /dashboard while it
+    // is still loading, so wait for the sidebar instead of sampling it once.
+    return this.sidebar
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false);
   }
 
   /**

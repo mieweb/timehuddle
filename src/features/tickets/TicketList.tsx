@@ -81,8 +81,13 @@ export interface TicketListProps {
   closedCount: number;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
-  /** My Board only — see `TicketRow`. */
-  showTimer?: boolean;
+  /** Whether a ticket is on My Board — see `TicketRow`. */
+  isOnBoard: (ticket: UnifiedTicket) => boolean;
+  /** The board has been read, so `isOnBoard` is a fact — see `useMyBoardKeys`. */
+  boardKnown: boolean;
+  /** `${sourceId}:${id}` of the row being put on or taken off the board, if any. */
+  boardLoadingKey: string | null;
+  onToggleBoard: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -118,7 +123,10 @@ export const TicketList: React.FC<TicketListProps> = ({
   closedCount,
   emptyState,
   onToggleTimer,
-  showTimer = false,
+  isOnBoard,
+  boardKnown,
+  boardLoadingKey,
+  onToggleBoard,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -283,7 +291,10 @@ export const TicketList: React.FC<TicketListProps> = ({
             // One timer start or stop at a time (TicketStartProvider).
             timerDisabled={timerLoadingKey !== null}
             onToggleTimer={onToggleTimer}
-            showTimer={showTimer}
+            onBoard={isOnBoard(ticket)}
+            boardKnown={boardKnown}
+            boardLoading={boardLoadingKey === ticket.key}
+            onToggleBoard={onToggleBoard}
             onEditRequest={onEditRequest}
             onDeleteRequest={onDeleteRequest}
             onChangeStatusRequest={onChangeStatusRequest}

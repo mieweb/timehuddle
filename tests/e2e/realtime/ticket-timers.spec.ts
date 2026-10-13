@@ -112,6 +112,9 @@ test.describe('Real-time Ticket Timers', () => {
 
     // Starting the second timer closes the first server-side (M3 D5).
     await board1.startTimerButton(second).click();
+    // Checked in this tab first: a switch this quick asks about the first
+    // ticket's Huddle update, and the page object answers it on its own page.
+    await expect(board1.stopTimerButton(second)).toBeVisible({ timeout: 10000 });
 
     await expect(board2.stopTimerButton(second)).toBeVisible({ timeout: 10000 });
     await expect(board2.stopTimerButton(first)).toHaveCount(0);

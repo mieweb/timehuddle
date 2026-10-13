@@ -20,17 +20,38 @@ export function timerLabel(source: TicketSourceId, id: string, title?: string | 
 }
 
 export const ticketTimerText = {
-  started: (label: string) => `Timer started on ${label}`,
-  startedAndAdded: (label: string) => `Timer started on ${label} and added to My Board`,
-  startedOnBoard: (label: string) => `Timer started on ${label}. It's on My Board`,
+  /** The timer button where it has room for words, and its name for one ticket. */
+  start: 'Start timer',
+  stop: 'Stop timer',
+  startLabel: (label: string) => `Start a timer on ${label}`,
+  stopLabel: (label: string) => `Stop the timer on ${label}`,
+  /**
+   * The start button of a ticket that is not on My Board: starting puts it
+   * there, so the button says so before it is pressed.
+   */
+  addAndStart: 'Add & Start',
+  addAndStartLabel: (label: string) => `Add ${label} to My Board and start timer`,
+
+  /** The toast: what happened to one ticket, and nothing else. */
+  started: (label: string) => `Started ${label}`,
   /** 500 is the server's `MAX_PINS_PER_USER`. */
   startedPinLimit: (label: string) =>
-    `Timer started on ${label}. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.`,
-  stopped: (label: string) => `Timer stopped on ${label}`,
-  /** Starting one timer stops the other; `startedMessage` is one of the above. */
-  switched: (stoppedLabel: string, startedMessage: string) =>
-    `Stopped ${stoppedLabel}. ${startedMessage}`,
+    `Started ${label}. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.`,
+  stopped: (label: string) => `Stopped ${label}`,
+  /** Opens the update the start or stop posted to Huddle. */
+  viewPost: 'View post',
 
+  /**
+   * Asked when the user leaves a ticket after a very short stint: its update
+   * in Huddle may be a slip not worth telling the team about.
+   */
+  shortStintTitle: 'Keep this update?',
+  shortStintSwitch: (label: string) =>
+    `You're switching away from ${label} after less than 2 minutes. Keep its update in Huddle, or discard it?`,
+  shortStintStop: (label: string) =>
+    `You're stopping ${label} after less than 2 minutes. Keep its update in Huddle, or discard it?`,
+  keepUpdate: 'Keep update',
+  discardUpdate: 'Discard update',
   promptTitle: 'Clock In Required',
   promptBody: 'You must be clocked in before starting a timer. Do you want to clock in now?',
   promptPlanBody: (label: string) =>

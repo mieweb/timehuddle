@@ -111,8 +111,8 @@ test.describe('Timesheet', () => {
 
     // Wait for clock state to load (either Clock in or Clock out button)
     await page.waitForLoadState('networkidle');
-    const clockOutBtn = page.getByRole('button', { name: 'Clock out' });
-    const clockInBtn = page.getByRole('button', { name: 'Clock in' });
+    const clockOutBtn = page.getByRole('button', { name: 'Clock out', exact: true });
+    const clockInBtn = page.getByRole('button', { name: 'Clock in', exact: true });
 
     // If already clocked in from a previous test, clock out first
     if (await clockOutBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -127,9 +127,9 @@ test.describe('Timesheet', () => {
 
     // Wait a moment then clock out
     await page.waitForTimeout(1000);
-    await page.getByRole('button', { name: 'Clock out' }).click();
+    await page.getByRole('button', { name: 'Clock out', exact: true }).click();
     await page
-      .getByRole('button', { name: 'Clock in' })
+      .getByRole('button', { name: 'Clock in', exact: true })
       .waitFor({ state: 'visible', timeout: 10000 });
 
     // Navigate to timesheet

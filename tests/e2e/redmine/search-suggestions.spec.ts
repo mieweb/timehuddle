@@ -316,7 +316,7 @@ test.describe('Redmine suggestion timers', () => {
     await input.press('ArrowDown');
     await input.press('Shift+Enter');
 
-    await expect(page.getByText('Timer started on #15 and added to My Board')).toBeVisible();
+    await expect(page.getByText('Started #15')).toBeVisible();
     expect(bodies[0]).toMatchObject({ ticketId: '15', source: 'redmine', startNow: true });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '15' }] });
   });
@@ -332,10 +332,45 @@ test.describe('Redmine suggestion timers', () => {
     await row.getByLabel('Start a timer on #23').click();
 
     // Already on My Board, so it is not added a second time.
-    await expect(page.getByText("Timer started on #23. It's on My Board")).toBeVisible();
+    await expect(page.getByText('Started #23')).toBeVisible();
     expect(boardAdds).toHaveLength(0);
     expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
+  });
+
+  test('the board button adds an issue to My Board without starting a timer (#672)', async ({
+    page,
+  }) => {
+    const { bodies, boardAdds } = await stubTimerStart(page);
+    const { input, option } = await openTickets(page);
+
+    await input.click();
+    const row = option(/Zulu export timeout/);
+    await row.hover();
+    await row.getByLabel('Add #23 to My Board', { exact: true }).click();
+
+    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '23' }] });
+    expect(bodies).toHaveLength(0);
+    // The menu stays open, and the row now offers to take the issue off again.
+    await row.hover();
+    await expect(row.getByLabel('Remove #23 from My Board')).toBeVisible();
+    await expect(row.getByLabel('Start a timer on #23')).toBeVisible();
+  });
+
+  test('Alt+Enter adds the highlighted suggestion to My Board (#672)', async ({ page }) => {
+    const { bodies, boardAdds } = await stubTimerStart(page);
+    const { input, menu } = await openTickets(page);
+
+    await input.click();
+    await expect(menu.getByRole('option').first()).toBeVisible();
+    await input.press('ArrowDown');
+    await input.press('Alt+Enter');
+
+    await expect
+      .poll(() => boardAdds)
+      .toEqual([{ refs: [{ sourceId: 'redmine', ticketId: '15' }] }]);
+    expect(bodies).toHaveLength(0);
+    await expect(menu.getByRole('option').first()).toBeVisible();
   });
 
   test('a timer on an issue you do not own adds it to the table, then My Board', async ({
@@ -364,9 +399,9 @@ test.describe('Redmine suggestion timers', () => {
     await input.click();
     const row = option(/Kilo billing report/);
     await row.hover();
-    await row.getByLabel('Start a timer on #31').click();
+    await row.getByLabel('Add #31 to My Board and start timer').click();
 
-    await expect(page.getByText('Timer started on #31 and added to My Board')).toBeVisible();
+    await expect(page.getByText('Started #31')).toBeVisible();
     expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
     expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '31' }] });
     await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
@@ -389,11 +424,11 @@ test.describe('Redmine suggestion timers', () => {
     await input.click();
     const row = option(/Kilo billing report/);
     await row.hover();
-    await row.getByLabel('Start a timer on #31').click();
+    await row.getByLabel('Add #31 to My Board and start timer').click();
 
     await expect(
       page.getByText(
-        "Timer started on #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
+        "Started #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
       ),
     ).toBeVisible();
     expect(bodies[0]).toMatchObject({ ticketId: '31', source: 'redmine' });
@@ -467,7 +502,10 @@ test.describe('The running timer in suggestions', () => {
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('tickets:refetch')));
 
     await expect(row.getByText('Timer running')).toHaveCount(0);
-    await expect(row.getByLabel('Start a timer on #23')).toBeVisible();
+    // Whichever start it is: the name depends on whether #23 is on My Board.
+    await expect(
+      row.getByLabel(/^(Start a timer on #23|Add #23 to My Board and start timer)$/),
+    ).toBeVisible();
     await page.mouse.move(0, 0);
     await expect(row.getByText('Watching').last()).toBeVisible();
   });

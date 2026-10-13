@@ -48,12 +48,13 @@ import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
-import { huddleTicketRef } from '../sources';
+import { huddleTicketRef, ticketKey } from '../sources';
 
 import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
 import { TicketActivityCard } from './TicketActivityCard';
 import { TicketAttachmentsCard } from './TicketAttachmentsCard';
+import { TicketQuickActions } from './TicketQuickActions';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -153,11 +154,18 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const linkedIssueId = ticket?.linkedIssue?.id ?? null;
   useEffect(() => {
     void loadLock();
-    const onRefetch = () => void loadLock();
+    const onRefetch = () => {
+      void loadLock();
+      // The session that just started or stopped belongs in the activity list.
+      void timerApi
+        .getTicketSessions(ticketId, 'huddle')
+        .then(setSessions)
+        .catch(() => {});
+    };
     // Fired when the viewer's own timer starts or stops.
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [loadLock, linkedIssueId]);
+  }, [loadLock, linkedIssueId, ticketId]);
   useBackgroundRefresh(loadLock);
 
   /** Show why a change was refused; a lock refusal also refreshes the banner. */
@@ -387,51 +395,64 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
       {/* Full-width title section */}
       <div className="ticket-detail-title-section mb-6">
-        {editingTitle ? (
-          <div className="ticket-title-edit flex items-start gap-2">
-            <Input
-              aria-label="Ticket title"
-              className="flex-1 text-xl font-semibold"
-              value={titleDraft}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitleDraft(e.target.value)}
-              onKeyDown={(e: React.KeyboardEvent) => {
-                if (e.key === 'Enter') void saveTitle();
-                if (e.key === 'Escape') setEditingTitle(false);
-              }}
-              autoFocus
-            />
-            <Button size="sm" aria-label="Save title" onClick={saveTitle} disabled={saving}>
-              <FontAwesomeIcon icon={faCheck} />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Cancel title edit"
-              onClick={() => {
-                setEditingTitle(false);
-                setTitleDraft(ticket.title);
-              }}
-            >
-              <FontAwesomeIcon icon={faXmark} />
-            </Button>
-          </div>
-        ) : (
-          <div className="ticket-title-display flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-              {ticket.title}
-            </h1>
-            {canEdit && !locked && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Edit title"
-                onClick={() => setEditingTitle(true)}
-              >
-                <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
+        <div className="ticket-title-row flex flex-wrap items-start justify-between gap-3">
+          {editingTitle ? (
+            <div className="ticket-title-edit flex min-w-0 flex-1 items-start gap-2">
+              <Input
+                aria-label="Ticket title"
+                className="flex-1 text-xl font-semibold"
+                value={titleDraft}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitleDraft(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === 'Enter') void saveTitle();
+                  if (e.key === 'Escape') setEditingTitle(false);
+                }}
+                autoFocus
+              />
+              <Button size="sm" aria-label="Save title" onClick={saveTitle} disabled={saving}>
+                <FontAwesomeIcon icon={faCheck} />
               </Button>
-            )}
-          </div>
-        )}
+              <Button
+                size="sm"
+                variant="outline"
+                aria-label="Cancel title edit"
+                onClick={() => {
+                  setEditingTitle(false);
+                  setTitleDraft(ticket.title);
+                }}
+              >
+                <FontAwesomeIcon icon={faXmark} />
+              </Button>
+            </div>
+          ) : (
+            <div className="ticket-title-display flex items-center gap-2">
+              <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+                {ticket.title}
+              </h1>
+              {canEdit && !locked && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Edit title"
+                  onClick={() => setEditingTitle(true)}
+                >
+                  <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
+          <TicketQuickActions
+            sourceId="huddle"
+            id={ticket.id}
+            title={ticket.title}
+            inTable
+            linkedKey={
+              ticket.linkedIssue
+                ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id)
+                : null
+            }
+          />
+        </div>
 
         {/* Id, status and priority under the title */}
         <div className="ticket-title-meta mt-1.5 flex flex-wrap items-center gap-2">

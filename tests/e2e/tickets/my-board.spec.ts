@@ -2,10 +2,9 @@
  * "My Board" personal priority view (Milestone 2.2) and the ticket timers it
  * starts (Milestone 3).
  *
- * My Board's ▶/⏸ is the only table control that starts a ticket timer (M3 D1).
- * The main Tickets table has no timer control at all — `unified-table.spec.ts`
- * asserts its absence from the row menu. Redmine search suggestions can start
- * one too (`redmine/search-suggestions.spec.ts`).
+ * Every row carries a My Board toggle and a ▶/⏸ button, on both views (#672);
+ * `unified-table.spec.ts` covers the All Sources side. Redmine search
+ * suggestions can start a timer too (`redmine/search-suggestions.spec.ts`).
  */
 import { test, expect } from '@playwright/test';
 
@@ -34,8 +33,9 @@ test.describe('My Board', () => {
     const boardRow = tickets.rowByTitle(title);
     await expect(boardRow).toBeVisible();
 
-    // The board row has the extra ▶/⏸ column; the main table never does.
+    // The row has its ▶/⏸ button, and a toggle that would take it off the board.
     await expect(tickets.timerButtonForRow(title)).toBeVisible();
+    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
 
     await tickets.selectTicket(title);
     await expect(tickets.removeFromBoardButton).toBeVisible();

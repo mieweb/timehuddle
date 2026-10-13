@@ -1227,6 +1227,13 @@ export const huddleApi = {
   getPosts: (teamId: string, since?: string) =>
     wormholeCall<HuddleFeedPage>('huddle.getPosts', since ? { teamId, since } : { teamId }),
 
+  /** Whether the team has published posts before `since` — `hasMore` without
+   *  the posts, for a feed already receiving them over the live subscription. */
+  hasPostsBefore: (teamId: string, since: string) =>
+    wormholeCall<HuddleFeedPage>('huddle.getPosts', { teamId, since, withPosts: false }).then(
+      (r) => r.hasMore,
+    ),
+
   /** The caller's own published posts across every team they belong to (the
    *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
@@ -1881,11 +1888,24 @@ export interface TicketSession {
   durationSeconds: number | null;
 }
 
+/**
+ * The Huddle update a timer start or stop posted on the user's behalf, for
+ * linking to it. Null when nothing was posted.
+ */
+export interface TimerUpdateRef {
+  postId: string;
+  teamId: string;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
    * `source` defaults to `'huddle'` server-side. Starting a timer requires an
    * active shift and rejects with `no-active-shift` when there is none.
+   *
+   * A start posts an update to Huddle. `discardSessionId` names the running
+   * session whose own update to remove, for a stint the user chose not to
+   * keep; it is ignored unless that is the session the start takes over from.
    */
   createEntry: (data: {
     ticketId: string;
@@ -1894,26 +1914,36 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
+    discardSessionId?: string;
   }) =>
-    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', {
-      ...data,
-      tz: clientTz(),
-    }),
+    wormholeCall<{ entry: WorkItem; session: Timer | null; update?: TimerUpdateRef | null }>(
+      'timers.createEntry',
+      { ...data, tz: clientTz() },
+    ),
 
-  /** Start a timer for a WorkItem. Closes any open timer first. */
-  startSession: (entryId: string, now?: number) =>
-    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', {
+  /** Start a timer for a WorkItem. Closes any open timer first. `discardSessionId` as in `createEntry`. */
+  startSession: (entryId: string, now?: number, discardSessionId?: string) =>
+    wormholeCall<{
+      session: Timer;
+      closedSessionId?: string | null;
+      update?: TimerUpdateRef | null;
+    }>('timers.startSession', {
       entryId,
       now: now ?? Date.now(),
       tz: clientTz(),
+      discardSessionId,
     }),
 
-  /** Stop a running timer. */
-  stopSession: (sessionId: string, now?: number) =>
-    wormholeCall<{ session: Timer }>('timers.stopSession', {
+  /**
+   * Stop a running timer, which posts an update to Huddle. `discardUpdate`
+   * removes the session's own "Started" update instead and posts nothing.
+   */
+  stopSession: (sessionId: string, now?: number, discardUpdate = false) =>
+    wormholeCall<{ session: Timer; update?: TimerUpdateRef | null }>('timers.stopSession', {
       sessionId,
       now: now ?? Date.now(),
-    }).then((r) => r.session),
+      discardUpdate,
+    }),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
@@ -1993,10 +2023,18 @@ export const timerApi = {
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Where a Pulse video lands: the uploader's media library, or the attachments
- * of a ticket, a Redmine issue or a clock session.
+ * Where a Pulse video lands: the uploader's media library, the attachments of
+ * a ticket, a Redmine issue or a clock session, a new post in a team's
+ * Huddle, or the walkthrough on a pending timesheet change. The server delivers it there the moment it lands (see
+ * meteor-backend/server/pulse-destinations.js).
  */
-export type PulseDestination = { kind: 'library' } | { kind: AttachmentKind; id: string };
+export type PulseDestination =
+  | { kind: 'library' }
+  | { kind: AttachmentKind; id: string }
+  | { kind: 'huddle'; teamId: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'clock-wrapup'; clockEventId: string; postDate: string }
+  | { kind: 'timesheet-request'; id: string };
 
 /**
  * Where a Pulse upload stands. `done` carries the backend's `note` (what it

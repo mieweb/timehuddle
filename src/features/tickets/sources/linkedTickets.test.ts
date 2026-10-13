@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { displaySourceId, linkedIssueKey, mergeLinked } from './linkedTickets';
+import {
+  boardEntryKeys,
+  displaySourceId,
+  isOnBoard,
+  linkedIssueKey,
+  mergeLinked,
+} from './linkedTickets';
 import type { UnifiedLinkedIssue, UnifiedTicket } from './types';
 
 const linkTo = (id: string): UnifiedLinkedIssue => ({
@@ -36,6 +42,26 @@ describe('linkedIssueKey', () => {
   it('is the row key of the linked issue, or null for an unlinked ticket', () => {
     expect(linkedIssueKey(huddle('a', linkTo('482')))).toBe('redmine:482');
     expect(linkedIssueKey(huddle('a'))).toBeNull();
+  });
+});
+
+describe('isOnBoard', () => {
+  it('is true for a ticket on the board itself, or through its linked issue', () => {
+    expect(isOnBoard(huddle('a'), new Set(['huddle:a']))).toBe(true);
+    expect(isOnBoard(huddle('a', linkTo('482')), new Set(['redmine:482']))).toBe(true);
+    expect(isOnBoard(huddle('a', linkTo('482')), new Set(['huddle:b']))).toBe(false);
+  });
+});
+
+describe('boardEntryKeys', () => {
+  it('lists every entry that puts the ticket on the board, so removal takes them all', () => {
+    const linked = huddle('a', linkTo('482'));
+    expect(boardEntryKeys(linked, new Set(['huddle:a', 'redmine:482']))).toEqual([
+      'huddle:a',
+      'redmine:482',
+    ]);
+    expect(boardEntryKeys(linked, new Set(['redmine:482']))).toEqual(['redmine:482']);
+    expect(boardEntryKeys(linked, new Set())).toEqual([]);
   });
 });
 

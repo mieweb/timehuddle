@@ -165,6 +165,8 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       const next = await timesheetApprovalApi.listPending(teamId);
       if (loadSeqRef.current !== seq) return;
       setRequests(next);
+      // The open request too, so a walkthrough that lands while it's open shows.
+      setActive((current) => (current && next.find((r) => r.id === current.id)) || current);
     } catch {
       if (loadSeqRef.current === seq) setRequests([]);
     } finally {
@@ -198,7 +200,8 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
         .filter(
           (d) => (d.data as { type?: string } | undefined)?.type === 'timesheet-change-request',
         )
-        .map((d) => d._id)
+        // A walkthrough landing flags the prompt, which reloads the queue too.
+        .map((d) => `${d._id}:${(d.data as { hasWalkthrough?: boolean }).hasWalkthrough ? 1 : 0}`)
         .sort()
         .join(',');
       if (next === prompts) return;

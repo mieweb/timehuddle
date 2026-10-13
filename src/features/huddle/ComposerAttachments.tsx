@@ -1,11 +1,12 @@
 /**
  * Shared attach/ticket/mention controls and chips for post composers — the
  * Clock page's plan/wrap-up composer and the Huddle inbox's message box offer
- * the same Photo/Video/Doc/Pulse/Ticket/@Mention affordances from here.
+ * the same Photo/Video/Doc/Ticket/@Mention affordances from here. Pulse is not
+ * a composer attachment: a Pulse video is delivered by the server to where its
+ * link was reserved for (see PulseButton), so it has its own button.
  */
 import { Badge } from '@mieweb/ui';
 import { AttachmentBar } from './AttachmentBar';
-import { PulseAttachButton } from './PulseAttachButton';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
 import type { MediaItem } from './types';
@@ -18,34 +19,21 @@ interface ComposerAttachButtonsProps {
   selectedTicketId?: string;
   onTicketSelect: (ticketId: string) => void;
   onMentionSelect: (userId: string, name: string) => void;
-  /**
-   * Stable id for this composer, so a Pulse recording started here resumes into
-   * *this* composer after the app is backgrounded — see {@link PulseAttachButton}.
-   */
-  pulseScope?: string;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
   /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
   onError?: (message: string | null) => void;
-  /**
-   * Whether a Pulse recording is reserved but not yet attached. Hosts treat
-   * this as in-flight work and keep submit closed until it lands or is
-   * cancelled — see {@link PulseAttachButton}.
-   */
-  onPulsePendingChange?: (pending: boolean) => void;
 }
 
-/** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
+/** The Photo / Video / Doc / Ticket / @Mention button row. */
 export function ComposerAttachButtons({
   teamId,
   onAttachmentAdd,
   selectedTicketId,
   onTicketSelect,
   onMentionSelect,
-  pulseScope,
   onUploadProgress,
   onError,
-  onPulsePendingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -53,15 +41,6 @@ export function ComposerAttachButtons({
         onAttachmentAdd={onAttachmentAdd}
         onUploadProgress={onUploadProgress}
         onError={onError}
-      />
-      {/* Keyed by scope: PulseAttachButton reads its pending reservation from
-          the scope only on mount, so a scope change (e.g. clock plan → wrap-up)
-          must remount it rather than carry over the old reservation. */}
-      <PulseAttachButton
-        key={pulseScope}
-        onAttach={onAttachmentAdd}
-        scope={pulseScope}
-        onPendingChange={onPulsePendingChange}
       />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />

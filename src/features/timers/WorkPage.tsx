@@ -20,6 +20,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Input,
@@ -61,6 +62,7 @@ import {
   TimesheetJustificationFields,
   type TimesheetJustificationState,
 } from '../clock/TimesheetJustificationFields';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
 import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
@@ -871,7 +873,8 @@ export const WorkPage: React.FC = () => {
                 <TableHead className="w-10" />
                 <TableHead>Work Item</TableHead>
                 <TableHead className="text-right">Time</TableHead>
-                <TableHead className="w-20" />
+                {/* Sized to its content: Pulse or "Walkthrough added" can sit beside the menu. */}
+                <TableHead className="w-px" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -880,7 +883,8 @@ export const WorkPage: React.FC = () => {
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
-                const awaitingApproval = pendingByEntry.has(de.entry.id);
+                const pendingRequest = pendingByEntry.get(de.entry.id);
+                const awaitingApproval = Boolean(pendingRequest);
                 const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
                 const disabledReason = isOnBreak
                   ? 'Timers are paused while you are on break.'
@@ -956,21 +960,32 @@ export const WorkPage: React.FC = () => {
                       </Text>
                     </TableCell>
 
-                    <TableCell className="py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEdit(de)}
-                        aria-label="Edit work item"
-                        title={
-                          awaitingApproval
-                            ? 'A change to this entry is already awaiting review.'
-                            : undefined
-                        }
-                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                    <TableCell className="py-2 text-right whitespace-nowrap">
+                      <ButtonGroup
+                        orientation="horizontal"
+                        className="work-item-actions justify-end"
                       >
-                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                      </Button>
+                        {pendingRequest && (
+                          <ChangeRequestWalkthrough
+                            request={pendingRequest}
+                            onAdded={loadMyRequests}
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEdit(de)}
+                          aria-label="Edit work item"
+                          title={
+                            awaitingApproval
+                              ? 'A change to this entry is already awaiting review.'
+                              : undefined
+                          }
+                          disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                        >
+                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                        </Button>
+                      </ButtonGroup>
                     </TableCell>
                   </TableRow>
                 );

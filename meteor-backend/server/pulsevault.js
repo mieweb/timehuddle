@@ -43,10 +43,11 @@ import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
+import { persistentDir } from './storage-paths';
 
 // Reuse the same directory/env-var convention as uploads.js's `VIDEOS_DIR`
 // (used there to clean up video files on `media.remove`).
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
+const VIDEOS_DIR = persistentDir(process.env.VIDEOS_DIR, 'data/videos');
 
 const CAPABILITY_KEY_ID = 'v1';
 const CAPABILITY_SECRET = process.env.PULSEVAULT_SECRET || 'dev-insecure-pulsevault-secret';
@@ -121,11 +122,15 @@ const VIDEO_CONTENT_TYPES = {
   '.m4v': 'video/x-m4v',
 };
 
-/** The video a finished upload delivers, as pulse-destinations.js takes it. */
-function describeVideo({ artifactId, ext, size }) {
+/**
+ * The video a finished upload delivers, as pulse-destinations.js takes it.
+ * `name` is the Pulse draft's title (`Upload-Metadata.name`), when sent.
+ */
+function describeVideo({ artifactId, ext, size, name }) {
   return {
     artifactId,
     url: artifactPath(artifactId),
+    name: name || null,
     title: `Video ${artifactId.slice(0, 8)}`,
     filename: `${artifactId}${ext}`,
     mimeType: VIDEO_CONTENT_TYPES[ext] ?? 'video/mp4',

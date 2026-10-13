@@ -22,8 +22,6 @@ import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../feat
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
-import { PulseAttachButton } from '../features/huddle/PulseAttachButton';
-import { clearComposerPulseUpload } from '../features/huddle/pulseComposerUpload';
 import {
   defaultConversation,
   postsToConversations,
@@ -35,6 +33,7 @@ import {
   withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
+import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -141,8 +140,28 @@ export default function Huddle() {
   // view (a notification, a shared conversation) wins. The layout effect runs
   // before paint, so the return never flashes the default conversation, and it
   // re-runs each time <Activity> shows the page again.
-  const { pathname } = useRouter();
+  const { pathname, navigate } = useRouter();
   const onScreen = pathname === '/app/huddle';
+
+  // A post can link into the app: a timer update links its ticket. The chat
+  // opens a link in a new tab; one that stays in the app opens here instead.
+  // A modified click (new tab, new window) is left to the browser.
+  const openAppLinkHere = useCallback(
+    (event: React.MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (!(event.target instanceof Element)) return;
+      const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+      if (!anchor) return;
+      const url = new URL(anchor.href, window.location.origin);
+      const inApp = url.pathname === '/app' || url.pathname.startsWith('/app/');
+      if (url.origin !== window.location.origin || !inApp) return;
+      event.preventDefault();
+      navigate(`${url.pathname}${url.search}`);
+    },
+    [navigate],
+  );
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const lastViewRef = useRef<Record<string, string | null>>({});
@@ -228,14 +247,9 @@ export default function Huddle() {
   // view, the selected team otherwise.
   const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
 
-  // What the chat input's own buttons (Pulse video, Ticket) add to the next
-  // post. A Pulse video is already on the backend (a video id, not a File), so
-  // it rides alongside SuperChat's own attachments and joins the post on send.
-  // Scoped by team so a recording or ticket picked for one team can't land in
-  // another team's post.
-  const pulseScope = `huddle-inbox-${postingTeamId ?? 'none'}`;
-  const [pulseVideos, setPulseVideos] = useState<MediaItem[]>([]);
-  const [pulsePending, setPulsePending] = useState(false);
+  // The ticket the chat input's Ticket button adds to the next post, reset
+  // per team so one picked for one team can't land in another team's post.
+  // (Pulse isn't staged here: the server posts a Pulse video itself — see PulseButton.)
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   // The picked ticket's own videos come along with it.
   const ticketVideos = useTicketVideos(selectedTicketId);
@@ -246,13 +260,8 @@ export default function Huddle() {
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
   useEffect(() => {
-    setPulseVideos([]);
     setSelectedTicketId(undefined);
-  }, [pulseScope]);
-  function removePulseVideo(mediaId: string) {
-    setPulseVideos((prev) => prev.filter((m) => m.id !== mediaId));
-    clearComposerPulseUpload(pulseScope);
-  }
+  }, [postingTeamId]);
 
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
@@ -368,33 +377,36 @@ export default function Huddle() {
   const { since: teamSince, settle: settleTeam } = teamWindow;
   const teamSinceRef = useRef(teamSince);
   teamSinceRef.current = teamSince;
-  const refreshFeed = useCallback(async () => {
-    if (!selectedTeamId) return;
+  /** Resolves false when the fetch failed. */
+  const refreshFeed = useCallback(async (): Promise<boolean> => {
+    if (!selectedTeamId) return true;
     try {
       const page = await huddleApi.getPosts(selectedTeamId, teamSince);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed; the
       // same goes for one answered for a window that has since widened.
       if (selectedTeamIdRef.current !== selectedTeamId || teamSinceRef.current !== teamSince)
-        return;
+        return true;
       restPostsRef.current = new Map(page.posts.map((post) => [post.id, post]));
       syncPosts();
       // A fetched snapshot is real data, even when it is empty.
       setLoading(false);
       setError(null);
       settleTeam(teamFeedKey, { ok: true, hasMore: page.hasMore });
+      return true;
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
       settleTeam(teamFeedKey, { ok: false });
+      return false;
     }
   }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, settleTeam]);
 
   // Wire pull-to-refresh (swipe down) to the REST refetch for whichever scope
   // is active.
-  const refreshActiveScope = useCallback(
-    () => (scope === 'me' ? refreshMyPosts() : refreshFeed()),
-    [scope, refreshMyPosts, refreshFeed],
-  );
+  const refreshActiveScope = useCallback(async () => {
+    if (scope === 'me') await refreshMyPosts();
+    else await refreshFeed();
+  }, [scope, refreshMyPosts, refreshFeed]);
   useRefresh(refreshActiveScope);
 
   // A post's `session.endTime` is a snapshot from when it was last fetched —
@@ -443,44 +455,72 @@ export default function Huddle() {
     setError(null);
   }, [selectedTeamId]);
 
-  // Neither route delivered: say so rather than show an empty feed, which
-  // would read as "no posts" (and offer the starter conversation).
+  // The live subscription hasn't delivered in time: fetch over REST, and only
+  // when that fails too say so — an empty feed would read as "no posts" (and
+  // offer the starter conversation).
+  const refreshFeedRef = useRef(refreshFeed);
+  refreshFeedRef.current = refreshFeed;
   useEffect(() => {
     if (!loading || !selectedTeamId) return;
     const loadingFallback = setTimeout(() => {
-      setLoading(false);
-      setError('Failed to load posts. Pull down to retry.');
+      void refreshFeedRef.current().then((ok) => {
+        if (ok) return;
+        setLoading(false);
+        setError('Failed to load posts. Pull down to retry.');
+      });
     }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(loadingFallback);
   }, [loading, selectedTeamId]);
 
   // Subscribe to the live DDP publication for the team's posts in the window.
-  // Widening the window re-subscribes; the REST snapshot (kept until the new
-  // fetch replaces it) holds the screen steady while the subscription restarts.
+  // The subscription is the one source of the posts: REST only answers whether
+  // older posts exist (fetching them there too downloaded every post twice),
+  // unless the socket is down — then REST carries the feed instead.
   useEffect(() => {
     if (!selectedTeamId) return;
 
     const ddp = getDdpClient();
+    let cancelled = false;
+    let offChange = () => {};
+    let markReady = () => {};
+    const ready = new Promise<void>((resolve) => (markReady = resolve));
+    // The feed is rebuilt from the DDP cache only once the window's posts are
+    // all in, then on every change. Not before: returning to a paused Huddle
+    // re-subscribes, and the cache is empty until the posts arrive again —
+    // syncing then would blank the feed and lose the open conversation and the
+    // list's scroll position.
     const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId, teamSince], () => {
+      if (cancelled) return;
       setLoading(false);
       setError(null);
+      syncPosts();
+      offChange();
+      offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+      markReady();
     });
 
-    // Sync immediately in case data is already cached
-    syncPosts();
-
-    // REST fallback: populate the feed even if the DDP socket is down (it's
-    // dropped while the app is backgrounded for a Pulse recording).
-    void refreshFeed();
-
-    // Then keep syncing on every change
-    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+    if (ddp.status === 'failed') {
+      // Dropped while the app was backgrounded for a Pulse recording.
+      void refreshFeed();
+    } else {
+      // Settle the window once its posts are in, so the list's end doesn't ask
+      // for an older window before this one has rendered.
+      void Promise.all([huddleApi.hasPostsBefore(selectedTeamId, teamSince), ready])
+        .then(([hasMore]) => {
+          if (!cancelled) settleTeam(teamFeedKey, { ok: true, hasMore });
+        })
+        .catch((err) => {
+          console.error('[Huddle] hasPostsBefore failed:', err);
+          if (!cancelled) settleTeam(teamFeedKey, { ok: false });
+        });
+    }
 
     return () => {
+      cancelled = true;
       unsub();
       offChange();
     };
-  }, [selectedTeamId, teamSince, syncPosts, refreshFeed]);
+  }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, refreshFeed, settleTeam]);
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
@@ -796,17 +836,13 @@ export default function Huddle() {
     // Snapshot what's staged now: the uploads below take time, and anything
     // picked meanwhile belongs to the *next* post, not this one.
     const ticketId = selectedTicketId;
-    const postedPulseIds = new Set(pulseVideos.map((m) => m.id));
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
-      if (pulsePending) {
-        throw new Error('Your Pulse video is still uploading. Send again once it is attached.');
-      }
       if (ticketVideos.loading) {
         throw new Error("The ticket's videos are still loading. Send again in a moment.");
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
-      const staged = [...pulseVideos, ...ticketVideos.videos];
+      const staged = ticketVideos.videos;
       // One file at a time: each attachment arrives as a base64 `data:` URL, so
       // decoding and uploading them together would hold every string, blob and
       // File in memory at once — enough to kill a mobile WebView at the size
@@ -837,11 +873,9 @@ export default function Huddle() {
       sendingRef.current = false;
       setSending(false);
     }
-    // Clear only what this post actually took: anything staged while it was in
+    // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
-    setPulseVideos((prev) => prev.filter((m) => !postedPulseIds.has(m.id)));
     setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
-    clearComposerPulseUpload(pulseScope);
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
@@ -900,7 +934,11 @@ export default function Huddle() {
         )}
 
         {/* Feed */}
-        <div ref={feedRef} className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          ref={feedRef}
+          className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto"
+          onClickCapture={openAppLinkHere}
+        >
           {scope === 'team' && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">
@@ -987,46 +1025,64 @@ export default function Huddle() {
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
-                      placeholder: 'Share an update…',
+                      // Pulse sits in this row; say it's another way to post.
+                      placeholder: postingTeamId
+                        ? 'Share an update, or post a Pulse…'
+                        : 'Share an update…',
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
-                      // A Pulse video or ticket is a post on its own.
-                      canSendWhenEmpty: pulseVideos.length > 0 || !!selectedTicketId,
+                      // A ticket is a post on its own.
+                      canSendWhenEmpty: !!selectedTicketId,
                       // Also busy while staged content is still settling: a send
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
-                      isSending: sending || pulsePending || ticketVideos.loading,
+                      isSending: sending || ticketVideos.loading,
                       mentionOptions: mentions.options,
                       leadingSlot: (
-                        // ChatComposer's leadingSlot wrapper has no gap of its own.
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          {/* Keyed by scope: it reads its pending reservation only on mount. */}
-                          <PulseAttachButton
-                            key={pulseScope}
-                            scope={pulseScope}
-                            onAttach={(media) =>
-                              setPulseVideos((prev) =>
-                                prev.some((m) => m.id === media.id) ? prev : [...prev, media],
-                              )
-                            }
-                            onPendingChange={setPulsePending}
-                          />
-                          {postingTeamId && (
-                            <TicketPicker
-                              teamId={postingTeamId}
-                              onSelect={setSelectedTicketId}
-                              selectedId={selectedTicketId}
+                        // ChatComposer's leadingSlot wrapper has no gap of its own, and the
+                        // CSS module lets its two children join the composer's row.
+                        <>
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            {postingTeamId && (
+                              <TicketPicker
+                                teamId={postingTeamId}
+                                onSelect={setSelectedTicketId}
+                                selectedId={selectedTicketId}
+                              />
+                            )}
+                            <TicketVideoChips videos={ticketVideos.videos} />
+                            <ComposerChips
+                              selectedTicketId={selectedTicketId}
+                              onTicketRemove={() => setSelectedTicketId(undefined)}
+                              mentions={[]}
+                              onMentionRemove={() => {}}
+                              attachments={[]}
+                              onAttachmentRemove={() => {}}
                             />
+                          </div>
+                          {/* After the composer's +, behind a "/" (or): a Pulse video posts
+                              itself when it lands, so nothing typed here goes with it. Refetch
+                              in case the live feed missed it (DDP dropped while in the Pulse
+                              app). Keyed by team so one team's link doesn't announce under
+                              another. */}
+                          {postingTeamId && (
+                            <div
+                              className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
+                            >
+                              <span
+                                className="huddle-composer-or px-1 text-sm text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                /
+                              </span>
+                              <PulseButton
+                                key={postingTeamId}
+                                destination={{ kind: 'huddle', teamId: postingTeamId }}
+                                ariaLabel="Post a video with Pulse"
+                                onSettled={() => void refreshActiveScope()}
+                              />
+                            </div>
                           )}
-                          <TicketVideoChips videos={ticketVideos.videos} />
-                          <ComposerChips
-                            selectedTicketId={selectedTicketId}
-                            onTicketRemove={() => setSelectedTicketId(undefined)}
-                            mentions={[]}
-                            onMentionRemove={() => {}}
-                            attachments={pulseVideos}
-                            onAttachmentRemove={removePulseVideo}
-                          />
-                        </div>
+                        </>
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.

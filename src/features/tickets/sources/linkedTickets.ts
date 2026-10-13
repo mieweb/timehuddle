@@ -16,6 +16,20 @@ export const linkedIssueKey = (ticket: UnifiedTicket): string | null =>
   ticket.linked ? ticketKey(ticket.linked.sourceId, ticket.linked.id) : null;
 
 /**
+ * A ticket's My Board entries: its own, and the one for the issue it is linked
+ * to. A board entry for a Redmine issue shows as the ticket linked to it, so
+ * either one puts the ticket on the board, and taking it off removes both.
+ */
+export const boardEntryKeys = (ticket: UnifiedTicket, boardKeys: ReadonlySet<string>): string[] =>
+  [ticket.key, linkedIssueKey(ticket)].filter(
+    (key): key is string => key !== null && boardKeys.has(key),
+  );
+
+/** Whether a ticket is on My Board, itself or through the issue it is linked to. */
+export const isOnBoard = (ticket: UnifiedTicket, boardKeys: ReadonlySet<string>): boolean =>
+  boardEntryKeys(ticket, boardKeys).length > 0;
+
+/**
  * The source a ticket is shown, filtered and sorted under: the system of the
  * issue it is linked to, or its own. A TimeHuddle ticket linked to a Redmine
  * issue is Redmine work, and reads as TimeHuddle again once unlinked.
