@@ -26,13 +26,22 @@ interface PulseChipProps {
   /** What pressing it does, for screen readers: "Add a video with Pulse". */
   ariaLabel: string;
   /**
-   * Where Pulse is the page's main way in (the Clock page), the page's primary
-   * pill with this label. Otherwise it's a "Pulse" chip like the ones beside it.
+   * Where Pulse is the page's main way in (the Clock page), a primary button
+   * with this label and no logo: the card around it carries the Pulse logo.
+   * Otherwise it's a "Pulse" chip like the ones beside it.
    */
   main?: { label: string; className: string };
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
+  /**
+   * The card layout (a Videos section): an upload's progress is the Upload
+   * button's own label ("Uploading 42%", "Processing…"), and errors and notes
+   * come before the buttons rather than after them.
+   */
+  card?: boolean;
+  /** Below `sm`, the chips show only their icons (see ComposerChipButton `compact`). */
+  compact?: boolean;
 }
 
 /**
@@ -46,28 +55,39 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   main,
   disabled,
   allowFile,
+  card,
+  compact,
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
   const sending = progress !== null || processing;
+  // A file on its way: said beside the chips, or (card) on the Upload button.
+  const inFlight =
+    progress !== null
+      ? `${card ? 'Uploading' : 'Uploading…'} ${Math.round(progress * 100)}%`
+      : processing
+        ? card
+          ? 'Processing…'
+          : 'Processing your video…'
+        : '';
   // Phones have no modal: the same words the modal uses, beside the chip. A
   // landed video says nothing here — unless a step after delivery failed
   // (the plan posted but the clock-in didn't), which the note then says.
-  const note =
-    progress !== null
-      ? `Uploading… ${Math.round(progress * 100)}%`
-      : processing
-        ? 'Processing your video…'
-        : modalOpen
-          ? ''
-          : status?.state === 'kept'
-            ? keptMessage(status.reason)
-            : status?.state === 'expired'
-              ? EXPIRED_MESSAGE
-              : status?.state === 'done'
-                ? followUpNote(destination, status.note)
-                : '';
-  const announced = !modalOpen && status?.state === 'done' ? landedLabel(destination) : '';
+  const note = inFlight
+    ? card
+      ? ''
+      : inFlight
+    : modalOpen
+      ? ''
+      : status?.state === 'kept'
+        ? keptMessage(status.reason)
+        : status?.state === 'expired'
+          ? EXPIRED_MESSAGE
+          : status?.state === 'done'
+            ? followUpNote(destination, status.note)
+            : '';
+  const announced =
+    (card && inFlight) || (!modalOpen && status?.state === 'done' ? landedLabel(destination) : '');
   const shared = {
     onClick: () => void pulse.start(),
     disabled: disabled || reserving || sending,
@@ -78,71 +98,85 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Button
       type="button"
       variant="primary"
-      size="lg"
-      leftIcon={<PulseLogo inverse className="h-5" />}
       className={cn('pulse-button', main.className)}
       {...shared}
     >
       {reserving ? 'Opening Pulse…' : main.label}
     </Button>
   ) : (
-    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
+    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} compact={compact} {...shared}>
       Pulse
     </ComposerChipButton>
   );
-  return (
+  const chips = allowFile ? (
+    <span className="pulse-upload-chips inline-flex shrink-0 items-center gap-2">
+      <input
+        ref={fileInput}
+        type="file"
+        accept={VIDEO_FILE_ACCEPT}
+        className="hidden"
+        aria-label="Choose a video file to upload"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void pulse.upload(file);
+        }}
+      />
+      {pulseControl}
+      <ComposerChipButton
+        compact={compact}
+        onClick={() => fileInput.current?.click()}
+        disabled={disabled || reserving || sending}
+        aria-busy={sending}
+        aria-label="Upload a video file"
+        leftIcon={
+          sending ? (
+            <Spinner size="xs" className="text-current" />
+          ) : (
+            <FontAwesomeIcon icon={faUpload} className="h-3 w-3" />
+          )
+        }
+      >
+        <span className="tabular-nums">{inFlight && card ? inFlight : 'Upload'}</span>
+      </ComposerChipButton>
+    </span>
+  ) : (
+    pulseControl
+  );
+  const errorText = error && (
+    <Text
+      as="span"
+      size="xs"
+      className={cn('pulse-chip-error text-red-500 dark:text-red-400', card && 'min-w-40 text-end')}
+      role="alert"
+    >
+      {error}
+    </Text>
+  );
+  // Mounted while there's a link, so the update is announced.
+  const statusText = (status || sending) && (
+    <Text
+      as="span"
+      size="xs"
+      variant="muted"
+      role="status"
+      className={cn('pulse-chip-status', !note && 'sr-only', card && note && 'min-w-40 text-end')}
+    >
+      {note || announced}
+    </Text>
+  );
+  // Card: messages come first, so they sit to the left of the buttons.
+  return card ? (
     <>
-      {allowFile && (
-        <span className="pulse-upload-chips inline-flex items-center gap-2">
-          <input
-            ref={fileInput}
-            type="file"
-            accept={VIDEO_FILE_ACCEPT}
-            className="hidden"
-            aria-label="Choose a video file to upload"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) void pulse.upload(file);
-            }}
-          />
-          {pulseControl}
-          <ComposerChipButton
-            onClick={() => fileInput.current?.click()}
-            disabled={disabled || reserving || sending}
-            aria-busy={sending}
-            aria-label="Upload a video file"
-            leftIcon={
-              sending ? (
-                <Spinner size="xs" className="text-current" />
-              ) : (
-                <FontAwesomeIcon icon={faUpload} className="h-3 w-3" />
-              )
-            }
-          >
-            Upload
-          </ComposerChipButton>
-        </span>
-      )}
-      {!allowFile && pulseControl}
-
-      {error && (
-        <Text as="span" size="xs" className="text-red-500 dark:text-red-400" role="alert">
-          {error}
-        </Text>
-      )}
-      {/* Mounted while there's a link, so the update is announced. */}
-      {(status || sending) && (
-        <Text
-          as="span"
-          size="xs"
-          variant="muted"
-          role="status"
-          className={note ? 'pulse-chip-status' : 'pulse-chip-status sr-only'}
-        >
-          {note || announced}
-        </Text>
-      )}
+      {errorText}
+      {statusText}
+      {chips}
+    </>
+  ) : (
+    <>
+      {chips}
+      {errorText}
+      {statusText}
     </>
   );
 };
@@ -155,6 +189,15 @@ interface PulseButtonProps {
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
+  /**
+   * The card layout (see PulseChip `card`), with the buttons at the row's
+   * `end` (a section header) or `start`. Messages sit to the left of the
+   * buttons; where the row has no room for them (a phone) they wrap onto a
+   * line of their own under the buttons.
+   */
+  card?: 'start' | 'end';
+  /** Below `sm`, the chips show only their icons. */
+  compact?: boolean;
 }
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
@@ -163,11 +206,32 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   onSettled,
   disabled,
   allowFile,
+  card,
+  compact,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
-    <div className="pulse-upload flex flex-wrap items-center gap-2">
-      <PulseChip pulse={pulse} ariaLabel={ariaLabel} disabled={disabled} allowFile={allowFile} />
+    <div
+      className={cn(
+        'pulse-upload flex items-center gap-2',
+        // wrap-reverse: the buttons keep the first line, a message that
+        // doesn't fit beside them drops below.
+        card
+          ? cn(
+              'min-w-0 flex-1 flex-wrap-reverse gap-y-1',
+              card === 'end' ? 'justify-end' : 'justify-start',
+            )
+          : 'flex-wrap',
+      )}
+    >
+      <PulseChip
+        pulse={pulse}
+        ariaLabel={ariaLabel}
+        disabled={disabled}
+        allowFile={allowFile}
+        card={Boolean(card)}
+        compact={compact}
+      />
       <PulseUploadModal
         open={pulse.modalOpen}
         onClose={pulse.closeModal}
