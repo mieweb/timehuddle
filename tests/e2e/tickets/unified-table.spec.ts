@@ -40,11 +40,12 @@ test.describe('Unified ticket table', () => {
 
     // The old chip row rendered these as standalone buttons outside the list.
     await expect(page.getByRole('button', { name: 'Clear all' })).toHaveCount(0);
+    await page.setViewportSize({ width: 1440, height: 800 });
     for (const field of ['Source', 'Status', 'Priority', 'Assignees', 'Project']) {
-      await expect(
-        page.getByRole('button', { name: new RegExp(`^Filter by ${field}$`) }),
-      ).toBeVisible();
+      await expect(tickets.filterControl(field)).toBeVisible();
     }
+    // With room for them all there is no pane to open.
+    await expect(tickets.showAllControlsButton).toHaveCount(0);
   });
 
   test('switches between open and closed tickets, with a count of each', async () => {
@@ -77,23 +78,15 @@ test.describe('Unified ticket table', () => {
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
 
-    // Every sort field is in the one menu.
-    await tickets.sortFilterButton.click();
-    const sortGroup = page.getByRole('menu').getByRole('group', { name: 'Sort by' });
-    for (const field of [
-      'Title',
-      'Issue #',
-      'Source',
-      'Status',
-      'Priority',
-      'Project',
-      'Updated',
-    ]) {
-      await expect(
-        sortGroup.getByRole('menuitem', { name: new RegExp(`^${field}`) }),
-      ).toBeVisible();
+    // Every property has its own control in the header: the sort itself for one
+    // only sorted by, a menu for one that can be filtered.
+    await tickets.showAllControls();
+    for (const field of ['Title', 'Issue #', 'Updated']) {
+      await expect(tickets.sortControl(field)).toBeVisible();
     }
-    await page.keyboard.press('Escape');
+    for (const field of ['Assignees', 'Project', 'Source', 'Status', 'Priority']) {
+      await expect(tickets.filterControl(field)).toBeVisible();
+    }
   });
 
   test('tags every row with its source', async ({ page }) => {
@@ -122,12 +115,11 @@ test.describe('Unified ticket table', () => {
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
     expect(await tickets.rowsFromSource('huddle').count()).toBeGreaterThan(0);
 
-    await tickets.sortFilterButton.click();
-    await tickets.clearFiltersButton.click();
+    await tickets.clearFilters();
     await expect(tickets.clearFiltersButton).toHaveCount(0);
   });
 
-  test('sorts from the menu and says the sort in words', async () => {
+  test('sorts from the header and says the sort in words', async () => {
     await tickets.createTicket(`E2E Sort ${Date.now()}`);
     const before = await tickets.getTicketCount();
 
@@ -216,8 +208,10 @@ test.describe('Unified ticket table', () => {
     await scroller.evaluate((area) => area.scrollTo({ top: area.scrollHeight }));
     const after = await measure();
     expect(after.scrollTop).toBeGreaterThan(0);
-    // The header has not moved: it still sits right on top of the scroller.
-    expect(after.headerBottom).toBe(after.areaTop);
+    // The header has not moved: it still sits where it did, just above the scroller.
+    expect(after.headerBottom).toBe(before.headerBottom);
+    expect(after.areaTop).toBe(before.areaTop);
+    expect(after.headerBottom).toBeLessThanOrEqual(after.areaTop);
     await expect(header).toBeVisible();
     await expect(tickets.rowByTitle(`E2E Scroll ${stamp} 1`)).toBeInViewport();
 
@@ -240,7 +234,7 @@ test.describe('Unified ticket table', () => {
     await expect(page.getByText(`${title} removed from My Board`)).toBeVisible();
     await expect(tickets.addToBoardRowButton(title)).toBeVisible();
     // Off the board, the start button says it will add the ticket first.
-    await expect(tickets.addAndStartButton(title)).toHaveText('Add & Start');
+    await expect(tickets.addAndStartButton(title)).toBeVisible();
     await tickets.switchToTab('my-board');
     await expect(tickets.rowByTitle(title)).toHaveCount(0);
 

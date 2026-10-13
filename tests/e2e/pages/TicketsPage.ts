@@ -2,15 +2,22 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { keepShortStintUpdates } from '../fixtures/timers';
 
+/** Properties with nothing to filter: their pill is the sort itself. */
+const SORT_ONLY_FIELDS = new Set(['Title', 'Issue #', 'Updated']);
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * TicketsPage - Page object for the unified ticket list.
  *
  * The page has two views over the same list, chosen with a switcher: My Board, which it opens on, and
  * All Sources, which shows every source (TimeHuddle, Redmine) at once. Rows
- * carry `data-ticket-source` so tests can assert on provenance. Every sort and
- * filters are individual controls when they fit and move into the
- * "Sort and filter" menu as the list narrows, beside the Open/Closed switcher;
- * the rows scroll under that header.
+ * carry `data-ticket-source` so tests can assert on provenance. Sorting and
+ * filtering are pills in the list header, beside the Open/Closed switcher: a
+ * property only sorted by is a button, one that can be filtered opens a menu.
+ * The pills that do not fit the header's line are reached through a chevron
+ * that opens a pane of them all (`showAllControls`); the rows scroll under
+ * that header.
  *
  * `goto()` lands on All Sources, because that is the table most specs are
  * about; a spec about the board switches with `switchToTab('my-board')`, and
@@ -20,7 +27,8 @@ export class TicketsPage extends BasePage {
   readonly heading: Locator;
   readonly newTicketButton: Locator;
   readonly searchInput: Locator;
-  readonly sortFilterButton: Locator;
+  /** The chevron that opens the pane of every sort and filter pill, when they do not all fit. */
+  readonly showAllControlsButton: Locator;
   readonly openOption: Locator;
   readonly closedOption: Locator;
   readonly clearFiltersButton: Locator;
@@ -47,10 +55,12 @@ export class TicketsPage extends BasePage {
       name: 'Search tickets and Redmine issues',
     });
     // Open/Closed sits in the list header at every width, labelled with its counts.
-    this.sortFilterButton = this.page.getByRole('button', { name: /^Sort and filter/ });
+    this.showAllControlsButton = this.page.getByRole('button', {
+      name: /^Show all sort and filter controls/,
+    });
     this.openOption = this.page.getByRole('radio', { name: /^Open tickets/ });
     this.closedOption = this.page.getByRole('radio', { name: /^Closed tickets/ });
-    this.clearFiltersButton = this.page.getByRole('menuitem', { name: 'Clear filters' });
+    this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
     this.selectModeButton = this.page.getByRole('button', { name: 'Select', exact: true });
     this.doneSelectingButton = this.page.getByRole('button', { name: 'Done', exact: true });
@@ -121,30 +131,51 @@ export class TicketsPage extends BasePage {
     await this.switchToTab('my-board');
   }
 
-  /** One field's filter section when it has moved into the overflow menu. */
-  filterSection(field: string): Locator {
-    return this.page
-      .getByRole('menu')
-      .getByRole('group', { name: new RegExp(`^Filter by ${field}`) });
+  /** Open the pane of every sort and filter pill, where the header's line cannot hold them. */
+  async showAllControls() {
+    if (await this.showAllControlsButton.isVisible()) await this.showAllControlsButton.click();
   }
 
-  /** Open a field's own filter control, or its section in the overflow menu. */
-  async openFilter(field: string) {
-    const inline = this.page.getByRole('button', {
-      name: new RegExp(`^Filter by ${field}(?::|$)`),
+  /** The pill of a property that can be filtered; it opens that property's menu. */
+  filterControl(field: string): Locator {
+    return this.page.getByRole('button', {
+      name: new RegExp(`^Filter by ${escapeRegExp(field)}(?::|$)`),
     });
-    if (await inline.isVisible()) {
-      await inline.click();
-    } else {
-      await this.sortFilterButton.click();
-    }
   }
 
-  /** Pick a value from a field's section of the sort-and-filter menu. */
+  /** The pill of a property that is only sorted by; pressing it sorts, then reverses. */
+  sortControl(field: string): Locator {
+    return this.page.getByRole('button', {
+      name: new RegExp(`^(Sort by ${escapeRegExp(field)}$|Sorted by ${escapeRegExp(field)},)`),
+    });
+  }
+
+  /** Open a property's filter menu, from the header's line or from its pane. */
+  async openFilter(field: string) {
+    await this.showAllControls();
+    await this.filterControl(field).click();
+  }
+
+  /**
+   * Pick a value in a property's filter menu. A property that takes several
+   * values leaves its menu open, so it is closed here.
+   */
   async filterBy(field: string, option: string) {
     await this.openFilter(field);
-    await this.page.getByRole('menu').getByRole('menuitem', { name: option, exact: true }).click();
+    const menu = this.page.getByRole('menu');
+    await menu
+      .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+      .filter({ hasText: new RegExp(`^${escapeRegExp(option)}(\\(selected\\))?$`) })
+      .click();
+    await this.page.waitForTimeout(150);
+    if (await menu.isVisible()) await this.page.keyboard.press('Escape');
     await this.page.waitForTimeout(300);
+  }
+
+  /** Turn every filter off. */
+  async clearFilters() {
+    await this.showAllControls();
+    await this.clearFiltersButton.click();
   }
 
   async goto() {
@@ -233,28 +264,37 @@ export class TicketsPage extends BasePage {
     await this.filterBy('Source', label);
   }
 
-  /** Sort by a field from the sort-and-filter menu; choosing it again flips the direction. */
-  async sortBy(field: string) {
-    await this.sortFilterButton.click();
-    await this.page
+  /** The "Sort by …" item at the top of a filterable property's menu. Opens the menu. */
+  private async openSortItem(field: string): Promise<Locator> {
+    await this.openFilter(field);
+    return this.page
       .getByRole('menu')
-      .getByRole('group', { name: 'Sort by' })
-      .getByRole('menuitem', { name: new RegExp(`^${field}(\\s*\\(sorted|$)`) })
-      .click();
+      .getByRole('menuitem', { name: new RegExp(`^Sort by ${escapeRegExp(field)}`) });
+  }
+
+  /** Sort by a property; choosing it again flips the direction. */
+  async sortBy(field: string) {
+    if (SORT_ONLY_FIELDS.has(field)) {
+      await this.showAllControls();
+      await this.sortControl(field).click();
+    } else {
+      await (await this.openSortItem(field)).click();
+    }
     await this.page.waitForTimeout(300);
   }
 
-  /** How the list is sorted by a field, as the sort-and-filter menu says it in words. */
+  /** How the list is sorted by a property, as its control says it in words. */
   async sortStateOf(field: string): Promise<'ascending' | 'descending' | 'none'> {
-    await this.sortFilterButton.click();
-    const item = this.page
-      .getByRole('menu')
-      .getByRole('group', { name: 'Sort by' })
-      .getByRole('menuitem', { name: new RegExp(`^${field}(\\s*\\(sorted|$)`) });
-    const name = (await item.textContent()) ?? '';
-    await this.page.keyboard.press('Escape');
-    if (name.includes('sorted ascending')) return 'ascending';
-    if (name.includes('sorted descending')) return 'descending';
+    let name: string;
+    if (SORT_ONLY_FIELDS.has(field)) {
+      await this.showAllControls();
+      name = (await this.sortControl(field).getAttribute('aria-label')) ?? '';
+    } else {
+      name = (await (await this.openSortItem(field)).textContent()) ?? '';
+      await this.page.keyboard.press('Escape');
+    }
+    if (name.includes('ascending')) return 'ascending';
+    if (name.includes('descending')) return 'descending';
     return 'none';
   }
 

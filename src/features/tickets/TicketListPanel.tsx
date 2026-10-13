@@ -87,16 +87,21 @@ export const TicketListPanel: React.FC<TicketListPanelProps> = ({
 
       {/* Fills the remaining height, as a column: a source-error banner takes
           what it needs and the rows scroll in the rest, under a fixed header. */}
+      {/* No frame or background of its own: the rows sit on the page, kept
+          apart by rules. Still a `Card`, for its region and as the menus' boundary.
+          On a phone it reaches out into most of the page's own side padding
+          (`AppPage`'s px-4), which the header and the rows need more than the
+          margin does. */}
       <Card
         ref={cardRef}
         padding="none"
-        className="ticket-list-card flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="ticket-list-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none max-md:-mx-3"
       >
         <TicketList
           {...listProps}
           tickets={view.sortedTickets}
           listKey={listKey}
-          optionSource={view.searchFilteredTickets}
+          optionSource={view.searchedTickets}
           loading={loading}
           sort={view.sort}
           onSortChange={view.onSortChange}

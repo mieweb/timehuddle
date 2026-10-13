@@ -2,14 +2,15 @@
  * TicketRow — one ticket in the ticket list.
  *
  * Renders a `UnifiedTicket` without caring which source it came from, as a
- * `RowListItem`: the title, a line of where the ticket sits (reference,
- * project, last updated), and its properties (status, priority, source, linked
- * issue, assignees). The row lays those out by the room it has; see `RowList`.
+ * `RowListItem`, the same at every width: a line of where the ticket sits
+ * (project, reference, last updated), its title, and under the title its
+ * badges (assignees, status, priority, source, linked issue).
  *
- * Every action is gated on `ticket.capabilities`, so a source cannot render a
- * control it is unable to perform (Redmine issues, for instance, are never
- * deleted). Timers are the exception to "actions live in the ⋮ menu": a row
- * starts one only from My Board's ▶/⏸ button, never from the menu.
+ * An open ticket leads with its timer button; a closed one has its purple mark
+ * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
+ * which offers the same in words. Every other action is in that menu and gated
+ * on `ticket.capabilities`, so a source cannot render a control it is unable
+ * to perform (Redmine issues, for instance, are never deleted).
  */
 import {
   faEllipsisVertical,
@@ -18,8 +19,6 @@ import {
   faLink,
   faPen,
   faCircleCheck,
-  faCircleDot,
-  faCircleXmark,
   faRightLeft,
   faTrash,
 } from '@fortawesome/free-solid-svg-icons';
@@ -27,14 +26,13 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
-  ButtonGroup,
   Checkbox,
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
   Tooltip,
 } from '@mieweb/ui';
-import { CircleUser } from 'lucide-react';
+import { CircleUser, ClipboardCopy, ClipboardX } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -82,7 +80,7 @@ export interface TicketRowProps {
  * most of what tells one ticket from another and a phone has no hover tooltip.
  */
 const TITLE_CLASS =
-  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
+  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-base leading-snug font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
 
 /** Assignee names a row shows before it counts the rest. */
 const SHOWN_ASSIGNEES = 3;
@@ -96,15 +94,6 @@ const text = {
   options: 'Ticket options',
   sharedWithTimeharbor: 'Shared with TimeHarbor',
 };
-
-function statusIconFor(status: UnifiedTicket['status']): {
-  icon: typeof faCircleDot;
-  className: string;
-} {
-  if (status.isClosed) return { icon: faCircleCheck, className: 'text-purple-500' };
-  if (status.native === 'blocked') return { icon: faCircleXmark, className: 'text-amber-500' };
-  return { icon: faCircleDot, className: 'text-green-500' };
-}
 
 /**
  * Map a normalized priority rank onto a badge tone. Low and unrecognized
@@ -144,7 +133,6 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
   const { capabilities, status, externalUrl, assignees } = ticket;
-  const { icon, className: iconClass } = statusIconFor(status);
   // "Only the creator edits" is Huddle's own rule. An external source enforces
   // its own permissions server-side (Redmine checks the user's role and
   // workflow), so its rows offer the action and surface any refusal.
@@ -202,6 +190,8 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     };
   }, [menuOpen]);
 
+  // Starting a timer puts the ticket on My Board, so off the board the button
+  // says it will: in its name, and in its tooltip.
   const addsToBoard = boardKnown && !onBoard && !isTimerRunning;
   const leading = (
     <>
@@ -212,28 +202,23 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           aria-label={text.select(ticket.title)}
         />
       )}
-      {/* My Board and the timer are on every row, ahead of its title. */}
-      <ButtonGroup orientation="horizontal" className="ticket-row-quick-actions gap-1">
-        <BoardToggleButton
-          onBoard={onBoard}
-          isLoading={boardLoading}
-          // Not while this row's timer is starting: the start decides whether to
-          // add the ticket from where the board stood when it was pressed.
-          disabled={timerLoading || !boardKnown}
-          onClick={() => onToggleBoard(ticket)}
-          ariaLabel={
-            onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
-          }
-          className="h-8 w-8 shrink-0"
-        />
+      {status.isClosed && !isTimerRunning ? (
+        // A closed ticket is not timed from its row: its purple mark stands
+        // where an open one has the timer. The status badge says it in words.
+        <span className="ticket-row-closed flex h-8 w-8 shrink-0 items-center justify-center">
+          <FontAwesomeIcon
+            icon={faCircleCheck}
+            className="text-base text-purple-500"
+            aria-hidden="true"
+          />
+        </span>
+      ) : (
         <TimerToggleButton
           isRunning={isTimerRunning}
           isLoading={timerLoading}
           disabled={timerDisabled || boardLoading}
           onClick={() => onToggleTimer(ticket)}
-          // Starting a timer puts the ticket on My Board, so off the board the
-          // button says so: in words where the row has room, by name otherwise.
-          label={addsToBoard ? ticketTimerText.addAndStart : undefined}
+          title={addsToBoard ? ticketTimerText.addAndStart : undefined}
           ariaLabel={
             isTimerRunning
               ? text.stopTimer(ticket.title)
@@ -241,53 +226,43 @@ export const TicketRow: React.FC<TicketRowProps> = ({
                 ? ticketTimerText.addAndStartLabel(ticket.title)
                 : text.startTimer(ticket.title)
           }
-          className={`h-8 shrink-0 ${
-            addsToBoard
-              ? 'w-8 px-0 @3xl:w-auto @3xl:px-3 [&_.timer-toggle-label]:hidden @3xl:[&_.timer-toggle-label]:inline'
-              : 'w-8'
-          }`}
+          className="h-8 w-8 shrink-0"
         />
-      </ButtonGroup>
-      <FontAwesomeIcon
-        icon={icon}
-        className={`ticket-row-status shrink-0 text-sm ${iconClass}`}
-        aria-hidden="true"
-      />
+      )}
     </>
   );
 
-  // Where the ticket sits: reference, project and age, dot-separated.
+  // Where the ticket sits, then what it is called by: project, reference, age.
   const updatedAt = ticket.updatedAt ?? ticket.createdAt;
-  const metaItems = [
-    ticket.externalRef ? (
-      <a
-        href={ticket.externalRef.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`${ticket.ref}, ${ticket.externalRef.label}`}
-        className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-      >
-        {ticket.ref}
-        <FontAwesomeIcon icon={faExternalLink} className="text-[9px]" aria-hidden="true" />
-      </a>
-    ) : (
-      ticket.ref
-    ),
-    ticket.container?.name,
-    updatedAt && (
-      <time dateTime={updatedAt} title={text.updated(new Date(updatedAt).toLocaleString())}>
-        {timeAgo(updatedAt)}
-      </time>
-    ),
-  ].filter(Boolean);
+  const refClass = 'ticket-row-ref font-semibold text-foreground';
   const meta = (
     <span className="ticket-row-meta contents">
-      {metaItems.map((item, index) => (
-        <React.Fragment key={index}>
-          {index > 0 && <span aria-hidden="true">•</span>}
-          <span className="min-w-0 break-words">{item}</span>
-        </React.Fragment>
-      ))}
+      {ticket.container?.name && (
+        <span className="min-w-0 break-words">{ticket.container.name}</span>
+      )}
+      {ticket.externalRef ? (
+        <a
+          href={ticket.externalRef.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${ticket.ref}, ${ticket.externalRef.label}`}
+          className={`${refClass} inline-flex items-center gap-1 hover:underline`}
+        >
+          {ticket.ref}
+          <FontAwesomeIcon icon={faExternalLink} className="text-[9px]" aria-hidden="true" />
+        </a>
+      ) : (
+        <span className={refClass}>{ticket.ref}</span>
+      )}
+      {updatedAt && (
+        <time
+          dateTime={updatedAt}
+          title={text.updated(new Date(updatedAt).toLocaleString())}
+          className="text-xs"
+        >
+          {timeAgo(updatedAt)}
+        </time>
+      )}
     </span>
   );
 
@@ -297,6 +272,21 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   // its badge instead of spilling out of it.
   const properties = (
     <span className="ticket-row-facts contents [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
+      {/* Names, not avatars: initials alone say less, and there is no hover on a phone. */}
+      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => (
+        <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">
+          <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">{assignee.name}</span>
+        </Badge>
+      ))}
+      {extraAssignees.length > 0 && (
+        <Tooltip content={extraAssignees.join(', ')}>
+          <Badge variant="secondary" size="sm">
+            <span aria-hidden="true">+{extraAssignees.length}</span>
+            <span className="sr-only">{text.moreAssignees(extraAssignees)}</span>
+          </Badge>
+        </Tooltip>
+      )}
       <Badge variant={status.isClosed ? 'secondary' : 'default'} size="sm">
         {status.native}
       </Badge>
@@ -329,26 +319,21 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           </Badge>
         </Tooltip>
       )}
-      {/* Names, not avatars: initials alone say less, and there is no hover on a phone. */}
-      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => (
-        <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">
-          <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{assignee.name}</span>
-        </Badge>
-      ))}
-      {extraAssignees.length > 0 && (
-        <Tooltip content={extraAssignees.join(', ')}>
-          <Badge variant="secondary" size="sm">
-            <span aria-hidden="true">+{extraAssignees.length}</span>
-            <span className="sr-only">{text.moreAssignees(extraAssignees)}</span>
-          </Badge>
-        </Tooltip>
-      )}
     </span>
   );
 
   const actions = (
     <>
+      <BoardToggleButton
+        onBoard={onBoard}
+        isLoading={boardLoading}
+        // Not while this row's timer is starting: the start decides whether to
+        // add the ticket from where the board stood when it was pressed.
+        disabled={timerLoading || !boardKnown}
+        onClick={() => onToggleBoard(ticket)}
+        ariaLabel={onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)}
+        className="h-8 w-8 shrink-0"
+      />
       <Button
         ref={menuTriggerRef}
         variant="ghost"
@@ -387,6 +372,23 @@ export const TicketRow: React.FC<TicketRowProps> = ({
                 }}
               >
                 Copy Link
+              </DropdownItem>
+              {/* The same toggle as the row's own button, in words. */}
+              <DropdownItem
+                icon={
+                  onBoard ? (
+                    <ClipboardX className="h-3.5 w-3.5" aria-hidden="true" />
+                  ) : (
+                    <ClipboardCopy className="h-3.5 w-3.5" aria-hidden="true" />
+                  )
+                }
+                disabled={timerLoading || boardLoading || !boardKnown}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onToggleBoard(ticket);
+                }}
+              >
+                {onBoard ? boardText.remove : boardText.add}
               </DropdownItem>
               {capabilities.openExternal && externalUrl && (
                 <DropdownItem

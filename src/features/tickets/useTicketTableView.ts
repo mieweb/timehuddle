@@ -33,6 +33,12 @@ export interface TicketTableView {
   onOpenFilterMenuChange: (menuId: string | null) => void;
   /** Everything matching the search + filter chips, before the Open/Closed split. */
   searchFilteredTickets: UnifiedTicket[];
+  /**
+   * Everything matching the search alone. What the filter menus build their
+   * choices from: built from the filtered list, choosing one project would
+   * take every other project out of the menu it was chosen in.
+   */
+  searchedTickets: UnifiedTicket[];
   openCount: number;
   closedCount: number;
   /** The rows the list shows: filtered, split by Open/Closed, and sorted. */
@@ -60,6 +66,10 @@ export function useTicketTableView(
   const searchFilteredTickets = useMemo(
     () => applyFilters(tickets, filters, searchQuery, meKeys),
     [tickets, filters, searchQuery, meKeys],
+  );
+  const searchedTickets = useMemo(
+    () => applyFilters(tickets, EMPTY_FILTERS, searchQuery, meKeys),
+    [tickets, searchQuery, meKeys],
   );
 
   const openCount = useMemo(
@@ -121,6 +131,7 @@ export function useTicketTableView(
     openFilterMenu,
     onOpenFilterMenuChange: setOpenFilterMenu,
     searchFilteredTickets,
+    searchedTickets,
     openCount,
     closedCount,
     sortedTickets,

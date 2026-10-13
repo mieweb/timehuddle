@@ -1,17 +1,16 @@
 /**
  * RowList — a list of rows that lays itself out by the width it is given.
  *
- * One layout at every width, mobile first. A row is a title with a line of
- * detail under it, a set of properties, and controls at either end. Narrow, the
- * properties wrap onto lines under the title; with more room they move up
- * beside it, onto fewer lines, with more space between them. Nothing is hidden
- * for lack of space and nothing scrolls sideways.
+ * One layout at every width, mobile first. A row is a line of detail, the
+ * title under it, and the row's properties under that, with controls at either
+ * end. The three stack the same way on a phone and on a wide monitor; a narrow
+ * row only wraps each onto more lines. Nothing is hidden for lack of space and
+ * nothing scrolls sideways.
  *
- * None of that is a breakpoint. The row is a wrapping flex line — the
- * properties sit beside the title for as long as both fit, and drop under it
- * when they do not — and its spacing is in container units, so it follows the
- * list's own width: resizing the window and opening the sidebar both change it
- * smoothly, and no viewport width or media query picks a rendering.
+ * None of that is a breakpoint. The spacing is in container units, so it
+ * follows the list's own width: resizing the window and opening the sidebar
+ * both change it smoothly, and no viewport width or media query picks a
+ * rendering.
  *
  * The rows themselves are `@mieweb/ui`'s `ListView` (the Views family), so the
  * list semantics, empty state and item styling are the library's; this adds
@@ -37,9 +36,9 @@ export interface RowListItemProps extends Omit<React.HTMLAttributes<HTMLDivEleme
   leading?: React.ReactNode;
   /** What the row is. Wraps in full rather than truncating. */
   title: React.ReactNode;
-  /** A secondary line under the title. */
+  /** A secondary line above the title: where the item sits, its reference. */
   meta?: React.ReactNode;
-  /** Beside the title when there is room, under it when there is not. */
+  /** Under the title, from its left edge: badges and the like. */
   properties?: React.ReactNode;
   /** Controls at the end of the row's first line, e.g. an options menu. */
   actions?: React.ReactNode;
@@ -80,13 +79,14 @@ export const RowListItem: React.FC<RowListItemProps> = ({
       data-selected={selected || undefined}
       onClick={handleClick}
       className={cn(
-        'row-list-item flex w-full min-w-0 items-start gap-x-(--row-list-gap) px-(--row-list-inset) py-1.5 transition-colors',
+        // Ruled off from the next row: the list has no frame to hold rows together.
+        'row-list-item flex w-full min-w-0 items-start gap-x-(--row-list-gap) border-b border-border px-(--row-list-inset) py-2.5 transition-colors',
         onOpen && 'cursor-pointer hover:bg-muted/60',
         selected && 'bg-primary-500/10 hover:bg-primary-500/15',
         className,
       )}
     >
-      {/* Every part's first line is h-8, so controls line up with the title's first line. */}
+      {/* Every part's first line is h-8, so the controls line up with the detail line. */}
       {leading && (
         <div
           className="row-list-leading flex h-8 shrink-0 items-center gap-2"
@@ -95,17 +95,15 @@ export const RowListItem: React.FC<RowListItemProps> = ({
           {leading}
         </div>
       )}
-      <div className="row-list-content flex min-w-0 flex-1 flex-wrap items-start gap-x-(--row-list-gap)">
-        <div className="row-list-main min-w-0 flex-[1_1_18rem]">
-          <div className="row-list-title py-1.5 text-sm leading-5 break-words">{title}</div>
-          {meta && (
-            <div className="row-list-meta flex min-w-0 flex-wrap items-center gap-x-1.5 pb-1 text-xs text-muted-foreground">
-              {meta}
-            </div>
-          )}
-        </div>
+      <div className="row-list-content min-w-0 flex-1">
+        {meta && (
+          <div className="row-list-meta flex min-h-8 min-w-0 flex-wrap items-center gap-x-2.5 text-sm text-muted-foreground">
+            {meta}
+          </div>
+        )}
+        <div className="row-list-title text-base leading-snug break-words">{title}</div>
         {properties && (
-          <div className="row-list-properties flex min-h-8 min-w-0 flex-wrap content-center items-center gap-x-[clamp(0.375rem,1cqi,0.75rem)] gap-y-1.5 py-1.5">
+          <div className="row-list-properties flex min-w-0 flex-wrap items-center gap-1.5 pt-2 pb-1">
             {properties}
           </div>
         )}
@@ -124,7 +122,7 @@ export const RowListSkeleton: React.FC = () => (
   <RowListItem
     aria-hidden="true"
     className="row-list-skeleton"
-    leading={<Skeleton width={16} height={16} />}
+    leading={<Skeleton variant="avatar" width={32} height={32} />}
     title={<Skeleton variant="text" width="60%" />}
     meta={<Skeleton variant="text" width="30%" />}
     properties={
@@ -188,7 +186,11 @@ export function RowList<T>({
       className={cn('row-list @container flex min-h-0 flex-1 flex-col', SPACING_VARS, className)}
     >
       {header && (
-        <div className="row-list-header flex shrink-0 flex-wrap items-center gap-x-(--row-list-gap) gap-y-2 border-b border-border bg-muted/40 px-(--row-list-inset) py-2">
+        // A rounded panel the list's full width. Its sides are padded by the
+        // rows' own inset, so its first and last controls line up with theirs.
+        // Its corner is the vertical padding out from a pill-shaped control's
+        // own (h-7), so one line of controls reads as a pill.
+        <div className="row-list-header mb-1 flex shrink-0 flex-wrap items-center gap-1.5 rounded-[1.375rem] bg-muted px-(--row-list-inset) py-2">
           {header}
         </div>
       )}
@@ -213,9 +215,7 @@ export function RowList<T>({
         {placeholders > 0 && (
           <div className="row-list-placeholders" aria-hidden="true">
             {Array.from({ length: placeholders }, (_, i) => (
-              <div key={i} className="border-b border-border last:border-b-0">
-                <RowListSkeleton />
-              </div>
+              <RowListSkeleton key={i} />
             ))}
           </div>
         )}

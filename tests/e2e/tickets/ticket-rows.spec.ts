@@ -1,7 +1,8 @@
 /**
- * The ticket list's one row layout (#668): at every width each ticket is a row
- * — its title in full, where it sits, then its properties — that spreads out
- * as the list gets more room, and nothing scrolls sideways.
+ * The ticket list's one row layout (#668): at every width each ticket is the
+ * same row — where it sits, its title in full, then its badges under the title
+ * — and nothing scrolls sideways. Sorting and filtering are pills in the list
+ * header, which fold into a pane behind a chevron when they do not fit.
  */
 import { test, expect } from '@playwright/test';
 
@@ -43,20 +44,20 @@ test.describe('Ticket rows', () => {
     }
   });
 
-  test('lays a ticket out as title, details and badges, and keeps its menu in reach', async ({
+  test('lays a ticket out as details, title and badges, and keeps its menu in reach', async ({
     page,
   }) => {
     const title = `E2E Phone Facts ${Date.now()}`;
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
 
-    // The title, then where the ticket sits, then who has it and its state.
+    // Where the ticket sits, then its title, then who has it and its state.
     await expect(row.locator('.ticket-row-meta')).toContainText('#');
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     const lines = await row
-      .locator('.row-list-title, .row-list-meta, .row-list-properties')
+      .locator('.row-list-meta, .row-list-title, .row-list-properties')
       .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBeLessThan(lines[1]);
@@ -94,45 +95,43 @@ test.describe('Ticket rows', () => {
     await expect(row.getByRole('checkbox')).not.toBeChecked();
   });
 
-  test('keeps desktop selection controls and progressively collapses filters to fit', async ({
+  test('keeps desktop selection controls, and folds the pills that do not fit into a pane', async ({
     page,
   }) => {
-    const title = `E2E Responsive Filters ${Date.now()}`;
+    const title = `E2E Responsive Pills ${Date.now()}`;
     await tickets.createTicket(title);
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     const row = tickets.rowByTitle(title);
     const listCard = tickets.activePanel.locator('.ticket-list-card');
-    const inlineFilters = tickets.activePanel.locator('[data-ticket-inline-filter]');
+    const inlinePills = tickets.activePanel.locator('.ticket-list-controls [data-ticket-pill]');
+    const pane = tickets.activePanel.locator('.ticket-list-controls-pane');
+    const PILLS = 8;
 
     await expect(row.getByRole('checkbox')).toBeVisible();
     await expect(tickets.selectModeButton).toBeHidden();
-    await expect(inlineFilters).toHaveCount(5);
+    // With room, every pill is on the header's line and there is no chevron.
+    await expect(inlinePills).toHaveCount(PILLS);
+    await expect(tickets.showAllControlsButton).toHaveCount(0);
 
     // Keep the viewport fixed: only the list's available container width changes.
     await listCard.evaluate((element) => {
       (element as HTMLElement).style.flex = 'none';
       (element as HTMLElement).style.width = '420px';
     });
-    await expect.poll(() => inlineFilters.count()).toBeLessThan(5);
+    await expect.poll(() => inlinePills.count()).toBeLessThan(PILLS);
 
-    await tickets.sortFilterButton.click();
-    await expect(page.getByRole('menu').getByRole('group', { name: /^Filter by / })).toHaveCount(
-      5 - (await inlineFilters.count()),
-    );
-    for (const field of ['Source', 'Status', 'Priority', 'Assignees', 'Project']) {
-      const inlineFilter = page.getByRole('button', {
-        name: new RegExp(`^Filter by ${field}(?::|$)`),
-      });
-      if (!(await inlineFilter.isVisible())) {
-        await expect(tickets.filterSection(field)).toBeVisible();
-      }
-    }
-    await page.keyboard.press('Escape');
+    // The chevron opens a pane holding every pill, the ones still on the line included.
+    await tickets.showAllControlsButton.click();
+    await expect(pane.locator('[data-ticket-pill]')).toHaveCount(PILLS);
+    await expect(inlinePills).toHaveCount(0);
 
+    // A different size is a different header: the pane closes, and with room
+    // again the pills are back on the line.
     await listCard.evaluate((element) => {
       (element as HTMLElement).style.width = '1100px';
     });
-    await expect(inlineFilters).toHaveCount(5);
+    await expect(pane).toHaveCount(0);
+    await expect(inlinePills).toHaveCount(PILLS);
   });
 
   test('drops the selection when the view changes, but preserves it when resizing', async ({
@@ -193,39 +192,64 @@ test.describe('Ticket rows', () => {
     await expect(tickets.rowByTitle(title)).toBeVisible();
   });
 
-  test('sorts from the overflow menu and filters from the available control', async ({ page }) => {
-    const title = `E2E Phone Menu ${Date.now()}`;
+  test('sorts and filters from the pane, and says how many filters are on', async ({ page }) => {
+    const title = `E2E Phone Pane ${Date.now()}`;
     await tickets.createTicket(title);
-    const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
 
-    // Sorting: the menu says which field is sorted, and which way, in words.
-    await menuButton.click();
-    await page.getByRole('menuitem', { name: 'Title', exact: true }).click();
-    await menuButton.click();
-    await expect(page.getByRole('menuitem', { name: 'Title (sorted ascending)' })).toBeVisible();
-    await page.keyboard.press('Escape');
+    // A property only sorted by is a button: one press sorts, and it says which way.
+    await tickets.sortBy('Title');
+    expect(await tickets.sortStateOf('Title')).toBe('ascending');
+    await tickets.sortBy('Title');
+    expect(await tickets.sortStateOf('Title')).toBe('descending');
 
-    // A filter remains available whether inline or inside the overflow menu.
-    await tickets.openFilter('Source');
-    await page.getByRole('menuitem', { name: 'TimeHuddle', exact: true }).click();
+    // A filter is reached from the pane when its pill is not on the line.
+    await tickets.filterBy('Source', 'TimeHuddle');
     await expect(tickets.rowByTitle(title)).toBeVisible();
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Sort and filter, 1 filter on' })).toBeVisible();
 
-    // Clearing them remains available in the overflow menu.
-    await page.getByRole('button', { name: 'Sort and filter, 1 filter on' }).click();
-    await page.getByRole('menuitem', { name: 'Clear filters' }).click();
-    await expect(page.getByRole('button', { name: 'Sort and filter', exact: true })).toBeVisible();
+    // Closed, the chevron still says a filter is on.
+    await page.getByRole('button', { name: 'Hide the sort and filter controls' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Show all sort and filter controls, 1 filter on' }),
+    ).toBeVisible();
+
+    await tickets.clearFilters();
+    await expect(tickets.clearFiltersButton).toHaveCount(0);
   });
 
-  test('works from the keyboard: focus goes in, arrows move, Escape comes back', async ({
+  test('several choices of one filter can be on at once', async ({ page }) => {
+    const title = `E2E Phone Multi ${Date.now()}`;
+    await tickets.createTicket(title);
+
+    await tickets.openFilter('Assignees');
+    const me = page.getByRole('menuitemcheckbox', { name: 'Me', exact: true });
+    const unassigned = page.getByRole('menuitemcheckbox', { name: 'Unassigned', exact: true });
+    await me.click();
+    await unassigned.click();
+
+    // The menu stays open for the next choice, and both are ticked.
+    await expect(me).toHaveAttribute('aria-checked', 'true');
+    await expect(unassigned).toHaveAttribute('aria-checked', 'true');
+    // Every other choice is still offered after one is made.
+    await expect(
+      page.getByRole('menuitemcheckbox', { name: TEST_USERS.owner1.name, exact: true }),
+    ).toBeVisible();
+    await expect(tickets.rowByTitle(title)).toBeVisible();
+
+    await me.click();
+    await expect(me).toHaveAttribute('aria-checked', 'false');
+    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+  });
+
+  test('a menu works from the keyboard: focus goes in, arrows move, Escape comes back', async ({
     page,
   }) => {
-    await tickets.createTicket(`E2E Phone Keys ${Date.now()}`);
-    const menuButton = page.getByRole('button', { name: /^Sort and filter/ });
+    await tickets.createTicket(`E2E Keys ${Date.now()}`);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const trigger = tickets.filterControl('Source');
     const items = page.getByRole('menuitem');
 
-    await menuButton.click();
+    await trigger.click();
     await expect(items.first()).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(items.nth(1)).toBeFocused();
@@ -234,26 +258,48 @@ test.describe('Ticket rows', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toHaveCount(0);
-    await expect(menuButton).toBeFocused();
+    await expect(trigger).toBeFocused();
 
     // Choosing an item also hands focus back, since the item itself goes away.
-    await menuButton.click();
+    await trigger.click();
     await items.first().press('Enter');
-    await expect(menuButton).toBeFocused();
+    await expect(trigger).toBeFocused();
 
     // Tab closes the menu, so its arrow keys cannot reach into the page.
-    await menuButton.click();
+    await trigger.click();
     await expect(items.first()).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('menu')).toHaveCount(0);
+  });
+
+  test('a menu with a search box starts there, and narrows as you type', async ({ page }) => {
+    await tickets.createTicket(`E2E Search ${Date.now()}`);
+
+    await tickets.openFilter('Assignees');
+    const search = page.getByRole('searchbox', { name: 'Search people' });
+    await expect(search).toBeFocused();
+
+    await search.fill('zzz-nobody');
+    await expect(page.getByRole('menuitemcheckbox')).toHaveCount(0);
+    await expect(page.getByRole('menu')).toContainText('No matches');
+
+    // Typing does not close the menu, and the arrows leave the box for the
+    // choices. Other specs add people whose names start alike, so the down
+    // arrow is checked against whichever choice comes first.
+    await search.fill(TEST_USERS.owner1.name.slice(0, 4));
+    await expect(
+      page.getByRole('menuitemcheckbox', { name: TEST_USERS.owner1.name, exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menuitemcheckbox').first()).toBeFocused();
   });
 
   test('keeps the whole menu reachable on a short screen', async ({ page }) => {
     await tickets.createTicket(`E2E Phone Short ${Date.now()}`);
     await page.setViewportSize({ width: 390, height: 520 });
 
-    await page.getByRole('button', { name: /^Sort and filter/ }).click();
-    const last = page.getByRole('menuitem').last();
+    await tickets.openFilter('Assignees');
+    const last = page.getByRole('menuitemcheckbox').last();
     await last.scrollIntoViewIfNeeded();
     const box = await last.boundingBox();
     expect(box).not.toBeNull();
@@ -276,8 +322,8 @@ test.describe('Ticket rows', () => {
   });
 
   test('My Board fits a 360px screen, board and timer buttons included', async ({ page }) => {
-    // Both views carry the My Board toggle and the ▶/⏸ button ahead of the
-    // title; 360px is the narrowest phone the app supports.
+    // Both views carry the ▶/⏸ button ahead of the row and the My Board toggle
+    // at its end; 360px is the narrowest phone the app supports.
     const narrow = { width: 360, height: 740 };
     await new ClockPage(page).ensureClockedIn();
     await page.setViewportSize(narrow);
@@ -323,34 +369,38 @@ test.describe('Ticket rows', () => {
     // All Sources has the same two buttons, and fits as well.
     await tickets.switchToTab('tickets');
     await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
-    const allSourcesOverflow = await page.evaluate(() => {
-      const area = document.querySelector<HTMLElement>(
-        '.tickets-view-panel:not(.hidden) .ticket-table-scroll',
-      );
-      return area ? area.scrollWidth - area.clientWidth : null;
-    });
+    const allSourcesOverflow = await sidewaysOverflow(page);
     expect(allSourcesOverflow).not.toBeNull();
     expect(allSourcesOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('spreads the same row out as the list gets wider, with no layout swap', async ({ page }) => {
+  test('keeps the same stacked row as the list gets wider, with no layout swap', async ({
+    page,
+  }) => {
     const title = `E2E Resize ${Date.now()}`;
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
-    const titleTop = () =>
-      row.locator('.ticket-row-title').evaluate((el) => el.getBoundingClientRect().top);
-    const factsTop = () =>
-      row.locator('.row-list-properties').evaluate((el) => el.getBoundingClientRect().top);
+    const titleBox = () =>
+      row.locator('.ticket-row-title').evaluate((el) => {
+        const { top, left } = el.getBoundingClientRect();
+        return { top, left };
+      });
+    const factsBox = () =>
+      row.locator('.row-list-properties').evaluate((el) => {
+        const { top, left } = el.getBoundingClientRect();
+        return { top, left };
+      });
 
-    // Narrow: the properties wrap under the title.
-    expect(await factsTop()).toBeGreaterThan((await titleTop()) + 10);
-
-    // Wide: the same row, with its properties beside the title. No columns
-    // appear, and the header controls stay where they were.
-    await page.setViewportSize({ width: 1440, height: 800 });
-    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
-    expect(Math.abs((await factsTop()) - (await titleTop()))).toBeLessThanOrEqual(8);
-    await expect(page.getByRole('columnheader')).toHaveCount(0);
+    // Narrow and wide alike: the badges sit under the title, from its left
+    // edge. No columns appear.
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+      const [titleAt, factsAt] = [await titleBox(), await factsBox()];
+      expect(factsAt.top, `at ${width}px`).toBeGreaterThan(titleAt.top + 10);
+      expect(Math.abs(factsAt.left - titleAt.left), `at ${width}px`).toBeLessThanOrEqual(2);
+      await expect(page.getByRole('columnheader')).toHaveCount(0);
+    }
 
     // Open/Closed sits at the start of the list header at every width.
     for (const width of [360, 1440]) {

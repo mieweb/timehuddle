@@ -5,10 +5,12 @@
  * of tickets and reports per-source load failures, so a broken source cannot
  * blank out the sources that are working.
  *
- * One layout at every width: each ticket is a row carrying its properties, laid
- * out by the room the list has (see `RowList`). The header keeps select all and
- * Open/Closed on the left; individual filters move into its overflow menu only
- * when the list gets too narrow. Selection is host-owned.
+ * One layout at every width: each ticket is a row carrying its properties (see
+ * `RowList`). The header keeps select all and Open/Closed on the left, and the
+ * sort and filter pills after them: on its one line while they fit, and in a
+ * pane that opens under it when they do not (see `TicketListControls`).
+ * Selection is host-owned: always offered on a wide screen, and only while
+ * selecting on a phone.
  */
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -19,7 +21,7 @@ import { RowList } from '../../ui/RowList';
 
 import { TicketRow } from './TicketRow';
 import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
-import { TicketSortFilterMenu, type TicketField } from './TicketSortFilterMenu';
+import { TicketListControls, type TicketField } from './TicketListControls';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
 import {
   assigneeOptions,
@@ -54,7 +56,7 @@ export interface TicketListProps {
    * different list. New rows arriving in the same list leave it alone.
    */
   listKey: string;
-  /** Everything matching the search, used to build the filter menus. */
+  /** Everything matching the search, whatever the filters, used to build the filter menus. */
   optionSource: UnifiedTicket[];
   loading: boolean;
   errors: { sourceId: TicketSourceId; message: string }[];
@@ -142,53 +144,19 @@ export const TicketList: React.FC<TicketListProps> = ({
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
 
-  // The registry drives the source options, so a third source needs no change
-  // here. Filters stay individual until the list header no longer has room.
+  // In the order they are kept on the header's line as it narrows: the ones
+  // reached for most come first. The registry drives the source options, so a
+  // third source needs no change here.
   const fields: TicketField[] = [
-    { label: 'Title', sortField: 'title' },
-    { label: 'Issue #', sortField: 'ref' },
-    {
-      label: 'Source',
-      sortField: 'source',
-      filter: {
-        anyLabel: 'All sources',
-        options: TICKET_SOURCES.map((source) => ({
-          value: source.id,
-          label: SOURCE_LABELS[source.id],
-        })),
-        // One selected source reads as "Redmine"; none selected reads as "All".
-        value: filters.sources.length === 1 ? filters.sources[0] : null,
-        onChange: (value) => set('sources', value ? [value as TicketSourceId] : []),
-      },
-    },
-    {
-      label: 'Status',
-      sortField: 'status',
-      filter: {
-        anyLabel: 'Any status',
-        options: statusOptions(optionSource),
-        value: filters.status,
-        onChange: (value) => set('status', value),
-      },
-    },
-    {
-      label: 'Priority',
-      sortField: 'priority',
-      filter: {
-        anyLabel: 'Any priority',
-        options: priorityOptions(optionSource),
-        value: filters.priority,
-        onChange: (value) => set('priority', value),
-        extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
-      },
-    },
     {
       label: 'Assignees',
       filter: {
         anyLabel: 'Anyone',
+        searchPlaceholder: 'Search people',
         options: assigneeOptions(optionSource),
-        value: filters.assignee,
-        onChange: (value) => set('assignee', value),
+        multiple: true,
+        values: filters.assignees,
+        onChange: (values) => set('assignees', values),
         // "Me" first: it is the shortcut people reach for most, and it spans
         // every source at once (see the ME sentinel).
         extraOptions: [
@@ -202,16 +170,57 @@ export const TicketList: React.FC<TicketListProps> = ({
       sortField: 'container',
       filter: {
         anyLabel: 'All projects',
+        searchPlaceholder: 'Search projects',
         options: containerOptions(optionSource),
-        value: filters.container,
-        onChange: (value) => set('container', value),
+        multiple: true,
+        values: filters.containers,
+        onChange: (values) => set('containers', values),
       },
     },
+    {
+      label: 'Source',
+      sortField: 'source',
+      filter: {
+        anyLabel: 'All sources',
+        options: TICKET_SOURCES.map((source) => ({
+          value: source.id,
+          label: SOURCE_LABELS[source.id],
+        })),
+        // One selected source reads as "Redmine"; none selected reads as "All".
+        values: filters.sources.length === 1 ? [filters.sources[0]] : [],
+        onChange: (values) => set('sources', values as TicketSourceId[]),
+      },
+    },
+    {
+      label: 'Status',
+      sortField: 'status',
+      filter: {
+        anyLabel: 'Any status',
+        options: statusOptions(optionSource),
+        multiple: true,
+        values: filters.statuses,
+        onChange: (values) => set('statuses', values),
+      },
+    },
+    {
+      label: 'Priority',
+      sortField: 'priority',
+      filter: {
+        anyLabel: 'Any priority',
+        options: priorityOptions(optionSource),
+        multiple: true,
+        values: filters.priorities,
+        onChange: (values) => set('priorities', values),
+        extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
+      },
+    },
+    { label: 'Issue #', sortField: 'ref' },
     { label: 'Updated', sortField: 'updated' },
+    { label: 'Title', sortField: 'title' },
   ];
 
   const header = (
-    <div className="ticket-list-header-controls flex w-full min-w-0 items-center gap-2">
+    <div className="ticket-list-header-controls flex w-full min-w-0 flex-wrap items-center gap-1.5">
       <div className="ticket-list-header-primary flex shrink-0 items-center gap-2">
         {showSelectionControls && (
           <Checkbox
@@ -231,7 +240,7 @@ export const TicketList: React.FC<TicketListProps> = ({
           loading={loading}
         />
       </div>
-      <TicketSortFilterMenu
+      <TicketListControls
         fields={fields}
         sort={sort}
         onSortChange={onSortChange}

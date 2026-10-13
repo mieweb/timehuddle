@@ -25,6 +25,8 @@ export interface FilterDropdownProps {
   trigger: React.ReactNode;
   /** Accessible name for the trigger. */
   triggerAriaLabel?: string;
+  /** Added to the trigger button, e.g. to round its focus ring to the trigger's shape. */
+  triggerClassName?: string;
   children: React.ReactNode;
 }
 
@@ -36,8 +38,14 @@ const MENU_KEY_STEP: Record<string, 1 | -1 | 'first' | 'last' | undefined> = {
   End: 'last',
 };
 
+/** Something in the menu to type in: its own keys stay its own. */
+const isTextEntry = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+
 const menuItems = (menu: HTMLElement | null) =>
-  menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : [];
+  menu
+    ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]'))
+    : [];
 
 export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   activeMenuId,
@@ -46,6 +54,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   onOpenChange,
   trigger,
   triggerAriaLabel,
+  triggerClassName = 'rounded',
   children,
 }) => {
   const [open, setOpen] = React.useState(false);
@@ -142,7 +151,12 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   // The menu is portaled to the end of <body>, far from its trigger in the tab
   // order, so focus is moved into it when it opens.
   React.useEffect(() => {
-    if (open) menuItems(menuRef.current)[0]?.focus();
+    if (!open) return;
+    // A menu with a search box starts there (`data-menu-autofocus`).
+    const first =
+      menuRef.current?.querySelector<HTMLElement>('[data-menu-autofocus]') ??
+      menuItems(menuRef.current)[0];
+    first?.focus();
   }, [open]);
 
   // Close on outside click / Escape — the library's Dropdown handles this
@@ -177,6 +191,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       const step = MENU_KEY_STEP[e.key];
       const items = menuItems(menuRef.current);
       if (step === undefined || !items.length) return;
+      // In a search box Home and End move the caret; the arrows still leave it.
+      if (isTextEntry(e.target) && typeof step !== 'number') return;
       e.preventDefault();
       const current = items.indexOf(document.activeElement as HTMLElement);
       const next =
@@ -184,7 +200,12 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
           ? 0
           : step === 'last'
             ? items.length - 1
-            : (current + step + items.length) % items.length;
+            : current === -1
+              ? // From outside the choices (the search box): into the nearest end.
+                step === 1
+                ? 0
+                : items.length - 1
+              : (current + step + items.length) % items.length;
       items[next]?.focus();
     };
     document.addEventListener('mousedown', handlePointerDown);
@@ -208,7 +229,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         // The trigger takes only the icon's width: `Button`'s default `h-10 px-4`
         // squeezed header labels into ellipses and, in narrow columns, clipped
         // the icon away entirely.
-        className="flex h-auto shrink-0 items-center rounded p-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+        className={`flex h-auto shrink-0 items-center p-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${triggerClassName}`}
       >
         {trigger}
       </Button>
@@ -221,7 +242,9 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
             className="z-9999 max-w-[calc(100vw-1rem)] min-w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
             /* Clicking any item bubbles up here and closes the dropdown. Focus
                goes back to the trigger: the item it was on is about to unmount. */
-            onClick={() => {
+            onClick={(e) => {
+              // Except in a part that is not a choice, such as a search box.
+              if ((e.target as HTMLElement).closest('[data-menu-keep-open]')) return;
               handleOpenChange(false);
               triggerRef.current?.focus();
             }}

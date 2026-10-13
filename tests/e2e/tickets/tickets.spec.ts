@@ -46,9 +46,9 @@ test.describe('Tickets', () => {
     await expect(
       page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }),
     ).toBeVisible();
-    // Open/Closed, and the one sort-and-filter menu, sit in the list header.
+    // Open/Closed, and the sort and filter pills, sit in the list header.
     await expect(page.getByRole('radio', { name: /^Closed tickets/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Sort and filter/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Filter by Assignees/ })).toBeVisible();
   });
 
   test('should create a ticket', async ({ page }) => {
