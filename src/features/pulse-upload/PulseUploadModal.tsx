@@ -37,8 +37,9 @@ export interface PulseUploadModalProps {
 
 /**
  * The one Pulse window. On a computer: a QR code to scan with a phone. In a
- * phone's browser: an "Open Pulse" link to tap — a Universal Link / App Link
- * opens the app only from a tap. Both with a live status line that says where
+ * phone's browser, only when the tap on Pulse couldn't open it (no link was
+ * ready yet, and a Universal Link / App Link opens the app only from a tap):
+ * an "Open Pulse" link to tap. Both with a live status line that says where
  * the video went when it lands ("Added to this ticket ✓"). Closing it earlier
  * loses nothing: the server delivers the upload wherever it was meant to go.
  * Presentational — the host owns the link and the status (see

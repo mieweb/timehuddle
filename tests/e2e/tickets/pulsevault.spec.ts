@@ -378,11 +378,12 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(qrModal.getByRole('link', { name: 'Open Pulse' })).toHaveCount(0);
   });
 
-  test("in a phone's browser, the window offers Pulse's https pairing link to tap", async ({
+  test("in a phone's browser, one tap on Pulse follows Pulse's https pairing link", async ({
     browser,
   }) => {
-    // A Universal Link / App Link opens the app only from a tap, so a phone gets
-    // an "Open Pulse" link in place of the QR. The upload rides in the fragment.
+    // The link is ready before the tap, so the tap itself opens it (a Universal
+    // Link / App Link opens the app only from a tap). Pulse's page is stubbed:
+    // the test only checks where the tap goes. The upload rides in the fragment.
     const phone = await browser.newContext({
       userAgent: IPHONE_UA,
       viewport: { width: 390, height: 844 },
@@ -390,20 +391,21 @@ test.describe('PulseVault — Ticket video upload', () => {
       isMobile: true,
     });
     const page = await phone.newPage();
+    await page.route('https://mieweb.github.io/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Pulse</title>' }),
+    );
     try {
       await loginAs(page, TEST_USERS.owner1);
       await page.goto('/app/tickets');
       await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
+      const prepared = page.waitForResponse((r) => r.url().includes('/api/pulsevault_reserve'));
       await page.waitForURL(/\/app\/tickets\/[0-9a-f]{24}/);
+      await prepared;
 
       await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
-      const window = page.locator('[aria-label="Record a video with Pulse"]');
-      const open = window.getByRole('link', { name: 'Open Pulse' });
-      await expect(open).toBeVisible({ timeout: 8000 });
-      await expect(window.getByLabel('QR code to open the Pulse upload screen')).toHaveCount(0);
+      await page.waitForURL(/^https:\/\/mieweb\.github\.io\/pulse\/open#/);
 
-      const href = new URL((await open.getAttribute('href')) ?? '');
-      expect(`${href.origin}${href.pathname}`).toBe('https://mieweb.github.io/pulse/open');
+      const href = new URL(page.url());
       expect(href.search).toBe('');
       const params = new URLSearchParams(href.hash.slice(1));
       expect(params.get('v')).toBe('1');

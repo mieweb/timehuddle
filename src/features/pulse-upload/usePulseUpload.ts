@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
-import { isNativeApp, openExternalUrl } from '../../lib/device';
+import { isMobileBrowser, isNativeApp, openExternalUrl } from '../../lib/device';
 import { buildPulseLink } from './pulseLinks';
 import { uploadVideoFile, videoFileProblem } from './videoFile';
 
@@ -26,6 +26,11 @@ const STATUS_POLL_MS = 3000;
 const STATUS_TIMEOUT_MS = 10_000;
 /** How long the modal shows a delivered video before closing itself. */
 const LANDED_CLOSE_MS = 1500;
+/**
+ * How long a link prepared ahead of a phone's tap is used before a fresh one
+ * replaces it: well inside the token's 30 minutes (UPLOAD_LINK_SECONDS).
+ */
+const PREPARED_FRESH_MS = 20 * 60 * 1000;
 
 /** The link handed out: one video id, the token that authorizes it, and the pairing link. */
 export interface PulseLink {
@@ -65,6 +70,8 @@ interface Options {
 }
 
 type LiveLink = PulseLink & { destinationKey: string; fromFile: boolean };
+type Reservation = { videoid: string; uploadToken: string };
+type Prepared = { destinationKey: string; reservation: Reservation; at: number };
 
 const isSettled = (status: PulseUploadStatus | null) =>
   status?.state === 'done' || status?.state === 'kept';
@@ -95,6 +102,32 @@ export function usePulseUpload(
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const notifiedFor = useRef<string | null>(null);
+
+  // In a phone's browser the link is ready before the tap, so the tap opens
+  // Pulse itself: a Universal Link / App Link opens the app only from a tap,
+  // not from a navigation that waited on the server. Reserving writes nothing
+  // (it signs a token), so an unused link just expires. Refreshed well before
+  // it would, and after each use for the next video.
+  const onPhoneBrowser = isMobileBrowser();
+  const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const [prepareRound, setPrepareRound] = useState(0);
+  useEffect(() => {
+    if (!onPhoneBrowser) return;
+    let cancelled = false;
+    videoApi
+      .reserve(JSON.parse(destinationKey) as PulseDestination)
+      .then((reservation) => {
+        if (!cancelled) setPrepared({ destinationKey, reservation, at: Date.now() });
+      })
+      .catch(() => {
+        // The tap reserves again, and says what went wrong.
+      });
+    const refresh = setTimeout(() => setPrepareRound((n) => n + 1), PREPARED_FRESH_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(refresh);
+    };
+  }, [onPhoneBrowser, destinationKey, prepareRound]);
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket), this hook starts afresh; the earlier link
@@ -166,22 +199,44 @@ export function usePulseUpload(
     onSettledRef.current?.(status);
   }, [current, status, modalOpen]);
 
-  // The TimeHuddle app hands the link to the OS, which opens Pulse when it's
-  // installed and Pulse's page (and from there the store) when it isn't. A
-  // browser shows the window: a QR on a computer, an "Open Pulse" link on a
-  // phone — a Universal Link / App Link opens the app only from a tap, and the
-  // tap that got here was spent waiting for the reservation.
-  const openLink = useCallback(async ({ url }: PulseLink) => {
-    if (isNativeApp()) await openExternalUrl(url);
-    else setModalOpen(true);
-  }, []);
+  // Where the link goes, all opening Pulse when it's installed and Pulse's
+  // page (and from there the store) when it isn't:
+  // - the TimeHuddle app hands it to the OS;
+  // - a phone's browser follows it, within the tap (`inTap`): one tap, and
+  //   Pulse is open;
+  // - a computer shows the QR window — as does a phone whose tap was spent
+  //   waiting on the server (no link was ready yet), with an "Open Pulse" link.
+  const openLink = useCallback(
+    async ({ url }: PulseLink, inTap: boolean) => {
+      if (isNativeApp()) await openExternalUrl(url);
+      else if (onPhoneBrowser && inTap) window.location.assign(url);
+      else setModalOpen(true);
+    },
+    [onPhoneBrowser],
+  );
+
+  /** Make `reservation` the destination's link, waiting for its video. */
+  const adopt = useCallback(
+    (reservation: Reservation, fromFile: boolean): LiveLink => {
+      const next: LiveLink = {
+        ...reservation,
+        url: buildPulseLink(reservation.videoid, reservation.uploadToken),
+        destinationKey,
+        fromFile,
+      };
+      setLink(next);
+      setStatus({ state: 'waiting' });
+      return next;
+    },
+    [destinationKey],
+  );
 
   /** A new link for the destination on screen, or null when it failed or the host moved on. */
   const reserve = useCallback(
     async (fromFile: boolean): Promise<LiveLink | null> => {
       setReserving(true);
       setError(null);
-      let reservation: { videoid: string; uploadToken: string };
+      let reservation: Reservation;
       try {
         reservation = await videoApi.reserve(JSON.parse(destinationKey) as PulseDestination);
       } catch (e) {
@@ -200,30 +255,33 @@ export function usePulseUpload(
       // reserving: nobody has seen this link, so nothing can upload with it.
       // Dropped (it expires unused) rather than used for somewhere not on screen.
       if (!mounted.current || latestKey.current !== destinationKey) return null;
-
-      const next: LiveLink = {
-        ...reservation,
-        url: buildPulseLink(reservation.videoid, reservation.uploadToken),
-        destinationKey,
-        fromFile,
-      };
-      setLink(next);
-      setStatus({ state: 'waiting' });
-      return next;
+      return adopt(reservation, fromFile);
     },
-    [destinationKey],
+    [destinationKey, adopt],
   );
 
   const start = useCallback(async () => {
     // One link, one upload: while the last link is still waiting, open it
     // again (a re-scan resumes it) rather than mint a second that could also land.
     if (current && status?.state === 'waiting') {
-      await openLink(current);
+      await openLink(current, true);
+      return;
+    }
+    // A phone with a link ready: opened before anything is awaited, so still
+    // within the tap. The next video gets a fresh one.
+    const ready =
+      prepared?.destinationKey === destinationKey && Date.now() - prepared.at < PREPARED_FRESH_MS
+        ? prepared
+        : null;
+    if (ready) {
+      setPrepared(null);
+      setPrepareRound((n) => n + 1);
+      await openLink(adopt(ready.reservation, false), true);
       return;
     }
     const next = await reserve(false);
-    if (next) await openLink(next);
-  }, [current, status?.state, reserve, openLink]);
+    if (next) await openLink(next, false);
+  }, [current, status?.state, prepared, destinationKey, adopt, reserve, openLink]);
 
   const upload = useCallback(
     async (file: File) => {
