@@ -1,10 +1,10 @@
 /**
- * The Attachments card on a ticket page: links, plus a video recorded with
- * Pulse (the Pulse button in the panel's header). Shared by the Huddle ticket
- * and Redmine issue pages. Either way the attachments are stored in
- * TimeHuddle — a Redmine issue's never reach Redmine.
+ * The Videos card on a ticket page: Pulse and Upload in its header, the
+ * ticket's videos below (see AttachmentsPanel). Shared by the Huddle ticket and
+ * Redmine issue pages. Either way the videos are stored in TimeHuddle — a
+ * Redmine issue's never reach Redmine. A link goes in the description.
  */
-import { Card, CardContent, Text } from '@mieweb/ui';
+import { Card, CardContent } from '@mieweb/ui';
 import React from 'react';
 
 import type { TicketAttachmentKind } from '../../../lib/api';
@@ -22,9 +22,6 @@ export const TicketAttachmentsCard: React.FC<TicketAttachmentsCardProps> = ({ ki
   return (
     <Card>
       <CardContent className="ticket-attachments-section">
-        <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-          Attachments
-        </Text>
         <AttachmentsPanel kind={kind} entityId={ticketId} currentUserId={user?.id} />
       </CardContent>
     </Card>

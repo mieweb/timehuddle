@@ -154,7 +154,7 @@ export async function uploadRealVideoViaApi(
  * Send a Pulse video to the ticket with this title, the way the Pulse app
  * does: reserve a link for the ticket, upload the fixture through it, and
  * wait for the backend to attach it. Leaves the page on the ticket, with the
- * video in its Attachments list.
+ * video in its Videos list.
  */
 export async function uploadVideoToTicket(page: Page, ticketTitle: string): Promise<void> {
   await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
@@ -186,7 +186,7 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
     .toBe(true);
   await page.reload();
   await expect(
-    page.locator('ul[aria-label="Attachments"]').locator(`a[href*="${videoid}"]`),
+    page.locator('ul[aria-label="Videos"]').locator(`a[href*="${videoid}"]`),
   ).toBeVisible({ timeout: 10000 });
 }
 

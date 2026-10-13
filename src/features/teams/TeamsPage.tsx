@@ -63,6 +63,7 @@ import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { LinkifiedText } from '../../ui/LinkifiedText';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { TeamSettingRow } from '../settings/TeamSettingRow';
 import { SETTINGS_STRINGS } from '../settings/settingsCopy';
@@ -548,8 +549,12 @@ export const TeamsPage: React.FC = () => {
                 {selectedTeam.isPersonal ? 'Personal Workspace' : selectedTeam.name}
               </CardTitle>
               {selectedTeam.description && (
-                <Text variant="muted" size="sm" className="mt-1 max-w-xl">
-                  {selectedTeam.description}
+                <Text
+                  variant="muted"
+                  size="sm"
+                  className="mt-1 max-w-xl whitespace-pre-line [overflow-wrap:anywhere]"
+                >
+                  <LinkifiedText text={selectedTeam.description} />
                 </Text>
               )}
               {!selectedTeam.isPersonal && (

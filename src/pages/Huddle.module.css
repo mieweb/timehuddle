@@ -23,3 +23,20 @@
 .pulseGroup {
   order: 1;
 }
+
+/* A narrow message box (a tablet, beside the sidebar and the list of days)
+   has ~200px for "Ticket + / Pulse", which needs ~225px. Dropping the "/" and
+   trimming the Pulse chip's sides keeps "Ticket + Pulse" on one line; anything
+   narrower wraps Pulse onto its own line, never "/ Pulse". Sized against the
+   box itself, not the window, since the columns beside it decide its width. */
+.inbox :global([data-slot='chat-composer-card']) {
+  container-type: inline-size;
+}
+@container (max-width: 270px) {
+  .pulseOr {
+    display: none;
+  }
+  .pulseGroup :global([data-slot='button']) {
+    padding-inline: 0.5rem;
+  }
+}

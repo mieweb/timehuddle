@@ -14,11 +14,13 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
+  AlertTitle,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  cn,
   Input,
   ModalBody,
   ModalFooter,
@@ -33,6 +35,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
+import { LinkifiedText } from '@ui/LinkifiedText';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -66,6 +69,7 @@ import {
   getDateRange,
   getLocalDateKey,
   PRESETS,
+  STICKY_ACTIONS_CELL,
   sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
@@ -534,21 +538,22 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
 
       {pendingHere.length > 0 && (
         <Alert variant="info" aria-live="polite">
-          <AlertDescription>
-            <Text size="sm" weight="medium">
-              Sent to another admin for approval
-            </Text>
-            <ul className="sent-for-approval-list mt-2 space-y-2">
-              {pendingHere.map((r) => (
-                <li key={r.id} className="flex flex-wrap items-center gap-2">
-                  <Text size="sm" className="grow">
-                    {r.description}
-                  </Text>
-                  <ChangeRequestWalkthrough request={r} onAdded={loadMyPending} />
-                </li>
-              ))}
-            </ul>
-          </AlertDescription>
+          {/* AlertDescription is a <p>: a list (and the Pulse chips in it)
+              can't sit inside one, so the heading and the list are siblings. */}
+          <AlertTitle>Sent to another admin for approval</AlertTitle>
+          <ul className="sent-for-approval-list mt-2 space-y-2">
+            {pendingHere.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2">
+                <Text
+                  size="sm"
+                  className="min-w-0 grow whitespace-pre-wrap [overflow-wrap:anywhere]"
+                >
+                  <LinkifiedText text={r.description} />
+                </Text>
+                <ChangeRequestWalkthrough request={r} onAdded={loadMyPending} />
+              </li>
+            ))}
+          </ul>
         </Alert>
       )}
 
@@ -583,7 +588,9 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
                   <TableHead>Duration</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-16 text-right">Actions</TableHead>
+                  <TableHead className={cn('w-16 text-right', STICKY_ACTIONS_CELL)}>
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

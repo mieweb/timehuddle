@@ -20,7 +20,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   Input,
@@ -72,6 +71,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LinkifiedText } from '../../ui/LinkifiedText';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
@@ -873,8 +873,7 @@ export const WorkPage: React.FC = () => {
                 <TableHead className="w-10" />
                 <TableHead>Work Item</TableHead>
                 <TableHead className="text-right">Time</TableHead>
-                {/* Sized to its content: Pulse or "Walkthrough added" can sit beside the menu. */}
-                <TableHead className="w-px" />
+                <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -910,8 +909,11 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="min-w-0">
+                      {/* Wraps: on a phone the badges and the walkthrough's
+                          Pulse · Upload drop under the title instead of being
+                          cut off at the card's edge. */}
+                      <div className="work-item-summary flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="min-w-0 max-w-full">
                           <button
                             type="button"
                             className="block max-w-full text-left hover:text-primary"
@@ -923,8 +925,14 @@ export const WorkPage: React.FC = () => {
                             </Text>
                           </button>
                           {de.entry.note?.trim() && (
-                            <Text size="xs" variant="muted" truncate>
-                              {de.entry.note.trim()}
+                            // Two lines rather than one truncated: a link in
+                            // the note stays visible and clickable.
+                            <Text
+                              size="xs"
+                              variant="muted"
+                              className="line-clamp-2 [overflow-wrap:anywhere]"
+                            >
+                              <LinkifiedText text={de.entry.note.trim()} />
                             </Text>
                           )}
                         </div>
@@ -942,14 +950,20 @@ export const WorkPage: React.FC = () => {
                             Running
                           </Badge>
                         )}
-                        {awaitingApproval && (
-                          <Badge
-                            variant="warning"
-                            size="sm"
-                            title="Waiting for an admin to approve your change"
-                          >
-                            Pending approval
-                          </Badge>
+                        {pendingRequest && (
+                          <>
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              title="Waiting for an admin to approve your change"
+                            >
+                              Pending approval
+                            </Badge>
+                            <ChangeRequestWalkthrough
+                              request={pendingRequest}
+                              onAdded={loadMyRequests}
+                            />
+                          </>
                         )}
                       </div>
                     </TableCell>
@@ -960,32 +974,21 @@ export const WorkPage: React.FC = () => {
                       </Text>
                     </TableCell>
 
-                    <TableCell className="py-2 text-right whitespace-nowrap">
-                      <ButtonGroup
-                        orientation="horizontal"
-                        className="work-item-actions justify-end"
+                    <TableCell className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(de)}
+                        aria-label="Edit work item"
+                        title={
+                          awaitingApproval
+                            ? 'A change to this entry is already awaiting review.'
+                            : undefined
+                        }
+                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
                       >
-                        {pendingRequest && (
-                          <ChangeRequestWalkthrough
-                            request={pendingRequest}
-                            onAdded={loadMyRequests}
-                          />
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(de)}
-                          aria-label="Edit work item"
-                          title={
-                            awaitingApproval
-                              ? 'A change to this entry is already awaiting review.'
-                              : undefined
-                          }
-                          disabled={deletingEntryId === de.entry.id || awaitingApproval}
-                        >
-                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                        </Button>
-                      </ButtonGroup>
+                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
