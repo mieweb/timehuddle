@@ -1,6 +1,10 @@
+import { buildUploadLink, PULSE_OPEN_URL as PACKAGE_OPEN_URL } from '@mieweb/pulsevault/core';
 import { describe, expect, it } from 'vitest';
 
-import { buildScanLink, buildUploadDeepLink, pulseServerBase } from './pulseLinks';
+import { buildPulseLink, PULSE_OPEN_URL, pulseServerBase } from './pulseLinks';
+
+const videoid = '11111111-2222-3333-4444-555555555555';
+const uploadToken = 'fake-capability-token';
 
 describe('pulseServerBase', () => {
   it('appends the /pulsevault mount prefix to the backend origin', () => {
@@ -8,44 +12,30 @@ describe('pulseServerBase', () => {
   });
 });
 
-describe('buildUploadDeepLink', () => {
-  it('encodes the @mieweb/pulsevault deep-link protocol', () => {
-    const videoid = '11111111-2222-3333-4444-555555555555';
-    const uploadToken = 'fake-capability-token';
-    const link = buildUploadDeepLink(videoid, uploadToken);
+describe('buildPulseLink', () => {
+  it("is exactly @mieweb/pulsevault's https pairing link", () => {
+    expect(PULSE_OPEN_URL).toBe(PACKAGE_OPEN_URL);
+    expect(buildPulseLink(videoid, uploadToken)).toBe(
+      buildUploadLink({
+        server: pulseServerBase(),
+        token: uploadToken,
+        artifactId: videoid,
+        form: 'https',
+      }),
+    );
+  });
 
-    expect(link.startsWith('pulsecam://?')).toBe(true);
-    const params = new URL(link.replace('pulsecam://?', 'https://x/?')).searchParams;
+  it('carries the upload in the fragment, so the link host never receives the token', () => {
+    const url = new URL(buildPulseLink(videoid, uploadToken));
+    expect(`${url.origin}${url.pathname}`).toBe(PULSE_OPEN_URL);
+    expect(url.search).toBe('');
+    const params = new URLSearchParams(url.hash.slice(1));
     expect(params.get('v')).toBe('1');
     expect(params.get('artifactId')).toBe(videoid);
     expect(params.get('server')).toBe(pulseServerBase());
     expect(params.get('token')).toBe(uploadToken);
-    expect(params.has('uploadUnit')).toBe(false);
     // Legacy param names must not leak back in.
     expect(params.has('mode')).toBe(false);
     expect(params.has('videoid')).toBe(false);
-  });
-});
-
-describe('buildScanLink', () => {
-  it('encodes an https interstitial URL so an app-less phone can still scan it', () => {
-    const videoid = '11111111-2222-3333-4444-555555555555';
-    const uploadToken = 'fake-capability-token';
-    const link = buildScanLink(videoid, uploadToken);
-
-    const url = new URL(link);
-    expect(url.protocol).toMatch(/^https?:$/);
-    expect(url.pathname).toBe('/pulse/open');
-    expect(url.searchParams.get('artifactId')).toBe(videoid);
-    expect(url.searchParams.get('token')).toBe(uploadToken);
-    expect(url.searchParams.get('server')).toBe(pulseServerBase());
-    expect(url.searchParams.has('uploadUnit')).toBe(false);
-  });
-
-  it('carries the same params as the deep link', () => {
-    const deep = new URL(buildUploadDeepLink('vid', 'tok').replace('pulsecam://?', 'https://x/?'))
-      .searchParams;
-    const scan = new URL(buildScanLink('vid', 'tok')).searchParams;
-    expect(scan.toString()).toBe(deep.toString());
   });
 });
