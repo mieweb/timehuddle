@@ -71,6 +71,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
+import { LinkifiedText } from '../../ui/LinkifiedText';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
@@ -908,8 +909,11 @@ export const WorkPage: React.FC = () => {
                     </TableCell>
 
                     <TableCell className="py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="min-w-0">
+                      {/* Wraps: on a phone the badges and the walkthrough's
+                          Pulse · Upload drop under the title instead of being
+                          cut off at the card's edge. */}
+                      <div className="work-item-summary flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="min-w-0 max-w-full">
                           <button
                             type="button"
                             className="block max-w-full text-left hover:text-primary"
@@ -921,8 +925,14 @@ export const WorkPage: React.FC = () => {
                             </Text>
                           </button>
                           {de.entry.note?.trim() && (
-                            <Text size="xs" variant="muted" truncate>
-                              {de.entry.note.trim()}
+                            // Two lines rather than one truncated: a link in
+                            // the note stays visible and clickable.
+                            <Text
+                              size="xs"
+                              variant="muted"
+                              className="line-clamp-2 [overflow-wrap:anywhere]"
+                            >
+                              <LinkifiedText text={de.entry.note.trim()} />
                             </Text>
                           )}
                         </div>

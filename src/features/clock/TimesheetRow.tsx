@@ -14,16 +14,22 @@ import {
   faChevronDown,
   faChevronRight,
   faEllipsisVertical,
+  faVideo,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, TableCell, TableRow, Text } from '@mieweb/ui';
+import { Badge, Button, cn, TableCell, TableRow, Text, useMediaQuery } from '@mieweb/ui';
 import React, { useState } from 'react';
 
 import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
 import { type ClockEvent, type ShiftTicketSession } from '../../lib/api';
+import { LinkifiedText } from '../../ui/LinkifiedText';
 import { useRouter } from '../../ui/router';
 import { ticketDetailPath } from '../tickets/sources/types';
-import { roundDurationSecondsForDisplay } from './timesheetUtils';
+import {
+  roundDurationSecondsForDisplay,
+  STICKY_ACTIONS_CELL,
+  TIMESHEET_SCROLLS_QUERY,
+} from './timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +42,12 @@ interface Props {
   session: ClockEvent;
   teams: Team[];
   onEdit: (session: ClockEvent) => void;
+  /**
+   * Opens the session's videos (Pulse and Upload, and what landed). Only on
+   * the viewer's own sessions: the server takes a session video from its
+   * owner alone.
+   */
+  onVideos?: (session: ClockEvent) => void;
   /** State of the latest change the viewer requested against this session. */
   changeStatus?: 'pending' | 'rejected';
   /** The reviewer's reason, shown on a declined change. */
@@ -226,6 +238,7 @@ export const TimesheetRow: React.FC<Props> = ({
   session,
   teams,
   onEdit,
+  onVideos,
   changeStatus,
   changeNote,
   pendingAction,
@@ -235,6 +248,11 @@ export const TimesheetRow: React.FC<Props> = ({
   const ticketSessions = session.ticketSessions ?? [];
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const ticketListId = `shift-tickets-${session.id}`;
+  // While the table scrolls sideways, the Status column starts off-screen and
+  // squeezes the walkthrough's chips: there it gets a full-width line of its
+  // own under the session instead of sitting beside "Pending approval".
+  const scrolls = useMediaQuery(TIMESHEET_SCROLLS_QUERY);
+  const walkthroughOwnLine = scrolls && changeStatus === 'pending' && Boolean(pendingAction);
 
   return (
     <>
@@ -246,108 +264,154 @@ export const TimesheetRow: React.FC<Props> = ({
         // Team name belongs on the chronologically-first segment (last in desc-sorted array)
         const showTeam = idx === timelineRows.length - 1;
         return (
-          <TableRow key={`${session.id}-${row.kind}-${idx}`}>
-            <TableCell>
-              <div className="flex items-center gap-1">
-                {showTicketToggle && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 shrink-0"
-                    aria-expanded={ticketsOpen}
-                    aria-controls={ticketListId}
-                    aria-label={`${ticketsOpen ? 'Hide' : 'Show'} ${ticketSessions.length} ticket timer${
-                      ticketSessions.length === 1 ? '' : 's'
-                    } for this shift`}
-                    onClick={() => setTicketsOpen((open) => !open)}
-                  >
-                    <FontAwesomeIcon
-                      icon={ticketsOpen ? faChevronDown : faChevronRight}
-                      className="text-[10px]"
-                    />
-                  </Button>
-                )}
-                <span>{formatDate(new Date(row.start), true)}</span>
-              </div>
-            </TableCell>
-            <TableCell>
-              {row.isContinuation ? (
-                <Text variant="muted" size="xs">
-                  ---
-                </Text>
-              ) : (
-                formatTime(new Date(row.start))
-              )}
-            </TableCell>
-            <TableCell>
-              {row.isContinued ? (
-                <Text variant="muted" size="xs">
-                  ---
-                </Text>
-              ) : row.end === null ? (
-                <Text variant="muted" size="xs">
-                  —
-                </Text>
-              ) : (
-                formatTime(new Date(row.end))
-              )}
-            </TableCell>
-            <TableCell className="font-mono">
-              {row.durationSeconds !== null
-                ? formatDuration(roundDurationSecondsForDisplay(row.durationSeconds))
-                : '—'}
-            </TableCell>
-            <TableCell>{showTeam ? teamName : ''}</TableCell>
-            <TableCell>
-              {row.isContinued ? null : changeStatus === 'pending' ? (
-                <div className="pending-approval-status flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant="warning"
-                    size="sm"
-                    title="Waiting for an admin to approve your change"
-                  >
-                    Pending approval
-                  </Badge>
-                  {showActions && pendingAction}
+          <React.Fragment key={`${session.id}-${row.kind}-${idx}`}>
+            <TableRow>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  {showTicketToggle && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0"
+                      aria-expanded={ticketsOpen}
+                      aria-controls={ticketListId}
+                      aria-label={`${ticketsOpen ? 'Hide' : 'Show'} ${ticketSessions.length} ticket timer${
+                        ticketSessions.length === 1 ? '' : 's'
+                      } for this shift`}
+                      onClick={() => setTicketsOpen((open) => !open)}
+                    >
+                      <FontAwesomeIcon
+                        icon={ticketsOpen ? faChevronDown : faChevronRight}
+                        className="text-[10px]"
+                      />
+                    </Button>
+                  )}
+                  <span>{formatDate(new Date(row.start), true)}</span>
                 </div>
-              ) : changeStatus === 'rejected' ? (
-                <Badge
-                  variant="danger"
-                  size="sm"
-                  title={changeNote ? `Declined: ${changeNote}` : 'An admin declined your change'}
-                >
-                  Change declined
-                </Badge>
-              ) : row.status === 'Active' ? (
-                <Badge variant="success" size="sm">
-                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-                  Active
-                </Badge>
-              ) : row.status === 'On Break' ? (
-                <Badge variant="warning" size="sm">
-                  On Break
-                </Badge>
-              ) : (
-                // Completed / Break Period: a state like any other, so it gets a
-                // Badge too rather than falling through to bare text.
-                <Badge variant="default" size="sm">
-                  {row.status}
-                </Badge>
-              )}
-            </TableCell>
-            <TableCell className="text-right">
-              {showActions && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Edit session"
-                  onClick={() => onEdit(session)}
-                >
-                  <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                </Button>
-              )}
-            </TableCell>
-          </TableRow>
+              </TableCell>
+              <TableCell>
+                {row.isContinuation ? (
+                  <Text variant="muted" size="xs">
+                    ---
+                  </Text>
+                ) : (
+                  formatTime(new Date(row.start))
+                )}
+              </TableCell>
+              <TableCell>
+                {row.isContinued ? (
+                  <Text variant="muted" size="xs">
+                    ---
+                  </Text>
+                ) : row.end === null ? (
+                  <Text variant="muted" size="xs">
+                    —
+                  </Text>
+                ) : (
+                  formatTime(new Date(row.end))
+                )}
+              </TableCell>
+              <TableCell className="font-mono">
+                {row.durationSeconds !== null
+                  ? formatDuration(roundDurationSecondsForDisplay(row.durationSeconds))
+                  : '—'}
+              </TableCell>
+              <TableCell>{showTeam ? teamName : ''}</TableCell>
+              <TableCell>
+                {row.isContinued ? null : changeStatus === 'pending' ? (
+                  <div className="pending-approval-status flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="warning"
+                      size="sm"
+                      title="Waiting for an admin to approve your change"
+                    >
+                      Pending approval
+                    </Badge>
+                    {showActions && !walkthroughOwnLine && pendingAction}
+                  </div>
+                ) : changeStatus === 'rejected' ? (
+                  // The reviewer's note is shown, not hidden in a tooltip: a
+                  // tooltip can't be read on a phone, and its links can't be clicked.
+                  <div className="change-declined-status max-w-xs space-y-1">
+                    <Badge variant="danger" size="sm">
+                      Change declined
+                    </Badge>
+                    {changeNote && (
+                      <Text
+                        size="xs"
+                        variant="muted"
+                        className="whitespace-pre-wrap [overflow-wrap:anywhere]"
+                      >
+                        <LinkifiedText text={changeNote} />
+                      </Text>
+                    )}
+                  </div>
+                ) : row.status === 'Active' ? (
+                  <Badge variant="success" size="sm">
+                    <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+                    Active
+                  </Badge>
+                ) : row.status === 'On Break' ? (
+                  <Badge variant="warning" size="sm">
+                    On Break
+                  </Badge>
+                ) : (
+                  // Completed / Break Period: a state like any other, so it gets a
+                  // Badge too rather than falling through to bare text.
+                  <Badge variant="default" size="sm">
+                    {row.status}
+                  </Badge>
+                )}
+              </TableCell>
+              <TableCell className={cn('text-right', STICKY_ACTIONS_CELL)}>
+                {showActions && (
+                  <div className="session-actions inline-flex items-center justify-end gap-1">
+                    {onVideos && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Videos for this session"
+                        title="Videos for this session"
+                        onClick={() => onVideos(session)}
+                      >
+                        <FontAwesomeIcon icon={faVideo} className="text-sm" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Edit session"
+                      onClick={() => onEdit(session)}
+                    >
+                      <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                    </Button>
+                  </div>
+                )}
+              </TableCell>
+            </TableRow>
+            {showActions && walkthroughOwnLine && (
+              <TableRow className="pending-walkthrough-row">
+                <TableCell colSpan={7} className="pt-0">
+                  {/* Pinned to the card's left edge, so it stays in view
+                    however far the table is scrolled. The badge comes too:
+                    the Status column it sits in starts off-screen here. */}
+                  {/* Capped at the visible width of the card (the screen less
+                      its padding, and less the sidebar from md up) so it wraps
+                      there instead of running past the edge. */}
+                  <div className="sticky left-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
+                    <Badge
+                      variant="warning"
+                      size="sm"
+                      title="Waiting for an admin to approve your change"
+                    >
+                      Pending approval
+                    </Badge>
+                    {pendingAction}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          </React.Fragment>
         );
       })}
 

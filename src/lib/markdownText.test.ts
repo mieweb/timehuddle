@@ -1,0 +1,21 @@
+import { describe, expect, it } from 'vitest';
+
+import { stripMarkdown } from './markdownText';
+
+describe('stripMarkdown', () => {
+  it('drops the syntax and keeps the words, on one line', () => {
+    expect(stripMarkdown('## Plan\n- **Fix** the [login](https://x.dev) bug\n- ship _it_')).toBe(
+      'Plan - Fix the login bug - ship it',
+    );
+  });
+
+  it('keeps an image or attachment link by its label', () => {
+    expect(stripMarkdown('Demo [📎 clip.mov](/pulsevault/artifacts/1) ![shot](a.png)')).toBe(
+      'Demo 📎 clip.mov shot',
+    );
+  });
+
+  it('removes code', () => {
+    expect(stripMarkdown('run `npm test` then\n```\nnpm run build\n```')).toBe('run  then');
+  });
+});

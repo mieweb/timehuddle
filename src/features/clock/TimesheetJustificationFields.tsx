@@ -101,7 +101,7 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
           particular action insists on one. */}
       <div className="mt-3 space-y-1">
         <Text size="xs" weight="medium">
-          Video walkthrough {videoRequired ? '' : '(optional)'}
+          Walkthrough {videoRequired ? '' : '(optional)'}
         </Text>
         {/* Native and hidden on purpose: the visible control is the Button
             below, and `capture` — what opens the camera rather than the file
@@ -151,6 +151,13 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
                 ? `Uploading ${progress}%`
                 : 'Processing…'}
           </Button>
+        )}
+        {/* Pulse needs the request to exist (its video goes straight to it),
+            so it's offered on the pending change, beside "Pending approval". */}
+        {!value.videoUrl && (
+          <Text variant="muted" size="xs">
+            Or record it with Pulse once you&apos;ve sent this.
+          </Text>
         )}
       </div>
 

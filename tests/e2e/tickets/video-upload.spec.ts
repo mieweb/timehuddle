@@ -41,7 +41,7 @@ test.describe('Ticket — upload a video file', () => {
     await expect(page.getByRole('button', { name: 'Upload a video file' })).toBeVisible();
     await uploadInput(page).setInputFiles(TEST_WEBM);
 
-    const link = page.locator('ul[aria-label="Attachments"] a[href*="/pulsevault/artifacts/"]');
+    const link = page.locator('ul[aria-label="Videos"] a[href*="/pulsevault/artifacts/"]');
     await expect(link).toBeVisible({ timeout: 60000 });
 
     const res = await page.request.get((await link.getAttribute('href'))!);
