@@ -22,6 +22,7 @@
  * post.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { playPulseVideoCard } from '../fixtures/pulseVideo';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import { createTicket, deleteTicket } from '../tickets/helpers';
@@ -191,7 +192,7 @@ test.describe('Huddle composer — combined actions', () => {
 
     await expect(post.locator('img[src*="/uploads/media/"]')).toBeVisible({ timeout: 15000 });
     await expect(post.locator('a[href*="/uploads/media/"]')).toBeVisible();
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible();
+    await playPulseVideoCard(post);
     await expect(post).toContainText(ticketTitle);
     const stored = await findPostByText(postText);
     expect(stored?.content.mentions).toContain(await getUserIdByEmail(TEST_USERS.member1.email));
