@@ -30,16 +30,19 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
       </Badge>
     );
   }
-  // Named like the form's "Walkthrough" field, so both read as the same thing.
+  // Icons only, named by the label beside them. `contents`: the label and the
+  // icons join the host's own row, so they line up with "Pending approval"
+  // on one line (wrapping item by item where there's no room).
   return (
-    <div className="change-request-walkthrough flex flex-wrap items-center gap-x-2 gap-y-1">
+    <div className="change-request-walkthrough contents">
       <Text as="span" size="xs" variant="muted">
-        Walkthrough
+        Pulse/Video
       </Text>
       <PulseButton
         destination={{ kind: 'timesheet-request', id: request.id }}
         ariaLabel="Add a walkthrough with Pulse"
         allowFile
+        iconOnly
         onSettled={(status) => {
           if (status.state === 'done') onAdded?.();
         }}

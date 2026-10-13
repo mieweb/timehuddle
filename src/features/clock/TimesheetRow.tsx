@@ -319,9 +319,10 @@ export const TimesheetRow: React.FC<Props> = ({
               <TableCell>{showTeam ? teamName : ''}</TableCell>
               <TableCell>
                 {row.isContinued ? null : changeStatus === 'pending' ? (
-                  <div className="pending-approval-status flex flex-wrap items-center gap-2">
+                  <div className="pending-approval-status flex flex-wrap items-center gap-2 lg:flex-nowrap">
                     <Badge
                       variant="warning"
+                      className="shrink-0 whitespace-nowrap"
                       size="sm"
                       title="Waiting for an admin to approve your change"
                     >
@@ -401,6 +402,7 @@ export const TimesheetRow: React.FC<Props> = ({
                   <div className="sticky left-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
                     <Badge
                       variant="warning"
+                      className="shrink-0 whitespace-nowrap"
                       size="sm"
                       title="Waiting for an admin to approve your change"
                     >

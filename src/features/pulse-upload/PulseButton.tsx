@@ -34,6 +34,8 @@ interface PulseChipProps {
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
+  /** Just the icons (Pulse logo, upload arrow), where a label beside them names them. */
+  iconOnly?: boolean;
 }
 
 /**
@@ -47,6 +49,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   main,
   disabled,
   allowFile,
+  iconOnly,
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -87,7 +90,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     </Button>
   ) : (
     <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
-      Pulse
+      {iconOnly ? undefined : 'Pulse'}
     </ComposerChipButton>
   );
   return (
@@ -120,7 +123,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
               )
             }
           >
-            Upload
+            {iconOnly ? undefined : 'Upload'}
           </ComposerChipButton>
         </span>
       )}
@@ -155,6 +158,8 @@ interface PulseButtonProps {
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
+  /** Just the icons, where a label beside them names them (see PulseChip). */
+  iconOnly?: boolean;
 }
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
@@ -163,11 +168,18 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   onSettled,
   disabled,
   allowFile,
+  iconOnly,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
     <div className="pulse-upload flex flex-wrap items-center gap-2">
-      <PulseChip pulse={pulse} ariaLabel={ariaLabel} disabled={disabled} allowFile={allowFile} />
+      <PulseChip
+        pulse={pulse}
+        ariaLabel={ariaLabel}
+        disabled={disabled}
+        allowFile={allowFile}
+        iconOnly={iconOnly}
+      />
       <PulseUploadModal
         open={pulse.modalOpen}
         onClose={pulse.closeModal}

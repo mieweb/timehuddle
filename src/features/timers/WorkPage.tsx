@@ -954,6 +954,7 @@ export const WorkPage: React.FC = () => {
                           <>
                             <Badge
                               variant="warning"
+                              className="shrink-0 whitespace-nowrap"
                               size="sm"
                               title="Waiting for an admin to approve your change"
                             >

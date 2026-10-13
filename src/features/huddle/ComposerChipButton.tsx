@@ -13,11 +13,12 @@
  * `ghost` plus the border below is that reconciliation, in one place. If
  * @mieweb/ui gains a neutral outline variant, this collapses to it.
  */
-import { Button } from '@mieweb/ui';
+import { Button, cn } from '@mieweb/ui';
 import { forwardRef, type ReactElement, type ReactNode } from 'react';
 
 interface ComposerChipButtonProps {
-  children: ReactNode;
+  /** The label; leave it out for an icon-only chip (then `aria-label` names it, shown as a tooltip too). */
+  children?: ReactNode;
   /** Icon rendered before the label — size it `w-3.5 h-3.5` to match its peers. */
   leftIcon?: ReactElement;
   onClick?: () => void;
@@ -32,6 +33,7 @@ interface ComposerChipButtonProps {
 
 export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButtonProps>(
   function ComposerChipButton({ children, leftIcon, onClick, disabled, ...aria }, ref) {
+    const iconOnly = children == null;
     return (
       <Button
         ref={ref}
@@ -41,7 +43,11 @@ export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButt
         onClick={onClick}
         disabled={disabled}
         leftIcon={leftIcon}
-        className="gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700"
+        title={iconOnly ? aria['aria-label'] : undefined}
+        className={cn(
+          'gap-1.5 rounded-full border border-gray-200 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
+          iconOnly ? 'px-2' : 'px-3',
+        )}
         {...aria}
       >
         {children}
