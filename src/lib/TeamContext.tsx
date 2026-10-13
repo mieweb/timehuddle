@@ -615,7 +615,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .map(ddpDocToClockEvent)
           .find((e) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime) ?? null;
       if (userEvent) {
-        setActiveClockEvent(userEvent);
+        // The raw DDP doc lacks break fields (deductedBreakSeconds, isPaused, …) that the REST event
+        // carries; merge so a live update doesn't erase them and inflate the timer.
+        setActiveClockEvent((prev) =>
+          prev?.id === userEvent.id ? { ...prev, ...userEvent } : userEvent,
+        );
         setClockReady(true);
       } else {
         // No active event for the selected team — clear only if the previous
