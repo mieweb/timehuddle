@@ -36,6 +36,12 @@ interface PulseChipProps {
   allowFile?: boolean;
   /** Just the icons (Pulse logo, upload arrow), where a label beside them names them. */
   iconOnly?: boolean;
+  /**
+   * The card layout (a Videos section): an upload's progress is the Upload
+   * button's own label ("Uploading 42%", "Processing…"), and errors and notes
+   * come before the buttons rather than after them.
+   */
+  card?: boolean;
 }
 
 /**
@@ -50,29 +56,39 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   disabled,
   allowFile,
   iconOnly,
+  card,
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
   const sending = progress !== null || processing;
+  // A file on its way: said beside the chips, or (card) on the Upload button.
+  const inFlight =
+    progress !== null
+      ? `${card ? 'Uploading' : 'Uploading…'} ${Math.round(progress * 100)}%`
+      : processing
+        ? card
+          ? 'Processing…'
+          : 'Processing your video…'
+        : '';
   // Beside the chip, the same words the window uses — for when it's closed,
   // and in the TimeHuddle app, which opens Pulse without one. A landed video
   // says nothing here — unless a step after delivery failed (the plan posted
   // but the clock-in didn't), which the note then says.
-  const note =
-    progress !== null
-      ? `Uploading… ${Math.round(progress * 100)}%`
-      : processing
-        ? 'Processing your video…'
-        : modalOpen
-          ? ''
-          : status?.state === 'kept'
-            ? keptMessage(status.reason)
-            : status?.state === 'expired'
-              ? EXPIRED_MESSAGE
-              : status?.state === 'done'
-                ? followUpNote(destination, status.note)
-                : '';
-  const announced = !modalOpen && status?.state === 'done' ? landedLabel(destination) : '';
+  const note = inFlight
+    ? card
+      ? ''
+      : inFlight
+    : modalOpen
+      ? ''
+      : status?.state === 'kept'
+        ? keptMessage(status.reason)
+        : status?.state === 'expired'
+          ? EXPIRED_MESSAGE
+          : status?.state === 'done'
+            ? followUpNote(destination, status.note)
+            : '';
+  const announced =
+    (card && inFlight) || (!modalOpen && status?.state === 'done' ? landedLabel(destination) : '');
   const shared = {
     onClick: () => void pulse.start(),
     disabled: disabled || reserving || sending,
@@ -93,59 +109,76 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       {iconOnly ? undefined : 'Pulse'}
     </ComposerChipButton>
   );
-  return (
+  const chips = allowFile ? (
+    <span className="pulse-upload-chips inline-flex shrink-0 items-center gap-2">
+      <input
+        ref={fileInput}
+        type="file"
+        accept={VIDEO_FILE_ACCEPT}
+        className="hidden"
+        aria-label="Choose a video file to upload"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void pulse.upload(file);
+        }}
+      />
+      {pulseControl}
+      <ComposerChipButton
+        onClick={() => fileInput.current?.click()}
+        disabled={disabled || reserving || sending}
+        aria-busy={sending}
+        aria-label="Upload a video file"
+        leftIcon={
+          sending ? (
+            <Spinner size="xs" className="text-current" />
+          ) : (
+            <FontAwesomeIcon icon={faUpload} className="h-3 w-3" />
+          )
+        }
+      >
+        {iconOnly ? undefined : (
+          <span className="tabular-nums">{inFlight && card ? inFlight : 'Upload'}</span>
+        )}
+      </ComposerChipButton>
+    </span>
+  ) : (
+    pulseControl
+  );
+  const errorText = error && (
+    <Text
+      as="span"
+      size="xs"
+      className={cn('pulse-chip-error text-red-500 dark:text-red-400', card && 'min-w-40 text-end')}
+      role="alert"
+    >
+      {error}
+    </Text>
+  );
+  // Mounted while there's a link, so the update is announced.
+  const statusText = (status || sending) && (
+    <Text
+      as="span"
+      size="xs"
+      variant="muted"
+      role="status"
+      className={cn('pulse-chip-status', !note && 'sr-only', card && note && 'min-w-40 text-end')}
+    >
+      {note || announced}
+    </Text>
+  );
+  // Card: messages come first, so they sit to the left of the buttons.
+  return card ? (
     <>
-      {allowFile && (
-        <span className="pulse-upload-chips inline-flex items-center gap-2">
-          <input
-            ref={fileInput}
-            type="file"
-            accept={VIDEO_FILE_ACCEPT}
-            className="hidden"
-            aria-label="Choose a video file to upload"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) void pulse.upload(file);
-            }}
-          />
-          {pulseControl}
-          <ComposerChipButton
-            onClick={() => fileInput.current?.click()}
-            disabled={disabled || reserving || sending}
-            aria-busy={sending}
-            aria-label="Upload a video file"
-            leftIcon={
-              sending ? (
-                <Spinner size="xs" className="text-current" />
-              ) : (
-                <FontAwesomeIcon icon={faUpload} className="h-3 w-3" />
-              )
-            }
-          >
-            {iconOnly ? undefined : 'Upload'}
-          </ComposerChipButton>
-        </span>
-      )}
-      {!allowFile && pulseControl}
-
-      {error && (
-        <Text as="span" size="xs" className="text-red-500 dark:text-red-400" role="alert">
-          {error}
-        </Text>
-      )}
-      {/* Mounted while there's a link, so the update is announced. */}
-      {(status || sending) && (
-        <Text
-          as="span"
-          size="xs"
-          variant="muted"
-          role="status"
-          className={note ? 'pulse-chip-status' : 'pulse-chip-status sr-only'}
-        >
-          {note || announced}
-        </Text>
-      )}
+      {errorText}
+      {statusText}
+      {chips}
+    </>
+  ) : (
+    <>
+      {chips}
+      {errorText}
+      {statusText}
     </>
   );
 };
@@ -161,11 +194,12 @@ interface PulseButtonProps {
   /** Just the icons, where a label beside them names them (see PulseChip). */
   iconOnly?: boolean;
   /**
-   * Put what's happening ("Uploading… 42%", "Processing your video…", an
-   * error) on its own line under the buttons, aligned to their `start` or
-   * `end`, instead of beside them.
+   * The card layout (see PulseChip `card`), with the buttons at the row's
+   * `end` (a section header) or `start`. Messages sit to the left of the
+   * buttons; where the row has no room for them (a phone) they wrap onto a
+   * line of their own under the buttons.
    */
-  notesBelow?: 'start' | 'end';
+  card?: 'start' | 'end';
 }
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
@@ -175,16 +209,21 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   disabled,
   allowFile,
   iconOnly,
-  notesBelow,
+  card,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
     <div
       className={cn(
-        'pulse-upload flex gap-2',
-        notesBelow
-          ? cn('flex-col gap-1', notesBelow === 'end' ? 'items-end text-end' : 'items-start')
-          : 'flex-wrap items-center',
+        'pulse-upload flex items-center gap-2',
+        // wrap-reverse: the buttons keep the first line, a message that
+        // doesn't fit beside them drops below.
+        card
+          ? cn(
+              'min-w-0 flex-1 flex-wrap-reverse gap-y-1',
+              card === 'end' ? 'justify-end' : 'justify-start',
+            )
+          : 'flex-wrap',
       )}
     >
       <PulseChip
@@ -193,6 +232,7 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
         disabled={disabled}
         allowFile={allowFile}
         iconOnly={iconOnly}
+        card={Boolean(card)}
       />
       <PulseUploadModal
         open={pulse.modalOpen}

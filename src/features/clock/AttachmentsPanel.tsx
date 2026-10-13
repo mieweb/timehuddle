@@ -69,8 +69,8 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   return (
     <section className="attachments-panel">
       {/* Wraps instead of squeezing: on a phone the chips drop under the
-          heading. Top-aligned: the upload's status line sits under the chips,
-          and the heading stays level with them rather than moving down. */}
+          heading. Top-aligned: a message that doesn't fit beside the chips
+          drops under them, and the heading stays level with the chips. */}
       <div className="attachments-header mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         {showHeading && (
           <Text
@@ -86,7 +86,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           destination={{ kind, id: entityId }}
           ariaLabel="Add a video with Pulse"
           allowFile
-          notesBelow={showHeading ? 'end' : 'start'}
+          card={showHeading ? 'end' : 'start'}
           onSettled={(status) => status.state === 'done' && void fetchAttachments()}
         />
       </div>
