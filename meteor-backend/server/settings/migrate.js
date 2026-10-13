@@ -20,14 +20,13 @@ export async function pinExistingTeamPlanSetting(db, before = new Date()) {
   return modifiedCount;
 }
 
-// The top-level `allowAutoJoin` field becomes `settings.allowAutoJoin`.
+// The top-level `allowAutoJoin` is copied into `settings.allowAutoJoin`. The legacy field stays
+// so servers from the previous version, still draining in a rolling deploy, read the same value.
 export async function moveOrgAutoJoinIntoSettings(db) {
-  const { modifiedCount } = await db
-    .collection('organizations')
-    .updateMany({ allowAutoJoin: { $exists: true } }, [
-      { $set: { 'settings.allowAutoJoin': '$allowAutoJoin' } },
-      { $unset: 'allowAutoJoin' },
-    ]);
+  const { modifiedCount } = await db.collection('organizations').updateMany(
+    { allowAutoJoin: { $exists: true }, 'settings.allowAutoJoin': { $exists: false } },
+    [{ $set: { 'settings.allowAutoJoin': '$allowAutoJoin' } }],
+  );
   return modifiedCount;
 }
 

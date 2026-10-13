@@ -77,7 +77,7 @@ describe('pinExistingTeamPlanSetting', () => {
 });
 
 describe('moveOrgAutoJoinIntoSettings', () => {
-  it('moves the top-level field into settings, and a second run changes nothing', async () => {
+  it('copies the top-level field into settings, keeps it, and a second run changes nothing', async () => {
     const off = await insertOrg({ allowAutoJoin: false });
     const on = await insertOrg({ allowAutoJoin: true, settings: { requirePlanForClock: true } });
     const unset = await insertOrg({});
@@ -89,10 +89,10 @@ describe('moveOrgAutoJoinIntoSettings', () => {
     const read = (id: ObjectId) => db.collection('organizations').findOne({ _id: id });
     const offDoc = await read(off);
     expect(offDoc?.settings).toEqual({ allowAutoJoin: false });
-    expect(offDoc).not.toHaveProperty('allowAutoJoin');
+    expect(offDoc?.allowAutoJoin).toBe(false);
     const onDoc = await read(on);
     expect(onDoc?.settings).toEqual({ requirePlanForClock: true, allowAutoJoin: true });
-    expect(onDoc).not.toHaveProperty('allowAutoJoin');
+    expect(onDoc?.allowAutoJoin).toBe(true);
     expect((await read(unset))?.settings).toBeUndefined();
   });
 });
