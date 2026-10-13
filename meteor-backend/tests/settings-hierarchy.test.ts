@@ -592,6 +592,27 @@ describe('org edits and inherited auto-join', () => {
     expect(org?.settings).toEqual({});
   });
 
+  it('keeps the legacy top-level field in step for servers still draining', async () => {
+    const set = await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { allowAutoJoin: true } },
+      jwts.orgOwner,
+    );
+    expect(set.ok).toBe(true);
+    const db = await getDb();
+    expect((await db.collection('organizations').findOne({ _id: orgId }))?.allowAutoJoin).toBe(true);
+
+    const reset = await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { allowAutoJoin: null } },
+      jwts.orgOwner,
+    );
+    expect(reset.ok).toBe(true);
+    expect(await db.collection('organizations').findOne({ _id: orgId })).not.toHaveProperty(
+      'allowAutoJoin',
+    );
+  });
+
   it('a value that differs from the effective one is stored', async () => {
     const res = await wormhole(
       'orgs.update',

@@ -547,7 +547,8 @@ Meteor.methods({
     const resolved = await resolveSettings(team);
     const update = settingsUpdateFor({ level: 'team', entity: team, resolved, settings });
     await writeNotifyingPlanChanges({
-      teams: [team, ...(await descendantTeams(team))],
+      update,
+      teams: async () => [team, ...(await descendantTeams(team))],
       actorUserId: userId,
       write: () => Teams.updateAsync(team._id, update),
     });

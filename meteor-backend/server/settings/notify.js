@@ -24,17 +24,29 @@ export async function notifyPlanRequired(team, actorUserId) {
   );
 }
 
+const touchesPlanRequirement = (update) =>
+  [...Object.keys(update.$set ?? {}), ...Object.keys(update.$unset ?? {})].some((key) =>
+    key.endsWith('.requirePlanForClock'),
+  );
+
 /**
- * Runs `write` and notifies each of `teams` whose resolved plan requirement
- * went from off to on. Teams that keep their own value resolve the same
- * before and after, so they are not notified.
+ * Runs `write` and notifies each team from `teams()` whose resolved plan
+ * requirement went from off to on. Teams that keep their own value resolve the
+ * same before and after, so they are not notified. Writes that leave the plan
+ * requirement and its lock alone skip the before/after scan.
  */
-export async function writeNotifyingPlanChanges({ teams, actorUserId, write }) {
-  const before = await resolveSettingsForTeams(teams);
+export async function writeNotifyingPlanChanges({ update, teams, actorUserId, write }) {
+  if (!touchesPlanRequirement(update)) {
+    const result = await write();
+    announceSettingsChanged();
+    return result;
+  }
+  const affected = await teams();
+  const before = await resolveSettingsForTeams(affected);
   const result = await write();
   announceSettingsChanged();
-  const after = await resolveSettingsForTeams(await reloadTeams(teams));
-  const turnedOn = teams.filter(
+  const after = await resolveSettingsForTeams(await reloadTeams(affected));
+  const turnedOn = affected.filter(
     (_, i) => !before[i].requirePlanForClock.value && after[i].requirePlanForClock.value,
   );
   await Promise.all(turnedOn.map((team) => notifyPlanRequired(team, actorUserId)));

@@ -334,6 +334,7 @@ Meteor.methods({
       owners: [userId],
       admins: [],
       settings: initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin },
+      ...(initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin }),
       settingsLocks: {},
       createdAt: now,
       updatedAt: now,
@@ -386,7 +387,10 @@ Meteor.methods({
       updates.slug = newSlug;
     }
     const autoJoin = autoJoinToStore((await resolveOrgSettings(org)).allowAutoJoin, allowAutoJoin);
-    if (autoJoin !== undefined) updates['settings.allowAutoJoin'] = autoJoin;
+    if (autoJoin !== undefined) {
+      updates['settings.allowAutoJoin'] = autoJoin;
+      updates.allowAutoJoin = autoJoin;
+    }
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
@@ -416,7 +420,8 @@ Meteor.methods({
       locks,
     });
     const result = await writeNotifyingPlanChanges({
-      teams: await teamsInOrg(orgId),
+      update,
+      teams: () => teamsInOrg(orgId),
       actorUserId: userId,
       write: () =>
         db.collection('organizations').findOneAndUpdate({ _id: new ObjectId(orgId) }, update, {

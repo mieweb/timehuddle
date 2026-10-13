@@ -117,6 +117,12 @@ export const EnterprisePage: React.FC = () => {
   const editSlugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
+  const enterpriseAutoJoin = enterprise?.effectiveSettings.allowAutoJoin;
+  const autoJoinLocked = enterpriseAutoJoin?.locked === true;
+  const handleOpenCreateOrg = useCallback(() => {
+    setOrgAllowAutoJoin(enterpriseAutoJoin?.value ?? true);
+    setCreateOrgOpen(true);
+  }, [enterpriseAutoJoin?.value]);
   const selectedOrganizations = useMemo(
     () =>
       selectedEnterpriseId
@@ -600,7 +606,7 @@ export const EnterprisePage: React.FC = () => {
                   No organizations yet.
                 </Text>
               )}
-              <Button variant="secondary" fullWidth onClick={() => setCreateOrgOpen(true)}>
+              <Button variant="secondary" fullWidth onClick={handleOpenCreateOrg}>
                 Create Organization
               </Button>
             </CardContent>
@@ -662,7 +668,7 @@ export const EnterprisePage: React.FC = () => {
             <Switch
               checked={orgAllowAutoJoin}
               onCheckedChange={setOrgAllowAutoJoin}
-              disabled={orgSaving}
+              disabled={orgSaving || autoJoinLocked}
               aria-label="Toggle organization auto-join"
             />
           </div>
@@ -742,7 +748,7 @@ export const EnterprisePage: React.FC = () => {
             <Switch
               checked={editOrgAllowAutoJoin}
               onCheckedChange={setEditOrgAllowAutoJoin}
-              disabled={editOrgSaving}
+              disabled={editOrgSaving || autoJoinLocked}
               aria-label="Toggle organization auto-join"
             />
           </div>

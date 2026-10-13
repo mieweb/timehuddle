@@ -62,12 +62,13 @@ async function claimTeamPin(migrations) {
 // Teams are pinned once: from then on an absent value means "inherit", and
 // pinning it again would turn off every team created since.
 export async function migrateSettings(db) {
-  const orgs = await moveOrgAutoJoinIntoSettings(db);
-  if (orgs) console.log(`[settings] moved allowAutoJoin into settings on ${orgs} org(s)`);
-
   const migrations = db.collection('migrations');
   const claimedAt = await claimTeamPin(migrations);
   if (!claimedAt) return;
+  // Once only: copying again would restore a value an admin has since reset to inherited.
+  const orgs = await moveOrgAutoJoinIntoSettings(db);
+  if (orgs) console.log(`[settings] moved allowAutoJoin into settings on ${orgs} org(s)`);
+
   const teams = await pinExistingTeamPlanSetting(db, claimedAt);
   if (teams) console.log(`[settings] pinned requirePlanForClock=false on ${teams} team(s)`);
   await migrations.updateOne({ _id: MARKER_ID }, { $set: { status: 'done', ranAt: new Date() } });

@@ -112,6 +112,22 @@ describe('migrateSettings', () => {
     expect((await read(after))?.settings).toBeUndefined();
   });
 
+  it('copies org auto-join once: a value reset to inherited stays reset', async () => {
+    const db = await getDb();
+    await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
+    const org = await insertOrg({ allowAutoJoin: false });
+
+    await migrateSettings(db);
+    const read = () => db.collection('organizations').findOne({ _id: org });
+    expect((await read())?.settings?.allowAutoJoin).toBe(false);
+
+    await db
+      .collection('organizations')
+      .updateOne({ _id: org }, { $unset: { 'settings.allowAutoJoin': '' } });
+    await migrateSettings(db);
+    expect((await read())?.settings?.allowAutoJoin).toBeUndefined();
+  });
+
   it('tolerates another instance recording the marker first', async () => {
     const db = await getDb();
     await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });

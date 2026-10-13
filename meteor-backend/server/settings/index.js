@@ -172,11 +172,22 @@ export async function addMemberToTeamOrgIfAllowed(team, userId) {
   if (resolved.allowAutoJoin.value) await addOrgMember(team.orgId, userId, 'member', true);
 }
 
+// Servers from before #607 read the top-level org `allowAutoJoin`; keep it in step while they drain.
+export function mirrorLegacyAutoJoin(update) {
+  if (update.$set && 'settings.allowAutoJoin' in update.$set) {
+    update.$set.allowAutoJoin = update.$set['settings.allowAutoJoin'];
+  } else if (update.$unset && 'settings.allowAutoJoin' in update.$unset) {
+    update.$unset.allowAutoJoin = '';
+  }
+  return update;
+}
+
 // Validates a settings/locks patch and returns the Mongo update, throwing Meteor.Error.
 export function settingsUpdateFor({ level, entity, resolved, settings, locks }) {
   try {
     const built = buildSettingsUpdate({ level, current: entity, resolved, settings, locks });
-    return toMongoUpdate(built, new Date());
+    const update = toMongoUpdate(built, new Date());
+    return level === 'org' ? mirrorLegacyAutoJoin(update) : update;
   } catch (error) {
     if (error instanceof SettingsInputError) throw new Meteor.Error(error.code, error.message);
     throw error;

@@ -127,7 +127,8 @@ Meteor.methods({
 
     const update = settingsUpdateFor({ level: 'enterprise', entity: enterprise, settings, locks });
     const result = await writeNotifyingPlanChanges({
-      teams: await teamsInEnterprise(enterpriseId),
+      update,
+      teams: () => teamsInEnterprise(enterpriseId),
       actorUserId: userId,
       write: () =>
         rawDb().collection('enterprises').findOneAndUpdate({ _id: enterprise._id }, update, {

@@ -105,7 +105,7 @@ flowchart LR
    - Output per key: `{ value, source: 'team' | 'parentTeam' | 'org' | 'enterprise' | 'system' | 'personal', sourceId, locked: boolean }`.
    - **Resolution order:** first find the **highest** level that has the key locked (enterprise before org) — if found, that level's value wins and `locked: true`. Otherwise walk nearest → farthest and take the first explicit value; fall back to the registry default.
    - Personal teams: if `personalExempt`, return `{ value: exemptValue, source: 'personal', locked: true }`.
-4. **Client contract:** the client receives `settings` as the resolved object above (value + source + locked). No client code applies its own default.
+4. **Client contract:** the client receives the resolved object above (value + source + locked) as `Team.resolvedSettings`. `Team.settings` stays flat resolved booleans so older app versions keep working through a rolling deploy; new code reads `resolvedSettings`. No client code applies its own default.
 
 > If any of these turns out to be impossible as written, raise it in the PR before changing it.
 
@@ -209,7 +209,7 @@ flowchart LR
 ## Milestone 6 — Client consumes resolved values only
 
 - [x] Server: change `teams.byUser` ([teams.js L134](../meteor-backend/server/teams.js#L134)) to a transformed publication (`observeChanges` + `this.added/changed/removed`) that publishes `settings` as the resolved object. Org/enterprise changes won't re-trigger this observer — after `orgs.updateSettings`/`enterprises.updateSettings` succeed, the client must refetch teams (via the existing `TeamContext` refresh).
-- [x] Update the `Team` type (`settings`) in [api.ts](../src/lib/api.ts) / [TeamContext.tsx](../src/lib/TeamContext.tsx) to `Record<'requirePlanForClock' | 'autoAcceptJoins', { value: boolean; source: SettingSource; locked: boolean; sourceId?: string }>`. Add `null` to `teamApi.updateSettings` param types.
+- [x] Add `resolvedSettings` to the `Team` type in [api.ts](../src/lib/api.ts) / [TeamContext.tsx](../src/lib/TeamContext.tsx) as `Record<'requirePlanForClock' | 'autoAcceptJoins', { value: boolean; source: SettingSource; locked: boolean; sourceId?: string }>`; `settings` stays the flat boolean record for older clients. Add `null` to `teamApi.updateSettings` param types.
 - [x] [ddp.ts L642](../src/lib/ddp.ts#L642): pass the resolved settings through — no `Boolean(...)`.
 - [x] [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38): `gateTeam?.settings.requirePlanForClock.value` — no `!!` fallback beyond a missing team.
 - [x] [TeamsPage.tsx L198–L203](../src/features/teams/TeamsPage.tsx#L198): remove `?? false`.
