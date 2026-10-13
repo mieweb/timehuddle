@@ -12,36 +12,13 @@ import { faCircleCheck, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text, Textarea } from '@mieweb/ui';
 import React, { useRef, useState } from 'react';
-import * as tus from 'tus-js-client';
 
-import { videoApi } from '../../lib/api';
 import { TIMESHEET_DESCRIPTION_MIN } from '../../lib/timesheetApproval';
+import { uploadVideoToLibrary, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 /** PulseVault serves an uploaded recording at a stable path derived from its id. */
 export function artifactUrl(videoid: string): string {
   return `/pulsevault/artifacts/${videoid}`;
-}
-
-async function uploadJustificationVideo(
-  file: File,
-  onProgress: (pct: number) => void,
-): Promise<string> {
-  const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
-
-  await new Promise<void>((resolve, reject) => {
-    new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: { videoid, filename: file.name, filetype: file.type },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress: (sent, total) => onProgress(Math.round((sent / total) * 100)),
-      onSuccess: () => resolve(),
-      onError: reject,
-    }).start();
-  });
-
-  return videoid;
 }
 
 export interface TimesheetJustificationState {
@@ -77,7 +54,7 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
     setError(null);
     setProgress(0);
     try {
-      const videoid = await uploadJustificationVideo(file, setProgress);
+      const videoid = await uploadVideoToLibrary(file, (f) => setProgress(Math.round(f * 100)));
       onChange({ ...value, videoUrl: artifactUrl(videoid) });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed. Try again.');
@@ -132,7 +109,7 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
         <input
           ref={fileInputRef}
           type="file"
-          accept="video/*"
+          accept={VIDEO_FILE_ACCEPT}
           capture="user"
           className="hidden"
           disabled={busy}
@@ -168,7 +145,11 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
             leftIcon={<FontAwesomeIcon icon={faVideo} />}
             onClick={() => fileInputRef.current?.click()}
           >
-            {progress !== null ? `Uploading ${progress}%` : 'Record or attach video'}
+            {progress === null
+              ? 'Record or attach video'
+              : progress < 100
+                ? `Uploading ${progress}%`
+                : 'Processing…'}
           </Button>
         )}
       </div>
