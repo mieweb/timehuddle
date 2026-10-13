@@ -6,7 +6,7 @@
  * to its destination when it lands, and the request doesn't exist until it's
  * submitted. Once it lands the approver sees it in Timesheet Approvals.
  */
-import { Badge, Text } from '@mieweb/ui';
+import { Badge } from '@mieweb/ui';
 import React from 'react';
 
 import type { TimesheetChangeRequest } from '../../lib/api';
@@ -30,14 +30,11 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
       </Badge>
     );
   }
-  // Icons only, named by the label beside them. `contents`: the label and the
-  // icons join the host's own row, so they line up with "Pending approval"
-  // on one line (wrapping item by item where there's no room).
+  // Two icon buttons beside "Pending approval" (each named by its aria-label,
+  // shown as a tooltip). `contents`: they join the host's own row, so they
+  // line up with the badge on one line, wrapping where there's no room.
   return (
     <div className="change-request-walkthrough contents">
-      <Text as="span" size="xs" variant="muted">
-        Pulse/Video
-      </Text>
       <PulseButton
         destination={{ kind: 'timesheet-request', id: request.id }}
         ariaLabel="Add a walkthrough with Pulse"

@@ -951,7 +951,10 @@ export const WorkPage: React.FC = () => {
                           </Badge>
                         )}
                         {pendingRequest && (
-                          <>
+                          // One group: it moves under the title as a whole
+                          // when it doesn't fit beside it, so the badge never
+                          // ends up on a line apart from its Pulse and Upload.
+                          <div className="pending-approval-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                             <Badge
                               variant="warning"
                               className="shrink-0 whitespace-nowrap"
@@ -964,7 +967,7 @@ export const WorkPage: React.FC = () => {
                               request={pendingRequest}
                               onAdded={loadMyRequests}
                             />
-                          </>
+                          </div>
                         )}
                       </div>
                     </TableCell>

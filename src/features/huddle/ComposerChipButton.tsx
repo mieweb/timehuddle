@@ -42,15 +42,23 @@ export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButt
         size="sm"
         onClick={onClick}
         disabled={disabled}
-        leftIcon={leftIcon}
+        // Icon only: the icon is the content, centred in a 32px circle. As a
+        // leftIcon it sat 3px off centre — the empty label slot kept its gap.
+        leftIcon={iconOnly ? undefined : leftIcon}
         title={iconOnly ? aria['aria-label'] : undefined}
         className={cn(
-          'gap-1.5 rounded-full border border-gray-200 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
-          iconOnly ? 'px-2' : 'px-3',
+          'rounded-full border border-gray-200 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
+          iconOnly ? 'size-8 shrink-0 justify-center p-0' : 'gap-1.5 px-3 py-1.5',
         )}
         {...aria}
       >
-        {children}
+        {iconOnly ? (
+          // A flex box, not inline: an inline icon sits on the text baseline,
+          // ~1px below centre.
+          <span className="flex items-center justify-center leading-none">{leftIcon}</span>
+        ) : (
+          children
+        )}
       </Button>
     );
   },
