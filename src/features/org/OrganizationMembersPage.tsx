@@ -21,7 +21,7 @@ import {
   Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -95,7 +95,8 @@ export const OrganizationMembersPage: React.FC = () => {
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [settingsView, setSettingsView] = useState<SettingsEditView | null>(null);
+  const [loaded, setLoaded] = useState<{ orgId: string; view: SettingsEditView } | null>(null);
+  const loadSeqRef = useRef(0);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [memberUserId, setMemberUserId] = useState('');
@@ -118,6 +119,7 @@ export const OrganizationMembersPage: React.FC = () => {
 
   const loadUsers = useCallback(async () => {
     if (!selectedOrgId) {
+      loadSeqRef.current++;
       setUsers([]);
       setCanManage(false);
       setOrganizationName(null);
@@ -125,12 +127,15 @@ export const OrganizationMembersPage: React.FC = () => {
       return;
     }
 
+    const seq = ++loadSeqRef.current;
+    const isStale = () => seq !== loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const organization = await orgApi.getOrganizationById(selectedOrgId);
+      if (isStale()) return;
       setOrganizationName(organization.name);
-      setSettingsView(organization);
+      setLoaded({ orgId: selectedOrgId, view: organization });
       setCanManage(organization.canManage);
 
       if (!organization.canManage) {
@@ -139,9 +144,11 @@ export const OrganizationMembersPage: React.FC = () => {
       }
 
       const result = await orgApi.listMembers(selectedOrgId);
+      if (isStale()) return;
       setUsers(result);
 
       const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
+      if (isStale()) return;
       setUserOptions(
         searchableUsers.map((u) => ({
           value: u.id,
@@ -149,13 +156,14 @@ export const OrganizationMembersPage: React.FC = () => {
         })),
       );
     } catch (err) {
+      if (isStale()) return;
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError('Failed to load organization members');
       }
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [selectedOrgId]);
 
@@ -190,7 +198,8 @@ export const OrganizationMembersPage: React.FC = () => {
       setSavingSettings(true);
       setSettingsError(null);
       try {
-        setSettingsView(await orgApi.updateSettings(selectedOrgId, patch));
+        const view = await orgApi.updateSettings(selectedOrgId, patch);
+        setLoaded({ orgId: selectedOrgId, view });
         refreshTeamSettings();
         refetchOrganizations();
       } catch (err) {
@@ -414,13 +423,13 @@ export const OrganizationMembersPage: React.FC = () => {
 
   return (
     <AppPage>
-      {selectedOrgId && canManage && settingsView && (
+      {selectedOrgId && canManage && loaded?.orgId === selectedOrgId && (
         <DefaultsCard
           level="org"
           title={DEFAULTS_STRINGS.title}
           description={DEFAULTS_STRINGS.description}
           rows={TEAM_DEFAULT_ROWS}
-          view={settingsView}
+          view={loaded.view}
           names={{ enterprise: enterpriseName }}
           saving={savingSettings}
           error={settingsError}
