@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
@@ -768,12 +769,14 @@ export const OrganizationMembersPage: React.FC = () => {
           </Text>
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={() => setRemoveUserId(null)} disabled={removing}>
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={() => void handleConfirmRemove()} disabled={removing}>
-            {removing ? 'Removing…' : 'Remove Member'}
-          </Button>
+          <ButtonGroup>
+            <Button variant="outline" onClick={() => setRemoveUserId(null)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={() => void handleConfirmRemove()} disabled={removing}>
+              {removing ? 'Removing…' : 'Remove Member'}
+            </Button>
+          </ButtonGroup>
         </ModalFooter>
       </AppModal>
 

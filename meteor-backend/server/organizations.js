@@ -575,6 +575,14 @@ Meteor.methods({
     }
 
     const now = new Date();
+    // Recorded so an implicit join never brings them back (see wasRemovedFromOrg).
+    // Written before the membership goes: the sign-in auto-join looks for a
+    // membership and then for this, so a sign-in racing the removal always
+    // finds one of the two.
+    await db.collection('users').updateOne(
+      { _id: String(userId) },
+      { $addToSet: { removedFromOrgs: orgId } },
+    );
     // Leaving the organization means leaving its teams too — otherwise the
     // team seat keeps them in the member list and in the org's work.
     if (userTeams.length > 0) {
@@ -588,11 +596,6 @@ Meteor.methods({
     await db.collection('organizations').updateOne(
       { _id: new ObjectId(orgId) },
       { $pull: { owners: userId, admins: userId }, $set: { updatedAt: now } },
-    );
-    // Recorded so an implicit join never brings them back (see wasRemovedFromOrg).
-    await db.collection('users').updateOne(
-      { _id: String(userId) },
-      { $addToSet: { removedFromOrgs: orgId } },
     );
     return { user: { userId } };
   },

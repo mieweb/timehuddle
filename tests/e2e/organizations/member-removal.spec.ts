@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { MongoClient } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
+
+const MONGO_URL =
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 /**
  * E2E Test: Removing a Member From the Organization
@@ -10,6 +14,28 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
  * Personal team inside it, which kept the row in the table after Remove.
  */
 test.describe('Organization Member Removal', () => {
+  const createdUserEmails: string[] = [];
+
+  test.afterAll(async () => {
+    // Global teardown only knows the @test.local seed users, and removal leaves
+    // the Personal team in place, so the sign-up is cleaned up here.
+    if (createdUserEmails.length === 0) return;
+    const mongoClient = await MongoClient.connect(MONGO_URL);
+    try {
+      const db = mongoClient.db();
+      const users = await db
+        .collection('users')
+        .find({ 'emails.address': { $in: createdUserEmails } }, { projection: { _id: 1 } })
+        .toArray();
+      const userIds = users.map((u) => String(u._id));
+      await db.collection('users').deleteMany({ 'emails.address': { $in: createdUserEmails } });
+      await db.collection('org_members').deleteMany({ userId: { $in: userIds } });
+      await db.collection('teams').deleteMany({ isPersonal: true, members: { $in: userIds } });
+    } finally {
+      await mongoClient.close();
+    }
+  });
+
   test('removing a member takes their row out of the table', async ({ page, browser }) => {
     test.setTimeout(120000);
     const timestamp = Date.now();
@@ -22,7 +48,9 @@ test.describe('Organization Member Removal', () => {
     await memberPage.goto('/app?mode=signup');
     await memberPage.getByPlaceholder('Jane').fill(firstName);
     await memberPage.getByPlaceholder('Doe').fill('User');
-    await memberPage.getByPlaceholder('you@example.com').fill(`remove${timestamp}@example.com`);
+    const email = `remove${timestamp}@example.com`;
+    createdUserEmails.push(email);
+    await memberPage.getByPlaceholder('you@example.com').fill(email);
     await memberPage.getByPlaceholder('••••••••').first().fill('TestPassword123!');
     await memberPage.getByPlaceholder('••••••••').last().fill('TestPassword123!');
     await memberPage.getByRole('button', { name: 'Create account' }).click();
