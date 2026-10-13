@@ -184,29 +184,35 @@ Meteor.publish('teams.byUser', async function () {
     for (const key of [...sent.keys()]) await sendSettings(docs.get(key)?._id ?? key);
   };
 
+  // Every update runs here in order, so an older resolve can't land after a newer one.
+  let queue = Promise.resolve();
+  const enqueue = (task) => {
+    queue = queue.then(task).catch(fail);
+    return queue;
+  };
+
   const handle = await Teams.find({ members: this.userId }).observeChangesAsync({
-    added: async (id, fields) => {
-      docs.set(hexOf(id), { _id: id, ...fields });
-      await sendSettings(id, fields).catch(fail);
-    },
-    changed: async (id, fields) => {
-      const doc = { ...docs.get(hexOf(id)), ...fields };
-      for (const key of Object.keys(fields)) if (fields[key] === undefined) delete doc[key];
-      docs.set(hexOf(id), doc);
-      try {
+    added: (id, fields) =>
+      enqueue(async () => {
+        docs.set(hexOf(id), { _id: id, ...fields });
+        await sendSettings(id, fields);
+      }),
+    changed: (id, fields) =>
+      enqueue(async () => {
+        const doc = { ...docs.get(hexOf(id)), ...fields };
+        for (const key of Object.keys(fields)) if (fields[key] === undefined) delete doc[key];
+        docs.set(hexOf(id), doc);
         await sendSettings(id, fields);
         if ('settings' in fields) await resendAll();
-      } catch (error) {
-        fail(error);
-      }
-    },
-    removed: (id) => {
-      docs.delete(hexOf(id));
-      sent.delete(hexOf(id));
-      this.removed('teams', id);
-    },
+      }),
+    removed: (id) =>
+      enqueue(async () => {
+        docs.delete(hexOf(id));
+        sent.delete(hexOf(id));
+        this.removed('teams', id);
+      }),
   });
-  const stopListening = onSettingsChanged(() => void resendAll().catch(fail));
+  const stopListening = onSettingsChanged(() => void enqueue(resendAll));
   this.onStop(() => {
     handle.stop();
     stopListening();

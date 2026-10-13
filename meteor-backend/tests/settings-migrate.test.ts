@@ -104,7 +104,7 @@ describe('migrateSettings', () => {
     const before = await insertTeam({});
 
     await migrateSettings(db);
-    const after = await insertTeam({});
+    const after = await insertTeam({ createdAt: new Date(Date.now() + 60_000) });
     await migrateSettings(db);
 
     const read = (id: ObjectId) => db.collection('teams').findOne({ _id: id });
@@ -116,5 +116,24 @@ describe('migrateSettings', () => {
     const db = await getDb();
     await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
     await expect(Promise.all([migrateSettings(db), migrateSettings(db)])).resolves.toBeDefined();
+  });
+
+  it('takes over a claim left running by a crashed instance', async () => {
+    const db = await getDb();
+    const marker = db.collection('migrations');
+    await marker.deleteOne({ _id: 'hierarchical-settings-607' });
+    await marker.insertOne({
+      _id: 'hierarchical-settings-607',
+      status: 'running',
+      claimedAt: new Date(Date.now() - 10 * 60 * 1000),
+    });
+    const stuck = await insertTeam({});
+
+    await migrateSettings(db);
+
+    expect(
+      (await db.collection('teams').findOne({ _id: stuck }))?.settings?.requirePlanForClock,
+    ).toBe(false);
+    expect((await marker.findOne({ _id: 'hierarchical-settings-607' }))?.status).toBe('done');
   });
 });
