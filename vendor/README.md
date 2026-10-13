@@ -41,7 +41,8 @@ graph LR
 
 To pull in upstream changes: `npm run ui:sync`. It merges `mieweb/ui` `main` into the branch
 (a merge, so the branch never needs a force-push) and rebuilds. Then push `vendor/ui` and commit
-as in step 4.
+as in step 4. Check `vendor/ui/patches/` against [`patches/`](../patches/README.md) afterwards: the
+app applies the library's Kerebron fixes itself.
 
 The build takes a few minutes; it is skipped when `vendor/ui` hasn't moved. `npm run ui:build -- --force`
 rebuilds anyway.
