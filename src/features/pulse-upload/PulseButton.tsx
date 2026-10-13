@@ -34,14 +34,14 @@ interface PulseChipProps {
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
-  /** Just the icons (Pulse logo, upload arrow), where a label beside them names them. */
-  iconOnly?: boolean;
   /**
    * The card layout (a Videos section): an upload's progress is the Upload
    * button's own label ("Uploading 42%", "Processing…"), and errors and notes
    * come before the buttons rather than after them.
    */
   card?: boolean;
+  /** Below `sm`, the chips show only their icons (see ComposerChipButton `compact`). */
+  compact?: boolean;
 }
 
 /**
@@ -55,8 +55,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   main,
   disabled,
   allowFile,
-  iconOnly,
   card,
+  compact,
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -105,8 +105,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       {reserving ? 'Opening Pulse…' : main.label}
     </Button>
   ) : (
-    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} {...shared}>
-      {iconOnly ? undefined : 'Pulse'}
+    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} compact={compact} {...shared}>
+      Pulse
     </ComposerChipButton>
   );
   const chips = allowFile ? (
@@ -125,6 +125,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       />
       {pulseControl}
       <ComposerChipButton
+        compact={compact}
         onClick={() => fileInput.current?.click()}
         disabled={disabled || reserving || sending}
         aria-busy={sending}
@@ -137,9 +138,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
           )
         }
       >
-        {iconOnly ? undefined : (
-          <span className="tabular-nums">{inFlight && card ? inFlight : 'Upload'}</span>
-        )}
+        <span className="tabular-nums">{inFlight && card ? inFlight : 'Upload'}</span>
       </ComposerChipButton>
     </span>
   ) : (
@@ -191,8 +190,6 @@ interface PulseButtonProps {
   disabled?: boolean;
   /** Also offer "Upload": a video file from this device, sent to the same place. */
   allowFile?: boolean;
-  /** Just the icons, where a label beside them names them (see PulseChip). */
-  iconOnly?: boolean;
   /**
    * The card layout (see PulseChip `card`), with the buttons at the row's
    * `end` (a section header) or `start`. Messages sit to the left of the
@@ -200,6 +197,8 @@ interface PulseButtonProps {
    * line of their own under the buttons.
    */
   card?: 'start' | 'end';
+  /** Below `sm`, the chips show only their icons. */
+  compact?: boolean;
 }
 
 export const PulseButton: React.FC<PulseButtonProps> = ({
@@ -208,8 +207,8 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
   onSettled,
   disabled,
   allowFile,
-  iconOnly,
   card,
+  compact,
 }) => {
   const pulse = usePulseUpload(destination, { onSettled });
   return (
@@ -231,8 +230,8 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
         ariaLabel={ariaLabel}
         disabled={disabled}
         allowFile={allowFile}
-        iconOnly={iconOnly}
         card={Boolean(card)}
+        compact={compact}
       />
       <PulseUploadModal
         open={pulse.modalOpen}

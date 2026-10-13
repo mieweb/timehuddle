@@ -52,7 +52,7 @@ interface Props {
   changeStatus?: 'pending' | 'rejected';
   /** The reviewer's reason, shown on a declined change. */
   changeNote?: string;
-  /** Shown beside "Pending approval" on the session's first row: the walkthrough control. */
+  /** Shown before "Pending approval" on the session's first row: the walkthrough's Pulse and Upload. */
   pendingAction?: React.ReactNode;
 }
 
@@ -320,6 +320,7 @@ export const TimesheetRow: React.FC<Props> = ({
               <TableCell>
                 {row.isContinued ? null : changeStatus === 'pending' ? (
                   <div className="pending-approval-status flex flex-wrap items-center gap-2 lg:flex-nowrap">
+                    {showActions && !walkthroughOwnLine && pendingAction}
                     <Badge
                       variant="warning"
                       className="shrink-0 whitespace-nowrap"
@@ -328,7 +329,6 @@ export const TimesheetRow: React.FC<Props> = ({
                     >
                       Pending approval
                     </Badge>
-                    {showActions && !walkthroughOwnLine && pendingAction}
                   </div>
                 ) : changeStatus === 'rejected' ? (
                   // The reviewer's note is shown, not hidden in a tooltip: a
@@ -400,6 +400,7 @@ export const TimesheetRow: React.FC<Props> = ({
                       its padding, and less the sidebar from md up) so it wraps
                       there instead of running past the edge. */}
                   <div className="sticky left-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
+                    {pendingAction}
                     <Badge
                       variant="warning"
                       className="shrink-0 whitespace-nowrap"
@@ -408,7 +409,6 @@ export const TimesheetRow: React.FC<Props> = ({
                     >
                       Pending approval
                     </Badge>
-                    {pendingAction}
                   </div>
                 </TableCell>
               </TableRow>

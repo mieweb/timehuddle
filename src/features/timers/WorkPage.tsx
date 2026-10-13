@@ -955,6 +955,10 @@ export const WorkPage: React.FC = () => {
                           // when it doesn't fit beside it, so the badge never
                           // ends up on a line apart from its Pulse and Upload.
                           <div className="pending-approval-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <ChangeRequestWalkthrough
+                              request={pendingRequest}
+                              onAdded={loadMyRequests}
+                            />
                             <Badge
                               variant="warning"
                               className="shrink-0 whitespace-nowrap"
@@ -963,10 +967,6 @@ export const WorkPage: React.FC = () => {
                             >
                               Pending approval
                             </Badge>
-                            <ChangeRequestWalkthrough
-                              request={pendingRequest}
-                              onAdded={loadMyRequests}
-                            />
                           </div>
                         )}
                       </div>

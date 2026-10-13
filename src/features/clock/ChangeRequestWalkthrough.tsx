@@ -30,16 +30,16 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
       </Badge>
     );
   }
-  // Two icon buttons beside "Pending approval" (each named by its aria-label,
-  // shown as a tooltip). `contents`: they join the host's own row, so they
-  // line up with the badge on one line, wrapping where there's no room.
+  // Pulse and Upload, before "Pending approval" (icons only on a phone).
+  // `contents`: they join the host's own row, so they line up with the badge
+  // on one line, wrapping where there's no room.
   return (
     <div className="change-request-walkthrough contents">
       <PulseButton
         destination={{ kind: 'timesheet-request', id: request.id }}
         ariaLabel="Add a walkthrough with Pulse"
         allowFile
-        iconOnly
+        compact
         onSettled={(status) => {
           if (status.state === 'done') onAdded?.();
         }}
