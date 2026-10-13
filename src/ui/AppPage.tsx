@@ -24,6 +24,14 @@ import { PageTitle, usePageTitle } from './pageTitle';
 
 export type PageWidth = 'content' | 'wide' | 'full';
 
+/**
+ * For a page's main card (a list or table): a card on a wide screen; below
+ * `md` the frame goes and it runs edge to edge, taking back the page's side
+ * padding (`px-4`, below) for its rows.
+ */
+export const EDGE_TO_EDGE_BELOW_MD =
+  'max-md:-mx-4 max-md:rounded-none max-md:border-x-0 max-md:bg-transparent max-md:shadow-none';
+
 const COLUMN: Record<PageWidth, string> = {
   content: 'max-w-4xl',
   wide: 'max-w-7xl',

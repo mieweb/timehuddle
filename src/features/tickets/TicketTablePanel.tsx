@@ -8,9 +8,10 @@
  * sits above both tabs, on the page, with `TicketViewControls` beside it on a
  * wide screen. On a phone those controls move into the table's own header.
  */
-import { Button, Card } from '@mieweb/ui';
+import { Button, Card, cn } from '@mieweb/ui';
 import React from 'react';
 
+import { EDGE_TO_EDGE_BELOW_MD } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
@@ -124,7 +125,10 @@ export const TicketTablePanel: React.FC<TicketTablePanelProps> = ({
       <Card
         ref={cardRef}
         padding="none"
-        className="ticket-table-card flex min-h-0 flex-1 flex-col max-md:-mx-4 max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:bg-transparent max-md:shadow-none"
+        className={cn(
+          'ticket-table-card flex min-h-0 flex-1 flex-col max-md:border-b-0',
+          EDGE_TO_EDGE_BELOW_MD,
+        )}
       >
         {/* Fills the remaining height, as a column: a source-error banner takes
             what it needs and the table scrolls in the rest, under a fixed header. */}
