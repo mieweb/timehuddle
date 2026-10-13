@@ -188,6 +188,11 @@ function team(id: string, orgId: string) {
     admins: [],
     code: id,
     isPersonal: false,
+    settings: { requirePlanForClock: true, autoAcceptJoins: false },
+    resolvedSettings: {
+      requirePlanForClock: { value: true, source: 'system' as const, locked: false },
+      autoAcceptJoins: { value: false, source: 'system' as const, locked: false },
+    },
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: null,
   };

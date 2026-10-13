@@ -638,14 +638,8 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
     admins: Array.isArray(doc.admins) ? doc.admins.map(String) : [],
     code: String(doc.code ?? ''),
     isPersonal: Boolean(doc.isPersonal),
-    settings: {
-      requirePlanForClock: Boolean(
-        (doc.settings as { requirePlanForClock?: boolean } | undefined)?.requirePlanForClock,
-      ),
-      autoAcceptJoins: Boolean(
-        (doc.settings as { autoAcceptJoins?: boolean } | undefined)?.autoAcceptJoins,
-      ),
-    },
+    settings: doc.settings as import('./api').Team['settings'],
+    resolvedSettings: doc.resolvedSettings as import('./api').Team['resolvedSettings'],
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,
   };

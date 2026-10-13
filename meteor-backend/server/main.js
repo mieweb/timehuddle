@@ -39,6 +39,8 @@ import './usage';
 // M2 — Collaboration
 import './teams';
 import './team-join-requests';
+import { migrateSettings } from './settings/migrate';
+import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
 import './pulsevault';
@@ -71,6 +73,18 @@ import { apiBodyLimitMiddleware } from './api-body-limit';
 // "unrecognized options" — the module itself does nothing without the flag.
 Meteor.startup(async () => {
   await import('./dev-quick-login');
+});
+
+Meteor.startup(async () => {
+  try {
+    await migrateSettings(rawDb());
+  } catch (error) {
+    // Serving requests on unmigrated settings would silently change behavior.
+    console.error('[settings] migration failed, stopping:', error);
+    process.exit(1);
+  }
+  // Hear settings changes made by other server instances.
+  watchSettingsChanges(rawDb());
 });
 
 /**
@@ -1911,11 +1925,15 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('teams.updateSettings', {
-    description: 'Update team settings, e.g. requirePlanForClock (admin only)',
+    description: 'Update team settings (admin only). true/false sets a value, null resets it to inherited',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' }, requirePlanForClock: { type: 'boolean' } },
-      required: ['teamId', 'requirePlanForClock'],
+      properties: {
+        teamId: { type: 'string' },
+        requirePlanForClock: { type: ['boolean', 'null'] },
+        autoAcceptJoins: { type: ['boolean', 'null'] },
+      },
+      required: ['teamId'],
     },
   });
 
@@ -2119,7 +2137,7 @@ Meteor.startup(async() => {
   Wormhole.expose('orgs.create', { description: 'Create organization under enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['enterpriseId', 'name'] } });
   Wormhole.expose('orgs.get', { description: 'Get organization details', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.update', { description: 'Update organization (name, slug, settings)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.updateSettings', { description: 'Update org auto-join setting', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId', 'allowAutoJoin'] } });
+  Wormhole.expose('orgs.updateSettings', { description: 'Update org settings and locks. Setting values: true/false, or null to reset to inherited. Locks: true to lock, false/null to unlock. allowAutoJoin alone is still accepted', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, allowAutoJoin: { type: 'boolean' }, settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } }, locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } } }, required: ['orgId'] } });
   Wormhole.expose('orgs.join', { description: 'Join organization (if auto-join enabled)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.listMembers', { description: 'List org members (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.listUsers', { description: 'List org users (accessible)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
@@ -2165,6 +2183,7 @@ Meteor.startup(async() => {
   Wormhole.expose('enterprises.list', { description: 'List enterprises for the caller', inputSchema: { type: 'object', properties: {} } });
   Wormhole.expose('enterprises.create', { description: 'Create enterprise', inputSchema: { type: 'object', properties: { name: { type: 'string' }, slug: { type: 'string' } }, required: ['name'] } });
   Wormhole.expose('enterprises.get', { description: 'Get enterprise details', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' } }, required: ['enterpriseId'] } });
+  Wormhole.expose('enterprises.updateSettings', { description: 'Update enterprise settings and locks (owner/admin only). Setting values: true/false, or null to reset. Locks: true to lock, false/null to unlock', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } }, locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } } }, required: ['enterpriseId'] } });
   Wormhole.expose('enterprises.updateName', { description: 'Update enterprise name', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' } }, required: ['enterpriseId', 'name'] } });
   Wormhole.expose('enterprises.searchUsers', { description: 'Search users for enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, q: { type: 'string' } }, required: ['enterpriseId'] } });
   Wormhole.expose('enterprises.setMemberRole', { description: 'Set enterprise member role (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin'] } }, required: ['enterpriseId', 'userId', 'role'] } });

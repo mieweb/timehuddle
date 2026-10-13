@@ -11,7 +11,6 @@ import {
   ModalHeader,
   Select,
   Spinner,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -22,7 +21,7 @@ import {
   Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -30,8 +29,11 @@ import {
   type DefaultOrganizationRole,
   type OrganizationAdminUser,
   type OrganizationInvitation,
+  type SettingsEditView,
+  type SettingsPatch,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
@@ -55,17 +57,48 @@ function invitationStatusVariant(
   }
 }
 
+const TEAM_DEFAULT_ROWS: DefaultSettingRow[] = [
+  {
+    key: 'requirePlanForClock',
+    title: 'Require a plan for every clock-in/out',
+    description: 'Teams without their own choice follow this.',
+    lockable: true,
+  },
+  {
+    key: 'autoAcceptJoins',
+    title: 'Auto-accept join requests',
+    description: 'Anyone joining a team with its code is added without admin approval.',
+    lockable: true,
+  },
+  {
+    key: 'allowAutoJoin',
+    title: 'Auto-join the organization',
+    description: 'People who join a team here are added to the organization too.',
+    lockable: false,
+  },
+];
+
+const DEFAULTS_STRINGS = {
+  title: 'Team defaults',
+  description:
+    'Defaults for every team in this organization. A team can override a default unless it is locked.',
+  failedToSave: 'Failed to update settings',
+} as const;
+
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
-  const { selectedOrgId } = useTeam();
+  const { selectedOrgId, organizations, enterprises, refreshTeamSettings, refetchOrganizations } =
+    useTeam();
   const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [canManage, setCanManage] = useState(false);
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [allowAutoJoin, setAllowAutoJoin] = useState(true);
-  const [savingAutoJoin, setSavingAutoJoin] = useState(false);
+  const [loaded, setLoaded] = useState<{ orgId: string; view: SettingsEditView } | null>(null);
+  const loadSeqRef = useRef(0);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [memberUserId, setMemberUserId] = useState('');
   const [memberRole, setMemberRole] = useState<DefaultOrganizationRole>('member');
   const [savingMember, setSavingMember] = useState(false);
@@ -86,6 +119,7 @@ export const OrganizationMembersPage: React.FC = () => {
 
   const loadUsers = useCallback(async () => {
     if (!selectedOrgId) {
+      loadSeqRef.current++;
       setUsers([]);
       setCanManage(false);
       setOrganizationName(null);
@@ -93,12 +127,15 @@ export const OrganizationMembersPage: React.FC = () => {
       return;
     }
 
+    const seq = ++loadSeqRef.current;
+    const isStale = () => seq !== loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const organization = await orgApi.getOrganizationById(selectedOrgId);
+      if (isStale()) return;
       setOrganizationName(organization.name);
-      setAllowAutoJoin(organization.allowAutoJoin);
+      setLoaded({ orgId: selectedOrgId, view: organization });
       setCanManage(organization.canManage);
 
       if (!organization.canManage) {
@@ -107,9 +144,11 @@ export const OrganizationMembersPage: React.FC = () => {
       }
 
       const result = await orgApi.listMembers(selectedOrgId);
+      if (isStale()) return;
       setUsers(result);
 
       const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
+      if (isStale()) return;
       setUserOptions(
         searchableUsers.map((u) => ({
           value: u.id,
@@ -117,13 +156,14 @@ export const OrganizationMembersPage: React.FC = () => {
         })),
       );
     } catch (err) {
+      if (isStale()) return;
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError('Failed to load organization members');
       }
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [selectedOrgId]);
 
@@ -151,6 +191,31 @@ export const OrganizationMembersPage: React.FC = () => {
       unsubscribe();
     };
   }, [selectedOrgId, loadUsers]);
+
+  const handleSaveSettings = useCallback(
+    async (patch: { settings?: SettingsPatch; locks?: SettingsPatch }) => {
+      if (!selectedOrgId) return;
+      setSavingSettings(true);
+      setSettingsError(null);
+      try {
+        const view = await orgApi.updateSettings(selectedOrgId, patch);
+        setLoaded({ orgId: selectedOrgId, view });
+        refreshTeamSettings();
+        refetchOrganizations();
+      } catch (err) {
+        setSettingsError(err instanceof ApiError ? err.message : DEFAULTS_STRINGS.failedToSave);
+      } finally {
+        setSavingSettings(false);
+      }
+    },
+    [selectedOrgId, refreshTeamSettings, refetchOrganizations],
+  );
+
+  // Names for "Locked by …" / "Inherited from …"; the enterprise's is absent for non-members.
+  const enterpriseName = useMemo(() => {
+    const enterpriseId = organizations.find((o) => o.id === selectedOrgId)?.enterpriseId;
+    return enterprises.find((e) => e.id === enterpriseId)?.name;
+  }, [organizations, enterprises, selectedOrgId]);
 
   const handleRoleChange = useCallback(
     async (targetUserId: string, role: DefaultOrganizationRole) => {
@@ -358,6 +423,19 @@ export const OrganizationMembersPage: React.FC = () => {
 
   return (
     <AppPage>
+      {selectedOrgId && canManage && loaded?.orgId === selectedOrgId && (
+        <DefaultsCard
+          level="org"
+          title={DEFAULTS_STRINGS.title}
+          description={DEFAULTS_STRINGS.description}
+          rows={TEAM_DEFAULT_ROWS}
+          view={loaded.view}
+          names={{ enterprise: enterpriseName }}
+          saving={savingSettings}
+          error={settingsError}
+          onSave={(patch) => void handleSaveSettings(patch)}
+        />
+      )}
       <Card padding="lg" className="space-y-4">
         <CardHeader className="flex items-start justify-between gap-3">
           <div>
@@ -422,36 +500,6 @@ export const OrganizationMembersPage: React.FC = () => {
                 aria-label="Search organization members"
                 className="w-72"
               />
-
-              <div className="flex items-center gap-2 pb-2">
-                <Text variant="muted" size="sm">
-                  Auto-Join
-                </Text>
-                <Switch
-                  checked={allowAutoJoin}
-                  disabled={savingAutoJoin || !selectedOrgId || !canManage}
-                  aria-label="Toggle organization auto-join"
-                  onCheckedChange={async (checked) => {
-                    if (!selectedOrgId) return;
-                    const previous = allowAutoJoin;
-                    setAllowAutoJoin(checked);
-                    setSavingAutoJoin(true);
-                    setError(null);
-                    try {
-                      await orgApi.updateSettings(selectedOrgId, checked);
-                    } catch (err) {
-                      setAllowAutoJoin(previous);
-                      if (err instanceof ApiError) {
-                        setError(err.message);
-                      } else {
-                        setError('Failed to update auto-join setting');
-                      }
-                    } finally {
-                      setSavingAutoJoin(false);
-                    }
-                  }}
-                />
-              </div>
             </div>
           )}
 

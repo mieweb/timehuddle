@@ -41,6 +41,7 @@ function setupTeam(
   opts: {
     activeClockEvent?: { id: string; teamId: string } | null;
     selectedTeamId?: string | null;
+    requirePlan?: boolean;
   } = {},
 ) {
   mockUseTeam.mockReturnValue({
@@ -53,12 +54,26 @@ function setupTeam(
     setSelectedOrgId: vi.fn(),
     teamsReady: true,
     refetchTeams: vi.fn(),
+    refreshTeamSettings: vi.fn(),
     refetchEnterprises: vi.fn(),
     refetchOrganizations: vi.fn(),
     selectedEnterpriseId: null,
     setSelectedEnterpriseId: vi.fn(),
     selectedTeamId: 'selectedTeamId' in opts ? (opts.selectedTeamId ?? null) : 'team1',
-    selectedTeam: null,
+    selectedTeam: (opts.requirePlan === undefined
+      ? null
+      : {
+          id: 'team1',
+          resolvedSettings: {
+            requirePlanForClock: {
+              value: opts.requirePlan,
+              source: 'org',
+              sourceId: 'org1',
+              locked: false,
+            },
+            autoAcceptJoins: { value: false, source: 'system', locked: false },
+          },
+        }) as any,
     setSelectedTeamId: vi.fn(),
     teamAccess: 'ok',
     orgAccess: 'ok',
@@ -100,6 +115,26 @@ describe('useClockToggle', () => {
   // ── clockIn() ───────────────────────────────────────────────────────────────
 
   describe('clockIn()', () => {
+    it('is gated by a plan requirement inherited from the org', async () => {
+      setupTeam({ activeClockEvent: null, requirePlan: true });
+      const { result } = renderHook(() => useClockToggle());
+
+      expect(result.current.planGate.planMissing).toBe(true);
+      await act(() => result.current.clockIn());
+
+      expect(mockStart).not.toHaveBeenCalled();
+    });
+
+    it('is not gated when the resolved setting is off', async () => {
+      setupTeam({ activeClockEvent: null, requirePlan: false });
+      const { result } = renderHook(() => useClockToggle());
+
+      expect(result.current.planGate.planMissing).toBe(false);
+      await act(() => result.current.clockIn());
+
+      expect(mockStart).toHaveBeenCalledOnce();
+    });
+
     it('calls clockApi.start with selectedTeamId then refetchClock', async () => {
       setupTeam({ activeClockEvent: null, selectedTeamId: 'team-abc' });
       const { result } = renderHook(() => useClockToggle());

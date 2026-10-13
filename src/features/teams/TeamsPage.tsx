@@ -43,7 +43,6 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -56,7 +55,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
+import { teamApi, type TeamMember, type TeamInvitation, type TeamSettingKey } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -65,6 +64,8 @@ import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { PendingJoinRequests } from './PendingJoinRequests';
+import { TeamSettingRow } from '../settings/TeamSettingRow';
+import { SETTINGS_STRINGS } from '../settings/settingsCopy';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { getDdpClient } from '../../lib/ddp';
 
@@ -102,6 +103,8 @@ export const TeamsPage: React.FC = () => {
     setSelectedTeamId,
     isAdmin,
     refetchTeams,
+    organizations,
+    enterprises,
   } = useTeam();
 
   // Fetch members for selected team
@@ -186,21 +189,21 @@ export const TeamsPage: React.FC = () => {
   const [removeLoading, setRemoveLoading] = useState(false);
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
-  // Team setting: require a daily Huddle plan to clock in/out
-  const [requirePlanForClock, setRequirePlanForClock] = useState(false);
-  const [savingPlanSetting, setSavingPlanSetting] = useState(false);
+  // Team settings (plan requirement, auto-accept): the switch shows the value
+  // being saved until the server confirms it.
+  const [savingSetting, setSavingSetting] = useState<TeamSettingKey | null>(null);
+  const [pendingSetting, setPendingSetting] = useState<Partial<Record<TeamSettingKey, boolean>>>(
+    {},
+  );
 
-  // Team setting: auto-accept join requests (skip the pending-approval list)
-  const [autoAcceptJoins, setAutoAcceptJoins] = useState(false);
-  const [savingAutoAccept, setSavingAutoAccept] = useState(false);
-
-  useEffect(() => {
-    setRequirePlanForClock(selectedTeam?.settings?.requirePlanForClock ?? false);
-  }, [selectedTeam?.id, selectedTeam?.settings?.requirePlanForClock]);
-
-  useEffect(() => {
-    setAutoAcceptJoins(selectedTeam?.settings?.autoAcceptJoins ?? false);
-  }, [selectedTeam?.id, selectedTeam?.settings?.autoAcceptJoins]);
+  // Names for "Inherited from …" / "Locked by …"; absent when the viewer can't see them.
+  const settingNames = useMemo(() => {
+    const org = organizations.find((o) => o.id === selectedTeam?.orgId);
+    return {
+      org: org?.name,
+      enterprise: enterprises.find((e) => e.id === org?.enterpriseId)?.name,
+    };
+  }, [organizations, enterprises, selectedTeam?.orgId]);
 
   // Pending/sent team invitations shown in the Team Settings modal
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
@@ -234,6 +237,26 @@ export const TeamsPage: React.FC = () => {
   const [formValue, setFormValue] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+
+  // `value` null resets the setting to the inherited one.
+  const updateTeamSetting = useCallback(
+    async (key: TeamSettingKey, value: boolean | null) => {
+      if (!selectedTeamId) return;
+      setSavingSetting(key);
+      if (value !== null) setPendingSetting({ [key]: value });
+      setFormError(null);
+      try {
+        await teamApi.updateSettings(selectedTeamId, { [key]: value });
+        refetchTeams();
+      } catch (e: any) {
+        setFormError(e.message || SETTINGS_STRINGS.failedToSave);
+      } finally {
+        setSavingSetting(null);
+        setPendingSetting({});
+      }
+    },
+    [selectedTeamId, refetchTeams],
+  );
 
   const closeModal = () => {
     setModal(null);
@@ -952,40 +975,23 @@ export const TeamsPage: React.FC = () => {
               >
                 Clock
               </Text>
-              <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
-                <div>
-                  <Text size="sm" weight="medium">
-                    Require a plan for every clock-in/out
-                  </Text>
-                  <Text variant="muted" size="xs">
-                    Members post a plan to start each session, and add a wrap-up to it before
-                    clocking out — one Huddle post per session.
-                  </Text>
-                </div>
-                <Switch
-                  checked={requirePlanForClock}
-                  disabled={savingPlanSetting || !selectedTeamId}
-                  aria-label="Toggle requiring a plan for every clock-in and out"
-                  onCheckedChange={async (checked) => {
-                    if (!selectedTeamId) return;
-                    const previous = requirePlanForClock;
-                    setRequirePlanForClock(checked);
-                    setSavingPlanSetting(true);
-                    setFormError(null);
-                    try {
-                      await teamApi.updateSettings(selectedTeamId, {
-                        requirePlanForClock: checked,
-                      });
-                      refetchTeams();
-                    } catch (e: any) {
-                      setRequirePlanForClock(previous);
-                      setFormError(e.message || 'Failed to update setting');
-                    } finally {
-                      setSavingPlanSetting(false);
-                    }
-                  }}
+              {selectedTeam && (
+                <TeamSettingRow
+                  className="team-setting-plan-for-clock"
+                  title="Require a plan for every clock-in/out"
+                  description="Members post a plan to start each session, and add a wrap-up to it before clocking out — one Huddle post per session."
+                  switchLabel="Toggle requiring a plan for every clock-in and out"
+                  setting={selectedTeam.resolvedSettings.requirePlanForClock}
+                  names={settingNames}
+                  checked={
+                    pendingSetting.requirePlanForClock ??
+                    selectedTeam.resolvedSettings.requirePlanForClock.value
+                  }
+                  saving={savingSetting !== null}
+                  onToggle={(checked) => void updateTeamSetting('requirePlanForClock', checked)}
+                  onReset={() => void updateTeamSetting('requirePlanForClock', null)}
                 />
-              </div>
+              )}
               {formError && (
                 <Text variant="destructive" size="xs" className="mb-4">
                   {formError}
@@ -999,38 +1005,23 @@ export const TeamsPage: React.FC = () => {
               >
                 Membership
               </Text>
-              <div className="team-setting-auto-accept mb-6 flex items-center justify-between gap-4">
-                <div>
-                  <Text size="sm" weight="medium">
-                    Auto-accept join requests
-                  </Text>
-                  <Text variant="muted" size="xs">
-                    Anyone joining with the team code is added immediately — no pending approval
-                    from an admin.
-                  </Text>
-                </div>
-                <Switch
-                  checked={autoAcceptJoins}
-                  disabled={savingAutoAccept || !selectedTeamId}
-                  aria-label="Toggle auto-accepting join requests"
-                  onCheckedChange={async (checked) => {
-                    if (!selectedTeamId) return;
-                    const previous = autoAcceptJoins;
-                    setAutoAcceptJoins(checked);
-                    setSavingAutoAccept(true);
-                    setFormError(null);
-                    try {
-                      await teamApi.updateSettings(selectedTeamId, { autoAcceptJoins: checked });
-                      refetchTeams();
-                    } catch (e: any) {
-                      setAutoAcceptJoins(previous);
-                      setFormError(e.message || 'Failed to update setting');
-                    } finally {
-                      setSavingAutoAccept(false);
-                    }
-                  }}
+              {selectedTeam && (
+                <TeamSettingRow
+                  className="team-setting-auto-accept"
+                  title="Auto-accept join requests"
+                  description="Anyone joining with the team code is added immediately — no pending approval from an admin."
+                  switchLabel="Toggle auto-accepting join requests"
+                  setting={selectedTeam.resolvedSettings.autoAcceptJoins}
+                  names={settingNames}
+                  checked={
+                    pendingSetting.autoAcceptJoins ??
+                    selectedTeam.resolvedSettings.autoAcceptJoins.value
+                  }
+                  saving={savingSetting !== null}
+                  onToggle={(checked) => void updateTeamSetting('autoAcceptJoins', checked)}
+                  onReset={() => void updateTeamSetting('autoAcceptJoins', null)}
                 />
-              </div>
+              )}
               <Text
                 variant="muted"
                 size="xs"

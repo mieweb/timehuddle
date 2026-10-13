@@ -17,12 +17,19 @@ interface DDPMessage {
   params?: unknown[];
   result?: unknown;
   error?: { error: string; reason: string; message: string };
+  collection?: string;
+  fields?: Record<string, unknown>;
+  cleared?: string[];
+  subs?: string[];
 }
 
 export class DDPConnection {
   private ws: any;
   private messageId = 0;
   private pending = new Map<string, { resolve: (val: unknown) => void; reject: (err: Error) => void }>();
+  private subscriptions = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
+  /** Documents published to this connection: collection -> id -> fields. */
+  docs = new Map<string, Map<string, Record<string, unknown>>>();
   
   constructor(private url: string) {}
   
@@ -61,6 +68,18 @@ export class DDPConnection {
               handler.resolve(msg.result);
             }
           }
+        } else if (msg.msg === 'added' || msg.msg === 'changed') {
+          const collection = this.docs.get(msg.collection!) ?? new Map();
+          this.docs.set(msg.collection!, collection);
+          const fields = { ...collection.get(msg.id!), ...msg.fields };
+          for (const cleared of msg.cleared ?? []) delete fields[cleared];
+          collection.set(msg.id!, fields);
+        } else if (msg.msg === 'removed') {
+          this.docs.get(msg.collection!)?.delete(msg.id!);
+        } else if (msg.msg === 'ready') {
+          for (const id of msg.subs ?? []) this.subscriptions.get(id)?.resolve();
+        } else if (msg.msg === 'nosub' && msg.id) {
+          this.subscriptions.get(msg.id)?.reject(new Error(msg.error?.reason ?? 'nosub'));
         }
       });
       
@@ -91,6 +110,16 @@ export class DDPConnection {
     });
   }
   
+  /** Subscribe and wait until the publication is ready; its docs land in `docs`. */
+  subscribe(name: string, params: unknown[] = []): Promise<void> {
+    const id = `sub-${++this.messageId}`;
+    return new Promise((resolve, reject) => {
+      this.subscriptions.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify({ msg: 'sub', id, name, params }));
+      setTimeout(() => reject(new Error(`DDP subscription timeout: ${name}`)), 10000);
+    });
+  }
+
   async login(email: string, password: string): Promise<{ userId: string; token: string }> {
     const sha256 = crypto.createHash('sha256').update(password).digest('hex');
     const result = await this.call('login', [{
@@ -154,6 +183,14 @@ export async function createUserAndGetJwt(data: {
 }
 
 // ─── Wormhole call wrapper ───────────────────────────────────────────────────
+
+// A team setting as a client sees it: the effective value and where it came from.
+export interface SettingValue {
+  value: boolean;
+  source: 'team' | 'parentTeam' | 'org' | 'enterprise' | 'system' | 'personal';
+  sourceId?: string;
+  locked: boolean;
+}
 
 export interface WormholeResult<T = unknown> {
   status: number;

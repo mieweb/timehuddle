@@ -9,6 +9,8 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
+import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import { writeNotifyingPlanChanges } from './settings/notify';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -40,6 +42,20 @@ Meteor.startup(async () => {
     console.error('[organizations] failed to create invitation index:', error);
   }
 });
+
+// The auto-join value to store, or undefined for nothing. Under an enterprise lock
+// only the locked value is accepted, and it is not stored so it can't resurface later.
+// A value equal to the effective one is not stored, so an org keeps inheriting.
+function autoJoinToStore(effective, requested) {
+  if (typeof requested !== 'boolean') return undefined;
+  if (effective.locked && effective.source === 'enterprise') {
+    if (requested !== effective.value) {
+      throw new Meteor.Error('forbidden', 'Setting allowAutoJoin is locked by the enterprise');
+    }
+    return undefined;
+  }
+  return requested === effective.value ? undefined : requested;
+}
 
 function slugify(value) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 64);
@@ -88,13 +104,17 @@ async function buildOrgAccess(userId, org) {
   };
 }
 
-function toOrgSummary(org, role) {
+async function toOrgSummary(org, role) {
+  const effectiveSettings = await resolveOrgSettings(org);
   return {
     id: org._id.toHexString(),
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
-    allowAutoJoin: org.allowAutoJoin !== false,
+    allowAutoJoin: effectiveSettings.allowAutoJoin.value,
+    settings: org.settings ?? {},
+    settingsLocks: org.settingsLocks ?? {},
+    effectiveSettings,
     role,
   };
 }
@@ -302,6 +322,10 @@ Meteor.methods({
     if (conflict) throw new Meteor.Error('conflict', 'Slug already taken');
 
     const now = new Date();
+    const initialAutoJoin = autoJoinToStore(
+      resolveEnterpriseSettings(enterprise).allowAutoJoin,
+      allowAutoJoin,
+    );
     const org = {
       _id: new ObjectId(),
       enterpriseId,
@@ -309,13 +333,15 @@ Meteor.methods({
       name: trimmedName,
       owners: [userId],
       admins: [],
-      allowAutoJoin: allowAutoJoin !== false,
+      settings: initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin },
+      ...(initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin }),
+      settingsLocks: {},
       createdAt: now,
       updatedAt: now,
     };
     await db.collection('organizations').insertOne(org);
     await addOrgMember(org._id.toHexString(), userId, 'owner', false);
-    return { organization: toOrgSummary(org, 'owner') };
+    return { organization: await toOrgSummary(org, 'owner') };
   },
 
   async 'orgs.get'({ orgId }) {
@@ -331,7 +357,7 @@ Meteor.methods({
     const access = await buildOrgAccess(userId, org);
     return {
       organization: {
-        ...toOrgSummary(org, membership?.role ?? entRole ?? 'member'),
+        ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
       },
     };
@@ -360,30 +386,58 @@ Meteor.methods({
       }
       updates.slug = newSlug;
     }
-    if (allowAutoJoin !== undefined) updates.allowAutoJoin = allowAutoJoin;
+    const autoJoin = autoJoinToStore((await resolveOrgSettings(org)).allowAutoJoin, allowAutoJoin);
+    if (autoJoin !== undefined) {
+      updates['settings.allowAutoJoin'] = autoJoin;
+      updates.allowAutoJoin = autoJoin;
+    }
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
-    return { organization: toOrgSummary(updated, access.role) };
+    return { organization: await toOrgSummary(updated, access.role) };
   },
 
-  async 'orgs.updateSettings'({ orgId, allowAutoJoin }) {
+  async 'orgs.updateSettings'({ orgId, allowAutoJoin, settings, locks }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
-    if (typeof allowAutoJoin !== 'boolean') throw new Meteor.Error('bad-request', 'allowAutoJoin is required');
+    // The old `{ orgId, allowAutoJoin }` call is still accepted.
+    const settingsPatch = settings ?? (allowAutoJoin === undefined ? undefined : { allowAutoJoin });
+    if (settingsPatch === undefined && locks === undefined) {
+      throw new Meteor.Error('bad-request', 'settings or locks is required');
+    }
     const db = rawDb();
     const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
-    const result = await db.collection('organizations').findOneAndUpdate(
-      { _id: new ObjectId(orgId) },
-      { $set: { allowAutoJoin, updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-    return { organization: { orgId: result._id.toHexString(), allowAutoJoin: result.allowAutoJoin !== false } };
+    const update = settingsUpdateFor({
+      level: 'org',
+      entity: org,
+      resolved: await resolveOrgSettings(org),
+      settings: settingsPatch,
+      locks,
+    });
+    const result = await writeNotifyingPlanChanges({
+      update,
+      teams: () => teamsInOrg(orgId),
+      actorUserId: userId,
+      write: () =>
+        db.collection('organizations').findOneAndUpdate({ _id: new ObjectId(orgId) }, update, {
+          returnDocument: 'after',
+        }),
+    });
+    const effectiveSettings = await resolveOrgSettings(result);
+    return {
+      organization: {
+        orgId: result._id.toHexString(),
+        allowAutoJoin: effectiveSettings.allowAutoJoin.value,
+        settings: result.settings ?? {},
+        settingsLocks: result.settingsLocks ?? {},
+        effectiveSettings,
+      },
+    };
   },
 
   async 'orgs.join'({ orgId }) {
@@ -392,7 +446,9 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    if (org.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    if (!(await resolveOrgSettings(org)).allowAutoJoin.value) {
+      throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    }
     const membership = await addOrgMember(orgId, userId, 'member', true);
     if (membership === 'not-found') throw new Meteor.Error('not-found', 'Organization not found');
     return { membership: { orgId: membership.orgId, role: membership.role } };
@@ -668,7 +724,7 @@ Meteor.methods({
 
     await addOrgMember(invitation.orgId, identity.userId, 'member', false);
 
-    return { ok: true, organization: toOrgSummary(org, 'member') };
+    return { ok: true, organization: await toOrgSummary(org, 'member') };
   },
 
   async 'orgs.getPendingInvitations'({ orgId }) {

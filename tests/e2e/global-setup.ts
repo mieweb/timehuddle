@@ -155,7 +155,7 @@ export default async function globalSetup(): Promise<void> {
       _id: new ObjectId(),
       slug: 'default',
       name: 'Default Organization',
-      allowAutoJoin: true,
+      settings: { allowAutoJoin: true },
       owners: [] as string[],
       admins: [] as string[],
       createdAt: new Date(),
@@ -164,13 +164,17 @@ export default async function globalSetup(): Promise<void> {
     await db.collection('organizations').insertOne(orgDoc);
     defaultOrg = orgDoc;
   } else {
-    await db
-      .collection('organizations')
-      .updateOne(
-        { _id: defaultOrg._id },
-        { $set: { name: 'Default Organization', allowAutoJoin: true, updatedAt: new Date() } },
-      );
-    defaultOrg = { ...defaultOrg, name: 'Default Organization', allowAutoJoin: true };
+    await db.collection('organizations').updateOne(
+      { _id: defaultOrg._id },
+      {
+        $set: {
+          name: 'Default Organization',
+          'settings.allowAutoJoin': true,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    defaultOrg = { ...defaultOrg, name: 'Default Organization', settings: { allowAutoJoin: true } };
   }
   const orgId = defaultOrg._id.toHexString();
 
@@ -226,6 +230,8 @@ export default async function globalSetup(): Promise<void> {
       members: allMemberIds,
       admins: adminMemberIds,
       isPersonal: false,
+      // Pinned off so specs can clock in freely; plan-first specs turn it on.
+      settings: { requirePlanForClock: false },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -233,12 +239,17 @@ export default async function globalSetup(): Promise<void> {
 
     console.log(`[global-setup] ✔ Created team "${teamDoc.name}" code=${teamDoc.code}`);
   } else {
-    await db
-      .collection('teams')
-      .updateOne(
-        { _id: defaultTeam._id },
-        { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
-      );
+    await db.collection('teams').updateOne(
+      { _id: defaultTeam._id },
+      {
+        $set: {
+          members: allMemberIds,
+          admins: adminMemberIds,
+          isPersonal: false,
+          'settings.requirePlanForClock': false,
+        },
+      },
+    );
   }
 
   // Mark enterprise as installed to prevent the InstallerModal from showing.
