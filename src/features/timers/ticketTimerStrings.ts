@@ -84,6 +84,8 @@ export const ticketTimerText = {
   redmineSendActivityLabel: 'Activity',
   /** Shown in the activity field until the issue's activities have been read. */
   redmineSendActivityLoading: 'Loading activities…',
+  /** The list could not be read, or is empty: Send still works, under the server's pick. */
+  redmineSendActivityAuto: 'Chosen automatically',
   /** The activity list can be long (a project may allow dozens), so it filters as you type. */
   redmineSendActivitySearch: 'Search activities',
   redmineSendActivityNoMatch: 'No activity matches',
@@ -101,8 +103,11 @@ export const ticketTimerText = {
   /** `reason` is a sentence fragment from `redminePushStrings`. */
   redmineNotSent: (issue: string, reason: string) =>
     `Time on ${issue} was not sent to Redmine: ${reason}. It is waiting on the Clock page.`,
-  /** Another tab or the push dialog got there first. */
-  redmineAlreadySent: (issue: string) => `Time on ${issue} was already sent to Redmine.`,
+  /**
+   * Nothing was left by the time Send was pressed. It may have been sent from
+   * another tab or the push dialog, or marked Never send, so this claims neither.
+   */
+  redmineNothingToSend: (issue: string) => `There is no time left to send on ${issue}.`,
   /** The send itself could not be made; the prompt stays open. */
   redmineSendFailed:
     'Could not send the time to Redmine. Try again, or close this to send it later.',

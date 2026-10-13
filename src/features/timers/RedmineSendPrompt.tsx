@@ -67,6 +67,8 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   // project allows, and the one its rules would pick. Null until read, and if
   // the read fails: the time can still be sent, under the server's own pick.
   const [row, setRow] = useState<RedmineTimeEntryRow | null>(null);
+  // The read has answered, one way or the other: no longer "loading".
+  const [activitiesRead, setActivitiesRead] = useState(false);
   const [activityId, setActivityId] = useState<number | null>(null);
   const [decimalHours, setDecimalHours] = useState(false);
 
@@ -79,8 +81,12 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
       .then((preview) => {
         if (current) setRow(preview.rows[0] ?? null);
       })
-      // Left without the list: the time can still go, under the server's pick.
-      .catch(() => {});
+      // Left without the list: the time can still go, under the server's pick,
+      // and the field says so (`redmineSendActivityAuto`).
+      .catch(() => {})
+      .finally(() => {
+        if (current) setActivitiesRead(true);
+      });
     return () => {
       current = false;
     };
@@ -121,7 +127,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     } else if (outcome.entryId != null) {
       toast.warning(text.redmineSentUnverified(issue, withoutFullStop(failureText(outcome))));
     } else if (outcome.reason === 'already-synced-or-gone') {
-      toast.info(text.redmineAlreadySent(issue));
+      toast.info(text.redmineNothingToSend(issue));
     } else {
       toast.error(text.redmineNotSent(issue, withoutFullStop(failureText(outcome))));
     }
@@ -196,7 +202,13 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
                 options={activityOptions}
                 value={String(activityId ?? row?.activityId ?? '')}
                 onValueChange={(value) => setActivityId(Number(value))}
-                placeholder={row ? undefined : text.redmineSendActivityLoading}
+                placeholder={
+                  !activitiesRead
+                    ? text.redmineSendActivityLoading
+                    : activityOptions.length === 0
+                      ? text.redmineSendActivityAuto
+                      : undefined
+                }
                 disabled={sending || activityOptions.length === 0}
                 searchable
                 searchPlaceholder={text.redmineSendActivitySearch}

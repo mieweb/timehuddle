@@ -256,11 +256,15 @@ async function withPushLock(userId, work) {
 
 /**
  * The caller's ticket-days with time that has been neither sent nor discarded.
- * Local data only: nothing is read from Redmine.
+ * Local data only: nothing is read from Redmine. `only` is one ticket-day,
+ * `{ ticketId, date }`: that day alone is read, not the user's whole history.
  */
-async function unsentTicketDays(userId, account) {
-  const totals = await redmineTicketDaysFor(userId, { includeLinked: onDefaultRedmine(account) });
-  return totals.length ? unsentTotals(totals, await pushLedgerFor(userId)) : [];
+async function unsentTicketDays(userId, account, only) {
+  const totals = await redmineTicketDaysFor(userId, {
+    includeLinked: onDefaultRedmine(account),
+    only,
+  });
+  return totals.length ? unsentTotals(totals, await pushLedgerFor(userId, only)) : [];
 }
 
 /** The Redmine issue a timer session's time belongs to, as a string id, or null. */
@@ -290,7 +294,8 @@ export async function unsentRedmineFor(userId, session) {
     if (!account) return null;
     const ticketId = await redmineIssueOf(session, account);
     if (!ticketId) return null;
-    return sendableForTicketDay(await unsentTicketDays(userId, account), ticketId, session.date);
+    const only = { ticketId, date: session.date };
+    return sendableForTicketDay(await unsentTicketDays(userId, account, only), ticketId, session.date);
   } catch (err) {
     console.error('[redmine] could not work out unsent time for a closed session:', err);
     return null;
@@ -346,11 +351,9 @@ function chosenActivity(row, requestedId) {
  * eligible — `push` re-derives this rather than trusting what the client sends.
  */
 async function buildPreviewRows(userId, account, { only } = {}) {
-  // `only` is one ticket-day's key: narrowed here, before anything is read
-  // from Redmine, so sending one issue's time does not load every other.
-  const unsynced = (await unsentTicketDays(userId, account)).filter(
-    (total) => !only || ticketDayKey(total.ticketId, total.date) === only,
-  );
+  // `only` is one ticket-day, `{ ticketId, date }`: sending one issue's time
+  // reads neither the user's other days nor their issues from Redmine.
+  const unsynced = await unsentTicketDays(userId, account, only);
   if (!unsynced.length) return [];
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
@@ -586,7 +589,7 @@ Meteor.methods({
     const rows = await buildPreviewRows(
       userId,
       account,
-      one ? { only: ticketDayKey(ticketId, date) } : {},
+      one ? { only: { ticketId, date } } : {},
     );
     return { connected: true, idle, rows, baseUrl: account.baseUrl };
   },
@@ -608,10 +611,7 @@ Meteor.methods({
 
     // The push lock: a push running now could otherwise send the same seconds.
     return withPushLock(userId, async () => {
-      const key = ticketDayKey(ticketId, date);
-      const unsent = (await unsentTicketDays(userId, account)).find(
-        (total) => ticketDayKey(total.ticketId, total.date) === key,
-      );
+      const [unsent] = await unsentTicketDays(userId, account, { ticketId, date });
       if (!unsent) return { discardedSeconds: 0 };
       await recordDiscard(userId, ticketId, date, unsent.seconds);
       return { discardedSeconds: unsent.seconds };
@@ -684,13 +684,18 @@ Meteor.methods({
     }
     const account = await requireRedmineAccount(userId);
 
-    return withPushLock(userId, async () => {
-      const [row] = await buildPreviewRows(userId, account, { only: ticketDayKey(ticketId, date) });
+    return withPushLock(userId, async (stillHeld) => {
+      const [row] = await buildPreviewRows(userId, account, { only: { ticketId, date } });
       if (!row) return { ticketId, date, ok: false, reason: 'already-synced-or-gone' };
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
 
       const activity = chosenActivity(row, activityId);
       if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
+
+      // Renewed right before the write, as `push` does per entry: reading the
+      // issue from Redmine can take long enough for the lock to go stale, and
+      // losing it means another send may be writing this same time.
+      if (!(await stillHeld())) return { ticketId, date, ok: false, reason: 'push-interrupted' };
 
       const outcome = await pushOneEntry(userId, account, row, activity.id, text);
       // As in `push`: logged time is one of the relevant list's signals.

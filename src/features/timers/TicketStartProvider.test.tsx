@@ -442,6 +442,32 @@ describe('TicketStartProvider', () => {
       });
     });
 
+    it('says the activity is chosen automatically when the list could not be read', async () => {
+      mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
+      await stopIssue();
+
+      // Not "Loading activities…" for ever: the read has answered, and Send still works.
+      expect(await screen.findByText('Chosen automatically')).toBeTruthy();
+      expect(screen.queryByText('Loading activities…')).toBeNull();
+    });
+
+    it('does not claim an entry was sent when nothing was left to send', async () => {
+      // Sent from another tab, or marked Never send: the server says the same for both.
+      mockSend.mockResolvedValue({
+        ticketId: '15',
+        date: UNSENT.date,
+        ok: false,
+        reason: 'already-synced-or-gone',
+      });
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(toast.info).toHaveBeenCalledWith('There is no time left to send on #15.'),
+      );
+    });
+
     it('Later closes the prompt and sends nothing', async () => {
       await stopIssue();
 
