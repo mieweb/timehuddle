@@ -51,9 +51,10 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
   const sending = progress !== null || processing;
-  // Phones have no modal: the same words the modal uses, beside the chip. A
-  // landed video says nothing here — unless a step after delivery failed
-  // (the plan posted but the clock-in didn't), which the note then says.
+  // Beside the chip, the same words the window uses — for when it's closed,
+  // and in the TimeHuddle app, which opens Pulse without one. A landed video
+  // says nothing here — unless a step after delivery failed (the plan posted
+  // but the clock-in didn't), which the note then says.
   const note =
     progress !== null
       ? `Uploading… ${Math.round(progress * 100)}%`
@@ -170,7 +171,7 @@ export const PulseButton: React.FC<PulseButtonProps> = ({
       <PulseUploadModal
         open={pulse.modalOpen}
         onClose={pulse.closeModal}
-        scanLink={pulse.link?.scanLink ?? null}
+        link={pulse.link?.url ?? null}
         destination={pulse.destination}
         status={pulse.status}
       />

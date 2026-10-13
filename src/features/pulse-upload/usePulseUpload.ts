@@ -5,21 +5,19 @@
  * Pulse is "one link, one upload": the link's token says where the video goes,
  * and the server puts it there the moment it lands (see
  * meteor-backend/server/pulse-destinations.js). This hook hands out the link
- * (QR on a computer, the Pulse app on a phone) and asks the server where the
+ * (a QR on a computer, an Open Pulse link on a phone, the Pulse app itself from
+ * the TimeHuddle app) and asks the server where the
  * video stands until it has landed, the link has expired, or the host has
- * moved on to another destination. Nothing is kept across a reload: a video
+ * moved on to another destination. The link is Pulse's https pairing link (see
+ * pulseLinks.ts): the phone's OS opens Pulse from it, or Pulse's own page sends
+ * the person to the store. Nothing is kept across a reload: a video
  * that lands after that is delivered all the same, it just isn't announced.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
-import {
-  getStoreOS,
-  isNativeApp,
-  openNativePulseOrStore,
-  openPulseAppOrStore,
-} from '../../lib/device';
-import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
+import { isNativeApp, openExternalUrl } from '../../lib/device';
+import { buildPulseLink } from './pulseLinks';
 import { uploadVideoFile, videoFileProblem } from './videoFile';
 
 /** How often to ask whether the upload landed, while the page is visible. */
@@ -29,11 +27,12 @@ const STATUS_TIMEOUT_MS = 10_000;
 /** How long the modal shows a delivered video before closing itself. */
 const LANDED_CLOSE_MS = 1500;
 
-/** The link handed out: one video id, the token that authorizes it, and the QR target. */
+/** The link handed out: one video id, the token that authorizes it, and the pairing link. */
 export interface PulseLink {
   videoid: string;
   uploadToken: string;
-  scanLink: string;
+  /** Pulse's https pairing link: the QR's target, and what a phone opens. */
+  url: string;
 }
 
 export interface PulseUpload {
@@ -59,8 +58,8 @@ export interface PulseUpload {
 interface Options {
   /**
    * Called once per link when its video has landed — delivered (`done`) or
-   * kept (`kept`) — and the person has seen the result: after the modal
-   * closes, or at once on a phone (no modal).
+   * kept (`kept`) — and the person has seen the result: after the window
+   * closes, or at once in the TimeHuddle app (no window).
    */
   onSettled?: (status: PulseUploadStatus) => void;
 }
@@ -82,15 +81,10 @@ export function usePulseUpload(
   const latestKey = useRef(destinationKey);
   latestKey.current = destinationKey;
   const mounted = useRef(true);
-  // Cancels a phone launch still on its way — a native one checking whether
-  // Pulse is installed, or a browser one deciding between the app and its
-  // store listing — so it can't open for a screen that has since changed.
-  const launch = useRef<() => void>(() => {});
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      launch.current();
     };
   }, []);
 
@@ -109,7 +103,6 @@ export function usePulseUpload(
   useEffect(() => {
     // Whatever went wrong was for the destination before this one.
     setError(null);
-    launch.current();
   }, [destinationKey]);
   useEffect(() => {
     if (!link || link.destinationKey === destinationKey) return;
@@ -173,24 +166,14 @@ export function usePulseUpload(
     onSettledRef.current?.(status);
   }, [current, status, modalOpen]);
 
-  // Phone: straight into the Pulse app (or its store listing). Computer: QR.
-  const openLink = useCallback(async ({ videoid, uploadToken }: PulseLink) => {
-    const storeOS = getStoreOS();
-    const deepLink = buildUploadDeepLink(videoid, uploadToken);
-    launch.current();
-    const controller = new AbortController();
-    launch.current = () => controller.abort();
-    if (storeOS && isNativeApp()) {
-      await openNativePulseOrStore(deepLink, storeOS, controller.signal);
-    } else if (storeOS) {
-      const cancel = openPulseAppOrStore(deepLink, storeOS);
-      launch.current = () => {
-        controller.abort();
-        cancel();
-      };
-    } else {
-      setModalOpen(true);
-    }
+  // The TimeHuddle app hands the link to the OS, which opens Pulse when it's
+  // installed and Pulse's page (and from there the store) when it isn't. A
+  // browser shows the window: a QR on a computer, an "Open Pulse" link on a
+  // phone — a Universal Link / App Link opens the app only from a tap, and the
+  // tap that got here was spent waiting for the reservation.
+  const openLink = useCallback(async ({ url }: PulseLink) => {
+    if (isNativeApp()) await openExternalUrl(url);
+    else setModalOpen(true);
   }, []);
 
   /** A new link for the destination on screen, or null when it failed or the host moved on. */
@@ -220,7 +203,7 @@ export function usePulseUpload(
 
       const next: LiveLink = {
         ...reservation,
-        scanLink: buildScanLink(reservation.videoid, reservation.uploadToken),
+        url: buildPulseLink(reservation.videoid, reservation.uploadToken),
         destinationKey,
         fromFile,
       };
