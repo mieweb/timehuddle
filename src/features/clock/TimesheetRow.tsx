@@ -1,35 +1,33 @@
 /**
- * TimesheetRow — Renders one or more <TableRow>s for a single clock session.
+ * TimesheetRow — One clock session, as an item of a session list (<ul>).
  *
- * A session that spans midnight is split into per-calendar-day segments.
- * Continuation segments show "---" for clock-in (on all but the first day)
- * and "---" for clock-out (on all but the last day), making it clear the
- * session carried over from / into an adjacent day.
- *
- * A shift that had ticket timers running inside it also gets an expandable
- * sub-list of those sessions. Because a ticket timer can only run while a shift
- * is running, every such session is contained by the shift it is nested under.
+ * The same layout at every width, nothing to fit into columns: its day, work
+ * time and actions on the top line; clock in → clock out (bold, "+1 day" when
+ * it ended after midnight) and its team; then its status and labelled
+ * toggles for what's inside it:
+ *   • its breaks — the session as it went, oldest first, Work and Break,
+ *     with a divider where a new day starts;
+ *   • its ticket timers. A ticket timer can only run while a shift is
+ *     running, so every one is contained by the shift it is listed under.
  */
 import {
   faChevronDown,
   faChevronRight,
   faEllipsisVertical,
+  faMugHot,
+  faTicket,
   faVideo,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, cn, TableCell, TableRow, Text, useMediaQuery } from '@mieweb/ui';
+import { Badge, Button, Text } from '@mieweb/ui';
 import React, { useState } from 'react';
 
-import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
+import { formatDuration, formatTime, formatWeekdayDate } from '../../lib/timeUtils';
 import { type ClockEvent, type ShiftTicketSession } from '../../lib/api';
 import { LinkifiedText } from '../../ui/LinkifiedText';
 import { useRouter } from '../../ui/router';
 import { ticketDetailPath } from '../tickets/sources/types';
-import {
-  roundDurationSecondsForDisplay,
-  STICKY_ACTIONS_CELL,
-  TIMESHEET_SCROLLS_QUERY,
-} from './timesheetUtils';
+import { getSessionWorkSeconds, roundDurationSecondsForDisplay } from './timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,8 +50,6 @@ interface Props {
   changeStatus?: 'pending' | 'rejected';
   /** The reviewer's reason, shown on a declined change. */
   changeNote?: string;
-  /** Shown before "Pending approval" on the session's first row: the walkthrough's Pulse and Upload. */
-  pendingAction?: React.ReactNode;
 }
 
 type TimelineRow = {
@@ -62,9 +58,9 @@ type TimelineRow = {
   end: number | null;
   durationSeconds: number | null;
   status: 'Completed' | 'Active' | 'Break Period' | 'On Break';
-  /** Segment is a continuation from the previous calendar day — show "---" for clock-in */
+  /** Segment is a continuation from the previous calendar day (starts at midnight). */
   isContinuation?: boolean;
-  /** Segment continues into the next calendar day — show "---" for clock-out */
+  /** Segment continues into the next calendar day (ends at midnight). */
   isContinued?: boolean;
 };
 
@@ -226,13 +222,31 @@ function TicketSessionLink({ ticket }: { ticket: ShiftTicketSession }) {
         e.preventDefault();
         navigate(path);
       }}
-      className="text-xs text-neutral-700 hover:text-primary hover:underline dark:text-neutral-300"
+      // A missing ticket's "#<id>" is one long word: it wraps rather than widen the table.
+      className="text-xs text-neutral-700 [overflow-wrap:anywhere] hover:text-primary hover:underline dark:text-neutral-300"
       title={label}
     >
       {label}
     </a>
   );
 }
+
+function localDayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/** Calendar days from `start` to `end`: 1 for a shift that ended after midnight. */
+function daysLater(start: number, end: number): number {
+  const day = (ms: number) => {
+    const d = new Date(ms);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  return Math.round((day(end) - day(start)) / 86_400_000);
+}
+
+const durationText = (seconds: number | null) =>
+  seconds === null ? '—' : formatDuration(roundDurationSecondsForDisplay(seconds));
 
 export const TimesheetRow: React.FC<Props> = ({
   session,
@@ -241,219 +255,301 @@ export const TimesheetRow: React.FC<Props> = ({
   onVideos,
   changeStatus,
   changeNote,
-  pendingAction,
 }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
-  const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
+  // Oldest first: a session's parts read as the day went.
+  const parts = splitAtMidnight(buildTimelineRows(session, Date.now())).reverse();
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const breaks = parts.filter((p) => p.kind === 'break');
+  const breakSeconds = breaks.reduce((sum, p) => sum + (p.durationSeconds ?? 0), 0);
+  const breakCount = (session.breaks ?? []).length || breaks.length;
   const ticketSessions = session.ticketSessions ?? [];
+  const [breaksOpen, setBreaksOpen] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
+  const breaksId = `session-breaks-${session.id}`;
   const ticketListId = `shift-tickets-${session.id}`;
-  // While the table scrolls sideways, the Status column starts off-screen and
-  // squeezes the walkthrough's chips: there it gets a full-width line of its
-  // own under the session instead of sitting beside "Pending approval".
-  const scrolls = useMediaQuery(TIMESHEET_SCROLLS_QUERY);
-  const walkthroughOwnLine = scrolls && changeStatus === 'pending' && Boolean(pendingAction);
+  const multiDay = localDayKey(first.start) !== localDayKey(last.end ?? Date.now());
+  const breaksLabel = `${breakCount} ${breakCount === 1 ? 'break' : 'breaks'}`;
 
   return (
-    <>
-      {timelineRows.map((row, idx) => {
-        const showActions = idx === 0;
-        // The disclosure belongs on the chronologically-first segment, next to
-        // the date the shift actually started on.
-        const showTicketToggle = ticketSessions.length > 0 && idx === timelineRows.length - 1;
-        // Team name belongs on the chronologically-first segment (last in desc-sorted array)
-        const showTeam = idx === timelineRows.length - 1;
-        return (
-          <React.Fragment key={`${session.id}-${row.kind}-${idx}`}>
-            <TableRow>
-              <TableCell>
-                <div className="flex items-center gap-1">
-                  {showTicketToggle && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 shrink-0"
-                      aria-expanded={ticketsOpen}
-                      aria-controls={ticketListId}
-                      aria-label={`${ticketsOpen ? 'Hide' : 'Show'} ${ticketSessions.length} ticket timer${
-                        ticketSessions.length === 1 ? '' : 's'
-                      } for this shift`}
-                      onClick={() => setTicketsOpen((open) => !open)}
-                    >
-                      <FontAwesomeIcon
-                        icon={ticketsOpen ? faChevronDown : faChevronRight}
-                        className="text-[10px]"
-                      />
-                    </Button>
-                  )}
-                  <span>{formatDate(new Date(row.start), true)}</span>
-                </div>
-              </TableCell>
-              <TableCell>
-                {row.isContinuation ? (
-                  <Text variant="muted" size="xs">
-                    ---
-                  </Text>
-                ) : (
-                  formatTime(new Date(row.start))
-                )}
-              </TableCell>
-              <TableCell>
-                {row.isContinued ? (
-                  <Text variant="muted" size="xs">
-                    ---
-                  </Text>
-                ) : row.end === null ? (
-                  <Text variant="muted" size="xs">
-                    —
-                  </Text>
-                ) : (
-                  formatTime(new Date(row.end))
-                )}
-              </TableCell>
-              <TableCell className="font-mono">
-                {row.durationSeconds !== null
-                  ? formatDuration(roundDurationSecondsForDisplay(row.durationSeconds))
-                  : '—'}
-              </TableCell>
-              <TableCell>{showTeam ? teamName : ''}</TableCell>
-              <TableCell>
-                {row.isContinued ? null : changeStatus === 'pending' ? (
-                  <div className="pending-approval-status flex flex-wrap items-center gap-2 lg:flex-nowrap">
-                    {showActions && !walkthroughOwnLine && pendingAction}
-                    <Badge
-                      variant="warning"
-                      className="shrink-0 whitespace-nowrap"
-                      size="sm"
-                      title="Waiting for an admin to approve your change"
-                    >
-                      Pending approval
-                    </Badge>
-                  </div>
-                ) : changeStatus === 'rejected' ? (
-                  // The reviewer's note is shown, not hidden in a tooltip: a
-                  // tooltip can't be read on a phone, and its links can't be clicked.
-                  <div className="change-declined-status max-w-xs space-y-1">
-                    <Badge variant="danger" size="sm">
-                      Change declined
-                    </Badge>
-                    {changeNote && (
-                      <Text
-                        size="xs"
-                        variant="muted"
-                        className="whitespace-pre-wrap [overflow-wrap:anywhere]"
-                      >
-                        <LinkifiedText text={changeNote} />
-                      </Text>
-                    )}
-                  </div>
-                ) : row.status === 'Active' ? (
-                  <Badge variant="success" size="sm">
-                    <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-                    Active
-                  </Badge>
-                ) : row.status === 'On Break' ? (
-                  <Badge variant="warning" size="sm">
-                    On Break
-                  </Badge>
-                ) : (
-                  // Completed / Break Period: a state like any other, so it gets a
-                  // Badge too rather than falling through to bare text.
-                  <Badge variant="default" size="sm">
-                    {row.status}
-                  </Badge>
-                )}
-              </TableCell>
-              <TableCell className={cn('text-right', STICKY_ACTIONS_CELL)}>
-                {showActions && (
-                  <div className="session-actions inline-flex items-center justify-end gap-1">
-                    {onVideos && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Videos for this session"
-                        title="Videos for this session"
-                        onClick={() => onVideos(session)}
-                      >
-                        <FontAwesomeIcon icon={faVideo} className="text-sm" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Edit session"
-                      onClick={() => onEdit(session)}
-                    >
-                      <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                    </Button>
-                  </div>
-                )}
-              </TableCell>
-            </TableRow>
-            {showActions && walkthroughOwnLine && (
-              <TableRow className="pending-walkthrough-row">
-                <TableCell colSpan={7} className="pt-0">
-                  {/* Pinned to the card's left edge, so it stays in view
-                    however far the table is scrolled. The badge comes too:
-                    the Status column it sits in starts off-screen here. */}
-                  {/* Capped at the visible width of the card (the screen less
-                      its padding, and less the sidebar from md up) so it wraps
-                      there instead of running past the edge. */}
-                  <div className="sticky left-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
-                    {pendingAction}
-                    <Badge
-                      variant="warning"
-                      className="shrink-0 whitespace-nowrap"
-                      size="sm"
-                      title="Waiting for an admin to approve your change"
-                    >
-                      Pending approval
-                    </Badge>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-          </React.Fragment>
-        );
-      })}
-
-      {ticketsOpen &&
-        ticketSessions.map((ticket, idx) => (
-          <TableRow
-            key={ticket.id}
-            // `aria-controls` needs one target: the first row anchors the group.
-            {...(idx === 0 ? { id: ticketListId } : {})}
-            className="bg-neutral-50 dark:bg-neutral-900/40"
+    <li className="session-row px-4 py-3 sm:px-5">
+      {/* Top line, as tall as the icon buttons so all of it is centred with them. */}
+      <div className="session-top flex min-h-10 items-center gap-2">
+        <Text as="span" size="sm" weight="semibold" truncate className="min-w-0 flex-1">
+          {formatWeekdayDate(new Date(first.start))}
+        </Text>
+        <Text as="span" size="sm" className="shrink-0 whitespace-nowrap font-mono">
+          {durationText(getSessionWorkSeconds(session, Date.now()))}
+        </Text>
+        <div className="session-actions flex shrink-0 items-center gap-1">
+          {onVideos && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Videos for this session"
+              title="Videos for this session"
+              onClick={() => onVideos(session)}
+            >
+              <FontAwesomeIcon icon={faVideo} className="text-sm" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Edit session"
+            onClick={() => onEdit(session)}
           >
-            <TableCell className="pl-10">
-              <TicketSessionLink ticket={ticket} />
-            </TableCell>
-            <TableCell>
-              <Text size="xs" variant="muted">
-                {formatTime(new Date(ticket.startTime))}
+            <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="session-times flex flex-wrap items-center gap-x-2">
+        <ClockRange start={first.start} end={last.end} />
+        <Text as="span" size="sm" variant="muted">
+          · {teamName}
+        </Text>
+      </div>
+
+      <div className="session-meta mt-2 flex flex-wrap items-center gap-1.5">
+        <SessionStatus status={last.status} changeStatus={changeStatus} />
+        {breakCount > 0 && (
+          <DisclosureChip
+            icon={faMugHot}
+            open={breaksOpen}
+            controls={breaksId}
+            label={`${breaksLabel} · ${durationText(breakSeconds)}`}
+            ariaLabel={`${breaksOpen ? 'Hide' : 'Show'} ${breaksLabel} in this session`}
+            onToggle={() => setBreaksOpen((open) => !open)}
+          />
+        )}
+        {ticketSessions.length > 0 && (
+          <DisclosureChip
+            icon={faTicket}
+            open={ticketsOpen}
+            controls={ticketListId}
+            label={`${ticketSessions.length} ${ticketSessions.length === 1 ? 'ticket' : 'tickets'}`}
+            ariaLabel={`${ticketsOpen ? 'Hide' : 'Show'} ${ticketSessions.length} ticket timer${
+              ticketSessions.length === 1 ? '' : 's'
+            } for this shift`}
+            onToggle={() => setTicketsOpen((open) => !open)}
+          />
+        )}
+      </div>
+
+      {changeStatus === 'rejected' && changeNote && (
+        // The reviewer's note is shown, not hidden in a tooltip: a tooltip
+        // can't be read on a phone, and its links can't be clicked.
+        <Text
+          size="xs"
+          variant="muted"
+          className="change-declined-note mt-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]"
+        >
+          <LinkifiedText text={changeNote} />
+        </Text>
+      )}
+
+      {breaksOpen && breakCount > 0 && (
+        // The session as it went, with a divider where a new day starts.
+        <ul id={breaksId} aria-label={`Parts of this session`} className={INNER_LIST}>
+          {parts.map((part, idx) => (
+            <React.Fragment key={`${part.start}-${part.kind}`}>
+              {multiDay &&
+                idx > 0 &&
+                localDayKey(part.start) !== localDayKey(parts[idx - 1].start) && (
+                  <li className="session-day pt-2">
+                    <Text as="span" size="xs" weight="semibold" variant="muted">
+                      {formatWeekdayDate(new Date(part.start))}
+                    </Text>
+                  </li>
+                )}
+              <li className="session-part flex flex-wrap items-center gap-x-3 py-1">
+                <PartLabel part={part} />
+                <span className="flex-1 whitespace-nowrap">
+                  {/* The session's own clock in and clock out stand out. */}
+                  <ClockTime time={part.start} strong={idx === 0} />
+                  {' – '}
+                  <ClockTime time={part.end} strong={idx === parts.length - 1} />
+                </span>
+                <Text
+                  as="span"
+                  size="sm"
+                  variant={part.kind === 'break' ? 'muted' : undefined}
+                  className="ms-auto whitespace-nowrap font-mono"
+                >
+                  {durationText(part.durationSeconds)}
+                </Text>
+              </li>
+            </React.Fragment>
+          ))}
+        </ul>
+      )}
+
+      {ticketsOpen && ticketSessions.length > 0 && (
+        <ul id={ticketListId} aria-label="Ticket timers in this session" className={INNER_LIST}>
+          {ticketSessions.map((ticket) => (
+            <li
+              key={ticket.id}
+              className="session-ticket flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1"
+            >
+              <span className="flex min-w-0 flex-1 basis-48 items-center gap-2">
+                <FontAwesomeIcon
+                  icon={faTicket}
+                  className="shrink-0 text-[10px] text-muted-foreground"
+                />
+                <TicketSessionLink ticket={ticket} />
+                {ticket.source === 'redmine' && (
+                  <Badge variant="outline" size="sm" className="shrink-0">
+                    Redmine
+                  </Badge>
+                )}
+              </span>
+              <Text as="span" size="xs" variant="muted" className="whitespace-nowrap">
+                {formatTime(new Date(ticket.startTime))} –{' '}
+                {ticket.endTime === null ? 'now' : formatTime(new Date(ticket.endTime))}
               </Text>
-            </TableCell>
-            <TableCell>
-              <Text size="xs" variant="muted">
-                {ticket.endTime === null ? '—' : formatTime(new Date(ticket.endTime))}
+              <Text
+                as="span"
+                size="sm"
+                variant="muted"
+                className="ms-auto whitespace-nowrap font-mono"
+              >
+                {durationText(ticket.durationSeconds)}
               </Text>
-            </TableCell>
-            <TableCell className="font-mono">
-              <Text size="xs" variant="muted">
-                {ticket.durationSeconds === null
-                  ? '—'
-                  : formatDuration(roundDurationSecondsForDisplay(ticket.durationSeconds))}
-              </Text>
-            </TableCell>
-            <TableCell />
-            <TableCell>
-              <Badge variant="outline" size="sm">
-                {ticket.source === 'redmine' ? 'Redmine' : 'Ticket'}
-              </Badge>
-            </TableCell>
-            <TableCell />
-          </TableRow>
-        ))}
-    </>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 };
+
+/** What's open under a session: set in and tied to it by a line on its left. */
+const INNER_LIST = 'mt-2 border-s-2 border-border ps-3';
+
+/** The change waiting on the session, else its state. */
+const SessionStatus: React.FC<{
+  status: TimelineRow['status'];
+  changeStatus?: Props['changeStatus'];
+}> = ({ status, changeStatus }) => {
+  if (changeStatus === 'pending') {
+    // Pulse and Upload live behind the session's Videos button.
+    return (
+      <Badge
+        variant="warning"
+        className="shrink-0 whitespace-nowrap"
+        size="sm"
+        title="Waiting for an admin to approve your change"
+      >
+        Pending approval
+      </Badge>
+    );
+  }
+  if (changeStatus === 'rejected') {
+    return (
+      <Badge variant="danger" size="sm">
+        Change declined
+      </Badge>
+    );
+  }
+  if (status === 'Active') {
+    return (
+      <Badge variant="success" size="sm">
+        <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+        Active
+      </Badge>
+    );
+  }
+  if (status === 'On Break') {
+    return (
+      <Badge variant="warning" size="sm">
+        On Break
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="default" size="sm">
+      Completed
+    </Badge>
+  );
+};
+
+/**
+ * Clock in → clock out, both bold, with "+1 day" when it ended on a later
+ * day. Still running: "→ now".
+ */
+const ClockRange: React.FC<{ start: number; end: number | null }> = ({ start, end }) => {
+  const plusDays = end === null ? 0 : daysLater(start, end);
+  return (
+    <span className="clock-range whitespace-nowrap">
+      <ClockTime time={start} strong />
+      {' → '}
+      <ClockTime time={end} strong />
+      {plusDays > 0 && (
+        <Text as="span" size="xs" variant="muted" className="ms-1">
+          +{plusDays} {plusDays === 1 ? 'day' : 'days'}
+        </Text>
+      )}
+    </span>
+  );
+};
+
+/** A labelled toggle for what's inside a session: its breaks, its ticket timers. */
+const DisclosureChip: React.FC<{
+  icon: typeof faTicket;
+  label: string;
+  ariaLabel: string;
+  open: boolean;
+  controls: string;
+  onToggle: () => void;
+}> = ({ icon, label, ariaLabel, open, controls, onToggle }) => (
+  <Button
+    variant="secondary"
+    size="sm"
+    className="session-disclosure h-7 rounded-full px-2.5 text-xs font-normal"
+    aria-expanded={open}
+    aria-controls={controls}
+    aria-label={ariaLabel}
+    onClick={onToggle}
+  >
+    <FontAwesomeIcon icon={icon} className="me-1.5 text-[10px]" />
+    <span className="whitespace-nowrap">{label}</span>
+    <FontAwesomeIcon icon={open ? faChevronDown : faChevronRight} className="ms-1.5 text-[9px]" />
+  </Button>
+);
+
+/** What a part of a session was: work, or a break. */
+const PartLabel: React.FC<{ part: TimelineRow }> = ({ part }) =>
+  part.kind === 'work' ? (
+    <Text as="span" size="sm" className="session-part-label w-16 shrink-0">
+      Work
+    </Text>
+  ) : (
+    <Text
+      as="span"
+      size="sm"
+      variant="muted"
+      className="session-part-label inline-flex w-16 shrink-0 items-center gap-1.5"
+    >
+      <FontAwesomeIcon icon={faMugHot} className="text-[10px]" />
+      Break
+    </Text>
+  );
+
+/**
+ * A clock time. `strong` for the session's own clock in or clock out; the
+ * rest (where a break started or ended, midnight) are muted. Not yet: "now".
+ */
+const ClockTime: React.FC<{ time: number | null; strong?: boolean }> = ({ time, strong }) => (
+  <Text
+    as="span"
+    size="sm"
+    weight={strong ? 'semibold' : undefined}
+    variant={strong ? undefined : 'muted'}
+    className="clock-time"
+    data-strong={strong ? '' : undefined}
+  >
+    {time === null ? 'now' : formatTime(new Date(time))}
+  </Text>
+);

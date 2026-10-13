@@ -16,13 +16,10 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
-  Badge,
   Button,
   ButtonGroup,
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
   cn,
   Input,
   ModalBody,
@@ -30,11 +27,6 @@ import {
   ModalHeader,
   Select,
   Spinner,
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
@@ -61,6 +53,7 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { ChangeRequestWalkthrough } from './ChangeRequestWalkthrough';
+import { SessionListCard } from './SessionListCard';
 import { TimesheetRow } from './TimesheetRow';
 import {
   emptyJustification,
@@ -72,9 +65,9 @@ import {
   fromLocalDateTimeInputValue,
   getDateRange,
   getLocalDateKey,
+  getSessionWorkSeconds,
   PRESETS,
   roundDurationSecondsForDisplay,
-  STICKY_ACTIONS_CELL,
   sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
@@ -106,19 +99,6 @@ interface Props {
    * doesn't run away down the page.
    */
   fill?: boolean;
-}
-
-function getSessionWorkSeconds(session: ClockEvent, now: number): number {
-  if (session.endTime === null) {
-    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
-    const accumulated = Math.max(0, session.accumulatedTime ?? 0);
-    if (session.isPaused) return accumulated;
-    return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
-  }
-
-  const accumulated = Math.max(0, session.accumulatedTime ?? 0);
-  if (accumulated > 0) return accumulated;
-  return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
 }
 
 /** "Mar 3, 9:00 am – 5:00 pm · Acme" for an addition nobody has ruled on yet. */
@@ -831,67 +811,26 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       {/* Flexible bottom: sessions list / empty state */}
       <div className={cn('flex flex-col', fill && 'min-h-0 flex-1')}>
         {data && filteredSessions.length > 0 && (
-          <Card
-            padding="none"
-            className={cn('flex flex-col overflow-hidden', fill && 'min-h-0 flex-1')}
-          >
-            <CardHeader className="flex flex-row shrink-0 items-center gap-2 px-5 py-3">
-              <CardTitle className="text-sm">Sessions</CardTitle>
-              <Badge variant="secondary" size="sm">
-                {filteredSessions.length}
-              </Badge>
-            </CardHeader>
-            <div
-              className={cn(
-                'scrollbar-mieweb scrollbar-mieweb-visible overflow-x-auto',
-                // Filling: the card owns the leftover page height. Embedded:
-                // cap the list so a long range can't push the rest of the
-                // dashboard off the bottom of the page.
-                fill ? 'min-h-0 flex-1 overflow-y-scroll' : 'max-h-[32rem] overflow-y-auto',
-              )}
-            >
-              <Table responsive={false}>
-                <TableHeader className="sticky top-0 z-10 [&_th]:bg-card">
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Clock In</TableHead>
-                    <TableHead>Clock Out</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Team</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className={cn('w-24 text-right', STICKY_ACTIONS_CELL)}>
-                      Actions
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSessions.map((s) => {
-                    const request = requestByTarget.get(s.id);
-                    return (
-                      <TimesheetRow
-                        key={s.id}
-                        session={s}
-                        teams={teams}
-                        onEdit={openSessionDialog}
-                        onVideos={setVideosSession}
-                        changeStatus={
-                          request?.status === 'pending' || request?.status === 'rejected'
-                            ? request.status
-                            : undefined
-                        }
-                        changeNote={request?.responseNote ?? undefined}
-                        pendingAction={
-                          request?.status === 'pending' ? (
-                            <ChangeRequestWalkthrough request={request} onAdded={loadMyRequests} />
-                          ) : undefined
-                        }
-                      />
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
+          <SessionListCard count={filteredSessions.length} fill={fill}>
+            {filteredSessions.map((s) => {
+              const request = requestByTarget.get(s.id);
+              return (
+                <TimesheetRow
+                  key={s.id}
+                  session={s}
+                  teams={teams}
+                  onEdit={openSessionDialog}
+                  onVideos={setVideosSession}
+                  changeStatus={
+                    request?.status === 'pending' || request?.status === 'rejected'
+                      ? request.status
+                      : undefined
+                  }
+                  changeNote={request?.responseNote ?? undefined}
+                />
+              );
+            })}
+          </SessionListCard>
         )}
 
         {data && filteredSessions.length === 0 && !loading && (

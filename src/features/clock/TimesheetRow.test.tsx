@@ -6,12 +6,8 @@ import { type ClockEvent } from '../../lib/api';
 import { RouterContext } from '../../ui/router';
 import { TimesheetRow } from './TimesheetRow';
 
-/** What useMediaQuery answers: true = the table scrolls sideways (phone, tablet). */
-let mediaQueryMatches = false;
-
 afterEach(() => {
   cleanup();
-  mediaQueryMatches = false;
 });
 
 vi.mock('@fortawesome/react-fontawesome', () => ({
@@ -33,15 +29,20 @@ vi.mock('@mieweb/ui', () => ({
       {children}
     </button>
   ),
-  TableCell: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => (
-    <td {...rest}>{children}</td>
+  Text: ({
+    children,
+    className,
+    'data-strong': strong,
+  }: {
+    children: ReactNode;
+    className?: string;
+    'data-strong'?: string;
+  }) => (
+    <span className={className} data-strong={strong}>
+      {children}
+    </span>
   ),
-  TableRow: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => (
-    <tr {...rest}>{children}</tr>
-  ),
-  Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
-  useMediaQuery: () => mediaQueryMatches,
 }));
 
 function buildSession(): ClockEvent {
@@ -76,28 +77,97 @@ function buildCrossMidnightSession(): ClockEvent {
   };
 }
 
-describe('TimesheetRow', () => {
-  it('renders work/break rows and does not render marker row text', () => {
-    const session = buildSession();
+/** Open a session's breaks: the session as it went. */
+function openBreaks() {
+  fireEvent.click(screen.getByRole('button', { name: /^Show \d+ breaks? in this session$/ }));
+}
 
+/** The session's own list item (its open parts and tickets are nested in it). */
+function sessionItem() {
+  return screen.getAllByRole('listitem')[0];
+}
+
+/** What each opened part says it was, oldest first. */
+function partLabels(container: HTMLElement) {
+  return [...container.querySelectorAll('.session-part-label')].map((el) => el.textContent);
+}
+
+describe('TimesheetRow', () => {
+  it('shows a session as one item: its day, clock in → clock out, team, work time', () => {
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
 
-    expect(screen.getByText('Break Period')).toBeTruthy();
-    expect(screen.getAllByText('Completed')).toHaveLength(2);
-    expect(screen.getByText('30m')).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    const item = sessionItem();
+    expect(item.textContent).toContain('May 19');
+    expect(item.querySelector('.clock-range')?.textContent).toBe('10:00 AM → 11:00 AM');
+    expect(item.textContent).toContain('· Mobile test');
+    expect(item.textContent).toContain('50m');
+    expect(item.textContent).toContain('Completed');
+    // Says what it opens: one break, 10 minutes.
+    expect(screen.getByRole('button', { name: 'Show 1 break in this session' }).textContent).toBe(
+      '1 break · 10m',
+    );
+  });
+
+  it('opens its breaks: the session as it went, oldest first, then closes', () => {
+    const { container } = render(
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
+    );
+
+    openBreaks();
+    expect(screen.getByRole('list', { name: 'Parts of this session' })).toBeTruthy();
+    expect(partLabels(container)).toEqual(['Work', 'Break', 'Work']);
     expect(screen.getByText('20m')).toBeTruthy();
     expect(screen.getByText('10m')).toBeTruthy();
-    expect(screen.queryByText('Break / Resumed')).toBeNull();
+    expect(screen.getByText('30m')).toBeTruthy();
+    expect(screen.getAllByText('Completed')).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide 1 break in this session' }));
+    expect(screen.queryByRole('list', { name: 'Parts of this session' })).toBeNull();
+  });
+
+  it('makes the clock in and clock out bold, and mutes where a break started and ended', () => {
+    const { container } = render(
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
+    );
+    const times = (selector: string) =>
+      [...container.querySelectorAll(selector)].map((el) => el.textContent);
+
+    expect(times('.clock-time[data-strong]')).toEqual(['10:00 AM', '11:00 AM']);
+    openBreaks();
+    // The session row's two, then the same two where its parts show them.
+    expect(times('.clock-time[data-strong]')).toEqual([
+      '10:00 AM',
+      '11:00 AM',
+      '10:00 AM',
+      '11:00 AM',
+    ]);
+    expect(times('.clock-time:not([data-strong])')).toEqual([
+      '10:20 AM',
+      '10:20 AM',
+      '10:30 AM',
+      '10:30 AM',
+    ]);
   });
 
   it('shows one edit action and passes the session back on click', () => {
@@ -105,15 +175,13 @@ describe('TimesheetRow', () => {
     const onEdit = vi.fn();
 
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={onEdit}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={onEdit}
+        />
+      </ul>,
     );
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit session' });
@@ -123,33 +191,48 @@ describe('TimesheetRow', () => {
     expect(onEdit).toHaveBeenCalledWith(session);
   });
 
-  it('splits a cross-midnight session into two rows with --- markers', () => {
-    const session = buildCrossMidnightSession();
-
+  it('marks a clock out on the next day "+1 day"', () => {
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Night Crew' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={buildCrossMidnightSession()}
+          teams={[{ id: 'team-1', name: 'Night Crew' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
 
-    const rows = screen.getAllByRole('row');
-    expect(rows).toHaveLength(2);
+    // Clocked in 7:49 PM May 20, out 2:49 AM May 21: one row, no breaks to open.
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(sessionItem().querySelector('.clock-range')?.textContent).toBe(
+      '7:49 PM → 2:49 AM+1 day',
+    );
+    expect(screen.queryByRole('button', { name: /break/ })).toBeNull();
+    expect(sessionItem().textContent).toContain('· Night Crew');
+  });
 
-    // Two "---" markers: one for clock-in (May 21 continuation) and one for clock-out (May 20 continued)
-    const dashes = screen.getAllByText('---');
-    expect(dashes).toHaveLength(2);
-
-    // "Completed" status only on the newest row (May 21); May 20 is isContinued so no status
-    expect(screen.getAllByText('Completed')).toHaveLength(1);
-
-    // Team name on the oldest row (May 20, the original clock-in day)
-    expect(screen.getByText('Night Crew')).toBeTruthy();
+  it('puts a divider where a new day starts among its parts', () => {
+    const session: ClockEvent = {
+      ...buildCrossMidnightSession(),
+      breaks: [
+        {
+          startTime: new Date('2026-05-20T22:00:00').getTime(),
+          endTime: new Date('2026-05-20T22:10:00').getTime(),
+        },
+      ],
+    };
+    const { container } = render(
+      <ul>
+        <TimesheetRow session={session} teams={[]} onEdit={vi.fn()} />
+      </ul>,
+    );
+    openBreaks();
+    // Work · break · work to midnight, then May 21: the rest of that work.
+    expect(partLabels(container)).toEqual(['Work', 'Break', 'Work', 'Work']);
+    const dividers = container.querySelectorAll('.session-day');
+    expect(dividers).toHaveLength(1);
+    expect(dividers[0].textContent).toContain('May 21');
+    expect(dividers[0].nextElementSibling?.textContent).toContain('12:00 AM');
   });
 
   it('shows the edit action on the newest row for a cross-midnight session', () => {
@@ -157,15 +240,13 @@ describe('TimesheetRow', () => {
     const onEdit = vi.fn();
 
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Night Crew' }]}
-            onEdit={onEdit}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Night Crew' }]}
+          onEdit={onEdit}
+        />
+      </ul>,
     );
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit session' });
@@ -177,15 +258,13 @@ describe('TimesheetRow', () => {
 
   it('renders a shift with no ticket sessions exactly as before — no disclosure', () => {
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={buildSession()}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
 
     expect(screen.queryByRole('button', { name: /ticket timer/i })).toBeNull();
@@ -221,21 +300,20 @@ describe('TimesheetRow', () => {
     };
 
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
 
-    // Collapsed by default — the shift reads the same until it is expanded.
+    // Collapsed by default; their own toggle says what it opens.
     expect(screen.queryByText('Fix the thing')).toBeNull();
 
     const toggle = screen.getByRole('button', { name: /Show 2 ticket timers for this shift/i });
+    expect(toggle.textContent).toBe('2 tickets');
     fireEvent.click(toggle);
 
     // Both open the ticket's page inside TimeHuddle; a Redmine issue's page
@@ -253,6 +331,46 @@ describe('TimesheetRow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Hide 2 ticket timers/i }));
     expect(screen.queryByText('Fix the thing')).toBeNull();
+
+    // Shown, they're a list inside the session's own item, one per timer.
+    fireEvent.click(screen.getByRole('button', { name: /Show 2 ticket timers/i }));
+    const list = screen.getByRole('list', { name: 'Ticket timers in this session' });
+    expect(list.closest('.session-row')).toBe(sessionItem());
+    expect(list.querySelectorAll(':scope > li')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: /Hide 2 ticket timers/i }));
+    expect(screen.queryByText('Fix the thing')).toBeNull();
+  });
+
+  it('keeps the actions on the top line, whatever is open under it', () => {
+    const { container } = render(
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
+    );
+    openBreaks();
+    const edit = screen.getAllByRole('button', { name: 'Edit session' });
+    expect(edit).toHaveLength(1);
+    expect(edit[0].closest('.session-top')).toBeTruthy();
+    // The parts are nested in the session's item, after its top line.
+    const parts = screen.getByRole('list', { name: 'Parts of this session' });
+    expect(parts.closest('.session-row')).toBe(sessionItem());
+    expect(container.querySelectorAll('.session-part')).toHaveLength(3);
+  });
+
+  it('offers nothing to open on a session with no breaks or tickets', () => {
+    const session = { ...buildSession(), breaks: [], originalStartTime: undefined };
+    render(
+      <ul>
+        <TimesheetRow session={session} teams={[]} onEdit={vi.fn()} />
+      </ul>,
+    );
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /break|ticket/ })).toBeNull();
   });
 
   it('rounds duration display to match minute-level timestamps', () => {
@@ -267,15 +385,13 @@ describe('TimesheetRow', () => {
     };
 
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Rounded Crew' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Rounded Crew' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
 
     expect(screen.getByText('10:04 AM')).toBeTruthy();
@@ -283,76 +399,45 @@ describe('TimesheetRow', () => {
     expect(screen.getByText('3h 0m')).toBeTruthy();
   });
 
-  it('replaces the completed status with the pending-approval badge', () => {
+  it('says "Pending approval" once for the session, not on its pieces', () => {
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={buildSession()}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-            changeStatus="pending"
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+          changeStatus="pending"
+        />
+      </ul>,
     );
 
-    expect(screen.getAllByText('Pending approval').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Pending approval')).toHaveLength(1);
     expect(screen.queryByText('Completed')).toBeNull();
-  });
-
-  it('gives the walkthrough its own line while the table scrolls sideways', () => {
-    const pending = {
-      session: buildSession(),
-      teams: [{ id: 'team-1', name: 'Mobile test' }],
-      onEdit: vi.fn(),
-      changeStatus: 'pending' as const,
-      pendingAction: <button type="button">Walkthrough chips</button>,
-    };
-    const { rerender, container } = render(
-      <table>
-        <tbody>
-          <TimesheetRow {...pending} />
-        </tbody>
-      </table>,
-    );
-    // Wide screen: beside "Pending approval", no extra row.
-    expect(container.querySelector('.pending-walkthrough-row')).toBeNull();
-    expect(screen.getAllByText('Walkthrough chips')).toHaveLength(1);
-
-    mediaQueryMatches = true;
-    rerender(
-      <table>
-        <tbody>
-          <TimesheetRow {...pending} />
-        </tbody>
-      </table>,
-    );
-    // Phone or tablet: once, on a full-width row of its own.
-    const ownLine = container.querySelector('.pending-walkthrough-row');
-    expect(ownLine?.textContent).toContain('Walkthrough chips');
-    expect(screen.getAllByText('Walkthrough chips')).toHaveLength(1);
+    openBreaks();
+    expect(screen.getAllByText('Pending approval')).toHaveLength(1);
+    for (const part of document.querySelectorAll('.session-part')) {
+      expect(part.textContent).not.toMatch(/Completed|Pending/);
+    }
   });
 
   it('reports a declined change in place of the status', () => {
     render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={buildSession()}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-            changeStatus="rejected"
-            changeNote="Times do not match the roster: https://wiki.example.com/roster"
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={buildSession()}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+          changeStatus="rejected"
+          changeNote="Times do not match the roster: https://wiki.example.com/roster"
+        />
+      </ul>,
     );
 
-    expect(screen.getAllByText('Change declined').length).toBeGreaterThan(0);
+    // Once for the session, not on each of its pieces.
+    expect(screen.getAllByText('Change declined')).toHaveLength(1);
     expect(screen.queryByText('Pending approval')).toBeNull();
     // The reviewer's note is on the page, not in a tooltip, and its link works.
-    expect(screen.getAllByText(/Times do not match the roster/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Times do not match the roster/)).toHaveLength(1);
     expect(
       screen
         .getAllByRole('link', { name: 'https://wiki.example.com/roster' })[0]
@@ -364,29 +449,25 @@ describe('TimesheetRow', () => {
     const session = buildSession();
     const onVideos = vi.fn();
     const { rerender } = render(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+        />
+      </ul>,
     );
     expect(screen.queryByRole('button', { name: 'Videos for this session' })).toBeNull();
 
     rerender(
-      <table>
-        <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-            onVideos={onVideos}
-          />
-        </tbody>
-      </table>,
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={vi.fn()}
+          onVideos={onVideos}
+        />
+      </ul>,
     );
     const videos = screen.getAllByRole('button', { name: 'Videos for this session' });
     expect(videos).toHaveLength(1);
@@ -415,15 +496,13 @@ describe('TimesheetRow', () => {
 
     render(
       <RouterContext.Provider value={{ pathname: '/app', search: '', navigate, replace: vi.fn() }}>
-        <table>
-          <tbody>
-            <TimesheetRow
-              session={session}
-              teams={[{ id: 'team-1', name: 'Mobile test' }]}
-              onEdit={vi.fn()}
-            />
-          </tbody>
-        </table>
+        <ul>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+          />
+        </ul>
       </RouterContext.Provider>,
     );
     fireEvent.click(screen.getByRole('button', { name: /Show 1 ticket timer/i }));
