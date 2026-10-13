@@ -8,7 +8,7 @@
  *     raw TUS surface (POST/PATCH/HEAD/DELETE upload, GET/DELETE artifact),
  *     and the standalone /pulsevault/docs Swagger page.
  *  2. Ticket video upload flow — the Pulse chip's QR modal, and a video sent
- *     through a ticket's link landing in its Attachments list.
+ *     through a ticket's link landing in its Videos list.
  */
 import fs from 'node:fs';
 import path from 'node:path';

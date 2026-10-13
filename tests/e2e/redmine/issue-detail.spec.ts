@@ -44,7 +44,7 @@ const detailResponse = (overrides = {}) => ({
       id: 1,
       user: { id: 3, name: 'Priya Patel' },
       createdAt: '2026-02-01T11:30:00.000Z',
-      notes: 'Reproduced on staging.',
+      notes: 'Reproduced on staging. Recording: https://example.com/repro.',
       changes: [{ field: 'status', from: 'New', to: 'In Progress' }],
     },
   ],
@@ -109,9 +109,10 @@ test.describe('Redmine issue detail', () => {
     await expect(sidebar(page)).toBeVisible();
   });
 
-  test('lists and adds TimeHuddle attachments on the issue', async ({ page }) => {
+  test("lists the issue's videos, with Pulse and Upload and no Link button", async ({ page }) => {
     // The backend gates `redmine` attachments on the caller's Redmine key, which
     // the stub account does not have, so answer the attachment calls here too.
+    // A link attached before links moved to the description is still listed.
     const saved = {
       id: 'a1',
       url: 'https://example.com/spec',
@@ -123,38 +124,24 @@ test.describe('Redmine issue detail', () => {
       addedAt: '2026-02-01T11:30:00.000Z',
     };
     const listed: unknown[] = [];
-    const added: unknown[] = [];
     await page.route('**/api/attachments_*', async (route) => {
-      const body = route.request().postDataJSON();
-      const method = new URL(route.request().url()).pathname.split('/').pop();
-      if (method === 'attachments_add') added.push(body);
-      else listed.push(body);
-      const result =
-        method === 'attachments_add' ? { attachment: saved } : { attachments: [saved] };
+      listed.push(route.request().postDataJSON());
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ result }),
+        body: JSON.stringify({ result: { attachments: [saved] } }),
       });
     });
 
     await openIssue(page, { 'issues.get': detailResponse() });
 
-    const links = page.getByRole('list', { name: 'Attachments' });
-    await expect(links.getByRole('link', { name: 'Intake spec' })).toBeVisible();
+    const videos = page.getByRole('list', { name: 'Videos' });
+    await expect(videos.getByRole('link', { name: 'Intake spec' })).toBeVisible();
     expect(listed[0]).toEqual({ kind: 'redmine', id: String(ISSUE_ID) });
+    await expect(page.getByRole('heading', { name: 'Videos' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add a video with Pulse' })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Add a link, like a YouTube Short' }).click();
-    const linkDialog = page.getByRole('dialog', { name: 'Add a link' });
-    await linkDialog.getByLabel('Link').fill('https://example.com/spec');
-    await linkDialog.getByRole('button', { name: 'Add link' }).click();
-
-    await expect.poll(() => added.length).toBe(1);
-    expect(added[0]).toMatchObject({
-      url: 'https://example.com/spec',
-      attachedTo: { kind: 'redmine', id: String(ISSUE_ID) },
-    });
+    await expect(page.getByRole('button', { name: 'Upload a video file' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /add a link/i })).toHaveCount(0);
   });
 
   test('shows Redmine history and your own timer sessions in one activity list', async ({
@@ -165,6 +152,11 @@ test.describe('Redmine issue detail', () => {
     const activity = page.getByRole('list', { name: 'Ticket activity' });
     await expect(activity).toBeVisible();
     await expect(activity).toContainText('Reproduced on staging.');
+    // A URL in a Redmine note is a link, without the sentence's full stop.
+    await expect(activity.getByRole('link', { name: 'https://example.com/repro' })).toHaveAttribute(
+      'href',
+      'https://example.com/repro',
+    );
   });
 
   test('shows time logged in Redmine, and filters to your own activity', async ({ page }) => {

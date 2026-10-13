@@ -1809,13 +1809,6 @@ export const attachmentApi = {
       (r) => r.attachments,
     ),
 
-  add: (data: {
-    url: string;
-    type: AttachmentType;
-    title?: string;
-    attachedTo: { kind: AttachmentKind; id: string };
-  }) => wormholeCall<{ attachment: Attachment }>('attachments.add', data).then((r) => r.attachment),
-
   remove: (id: string) => wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
 };
 

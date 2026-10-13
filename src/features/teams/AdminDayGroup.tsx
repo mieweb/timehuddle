@@ -8,12 +8,13 @@
  */
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, TableCell, TableRow, Text } from '@mieweb/ui';
+import { Badge, Button, cn, TableCell, TableRow, Text } from '@mieweb/ui';
 import React from 'react';
 
 import { type ClockEvent } from '../../lib/api';
 import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
 import { TimesheetRow } from '../clock/TimesheetRow';
+import { STICKY_ACTIONS_CELL } from '../clock/timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ export const AdminDayGroup: React.FC<Props> = ({
             </Text>
           )}
         </TableCell>
-        <TableCell className="text-right">
+        <TableCell className={cn('text-right', STICKY_ACTIONS_CELL)}>
           <Button
             variant="ghost"
             size="icon"

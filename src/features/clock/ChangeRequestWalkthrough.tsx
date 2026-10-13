@@ -6,7 +6,7 @@
  * to its destination when it lands, and the request doesn't exist until it's
  * submitted. Once it lands the approver sees it in Timesheet Approvals.
  */
-import { Badge } from '@mieweb/ui';
+import { Badge, Text } from '@mieweb/ui';
 import React from 'react';
 
 import type { TimesheetChangeRequest } from '../../lib/api';
@@ -30,14 +30,20 @@ export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> =
       </Badge>
     );
   }
+  // Named like the form's "Walkthrough" field, so both read as the same thing.
   return (
-    <PulseButton
-      destination={{ kind: 'timesheet-request', id: request.id }}
-      ariaLabel="Add a walkthrough with Pulse"
-      allowFile
-      onSettled={(status) => {
-        if (status.state === 'done') onAdded?.();
-      }}
-    />
+    <div className="change-request-walkthrough flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Text as="span" size="xs" variant="muted">
+        Walkthrough
+      </Text>
+      <PulseButton
+        destination={{ kind: 'timesheet-request', id: request.id }}
+        ariaLabel="Add a walkthrough with Pulse"
+        allowFile
+        onSettled={(status) => {
+          if (status.state === 'done') onAdded?.();
+        }}
+      />
+    </div>
   );
 };
