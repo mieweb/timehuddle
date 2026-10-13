@@ -17,8 +17,10 @@ export class SettingsInputError extends Error {
 const LEVEL_LABELS = { org: 'the organization', enterprise: 'the enterprise' };
 
 function definitionFor(key, level) {
+  if (!Object.hasOwn(SETTINGS, key)) {
+    throw new SettingsInputError('bad-request', `Unknown setting: ${key}`);
+  }
   const def = SETTINGS[key];
-  if (!def) throw new SettingsInputError('bad-request', `Unknown setting: ${key}`);
   if (!def.levels.includes(level)) {
     throw new SettingsInputError('bad-request', `${key} cannot be set on a ${level}`);
   }

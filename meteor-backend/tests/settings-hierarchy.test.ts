@@ -417,6 +417,22 @@ describe('teams.byUser publication', () => {
     });
   });
 
+  it('pushes an org change to a subscriber without a resubscribe', async () => {
+    await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { requirePlanForClock: true } },
+      jwts.orgOwner,
+    );
+    await waitForPublished(
+      () =>
+        (published(teamId)?.settings as { requirePlanForClock: SettingValue } | undefined)
+          ?.requirePlanForClock.value === true,
+    );
+    expect(published(teamId)?.settings).toMatchObject({
+      requirePlanForClock: { value: true, source: 'org' },
+    });
+  });
+
   it('pushes a change to the team as resolved settings', async () => {
     await wormhole(
       'teams.updateSettings',
@@ -448,8 +464,21 @@ describe('sub-teams', () => {
       createdAt: new Date(),
     };
     await db.collection('teams').insertMany([
-      { ...base, _id: parentId, name: 'Settings Parent', code: 'WHSETP01', settings: { autoAcceptJoins: true } },
-      { ...base, _id: childId, name: 'Settings Child', code: 'WHSETP02', parentTeamId: parentId.toHexString() },
+      {
+        ...base,
+        _id: parentId,
+        name: 'Settings Parent',
+        code: 'WHSETP01',
+        settings: { autoAcceptJoins: true, requirePlanForClock: false },
+      },
+      {
+        ...base,
+        _id: childId,
+        name: 'Settings Child',
+        code: 'WHSETP02',
+        members: [ids.teamAdmin, ids.member],
+        parentTeamId: parentId.toHexString(),
+      },
     ]);
   });
 
@@ -472,5 +501,88 @@ describe('sub-teams', () => {
       sourceId: parentId.toHexString(),
       locked: false,
     });
+  });
+
+  it('notifies the members of a sub-team when its parent turns the plan requirement on', async () => {
+    const db = await getDb();
+    await db.collection('teams').updateOne(
+      { _id: parentId },
+      { $set: { 'settings.requirePlanForClock': false } },
+    );
+    await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { requirePlanForClock: false } },
+      jwts.orgOwner,
+    );
+    await db.collection('notifications').deleteMany({ userId: ids.member });
+
+    const res = await wormhole(
+      'teams.updateSettings',
+      { teamId: parentId.toHexString(), requirePlanForClock: true },
+      jwts.teamAdmin,
+    );
+    expect(res.ok).toBe(true);
+
+    const rows = await db
+      .collection('notifications')
+      .find({ userId: ids.member, 'data.type': 'team-setting-change' })
+      .toArray();
+    expect(rows.map((row) => row.data.teamId)).toEqual([childId.toHexString()]);
+  });
+});
+
+describe('org creation under an enterprise lock', () => {
+  const orgName = 'Settings Locked Create Org';
+
+  beforeEach(async () => {
+    await wormhole(
+      'enterprises.updateSettings',
+      {
+        enterpriseId: enterpriseId.toHexString(),
+        settings: { allowAutoJoin: true },
+        locks: { allowAutoJoin: true },
+      },
+      jwts.entAdmin,
+    );
+  });
+
+  afterEach(async () => {
+    const db = await getDb();
+    await db.collection('organizations').deleteMany({ name: orgName });
+  });
+
+  it('refuses a value that conflicts with the lock', async () => {
+    const res = await wormhole(
+      'orgs.create',
+      { enterpriseId: enterpriseId.toHexString(), name: orgName, allowAutoJoin: false },
+      jwts.entAdmin,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/locked by the enterprise/);
+  });
+
+  it('accepts the locked value without storing it', async () => {
+    const res = await wormhole<{ organization: { id: string } }>(
+      'orgs.create',
+      { enterpriseId: enterpriseId.toHexString(), name: orgName, allowAutoJoin: true },
+      jwts.entAdmin,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const org = await db
+      .collection('organizations')
+      .findOne({ _id: new ObjectId(res.result.organization.id) });
+    expect(org?.settings).toEqual({});
+  });
+
+  it('refuses an update that conflicts with the lock', async () => {
+    const res = await wormhole(
+      'orgs.update',
+      { orgId: orgId.toHexString(), allowAutoJoin: false },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/locked by the enterprise/);
   });
 });

@@ -3,13 +3,14 @@
  * their team, whether the team set it itself or inherited it from above.
  */
 import { createNotification } from '../notify-core';
-import { reloadTeams, resolveSettingsForTeams } from './index';
+import { announceSettingsChanged } from './changes';
+import { idOf, reloadTeams, resolveSettingsForTeams } from './index';
 
 export async function notifyPlanRequired(team, actorUserId) {
   const memberIds = Array.from(new Set([...team.members, ...team.admins])).filter(
     (id) => id !== actorUserId,
   );
-  const teamId = team._id.toHexString();
+  const teamId = idOf(team._id);
   const teamLabel = team.name ?? 'Your team';
   await Promise.allSettled(
     memberIds.map((memberId) =>
@@ -31,6 +32,7 @@ export async function notifyPlanRequired(team, actorUserId) {
 export async function writeNotifyingPlanChanges({ teams, actorUserId, write }) {
   const before = await resolveSettingsForTeams(teams);
   const result = await write();
+  announceSettingsChanged();
   const after = await resolveSettingsForTeams(await reloadTeams(teams));
   const turnedOn = teams.filter(
     (_, i) => !before[i].requirePlanForClock.value && after[i].requirePlanForClock.value,

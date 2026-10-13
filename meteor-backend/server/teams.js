@@ -16,7 +16,9 @@ import {
   addMemberToTeamOrgIfAllowed,
   settingsUpdateFor,
   publicTeamSettings,
+  descendantTeams,
 } from './settings';
+import { onSettingsChanged } from './settings/changes';
 import { writeNotifyingPlanChanges } from './settings/notify';
 import { sendEmail } from './email';
 import {
@@ -146,8 +148,8 @@ async function toPublicTeams(teams) {
 }
 
 // Publishes the user's teams with `settings` replaced by the resolved values,
-// so the client never sees raw (possibly absent) settings. Org and enterprise
-// changes do not reach this observer; the client resubscribes after saving them.
+// so the client never sees raw (possibly absent) settings. Any settings change
+// (team, org or enterprise) republishes them through `onSettingsChanged`.
 Meteor.publish('teams.byUser', async function () {
   if (!this.userId) return this.ready();
   const docs = new Map();
@@ -156,7 +158,9 @@ Meteor.publish('teams.byUser', async function () {
 
   // Sends `settings` for a team unless the client already has these values.
   const sendSettings = async (id, extraFields = {}) => {
-    const resolved = publicTeamSettings(await resolveSettings(docs.get(hexOf(id))));
+    const doc = docs.get(hexOf(id));
+    if (!doc) return;
+    const resolved = publicTeamSettings(await resolveSettings(doc));
     const serialized = JSON.stringify(resolved);
     if (sent.get(hexOf(id)) === serialized && !Object.keys(extraFields).length) return;
     const isNew = !sent.has(hexOf(id));
@@ -171,6 +175,11 @@ Meteor.publish('teams.byUser', async function () {
     this.error(new Meteor.Error('internal-error', 'Could not load team settings'));
   };
 
+  // Teams already sent to the client; one still being added catches up on its own.
+  const resendAll = async () => {
+    for (const key of [...sent.keys()]) await sendSettings(docs.get(key)?._id ?? key);
+  };
+
   const handle = await Teams.find({ members: this.userId }).observeChangesAsync({
     added: async (id, fields) => {
       docs.set(hexOf(id), { _id: id, ...fields });
@@ -182,12 +191,7 @@ Meteor.publish('teams.byUser', async function () {
       docs.set(hexOf(id), doc);
       try {
         await sendSettings(id, fields);
-        // A parent's change can change what its published sub-teams inherit.
-        if ('settings' in fields) {
-          for (const other of docs.values()) {
-            if (hexOf(other._id) !== hexOf(id)) await sendSettings(other._id);
-          }
-        }
+        if ('settings' in fields) await resendAll();
       } catch (error) {
         fail(error);
       }
@@ -198,7 +202,11 @@ Meteor.publish('teams.byUser', async function () {
       this.removed('teams', id);
     },
   });
-  this.onStop(() => handle.stop());
+  const stopListening = onSettingsChanged(() => void resendAll().catch(fail));
+  this.onStop(() => {
+    handle.stop();
+    stopListening();
+  });
   this.ready();
 });
 
@@ -529,7 +537,7 @@ Meteor.methods({
     const resolved = await resolveSettings(team);
     const update = settingsUpdateFor({ level: 'team', entity: team, resolved, settings });
     await writeNotifyingPlanChanges({
-      teams: [team],
+      teams: [team, ...(await descendantTeams(team))],
       actorUserId: userId,
       write: () => Teams.updateAsync(team._id, update),
     });

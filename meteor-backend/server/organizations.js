@@ -9,7 +9,7 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
@@ -42,6 +42,19 @@ Meteor.startup(async () => {
     console.error('[organizations] failed to create invitation index:', error);
   }
 });
+
+// The auto-join value to store, or undefined for nothing. Under an enterprise lock
+// only the locked value is accepted, and it is not stored so it can't resurface later.
+function autoJoinToStore(effective, requested) {
+  if (typeof requested !== 'boolean') return undefined;
+  if (effective.locked && effective.source === 'enterprise') {
+    if (requested !== effective.value) {
+      throw new Meteor.Error('forbidden', 'Setting allowAutoJoin is locked by the enterprise');
+    }
+    return undefined;
+  }
+  return requested;
+}
 
 function slugify(value) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 64);
@@ -308,6 +321,10 @@ Meteor.methods({
     if (conflict) throw new Meteor.Error('conflict', 'Slug already taken');
 
     const now = new Date();
+    const initialAutoJoin = autoJoinToStore(
+      resolveEnterpriseSettings(enterprise).allowAutoJoin,
+      allowAutoJoin,
+    );
     const org = {
       _id: new ObjectId(),
       enterpriseId,
@@ -315,7 +332,7 @@ Meteor.methods({
       name: trimmedName,
       owners: [userId],
       admins: [],
-      settings: typeof allowAutoJoin === 'boolean' ? { allowAutoJoin } : {},
+      settings: initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin },
       settingsLocks: {},
       createdAt: now,
       updatedAt: now,
@@ -367,7 +384,8 @@ Meteor.methods({
       }
       updates.slug = newSlug;
     }
-    if (allowAutoJoin !== undefined) updates['settings.allowAutoJoin'] = allowAutoJoin;
+    const autoJoin = autoJoinToStore((await resolveOrgSettings(org)).allowAutoJoin, allowAutoJoin);
+    if (autoJoin !== undefined) updates['settings.allowAutoJoin'] = autoJoin;
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });

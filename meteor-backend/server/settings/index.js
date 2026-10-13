@@ -14,7 +14,7 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PROJECTION = { settings: 1, settingsLocks: 1, parentTeamId: 1, enterpriseId: 1 };
 
-function idOf(id) {
+export function idOf(id) {
   return typeof id === 'string' ? id : id.toHexString();
 }
 
@@ -121,6 +121,28 @@ export async function reloadTeams(teams) {
     .toArray();
   const byId = new Map(fresh.map((team) => [idOf(team._id), team]));
   return ids.map((id, i) => byId.get(id) ?? teams[i]);
+}
+
+// Non-personal sub-teams, at any depth, that inherit from `team`.
+export async function descendantTeams(team) {
+  const found = [];
+  const seen = new Set([idOf(team._id)]);
+  let frontier = [...seen];
+  while (frontier.length > 0) {
+    const children = await rawDb()
+      .collection('teams')
+      .find({ parentTeamId: { $in: frontier }, isPersonal: { $ne: true } })
+      .toArray();
+    frontier = [];
+    for (const child of children) {
+      const id = idOf(child._id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      found.push(child);
+      frontier.push(id);
+    }
+  }
+  return found;
 }
 
 // Non-personal teams an org-level change can affect.

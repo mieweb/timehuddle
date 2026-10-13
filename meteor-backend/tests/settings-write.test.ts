@@ -28,6 +28,12 @@ describe('buildSettingsUpdate', () => {
     );
   });
 
+  it.each(['constructor', '__proto__', 'toString'])('rejects the inherited key %s', (key) => {
+    expect(() => buildSettingsUpdate({ level: 'team', settings: { [key]: true } })).toThrow(
+      /Unknown setting/,
+    );
+  });
+
   it('rejects a key the registry does not allow at the level', () => {
     expect(() =>
       buildSettingsUpdate({ level: 'team', settings: { allowAutoJoin: true } }),

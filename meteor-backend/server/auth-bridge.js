@@ -375,13 +375,13 @@ Accounts.onLogin(async (info) => {
       return;
     }
 
-    // Find default org with allowAutoJoin enabled
-    const defaultOrg = await db.collection('organizations').findOne({ 
+    // Find the default org, and join it only if its effective auto-join is on
+    const defaultOrg = await db.collection('organizations').findOne({
       slug: process.env.DEFAULT_ORG_KEY || 'default',
-      'settings.allowAutoJoin': { $ne: false }
     });
-    
-    if (!defaultOrg || !defaultOrg._id) {
+    const { resolveOrgSettings } = await import('./settings');
+
+    if (!defaultOrg || !defaultOrg._id || !(await resolveOrgSettings(defaultOrg)).allowAutoJoin.value) {
       console.log('[auth-bridge] no default org with auto-join enabled or org has no _id');
       return;
     }

@@ -78,7 +78,9 @@ Meteor.startup(async () => {
   try {
     await migrateSettings(rawDb());
   } catch (error) {
-    console.error('[settings] migration failed:', error);
+    // Serving requests on unmigrated settings would silently change behavior.
+    console.error('[settings] migration failed, stopping:', error);
+    process.exit(1);
   }
 });
 
