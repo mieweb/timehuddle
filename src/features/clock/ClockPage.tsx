@@ -551,19 +551,23 @@ export const ClockPage: React.FC = () => {
             aria-labelledby="clock-pulse-title"
           >
             <div className="clock-pulse-layout flex flex-col gap-4 @2xl:flex-row @2xl:items-center">
-              <PulseLogo className="clock-pulse-logo hidden h-12 shrink-0 @2xl:block" />
-              <div className="clock-pulse-copy min-w-0 flex-1">
-                <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
-                  {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
-                </Text>
-                <Text variant="muted" size="sm" className="mt-1">
-                  {isClockedIn
-                    ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
-                    : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
-                </Text>
-                <Text variant="muted" size="xs" className="mt-1">
-                  Your Pulse draft's name becomes the post's text.
-                </Text>
+              {/* The Pulse logo is the card's, at every size (the pill has
+                  none): beside the words, stacked or not. */}
+              <div className="clock-pulse-intro flex min-w-0 flex-1 items-center gap-3 @2xl:gap-4">
+                <PulseLogo className="clock-pulse-logo h-10 shrink-0 @2xl:h-12" />
+                <div className="clock-pulse-copy min-w-0 flex-1">
+                  <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                    {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+                  </Text>
+                  <Text variant="muted" size="sm" className="mt-1">
+                    {isClockedIn
+                      ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
+                      : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
+                  </Text>
+                  <Text variant="muted" size="xs" className="mt-1">
+                    Your Pulse draft's name becomes the post's text.
+                  </Text>
+                </div>
               </div>
               <div className="clock-pulse-action flex shrink-0 flex-col items-stretch gap-1 @2xl:items-end">
                 <PulseChip
