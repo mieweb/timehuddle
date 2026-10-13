@@ -87,10 +87,10 @@ afterAll(async () => {
 describe('teams.create default', () => {
   it('creates new teams inheriting the plan requirement, which is on by default', async () => {
     const res = await wormhole<{
-      team: { id: string; settings: { requirePlanForClock: SettingValue } };
+      team: { id: string; settings: { requirePlanForClock: boolean }; resolvedSettings: { requirePlanForClock: SettingValue } };
     }>('teams.create', { name: 'WH Plan Default Team' }, adminJwt);
     expect(res.ok).toBe(true);
-    expect(res.result.team.settings.requirePlanForClock).toEqual({
+    expect(res.result.team.resolvedSettings.requirePlanForClock).toEqual({
       value: true,
       source: 'system',
       locked: false,
@@ -121,13 +121,16 @@ describe('plan-first clock flow (wormhole)', () => {
   });
 
   it('lets a team admin enable requirePlanForClock', async () => {
-    const res = await wormhole<{ team: { settings: { requirePlanForClock: SettingValue } } }>(
+    const res = await wormhole<{
+      team: { settings: { requirePlanForClock: boolean }; resolvedSettings: { requirePlanForClock: SettingValue } };
+    }>(
       'teams.updateSettings',
       { teamId, requirePlanForClock: true },
       adminJwt,
     );
     expect(res.ok).toBe(true);
-    expect(res.result.team.settings.requirePlanForClock.value).toBe(true);
+    expect(res.result.team.resolvedSettings.requirePlanForClock.value).toBe(true);
+    expect(res.result.team.settings.requirePlanForClock).toBe(true);
   });
 
   it('getMyPostForDate returns null before any post exists', async () => {
@@ -250,13 +253,16 @@ describe('plan-first clock flow (wormhole)', () => {
     const db = await getDb();
     await db.collection('huddlePosts').deleteMany({ teamId });
 
-    const res = await wormhole<{ team: { settings: { requirePlanForClock: SettingValue } } }>(
+    const res = await wormhole<{
+      team: { settings: { requirePlanForClock: boolean }; resolvedSettings: { requirePlanForClock: SettingValue } };
+    }>(
       'teams.updateSettings',
       { teamId, requirePlanForClock: false },
       adminJwt,
     );
     expect(res.ok).toBe(true);
-    expect(res.result.team.settings.requirePlanForClock.value).toBe(false);
+    expect(res.result.team.resolvedSettings.requirePlanForClock.value).toBe(false);
+    expect(res.result.team.settings.requirePlanForClock).toBe(false);
 
     const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
     expect(start.ok).toBe(true);

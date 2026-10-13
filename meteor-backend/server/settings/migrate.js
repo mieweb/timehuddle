@@ -4,6 +4,7 @@
  */
 
 const MARKER_ID = 'hierarchical-settings-607';
+const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 // Existing teams keep behaving as before: no explicit value used to mean off.
 export async function pinExistingTeamPlanSetting(db) {
@@ -37,5 +38,8 @@ export async function migrateSettings(db) {
   if (await migrations.findOne({ _id: MARKER_ID })) return;
   const teams = await pinExistingTeamPlanSetting(db);
   if (teams) console.log(`[settings] pinned requirePlanForClock=false on ${teams} team(s)`);
-  await migrations.insertOne({ _id: MARKER_ID, ranAt: new Date() });
+  await migrations.insertOne({ _id: MARKER_ID, ranAt: new Date() }).catch((error) => {
+    // Another instance finished the same migration first.
+    if (error?.code !== DUPLICATE_KEY_ERROR_CODE) throw error;
+  });
 }

@@ -85,6 +85,14 @@ export function publicTeamSettings(resolved) {
   };
 }
 
+// The same settings as plain booleans, for clients that predate the resolved form.
+export function legacyTeamSettings(resolved) {
+  return {
+    requirePlanForClock: resolved.requirePlanForClock.value,
+    autoAcceptJoins: resolved.autoAcceptJoins.value,
+  };
+}
+
 export function resolveSettings(team) {
   return resolveTeam(team, createLoader());
 }

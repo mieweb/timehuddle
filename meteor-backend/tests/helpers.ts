@@ -71,7 +71,9 @@ export class DDPConnection {
         } else if (msg.msg === 'added' || msg.msg === 'changed') {
           const collection = this.docs.get(msg.collection!) ?? new Map();
           this.docs.set(msg.collection!, collection);
-          collection.set(msg.id!, { ...collection.get(msg.id!), ...msg.fields });
+          const fields = { ...collection.get(msg.id!), ...msg.fields };
+          for (const cleared of msg.cleared ?? []) delete fields[cleared];
+          collection.set(msg.id!, fields);
         } else if (msg.msg === 'removed') {
           this.docs.get(msg.collection!)?.delete(msg.id!);
         } else if (msg.msg === 'ready') {

@@ -35,7 +35,7 @@ export function useClockToggle() {
   const gateTeam = activeClockEvent
     ? (teams.find((t) => t.id === activeClockEvent.teamId) ?? null)
     : selectedTeam;
-  const requirePlan = !!gateTeam && gateTeam.settings.requirePlanForClock.value;
+  const requirePlan = !!gateTeam && gateTeam.resolvedSettings.requirePlanForClock.value;
   // The published post linked to THIS clock session (one post per session).
   const { sessionPost } = useSessionPost(
     requirePlan ? gateTeamId : null,

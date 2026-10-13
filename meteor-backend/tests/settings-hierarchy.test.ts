@@ -25,7 +25,7 @@ const USERS = {
 };
 
 type Settings = { requirePlanForClock: SettingValue; autoAcceptJoins: SettingValue };
-type TeamsList = { teams: Array<{ id: string; settings: Settings }> };
+type TeamsList = { teams: Array<{ id: string; settings: Record<string, boolean>; resolvedSettings: Settings }> };
 
 const jwts = {} as Record<keyof typeof USERS, string>;
 const ids = {} as Record<keyof typeof USERS, string>;
@@ -36,7 +36,7 @@ const ownValueTeamId = new ObjectId();
 
 async function teamSettings(): Promise<Settings> {
   const res = await wormhole<TeamsList>('teams.list', {}, jwts.teamAdmin);
-  return res.result.teams.find((t) => t.id === teamId.toHexString())!.settings;
+  return res.result.teams.find((t) => t.id === teamId.toHexString())!.resolvedSettings;
 }
 
 beforeAll(async () => {
@@ -408,11 +408,15 @@ describe('teams.byUser publication', () => {
   afterEach(() => ddp.close());
 
   it('publishes resolved settings instead of the stored ones', async () => {
-    expect(published(teamId)?.settings).toMatchObject({
+    expect(published(teamId)?.resolvedSettings).toMatchObject({
       requirePlanForClock: { value: false, source: 'org', locked: false },
       autoAcceptJoins: { value: false, source: 'system', locked: false },
     });
-    expect(published(ownValueTeamId)?.settings).toMatchObject({
+    expect(published(teamId)?.settings).toEqual({
+      requirePlanForClock: false,
+      autoAcceptJoins: false,
+    });
+    expect(published(ownValueTeamId)?.resolvedSettings).toMatchObject({
       requirePlanForClock: { value: false, source: 'team' },
     });
   });
@@ -425,10 +429,10 @@ describe('teams.byUser publication', () => {
     );
     await waitForPublished(
       () =>
-        (published(teamId)?.settings as { requirePlanForClock: SettingValue } | undefined)
+        (published(teamId)?.resolvedSettings as { requirePlanForClock: SettingValue } | undefined)
           ?.requirePlanForClock.value === true,
     );
-    expect(published(teamId)?.settings).toMatchObject({
+    expect(published(teamId)?.resolvedSettings).toMatchObject({
       requirePlanForClock: { value: true, source: 'org' },
     });
   });
@@ -441,10 +445,10 @@ describe('teams.byUser publication', () => {
     );
     await waitForPublished(
       () =>
-        (published(teamId)?.settings as { requirePlanForClock: SettingValue } | undefined)
+        (published(teamId)?.resolvedSettings as { requirePlanForClock: SettingValue } | undefined)
           ?.requirePlanForClock.source === 'team',
     );
-    expect(published(teamId)?.settings).toMatchObject({
+    expect(published(teamId)?.resolvedSettings).toMatchObject({
       requirePlanForClock: { value: true, source: 'team' },
     });
   });
@@ -495,7 +499,7 @@ describe('sub-teams', () => {
     );
     const res = await wormhole<TeamsList>('teams.list', {}, jwts.teamAdmin);
     const child = res.result.teams.find((t) => t.id === childId.toHexString());
-    expect(child?.settings.autoAcceptJoins).toEqual({
+    expect(child?.resolvedSettings.autoAcceptJoins).toEqual({
       value: true,
       source: 'parentTeam',
       sourceId: parentId.toHexString(),

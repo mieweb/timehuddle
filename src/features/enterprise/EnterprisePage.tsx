@@ -474,7 +474,7 @@ export const EnterprisePage: React.FC = () => {
                   saving={savingSettings}
                   error={settingsError}
                   onSave={(patch) => void handleSaveSettings(patch)}
-                  className="border border-neutral-200/70 dark:border-neutral-800"
+                  className="border border-border"
                 />
 
                 <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">

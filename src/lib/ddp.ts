@@ -639,6 +639,7 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
     code: String(doc.code ?? ''),
     isPersonal: Boolean(doc.isPersonal),
     settings: doc.settings as import('./api').Team['settings'],
+    resolvedSettings: doc.resolvedSettings as import('./api').Team['resolvedSettings'],
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,
   };

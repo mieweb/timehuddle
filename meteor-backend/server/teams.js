@@ -16,6 +16,7 @@ import {
   addMemberToTeamOrgIfAllowed,
   settingsUpdateFor,
   publicTeamSettings,
+  legacyTeamSettings,
   descendantTeams,
 } from './settings';
 import { onSettingsChanged } from './settings/changes';
@@ -132,7 +133,8 @@ function publicTeamShape(team, resolved) {
     admins: team.admins,
     code: team.code,
     isPersonal: team.isPersonal ?? false,
-    settings: publicTeamSettings(resolved),
+    settings: legacyTeamSettings(resolved),
+    resolvedSettings: publicTeamSettings(resolved),
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
   };
@@ -147,9 +149,10 @@ async function toPublicTeams(teams) {
   return teams.map((team, i) => publicTeamShape(team, resolved[i]));
 }
 
-// Publishes the user's teams with `settings` replaced by the resolved values,
-// so the client never sees raw (possibly absent) settings. Any settings change
-// (team, org or enterprise) republishes them through `onSettingsChanged`.
+// Publishes the user's teams with the resolved settings in place of the raw
+// ones: `resolvedSettings` carries value, source and lock; `settings` keeps the
+// plain booleans older clients read. Any settings change (team, org or
+// enterprise) republishes them through `onSettingsChanged`.
 Meteor.publish('teams.byUser', async function () {
   if (!this.userId) return this.ready();
   const docs = new Map();
@@ -160,12 +163,13 @@ Meteor.publish('teams.byUser', async function () {
   const sendSettings = async (id, extraFields = {}) => {
     const doc = docs.get(hexOf(id));
     if (!doc) return;
-    const resolved = publicTeamSettings(await resolveSettings(doc));
-    const serialized = JSON.stringify(resolved);
+    const resolved = await resolveSettings(doc);
+    const resolvedSettings = publicTeamSettings(resolved);
+    const serialized = JSON.stringify(resolvedSettings);
     if (sent.get(hexOf(id)) === serialized && !Object.keys(extraFields).length) return;
     const isNew = !sent.has(hexOf(id));
     sent.set(hexOf(id), serialized);
-    const fields = { ...extraFields, settings: resolved };
+    const fields = { ...extraFields, settings: legacyTeamSettings(resolved), resolvedSettings };
     if (isNew) this.added('teams', id, fields);
     else this.changed('teams', id, fields);
   };

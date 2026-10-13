@@ -111,4 +111,10 @@ describe('migrateSettings', () => {
     expect((await read(before))?.settings?.requirePlanForClock).toBe(false);
     expect((await read(after))?.settings).toBeUndefined();
   });
+
+  it('tolerates another instance recording the marker first', async () => {
+    const db = await getDb();
+    await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
+    await expect(Promise.all([migrateSettings(db), migrateSettings(db)])).resolves.toBeDefined();
+  });
 });

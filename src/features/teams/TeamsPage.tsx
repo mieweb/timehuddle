@@ -981,11 +981,11 @@ export const TeamsPage: React.FC = () => {
                   title="Require a plan for every clock-in/out"
                   description="Members post a plan to start each session, and add a wrap-up to it before clocking out — one Huddle post per session."
                   switchLabel="Toggle requiring a plan for every clock-in and out"
-                  setting={selectedTeam.settings.requirePlanForClock}
+                  setting={selectedTeam.resolvedSettings.requirePlanForClock}
                   names={settingNames}
                   checked={
                     pendingSetting.requirePlanForClock ??
-                    selectedTeam.settings.requirePlanForClock.value
+                    selectedTeam.resolvedSettings.requirePlanForClock.value
                   }
                   saving={savingSetting !== null}
                   onToggle={(checked) => void updateTeamSetting('requirePlanForClock', checked)}
@@ -1011,10 +1011,11 @@ export const TeamsPage: React.FC = () => {
                   title="Auto-accept join requests"
                   description="Anyone joining with the team code is added immediately — no pending approval from an admin."
                   switchLabel="Toggle auto-accepting join requests"
-                  setting={selectedTeam.settings.autoAcceptJoins}
+                  setting={selectedTeam.resolvedSettings.autoAcceptJoins}
                   names={settingNames}
                   checked={
-                    pendingSetting.autoAcceptJoins ?? selectedTeam.settings.autoAcceptJoins.value
+                    pendingSetting.autoAcceptJoins ??
+                    selectedTeam.resolvedSettings.autoAcceptJoins.value
                   }
                   saving={savingSetting !== null}
                   onToggle={(checked) => void updateTeamSetting('autoAcceptJoins', checked)}

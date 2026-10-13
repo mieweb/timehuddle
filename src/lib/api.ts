@@ -1350,7 +1350,9 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
-  settings: Record<TeamSettingKey, ResolvedSetting>;
+  /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
+  settings: Record<TeamSettingKey, boolean>;
+  resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;
   createdAt: string;
   updatedAt: string | null;
 }

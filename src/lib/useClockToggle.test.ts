@@ -64,7 +64,7 @@ function setupTeam(
       ? null
       : {
           id: 'team1',
-          settings: {
+          resolvedSettings: {
             requirePlanForClock: {
               value: opts.requirePlan,
               source: 'org',

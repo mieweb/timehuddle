@@ -87,7 +87,8 @@ const DEFAULTS_STRINGS = {
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
-  const { selectedOrgId, organizations, enterprises, refreshTeamSettings } = useTeam();
+  const { selectedOrgId, organizations, enterprises, refreshTeamSettings, refetchOrganizations } =
+    useTeam();
   const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [canManage, setCanManage] = useState(false);
@@ -191,13 +192,14 @@ export const OrganizationMembersPage: React.FC = () => {
       try {
         setSettingsView(await orgApi.updateSettings(selectedOrgId, patch));
         refreshTeamSettings();
+        refetchOrganizations();
       } catch (err) {
         setSettingsError(err instanceof ApiError ? err.message : DEFAULTS_STRINGS.failedToSave);
       } finally {
         setSavingSettings(false);
       }
     },
-    [selectedOrgId, refreshTeamSettings],
+    [selectedOrgId, refreshTeamSettings, refetchOrganizations],
   );
 
   // Names for "Locked by …" / "Inherited from …"; the enterprise's is absent for non-members.
