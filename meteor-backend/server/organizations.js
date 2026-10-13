@@ -45,6 +45,7 @@ Meteor.startup(async () => {
 
 // The auto-join value to store, or undefined for nothing. Under an enterprise lock
 // only the locked value is accepted, and it is not stored so it can't resurface later.
+// A value equal to the effective one is not stored, so an org keeps inheriting.
 function autoJoinToStore(effective, requested) {
   if (typeof requested !== 'boolean') return undefined;
   if (effective.locked && effective.source === 'enterprise') {
@@ -53,7 +54,7 @@ function autoJoinToStore(effective, requested) {
     }
     return undefined;
   }
-  return requested;
+  return requested === effective.value ? undefined : requested;
 }
 
 function slugify(value) {

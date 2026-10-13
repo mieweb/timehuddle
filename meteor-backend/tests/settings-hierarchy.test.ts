@@ -547,6 +547,65 @@ describe('sub-teams', () => {
   });
 });
 
+describe('org edits and inherited auto-join', () => {
+  const orgName = 'Settings Inherit Create Org';
+
+  beforeEach(async () => {
+    await wormhole(
+      'enterprises.updateSettings',
+      { enterpriseId: enterpriseId.toHexString(), settings: { allowAutoJoin: false } },
+      jwts.entAdmin,
+    );
+  });
+
+  afterEach(async () => {
+    const db = await getDb();
+    await db.collection('organizations').deleteMany({ name: orgName });
+  });
+
+  it('a name-only edit that echoes the effective value keeps inheriting', async () => {
+    const res = await wormhole(
+      'orgs.update',
+      { orgId: orgId.toHexString(), name: 'Settings Org Renamed', allowAutoJoin: false },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const org = await db.collection('organizations').findOne({ _id: orgId });
+    expect(org?.settings).toEqual({});
+    await db.collection('organizations').updateOne({ _id: orgId }, { $set: { name: 'Settings Org' } });
+  });
+
+  it('creating an org with the effective value does not pin it', async () => {
+    const res = await wormhole<{ organization: { id: string } }>(
+      'orgs.create',
+      { enterpriseId: enterpriseId.toHexString(), name: orgName, allowAutoJoin: false },
+      jwts.entAdmin,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const org = await db
+      .collection('organizations')
+      .findOne({ _id: new ObjectId(res.result.organization.id) });
+    expect(org?.settings).toEqual({});
+  });
+
+  it('a value that differs from the effective one is stored', async () => {
+    const res = await wormhole(
+      'orgs.update',
+      { orgId: orgId.toHexString(), allowAutoJoin: true },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+
+    const db = await getDb();
+    const org = await db.collection('organizations').findOne({ _id: orgId });
+    expect(org?.settings).toEqual({ allowAutoJoin: true });
+  });
+});
+
 describe('org creation under an enterprise lock', () => {
   const orgName = 'Settings Locked Create Org';
 
