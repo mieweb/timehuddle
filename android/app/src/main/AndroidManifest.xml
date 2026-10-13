@@ -39,11 +39,4 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Allow AppLauncher.canOpenUrl to query the Pulse Cam custom scheme -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="pulsecam" />
-        </intent>
-    </queries>
 </manifest>

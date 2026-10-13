@@ -865,14 +865,14 @@ export const ClockPage: React.FC = () => {
       <PulseUploadModal
         open={planPulse.modalOpen}
         onClose={planPulse.closeModal}
-        scanLink={planPulse.link?.scanLink ?? null}
+        link={planPulse.link?.url ?? null}
         destination={planPulse.destination}
         status={planPulse.status}
       />
       <PulseUploadModal
         open={wrapUpPulse.modalOpen}
         onClose={wrapUpPulse.closeModal}
-        scanLink={wrapUpPulse.link?.scanLink ?? null}
+        link={wrapUpPulse.link?.url ?? null}
         destination={wrapUpPulse.destination}
         status={wrapUpPulse.status}
       />

@@ -27,6 +27,9 @@ import {
   TEST_MP4,
 } from './helpers';
 
+const IPHONE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const reserveLibraryUpload = (request: APIRequestContext, token: string) =>
@@ -118,6 +121,25 @@ test.describe('PulseVault — API contract', () => {
     const body = await res.json();
     expect(body).toHaveProperty('protocolVersion');
     expect(body).not.toHaveProperty('uploadUnit');
+  });
+
+  test("GET /pulse/open forwards an older link to Pulse's https pairing link", async ({
+    request,
+  }) => {
+    // A QR from an app bundle that hasn't updated yet still points here.
+    const backend = process.env.API_TARGET ?? 'http://localhost:3101';
+    const res = await request.get(
+      `${backend}/pulse/open?v=1&artifactId=abc&server=${encodeURIComponent('https://th.example/pulsevault')}&token=tok&extra=dropped`,
+      { maxRedirects: 0 },
+    );
+    expect(res.status()).toBe(302);
+    expect(res.headers()['cache-control']).toBe('no-store');
+    const location = new URL(res.headers()['location']);
+    expect(`${location.origin}${location.pathname}`).toBe('https://mieweb.github.io/pulse/open');
+    expect(location.search).toBe('');
+    const params = new URLSearchParams(location.hash.slice(1));
+    expect([...params.keys()]).toEqual(['v', 'artifactId', 'server', 'token']);
+    expect(params.get('server')).toBe('https://th.example/pulsevault');
   });
 
   test('POST /api/pulsevault_reserve requires auth', async ({ request }) => {
@@ -342,7 +364,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     await deleteTicket(page, ticketTitle);
   });
 
-  test('the Pulse chip opens the QR modal with a valid pulsecam deep link', async ({ page }) => {
+  test('on a computer, the Pulse chip opens the QR window', async ({ page }) => {
     await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 
@@ -353,6 +375,46 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     const qr = qrModal.locator('[aria-label="QR code to open the Pulse upload screen"]');
     await expect(qr).toBeVisible();
+    await expect(qrModal.getByRole('link', { name: 'Open Pulse' })).toHaveCount(0);
+  });
+
+  test("in a phone's browser, one tap on Pulse follows Pulse's https pairing link", async ({
+    browser,
+  }) => {
+    // The link is ready before the tap, so the tap itself opens it (a Universal
+    // Link / App Link opens the app only from a tap). Pulse's page is stubbed:
+    // the test only checks where the tap goes. The upload rides in the fragment.
+    const phone = await browser.newContext({
+      userAgent: IPHONE_UA,
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const page = await phone.newPage();
+    await page.route('https://mieweb.github.io/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Pulse</title>' }),
+    );
+    try {
+      await loginAs(page, TEST_USERS.owner1);
+      await page.goto('/app/tickets');
+      await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
+      const prepared = page.waitForResponse((r) => r.url().includes('/api/pulsevault_reserve'));
+      await page.waitForURL(/\/app\/tickets\/[0-9a-f]{24}/);
+      await prepared;
+
+      await page.getByRole('button', { name: 'Add a video with Pulse' }).click();
+      await page.waitForURL(/^https:\/\/mieweb\.github\.io\/pulse\/open#/);
+
+      const href = new URL(page.url());
+      expect(href.search).toBe('');
+      const params = new URLSearchParams(href.hash.slice(1));
+      expect(params.get('v')).toBe('1');
+      expect(params.get('artifactId')).toMatch(/^[0-9a-f-]{36}$/);
+      expect(params.get('server')).toMatch(/\/pulsevault$/);
+      expect(params.get('token')).toBeTruthy();
+    } finally {
+      await phone.close();
+    }
   });
 
   test("a video sent through the ticket's link lands in its Attachments", async ({ page }) => {
