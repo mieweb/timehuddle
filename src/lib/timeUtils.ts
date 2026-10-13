@@ -28,6 +28,13 @@ export function formatDate(date: Date, includeYear = false): string {
   return date.toLocaleDateString('en-US', opts);
 }
 
+/** Format a Date to "Fri, Oct 3" — with the year when it isn't this year. */
+export function formatWeekdayDate(date: Date): string {
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return date.toLocaleDateString('en-US', opts);
+}
+
 /** Get start of day for a date */
 export function startOfDay(date: Date): Date {
   const d = new Date(date);

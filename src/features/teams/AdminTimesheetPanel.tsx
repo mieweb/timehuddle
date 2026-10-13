@@ -9,7 +9,7 @@
  *   • The backend allows only team admins to VIEW another member's sessions.
  *   • Edit/delete is allowed only for admins (enforced server-side).
  */
-import { faCalendar, faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
+import { faCalendar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -18,20 +18,12 @@ import {
   Button,
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
-  cn,
   Input,
   ModalBody,
   ModalFooter,
   ModalHeader,
   Select,
   Spinner,
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
@@ -47,6 +39,8 @@ import {
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
+import { SessionListCard } from '../clock/SessionListCard';
+import { TimesheetRow } from '../clock/TimesheetRow';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
@@ -63,13 +57,11 @@ import {
   TimesheetJustificationFields,
   type TimesheetJustificationState,
 } from '../clock/TimesheetJustificationFields';
-import { AdminDayGroup } from './AdminDayGroup';
 import {
   fromLocalDateTimeInputValue,
   getDateRange,
   getLocalDateKey,
   PRESETS,
-  STICKY_ACTIONS_CELL,
   sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
@@ -131,7 +123,6 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   // simply waits until the list it belongs to arrives.
   const selectedMemberId =
     (memberId && members.some((m) => m.id === memberId) ? memberId : members[0]?.id) ?? '';
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -267,39 +258,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     return myPending.filter((r) => r.targetId && shown.has(r.targetId));
   }, [myPending, filteredSessions]);
 
-  // Group filtered sessions by calendar day (descending date order)
-  const groupedByDay = useMemo(() => {
-    const map = new Map<string, ClockEvent[]>();
-    for (const session of filteredSessions) {
-      const dayKey = getLocalDateKey(session.originalStartTime ?? session.startTime);
-      const bucket = map.get(dayKey);
-      if (bucket) {
-        bucket.push(session);
-      } else {
-        map.set(dayKey, [session]);
-      }
-    }
-    return new Map([...map.entries()].sort((a, b) => b[0].localeCompare(a[0])));
-  }, [filteredSessions]);
-
-  const allExpanded = expandedDays.size > 0;
-
-  const toggleExpandAll = useCallback(() => {
-    if (allExpanded) {
-      setExpandedDays(new Set());
-    } else {
-      setExpandedDays(new Set(groupedByDay.keys()));
-    }
-  }, [allExpanded, groupedByDay]);
-
-  const toggleDay = useCallback((dayKey: string) => {
-    setExpandedDays((prev) => {
-      const next = new Set(prev);
-      if (next.has(dayKey)) next.delete(dayKey);
-      else next.add(dayKey);
-      return next;
-    });
-  }, []);
+  // Your own changes to this member's sessions that are waiting on review.
+  const pendingByTarget = useMemo(() => new Set(pendingHere.map((r) => r.targetId)), [pendingHere]);
 
   // Recompute summary from filtered sessions
   const filteredSummary = useMemo(() => {
@@ -418,7 +378,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="admin-timesheet space-y-4">
       {/* Member selector */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
         <div className="w-full sm:w-64">
@@ -557,57 +517,19 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
-      {/* Sessions table */}
+      {/* Sessions: the same list as Me → Timesheet. */}
       {data && filteredSessions.length > 0 && (
-        <Card padding="none">
-          <CardHeader className="flex items-center justify-between px-5 py-3">
-            <CardTitle className="text-sm">
-              {groupedByDay.size} {groupedByDay.size === 1 ? 'day' : 'days'} &middot;{' '}
-              {filteredSessions.length} sessions
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleExpandAll}
-              aria-label={allExpanded ? 'Collapse all days' : 'Expand all days'}
-            >
-              <FontAwesomeIcon
-                icon={allExpanded ? faChevronUp : faChevronDown}
-                className="mr-1.5 text-xs"
-              />
-              {allExpanded ? 'Collapse All' : 'Expand All'}
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table responsive>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Clock In</TableHead>
-                  <TableHead>Clock Out</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className={cn('w-16 text-right', STICKY_ACTIONS_CELL)}>
-                    Actions
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...groupedByDay.entries()].map(([dayKey, daySessions]) => (
-                  <AdminDayGroup
-                    key={dayKey}
-                    sessions={daySessions}
-                    teams={teams}
-                    onEdit={openSessionDialog}
-                    isExpanded={expandedDays.has(dayKey)}
-                    onToggle={() => toggleDay(dayKey)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <SessionListCard count={filteredSessions.length}>
+          {filteredSessions.map((s) => (
+            <TimesheetRow
+              key={s.id}
+              session={s}
+              teams={teams}
+              onEdit={openSessionDialog}
+              changeStatus={pendingByTarget.has(s.id) ? 'pending' : undefined}
+            />
+          ))}
+        </SessionListCard>
       )}
 
       {/* Empty state */}

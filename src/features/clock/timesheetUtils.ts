@@ -3,6 +3,8 @@
  * Used by both TimesheetPage (personal) and AdminTimesheetPanel (admin view).
  */
 
+import type { ClockEvent } from '../../lib/api';
+
 export type Preset = 'today' | 'yesterday' | 'lastWeek' | 'week' | '14d' | 'custom';
 
 export function getDateRange(preset: Preset): [Date, Date] {
@@ -85,6 +87,23 @@ export function roundDurationSecondsForDisplay(totalSeconds: number | null): num
   return Math.round(value / 60) * 60;
 }
 
+/**
+ * A session's work time as the server counts it: short (rest) breaks are
+ * paid, meal breaks aren't. Used for Total Hours and a split session's total.
+ */
+export function getSessionWorkSeconds(session: ClockEvent, now: number): number {
+  if (session.endTime === null) {
+    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
+    const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+    if (session.isPaused) return accumulated;
+    return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
+  }
+
+  const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+  if (accumulated > 0) return accumulated;
+  return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
+}
+
 /** Round each duration to the nearest minute, then sum — matches visible row totals. */
 export function sumRoundedDurationsForDisplay(durationsSeconds: number[]): number {
   return durationsSeconds.reduce(
@@ -101,17 +120,3 @@ export const PRESETS: { key: Preset; label: string }[] = [
   { key: '14d', label: '14 Days' },
   { key: 'custom', label: 'Custom' },
 ];
-
-/**
- * Below this width a session table is wider than the screen and scrolls
- * sideways inside its card (seven columns don't fit a phone or a tablet).
- */
-export const TIMESHEET_SCROLLS_QUERY = '(max-width: 1023px)';
-
-/**
- * The Actions column of a session table: pinned to the card's right edge while
- * the table scrolls sideways, so a row's Videos and Edit buttons are always in
- * view. Header and cells use it alike so the column stays aligned.
- */
-export const STICKY_ACTIONS_CELL =
-  'max-lg:sticky max-lg:right-0 max-lg:z-[1] max-lg:bg-card max-lg:shadow-[-6px_0_6px_-6px_rgb(0_0_0/0.25)]';
