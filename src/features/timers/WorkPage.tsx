@@ -866,23 +866,22 @@ export const WorkPage: React.FC = () => {
       {dayEntries.length === 0 ? (
         <EmptyState title="No timers for this day" description='Create one with "+".' />
       ) : (
-        // Laid out by the card's own width: under 34rem (a phone, or a tablet
-        // beside the sidebar) the four columns don't fit, so Time and the ⋮
-        // move into the work item's own top line instead of past the edge.
-        <Card padding="none" className="work-day-card @container">
-          {/* Fixed layout when narrow: the work item column gets only what's
-              left after the timer button, so a long title truncates instead of
-              widening the table past the card (its no-wrap text would). */}
-          <Table
-            aria-label={`Work items for ${selectedDayLabel}`}
-            className="@max-[34rem]:table-fixed"
-          >
+        // One layout at every width: the play button, then the work item with
+        // its title, tags, time and ⋮ on one top line, the note and the
+        // walkthrough under it. No separate Time / ⋮ columns, so nothing has
+        // to hide or move on a small screen; a long title just truncates.
+        <Card padding="none" className="work-day-card">
+          <Table aria-label={`Work items for ${selectedDayLabel}`} className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10" />
-                <TableHead>Work Item</TableHead>
-                <TableHead className="text-right @max-[34rem]:hidden">Time</TableHead>
-                <TableHead className="w-20 @max-[34rem]:hidden" />
+                <TableHead className="w-14" />
+                <TableHead>
+                  {/* "Time" sits over the times: right-aligned, clear of the ⋮. */}
+                  <div className="flex items-center justify-between pe-12">
+                    <span>Work Item</span>
+                    <span>Time</span>
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -899,32 +898,10 @@ export const WorkPage: React.FC = () => {
                   : !isRunning && !isToday
                     ? 'Timers can only run on the current day — editing this entry is still available.'
                     : undefined;
-                // Shown in their own columns, or (narrow card) on the item's top line.
-                const timeText = (
-                  <Text size="sm" variant={total > 0 ? 'default' : 'muted'} className="font-mono">
-                    {formatDuration(total)}
-                  </Text>
-                );
-                const editButton = (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleOpenEdit(de)}
-                    aria-label="Edit work item"
-                    title={
-                      awaitingApproval
-                        ? 'A change to this entry is already awaiting review.'
-                        : undefined
-                    }
-                    disabled={deletingEntryId === de.entry.id || awaitingApproval}
-                  >
-                    <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                  </Button>
-                );
 
                 return (
                   <TableRow key={de.entry.id}>
-                    <TableCell className="py-2 pr-0">
+                    <TableCell className="py-2 pr-0 align-top">
                       <TimerToggleButton
                         isRunning={isRunning}
                         // One start or stop at a time, app-wide (TicketStartProvider).
@@ -939,83 +916,83 @@ export const WorkPage: React.FC = () => {
                       />
                     </TableCell>
 
-                    <TableCell className="py-2">
-                      <div className="work-item-cell flex items-start gap-2">
-                        {/* Wraps: on a phone the badges and the walkthrough's
-                          Pulse · Upload drop under the title instead of being
-                          cut off at the card's edge. */}
-                        <div className="work-item-summary flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-                          <div className="min-w-0 max-w-full">
-                            <button
-                              type="button"
-                              className="block max-w-full text-left hover:text-primary"
-                              title={title}
-                              onClick={() => openWorkItemTicket(de.entry)}
-                            >
-                              <Text size="sm" weight="medium" truncate>
-                                {title}
-                              </Text>
-                            </button>
-                            {de.entry.note?.trim() && (
-                              // Two lines rather than one truncated: a link in
-                              // the note stays visible and clickable.
-                              <Text
-                                size="xs"
-                                variant="muted"
-                                className="line-clamp-2 [overflow-wrap:anywhere] @max-[34rem]:line-clamp-none"
-                              >
-                                <LinkifiedText text={de.entry.note.trim()} />
-                              </Text>
-                            )}
-                          </div>
-                          {de.entry.source === 'redmine' && (
-                            <Badge variant="outline" size="sm">
-                              Redmine
-                            </Badge>
-                          )}
-                          {isRunning && (
-                            <Badge variant="success" size="sm">
-                              <FontAwesomeIcon
-                                icon={faSpinner}
-                                className="mr-1 animate-spin text-[10px]"
-                              />
-                              Running
-                            </Badge>
-                          )}
-                          {pendingRequest && (
-                            // One group: it moves under the title as a whole
-                            // when it doesn't fit beside it, so the badge never
-                            // ends up on a line apart from its Pulse and Upload.
-                            <div className="pending-approval-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                              <ChangeRequestWalkthrough
-                                request={pendingRequest}
-                                onAdded={loadMyRequests}
-                              />
-                              <Badge
-                                variant="warning"
-                                className="shrink-0 whitespace-nowrap"
-                                size="sm"
-                                title="Waiting for an admin to approve your change"
-                              >
-                                Pending approval
-                              </Badge>
-                            </div>
-                          )}
-                        </div>
-                        {/* Narrow card only: Time and ⋮, in place of their columns. */}
-                        <div className="work-item-narrow-actions hidden shrink-0 items-center gap-1 @max-[34rem]:flex">
-                          {timeText}
-                          {editButton}
-                        </div>
+                    <TableCell className="py-2 align-top">
+                      {/* Top line, as tall as the play button so everything on
+                          it is centred with it. */}
+                      <div className="work-item-top flex min-h-10 items-center gap-2">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left hover:text-primary"
+                          title={title}
+                          onClick={() => openWorkItemTicket(de.entry)}
+                        >
+                          <Text size="sm" weight="medium" truncate>
+                            {title}
+                          </Text>
+                        </button>
+                        {de.entry.source === 'redmine' && (
+                          <Badge variant="outline" size="sm" className="shrink-0">
+                            Redmine
+                          </Badge>
+                        )}
+                        {isRunning && (
+                          <Badge variant="success" size="sm" className="shrink-0">
+                            <FontAwesomeIcon
+                              icon={faSpinner}
+                              className="mr-1 animate-spin text-[10px]"
+                            />
+                            Running
+                          </Badge>
+                        )}
+                        <Text
+                          size="sm"
+                          variant={total > 0 ? 'default' : 'muted'}
+                          className="shrink-0 font-mono"
+                        >
+                          {formatDuration(total)}
+                        </Text>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => handleOpenEdit(de)}
+                          aria-label="Edit work item"
+                          title={
+                            awaitingApproval
+                              ? 'A change to this entry is already awaiting review.'
+                              : undefined
+                          }
+                          disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                        >
+                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                        </Button>
                       </div>
-                    </TableCell>
-
-                    <TableCell className="py-2 text-right @max-[34rem]:hidden">
-                      {timeText}
-                    </TableCell>
-
-                    <TableCell className="py-2 text-right @max-[34rem]:hidden">
-                      {editButton}
+                      {de.entry.note?.trim() && (
+                        // In full, not cut off: a link in it stays clickable.
+                        <Text
+                          size="xs"
+                          variant="muted"
+                          className="work-item-note pe-11 [overflow-wrap:anywhere]"
+                        >
+                          <LinkifiedText text={de.entry.note.trim()} />
+                        </Text>
+                      )}
+                      {pendingRequest && (
+                        <div className="pending-approval-status mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <ChangeRequestWalkthrough
+                            request={pendingRequest}
+                            onAdded={loadMyRequests}
+                          />
+                          <Badge
+                            variant="warning"
+                            className="shrink-0 whitespace-nowrap"
+                            size="sm"
+                            title="Waiting for an admin to approve your change"
+                          >
+                            Pending approval
+                          </Badge>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
