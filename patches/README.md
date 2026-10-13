@@ -26,3 +26,6 @@ files are in pnpm format; ours differ only in the filename
 (`@kerebron+<name>+<version>.patch`) and in each path being prefixed with
 `node_modules/@kerebron/<name>/`. When upstream drops a patch because Kerebron
 fixed the bug, delete it here and move the pin.
+
+`scripts/apply-patches.cjs` lists the patches it expects and fails the install if
+one is missing, so adding, removing or renaming a patch means updating that list too.
