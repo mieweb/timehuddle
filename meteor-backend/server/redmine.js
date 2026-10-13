@@ -20,6 +20,7 @@ import {
   RedmineLinks,
   Timers,
   WorkItems,
+  isObjectIdHex,
   isValidId,
 } from './collections';
 import { requireIdentity } from './auth-bridge';
@@ -271,7 +272,8 @@ async function unsentTicketDays(userId, account, only) {
 async function redmineIssueOf(session, account) {
   // A link names an issue on the deployment's own Redmine (see `redmineStampFor`).
   if (session.redmineIssueId) return onDefaultRedmine(account) ? session.redmineIssueId : null;
-  if (!isValidId(session.workItemId)) return null;
+  // `isValidId` also passes legacy Meteor ids, which `Mongo.ObjectID` throws on.
+  if (!isObjectIdHex(session.workItemId)) return null;
   const workItem = await WorkItems.findOneAsync(new Mongo.ObjectID(session.workItemId), {
     fields: { source: 1, ticketId: 1 },
   });

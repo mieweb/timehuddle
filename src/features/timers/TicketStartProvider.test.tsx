@@ -341,12 +341,18 @@ describe('TicketStartProvider', () => {
   });
 
   describe('time left to send to Redmine when a timer ends (#688)', () => {
-    const stopIssue = async () => {
+    const sendButton = () => screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement;
+    /**
+     * Stop a timer on issue #15, which opens the prompt. Send waits for the
+     * issue's activities to be read; `settled: false` leaves that to the test.
+     */
+    const stopIssue = async ({ settled = true } = {}) => {
       vi.mocked(timerApi.stopSession).mockResolvedValue({ unsentRedmine: UNSENT } as never);
       const { result } = renderProvider();
       await act(async () => {
         await result.current.stop({ sessionId: 's0', ticketKey: 'redmine:15', label: '#15' });
       });
+      if (settled) await waitFor(() => expect(sendButton().disabled).toBe(false));
     };
     const comment = () => screen.getByLabelText('Comment (optional)');
 
@@ -440,6 +446,57 @@ describe('TicketStartProvider', () => {
         comment: undefined,
         activityId: undefined,
       });
+    });
+
+    it('holds Send, and the keys, until the issue\u2019s activities have been read', async () => {
+      // A sent entry is permanent: the activity it goes under is shown first.
+      let answer!: (value: Awaited<ReturnType<typeof redmineApi.timeEntries.preview>>) => void;
+      mockPreview.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue({ settled: false });
+
+      expect(sendButton().disabled).toBe(true);
+      fireEvent.keyDown(comment(), { key: 'Enter' });
+      fireEvent.keyDown(comment(), { key: 'Enter', metaKey: true });
+      expect(mockSend).not.toHaveBeenCalled();
+
+      await act(async () => answer({ connected: true, idle: false, rows: [], baseUrl: null }));
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('says why an entry cannot be sent, and does not offer to send it', async () => {
+      mockPreview.mockResolvedValue({
+        connected: true,
+        idle: false,
+        baseUrl: null,
+        rows: [
+          {
+            ticketId: '15',
+            date: UNSENT.date,
+            seconds: 1860,
+            alreadySentSeconds: 0,
+            hours: 0.52,
+            subject: 'Fix the clock',
+            trackerName: 'Bug',
+            issueMissing: false,
+            activityId: null,
+            activityName: null,
+            activityReason: 'none',
+            activityOptions: [],
+            blockedReason: 'no-activity',
+          },
+        ],
+      });
+      await stopIssue({ settled: false });
+
+      expect(
+        await screen.findByText('This issue\u2019s project allows no activity in Redmine'),
+      ).toBeTruthy();
+      // Not "Chosen automatically": the server would only refuse it.
+      expect(screen.queryByText('Chosen automatically')).toBeNull();
+      expect(sendButton().disabled).toBe(true);
+      fireEvent.keyDown(comment(), { key: 'Enter' });
+      expect(mockSend).not.toHaveBeenCalled();
     });
 
     it('says the activity is chosen automatically when the list could not be read', async () => {

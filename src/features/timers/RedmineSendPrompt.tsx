@@ -15,6 +15,7 @@
  * anywhere in the prompt, and Esc dismisses.
  */
 import {
+  Badge,
   Button,
   ButtonGroup,
   Modal,
@@ -38,6 +39,7 @@ import {
 } from '../../lib/api';
 import { RedmineEntryCard, RedmineEntryField } from '../clock/RedmineEntryCard';
 import {
+  BLOCKED_TEXT,
   REDMINE_COMMENT_MAX_LENGTH,
   REDMINE_TIME_SENT_EVENT,
   asClock,
@@ -69,6 +71,15 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   const [row, setRow] = useState<RedmineTimeEntryRow | null>(null);
   // The read has answered, one way or the other: no longer "loading".
   const [activitiesRead, setActivitiesRead] = useState(false);
+  // Why the server will not send this entry (its project allows no activity,
+  // or the issue could not be read), when it said so.
+  const blockedReason = row?.blockedReason ?? null;
+  // Not before the read has answered: a sent entry is permanent, so the
+  // activity it goes under is shown first. Not at all for a blocked entry,
+  // which the server would only refuse.
+  const canSend = activitiesRead && !blockedReason;
+  const canSendRef = useRef(canSend);
+  canSendRef.current = canSend;
   const [activityId, setActivityId] = useState<number | null>(null);
   const [decimalHours, setDecimalHours] = useState(false);
 
@@ -100,8 +111,8 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
 
   const send = async () => {
     // The ref is the guard: two key presses can land before the state does,
-    // and a sent entry is permanent.
-    if (busyRef.current) return;
+    // and a sent entry is permanent. The keys obey what the button does.
+    if (busyRef.current || !canSendRef.current) return;
     busyRef.current = true;
     setSending(true);
     setError(null);
@@ -194,26 +205,34 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             bare
           >
             <RedmineEntryField label={entryCardText.activity}>
-              <Select
-                label={text.redmineSendActivityLabel}
-                hideLabel
-                size="sm"
-                // Only what this issue's project allows.
-                options={activityOptions}
-                value={String(activityId ?? row?.activityId ?? '')}
-                onValueChange={(value) => setActivityId(Number(value))}
-                placeholder={
-                  !activitiesRead
-                    ? text.redmineSendActivityLoading
-                    : activityOptions.length === 0
-                      ? text.redmineSendActivityAuto
-                      : undefined
-                }
-                disabled={sending || activityOptions.length === 0}
-                searchable
-                searchPlaceholder={text.redmineSendActivitySearch}
-                noResultsText={text.redmineSendActivityNoMatch}
-              />
+              {blockedReason ? (
+                // As the push dialog says it. The time waits there, where it
+                // can be retried or marked Never send.
+                <Badge variant="outline" className="redmine-send-blocked">
+                  {BLOCKED_TEXT[blockedReason]}
+                </Badge>
+              ) : (
+                <Select
+                  label={text.redmineSendActivityLabel}
+                  hideLabel
+                  size="sm"
+                  // Only what this issue's project allows.
+                  options={activityOptions}
+                  value={String(activityId ?? row?.activityId ?? '')}
+                  onValueChange={(value) => setActivityId(Number(value))}
+                  placeholder={
+                    !activitiesRead
+                      ? text.redmineSendActivityLoading
+                      : activityOptions.length === 0
+                        ? text.redmineSendActivityAuto
+                        : undefined
+                  }
+                  disabled={sending || activityOptions.length === 0}
+                  searchable
+                  searchPlaceholder={text.redmineSendActivitySearch}
+                  noResultsText={text.redmineSendActivityNoMatch}
+                />
+              )}
             </RedmineEntryField>
             <RedmineEntryField label={entryCardText.comment}>
               <Input
@@ -258,6 +277,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             variant="primary"
             onClick={() => void send()}
             isLoading={sending}
+            disabled={!canSend}
             aria-keyshortcuts="Enter Meta+Enter Control+Enter"
           >
             {text.redmineSend}

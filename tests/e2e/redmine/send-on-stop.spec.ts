@@ -150,6 +150,8 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     await tickets.stopTimerButton(first).click();
     const comment = prompt(page).getByLabel('Comment (optional)');
     await comment.fill('Fixed the form');
+    // Send, and the keys with it, wait until the issue's activities have been read.
+    await expect(prompt(page).getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
     await comment.press('Enter');
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
@@ -158,6 +160,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     const second = await timedTicket(page, 'Send Mod Enter');
     await tickets.stopTimerButton(second).click();
     await expect(prompt(page)).toBeVisible();
+    await expect(prompt(page).getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
     await prompt(page).getByRole('button', { name: 'Later' }).focus();
     await page.keyboard.press('ControlOrMeta+Enter');
 
