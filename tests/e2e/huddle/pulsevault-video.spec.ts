@@ -11,11 +11,12 @@
  *     upload step. Runs on a freshly created, empty team, so the inbox opens
  *     on its starter conversation.
  *
- * Both assert against the real backend — the post must link to the actual
- * /pulsevault/artifacts/:id playback URL (the inbox renders video attachments
- * as links), not just "some video exists".
+ * Both assert against the real backend — the post must show the Pulse video
+ * card, and playing it must load the actual /pulsevault/artifacts/:id URL,
+ * not just "some video exists".
  */
 import { expect, test, type Page } from '@playwright/test';
+import { playPulseVideoCard } from '../fixtures/pulseVideo';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import {
@@ -81,9 +82,7 @@ test.describe('Huddle — direct video upload', () => {
     await submitPost(page);
 
     const post = await openPostInInbox(page, postText);
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
-      timeout: 10000,
-    });
+    await playPulseVideoCard(post);
   });
 });
 
@@ -130,7 +129,7 @@ test.describe('Huddle — a Pulse upload posts itself', () => {
 
     await page.reload();
     await expect(page.getByText(name).first()).toBeVisible({ timeout: 20000 });
-    await expect(page.locator(`a[href*="/pulsevault/artifacts/${videoid}"]`).first()).toBeVisible();
+    await playPulseVideoCard(page.locator('body'), { videoid });
   });
 });
 
@@ -169,8 +168,6 @@ test.describe('Huddle — ticket video cross-posting', () => {
     await sendFromInbox(page);
 
     const post = await openPostInInbox(page, postText);
-    await expect(post.locator('a[href*="/pulsevault/artifacts/"]')).toBeVisible({
-      timeout: 10000,
-    });
+    await playPulseVideoCard(post);
   });
 });

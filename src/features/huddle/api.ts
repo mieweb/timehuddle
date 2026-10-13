@@ -1,6 +1,7 @@
 // Huddle feature API helpers
 import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
+import { artifactPath } from '../pulse-upload/artifact';
 import { isVideoFile, uploadVideoToLibrary } from '../pulse-upload/videoFile';
 import type { TeamMember, MediaItem } from './types';
 
@@ -174,7 +175,7 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
     size: file.size,
     mimeType: 'video/mp4',
     // Path only — the reader binds it to the current backend origin.
-    url: `/pulsevault/artifacts/${videoid}`,
+    url: artifactPath(videoid),
     filename: file.name,
   };
 }
