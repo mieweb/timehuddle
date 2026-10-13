@@ -210,6 +210,19 @@ export async function getAccessibleOrgIds(userId) {
 }
 
 /**
+ * True if a manager removed `userId` from `orgId`. The implicit joins — the
+ * sign-in auto-join and the personal team's home organization — check this so
+ * they never undo a removal. An explicit add or invitation still goes through.
+ */
+export async function wasRemovedFromOrg(orgId, userId) {
+  const removed = await rawDb().collection('users').findOne(
+    { _id: String(userId), removedFromOrgs: orgId },
+    { projection: { _id: 1 } },
+  );
+  return !!removed;
+}
+
+/**
  * True if `userId` has team-admin authority on `team` — either because they
  * are listed in `team.admins`, or because they own the organization the team
  * belongs to. Org owners get full team-admin authority on every team in

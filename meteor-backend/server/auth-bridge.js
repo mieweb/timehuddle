@@ -386,10 +386,16 @@ Accounts.onLogin(async (info) => {
       return;
     }
 
+    const orgIdString = typeof defaultOrg._id === 'string' ? defaultOrg._id : String(defaultOrg._id);
+    const { wasRemovedFromOrg } = await import('./org-helpers');
+    if (await wasRemovedFromOrg(orgIdString, userId)) {
+      console.log('[auth-bridge] user was removed from the default org, skipping auto-join');
+      return;
+    }
+
     // Add user to default org as member
     const { ObjectId } = await import('mongodb');
     const now = new Date();
-    const orgIdString = typeof defaultOrg._id === 'string' ? defaultOrg._id : String(defaultOrg._id);
     await db.collection('org_members').insertOne({
       _id: new ObjectId(),
       orgId: orgIdString,

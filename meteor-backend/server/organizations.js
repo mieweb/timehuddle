@@ -169,10 +169,10 @@ export async function loadOrgMembers(orgId) {
   // Get members from org_members collection
   const membershipDocs = await db.collection('org_members').find({ orgId }).toArray();
   
-  // Get all team members from teams in this org
-  const teamDocs = await db.collection('teams')
-    .find({ orgId }, { projection: { members: 1, admins: 1 } })
-    .toArray();
+  // Get all team members from teams in this org. Personal teams are left out:
+  // each one is its owner's own space, parked in the default org, and says
+  // nothing about who belongs to the organization.
+  const teamDocs = await teamsInOrg(orgId);
   const teamMemberIds = new Set();
   for (const team of teamDocs) {
     for (const memberId of team.members || []) teamMemberIds.add(memberId);
@@ -548,23 +548,51 @@ Meteor.methods({
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
-    const current = await getOrgMembership(orgId, userId);
-    if (!current) throw new Meteor.Error('not-member', 'Not an org member');
-
+    // Anyone loadOrgMembers lists can be removed: a membership row, a legacy
+    // owner/admin entry, or a seat on one of the org's teams.
+    const userTeams = (await teamsInOrg(orgId)).filter(
+      (t) => (t.members ?? []).includes(userId) || (t.admins ?? []).includes(userId),
+    );
     const elevatedIds = new Set([
       ...(org.owners ?? []),
       ...(org.admins ?? []),
       ...membershipDocs.filter((m) => ELEVATED_ROLES.includes(m.role)).map((m) => m.userId),
     ]);
-    if (ELEVATED_ROLES.includes(current.role) && elevatedIds.size === 1 && elevatedIds.has(userId)) {
-      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    const hasMembership = membershipDocs.some((m) => m.userId === userId);
+    if (!hasMembership && !elevatedIds.has(userId) && userTeams.length === 0) {
+      throw new Meteor.Error('not-member', 'Not an org member');
     }
 
+    if (elevatedIds.size === 1 && elevatedIds.has(userId)) {
+      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    }
+    const soleAdminTeams = userTeams.filter(
+      (t) => (t.admins ?? []).includes(userId) && t.admins.length === 1,
+    );
+    if (soleAdminTeams.length > 0) {
+      const names = soleAdminTeams.map((t) => t.name).join(', ');
+      throw new Meteor.Error('last-admin', `Cannot remove the only admin of ${names}. Give the team another admin first.`);
+    }
+
+    const now = new Date();
+    // Leaving the organization means leaving its teams too — otherwise the
+    // team seat keeps them in the member list and in the org's work.
+    if (userTeams.length > 0) {
+      await db.collection('teams').updateMany(
+        { _id: { $in: userTeams.map((t) => t._id) } },
+        { $pull: { members: userId, admins: userId }, $set: { updatedAt: now } },
+      );
+    }
     await db.collection('org_members').deleteMany({ orgId, userId });
     // Sync legacy arrays to remove from owners/admins
     await db.collection('organizations').updateOne(
       { _id: new ObjectId(orgId) },
-      { $pull: { owners: userId, admins: userId }, $set: { updatedAt: new Date() } },
+      { $pull: { owners: userId, admins: userId }, $set: { updatedAt: now } },
+    );
+    // Recorded so an implicit join never brings them back (see wasRemovedFromOrg).
+    await db.collection('users').updateOne(
+      { _id: String(userId) },
+      { $addToSet: { removedFromOrgs: orgId } },
     );
     return { user: { userId } };
   },

@@ -107,6 +107,7 @@ export const OrganizationMembersPage: React.FC = () => {
   const [blockUserId, setBlockUserId] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
   const [blockingSaving, setBlockingSaving] = useState(false);
+  const [removeUserId, setRemoveUserId] = useState<string | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -307,26 +308,25 @@ export const OrganizationMembersPage: React.FC = () => {
     [loadUsers, selectedOrgId],
   );
 
-  const handleRemoveMember = useCallback(
-    async (targetUserId: string) => {
-      if (!selectedOrgId) return;
-      setSavingUserId(targetUserId);
-      setError(null);
-      try {
-        await orgApi.removeMember(selectedOrgId, targetUserId);
-        await loadUsers();
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError('Failed to remove member');
-        }
-      } finally {
-        setSavingUserId(null);
+  const handleConfirmRemove = useCallback(async () => {
+    if (!selectedOrgId || !removeUserId) return;
+    setSavingUserId(removeUserId);
+    setError(null);
+    try {
+      await orgApi.removeMember(selectedOrgId, removeUserId);
+      await loadUsers();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to remove member');
       }
-    },
-    [loadUsers, selectedOrgId],
-  );
+    } finally {
+      // Close either way: a refusal is reported in the page's error banner.
+      setRemoveUserId(null);
+      setSavingUserId(null);
+    }
+  }, [loadUsers, removeUserId, selectedOrgId]);
 
   const handleInviteMember = useCallback(async () => {
     if (!selectedOrgId || !inviteEmail.trim() || inviteLoading) return;
@@ -402,6 +402,9 @@ export const OrganizationMembersPage: React.FC = () => {
     ],
     [],
   );
+
+  const removing = removeUserId !== null && savingUserId === removeUserId;
+  const removeUserName = users.find((u) => u.id === removeUserId)?.name ?? 'This member';
 
   const visibleUsers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
@@ -671,8 +674,8 @@ export const OrganizationMembersPage: React.FC = () => {
                               <Button
                                 variant="danger"
                                 size="sm"
-                                onClick={() => void handleRemoveMember(orgUser.id)}
-                                disabled={isSaving || !canManage}
+                                onClick={() => setRemoveUserId(orgUser.id)}
+                                disabled={isSaving || !canManage || isCurrent}
                                 aria-label={`Remove ${orgUser.name} from organization`}
                               >
                                 Remove
@@ -692,8 +695,8 @@ export const OrganizationMembersPage: React.FC = () => {
                               <Button
                                 variant="danger"
                                 size="sm"
-                                onClick={() => void handleRemoveMember(orgUser.id)}
-                                disabled={isSaving || !canManage}
+                                onClick={() => setRemoveUserId(orgUser.id)}
+                                disabled={isSaving || !canManage || isCurrent}
                                 aria-label={`Remove ${orgUser.name} from organization`}
                               >
                                 Remove
@@ -747,6 +750,29 @@ export const OrganizationMembersPage: React.FC = () => {
             disabled={blockingSaving}
           >
             {blockingSaving ? 'Blocking…' : 'Block Member'}
+          </Button>
+        </ModalFooter>
+      </AppModal>
+
+      {/* Remove member confirmation */}
+      <AppModal
+        open={removeUserId !== null}
+        onOpenChange={(open) => !open && !removing && setRemoveUserId(null)}
+      >
+        <ModalHeader>Remove Member</ModalHeader>
+        <ModalBody>
+          <Text variant="muted" size="sm">
+            {removeUserName} will be removed from {organizationName ?? 'this organization'} and from
+            all of its teams, and will lose access to it. To bring them back, add or invite them
+            again.
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" onClick={() => setRemoveUserId(null)} disabled={removing}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={() => void handleConfirmRemove()} disabled={removing}>
+            {removing ? 'Removing…' : 'Remove Member'}
           </Button>
         </ModalFooter>
       </AppModal>
