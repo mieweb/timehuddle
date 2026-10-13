@@ -26,8 +26,9 @@ interface PulseChipProps {
   /** What pressing it does, for screen readers: "Add a video with Pulse". */
   ariaLabel: string;
   /**
-   * Where Pulse is the page's main way in (the Clock page), the page's primary
-   * pill with this label. Otherwise it's a "Pulse" chip like the ones beside it.
+   * Where Pulse is the page's main way in (the Clock page), a primary button
+   * with this label and no logo: the card around it carries the Pulse logo.
+   * Otherwise it's a "Pulse" chip like the ones beside it.
    */
   main?: { label: string; className: string };
   disabled?: boolean;
@@ -78,8 +79,6 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Button
       type="button"
       variant="primary"
-      size="lg"
-      leftIcon={<PulseLogo inverse className="h-5" />}
       className={cn('pulse-button', main.className)}
       {...shared}
     >

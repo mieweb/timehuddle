@@ -79,9 +79,15 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
-/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
+/** The page's main buttons — Clock in and Clock out. */
 const MAIN_ACTION_PILL =
   'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
+/**
+ * Clock in / out with Pulse: styled like the composer's "Post plan and clock
+ * in" button (a plain primary button). Full width while the card is stacked,
+ * its own width once the card sits beside the words (see `clock-pulse`).
+ */
+const PULSE_ACTION_BUTTON = 'w-full @2xl:w-auto';
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
@@ -536,30 +542,40 @@ export const ClockPage: React.FC = () => {
              team requires a plan. Nothing typed in the composer below goes
              with it. ── */}
         {clockPulse && (
+          // Laid out by the card's own width, not the window's: with the
+          // sidebar open a tablet-sized window leaves ~500px here, and a
+          // side-by-side card squeezed its words into a ~150px column beside
+          // the 288px pill. Side by side only from ~670px (@2xl).
           <section
-            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
+            className="clock-pulse @container shrink-0 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 md:p-6 dark:bg-pulse/10"
             aria-labelledby="clock-pulse-title"
           >
-            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
-            <div className="clock-pulse-copy flex-1">
-              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
-                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
-              </Text>
-              <Text variant="muted" size="sm" className="mt-1">
-                {isClockedIn
-                  ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
-                  : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
-              </Text>
-              <Text variant="muted" size="xs" className="mt-1">
-                Your Pulse draft's name becomes the post's text.
-              </Text>
-            </div>
-            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
-              <PulseChip
-                pulse={clockPulse}
-                ariaLabel={clockPulseLabel}
-                main={{ label: clockPulseLabel, className: MAIN_ACTION_PILL }}
-              />
+            <div className="clock-pulse-layout flex flex-col gap-4 @2xl:flex-row @2xl:items-center">
+              {/* The Pulse logo is the card's, at every size (the pill has
+                  none): beside the words, stacked or not. */}
+              <div className="clock-pulse-intro flex min-w-0 flex-1 items-center gap-3 @2xl:gap-4">
+                <PulseLogo className="clock-pulse-logo h-10 shrink-0 @2xl:h-12" />
+                <div className="clock-pulse-copy min-w-0 flex-1">
+                  <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
+                    {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
+                  </Text>
+                  <Text variant="muted" size="sm" className="mt-1">
+                    {isClockedIn
+                      ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
+                      : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
+                  </Text>
+                  <Text variant="muted" size="xs" className="mt-1">
+                    Your Pulse draft's name becomes the post's text.
+                  </Text>
+                </div>
+              </div>
+              <div className="clock-pulse-action flex shrink-0 flex-col items-stretch gap-1 @2xl:items-end">
+                <PulseChip
+                  pulse={clockPulse}
+                  ariaLabel={clockPulseLabel}
+                  main={{ label: clockPulseLabel, className: PULSE_ACTION_BUTTON }}
+                />
+              </div>
             </div>
           </section>
         )}
