@@ -40,6 +40,7 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
+import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
 import './pulsevault';
@@ -82,6 +83,8 @@ Meteor.startup(async () => {
     console.error('[settings] migration failed, stopping:', error);
     process.exit(1);
   }
+  // Hear settings changes made by other server instances.
+  watchSettingsChanges(rawDb());
 });
 
 /**

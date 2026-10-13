@@ -437,6 +437,18 @@ describe('teams.byUser publication', () => {
     });
   });
 
+  it('pushes a change another instance wrote straight to the database', async () => {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $set: { 'settings.requirePlanForClock': true } });
+    await waitForPublished(
+      () =>
+        (published(teamId)?.resolvedSettings as { requirePlanForClock: SettingValue } | undefined)
+          ?.requirePlanForClock.value === true,
+    );
+  });
+
   it('pushes a change to the team as resolved settings', async () => {
     await wormhole(
       'teams.updateSettings',
