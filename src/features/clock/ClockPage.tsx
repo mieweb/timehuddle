@@ -79,15 +79,15 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
-/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
-const MAIN_ACTION_PILL_BASE =
-  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95';
-const MAIN_ACTION_PILL = `${MAIN_ACTION_PILL_BASE} sm:w-auto sm:min-w-72`;
+/** The page's main buttons — Clock in and Clock out. */
+const MAIN_ACTION_PILL =
+  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
 /**
- * The Pulse card's pill: full width while the card is stacked, its own width
- * once the card is wide enough to sit beside the words (see `clock-pulse`).
+ * Clock in / out with Pulse: styled like the composer's "Post plan and clock
+ * in" button (a plain primary button). Full width while the card is stacked,
+ * its own width once the card sits beside the words (see `clock-pulse`).
  */
-const PULSE_ACTION_PILL = `${MAIN_ACTION_PILL_BASE} @2xl:w-auto @2xl:min-w-72`;
+const PULSE_ACTION_BUTTON = 'w-full @2xl:w-auto';
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
@@ -573,7 +573,7 @@ export const ClockPage: React.FC = () => {
                 <PulseChip
                   pulse={clockPulse}
                   ariaLabel={clockPulseLabel}
-                  main={{ label: clockPulseLabel, className: PULSE_ACTION_PILL }}
+                  main={{ label: clockPulseLabel, className: PULSE_ACTION_BUTTON }}
                 />
               </div>
             </div>
