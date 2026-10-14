@@ -90,9 +90,19 @@ export function entryDayLabel(date: string, today: Date = new Date()): string {
   });
 }
 
+/**
+ * A Billable value as people read it. Redmine sends a yes/no field as `1`/`0`;
+ * a list field's own words are shown as they are.
+ */
+export function billableValueLabel(value: string | string[]): string {
+  if (Array.isArray(value)) return value.join(', ');
+  return value === '1' ? 'Yes' : value === '0' ? 'No' : value;
+}
+
 /** Words on the entry card, shared by both dialogs that send time. */
 export const entryCardText = {
   activity: 'Activity',
+  billable: 'Billable',
   comment: 'Comment',
   commentPlaceholder: 'Optional',
   showAsTime: 'Show as time',

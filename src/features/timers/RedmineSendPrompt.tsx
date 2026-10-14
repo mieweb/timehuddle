@@ -195,6 +195,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             hours={time.hours}
             decimalHours={decimalHours}
             onToggleHours={() => setDecimalHours((on) => !on)}
+            billable={row?.billable}
             // One entry, and the dialog frames it already.
             bare
           >

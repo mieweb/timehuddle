@@ -2361,7 +2361,19 @@ export interface RedmineTimeEntryRow {
   activityReason: string;
   /** The activities this issue's project allows: the only ones the row may be sent under. */
   activityOptions: { id: number; name: string }[];
+  /**
+   * The Billable custom field the entry is sent with, copied from the newest
+   * time entry that has one; null when Redmine has none to copy (#686).
+   */
+  billable: RedmineBillable | null;
   blockedReason: RedmineBlockedReason | null;
+}
+
+/** A Redmine time entry's Billable custom field: `1`/`0` for yes/no, or a list value. */
+export interface RedmineBillable {
+  id: number;
+  name: string;
+  value: string | string[];
 }
 
 export interface RedmineTimeEntryPreview {

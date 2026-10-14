@@ -485,6 +485,7 @@ describe('TicketStartProvider', () => {
             activityName: null,
             activityReason: 'none',
             activityOptions: [],
+            billable: null,
             blockedReason: 'no-activity',
           },
         ],

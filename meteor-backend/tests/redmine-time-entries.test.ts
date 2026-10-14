@@ -171,6 +171,25 @@ describe('buildPushRows', () => {
     expect(row.activityOptions).toEqual([]);
   });
 
+  it('carries the issue’s Billable field, or null when it has none (#686)', () => {
+    const billable = { id: 7, name: 'Billable status', value: '1' };
+    const withBillable = new Map([['19', { ...issues.get('19')!, billable }]]);
+
+    const [row] = buildPushRows(
+      [{ ticketId: '19', date: '2026-09-19', seconds: 1820 }],
+      withBillable,
+      resolver,
+    );
+    const [plain] = buildPushRows(
+      [{ ticketId: '19', date: '2026-09-19', seconds: 1820 }],
+      issues,
+      resolver,
+    );
+
+    expect(row.billable).toEqual(billable);
+    expect(plain.billable).toBeNull();
+  });
+
   it('tolerates a non-array input', () => {
     expect(buildPushRows(undefined as never, issues, resolver)).toEqual([]);
   });

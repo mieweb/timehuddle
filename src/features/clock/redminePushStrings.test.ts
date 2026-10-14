@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { asClock, entryDayLabel, hoursLabel } from './redminePushStrings';
+import { asClock, billableValueLabel, entryDayLabel, hoursLabel } from './redminePushStrings';
 
 describe('hoursLabel', () => {
   it('reads as time worked, or as Redmine stores it', () => {
@@ -38,5 +38,17 @@ describe('entryDayLabel', () => {
 
   it('hands back anything that is not a date as it came', () => {
     expect(entryDayLabel('soon', today)).toBe('soon');
+  });
+});
+
+describe('billableValueLabel', () => {
+  it('reads a yes/no field as Yes or No', () => {
+    expect(billableValueLabel('1')).toBe('Yes');
+    expect(billableValueLabel('0')).toBe('No');
+  });
+
+  it('shows a list value in its own words', () => {
+    expect(billableValueLabel('Non-billable')).toBe('Non-billable');
+    expect(billableValueLabel(['Client A', 'Client B'])).toBe('Client A, Client B');
   });
 });

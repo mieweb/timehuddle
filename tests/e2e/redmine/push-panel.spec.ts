@@ -86,6 +86,32 @@ test.describe('Redmine push panel', () => {
     await expect(row).toContainText('0:37');
   });
 
+  test('shows the Billable value a row is sent with, and nothing when there is none', async ({
+    page,
+  }) => {
+    await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [
+          previewRow({
+            ticketId: '15',
+            billable: { id: 7, name: 'Billable status', value: '1' },
+          }),
+          previewRow({ ticketId: '23' }),
+        ],
+      }),
+    });
+
+    await sendButton(page).click();
+
+    const [billed, plain] = [15, 23].map((id) =>
+      entriesList(page)
+        .getByRole('listitem')
+        .filter({ hasText: `#${id}` }),
+    );
+    await expect(billed.locator('.redmine-entry-billable')).toHaveText('Billable status: Yes');
+    await expect(plain.locator('.redmine-entry-billable')).toHaveCount(0);
+  });
+
   test('warns that the entries are permanent', async ({ page }) => {
     await openClock(page, {
       'timeEntries.preview': preview({ rows: [previewRow()] }),

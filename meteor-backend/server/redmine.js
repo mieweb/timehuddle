@@ -25,6 +25,7 @@ import {
 import { requireIdentity } from './auth-bridge';
 import {
   createTimeEntry,
+  findRecentBillable,
   getCurrentUser,
   getTimeEntry,
   isRedmineBudgetExhausted,
@@ -49,6 +50,7 @@ import {
   getActivitiesForUser,
   pickDefaultActivity,
 } from './redmine-activities';
+import { billableByIssue } from './redmine-billable';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -369,6 +371,11 @@ async function buildPreviewRows(userId, account, { only } = {}) {
       listIssuesByIds(account, issueIds),
       getActivitiesForUser(userId, account),
     ]);
+    // A failed lookup means no Billable value, not a failed preview: the entry
+    // goes without one, as before #686, and Redmine says if it needed one.
+    const billable = await billableByIssue(issues, (params) =>
+      findRecentBillable(account, params).catch(() => null),
+    );
     issuesById = new Map(
       issues.map((issue) => [
         String(issue.id),
@@ -376,6 +383,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
           subject: issue.subject ?? '',
           trackerName: issue.tracker?.name ?? null,
           projectId: issue.project?.id ?? null,
+          billable: billable.get(String(issue.id)) ?? null,
         },
       ]),
     );
@@ -426,6 +434,7 @@ async function pushOneEntry(userId, account, row, activityId, comment) {
       activityId,
       spentOn: row.date,
       comments: comment || PUSH_COMMENT,
+      customFields: row.billable ? [{ id: row.billable.id, value: row.billable.value }] : [],
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a

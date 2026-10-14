@@ -147,7 +147,7 @@ export function sendableForTicketDay(unsent, ticketId, date) {
  * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
- * @param {Map<string, {subject: string, trackerName: string|null, projectId: number|null}>} issuesById
+ * @param {Map<string, {subject: string, trackerName: string|null, projectId: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
  * @param {(issue: object|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
  *   the activity for one issue, and the `options` its project allows. An
  *   unresolved issue is passed as null.
@@ -175,6 +175,8 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityReason: activity.reason,
         // What the row may be sent under. `push` checks an override against it.
         activityOptions: activity.options ?? [],
+        // The Billable field the entry is sent with, or null for none (#686).
+        billable: issue?.billable ?? null,
         // Every reason a row cannot be sent, so the dialog explains itself
         // rather than just disabling a checkbox.
         blockedReason: !isPushable(hours)
