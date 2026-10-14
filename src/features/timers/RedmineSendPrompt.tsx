@@ -86,8 +86,11 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
 
   const issue = timerLabel('redmine', time.ticketId);
 
+  // Read again when a newer total arrives for this issue-day while the prompt
+  // is open, and hold Send until it has answered: the card shows what will go.
   useEffect(() => {
     let current = true;
+    setActivitiesRead(false);
     redmineApi.timeEntries
       .preview({ ticketId: time.ticketId, date: time.date })
       .then((preview) => {
@@ -102,7 +105,10 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     return () => {
       current = false;
     };
-  }, [time.ticketId, time.date]);
+  }, [time.ticketId, time.date, time.hours]);
+
+  // What the server will send: its total as just read, else the one from the stop.
+  const hours = row?.hours ?? time.hours;
 
   const finish = () => {
     // The push dialog's summary is now out of date, whichever way this went.
@@ -135,9 +141,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     }
 
     if (outcome.ok) {
-      toast.success(
-        text.redmineSent(asClock(outcome.hours ?? time.hours), issue, outcome.activityName),
-      );
+      toast.success(text.redmineSent(asClock(outcome.hours ?? hours), issue, outcome.activityName));
     } else if (outcome.entryId != null) {
       toast.warning(text.redmineSentUnverified(issue, withoutFullStop(failureText(outcome))));
     } else if (outcome.reason === 'already-synced-or-gone') {
@@ -192,7 +196,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             ticketId={time.ticketId}
             subject={row?.subject ?? null}
             date={time.date}
-            hours={time.hours}
+            hours={hours}
             decimalHours={decimalHours}
             onToggleHours={() => setDecimalHours((on) => !on)}
             // One entry, and the dialog frames it already.
