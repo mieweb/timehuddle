@@ -607,6 +607,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const ddp = getDdpClient();
+    let lastSeen: { id: string; startTime: number } | null = null;
 
     const applyLiveDocs = () => {
       const userEvent =
@@ -615,8 +616,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .map(ddpDocToClockEvent)
           .find((e) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime) ?? null;
       if (userEvent) {
-        setActiveClockEvent(userEvent);
+        // The raw DDP doc lacks break fields (deductedBreakSeconds, isPaused, …) that the REST event
+        // carries; merge so a live update doesn't erase them and inflate the timer.
+        setActiveClockEvent((prev) =>
+          prev?.id === userEvent.id ? { ...prev, ...userEvent } : userEvent,
+        );
         setClockReady(true);
+        // A timesheet edit sends the start and the breaks together; breaks aren't published, so refetch.
+        const startMoved =
+          lastSeen?.id === userEvent.id && lastSeen.startTime !== userEvent.startTime;
+        lastSeen = { id: userEvent.id, startTime: userEvent.startTime };
+        if (startMoved) void refetchClock();
       } else {
         // No active event for the selected team — clear only if the previous
         // event was for this team; a cross-team active event (from the REST
