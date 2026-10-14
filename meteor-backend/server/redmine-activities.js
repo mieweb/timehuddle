@@ -91,6 +91,9 @@ export function toActivityList(raw) {
  *
  * Returns null when the project did not say (an older Redmine ignores the
  * include), which is not the same as a project that allows none.
+ *
+ * The cached list keeps `isDefault` as the instance had it when read, so a
+ * changed instance default can take up to the cache's hour to show here.
  */
 export function toProjectActivities(raw, enumeration) {
   if (!Array.isArray(raw)) return null;
