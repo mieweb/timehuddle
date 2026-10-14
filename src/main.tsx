@@ -96,7 +96,7 @@ import { SessionProvider, useSession } from './lib/useSession';
 import { rememberReturnTo, restoreReturnTo } from './lib/returnTo';
 import { redirectSignedInRootToDashboard } from './lib/rootRedirect';
 import { InstallerModal } from './ui/InstallerModal';
-import { LandingPage } from './ui/LandingPage';
+import { isDocsPath } from './features/site/docs/docsRoute';
 import { LoginForm } from './ui/LoginForm';
 import { OtaUpdateGate } from './ui/OtaUpdateGate';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
@@ -410,6 +410,15 @@ const App: React.FC = () => {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
+// The public site loads on its own, so visitors don't download the app and
+// signed-in users don't download the site (or its fonts).
+const LandingPage = lazy(() =>
+  import('./features/site/landing/LandingPage').then((m) => ({ default: m.LandingPage })),
+);
+const DocsPage = lazy(() =>
+  import('./features/site/docs/DocsPage').then((m) => ({ default: m.DocsPage })),
+);
+
 let _root: ReturnType<typeof createRoot> | null = null;
 
 function renderRoot() {
@@ -437,12 +446,26 @@ function renderRoot() {
       // so the landing page never paints.
       if (!redirectSignedInRootToDashboard()) {
         _root = createRoot(el);
-        _root.render(<LandingPage />);
+        _root.render(
+          <Suspense fallback={null}>
+            <LandingPage />
+          </Suspense>,
+        );
         return;
       }
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
       _root.render(<InboxPage />);
+      return;
+    } else if (isDocsPath(window.location.pathname)) {
+      // Public, like the release notes: the guides are for people deciding
+      // whether to use or self-host TimeHuddle, so they need no account.
+      _root = createRoot(el);
+      _root.render(
+        <Suspense fallback={null}>
+          <DocsPage />
+        </Suspense>,
+      );
       return;
     } else if (window.location.pathname === '/release-notes') {
       // Public on purpose: linked from the landing page, so someone deciding

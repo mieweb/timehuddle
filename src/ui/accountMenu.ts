@@ -1,7 +1,7 @@
 /**
  * accountMenu — the Admin / Developers / Help groups of the account menu.
  *
- * Single source for these items, their access rules and APP_STORE_URL.
+ * Single source for these items and their access rules.
  * UserDropdown renders them as dropdown sections; BottomNav renders them as
  * the More sheet's drill-down tiles. Keeping both on one definition is what
  * stops the avatar menu and the mobile sheet drifting apart again.
@@ -21,6 +21,7 @@ import {
 import { useMemo } from 'react';
 
 import type { TimecoreUser } from '../lib/api';
+import { APP_STORE_URL } from '../lib/constants';
 import { openExternalUrl } from '../lib/device';
 import {
   hasDefaultOrganizationAdminAccess,
@@ -31,8 +32,6 @@ import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
-
-export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657217';
 
 export type AccountMenuSectionId = 'admin' | 'developers' | 'help';
 

@@ -1,0 +1,103 @@
+/*
+ * The public site's own palette and type — landing page and docs.
+ *
+ * The site is deliberately light-only: it is paper, not the app. Colours are
+ * taken from the logo (its deep teal, cyan, orange and sand), so the site and
+ * the app icon read as one brand without importing the app's dark theme.
+ */
+@import '@fontsource-variable/schibsted-grotesk/wght.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+.site {
+  --paper: #f6f3ec;
+  --paper-deep: #ece6d9;
+  --card: #fffdf8;
+  --ink: #13212b;
+  --ink-soft: #4c5b65;
+  --ink-faint: #7d8a92;
+  --rule: #d8d0c0;
+  --shift: #2b6a8a;
+  --shift-soft: #d5e5ec;
+  --ticket: #ef8f2f;
+  --ticket-soft: #fbe3c8;
+  --cyan: #38b6c6;
+  --sand: #e6bb8a;
+
+  color-scheme: light;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+.site :where(code, kbd, pre, .mono) {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.site ::selection {
+  background: var(--ticket-soft);
+  color: var(--ink);
+}
+
+/* Faint ledger lines behind a section — a timesheet's ruled paper. */
+.ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 39px,
+    color-mix(in srgb, var(--rule) 55%, transparent) 39px,
+    color-mix(in srgb, var(--rule) 55%, transparent) 40px
+  );
+}
+
+/* A meal break: the shift band continues, hatched, because the clock stops. */
+.hatched {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--shift-soft) 0,
+    var(--shift-soft) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+/* Elements fade up once, the first time they scroll into view. */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 700ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.revealed {
+  opacity: 1;
+  transform: none;
+}
+
+/* The dot beside a running timer. */
+.pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .pulse {
+    animation: none;
+  }
+}

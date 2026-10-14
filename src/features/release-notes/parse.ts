@@ -63,6 +63,22 @@ function parseFrontmatter(block: string): Record<string, string> {
 }
 
 /**
+ * Splits a markdown file into its `key: value` frontmatter and the body below
+ * it, or returns null when there is no frontmatter block. Shared with the
+ * public site's guides, which use the same file shape.
+ */
+export function splitFrontmatter(
+  raw: string,
+): { fields: Record<string, string>; body: string } | null {
+  const frontmatter = FRONTMATTER_RE.exec(raw);
+  if (!frontmatter) return null;
+  return {
+    fields: parseFrontmatter(frontmatter[1]),
+    body: raw.slice(frontmatter[0].length).trim(),
+  };
+}
+
+/**
  * Points every `assets/…` reference at its hashed build URL.
  *
  * Throws on a reference the bundler never saw, which is almost always a typo or
@@ -119,12 +135,11 @@ export function parseReleaseNote(
     throw new Error(`${fileName}: filename must be a version, like "1.0.2.md"`);
   }
 
-  const frontmatter = FRONTMATTER_RE.exec(raw);
-  if (!frontmatter) {
+  const parsed = splitFrontmatter(raw);
+  if (!parsed) {
     throw new Error(`${fileName}: missing the "---" frontmatter block`);
   }
-  const fields = parseFrontmatter(frontmatter[1]);
-  const { version, date, title } = fields;
+  const { version, date, title } = parsed.fields;
 
   if (!version) throw new Error(`${fileName}: frontmatter is missing "version"`);
   if (!isValidVersion(version)) {
@@ -140,7 +155,7 @@ export function parseReleaseNote(
   }
   if (!title) throw new Error(`${fileName}: frontmatter is missing "title"`);
 
-  const body = raw.slice(frontmatter[0].length).trim();
+  const { body } = parsed;
   if (!body) throw new Error(`${fileName}: has no body below the frontmatter`);
 
   return {

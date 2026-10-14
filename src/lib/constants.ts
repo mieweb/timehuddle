@@ -28,3 +28,4 @@ export const BOARD_ASSIGNED_NOTICE_KEY = 'app:board-assigned-notice' as const;
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 
 export const REPO_URL = 'https://github.com/mieweb/timehuddle' as const;
+export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657217' as const;

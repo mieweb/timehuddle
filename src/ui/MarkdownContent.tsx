@@ -93,17 +93,20 @@ interface MarkdownContentProps {
    * column and only a blank line means a new paragraph.
    */
   hardBreaks?: boolean;
+  /** Per-element overrides, merged over the defaults — e.g. the docs' prose styles. */
+  components?: Components;
 }
 
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({
   content,
   className,
   hardBreaks = true,
+  components,
 }) => (
   <div className={className}>
     <ReactMarkdown
       remarkPlugins={hardBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
-      components={markdownComponents}
+      components={components ? { ...markdownComponents, ...components } : markdownComponents}
     >
       {content}
     </ReactMarkdown>
