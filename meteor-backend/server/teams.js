@@ -8,7 +8,7 @@ import {
   addOrgMember,
   getAccessibleOrgIds,
   isTeamAdminOrOrgOwner,
-  wasRemovedFromOrg,
+  autoJoinOrgUnlessRemoved,
 } from './org-helpers';
 import { createNotification } from './notify-core';
 import {
@@ -76,9 +76,7 @@ export async function ensurePersonalTeam(userId) {
     createdAt: new Date(),
   };
   await Teams.insertAsync(doc);
-  if (!(await wasRemovedFromOrg(doc.orgId, userId))) {
-    await addOrgMember(doc.orgId, userId, 'member', true);
-  }
+  await autoJoinOrgUnlessRemoved(doc.orgId, userId);
   return doc;
 }
 

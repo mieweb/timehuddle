@@ -223,6 +223,33 @@ export async function wasRemovedFromOrg(orgId, userId) {
 }
 
 /**
+ * The implicit join — sign-in auto-join, a new Personal team — that never
+ * undoes a removal. The marker is checked again after the write:
+ * orgs.removeMember records it before deleting memberships, so when a removal
+ * races this join, either its delete or this recheck takes the new row out.
+ * Only a row this call created is ever deleted; an existing membership is
+ * left as it is. Returns true if the user was joined.
+ */
+export async function autoJoinOrgUnlessRemoved(orgId, userId) {
+  if (await wasRemovedFromOrg(orgId, userId)) return false;
+  const db = rawDb();
+  const now = new Date();
+  const { upsertedId } = await db.collection('org_members').updateOne(
+    { orgId, userId },
+    {
+      $setOnInsert: { _id: new ObjectId(), orgId, userId, role: 'member', auto: true, createdAt: now, updatedAt: now },
+    },
+    { upsert: true },
+  );
+  if (!upsertedId) return false;
+  if (await wasRemovedFromOrg(orgId, userId)) {
+    await db.collection('org_members').deleteOne({ _id: upsertedId });
+    return false;
+  }
+  return true;
+}
+
+/**
  * True if `userId` has team-admin authority on `team` — either because they
  * are listed in `team.admins`, or because they own the organization the team
  * belongs to. Org owners get full team-admin authority on every team in
