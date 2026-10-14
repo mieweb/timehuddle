@@ -89,8 +89,14 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
     await expect(prompt(page)).toHaveCount(0);
+    // The activity shown goes with it, though it was left as the default.
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
-      { ticketId: '15', date: UNSENT.date, comment: 'Fixed the intake form validation' },
+      {
+        ticketId: '15',
+        date: UNSENT.date,
+        comment: 'Fixed the intake form validation',
+        activityId: 9,
+      },
     ]);
   });
 

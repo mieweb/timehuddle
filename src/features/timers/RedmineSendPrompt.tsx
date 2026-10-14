@@ -121,7 +121,9 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     try {
       outcome = await redmineApi.timeEntries.sendTicketDay(time.ticketId, time.date, {
         comment: comment.trim() || undefined,
-        activityId: activityId ?? undefined,
+        // The activity shown, even when left as the default: the server checks
+        // it is still allowed, and does not pick again behind the user's back.
+        activityId: activityId ?? row?.activityId ?? undefined,
       });
     } catch (err) {
       // Nothing was decided (a push already running, the network): the prompt

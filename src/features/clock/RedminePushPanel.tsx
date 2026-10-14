@@ -266,7 +266,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                       </Badge>
                     ) : results ? (
                       <div className="redmine-push-entry-sent">
-                        <Text size="xs">{row.activityName}</Text>
+                        {/* The activity it went under: the one picked, not the default. */}
+                        <Text size="xs">
+                          {row.activityOptions.find((a) => a.id === overrides[key])?.name ??
+                            row.activityName}
+                        </Text>
                         {comments[key]?.trim() && (
                           <Text variant="muted" size="xs" className="redmine-push-comment-sent">
                             {comments[key].trim()}

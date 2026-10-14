@@ -263,6 +263,8 @@ test.describe('Redmine push panel', () => {
     expect(rm.calls('timeEntries.push')[0]).toEqual({
       entries: [{ ticketId: '15', date, activityId: 10 }],
     });
+    // The result names the activity it went under, not the row's default.
+    await expect(page.locator('.redmine-push-entry-sent')).toContainText('QA');
   });
 
   test('pressing the hours switches every figure between time and Redmine hours', async ({
