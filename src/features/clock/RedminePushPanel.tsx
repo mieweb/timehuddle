@@ -298,6 +298,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                             searchable
                             searchPlaceholder="Search activities"
                             noResultsText="No activity matches"
+                            // The push has already read the activity it sends.
+                            disabled={pushing}
                           />
                         </RedmineEntryField>
                         <RedmineEntryField label={entryCardText.comment}>
