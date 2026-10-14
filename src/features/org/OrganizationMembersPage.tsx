@@ -764,8 +764,8 @@ export const OrganizationMembersPage: React.FC = () => {
         <ModalBody>
           <Text variant="muted" size="sm">
             {removeUserName} will be removed from {organizationName ?? 'this organization'} and from
-            all of its teams, and will lose access to it. To bring them back, add or invite them
-            again.
+            all of its teams except their Personal team, and will lose access to it. To bring them
+            back, add or invite them again.
           </Text>
         </ModalBody>
         <ModalFooter>
