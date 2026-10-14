@@ -19,6 +19,7 @@ import { METEOR_URL } from './setup';
 
 const OWNER = { name: 'Org Owner', email: 'wh-org-owner@test.dev', password: 'Password1!' };
 const MEMBER = { name: 'Org Member', email: 'wh-org-member@test.dev', password: 'Password1!' };
+const PEER = { name: 'Org Peer', email: 'wh-org-peer@test.dev', password: 'Password1!' };
 
 const orgId = new ObjectId().toHexString();
 const DEFAULT_ORG_SLUG = process.env.DEFAULT_ORG_KEY ?? 'default';
@@ -27,6 +28,7 @@ let ownerJwt: string;
 let memberJwt: string;
 let ownerId: string;
 let memberId: string;
+let peerId: string;
 
 type ListedMember = { id: string; role: string };
 
@@ -70,12 +72,17 @@ async function addMembership(userId: string, role: string) {
 }
 
 beforeAll(async () => {
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email)]);
-  const [owner, member] = await Promise.all([createUserAndGetJwt(OWNER), createUserAndGetJwt(MEMBER)]);
+  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(PEER.email)]);
+  const [owner, member, peer] = await Promise.all([
+    createUserAndGetJwt(OWNER),
+    createUserAndGetJwt(MEMBER),
+    createUserAndGetJwt(PEER),
+  ]);
   ownerJwt = owner.jwt;
   memberJwt = member.jwt;
   ownerId = owner.userId;
   memberId = member.userId;
+  peerId = peer.userId;
 
   const db = await getDb();
   const now = new Date();
@@ -96,7 +103,7 @@ afterAll(async () => {
   const db = await getDb();
   await db.collection('teams').deleteMany({ $or: [{ orgId }, { isPersonal: true, members: memberId }] });
   await db.collection('organizations').deleteOne({ _id: new ObjectId(orgId) });
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email)]);
+  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(PEER.email)]);
   await closeDb();
 });
 
@@ -167,6 +174,28 @@ describe('orgs.removeMember', () => {
     const db = await getDb();
     expect(await listedMember()).toBeDefined();
     expect((await db.collection('teams').findOne({ _id: teamId }))!.admins).toEqual([memberId]);
+  });
+
+  it('never leaves a team with no admin when its two admins are removed at once', async () => {
+    await addMembership(memberId, 'member');
+    await addMembership(peerId, 'member');
+    const teamId = await addTeam({
+      name: 'Pair Crew',
+      members: [ownerId, memberId, peerId],
+      admins: [memberId, peerId],
+    });
+
+    const results = await Promise.all([removeMember(orgId, memberId), removeMember(orgId, peerId)]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.find((r) => !r.ok)!.error).toMatch(/only admin of Pair Crew/);
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: teamId });
+    expect(team!.admins).toHaveLength(1);
+    // The refused one is still fully in: their team seat and their membership.
+    const [keptId] = team!.admins;
+    expect(team!.members).toContain(keptId);
+    expect(await db.collection('org_members').findOne({ orgId, userId: keptId })).not.toBeNull();
   });
 
   it('rejects a user the member list does not show', async () => {

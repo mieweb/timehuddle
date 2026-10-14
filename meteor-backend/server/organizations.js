@@ -242,6 +242,30 @@ export async function loadOrgMembers(orgId) {
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
 }
 
+/**
+ * Pull `userId` out of `teams` without ever leaving one with no admin. Taking
+ * out an admin only matches while another admin is still there at write time,
+ * so two removals racing on the same team cannot both get through the
+ * pre-check in orgs.removeMember. If one is refused, the teams already left
+ * are restored and the whole removal fails.
+ */
+async function leaveOrgTeams(teams, userId) {
+  const db = rawDb();
+  const left = [];
+  for (const team of teams) {
+    const wasAdmin = (team.admins ?? []).includes(userId);
+    const res = await db.collection('teams').updateOne(
+      wasAdmin ? { _id: team._id, admins: { $elemMatch: { $ne: userId } } } : { _id: team._id },
+      { $pull: { members: userId, admins: userId }, $set: { updatedAt: new Date() } },
+    );
+    if (res.matchedCount === 0) {
+      await restoreBlockedMemberships(userId, [{ removedFromTeams: left }]);
+      throw new Meteor.Error('last-admin', `Cannot remove the only admin of ${team.name}. Give the team another admin first.`);
+    }
+    left.push({ teamId: team._id.toHexString(), wasAdmin });
+  }
+}
+
 async function requireDefaultOrgAdmin(userId) {
   const db = rawDb();
   const defaultOrg = await db.collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
@@ -574,6 +598,11 @@ Meteor.methods({
       throw new Meteor.Error('last-admin', `Cannot remove the only admin of ${names}. Give the team another admin first.`);
     }
 
+    // Leaving the organization means leaving its teams too — otherwise the
+    // team seat keeps them in the member list and in the org's work. Done
+    // first, so a refusal here leaves the membership untouched.
+    await leaveOrgTeams(userTeams, userId);
+
     const now = new Date();
     // Recorded so an implicit join never brings them back (see wasRemovedFromOrg).
     // Written before the membership goes: the sign-in auto-join looks for a
@@ -583,14 +612,6 @@ Meteor.methods({
       { _id: String(userId) },
       { $addToSet: { removedFromOrgs: orgId } },
     );
-    // Leaving the organization means leaving its teams too — otherwise the
-    // team seat keeps them in the member list and in the org's work.
-    if (userTeams.length > 0) {
-      await db.collection('teams').updateMany(
-        { _id: { $in: userTeams.map((t) => t._id) } },
-        { $pull: { members: userId, admins: userId }, $set: { updatedAt: now } },
-      );
-    }
     await db.collection('org_members').deleteMany({ orgId, userId });
     // Sync legacy arrays to remove from owners/admins
     await db.collection('organizations').updateOne(
