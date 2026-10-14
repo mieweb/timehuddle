@@ -21,7 +21,6 @@ import {
   Timers,
   WorkItems,
   isObjectIdHex,
-  isValidId,
 } from './collections';
 import { requireIdentity } from './auth-bridge';
 import {

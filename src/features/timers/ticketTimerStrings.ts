@@ -95,7 +95,7 @@ export const ticketTimerText = {
   /** Closes the prompt; the time stays unsent, in the push dialog. */
   redmineSendLater: 'Later',
   /** The keys that do the same as the two buttons. */
-  redmineSendShortcuts: 'Enter sends · Esc dismisses',
+  redmineSendShortcuts: 'Cmd/Ctrl+Enter sends · Esc dismisses',
   redmineSent: (time: string, issue: string, activity?: string | null) =>
     activity
       ? `Sent ${time} on ${issue} to Redmine as ${activity}`

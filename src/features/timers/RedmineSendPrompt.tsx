@@ -11,8 +11,9 @@
  * A sent entry is permanent, so the activity and the comment have to be asked
  * for now, not afterwards.
  *
- * From the keyboard: Enter in the comment sends, Cmd/Ctrl+Enter sends from
- * anywhere in the prompt, and Esc dismisses.
+ * From the keyboard: Cmd/Ctrl+Enter sends from anywhere in the prompt, and Esc
+ * dismisses. Plain Enter does not send: the comment field has focus when the
+ * prompt opens, and a sent entry is permanent.
  */
 import {
   Badge,
@@ -164,15 +165,6 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  /** Enter in the comment sends. Not mid-composition (IME). */
-  const sendOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-    // With Cmd/Ctrl held, the document listener above sends.
-    if (event.metaKey || event.ctrlKey) return;
-    event.preventDefault();
-    void send();
-  };
-
   const activityOptions = (row?.activityOptions ?? []).map((activity) => ({
     value: String(activity.id),
     label: activity.name,
@@ -243,7 +235,6 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
                 maxLength={REDMINE_COMMENT_MAX_LENGTH}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                onKeyDown={sendOnEnter}
                 disabled={sending}
                 autoFocus
               />
@@ -278,7 +269,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             onClick={() => void send()}
             isLoading={sending}
             disabled={!canSend}
-            aria-keyshortcuts="Enter Meta+Enter Control+Enter"
+            aria-keyshortcuts="Meta+Enter Control+Enter"
           >
             {text.redmineSend}
           </Button>

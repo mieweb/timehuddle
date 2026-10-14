@@ -415,15 +415,17 @@ describe('TicketStartProvider', () => {
       });
     });
 
-    it('Enter in the comment sends, and not with Shift held', async () => {
+    it('plain Enter in the comment does not send; Cmd/Ctrl+Enter does', async () => {
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
       await stopIssue();
 
+      // The comment has focus when the prompt opens, and a sent entry is permanent.
       fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.keyDown(comment(), { key: 'Enter' });
       fireEvent.keyDown(comment(), { key: 'Enter', shiftKey: true });
       expect(mockSend).not.toHaveBeenCalled();
 
-      fireEvent.keyDown(comment(), { key: 'Enter' });
+      fireEvent.keyDown(comment(), { key: 'Enter', ctrlKey: true });
       await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
@@ -495,7 +497,7 @@ describe('TicketStartProvider', () => {
       // Not "Chosen automatically": the server would only refuse it.
       expect(screen.queryByText('Chosen automatically')).toBeNull();
       expect(sendButton().disabled).toBe(true);
-      fireEvent.keyDown(comment(), { key: 'Enter' });
+      fireEvent.keyDown(comment(), { key: 'Enter', metaKey: true });
       expect(mockSend).not.toHaveBeenCalled();
     });
 

@@ -140,7 +140,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     ]);
   });
 
-  test('Enter in the comment sends, and Cmd/Ctrl+Enter sends from anywhere', async ({ page }) => {
+  test('plain Enter does not send; Cmd/Ctrl+Enter sends from anywhere', async ({ page }) => {
     const rm = await stubRedmine(page, {
       status: connectedStatus(),
       'timeEntries.sendTicketDay': sent(),
@@ -152,7 +152,10 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     await comment.fill('Fixed the form');
     // Send, and the keys with it, wait until the issue's activities have been read.
     await expect(prompt(page).getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    // The comment has focus when the prompt opens: a plain Enter must not send.
     await comment.press('Enter');
+    await expect(prompt(page)).toBeVisible();
+    await comment.press('ControlOrMeta+Enter');
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
     await expect(prompt(page)).toHaveCount(0);
