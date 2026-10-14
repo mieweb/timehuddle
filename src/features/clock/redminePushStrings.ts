@@ -96,13 +96,15 @@ export function entryDayLabel(date: string, today: Date = new Date()): string {
  */
 export function billableValueLabel(value: string | string[]): string {
   if (Array.isArray(value)) return value.join(', ');
-  return value === '1' ? 'Yes' : value === '0' ? 'No' : value;
+  return value === '1' ? entryCardText.yes : value === '0' ? entryCardText.no : value;
 }
 
 /** Words on the entry card, shared by both dialogs that send time. */
 export const entryCardText = {
   activity: 'Activity',
   billable: 'Billable',
+  yes: 'Yes',
+  no: 'No',
   comment: 'Comment',
   commentPlaceholder: 'Optional',
   showAsTime: 'Show as time',

@@ -372,9 +372,14 @@ async function buildPreviewRows(userId, account, { only } = {}) {
       getActivitiesForUser(userId, account),
     ]);
     // A failed lookup means no Billable value, not a failed preview: the entry
-    // goes without one, as before #686, and Redmine says if it needed one.
+    // goes without one, as before #686, and Redmine says if it needed one. An
+    // exhausted request budget is the exception: it fails the read like any
+    // other Redmine outage, rather than sending entries that will be refused.
     const billable = await billableByIssue(issues, (params) =>
-      findRecentBillable(account, params).catch(() => null),
+      findRecentBillable(account, params).catch((err) => {
+        if (isRedmineBudgetExhausted(err)) throw err;
+        return null;
+      }),
     );
     issuesById = new Map(
       issues.map((issue) => [

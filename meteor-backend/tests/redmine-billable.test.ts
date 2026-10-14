@@ -10,7 +10,7 @@ import { billableByIssue, billableFieldOf, firstBillable } from '../server/redmi
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
 
 describe('billableFieldOf', () => {
-  it('finds the field by a name containing "billable", in any case', () => {
+  it('finds the field named Billable or Billable status, in any case', () => {
     expect(billableFieldOf({ custom_fields: [{ id: 3, name: 'Other', value: 'x' }, BILLABLE] })).toEqual(
       BILLABLE,
     );
@@ -19,6 +19,12 @@ describe('billableFieldOf', () => {
       name: 'BILLABLE',
       value: 'No',
     });
+  });
+
+  it('never takes another field that merely mentions billable', () => {
+    expect(
+      billableFieldOf({ custom_fields: [{ id: 8, name: 'Billable notes', value: 'Patient Jane Doe' }] }),
+    ).toBeNull();
   });
 
   it('keeps a multi-value list as it is', () => {

@@ -14,7 +14,13 @@
  * moment an entry is read.
  */
 
-const BILLABLE_NAME = /billable/i;
+import { mapInChunks } from './redmine-client';
+
+// Anchored: a free-text field such as "Billable notes" must never be copied.
+const BILLABLE_NAME = /^billable( status)?$/i;
+
+// Issues looked up at once, so a long preview is not one burst at Redmine.
+const LOOKUPS_AT_ONCE = 5;
 
 function hasValue(value) {
   return Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value !== '';
@@ -46,7 +52,7 @@ export function firstBillable(entries) {
  * @param {Array<{id: number, project?: {id: number}}>} issues raw Redmine issues
  * @param {(params: object) => Promise<object|null>} recentBillable the Billable
  *   field on the newest time entry matching `params` (`issue_id`, `project_id`
- *   or `user_id`), or null. Expected not to throw.
+ *   or `user_id`), or null. What it throws, this throws.
  */
 export async function billableByIssue(issues, recentBillable) {
   // A project, or the caller's own entries, is asked once however many issues share it.
@@ -60,15 +66,13 @@ export async function billableByIssue(issues, recentBillable) {
   let own;
   const forCaller = () => (own ??= recentBillable({ user_id: 'me' }));
 
-  const pairs = await Promise.all(
-    issues.map(async (issue) => {
+  const pairs = await mapInChunks(issues, LOOKUPS_AT_ONCE, async (issue) => {
       const projectId = issue.project?.id ?? null;
       const field =
         (await recentBillable({ issue_id: issue.id })) ??
         (projectId != null ? await forProject(projectId) : null) ??
         (await forCaller());
       return [String(issue.id), field];
-    }),
-  );
+  });
   return new Map(pairs);
 }
