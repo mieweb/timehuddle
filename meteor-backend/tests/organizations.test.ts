@@ -176,6 +176,54 @@ describe('orgs.removeMember', () => {
     expect((await db.collection('teams').findOne({ _id: teamId }))!.admins).toEqual([memberId]);
   });
 
+  it('never leaves the organization with no owner or admin when its two are removed at once', async () => {
+    // The caller manages the org as enterprise owner, without an org role of
+    // its own, so the only two owners/admins are the ones being removed.
+    const db = await getDb();
+    const enterpriseId = new ObjectId();
+    await db.collection('enterprises').insertOne({
+      _id: enterpriseId,
+      name: 'Remove Member Enterprise',
+      slug: `remove-member-${enterpriseId.toHexString()}`,
+      owners: [ownerId],
+      admins: [],
+      settings: {},
+      settingsLocks: {},
+    });
+    await db.collection('org_members').deleteMany({ orgId, userId: ownerId });
+    await db.collection('organizations').updateOne(
+      { _id: new ObjectId(orgId) },
+      { $set: { enterpriseId: enterpriseId.toHexString(), owners: [memberId], admins: [peerId] } },
+    );
+    await addMembership(memberId, 'owner');
+    await addMembership(peerId, 'admin');
+    await addTeam({ name: 'Crew', members: [ownerId, memberId, peerId], admins: [ownerId] });
+
+    try {
+      const results = await Promise.all([removeMember(orgId, memberId), removeMember(orgId, peerId)]);
+      expect(results.filter((r) => r.ok).length).toBeLessThanOrEqual(1);
+      for (const r of results.filter((r) => !r.ok)) {
+        expect(r.error).toMatch(/at least one owner or admin/i);
+      }
+
+      const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+      const elevated = await db
+        .collection('org_members')
+        .find({ orgId, role: { $in: ['owner', 'admin'] } })
+        .toArray();
+      expect(elevated.length).toBeGreaterThanOrEqual(1);
+      // Whoever is still elevated is fully restored: legacy array and team seat.
+      const crew = await db.collection('teams').findOne({ orgId, name: 'Crew' });
+      for (const m of elevated) {
+        expect([...(org!.owners ?? []), ...(org!.admins ?? [])]).toContain(m.userId);
+        expect(crew!.members).toContain(m.userId);
+      }
+    } finally {
+      await db.collection('enterprises').deleteOne({ _id: enterpriseId });
+      await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $unset: { enterpriseId: '' } });
+    }
+  });
+
   it('never leaves a team with no admin when its two admins are removed at once', async () => {
     await addMembership(memberId, 'member');
     await addMembership(peerId, 'member');
