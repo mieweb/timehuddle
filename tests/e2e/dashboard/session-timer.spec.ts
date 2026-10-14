@@ -148,6 +148,21 @@ test.describe('Dashboard session timer', () => {
     await expectTimerNear(page, () => (Date.now() - session.startTime) / 1000 - 30 * 60);
   });
 
+  test('drops the meal-break deduction when an edit removes the break', async ({ page }) => {
+    await startShift(page, 90, (s) => [{ startTime: s + 10 * MINUTE, endTime: s + 40 * MINUTE }]);
+    await expectTimerNear(page, () => (Date.now() - session.startTime) / 1000 - 30 * 60);
+
+    // A timesheet edit sends the new start and the breaks together.
+    const editedStart = session.startTime - 5 * MINUTE;
+    await call(page.request, token, 'clock_updateTimes', {
+      clockEventId: session.id,
+      startTime: editedStart,
+      breaks: [],
+    });
+
+    await expectTimerNear(page, () => (Date.now() - editedStart) / 1000);
+  });
+
   test('freezes on a meal break in progress and says so', async ({ page }) => {
     await startShift(page, 60, (s) => [{ startTime: s + 35 * MINUTE, endTime: null }]);
 
