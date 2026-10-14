@@ -17,6 +17,7 @@ import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections
 import { requireIdentity, findUserById } from './auth-bridge';
 import { SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
+import { resolveSettings } from './settings';
 import {
   toPublicClockEvent,
   breakSignature,
@@ -914,7 +915,8 @@ export async function clockStop(userId, { teamId, clockEventId } = {}) {
 
   // Plan-first flow: when the team requires a plan, block clock-out until
   // THIS session's post has a wrap-up.
-  if (team?.settings?.requirePlanForClock && !sessionPost?.wrapUpAt) {
+  const requiresPlan = team && (await resolveSettings(team)).requirePlanForClock.value;
+  if (requiresPlan && !sessionPost?.wrapUpAt) {
     throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
   }
 

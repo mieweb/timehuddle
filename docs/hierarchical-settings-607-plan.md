@@ -1,0 +1,282 @@
+# Hierarchical Settings — Implementation Plan (#607)
+
+Issue: [mieweb/timehuddle#607 — Add Hierarchical Settings With Defaults That Inherit From Enterprise to Organization to Team](https://github.com/mieweb/timehuddle/issues/607)
+Branch: `feature/607-hierarchical-settings` (from `main`)
+Related: #572 / PR #589 (`requirePlanForClock` default on for new teams)
+
+> **How to use this plan.** Work the milestones in order — each one builds on the
+> previous. Tick a box only when the item is done _and_ verified. Each milestone ends
+> with a **Done when** check; do not start the next milestone until it passes.
+> If something in the code doesn't match what this plan says, stop and ask — don't
+> improvise a different design.
+
+---
+
+## Goal in one paragraph
+
+Today each level (Enterprise → Organization → Team → Sub-team) stores its own settings
+with no link between them, and a missing value is read as "off". We are adding **one
+server-side registry + one resolver** so that an unset value means **"inherit"**, a
+higher level can **set a default** and optionally **lock** it, and the client only ever
+sees **resolved** values. Nothing more.
+
+```mermaid
+flowchart LR
+    Team["Team.settings"] -->|unset| Parent["Parent Team.settings"]
+    Parent -->|unset| Org["Organization.settings"]
+    Org -->|unset| Enterprise["Enterprise.settings"]
+    Enterprise -->|unset| System["Registry system default"]
+    Lock["Lock at a higher level"] -.->|wins over| Team
+    classDef store fill:#eef,stroke:#669;
+    class Team,Parent,Org,Enterprise,System store;
+```
+
+## Out of scope — do NOT do these
+
+- Making `AUTO_CLOCKOUT_MS`, `SHIFT_END_MS` ([agenda.js](../meteor-backend/server/agenda.js)) or `MEAL_BREAK_THRESHOLD_SECONDS` ([clock-core.js](../meteor-backend/server/clock-core.js)) configurable. The registry should make this _possible later_ — do not add them.
+- User-level preferences (theme, brand, notification prefs).
+- Permission-model changes beyond what locks need.
+- Audit history of settings changes.
+- Adding an i18n library (see Milestone 7 for how to handle strings).
+
+---
+
+## Where things live today (reference)
+
+| What                                                 | File                                                                                                                                                                                                                                                                                                                                                      | Notes                                           |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Team public shape + `?? false` defaults              | [teams.js `toPublicTeam`](../meteor-backend/server/teams.js#L113-L132)                                                                                                                                                                                                                                                                                    |                                                 |
+| Team DDP publication (raw docs)                      | [teams.js `teams.byUser`](../meteor-backend/server/teams.js#L134-L138)                                                                                                                                                                                                                                                                                    | Client can't see resolved values                |
+| Team settings write + plan notification              | [teams.js `teams.updateSettings`](../meteor-backend/server/teams.js#L459-L501)                                                                                                                                                                                                                                                                            | Permission: `isTeamAdminOrOrgOwner`             |
+| `autoAcceptJoins` read                               | [teams.js](../meteor-backend/server/teams.js#L277)                                                                                                                                                                                                                                                                                                        |                                                 |
+| Org `allowAutoJoin` check before `addOrgMember` (×5) | [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136)                                                                | The duplicated "cascade"                        |
+| Org `allowAutoJoin` storage/API                      | [organizations.js](../meteor-backend/server/organizations.js#L97) (`toOrgSummary`), [L288 create](../meteor-backend/server/organizations.js#L288), [L340 update](../meteor-backend/server/organizations.js#L340), [L370 updateSettings](../meteor-backend/server/organizations.js#L370), [L395 orgs.join](../meteor-backend/server/organizations.js#L395) | Read as `!== false`                             |
+| Default-org `allowAutoJoin`                          | [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79), [L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381)                                                                                                                                                                | Query on the field — must keep working          |
+| Enterprise doc                                       | [enterprises.js](../meteor-backend/server/enterprises.js)                                                                                                                                                                                                                                                                                                 | No settings today                               |
+| Permission helpers                                   | [org-helpers.js `isTeamAdminOrOrgOwner`](../meteor-backend/server/org-helpers.js#L217), [organizations.js `buildOrgAccess`](../meteor-backend/server/organizations.js#L79), [permissions.js `isEnterpriseElevatedForTeamOrg`](../meteor-backend/server/permissions.js#L75)                                                                                | Reuse; don't add new roles                      |
+| Clock-out wrap-up gate                               | [clock.js L917](../meteor-backend/server/clock.js#L917)                                                                                                                                                                                                                                                                                                   |                                                 |
+| Wormhole method exposure                             | [main.js L1914](../meteor-backend/server/main.js#L1914), [L2119](../meteor-backend/server/main.js#L2119)                                                                                                                                                                                                                                                  | New/changed method params must be declared here |
+| Startup migration pattern                            | [inline-images.js `migrateInlinePostImages`](../meteor-backend/server/inline-images.js#L160-L185)                                                                                                                                                                                                                                                         | Idempotent, runs in `Meteor.startup`            |
+| Client fallbacks to remove                           | [ddp.ts L642](../src/lib/ddp.ts#L642), [TeamsPage.tsx L198](../src/features/teams/TeamsPage.tsx#L198), [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38)                                                                                                                                                                                          |                                                 |
+| Client settings UI                                   | [TeamsPage.tsx L965–L1030](../src/features/teams/TeamsPage.tsx#L965), [OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431), [EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)                                                                                                                       |                                                 |
+| API client types                                     | [api.ts](../src/lib/api.ts) (`teamApi.updateSettings`, `orgApi.updateSettings`)                                                                                                                                                                                                                                                                           |                                                 |
+| Plan-gate tests                                      | [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts)                                                                                                                                                                                                                                                                                            | `cd meteor-backend && npm run test:integration` |
+
+---
+
+## Design decisions (fixed — follow these)
+
+1. **Storage shape (same on every level):**
+   ```js
+   settings: { requirePlanForClock?: boolean, autoAcceptJoins?: boolean, allowAutoJoin?: boolean }
+   settingsLocks: { requirePlanForClock?: true, autoAcceptJoins?: true, allowAutoJoin?: true }
+   ```
+   - A key that is **absent** means "inherit". Never write resolved/inherited values to the DB.
+   - "Reset to inherited" = `$unset` the key. The API accepts `null` to mean reset.
+   - `settingsLocks` only exists on Enterprise and Organization (teams can't lock — they have nothing below them except sub-teams, which is out of scope).
+2. **Registry** — one plain JS module with **no Meteor imports** so it is unit-testable:
+   `meteor-backend/server/settings/registry.js`
+   ```js
+   export const SETTINGS = {
+     requirePlanForClock: {
+       type: 'boolean',
+       default: true,
+       levels: ['enterprise', 'org', 'team'],
+       personalExempt: true,
+       exemptValue: false,
+     },
+     autoAcceptJoins: {
+       type: 'boolean',
+       default: false,
+       levels: ['enterprise', 'org', 'team'],
+       personalExempt: false,
+     },
+     allowAutoJoin: {
+       type: 'boolean',
+       default: true,
+       levels: ['enterprise', 'org'],
+       personalExempt: false,
+     },
+   };
+   ```
+3. **Resolver** — split in two:
+   - `resolveFromChain(chain, { isPersonal })` — **pure** function in `meteor-backend/server/settings/resolve.js`. `chain` is an ordered array, nearest first: `[{ level: 'team', id, settings }, { level: 'team', id, settings } /* parent(s) */, { level: 'org', id, settings, settingsLocks }, { level: 'enterprise', id, settings, settingsLocks }]`.
+   - `resolveSettings(team)` — **async** loader in `meteor-backend/server/settings/index.js` that fetches parent teams / org / enterprise and calls the pure function.
+   - Output per key: `{ value, source: 'team' | 'parentTeam' | 'org' | 'enterprise' | 'system' | 'personal', sourceId, locked: boolean }`.
+   - **Resolution order:** first find the **highest** level that has the key locked (enterprise before org) — if found, that level's value wins and `locked: true`. Otherwise walk nearest → farthest and take the first explicit value; fall back to the registry default.
+   - Personal teams: if `personalExempt`, return `{ value: exemptValue, source: 'personal', locked: true }`.
+4. **Client contract:** the client receives the resolved object above (value + source + locked) as `Team.resolvedSettings`. `Team.settings` stays flat resolved booleans so older app versions keep working through a rolling deploy; new code reads `resolvedSettings`. No client code applies its own default.
+
+> If any of these turns out to be impossible as written, raise it in the PR before changing it.
+
+---
+
+## Milestone 0 — Setup and baseline
+
+- [x] Check out the working branch, run `nvm use`. _(Work is on `feat/require-plan-default-572`, rebased onto `origin/main`, instead of `feature/607-hierarchical-settings`.)_
+- [x] Start the stack and confirm you can toggle the two team settings on the Teams page today. _(The stack was already running; the toggles were exercised in the Milestone 7 browser smoke test, after the changes.)_
+- [x] Run and record the baseline: `npm run lint` ✅, `npm run typecheck` ✅, `npm run test:unit` ✅ (54 files, 567 tests), `cd meteor-backend && npm run test:integration` ⚠️ 598 passed, 1 pre-existing failure (`keeps one link per ticket…` — expects a GitHub-specific error, gets a generic one; unrelated to settings). Playwright e2e (`test:all`) not run at baseline.
+- [x] Check whether PR #589 has merged into `main`. _(No — the #572 work is the 4 commits on this branch. They set `settings.requirePlanForClock: true` on new teams and backfill existing non-personal teams to `true` in a `teams.js` startup block. This conflicts with Milestone 2; see the note there.)_
+- [x] Read every file in the reference table above once. _(Read as each one was changed.)_
+
+**Done when:** all baseline commands pass (or pre-existing failures are written down in the PR description).
+
+---
+
+## Milestone 1 — Registry and pure resolver (no behaviour change yet)
+
+- [x] Create `meteor-backend/server/settings/registry.js` exactly as in Design decision 2.
+- [x] Create `meteor-backend/server/settings/resolve.js` with `resolveFromChain(chain, { isPersonal })` (Design decision 3).
+- [x] Add a short `meteor-backend/server/settings/README.md` (3–5 lines) saying what the folder is and that the registry is the single source of truth for defaults.
+- [x] Unit tests `meteor-backend/tests/settings-resolve.test.ts` covering:
+  - [x] Nothing set anywhere → registry default, `source: 'system'`.
+  - [x] Team value beats org and enterprise values.
+  - [x] Sub-team with no value inherits **parent team** before org.
+  - [x] Org value beats enterprise value.
+  - [x] Enterprise value used when team and org are unset.
+  - [x] Org lock overrides a team's explicit value (`locked: true`, `source: 'org'`).
+  - [x] Enterprise lock overrides an org lock.
+  - [x] Personal team → `requirePlanForClock` is `false` even if org/enterprise set or lock it to `true`.
+  - [x] A key not allowed at a level (e.g. `allowAutoJoin` on a team) is ignored by the resolver.
+
+**Done when:** new tests pass; no existing file was changed except new ones. _(11/11 pass. Resolver decision added: a lock only counts at a level that holds a value for the key — Milestone 4 should reject locking an unset key.)_
+
+---
+
+## Milestone 2 — Storage and migration
+
+- [x] Add `settings: {}` and `settingsLocks: {}` to new enterprises in `enterprises.create` and new orgs in `orgs.create` / [org-helpers.js L79](../meteor-backend/server/org-helpers.js#L79) (also the default enterprise). Do **not** add `settings.requirePlanForClock` to new teams — absent means inherit (which ends at system default `true`, the #572 intent). _(`teams.create` still writes the #572 explicit `true` until Milestone 6 — the client still reads the raw publication, where absent reads as off, so removing it earlier would make the UI and the server disagree. Remove it in M6.)_
+- [x] Create `meteor-backend/server/settings/migrate.js` — an idempotent startup migration following the [inline-images.js](../meteor-backend/server/inline-images.js#L160-L185) pattern:
+  - [x] **Teams:** for every team where `isPersonal !== true` **and** `settings.requirePlanForClock` does not exist → `$set: { 'settings.requirePlanForClock': false }`. (Keeps existing teams exactly as they behave today.) _(Runs once, guarded by a `migrations` marker doc: after M3 an absent value on a new team means inherit, so re-pinning on every startup would switch those teams off. This replaces the #572 backfill-to-`true` block that was in `teams.js`.)_
+  - [x] **Orgs:** for every org with a top-level `allowAutoJoin` field and no `settings.allowAutoJoin` → copy it to `settings.allowAutoJoin`. The top-level field is kept so servers from the previous version still read it during a rolling deploy; remove it in a later migration once they are drained. Orgs without the field get nothing (absent = inherit = default `true`, same as today's `!== false`).
+  - [x] Log a one-line count per collection; log nothing when there is nothing to do.
+- [x] Register the migration in `Meteor.startup` and import it from [main.js](../meteor-backend/server/main.js).
+- [x] Update everything that reads/writes the top-level org `allowAutoJoin` to use `settings.allowAutoJoin` instead: [org-helpers.js L93](../meteor-backend/server/org-helpers.js#L93), [auth-bridge.js L381](../meteor-backend/server/auth-bridge.js#L381) (query becomes `'settings.allowAutoJoin': { $ne: false }`), the five hand-coded checks and `organizations.js` (M3 replaces them with the resolver), `scripts/fix-org-members.js`, and the tests/e2e fixtures that wrote the field. _(`src/features/seeder/presets/*.yaml` left as is: the seeder's `/v1/seed/import` backend no longer exists in this repo, so nothing reads the presets' `allowAutoJoin` today.)_
+- [x] Run the migration twice against a local DB copy; confirm the second run changes nothing. _(Covered by `meteor-backend/tests/settings-migrate.test.ts` against the test DB.)_
+
+**Done when:** after migration, every existing non-personal team has an explicit `requirePlanForClock`, every org with a top-level `allowAutoJoin` has it copied to `settings.allowAutoJoin`, and the app behaves exactly as before. _(Integration suite: only the pre-existing ticket failure remains.)_
+
+---
+
+## Milestone 3 — Server consumers use the resolver
+
+- [x] Implement `resolveSettings(team)` in `meteor-backend/server/settings/index.js` (loads parent chain via `parentTeamId`, org via `orgId`, enterprise via `org.enterpriseId`). Guard against a `parentTeamId` cycle (stop after a visited id repeats).
+- [x] Add `resolveSettingsForTeams(teams)` that loads each org/enterprise **once** for a list (used by `teams.list` and the publication).
+- [x] Make `toPublicTeam` return resolved settings. Because resolving is async, change it to `async toPublicTeam(team, resolved?)` and update every caller in `teams.js` to `await` it (search for `toPublicTeam(`). Remove the `?? false` lines.
+- [x] [clock.js L917](../meteor-backend/server/clock.js#L917): replace `team?.settings?.requirePlanForClock` with `(await resolveSettings(team)).requirePlanForClock.value`. Also apply it at clock-in if the server gates clock-in on the plan.
+- [x] [teams.js L277](../meteor-backend/server/teams.js#L277): read `autoAcceptJoins` from the resolver.
+- [x] **One place for the org auto-join check:** add `addMemberToTeamOrgIfAllowed(team, userId)` in `settings/index.js` (or `org-helpers.js`) that resolves `allowAutoJoin` and calls `addOrgMember`. Replace all five hand-coded checks: [teams.js L284](../meteor-backend/server/teams.js#L284), [L409](../meteor-backend/server/teams.js#L409), [L590](../meteor-backend/server/teams.js#L590), [L730](../meteor-backend/server/teams.js#L730), [team-join-requests.js L136](../meteor-backend/server/team-join-requests.js#L136).
+- [x] [organizations.js L97](../meteor-backend/server/organizations.js#L97) and [L395](../meteor-backend/server/organizations.js#L395): read `allowAutoJoin` via the resolver (org → enterprise → system).
+- [x] `grep -rn "settings?.requirePlanForClock\|settings?.autoAcceptJoins\|allowAutoJoin !== false\|allowAutoJoin === false" meteor-backend/server` returns only the settings module.
+
+**Done when:** existing integration tests still pass, and the grep above is clean. _(Met: only the pre-existing ticket failure remains. Notes: `toPublicTeam` returns the resolved **values** as flat booleans for now — the `{ value, source, locked }` object shape lands with the client in M6 so the app keeps working in between. The server only gates clock-out, so there was no clock-in gate to change. `teams.updateSettings` now compares the resolved value before the write for its notification. Raw-inserted non-personal test teams with no `settings` now resolve to the default `true`, so the integration fixtures that clock out pin `requirePlanForClock: false`.)_
+
+---
+
+## Milestone 4 — Write APIs with locks and reset
+
+- [x] **`teams.updateSettings`** ([teams.js L459](../meteor-backend/server/teams.js#L459)):
+  - [x] Accept `true | false | null` per key (`null` → `$unset`, i.e. reset to inherited).
+  - [x] Reject (`Meteor.Error('forbidden', 'Setting is locked by …')`) any write to a key that the resolver reports as `locked` from above.
+  - [x] Reject keys whose registry `levels` doesn't include `'team'`.
+  - [x] Keep the existing permission check (`isTeamAdminOrOrgOwner`).
+- [x] **`orgs.updateSettings`** ([organizations.js L370](../meteor-backend/server/organizations.js#L370)): accept `{ orgId, settings: {...}, locks: {...} }` with the same `true | false | null` rules; reject writes locked by the enterprise. Keep accepting the old `{ orgId, allowAutoJoin }` shape so the current UI keeps working until Milestone 7. Permission: existing `buildOrgAccess().canManage`.
+- [x] `orgs.create` / `orgs.update`: write `allowAutoJoin` into `settings.allowAutoJoin`.
+- [x] **New `enterprises.updateSettings`** in [enterprises.js](../meteor-backend/server/enterprises.js) with `{ enterpriseId, settings, locks }`. Permission: caller is in enterprise `owners` or `admins` (same check the file already uses).
+- [x] Return the updated entity with **resolved** settings (teams) or raw `settings` + `settingsLocks` (org/enterprise — these are the edit view).
+- [x] Declare new/changed params in the Wormhole `expose` calls in [main.js](../meteor-backend/server/main.js#L1914).
+- [x] Integration tests (new file `meteor-backend/tests/settings-hierarchy.test.ts`):
+  - [x] Org admin sets `requirePlanForClock: true`; a team with no explicit value resolves `true` with `source: 'org'`.
+  - [x] Org locks `autoAcceptJoins: false`; `teams.updateSettings({ autoAcceptJoins: true })` is rejected.
+  - [x] Enterprise default is inherited by an org and its teams.
+  - [x] `teams.updateSettings({ requirePlanForClock: null })` resets the team to the inherited value.
+  - [x] A non-admin cannot call `orgs.updateSettings` / `enterprises.updateSettings`.
+
+**Done when:** all new tests pass; locked writes are rejected server-side. _(Met: unit tests in `settings-write.test.ts`, integration in `settings-hierarchy.test.ts`; full integration suite has only the pre-existing ticket failure. Notes: write rules live in `settings/write.js` (pure) behind `settingsUpdateFor`; a lock is only accepted on a level that holds a value for the key, and a locked value cannot be reset without unlocking. Team responses still carry flat resolved booleans, so the `source: 'org'` assertion lands with the object shape in M6; M4 asserts the resolved value. `orgs.get`/list and `enterprises.get` now include raw `settings` and `settingsLocks` for the edit view.)_
+
+---
+
+## Milestone 5 — Notifications on effective-value changes
+
+- [x] Extract the existing notification block from [teams.js L483–L499](../meteor-backend/server/teams.js#L483-L499) into `notifyPlanRequired(team, actorUserId)`. Keep the **same title and body text**. `teams.updateSettings` now calls the helper — but only when the **resolved** value goes `false → true` (compare resolved before vs. after, not the raw field).
+- [x] In `orgs.updateSettings` and `enterprises.updateSettings`: when `requirePlanForClock` or its lock changes, resolve every affected non-personal team **before and after** the write, and call `notifyPlanRequired` for each team whose value went `false → true`. Teams with their own explicit value (and no lock) must not be notified.
+- [x] Integration test: org turns on the default → members of an inheriting team get a notification; members of a team with explicit `false` do not.
+
+**Done when:** the test passes and the existing team-level notification still fires. _(Met, in `settings-hierarchy.test.ts`. The shared `writeNotifyingPlanChanges` in `settings/notify.js` serves teams, orgs and enterprises; it reloads teams before the second resolve. The notification's `data.teamId` is now the hex id — it used to be `ObjectID("…")` from `String()` on a Meteor id.)_
+
+---
+
+## Milestone 6 — Client consumes resolved values only
+
+- [x] Server: change `teams.byUser` ([teams.js L134](../meteor-backend/server/teams.js#L134)) to a transformed publication (`observeChanges` + `this.added/changed/removed`) that publishes `settings` as the resolved object. Org/enterprise changes won't re-trigger this observer — after `orgs.updateSettings`/`enterprises.updateSettings` succeed, the client must refetch teams (via the existing `TeamContext` refresh).
+- [x] Add `resolvedSettings` to the `Team` type in [api.ts](../src/lib/api.ts) / [TeamContext.tsx](../src/lib/TeamContext.tsx) as `Record<'requirePlanForClock' | 'autoAcceptJoins', { value: boolean; source: SettingSource; locked: boolean; sourceId?: string }>`; `settings` stays the flat boolean record for older clients. Add `null` to `teamApi.updateSettings` param types.
+- [x] [ddp.ts L642](../src/lib/ddp.ts#L642): pass the resolved settings through — no `Boolean(...)`.
+- [x] [useClockToggle.ts L38](../src/lib/useClockToggle.ts#L38): `gateTeam?.settings.requirePlanForClock.value` — no `!!` fallback beyond a missing team.
+- [x] [TeamsPage.tsx L198–L203](../src/features/teams/TeamsPage.tsx#L198): remove `?? false`.
+- [x] `grep -rn "requirePlanForClock\|autoAcceptJoins" src` — no `?? false`, `Boolean(`, or `!!` defaults remain.
+- [x] Update affected client tests (e.g. [TeamContext.test.tsx](../src/lib/TeamContext.test.tsx)).
+
+**Done when:** `npm run typecheck` and `npm test` pass; clock gate in the UI matches the server gate for an inherited value. _(Met for typecheck, lint, unit tests and the full backend integration suite; `useClockToggle.test.ts` covers an org-inherited gate, and `settings-hierarchy.test.ts` covers the publication over DDP. Notes: `teams.create` no longer writes `settings.requirePlanForClock`, so new teams inherit (system default `true`). `teams.byUser` re-sends every published team's settings when one team's settings change, so a parent's change reaches its sub-teams; org/enterprise changes still need the client to call the new `refreshTeamSettings()` in `TeamContext` (refetch plus a fresh live subscription) — a plain `refetchTeams()` would be overwritten by stale cached DDP docs on the next team change. Milestone 7 must call `refreshTeamSettings` after org/enterprise saves.)_
+
+---
+
+## Milestone 7 — Settings UI at each level
+
+Use `@mieweb/ui` only (`Switch`, `Card`/`CardHeader`/`CardContent`, `Badge`, `Button` inside `ButtonGroup`, `Alert`, `Toast`). Follow [mieweb-ui.instructions.md](../.github/instructions/mieweb-ui.instructions.md). No hardcoded colors; use RTL-safe classes (`ms-*`, `ps-*`, `text-start`).
+
+**Strings:** the app has no i18n library yet. Put every new user-facing string in one `const` object at the top of the component file (e.g. `const STRINGS = { inheritedFrom: (name) => … }`) so they can be moved to `t()` later. Do not add an i18n dependency.
+
+- [x] **Team settings** ([TeamsPage.tsx L965](../src/features/teams/TeamsPage.tsx#L965)):
+  - [x] Each `Switch` shows the effective value.
+  - [x] Under it, a `Text`/`Badge` showing the source: "Set on this team", "Inherited from parent team", "Inherited from Org X", "Inherited from Enterprise Y", "Default". (Use `sourceId` to look up the name; fall back to "organization"/"enterprise" if unavailable.)
+  - [x] "Reset to inherited" button — shown only when `source === 'team'`; calls `updateSettings` with `null`.
+  - [x] When `locked`: `Switch` is `disabled` and the text reads "Locked by Org X" / "Locked by Enterprise Y".
+  - [x] Hide `requirePlanForClock` (or show it disabled with "Not applicable to personal teams") for personal teams.
+- [x] **Organization settings** ([OrganizationMembersPage.tsx L431](../src/features/org/OrganizationMembersPage.tsx#L431)): a `Card` "Team defaults" with, per key, a default `Switch` and a "Lock for all teams" `Switch`. Move the existing `allowAutoJoin` toggle onto the new `{ settings, locks }` API. Show "Locked by Enterprise" where applicable. Refetch teams after save.
+- [x] **Enterprise settings** ([EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)): same "Defaults" `Card` for enterprise owners/admins. Refetch teams after save.
+- [x] Add `orgApi.updateSettings` (new shape) and `enterpriseApi.updateSettings` in [api.ts](../src/lib/api.ts).
+- [x] Accessibility: every `Switch` has a visible label or `aria-label`; the source/lock text is linked via `aria-describedby`; save errors use `Alert`/`Toast` (aria-live).
+- [x] Manual smoke test in the browser (record results in the PR):
+  - [x] Org default on → inheriting team shows "Inherited from Org X" and clock-in requires a plan.
+  - [x] Org lock on → team switch disabled with "Locked by Org X".
+  - [x] Team override → "Set on this team"; Reset → back to inherited.
+  - [x] Personal team never asks for a plan.
+
+**Done when:** all smoke checks pass and every changed page imports from `@mieweb/ui`. _(Met. Smoke-tested in the browser with the dev role logins: org default off + inheriting team showed "Inherited from Medical Informatics Engineering" and the clock page asked for a plan once the default was on; an org lock disabled the team switch with "Locked by Medical Informatics Engineering"; a team override showed "Set on this team" and Reset returned it to inherited; an enterprise lock disabled the org switch with "Locked by Default Enterprise"; org and enterprise saves reached an open team page without a reload. The Personal-team check is covered by an integration test in Milestone 8, not the browser. Notes: shared UI lives in `src/features/settings/` (`TeamSettingRow`, `DefaultsCard`, `settingsCopy.ts`); `orgs.get`/`enterprises.get` return `effectiveSettings` so the client never defaults a value; the old toolbar auto-join toggle moved into the Team defaults card; org and enterprise saves call `refreshTeamSettings()`.)_
+
+---
+
+## Milestone 8 — Tests, release note, and hand-off
+
+- [x] Extend [plan-gate.test.ts](../meteor-backend/tests/plan-gate.test.ts):
+  - [x] Clock-out blocked when `requirePlanForClock` is **inherited** from the org.
+  - [x] Clock-out blocked when **locked** by the org even though the team set `false` before the lock.
+  - [x] Personal team never blocked.
+  - [x] Migrated existing team (explicit `false`) is not blocked.
+- [x] Add a release note per [release-notes/README.md](../release-notes/README.md) (decide the version using its rules; add to an untagged note if one exists). Describe it for users: org/enterprise admins can set team defaults and lock them; teams show where a setting comes from. _(Added to the unreleased `1.0.6.md` — latest tag is 1.0.5 — with PR #589 in its list. The #572 section that sat in `1.0.3.md` was removed: it said existing teams were switched on, which is no longer true.)_
+- [ ] Final validation:
+  - [x] `npm run test:all` _(unit: 55 files / 585 tests; Playwright: 427 passed, 6 skipped, 0 failed. Run as `npm run test:unit` and the full Playwright suite.)_
+  - [x] `npm run lint && npm run typecheck`
+  - [x] `npm run format`
+  - [x] `cd meteor-backend && npm run test:integration`
+  - [x] Browser smoke test at `http://localhost:3000`
+- [ ] Open the PR referencing `#607`; paste the acceptance-criteria checklist below into the description with each item ticked and a pointer to the test or screenshot that proves it.
+
+---
+
+## Acceptance criteria (from the issue — the PR is done when all are ticked)
+
+- [x] Each setting is defined once in a server-side registry with its system default. _(M1)_ Proof: `server/settings/registry.js`.
+- [x] A single resolver returns the effective value and source for every team setting. _(M1, M3)_ Proof: `settings/resolve.js` and `settings/index.js`; `settings-resolve.test.ts`.
+- [x] An org admin can set a default for `requirePlanForClock` and `autoAcceptJoins`; teams without an explicit value inherit it. _(M4, M7)_ Proof: `settings-hierarchy.test.ts` ("org defaults"); the Team defaults card in the Milestone 7 smoke test.
+- [x] An enterprise admin can set defaults that orgs and teams inherit. _(M4, M7)_ Proof: `settings-hierarchy.test.ts`; the enterprise Defaults card in the Milestone 7 smoke test.
+- [x] A higher level can lock a setting; lower levels cannot override it (UI disabled, server rejects writes). _(M4, M7)_ Proof: `settings-write.test.ts`, `settings-hierarchy.test.ts` ("locks"); disabled switches in the Milestone 7 smoke test.
+- [x] Sub-teams inherit from their parent team before the org. _(M1)_ Proof: `settings-resolve.test.ts`, `settings-hierarchy.test.ts` ("sub-teams").
+- [x] Personal teams are never gated by `requirePlanForClock`. _(M1, M8)_ Proof: `settings-resolve.test.ts`, `plan-gate.test.ts`.
+- [x] Existing teams keep their current behaviour after migration. _(M2, M8)_ Proof: `settings-migrate.test.ts`, `plan-gate.test.ts` (migrated team).
+- [x] The `allowAutoJoin` / `autoAcceptJoins` interplay is resolved in one place; the duplicated checks are removed. _(M3)_ Proof: `addMemberToTeamOrgIfAllowed` in `settings/index.js`; the Milestone 3 grep is clean.
+- [x] `clock.js` and `useClockToggle.ts` enforce the same effective value. _(M3, M6)_ Proof: `clock.js` calls `resolveSettings`; `useClockToggle.test.ts`.
+- [x] No client code applies its own default for team settings. _(M6)_ Proof: the Milestone 6 grep is clean.
+- [x] Team settings UI shows the source of inherited values and supports resetting to inherited. _(M7)_ Proof: `settingsCopy.test.tsx`; the Milestone 7 smoke test.
+- [x] Members are notified when an inherited change turns the plan requirement on for their team. _(M5)_ Proof: `settings-hierarchy.test.ts` ("plan requirement notifications").
+- [x] Resolver and plan-gate tests pass; a release note describes the change. _(M1, M8)_ Proof: `settings-resolve.test.ts`, `plan-gate.test.ts`; the note is in `release-notes/1.0.6.md`.

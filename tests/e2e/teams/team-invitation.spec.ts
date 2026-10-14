@@ -99,7 +99,7 @@ test.describe('Team Invitation with Org Membership', () => {
       });
 
       expect(org).toBeTruthy();
-      expect(org.allowAutoJoin).not.toBe(false); // Should be true or undefined (defaults to true)
+      expect(org.settings?.allowAutoJoin).not.toBe(false); // Should be true or undefined (defaults to true)
 
       // Step 3: Simulate team invitation by adding user to team
       await db.collection('teams').updateOne(
@@ -111,7 +111,7 @@ test.describe('Team Invitation with Org Membership', () => {
       );
 
       // Step 4: Simulate the auto-add logic from teams.invite (lines 367-369)
-      if (org?.allowAutoJoin !== false) {
+      if (org?.settings?.allowAutoJoin !== false) {
         // This is what the backend should do automatically
         await db.collection('org_members').insertOne({
           _id: new ObjectId(),
@@ -167,7 +167,7 @@ test.describe('Team Invitation with Org Membership', () => {
       _id: testOrgId,
       name: testOrgName,
       slug: testOrgName.toLowerCase().replace(/\s+/g, '-'),
-      allowAutoJoin: false, // ⚠️ Disable auto-join
+      settings: { allowAutoJoin: false }, // ⚠️ Disable auto-join
       owners: [],
       admins: [],
       createdAt: new Date(),
@@ -230,7 +230,7 @@ test.describe('Team Invitation with Org Membership', () => {
 
       // Step 7: Simulate the auto-add logic check (should NOT add because allowAutoJoin is false)
       const org = await db.collection('organizations').findOne({ _id: testOrgId });
-      if (org?.allowAutoJoin !== false) {
+      if (org?.settings?.allowAutoJoin !== false) {
         // This should NOT execute because allowAutoJoin is false
         await db.collection('org_members').insertOne({
           _id: new ObjectId(),
@@ -281,7 +281,7 @@ test.describe('Team Invitation with Org Membership', () => {
       _id: orgId,
       name: `Sidebar Org ${timestamp}`,
       slug: `sidebar-org-${timestamp}`,
-      allowAutoJoin: true,
+      settings: { allowAutoJoin: true },
       owners: [],
       admins: [],
       createdAt: new Date(),
@@ -309,7 +309,7 @@ test.describe('Team Invitation with Org Membership', () => {
     try {
       // Simulate the auto-add logic that runs on team invitation.
       const org = await db.collection('organizations').findOne({ _id: orgId });
-      if (org?.allowAutoJoin !== false) {
+      if (org?.settings?.allowAutoJoin !== false) {
         await db.collection('org_members').insertOne({
           _id: new ObjectId(),
           orgId: orgId.toHexString(),

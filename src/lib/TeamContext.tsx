@@ -7,6 +7,9 @@
  *   • teams            — all teams the user belongs to (REST)
  *   • teamsReady       — true once the first fetch completes
  *   • refetchTeams     — callable after mutations to refresh the list
+ *   • refreshTeamSettings — refetchTeams plus a fresh live subscription; call it
+ *                        after an org or enterprise settings change, which the
+ *                        live team stream does not see on its own
  *   • selectedTeamId   — the URL's ?team= when present, else the last pick
  *                        persisted in localStorage (see src/ui/ROUTING.md)
  *   • teamAccess       — 'forbidden' when ?team= names a team the user isn't in
@@ -120,6 +123,7 @@ export interface TeamContextValue {
   }>;
   teamsReady: boolean;
   refetchTeams: () => void;
+  refreshTeamSettings: () => void;
   refetchEnterprises: () => void;
   refetchOrganizations: () => void;
   selectedEnterpriseId: string | null;
@@ -151,6 +155,7 @@ const TeamCtx = createContext<TeamContextValue>({
   organizations: [],
   teamsReady: false,
   refetchTeams: () => {},
+  refreshTeamSettings: () => {},
   refetchEnterprises: () => {},
   refetchOrganizations: () => {},
   selectedEnterpriseId: null,
@@ -208,6 +213,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => {})
       .finally(() => setTeamsReady(true));
   }, []);
+
+  // Bumped to restart the live team subscription, so the server resolves every
+  // team's settings again.
+  const [liveTeamsEpoch, setLiveTeamsEpoch] = useState(0);
+  const refreshTeamSettings = useCallback(() => {
+    refetchTeams();
+    setLiveTeamsEpoch((epoch) => epoch + 1);
+  }, [refetchTeams]);
 
   const refetchEnterprises = useCallback(() => {
     if (!userId) {
@@ -323,7 +336,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       offChange();
       unsubscribe();
     };
-  }, [userId]);
+  }, [userId, liveTeamsEpoch]);
 
   // ── Selected team ───────────────────────────────────────────────────────────
 
@@ -647,6 +660,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       organizations,
       teamsReady,
       refetchTeams,
+      refreshTeamSettings,
       refetchEnterprises,
       refetchOrganizations,
       selectedEnterpriseId,
@@ -672,6 +686,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       organizations,
       teamsReady,
       refetchTeams,
+      refreshTeamSettings,
       refetchEnterprises,
       refetchOrganizations,
       selectedEnterpriseId,

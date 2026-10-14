@@ -700,14 +700,15 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
-      };
+      } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
 
-  updateSettings: (id: string, allowAutoJoin: boolean) =>
-    wormholeCall<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
-      'orgs.updateSettings',
-      { orgId: id, allowAutoJoin },
-    ).then((r) => r.organization),
+  /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
+  updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
+    wormholeCall<{ organization: { orgId: string } & SettingsEditView }>('orgs.updateSettings', {
+      orgId: id,
+      ...patch,
+    }).then((r) => r.organization),
 
   joinOrganization: (id: string) =>
     wormholeCall<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
@@ -825,8 +826,14 @@ export const enterpriseApi = {
           username: string | null;
           role: 'owner' | 'admin';
         }>;
-      };
+      } & SettingsEditView;
     }>('enterprises.get', { enterpriseId: id }).then((r) => r.enterprise),
+
+  updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
+    wormholeCall<{ enterprise: { id: string } & SettingsEditView }>('enterprises.updateSettings', {
+      enterpriseId: id,
+      ...patch,
+    }).then((r) => r.enterprise),
 
   updateName: (id: string, name: string) =>
     wormholeCall<{
@@ -1306,6 +1313,33 @@ export const huddleApi = {
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
+/** Where a team setting's effective value comes from. */
+export type SettingSource = 'team' | 'parentTeam' | 'org' | 'enterprise' | 'system' | 'personal';
+
+/** A setting as the server resolved it: the client never applies its own default. */
+export interface ResolvedSetting {
+  value: boolean;
+  source: SettingSource;
+  locked: boolean;
+  /** The team, org or enterprise the value comes from; absent for 'system' and 'personal'. */
+  sourceId?: string;
+}
+
+export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
+
+/** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
+export type DefaultSettingKey = TeamSettingKey | 'allowAutoJoin';
+
+/** `true`/`false` sets a value (or locks); `null` resets it to inherited (or unlocks). */
+export type SettingsPatch = Partial<Record<DefaultSettingKey, boolean | null>>;
+
+/** An org's or enterprise's own settings, its locks, and what each resolves to. */
+export interface SettingsEditView {
+  settings: Partial<Record<DefaultSettingKey, boolean>>;
+  settingsLocks: Partial<Record<DefaultSettingKey, true>>;
+  effectiveSettings: Record<DefaultSettingKey, ResolvedSetting>;
+}
+
 export interface Team {
   id: string;
   orgId: string;
@@ -1316,10 +1350,9 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
-  settings?: {
-    requirePlanForClock?: boolean;
-    autoAcceptJoins?: boolean;
-  };
+  /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
+  settings: Record<TeamSettingKey, boolean>;
+  resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -1399,10 +1432,8 @@ export const teamApi = {
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
-  updateSettings: (
-    id: string,
-    settings: { requirePlanForClock?: boolean; autoAcceptJoins?: boolean },
-  ) =>
+  /** `true`/`false` sets a setting on the team; `null` resets it to the inherited value. */
+  updateSettings: (id: string, settings: Partial<Record<TeamSettingKey, boolean | null>>) =>
     wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
       (r) => r.team,
     ),

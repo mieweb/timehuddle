@@ -9,6 +9,8 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
+import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import { writeNotifyingPlanChanges } from './settings/notify';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -40,6 +42,20 @@ Meteor.startup(async () => {
     console.error('[organizations] failed to create invitation index:', error);
   }
 });
+
+// The auto-join value to store, or undefined for nothing. Under an enterprise lock
+// only the locked value is accepted, and it is not stored so it can't resurface later.
+// A value equal to the effective one is not stored, so an org keeps inheriting.
+function autoJoinToStore(effective, requested) {
+  if (typeof requested !== 'boolean') return undefined;
+  if (effective.locked && effective.source === 'enterprise') {
+    if (requested !== effective.value) {
+      throw new Meteor.Error('forbidden', 'Setting allowAutoJoin is locked by the enterprise');
+    }
+    return undefined;
+  }
+  return requested === effective.value ? undefined : requested;
+}
 
 function slugify(value) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 64);
@@ -88,13 +104,17 @@ async function buildOrgAccess(userId, org) {
   };
 }
 
-function toOrgSummary(org, role) {
+async function toOrgSummary(org, role) {
+  const effectiveSettings = await resolveOrgSettings(org);
   return {
     id: org._id.toHexString(),
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
-    allowAutoJoin: org.allowAutoJoin !== false,
+    allowAutoJoin: effectiveSettings.allowAutoJoin.value,
+    settings: org.settings ?? {},
+    settingsLocks: org.settingsLocks ?? {},
+    effectiveSettings,
     role,
   };
 }
@@ -149,10 +169,10 @@ export async function loadOrgMembers(orgId) {
   // Get members from org_members collection
   const membershipDocs = await db.collection('org_members').find({ orgId }).toArray();
   
-  // Get all team members from teams in this org
-  const teamDocs = await db.collection('teams')
-    .find({ orgId }, { projection: { members: 1, admins: 1 } })
-    .toArray();
+  // Get all team members from teams in this org. Personal teams are left out:
+  // each one is its owner's own space, parked in the default org, and says
+  // nothing about who belongs to the organization.
+  const teamDocs = await teamsInOrg(orgId);
   const teamMemberIds = new Set();
   for (const team of teamDocs) {
     for (const memberId of team.members || []) teamMemberIds.add(memberId);
@@ -220,6 +240,40 @@ export async function loadOrgMembers(orgId) {
     })
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
+}
+
+// Everyone holding an owner or admin role, from memberships and the legacy arrays.
+function elevatedIdsOf(org, membershipDocs) {
+  return new Set([
+    ...(org?.owners ?? []),
+    ...(org?.admins ?? []),
+    ...membershipDocs.filter((m) => ELEVATED_ROLES.includes(m.role)).map((m) => m.userId),
+  ]);
+}
+
+/**
+ * Pull `userId` out of `teams` without ever leaving one with no admin. Taking
+ * out an admin only matches while another admin is still there at write time,
+ * so two removals racing on the same team cannot both get through the
+ * pre-check in orgs.removeMember. If one is refused, the teams already left
+ * are restored and the whole removal fails.
+ */
+async function leaveOrgTeams(teams, userId) {
+  const db = rawDb();
+  const left = [];
+  for (const team of teams) {
+    const wasAdmin = (team.admins ?? []).includes(userId);
+    const res = await db.collection('teams').updateOne(
+      wasAdmin ? { _id: team._id, admins: { $elemMatch: { $ne: userId } } } : { _id: team._id },
+      { $pull: { members: userId, admins: userId }, $set: { updatedAt: new Date() } },
+    );
+    if (res.matchedCount === 0) {
+      await restoreBlockedMemberships(userId, [{ removedFromTeams: left }]);
+      throw new Meteor.Error('last-admin', `Cannot remove the only admin of ${team.name}. Give the team another admin first.`);
+    }
+    left.push({ teamId: team._id.toHexString(), wasAdmin });
+  }
+  return left;
 }
 
 async function requireDefaultOrgAdmin(userId) {
@@ -302,6 +356,10 @@ Meteor.methods({
     if (conflict) throw new Meteor.Error('conflict', 'Slug already taken');
 
     const now = new Date();
+    const initialAutoJoin = autoJoinToStore(
+      resolveEnterpriseSettings(enterprise).allowAutoJoin,
+      allowAutoJoin,
+    );
     const org = {
       _id: new ObjectId(),
       enterpriseId,
@@ -309,13 +367,15 @@ Meteor.methods({
       name: trimmedName,
       owners: [userId],
       admins: [],
-      allowAutoJoin: allowAutoJoin !== false,
+      settings: initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin },
+      ...(initialAutoJoin === undefined ? {} : { allowAutoJoin: initialAutoJoin }),
+      settingsLocks: {},
       createdAt: now,
       updatedAt: now,
     };
     await db.collection('organizations').insertOne(org);
     await addOrgMember(org._id.toHexString(), userId, 'owner', false);
-    return { organization: toOrgSummary(org, 'owner') };
+    return { organization: await toOrgSummary(org, 'owner') };
   },
 
   async 'orgs.get'({ orgId }) {
@@ -331,7 +391,7 @@ Meteor.methods({
     const access = await buildOrgAccess(userId, org);
     return {
       organization: {
-        ...toOrgSummary(org, membership?.role ?? entRole ?? 'member'),
+        ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
       },
     };
@@ -360,30 +420,58 @@ Meteor.methods({
       }
       updates.slug = newSlug;
     }
-    if (allowAutoJoin !== undefined) updates.allowAutoJoin = allowAutoJoin;
+    const autoJoin = autoJoinToStore((await resolveOrgSettings(org)).allowAutoJoin, allowAutoJoin);
+    if (autoJoin !== undefined) {
+      updates['settings.allowAutoJoin'] = autoJoin;
+      updates.allowAutoJoin = autoJoin;
+    }
 
     await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
-    return { organization: toOrgSummary(updated, access.role) };
+    return { organization: await toOrgSummary(updated, access.role) };
   },
 
-  async 'orgs.updateSettings'({ orgId, allowAutoJoin }) {
+  async 'orgs.updateSettings'({ orgId, allowAutoJoin, settings, locks }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
-    if (typeof allowAutoJoin !== 'boolean') throw new Meteor.Error('bad-request', 'allowAutoJoin is required');
+    // The old `{ orgId, allowAutoJoin }` call is still accepted.
+    const settingsPatch = settings ?? (allowAutoJoin === undefined ? undefined : { allowAutoJoin });
+    if (settingsPatch === undefined && locks === undefined) {
+      throw new Meteor.Error('bad-request', 'settings or locks is required');
+    }
     const db = rawDb();
     const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
-    const result = await db.collection('organizations').findOneAndUpdate(
-      { _id: new ObjectId(orgId) },
-      { $set: { allowAutoJoin, updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-    return { organization: { orgId: result._id.toHexString(), allowAutoJoin: result.allowAutoJoin !== false } };
+    const update = settingsUpdateFor({
+      level: 'org',
+      entity: org,
+      resolved: await resolveOrgSettings(org),
+      settings: settingsPatch,
+      locks,
+    });
+    const result = await writeNotifyingPlanChanges({
+      update,
+      teams: () => teamsInOrg(orgId),
+      actorUserId: userId,
+      write: () =>
+        db.collection('organizations').findOneAndUpdate({ _id: new ObjectId(orgId) }, update, {
+          returnDocument: 'after',
+        }),
+    });
+    const effectiveSettings = await resolveOrgSettings(result);
+    return {
+      organization: {
+        orgId: result._id.toHexString(),
+        allowAutoJoin: effectiveSettings.allowAutoJoin.value,
+        settings: result.settings ?? {},
+        settingsLocks: result.settingsLocks ?? {},
+        effectiveSettings,
+      },
+    };
   },
 
   async 'orgs.join'({ orgId }) {
@@ -392,7 +480,9 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    if (org.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    if (!(await resolveOrgSettings(org)).allowAutoJoin.value) {
+      throw new Meteor.Error('forbidden', 'Auto-join is disabled');
+    }
     const membership = await addOrgMember(orgId, userId, 'member', true);
     if (membership === 'not-found') throw new Meteor.Error('not-found', 'Organization not found');
     return { membership: { orgId: membership.orgId, role: membership.role } };
@@ -462,11 +552,7 @@ Meteor.methods({
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
-    const elevatedIds = new Set([
-      ...(org.owners ?? []),
-      ...(org.admins ?? []),
-      ...membershipDocs.filter((m) => ELEVATED_ROLES.includes(m.role)).map((m) => m.userId),
-    ]);
+    const elevatedIds = elevatedIdsOf(org, membershipDocs);
     const current = await getOrgMembership(orgId, userId);
     if (current && ELEVATED_ROLES.includes(current.role) && role === 'member' && elevatedIds.size === 1 && elevatedIds.has(userId)) {
       throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
@@ -492,24 +578,79 @@ Meteor.methods({
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
-    const current = await getOrgMembership(orgId, userId);
-    if (!current) throw new Meteor.Error('not-member', 'Not an org member');
-
-    const elevatedIds = new Set([
-      ...(org.owners ?? []),
-      ...(org.admins ?? []),
-      ...membershipDocs.filter((m) => ELEVATED_ROLES.includes(m.role)).map((m) => m.userId),
-    ]);
-    if (ELEVATED_ROLES.includes(current.role) && elevatedIds.size === 1 && elevatedIds.has(userId)) {
-      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    // Anyone loadOrgMembers lists can be removed: a membership row, a legacy
+    // owner/admin entry, or a seat on one of the org's teams.
+    const userTeams = (await teamsInOrg(orgId)).filter(
+      (t) => (t.members ?? []).includes(userId) || (t.admins ?? []).includes(userId),
+    );
+    const elevatedIds = elevatedIdsOf(org, membershipDocs);
+    const hasMembership = membershipDocs.some((m) => m.userId === userId);
+    if (!hasMembership && !elevatedIds.has(userId) && userTeams.length === 0) {
+      throw new Meteor.Error('not-member', 'Not an org member');
     }
 
+    if (elevatedIds.size === 1 && elevatedIds.has(userId)) {
+      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    }
+    const soleAdminTeams = userTeams.filter(
+      (t) => (t.admins ?? []).includes(userId) && t.admins.length === 1,
+    );
+    if (soleAdminTeams.length > 0) {
+      const names = soleAdminTeams.map((t) => t.name).join(', ');
+      throw new Meteor.Error('last-admin', `Cannot remove the only admin of ${names}. Give the team another admin first.`);
+    }
+
+    // Leaving the organization means leaving its teams too — otherwise the
+    // team seat keeps them in the member list and in the org's work. Done
+    // first, so a refusal here leaves the membership untouched.
+    const leftTeams = await leaveOrgTeams(userTeams, userId);
+
+    const now = new Date();
+    // Recorded so an implicit join never brings them back (see wasRemovedFromOrg).
+    // Written before the membership goes: the sign-in auto-join looks for a
+    // membership and then for this, so a sign-in racing the removal always
+    // finds one of the two.
+    await db.collection('users').updateOne(
+      { _id: String(userId) },
+      { $addToSet: { removedFromOrgs: orgId } },
+    );
+    const removedMemberships = membershipDocs.filter((m) => m.userId === userId);
     await db.collection('org_members').deleteMany({ orgId, userId });
     // Sync legacy arrays to remove from owners/admins
     await db.collection('organizations').updateOne(
       { _id: new ObjectId(orgId) },
-      { $pull: { owners: userId, admins: userId }, $set: { updatedAt: new Date() } },
+      { $pull: { owners: userId, admins: userId }, $set: { updatedAt: now } },
     );
+
+    // The last-elevated check above ran on a snapshot, so two owners or admins
+    // removed at once can both pass it. Count again now that this removal is
+    // written: the later of two racing removals always sees the earlier one,
+    // so if nobody is left it is undone and refused.
+    if (elevatedIds.has(userId)) {
+      const [orgNow, membershipsNow] = await Promise.all([
+        db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
+        db.collection('org_members').find({ orgId }).toArray(),
+      ]);
+      if (elevatedIdsOf(orgNow, membershipsNow).size === 0) {
+        if (removedMemberships.length > 0) {
+          await db.collection('org_members').insertMany(removedMemberships);
+        }
+        const legacyRestore = {
+          ...((org.owners ?? []).includes(userId) ? { owners: userId } : {}),
+          ...((org.admins ?? []).includes(userId) ? { admins: userId } : {}),
+        };
+        if (Object.keys(legacyRestore).length > 0) {
+          await db.collection('organizations').updateOne(
+            { _id: new ObjectId(orgId) },
+            { $addToSet: legacyRestore, $set: { updatedAt: new Date() } },
+          );
+        }
+        await restoreBlockedMemberships(userId, [{ removedFromTeams: leftTeams }]);
+        // The removedFromOrgs marker stays: it is only read when the user has
+        // no membership, and they have one again.
+        throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+      }
+    }
     return { user: { userId } };
   },
 
@@ -668,7 +809,7 @@ Meteor.methods({
 
     await addOrgMember(invitation.orgId, identity.userId, 'member', false);
 
-    return { ok: true, organization: toOrgSummary(org, 'member') };
+    return { ok: true, organization: await toOrgSummary(org, 'member') };
   },
 
   async 'orgs.getPendingInvitations'({ orgId }) {

@@ -40,6 +40,10 @@ COPY scripts ./scripts
 # the file: dependency; the submodule itself isn't needed here.
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 
+# Kerebron fixes the RichEditor needs, applied by the postinstall step
+# (scripts/apply-patches.cjs) — see patches/README.md.
+COPY patches ./patches
+
 # Install all dependencies (dev included — needed for Vite build + Meteor).
 RUN npm install
 RUN cd meteor-backend && npm install
