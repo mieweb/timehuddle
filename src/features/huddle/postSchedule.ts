@@ -2,11 +2,9 @@
  * Picking when a Huddle post is delivered (#596): the values behind the
  * schedule dialog, kept apart from React so they can be tested directly.
  */
-import type { HuddleDeliveryMode } from '@lib/api';
 
 export interface PostSchedule {
   deliverAt: Date;
-  deliveryMode: HuddleDeliveryMode;
 }
 
 /** The server accepts any future time; the dialog asks for a minute of lead so a send can't race it. */
@@ -19,9 +17,8 @@ export const SCHEDULE_TEXT = {
   dialogTitle: 'Schedule Post',
   rescheduleTitle: 'Reschedule Post',
   when: 'Send at',
-  modeLabel: 'Until then',
-  modeSilent: 'Show it now, notify at that time',
-  modeHidden: 'Keep it hidden until that time',
+  onlyYouUntilThen:
+    'Only you see it until then. Everyone else sees it, and is notified, at that time.',
   presetInAnHour: 'In 1 hour',
   presetTomorrow: (time: string) => `Tomorrow ${time}`,
   presetMonday: (time: string) => `Monday ${time}`,

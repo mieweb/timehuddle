@@ -15,8 +15,6 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Radio,
-  RadioGroup,
   Sheet,
   SheetBody,
   SheetClose,
@@ -24,7 +22,7 @@ import {
   SheetTitle,
   Text,
 } from '@mieweb/ui';
-import type { HuddleDeliveryMode, HuddlePost } from '@lib/api';
+import type { HuddlePost } from '@lib/api';
 import { AppModal } from '@ui/AppModal';
 import { useState } from 'react';
 
@@ -62,7 +60,6 @@ export function ScheduleDialog({
   const [value, setValue] = useState(() =>
     toLocalInputValue(initial?.deliverAt ?? schedulePresets(new Date())[0].at),
   );
-  const [mode, setMode] = useState<HuddleDeliveryMode>(initial?.deliveryMode ?? 'silent');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const picked = parseLocalInputValue(value);
@@ -72,7 +69,7 @@ export function ScheduleDialog({
     if (saving || problem || !picked) return;
     setSaving(true);
     try {
-      await onConfirm({ deliverAt: picked, deliveryMode: mode });
+      await onConfirm({ deliverAt: picked });
     } catch {
       setError(SCHEDULE_TEXT.actionFailed);
     } finally {
@@ -128,16 +125,9 @@ export function ScheduleDialog({
           >
             {problem ?? SCHEDULE_TEXT.sendsAt(formatWhen(picked!))}
           </Text>
-          <RadioGroup
-            name="schedule-delivery-mode"
-            label={SCHEDULE_TEXT.modeLabel}
-            value={mode}
-            onValueChange={(next) => setMode(next as HuddleDeliveryMode)}
-            size="sm"
-          >
-            <Radio value="silent" label={SCHEDULE_TEXT.modeSilent} />
-            <Radio value="hidden" label={SCHEDULE_TEXT.modeHidden} />
-          </RadioGroup>
+          <Text size="sm" className="text-muted-foreground">
+            {SCHEDULE_TEXT.onlyYouUntilThen}
+          </Text>
           {error && (
             <Text size="xs" className="text-destructive" role="alert">
               {error}
@@ -235,10 +225,7 @@ export function ScheduledPostsButton({
               {sorted.map((post) => (
                 <li key={post.id} className="scheduled-post-item flex flex-col gap-2 py-3">
                   <Text size="xs" className="text-muted-foreground">
-                    {formatWhen(new Date(post.deliverAt!))} ·{' '}
-                    {post.deliveryMode === 'hidden'
-                      ? SCHEDULE_TEXT.modeHidden
-                      : SCHEDULE_TEXT.modeSilent}
+                    {formatWhen(new Date(post.deliverAt!))}
                   </Text>
                   <Text size="sm" className="break-words">
                     {excerpt(post)}
@@ -280,10 +267,7 @@ export function ScheduledPostsButton({
         <ScheduleDialog
           title={SCHEDULE_TEXT.rescheduleTitle}
           confirmLabel={SCHEDULE_TEXT.confirmReschedule}
-          initial={{
-            deliverAt: new Date(rescheduling.deliverAt!),
-            deliveryMode: rescheduling.deliveryMode ?? 'silent',
-          }}
+          initial={{ deliverAt: new Date(rescheduling.deliverAt!) }}
           onConfirm={async (schedule) => {
             await onReschedule(rescheduling, schedule);
             setRescheduling(null);

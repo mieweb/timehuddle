@@ -21,23 +21,10 @@ describe('parseSchedule', () => {
     expect(parseSchedule({ deliverAt: null }, NOW)).toEqual({ schedule: null });
   });
 
-  it('defaults the mode to silent', () => {
+  it('reads an ISO time', () => {
     expect(parseSchedule({ deliverAt: IN_AN_HOUR }, NOW)).toEqual({
-      schedule: { deliverAt: new Date(IN_AN_HOUR), deliveryMode: 'silent' },
+      schedule: { deliverAt: new Date(IN_AN_HOUR) },
     });
-  });
-
-  it('keeps a hidden mode', () => {
-    expect(parseSchedule({ deliverAt: IN_AN_HOUR, deliveryMode: 'hidden' }, NOW).schedule)
-      .toEqual({ deliverAt: new Date(IN_AN_HOUR), deliveryMode: 'hidden' });
-  });
-
-  it('rejects a mode without a time', () => {
-    expect(parseSchedule({ deliveryMode: 'hidden' }, NOW).error).toBeTruthy();
-  });
-
-  it('rejects an unknown mode', () => {
-    expect(parseSchedule({ deliverAt: IN_AN_HOUR, deliveryMode: 'loud' }, NOW).error).toBeTruthy();
   });
 
   it('rejects anything that is not a date string', () => {
@@ -67,27 +54,26 @@ describe('isAwaitingDelivery', () => {
 });
 
 describe('isHiddenFrom', () => {
-  const hidden = { userId: 'author', deliveryMode: 'hidden', deliverAt: new Date() };
+  const scheduled = { userId: 'author', deliverAt: new Date() };
 
-  it('hides an undelivered hidden post from everyone but its author', () => {
-    expect(isHiddenFrom(hidden, 'other')).toBe(true);
-    expect(isHiddenFrom(hidden, 'author')).toBe(false);
+  it('hides an undelivered post from everyone but its author', () => {
+    expect(isHiddenFrom(scheduled, 'other')).toBe(true);
+    expect(isHiddenFrom(scheduled, 'author')).toBe(false);
   });
 
   it('shows it once delivered', () => {
-    expect(isHiddenFrom({ ...hidden, deliveredAt: new Date() }, 'other')).toBe(false);
+    expect(isHiddenFrom({ ...scheduled, deliveredAt: new Date() }, 'other')).toBe(false);
   });
 
-  it('never hides silent or unscheduled posts', () => {
-    expect(isHiddenFrom({ ...hidden, deliveryMode: 'silent' }, 'other')).toBe(false);
+  it('never hides unscheduled posts', () => {
     expect(isHiddenFrom({ userId: 'author' }, 'other')).toBe(false);
   });
 });
 
 describe('visibleTo', () => {
-  it('lets through non-hidden, delivered, and own posts', () => {
+  it('lets through unscheduled, delivered, and own posts', () => {
     expect(visibleTo('me')).toEqual({
-      $or: [{ deliveryMode: { $ne: 'hidden' } }, { deliveredAt: { $ne: null } }, { userId: 'me' }],
+      $or: [{ deliverAt: null }, { deliveredAt: { $ne: null } }, { userId: 'me' }],
     });
   });
 });

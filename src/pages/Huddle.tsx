@@ -891,10 +891,7 @@ export default function Huddle() {
         ticketId,
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate: toDateString(sendSchedule?.deliverAt ?? new Date()),
-        ...(sendSchedule && {
-          deliverAt: sendSchedule.deliverAt.toISOString(),
-          deliveryMode: sendSchedule.deliveryMode,
-        }),
+        ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
@@ -1122,7 +1119,6 @@ export default function Huddle() {
                               onReschedule={async (post, next) => {
                                 await huddleApi.reschedulePost(post.id, {
                                   deliverAt: next.deliverAt.toISOString(),
-                                  deliveryMode: next.deliveryMode,
                                   postDate: toDateString(next.deliverAt),
                                 });
                                 await refreshActiveScope();

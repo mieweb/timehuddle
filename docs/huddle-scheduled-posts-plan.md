@@ -4,10 +4,10 @@ Branch: `feat/596-scheduled-posts`
 
 ## Goal
 
-Write a Huddle post or reply now and pick a future time for it, in one of two modes:
+Write a Huddle post or reply now and pick a future time for it. Until then only the author sees
+it and nobody is notified; at that time it appears for everyone and notifies.
 
-- **Silent** — appears in the thread immediately, push notification deferred until the time.
-- **Hidden** — invisible to everyone but the author until the time, then appears and notifies.
+An earlier "show now, notify later" mode was dropped: one behavior is simpler to explain and use.
 
 ## Findings
 
@@ -24,11 +24,11 @@ Write a Huddle post or reply now and pick a future time for it, in one of two mo
 ## Decisions
 
 - Deferred notifications go to **@mentioned users** (minus the author), same as an immediate post.
-- Stored on the post (canonical only): `deliverAt`, `deliveryMode: 'silent' | 'hidden'`,
-  `deliveredAt`. Posts without `deliverAt` are unchanged.
+- Stored on the post (canonical only): `deliverAt` and `deliveredAt`. Posts without
+  `deliverAt` are unchanged.
 - Delivery does **not** bump `updatedAt`, so the message doesn't read as "edited" and the
   REST/DDP merge in `syncPosts` keeps preferring the live copy.
-- A hidden post sorts in the thread at `deliveredAt ?? deliverAt`; its `postDate` is the
+- A scheduled post sorts in the thread at `deliveredAt ?? deliverAt`; its `postDate` is the
   scheduled local date.
 - Plan/wrap-up posts (`clockEventId`, `wrapUp`) can't be scheduled.
 - "Recipient has notifications silenced" is out of scope — no per-user notification
@@ -41,10 +41,10 @@ sequenceDiagram
   participant Agenda
   participant Delivery as deliverScheduledPost
   participant Notify as createNotification
-  Composer->>Method: text + deliverAt + deliveryMode
+  Composer->>Method: text + deliverAt
   Method->>Agenda: schedule huddle-post-deliver(postId) at deliverAt
   Agenda->>Delivery: fire at deliverAt
-  Delivery->>Delivery: set deliveredAt (hidden post becomes visible)
+  Delivery->>Delivery: set deliveredAt (post becomes visible)
   Delivery->>Notify: notify @mentioned users (push)
 ```
 
@@ -57,14 +57,14 @@ sequenceDiagram
 
 ## Phase 2 — Backend scheduling
 
-- [x] `huddle-schedule-core.js` (pure): validate `deliverAt`/`deliveryMode`, visibility filter,
+- [x] `huddle-schedule-core.js` (pure): validate `deliverAt`, visibility filter,
       `isHiddenFrom(post, userId)` + unit tests
-- [x] `createHuddlePost` / `huddle.createPost` accept `deliverAt` + `deliveryMode`; reject past, > 1 year, and plan/wrap-up posts; Wormhole schema updated
+- [x] `createHuddlePost` / `huddle.createPost` accept `deliverAt`; reject past, > 1 year, and plan/wrap-up posts; Wormhole schema updated
 - [x] Agenda job `huddle-post-deliver` (unique per post) + `schedulePostDelivery` /
       `cancelPostDelivery`; `deliverScheduledPost` sets `deliveredAt` and notifies, idempotent
 - [x] Hidden filter on `huddlePosts.byTeam` (snapshot + change stream), `huddle.getPosts`,
       `huddle.getMyPosts`
-- [x] `enrichPost` returns `deliverAt`, `deliveryMode`, `deliveredAt`
+- [x] `enrichPost` returns `deliverAt`, `deliveredAt`
 - [x] `huddle.sendScheduledNow` and `huddle.reschedulePost` (author only); `deletePost` cancels
       the job; exposed over Wormhole REST
 - [x] Integration tests (create, hidden from others, deliver, reschedule, cancel)
@@ -75,8 +75,8 @@ sequenceDiagram
       `reschedulePost`
 - [x] `superChatFeed.ts`: scheduled label + hidden-post time; `stripInboxDecorations` keeps working;
       unit tests
-- [x] Schedule control in the composer's `leadingSlot` (`Modal` + `DateInput` datetime-local +
-      mode `Radio`), chip showing the pending schedule
+- [x] Schedule dialog (`Modal` + `DateInput` datetime-local in the locale's 12/24-hour clock,
+      quick picks, live "Sends …" line); first a composer chip, now behind "Send later…" (Phase 4)
 - [x] `handleMessageSent` sends the schedule and clears it
 - [x] "Scheduled (n)" `Sheet`: Send now / Reschedule / Cancel for my pending posts
 - [x] Release note (added to 1.0.7, untagged)

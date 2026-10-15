@@ -71,10 +71,10 @@ export function isAwaitingDelivery(post: HuddlePost): boolean {
   return !!post.deliverAt && !post.deliveredAt;
 }
 
-/** When a post sits in its thread: a hidden one when it appears, others when written. */
+/** When a post sits in its thread: a scheduled one when it is sent, others when written. */
 function postAt(post: HuddlePost): string {
-  if (post.deliveryMode !== 'hidden') return post.createdAt;
-  return post.deliveredAt ?? post.deliverAt ?? post.createdAt;
+  if (!post.deliverAt) return post.createdAt;
+  return post.deliveredAt ?? post.deliverAt;
 }
 
 const postTime = (post: HuddlePost) => new Date(postAt(post)).getTime();
@@ -233,7 +233,7 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
-  if (post.deliveryMode === 'hidden' && isAwaitingDelivery(post)) {
+  if (isAwaitingDelivery(post)) {
     parts.push(THREAD_TEXT.scheduledHidden);
   }
   if (isSessionPost) {

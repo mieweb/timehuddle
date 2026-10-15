@@ -44,7 +44,6 @@ function scheduledPost(overrides: Partial<HuddlePost> = {}): HuddlePost {
     createdAt,
     updatedAt: createdAt,
     deliverAt: IN_TWO_HOURS.toISOString(),
-    deliveryMode: 'silent',
     ...overrides,
   };
 }
@@ -64,18 +63,14 @@ describe('ScheduleDialog', () => {
     return { onConfirm, onClose };
   };
 
-  it('confirms a quick pick with the chosen mode', async () => {
+  it('confirms a quick pick', async () => {
     const { onConfirm } = renderDialog();
 
     fireEvent.click(await screen.findByRole('button', { name: /^Tomorrow / }));
-    fireEvent.click(screen.getByLabelText(SCHEDULE_TEXT.modeHidden));
     fireEvent.click(screen.getByRole('button', { name: SCHEDULE_TEXT.confirm }));
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
-    const [{ deliverAt, deliveryMode }] = onConfirm.mock.calls[0] as unknown as [
-      { deliverAt: Date; deliveryMode: string },
-    ];
-    expect(deliveryMode).toBe('hidden');
+    const [{ deliverAt }] = onConfirm.mock.calls[0] as unknown as [{ deliverAt: Date }];
     expect(deliverAt.getHours()).toBe(9);
     expect(deliverAt.getTime()).toBeGreaterThan(Date.now());
   });

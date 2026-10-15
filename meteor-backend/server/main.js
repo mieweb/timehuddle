@@ -1661,12 +1661,8 @@ Meteor.startup(async() => {
         draft: { type: 'boolean' },
         deliverAt: {
           type: 'string',
-          description: 'ISO date to schedule the post for; notifications wait until then',
-        },
-        deliveryMode: {
-          type: 'string',
-          enum: ['silent', 'hidden'],
-          description: 'silent: visible now, notify at deliverAt. hidden: visible and notify at deliverAt',
+          description:
+            'ISO date to schedule the post for; only the author sees it, and nobody is notified, until then',
         },
       },
       required: ['teamId', 'content'],
@@ -1697,7 +1693,6 @@ Meteor.startup(async() => {
       properties: {
         postId: { type: 'string' },
         deliverAt: { type: 'string' },
-        deliveryMode: { type: 'string', enum: ['silent', 'hidden'] },
         postDate: { type: 'string' },
       },
       required: ['postId', 'deliverAt'],

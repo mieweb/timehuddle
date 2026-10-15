@@ -158,7 +158,6 @@ async function enrichPost(post) {
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
     deliverAt: post.deliverAt ? new Date(post.deliverAt).toISOString() : undefined,
-    deliveryMode: post.deliveryMode ?? undefined,
     deliveredAt: post.deliveredAt ? new Date(post.deliveredAt).toISOString() : undefined,
     createdAt: post.createdAt instanceof Date ? post.createdAt.toISOString() : String(post.createdAt),
     updatedAt: post.updatedAt instanceof Date ? post.updatedAt.toISOString() : String(post.updatedAt ?? post.createdAt),
@@ -409,7 +408,7 @@ export async function requireTeamMember(userId, teamId) {
  */
 export async function createHuddlePost(
   userId,
-  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt, deliveryMode },
+  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt },
 ) {
   if (!content || typeof content.text !== 'string') {
     throw new Meteor.Error('bad-request', 'content.text is required');
@@ -417,7 +416,7 @@ export async function createHuddlePost(
   if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
     throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
   }
-  const { schedule, error: scheduleError } = parseSchedule({ deliverAt, deliveryMode });
+  const { schedule, error: scheduleError } = parseSchedule({ deliverAt });
   if (scheduleError) throw new Meteor.Error('bad-request', scheduleError);
   if (schedule && (clockEventId || wrapUp === true)) {
     throw new Meteor.Error('bad-request', 'Plan and wrap-up posts cannot be scheduled');
@@ -655,7 +654,7 @@ Meteor.methods({
     return { posts: enriched, hasMore };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt, deliveryMode }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -676,7 +675,6 @@ Meteor.methods({
       clockEventId,
       wrapUp,
       deliverAt,
-      deliveryMode,
     });
   },
 
@@ -691,17 +689,14 @@ Meteor.methods({
     return { id: postId };
   },
 
-  /** Move one of the caller's scheduled posts to a new time (and optionally mode/date). */
-  async 'huddle.reschedulePost'({ postId, deliverAt, deliveryMode, postDate } = {}) {
+  /** Move one of the caller's scheduled posts to a new time (and its local date). */
+  async 'huddle.reschedulePost'({ postId, deliverAt, postDate } = {}) {
     const identity = await requireIdentity(this);
     const post = await requireOwnScheduledPost(identity.userId, postId);
     if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
       throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
     }
-    const { schedule, error } = parseSchedule({
-      deliverAt,
-      deliveryMode: deliveryMode ?? post.deliveryMode,
-    });
+    const { schedule, error } = parseSchedule({ deliverAt });
     if (error || !schedule) throw new Meteor.Error('bad-request', error ?? 'deliverAt is required');
     const { matchedCount } = await rawDb()
       .collection('huddlePosts')

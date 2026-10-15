@@ -142,36 +142,19 @@ describe('scheduling a post', () => {
     expect(res.ok).toBe(false);
   });
 
-  it('shows a silent post now but holds its notification until delivery', async () => {
+  it('keeps a scheduled post hidden and silent until it is delivered', async () => {
     const deliverAt = inHours(2);
-    const res = await createPost({ deliverAt, deliveryMode: 'silent' });
-    expect(res.ok).toBe(true);
-    const postId = res.result.id;
-
-    expect(await feedIds(readerJwt)).toContain(postId);
-    const jobs = await deliveryJobs(postId);
-    expect(jobs).toHaveLength(1);
-    expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(deliverAt);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await mentionsFor(postId)).toHaveLength(0);
-
-    const sent = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
-    expect(sent.ok).toBe(true);
-    expect(await waitForMentions(postId, 1)).toHaveLength(1);
-    expect(await deliveryJobs(postId)).toHaveLength(0);
-
-    const again = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
-    expect(again.ok).toBe(false);
-    expect(await mentionsFor(postId)).toHaveLength(1);
-  });
-
-  it('keeps a hidden post to its author until it is delivered', async () => {
-    const res = await createPost({ deliverAt: inHours(3), deliveryMode: 'hidden' });
+    const res = await createPost({ deliverAt });
     expect(res.ok).toBe(true);
     const postId = res.result.id;
 
     expect(await feedIds(authorJwt)).toContain(postId);
     expect(await feedIds(readerJwt)).not.toContain(postId);
+    const jobs = await deliveryJobs(postId);
+    expect(jobs).toHaveLength(1);
+    expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(deliverAt);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await mentionsFor(postId)).toHaveLength(0);
 
     const byReader = await wormhole('huddle.sendScheduledNow', { postId }, readerJwt);
     expect(byReader.ok).toBe(false);
@@ -179,11 +162,17 @@ describe('scheduling a post', () => {
     const sent = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
     expect(sent.ok).toBe(true);
     expect(await feedIds(readerJwt)).toContain(postId);
+    expect(await waitForMentions(postId, 1)).toHaveLength(1);
+    expect(await deliveryJobs(postId)).toHaveLength(0);
 
     const db = await getDb();
     const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) });
     expect(post!.deliveredAt).toBeInstanceOf(Date);
     expect(post!.updatedAt.getTime()).toBe(post!.createdAt.getTime());
+
+    const again = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
+    expect(again.ok).toBe(false);
+    expect(await mentionsFor(postId)).toHaveLength(1);
   });
 
   it('moves the delivery job when rescheduled', async () => {
@@ -191,11 +180,7 @@ describe('scheduling a post', () => {
     const postId = res.result.id;
     const later = inHours(5);
 
-    const moved = await wormhole(
-      'huddle.reschedulePost',
-      { postId, deliverAt: later, deliveryMode: 'hidden' },
-      authorJwt,
-    );
+    const moved = await wormhole('huddle.reschedulePost', { postId, deliverAt: later }, authorJwt);
     expect(moved.ok).toBe(true);
     const jobs = await deliveryJobs(postId);
     expect(jobs).toHaveLength(1);
