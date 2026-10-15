@@ -416,27 +416,30 @@ describe('postsToConversations', () => {
         (m) => m.id === post.id,
       )!;
 
-    it('labels a silent post with when it notifies, at the time it was written', () => {
+    it('marks a silent post as scheduled, at the time it was written', () => {
       const message = messageOf(scheduled());
-      expect(message.text).toContain('*🔕 Notifies Thu, Oct 1 · 09:00*');
+      expect(message.scheduledFor).toBe(new Date(OCT_1_0900).toISOString());
+      expect(message.text).toBe('Checklist UI is done.');
       expect(message.time).toBe(new Date(SEP_29_0858).toISOString());
     });
 
     it('places a hidden post at its delivery time and says only you see it', () => {
       const message = messageOf(scheduled({ deliveryMode: 'hidden' }));
-      expect(message.text).toContain('Scheduled for Thu, Oct 1 · 09:00 · only you can see this');
+      expect(message.scheduledFor).toBe(new Date(OCT_1_0900).toISOString());
+      expect(message.text).toContain('Only you can see this until it is sent');
       expect(message.time).toBe(new Date(OCT_1_0900).toISOString());
     });
 
-    it('drops the label once delivered, keeping a hidden post where it was sent', () => {
+    it('clears the schedule once delivered, keeping a hidden post where it was sent', () => {
       const deliveredAt = new Date(SEP_29_1032).toISOString();
       const message = messageOf(scheduled({ deliveryMode: 'hidden', deliveredAt }));
+      expect(message.scheduledFor).toBeUndefined();
       expect(message.text).toBe('Checklist UI is done.');
       expect(message.time).toBe(deliveredAt);
     });
 
-    it('strips the schedule label off an inline edit', () => {
-      const post = scheduled();
+    it('strips the hidden note off an inline edit', () => {
+      const post = scheduled({ deliveryMode: 'hidden' });
       const shown = messageOf(post).text!;
       const edited = shown.replace(post.content.text, 'Updated plan.');
       expect(stripInboxDecorations(edited, shown, post.content.text)).toBe('Updated plan.');

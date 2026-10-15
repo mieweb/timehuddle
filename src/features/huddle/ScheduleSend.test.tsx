@@ -3,7 +3,7 @@ import type { HuddlePost } from '@lib/api';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SCHEDULE_TEXT } from './postSchedule';
-import { ScheduledPostsButton, ScheduleSendButton } from './ScheduleSend';
+import { ScheduleDialog, ScheduledPostsButton } from './ScheduleSend';
 
 beforeAll(() => {
   class NoopObserver {
@@ -49,34 +49,42 @@ function scheduledPost(overrides: Partial<HuddlePost> = {}): HuddlePost {
   };
 }
 
-describe('ScheduleSendButton', () => {
-  it('sets a schedule from a quick pick and the chosen mode', async () => {
-    const onChange = vi.fn();
-    render(<ScheduleSendButton schedule={null} onChange={onChange} />);
+describe('ScheduleDialog', () => {
+  const renderDialog = (props: { onConfirm?: () => void; onClose?: () => void } = {}) => {
+    const onConfirm = vi.fn(props.onConfirm);
+    const onClose = vi.fn(props.onClose);
+    render(
+      <ScheduleDialog
+        title={SCHEDULE_TEXT.dialogTitle}
+        confirmLabel={SCHEDULE_TEXT.confirm}
+        onConfirm={onConfirm}
+        onClose={onClose}
+      />,
+    );
+    return { onConfirm, onClose };
+  };
 
-    fireEvent.click(screen.getByRole('button', { name: SCHEDULE_TEXT.scheduleAria }));
+  it('confirms a quick pick with the chosen mode', async () => {
+    const { onConfirm } = renderDialog();
+
     fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_TEXT.presetTomorrow }));
     fireEvent.click(screen.getByLabelText(SCHEDULE_TEXT.modeHidden));
     fireEvent.click(screen.getByRole('button', { name: SCHEDULE_TEXT.confirm }));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
-    const [{ deliverAt, deliveryMode }] = onChange.mock.calls[0];
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    const [{ deliverAt, deliveryMode }] = onConfirm.mock.calls[0] as unknown as [
+      { deliverAt: Date; deliveryMode: string },
+    ];
     expect(deliveryMode).toBe('hidden');
     expect(deliverAt.getHours()).toBe(9);
     expect(deliverAt.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('shows the scheduled time and can clear it', async () => {
-    const onChange = vi.fn();
-    render(
-      <ScheduleSendButton
-        schedule={{ deliverAt: IN_TWO_HOURS, deliveryMode: 'silent' }}
-        onChange={onChange}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /^Scheduled for/ }));
-    fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_TEXT.clear }));
-    expect(onChange).toHaveBeenCalledWith(null);
+  it('closes without confirming on Cancel', async () => {
+    const { onConfirm, onClose } = renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_TEXT.cancel }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });
 

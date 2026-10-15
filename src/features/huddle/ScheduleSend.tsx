@@ -1,7 +1,7 @@
 /**
- * Scheduling in the Huddle composer (#596): a chip that sets when the next post
- * is delivered, and a chip listing my posts still waiting, with Send now /
- * Reschedule / Delete. Rules and text live in postSchedule.ts.
+ * Scheduling in the Huddle composer (#596): the dialog behind the send
+ * button's "Send later…", and a chip listing my posts still waiting, with Send
+ * now / Reschedule / Delete. Rules and text live in postSchedule.ts.
  */
 import { faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -46,18 +46,15 @@ interface ScheduleDialogProps {
   confirmLabel: string;
   initial?: PostSchedule | null;
   onConfirm: (schedule: PostSchedule) => void | Promise<void>;
-  /** Offered when there is a schedule to drop. */
-  onClear?: () => void;
   onClose: () => void;
 }
 
 /** Pick a time and a delivery mode. Render it only while open, so each opening starts fresh. */
-function ScheduleDialog({
+export function ScheduleDialog({
   title,
   confirmLabel,
   initial,
   onConfirm,
-  onClear,
   onClose,
 }: ScheduleDialogProps) {
   const [value, setValue] = useState(() => (initial ? toLocalInputValue(initial.deliverAt) : ''));
@@ -142,11 +139,6 @@ function ScheduleDialog({
 
       <ModalFooter>
         <ButtonGroup>
-          {onClear && (
-            <Button size="sm" variant="ghost" onClick={onClear}>
-              {SCHEDULE_TEXT.clear}
-            </Button>
-          )}
           <Button size="sm" variant="ghost" onClick={onClose}>
             {SCHEDULE_TEXT.cancel}
           </Button>
@@ -156,50 +148,6 @@ function ScheduleDialog({
         </ButtonGroup>
       </ModalFooter>
     </AppModal>
-  );
-}
-
-interface ScheduleSendButtonProps {
-  schedule: PostSchedule | null;
-  onChange: (schedule: PostSchedule | null) => void;
-  disabled?: boolean;
-}
-
-/** Composer chip: "Schedule", or the time the next post is set for. */
-export function ScheduleSendButton({ schedule, onChange, disabled }: ScheduleSendButtonProps) {
-  const [open, setOpen] = useState(false);
-  const when = schedule ? formatScheduleTime(schedule.deliverAt.getTime()) : null;
-  return (
-    <>
-      <ComposerChipButton
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        aria-label={when ? SCHEDULE_TEXT.scheduledAria(when) : SCHEDULE_TEXT.scheduleAria}
-        leftIcon={clockIcon}
-      >
-        {when ?? SCHEDULE_TEXT.schedule}
-      </ComposerChipButton>
-      {open && (
-        <ScheduleDialog
-          title={SCHEDULE_TEXT.dialogTitle}
-          confirmLabel={SCHEDULE_TEXT.confirm}
-          initial={schedule}
-          onConfirm={(next) => {
-            onChange(next);
-            setOpen(false);
-          }}
-          onClear={
-            schedule
-              ? () => {
-                  onChange(null);
-                  setOpen(false);
-                }
-              : undefined
-          }
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
   );
 }
 

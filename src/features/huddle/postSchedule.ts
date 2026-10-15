@@ -15,9 +15,7 @@ export const MAX_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
 /** User-facing text for scheduling, kept in one place for translation. */
 export const SCHEDULE_TEXT = {
-  schedule: 'Schedule',
-  scheduleAria: 'Schedule this post for later',
-  scheduledAria: (when: string) => `Scheduled for ${when}. Change the schedule`,
+  sendLater: 'Send later…',
   dialogTitle: 'Schedule Post',
   rescheduleTitle: 'Reschedule Post',
   when: 'Send at',
@@ -30,7 +28,6 @@ export const SCHEDULE_TEXT = {
   presetsLabel: 'Quick picks',
   confirm: 'Schedule',
   confirmReschedule: 'Reschedule',
-  clear: 'Send right away',
   cancel: 'Cancel',
   errorMissing: 'Pick a date and time.',
   errorPast: 'Pick a time at least a minute from now.',

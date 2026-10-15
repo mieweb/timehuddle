@@ -63,8 +63,7 @@ const THREAD_TEXT = {
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
   postedWithoutClockingIn: 'Posted without clocking in',
-  scheduledHidden: (when: string) => `🕒 Scheduled for ${when} · only you can see this`,
-  scheduledSilent: (when: string) => `🔕 Notifies ${when}`,
+  scheduledHidden: '🔒 Only you can see this until it is sent',
 } as const;
 
 /** A scheduled post whose time hasn't come (and wasn't sent early). */
@@ -238,13 +237,9 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
-  if (post.deliverAt && isAwaitingDelivery(post)) {
-    const when = formatScheduleTime(new Date(post.deliverAt).getTime());
-    parts.push(
-      post.deliveryMode === 'hidden'
-        ? THREAD_TEXT.scheduledHidden(when)
-        : THREAD_TEXT.scheduledSilent(when),
-    );
+  // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
+  if (post.deliveryMode === 'hidden' && isAwaitingDelivery(post)) {
+    parts.push(THREAD_TEXT.scheduledHidden);
   }
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
@@ -428,6 +423,7 @@ export function postsToConversations(
       text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
       time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
+      ...(isAwaitingDelivery(post) && { scheduledFor: post.deliverAt }),
     }));
 
     // On a tie the clock-in goes first, above the plan it shares a moment with;

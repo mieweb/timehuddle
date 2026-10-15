@@ -81,12 +81,18 @@ sequenceDiagram
 - [x] "Scheduled (n)" `Sheet`: Send now / Reschedule / Cancel for my pending posts
 - [x] Release note (added to 1.0.7, untagged)
 
-## Phase 4 — Upstream SuperChat (`vendor/ui`, needs approval)
+## Phase 4 — Upstream SuperChat (`vendor/ui`, approved)
 
-- [ ] Scheduled message state on `SuperChatMessage` (outlined bubble + "Scheduled for …" footer,
-      overridable `labels`) — replaces the Phase 3 text label
-- [ ] `sendOptions` on `ChatComposer` (chevron by send → "Send later…"), option id passed in
-      `onMessageSent` meta
+Committed on the fork branch `feat/superchat-host-extension-points` (not pushed yet).
+
+- [x] Scheduled message state: `SuperChatMessage.scheduledFor` draws a pending (dashed) bubble
+      with a "Scheduled · {time}" indicator; prefix via `messageLabels.scheduled`. The inbox now
+      sets `scheduledFor` and keeps only the "only you can see this" note as a text label
+- [x] `sendOptions` on `ChatComposer` (chevron by send), option id passed to `onSend` and on to
+      `onMessageSent` as `meta.sendOption`. Huddle's "Send later…" uses it and replaces the
+      Schedule chip; cancelling the dialog rejects, so the typed text comes back
+- [x] Tarball rebuilt (`npm run ui:build`) and committed with the submodule pointer
+- [ ] Push `vendor/ui` to the fork and open the upstream PR (needs approval)
 - [ ] Optional `messageActions(message)` slot for Send now / Reschedule / Cancel on the bubble
 
 ## Out of Scope (for Now)
