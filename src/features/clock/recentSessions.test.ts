@@ -27,8 +27,32 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 describe('getSessionDurationSeconds', () => {
-  it('subtracts total break seconds from the span', () => {
-    const s = session({ startTime: 0, endTime: 2 * HOUR, totalBreakSeconds: 600 });
+  it('prefers the backend-computed workSeconds when present', () => {
+    // A paid rest break: totalBreakSeconds counts it (display only), but the
+    // backend's workSeconds does not deduct it — this must not either.
+    const s = session({
+      startTime: 0,
+      endTime: 2 * HOUR,
+      totalBreakSeconds: 600,
+      workSeconds: 2 * 3600,
+    });
+    expect(getSessionDurationSeconds(s)).toBe(2 * 3600);
+  });
+
+  it('falls back to deductedBreakSeconds, not totalBreakSeconds, without workSeconds', () => {
+    // Same paid-rest-break shape, but as an older event with no workSeconds
+    // snapshot: deductedBreakSeconds (unpaid-only) is the correct subtrahend.
+    const s = session({
+      startTime: 0,
+      endTime: 2 * HOUR,
+      totalBreakSeconds: 600,
+      deductedBreakSeconds: 0,
+    });
+    expect(getSessionDurationSeconds(s)).toBe(2 * 3600);
+  });
+
+  it('subtracts deductedBreakSeconds from the span when workSeconds is absent', () => {
+    const s = session({ startTime: 0, endTime: 2 * HOUR, deductedBreakSeconds: 600 });
     expect(getSessionDurationSeconds(s)).toBe(2 * 3600 - 600);
   });
 
@@ -38,7 +62,7 @@ describe('getSessionDurationSeconds', () => {
   });
 
   it('never goes negative when breaks exceed the span', () => {
-    const s = session({ startTime: 0, endTime: 60 * 1000, totalBreakSeconds: 600 });
+    const s = session({ startTime: 0, endTime: 60 * 1000, deductedBreakSeconds: 600 });
     expect(getSessionDurationSeconds(s)).toBe(0);
   });
 });
@@ -71,11 +95,11 @@ describe('groupSessionsByDay', () => {
   it('sums each day total from its sessions worked seconds', () => {
     const start = new Date(2026, 9, 12, 9, 0, 0).getTime();
     const groups = groupSessionsByDay([
-      session({ startTime: start, endTime: start + HOUR, totalBreakSeconds: 0 }),
+      session({ startTime: start, endTime: start + HOUR, deductedBreakSeconds: 0 }),
       session({
         startTime: start + 2 * HOUR,
         endTime: start + 3 * HOUR,
-        totalBreakSeconds: 300,
+        deductedBreakSeconds: 300,
       }),
     ]);
 

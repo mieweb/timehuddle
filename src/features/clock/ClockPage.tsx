@@ -87,7 +87,14 @@ export const ClockPage: React.FC = () => {
     planGate,
   } = useClockToggle();
 
-  const { teamId: gateTeamId, requirePlan, sessionPost, planMissing, wrapUpMissing } = planGate;
+  const {
+    teamId: gateTeamId,
+    teamName,
+    requirePlan,
+    sessionPost,
+    planMissing,
+    wrapUpMissing,
+  } = planGate;
 
   const isClockedIn = !!activeClockEvent;
   const isPaused = !!activeClockEvent?.isPaused;
@@ -110,9 +117,6 @@ export const ClockPage: React.FC = () => {
   // Focusing it swaps in the real (rich-text) editor and moves focus there.
   const [composerExpanded, setComposerExpanded] = useState(false);
   const editorRef = useRef<RichEditorHandle>(null);
-  useEffect(() => {
-    if (composerExpanded) editorRef.current?.focus();
-  }, [composerExpanded]);
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
@@ -173,7 +177,7 @@ export const ClockPage: React.FC = () => {
     loading: recentSessionsLoading,
     todaySeconds,
     last7DaysSeconds,
-  } = useRecentSessions(recentSessionsTeamId, isClockedIn);
+  } = useRecentSessions(recentSessionsTeamId, isClockedIn, currentTime);
 
   const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
     ? planMissing
@@ -204,6 +208,15 @@ export const ClockPage: React.FC = () => {
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
   const editorMounted = composerMode !== 'wrapup' || seedSettled;
+  // Focuses the editor once it's actually mounted. `editorMounted` is in the
+  // deps (not just `composerExpanded`) because expanding a wrap-up composer
+  // whose seed lookup is still in flight renders the loading spinner first —
+  // `editorRef` stays null until `editorMounted` later flips true, so without
+  // this the ref's own effect would have already fired and focus would never
+  // land.
+  useEffect(() => {
+    if (composerExpanded && editorMounted) editorRef.current?.focus();
+  }, [composerExpanded, editorMounted]);
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
@@ -450,6 +463,13 @@ export const ClockPage: React.FC = () => {
   const eyebrow = !isClockedIn ? 'Clocked out' : isPaused ? 'On break' : 'Clocked in';
 
   const planGoesToHuddle = composerMode === 'wrapup' ? 'Your wrap-up' : 'Your plan';
+  // A wrap-up always posts to the session's own team (gateTeamId), which can
+  // differ from whatever team is currently selected if the user switched
+  // teams mid-shift — name it so the destination isn't a surprise.
+  const wrapUpTeamSuffix =
+    composerMode === 'wrapup' && teamName && gateTeamId !== selectedTeamId
+      ? ` in "${teamName}"`
+      : '';
 
   if (!teamsReady) {
     return (
@@ -607,8 +627,8 @@ export const ClockPage: React.FC = () => {
                   className="underline underline-offset-2"
                 >
                   Huddle
-                </button>{' '}
-                so the team can see it
+                </button>
+                {wrapUpTeamSuffix} so the team can see it
               </Text>
 
               {!composerExpanded ? (

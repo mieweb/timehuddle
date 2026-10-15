@@ -1,9 +1,11 @@
 /**
  * Grouping and totals for the Clock page's Recent sessions rail.
  *
- * A session's duration always subtracts its deducted break time — the same
- * formula the old inline Recent Sessions card used — so a day's total and the
- * timer-adjacent Today/Last-7-days totals agree with what each row shows.
+ * A session's duration prefers the backend's own `workSeconds` — shift span
+ * minus only its *deductible* (unpaid meal) breaks, per
+ * meteor-backend/server/clock-core.js `computeWorkSeconds`. `totalBreakSeconds`
+ * is a display-only sum across every break including paid rest breaks, so
+ * subtracting it would undercount a shift that took a paid break.
  */
 import type { ClockEvent } from '../../lib/api';
 import { formatDate } from '../../lib/timeUtils';
@@ -18,11 +20,12 @@ export interface DayGroup {
   totalSeconds: number;
 }
 
-/** A completed session's worked duration in seconds, minus its breaks. */
+/** A completed session's worked duration in seconds, minus its deductible breaks. */
 export function getSessionDurationSeconds(session: ClockEvent): number {
   if (session.endTime == null) return 0;
+  if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
   const raw = Math.round((session.endTime - session.startTime) / 1000);
-  return Math.max(0, raw - (session.totalBreakSeconds ?? 0));
+  return Math.max(0, raw - (session.deductedBreakSeconds ?? 0));
 }
 
 export function isUnderOneMinute(session: ClockEvent): boolean {

@@ -23,9 +23,10 @@ import { formatDuration, formatTime } from '../../lib/timeUtils';
 import { getLocalDateKey } from './timesheetUtils';
 import { formatDayGroupLabel, groupSessionsByDay, isUnderOneMinute } from './recentSessions';
 
-// The old inline card showed the most recent 8 sessions; grouping by day
-// keeps that same display cap rather than a fixed number of days.
-const MAX_SESSIONS_SHOWN = 8;
+// Cap by days, not raw session count: slicing sessions before grouping could
+// cut a day's own list short while still showing its full total (or vice
+// versa), so the row's time ranges and its "Tracked" sum would disagree.
+const MAX_DAYS_SHOWN = 7;
 
 interface RecentSessionsPanelProps {
   sessions: ClockEvent[];
@@ -40,11 +41,10 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
 }) => {
   const [showHidden, setShowHidden] = useState(false);
 
-  const groups = useMemo(
-    () => groupSessionsByDay(sessions.slice(0, MAX_SESSIONS_SHOWN)),
-    [sessions],
-  );
-  const todayKey = useMemo(() => getLocalDateKey(Date.now()), []);
+  const groups = useMemo(() => groupSessionsByDay(sessions).slice(0, MAX_DAYS_SHOWN), [sessions]);
+  // Not memoized — it's cheap, and the page stays open across midnight, so
+  // this has to be recomputed on every render rather than pinned at mount.
+  const todayKey = getLocalDateKey(Date.now());
   const hiddenCount = useMemo(
     () => groups.reduce((sum, g) => sum + g.sessions.filter(isUnderOneMinute).length, 0),
     [groups],
@@ -104,7 +104,8 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
           </Table>
           {hiddenCount > 0 && (
             <Text variant="muted" size="xs">
-              {hiddenCount} session{hiddenCount === 1 ? '' : 's'} under 1 minute hidden ·{' '}
+              {hiddenCount} session{hiddenCount === 1 ? '' : 's'} under 1 minute{' '}
+              {showHidden ? 'shown' : 'hidden'} ·{' '}
               <Button variant="link" size="sm" onClick={() => setShowHidden((v) => !v)}>
                 {showHidden ? 'Hide' : 'Show'}
               </Button>
