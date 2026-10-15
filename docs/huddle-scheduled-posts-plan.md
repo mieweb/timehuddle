@@ -75,10 +75,10 @@ sequenceDiagram
       `reschedulePost`
 - [x] `superChatFeed.ts`: scheduled label + hidden-post time; `stripInboxDecorations` keeps working;
       unit tests
-- [ ] Schedule control in the composer's `leadingSlot` (`Modal` + `DateInput` datetime-local +
+- [x] Schedule control in the composer's `leadingSlot` (`Modal` + `DateInput` datetime-local +
       mode `Radio`), chip showing the pending schedule
-- [ ] `handleMessageSent` sends the schedule and clears it
-- [ ] "Scheduled (n)" `Sheet`: Send now / Reschedule / Cancel for my pending posts
+- [x] `handleMessageSent` sends the schedule and clears it
+- [x] "Scheduled (n)" `Sheet`: Send now / Reschedule / Cancel for my pending posts
 - [ ] Release note
 
 ## Phase 4 — Upstream SuperChat (`vendor/ui`, needs approval)

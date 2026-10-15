@@ -24,6 +24,7 @@ import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
 import {
   defaultConversation,
+  isAwaitingDelivery,
   postsToConversations,
   searchConversations,
   starterConversation,
@@ -33,6 +34,8 @@ import {
   withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
+import { ScheduledPostsButton, ScheduleSendButton } from '../features/huddle/ScheduleSend';
+import type { PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
@@ -259,6 +262,8 @@ export default function Huddle() {
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
+  // When the next post is delivered; null sends it right away.
+  const [schedule, setSchedule] = useState<PostSchedule | null>(null);
   useEffect(() => {
     setSelectedTicketId(undefined);
   }, [postingTeamId]);
@@ -525,6 +530,10 @@ export default function Huddle() {
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
+  const myScheduledPosts = useMemo(
+    () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
+    [activePosts, user?.id],
+  );
 
   // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
   // notifications) opens the conversation containing it once loaded. Its team
@@ -836,6 +845,7 @@ export default function Huddle() {
     // Snapshot what's staged now: the uploads below take time, and anything
     // picked meanwhile belongs to the *next* post, not this one.
     const ticketId = selectedTicketId;
+    const sendSchedule = schedule;
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
@@ -863,7 +873,11 @@ export default function Huddle() {
         },
         ticketId,
         attachments: [...media, ...staged].map(toPostAttachment),
-        postDate: toDateString(new Date()),
+        postDate: toDateString(sendSchedule?.deliverAt ?? new Date()),
+        ...(sendSchedule && {
+          deliverAt: sendSchedule.deliverAt.toISOString(),
+          deliveryMode: sendSchedule.deliveryMode,
+        }),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
@@ -876,6 +890,7 @@ export default function Huddle() {
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
     setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
+    setSchedule((prev) => (prev === sendSchedule ? null : prev));
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
@@ -1057,6 +1072,32 @@ export default function Huddle() {
                               onMentionRemove={() => {}}
                               attachments={[]}
                               onAttachmentRemove={() => {}}
+                            />
+                            {postingTeamId && (
+                              <ScheduleSendButton
+                                schedule={schedule}
+                                onChange={setSchedule}
+                                disabled={sending}
+                              />
+                            )}
+                            <ScheduledPostsButton
+                              posts={myScheduledPosts}
+                              onSendNow={async (post) => {
+                                await huddleApi.sendScheduledNow(post.id);
+                                await refreshActiveScope();
+                              }}
+                              onReschedule={async (post, next) => {
+                                await huddleApi.reschedulePost(post.id, {
+                                  deliverAt: next.deliverAt.toISOString(),
+                                  deliveryMode: next.deliveryMode,
+                                  postDate: toDateString(next.deliverAt),
+                                });
+                                await refreshActiveScope();
+                              }}
+                              onDelete={async (post) => {
+                                await huddleApi.deletePost(post.id);
+                                await refreshActiveScope();
+                              }}
                             />
                           </div>
                           {/* After the composer's +, behind a "/" (or): a Pulse video posts
