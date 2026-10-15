@@ -177,7 +177,7 @@ export const ClockPage: React.FC = () => {
     loading: recentSessionsLoading,
     todaySeconds,
     last7DaysSeconds,
-  } = useRecentSessions(recentSessionsTeamId, isClockedIn, currentTime);
+  } = useRecentSessions(recentSessionsTeamId, activeClockEvent, currentTime);
 
   const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
     ? planMissing
@@ -208,15 +208,17 @@ export const ClockPage: React.FC = () => {
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
   const editorMounted = composerMode !== 'wrapup' || seedSettled;
-  // Focuses the editor once it's actually mounted. `editorMounted` is in the
-  // deps (not just `composerExpanded`) because expanding a wrap-up composer
-  // whose seed lookup is still in flight renders the loading spinner first —
-  // `editorRef` stays null until `editorMounted` later flips true, so without
-  // this the ref's own effect would have already fired and focus would never
-  // land.
+  // Focuses the editor once it's actually mounted. Two things can make the
+  // mounted instance change out from under this effect, so both are in the
+  // deps: `editorMounted` (expanding a wrap-up composer whose seed lookup is
+  // still in flight renders the loading spinner first — `editorRef` stays
+  // null until this later flips true), and `editorKey` (the seed-apply effect
+  // below bumps it once the fetched plan text arrives, remounting the editor
+  // — via its `key` — with that text; without `editorKey` here, focus landed
+  // on the now-discarded empty instance instead of its replacement).
   useEffect(() => {
     if (composerExpanded && editorMounted) editorRef.current?.focus();
-  }, [composerExpanded, editorMounted]);
+  }, [composerExpanded, editorMounted, editorKey]);
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
@@ -834,7 +836,19 @@ export const ClockPage: React.FC = () => {
         <RecentSessionsPanel
           sessions={recentSessions}
           loading={recentSessionsLoading}
-          onViewAll={() => navigate('/app/timesheet')}
+          // Explicit tab=me and team=: without them, an admin whose last-used
+          // Dashboard tab was "Team" lands on the admin timesheet instead of
+          // their own history, and the destination would otherwise scope by
+          // whichever team happens to be globally selected rather than the
+          // team these sessions actually belong to (gateTeamId can differ
+          // from selectedTeamId — see the wrap-up team-suffix note above).
+          onViewAll={() =>
+            navigate(
+              recentSessionsTeamId
+                ? `/app/timesheet?tab=me&team=${recentSessionsTeamId}`
+                : '/app/timesheet?tab=me',
+            )
+          }
         />
       </div>
       <PulseUploadModal
