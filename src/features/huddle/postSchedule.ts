@@ -23,14 +23,15 @@ export const SCHEDULE_TEXT = {
   modeSilent: 'Show it now, notify at that time',
   modeHidden: 'Keep it hidden until that time',
   presetInAnHour: 'In 1 hour',
-  presetTomorrow: 'Tomorrow 9:00',
-  presetMonday: 'Monday 9:00',
+  presetTomorrow: (time: string) => `Tomorrow ${time}`,
+  presetMonday: (time: string) => `Monday ${time}`,
   presetsLabel: 'Quick picks',
+  sendsAt: (when: string) => `Sends ${when}`,
   confirm: 'Schedule',
   confirmReschedule: 'Reschedule',
   cancel: 'Cancel',
   errorMissing: 'Pick a date and time.',
-  errorPast: 'Pick a time at least a minute from now.',
+  errorPast: 'That time has already passed. Pick a later time.',
   errorTooFar: 'Pick a time within the next year.',
   pendingCount: (count: number) => `Scheduled (${count})`,
   pendingAria: (count: number) => `${count} scheduled post${count === 1 ? '' : 's'}`,
@@ -45,6 +46,32 @@ export const SCHEDULE_TEXT = {
 } as const;
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Whether the user's locale writes times with AM/PM. */
+export function uses12HourClock(): boolean {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 ?? false;
+}
+
+/** "9:00 AM" (or "09:00") in the user's locale. */
+export function formatTimeOfDay(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** "Thu, Oct 15, 4:10 PM" in the user's locale. */
+export function formatWhen(date: Date): string {
+  return date.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/** "MM/DD/YYYY" — the format DateInput's `minDate` takes. */
+export function toPickerDate(date: Date): string {
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}`;
+}
 
 /** "YYYY-MM-DDTHH:mm" in local time — the value a datetime-local input holds. */
 export function toLocalInputValue(date: Date): string {
@@ -86,7 +113,11 @@ export function schedulePresets(now: Date): { id: string; label: string; at: Dat
 
   return [
     { id: 'hour', label: SCHEDULE_TEXT.presetInAnHour, at: inAnHour },
-    { id: 'tomorrow', label: SCHEDULE_TEXT.presetTomorrow, at: tomorrow },
-    { id: 'monday', label: SCHEDULE_TEXT.presetMonday, at: monday },
+    {
+      id: 'tomorrow',
+      label: SCHEDULE_TEXT.presetTomorrow(formatTimeOfDay(tomorrow)),
+      at: tomorrow,
+    },
+    { id: 'monday', label: SCHEDULE_TEXT.presetMonday(formatTimeOfDay(monday)), at: monday },
   ];
 }

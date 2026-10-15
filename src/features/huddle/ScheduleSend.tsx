@@ -31,13 +31,15 @@ import { useState } from 'react';
 import { ComposerChipButton } from './ComposerChipButton';
 import {
   SCHEDULE_TEXT,
+  formatWhen,
   parseLocalInputValue,
   scheduleError,
   schedulePresets,
   toLocalInputValue,
+  toPickerDate,
+  uses12HourClock,
   type PostSchedule,
 } from './postSchedule';
-import { formatScheduleTime } from './superChatFeed';
 
 const clockIcon = <FontAwesomeIcon icon={faClock} className="w-3.5 h-3.5" aria-hidden="true" />;
 
@@ -57,22 +59,20 @@ export function ScheduleDialog({
   onConfirm,
   onClose,
 }: ScheduleDialogProps) {
-  const [value, setValue] = useState(() => (initial ? toLocalInputValue(initial.deliverAt) : ''));
+  const [value, setValue] = useState(() =>
+    toLocalInputValue(initial?.deliverAt ?? schedulePresets(new Date())[0].at),
+  );
   const [mode, setMode] = useState<HuddleDeliveryMode>(initial?.deliveryMode ?? 'silent');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const picked = parseLocalInputValue(value);
+  const problem = scheduleError(picked, Date.now());
 
   async function confirm() {
-    if (saving) return;
-    const deliverAt = parseLocalInputValue(value);
-    const problem = scheduleError(deliverAt, Date.now());
-    if (problem || !deliverAt) {
-      setError(problem);
-      return;
-    }
+    if (saving || problem || !picked) return;
     setSaving(true);
     try {
-      await onConfirm({ deliverAt, deliveryMode: mode });
+      await onConfirm({ deliverAt: picked, deliveryMode: mode });
     } catch {
       setError(SCHEDULE_TEXT.actionFailed);
     } finally {
@@ -112,13 +112,22 @@ export function ScheduleDialog({
           <DateInput
             label={SCHEDULE_TEXT.when}
             inputType="datetime-local"
+            timeFormat={uses12HourClock() ? '12-hour' : '24-hour'}
             minuteStep={5}
+            minDate={toPickerDate(new Date())}
             value={value}
             onChange={(next) => {
               setValue(next);
               setError(null);
             }}
           />
+          <Text
+            size="sm"
+            aria-live="polite"
+            className={problem ? 'text-destructive' : 'text-muted-foreground'}
+          >
+            {problem ?? SCHEDULE_TEXT.sendsAt(formatWhen(picked!))}
+          </Text>
           <RadioGroup
             name="schedule-delivery-mode"
             label={SCHEDULE_TEXT.modeLabel}
@@ -142,7 +151,7 @@ export function ScheduleDialog({
           <Button size="sm" variant="ghost" onClick={onClose}>
             {SCHEDULE_TEXT.cancel}
           </Button>
-          <Button size="sm" onClick={confirm} isLoading={saving} disabled={!value}>
+          <Button size="sm" onClick={confirm} isLoading={saving} disabled={!!problem}>
             {confirmLabel}
           </Button>
         </ButtonGroup>
@@ -226,7 +235,7 @@ export function ScheduledPostsButton({
               {sorted.map((post) => (
                 <li key={post.id} className="scheduled-post-item flex flex-col gap-2 py-3">
                   <Text size="xs" className="text-muted-foreground">
-                    {formatScheduleTime(new Date(post.deliverAt!).getTime())} ·{' '}
+                    {formatWhen(new Date(post.deliverAt!))} ·{' '}
                     {post.deliveryMode === 'hidden'
                       ? SCHEDULE_TEXT.modeHidden
                       : SCHEDULE_TEXT.modeSilent}

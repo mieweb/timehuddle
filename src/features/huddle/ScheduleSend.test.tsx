@@ -67,7 +67,7 @@ describe('ScheduleDialog', () => {
   it('confirms a quick pick with the chosen mode', async () => {
     const { onConfirm } = renderDialog();
 
-    fireEvent.click(await screen.findByRole('button', { name: SCHEDULE_TEXT.presetTomorrow }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Tomorrow / }));
     fireEvent.click(screen.getByLabelText(SCHEDULE_TEXT.modeHidden));
     fireEvent.click(screen.getByRole('button', { name: SCHEDULE_TEXT.confirm }));
 
@@ -78,6 +78,14 @@ describe('ScheduleDialog', () => {
     expect(deliveryMode).toBe('hidden');
     expect(deliverAt.getHours()).toBe(9);
     expect(deliverAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('opens on a valid time and says when it will send', async () => {
+    renderDialog();
+    expect(await screen.findByText(/^Sends /)).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: SCHEDULE_TEXT.confirm }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   it('closes without confirming on Cancel', async () => {

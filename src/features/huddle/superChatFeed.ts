@@ -106,11 +106,6 @@ function formatDayLabel(dateKey: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-/** "Tue, Sep 29 · 08:58" for an epoch ms. */
-export function formatScheduleTime(epochMs: number): string {
-  return `${formatDayLabel(localDateKey(epochMs))} · ${formatClockTime(epochMs)}`;
-}
-
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
   switch (threadBy) {
     case 'session':
