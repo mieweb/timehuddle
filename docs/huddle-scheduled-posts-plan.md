@@ -79,7 +79,7 @@ sequenceDiagram
       mode `Radio`), chip showing the pending schedule
 - [x] `handleMessageSent` sends the schedule and clears it
 - [x] "Scheduled (n)" `Sheet`: Send now / Reschedule / Cancel for my pending posts
-- [ ] Release note
+- [x] Release note (added to 1.0.7, untagged)
 
 ## Phase 4 — Upstream SuperChat (`vendor/ui`, needs approval)
 
