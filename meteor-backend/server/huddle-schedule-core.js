@@ -34,3 +34,32 @@ export function isHiddenFrom(post, userId) {
 export function visibleTo(userId) {
   return { $or: [{ deliverAt: null }, { deliveredAt: { $ne: null } }, { userId }] };
 }
+
+/**
+ * Mongo filter for "falls in the feed's `since` window, or should be there
+ * regardless of age": a scheduled post is keyed by when it actually became
+ * visible (`deliveredAt`), not when it was written, and `userId`'s own
+ * still-waiting post is never aged out from under them — otherwise a post
+ * scheduled further out than the window is long would notify its recipients
+ * into a feed that doesn't show it, and its author could lose the "Scheduled"
+ * controls for it on a later visit before it was ever delivered.
+ */
+export function inWindowOrPending(userId, sinceDate) {
+  return {
+    $or: [
+      { createdAt: { $gte: sinceDate } },
+      { deliveredAt: { $gte: sinceDate } },
+      { userId, deliverAt: { $ne: null }, deliveredAt: null },
+    ],
+  };
+}
+
+/** JS mirror of `inWindowOrPending`, for the live change-stream guard. */
+export function isOutsideWindow(post, sinceDate, userId) {
+  if (new Date(post.createdAt).getTime() >= sinceDate.getTime()) return false;
+  if (post.deliveredAt && new Date(post.deliveredAt).getTime() >= sinceDate.getTime()) {
+    return false;
+  }
+  if (String(post.userId) === String(userId) && isAwaitingDelivery(post)) return false;
+  return true;
+}

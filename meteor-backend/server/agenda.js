@@ -266,11 +266,17 @@ export async function cancelClockJobs(clockEventId) {
   await _agenda.cancel({ data: { clockEventId } });
 }
 
-/** (Re)schedule delivery of a scheduled Huddle post at `deliverAt`. */
+/** (Re)schedule delivery of a scheduled Huddle post at `deliverAt`. `.unique()`
+ *  upserts the job in place, so a reschedule can never leave the post with no
+ *  delivery job (the cancel-then-create it replaces could, if the create step
+ *  failed after the cancel succeeded). */
 export async function schedulePostDelivery(postId, deliverAt) {
   if (!_agenda) throw new Error('Agenda is not initialised');
-  await cancelPostDelivery(postId);
-  await _agenda.create(POST_DELIVERY_JOB, { postId }).schedule(deliverAt).save();
+  await _agenda
+    .create(POST_DELIVERY_JOB, { postId })
+    .unique({ 'data.postId': postId, name: POST_DELIVERY_JOB })
+    .schedule(deliverAt)
+    .save();
 }
 
 /** Drop a scheduled post's pending delivery (sent now, or deleted). */

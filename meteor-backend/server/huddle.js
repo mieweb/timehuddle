@@ -1,12 +1,19 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { isBeforeWindow, resolveSince } from './huddle-window-core';
+import { resolveSince } from './huddle-window-core';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
 import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
-import { isAwaitingDelivery, isHiddenFrom, parseSchedule, visibleTo } from './huddle-schedule-core';
+import {
+  isAwaitingDelivery,
+  isHiddenFrom,
+  isOutsideWindow,
+  inWindowOrPending,
+  parseSchedule,
+  visibleTo,
+} from './huddle-schedule-core';
 import { cancelPostDelivery, schedulePostDelivery } from './agenda';
 import { ObjectId } from 'mongodb';
 
@@ -304,9 +311,11 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   });
 
   // Initial fetch and send — published posts only (drafts are author-only
-  // and never appear in the team feed), from the window onward. A hidden
-  // scheduled post is the author's alone until it is delivered.
-  const inWindow = { createdAt: { $gte: sinceDate }, ...visibleTo(this.userId) };
+  // and never appear in the team feed), from the window onward (or, for a
+  // scheduled post, from when it was actually delivered — and the caller's
+  // own still-waiting post regardless of age). A hidden scheduled post is
+  // the author's alone until it is delivered.
+  const inWindow = { $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate)] };
   let posts = await collection
     .find({ teamId, ...PUBLISHED, ...inWindow })
     .sort({ createdAt: -1 })
@@ -352,8 +361,9 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
         const docId = change.fullDocument._id.toHexString
           ? change.fullDocument._id.toHexString()
           : String(change.fullDocument._id);
-        // Older than the window: not this subscription's to send.
-        if (isBeforeWindow(change.fullDocument.createdAt, sinceDate)) return;
+        // Older than the window: not this subscription's to send — unless it's a
+        // scheduled post delivered within it, or the caller's own still-waiting post.
+        if (isOutsideWindow(change.fullDocument, sinceDate, self.userId)) return;
         // Drafts never reach the feed; nor does someone else's undelivered hidden post.
         if (change.fullDocument.status === 'draft' || isHiddenFrom(change.fullDocument, self.userId)) {
           if (sentIds.has(docId)) {
@@ -608,7 +618,11 @@ Meteor.methods({
       return { posts: [], hasMore: await hasPostsBefore(filter, sinceDate) };
     }
     const posts = await rawDb().collection('huddlePosts')
-      .find({ ...filter, createdAt: { $gte: sinceDate } })
+      .find({
+        teamId: { $in: [teamId, toId(teamId)] },
+        ...PUBLISHED,
+        $and: [visibleTo(identity.userId), inWindowOrPending(identity.userId, sinceDate)],
+      })
       .sort({ createdAt: -1 })
       .toArray();
     const hasMore = await hasPostsBefore(filter, sinceDate);
@@ -642,7 +656,7 @@ Meteor.methods({
     const mine = { userId: identity.userId, teamId: { $in: teamIds }, ...PUBLISHED };
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ...mine, createdAt: { $gte: sinceDate } })
+      .find({ ...mine, ...inWindowOrPending(identity.userId, sinceDate) })
       .sort({ createdAt: -1 })
       .toArray();
     const hasMore = await hasPostsBefore(mine, sinceDate);
@@ -682,7 +696,7 @@ Meteor.methods({
   async 'huddle.sendScheduledNow'({ postId } = {}) {
     const identity = await requireIdentity(this);
     await requireOwnScheduledPost(identity.userId, postId);
-    if (!(await deliverScheduledPost(postId))) {
+    if (!(await deliverScheduledPost(postId, { force: true }))) {
       throw new Meteor.Error('conflict', 'This post has already been sent');
     }
     await cancelPostDelivery(postId);

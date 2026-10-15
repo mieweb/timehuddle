@@ -51,13 +51,23 @@ async function findPostTeam(teamId) {
  * through the feed's change stream) and notify. Atomic, so a job firing twice
  * or racing "Send now" notifies once. False when there was nothing to deliver.
  * `updatedAt` is left alone: delivery isn't an edit.
+ *
+ * The Agenda job calls this without `force`, so a stale run — its row already
+ * cancelled, but the callback itself was already past that point when a
+ * reschedule moved `deliverAt` later — still finds the new time not yet due
+ * and does nothing. `huddle.sendScheduledNow` passes `force: true` to ignore
+ * `deliverAt` and send regardless of the clock.
  */
-export async function deliverScheduledPost(postId) {
+export async function deliverScheduledPost(postId, { force = false } = {}) {
   if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return false;
   const post = await rawDb()
     .collection('huddlePosts')
     .findOneAndUpdate(
-      { _id: new ObjectId(postId), deliverAt: { $exists: true }, deliveredAt: null },
+      {
+        _id: new ObjectId(postId),
+        deliveredAt: null,
+        deliverAt: force ? { $exists: true } : { $lte: new Date() },
+      },
       { $set: { deliveredAt: new Date() } },
       { returnDocument: 'after' },
     );

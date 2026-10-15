@@ -380,6 +380,19 @@ export default function Huddle() {
         // Clock-out doesn't touch the post, so the DDP copy keeps its open
         // session snapshot; take the closed one from the post-clock-out refetch.
         byId.set(id, { ...ddpPost, session: restPost.session });
+      } else if (
+        restPost.deliverAt !== ddpPost.deliverAt ||
+        restPost.deliveredAt !== ddpPost.deliveredAt
+      ) {
+        // Delivery and reschedule don't bump updatedAt either (so a scheduled
+        // post isn't shown as edited), so take REST's schedule fields the same
+        // way the clock-out case does — covers Send now / Reschedule while DDP
+        // is disconnected.
+        byId.set(id, {
+          ...ddpPost,
+          deliverAt: restPost.deliverAt,
+          deliveredAt: restPost.deliveredAt,
+        });
       }
     }
     const teamPosts = [...byId.values()].sort(

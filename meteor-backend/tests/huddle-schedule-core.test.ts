@@ -7,6 +7,8 @@ import {
   MAX_SCHEDULE_AHEAD_MS,
   isAwaitingDelivery,
   isHiddenFrom,
+  isOutsideWindow,
+  inWindowOrPending,
   parseSchedule,
   visibleTo,
 } from '../server/huddle-schedule-core';
@@ -75,5 +77,58 @@ describe('visibleTo', () => {
     expect(visibleTo('me')).toEqual({
       $or: [{ deliverAt: null }, { deliveredAt: { $ne: null } }, { userId: 'me' }],
     });
+  });
+});
+
+describe('inWindowOrPending', () => {
+  it('builds the three-way $or', () => {
+    const sinceDate = new Date(NOW);
+    expect(inWindowOrPending('me', sinceDate)).toEqual({
+      $or: [
+        { createdAt: { $gte: sinceDate } },
+        { deliveredAt: { $gte: sinceDate } },
+        { userId: 'me', deliverAt: { $ne: null }, deliveredAt: null },
+      ],
+    });
+  });
+});
+
+describe('isOutsideWindow', () => {
+  const sinceDate = new Date(NOW);
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  it('is false for a post created within the window', () => {
+    expect(isOutsideWindow({ createdAt: new Date(NOW), userId: 'other' }, sinceDate, 'me')).toBe(
+      false,
+    );
+  });
+
+  it('is true for a post created before the window, with no schedule', () => {
+    const old = { createdAt: new Date(NOW - dayMs), userId: 'other' };
+    expect(isOutsideWindow(old, sinceDate, 'me')).toBe(true);
+  });
+
+  it('is false for a scheduled post delivered within the window, even if written long before it', () => {
+    const post = {
+      createdAt: new Date(NOW - 60 * dayMs),
+      deliverAt: new Date(NOW - dayMs),
+      deliveredAt: new Date(NOW),
+      userId: 'other',
+    };
+    expect(isOutsideWindow(post, sinceDate, 'me')).toBe(false);
+  });
+
+  it('is false for the viewer\'s own still-waiting post, however old', () => {
+    const post = { createdAt: new Date(NOW - 60 * dayMs), deliverAt: new Date(NOW + dayMs), userId: 'me' };
+    expect(isOutsideWindow(post, sinceDate, 'me')).toBe(false);
+  });
+
+  it('is true for someone else\'s still-waiting post written long ago', () => {
+    const post = {
+      createdAt: new Date(NOW - 60 * dayMs),
+      deliverAt: new Date(NOW + dayMs),
+      userId: 'other',
+    };
+    expect(isOutsideWindow(post, sinceDate, 'me')).toBe(true);
   });
 });
