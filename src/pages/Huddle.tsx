@@ -338,6 +338,19 @@ export default function Huddle() {
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
+  // Personal scope has no live subscription — huddle.getMyPosts is a one-time
+  // REST call — so a post's own Agenda-driven delivery while this tab is open
+  // would otherwise never update it here (unlike a team's DDP-backed feed).
+  // Poll while any of mine are still waiting, matching Agenda's own
+  // processEvery, so the dashed bubble and "Scheduled (n)" catch up without a
+  // manual refresh.
+  useEffect(() => {
+    if (scope !== 'me') return;
+    if (!myPosts.some((p) => isAwaitingDelivery(p))) return;
+    const id = setInterval(() => void refreshMyPosts(), 30_000);
+    return () => clearInterval(id);
+  }, [scope, myPosts, refreshMyPosts]);
+
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open

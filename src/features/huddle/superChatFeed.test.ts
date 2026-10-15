@@ -436,6 +436,17 @@ describe('postsToConversations', () => {
       const edited = shown.replace(post.content.text, 'Updated plan.');
       expect(stripInboxDecorations(edited, shown, post.content.text)).toBe('Updated plan.');
     });
+
+    it('groups a post sent early under the day it actually appeared, not its original schedule', () => {
+      const post = makePost({
+        id: 'p-early',
+        postDate: '2026-09-30', // originally scheduled for tomorrow
+        deliverAt: new Date(SEP_29_0858).toISOString(),
+        deliveredAt: new Date(SEP_29_1032).toISOString(), // sent early, today
+      });
+      const conversations = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
+      expect(conversations.map((c) => c.id)).toEqual(['day:2026-09-29']);
+    });
   });
 
   describe('posts without a session or ticket', () => {

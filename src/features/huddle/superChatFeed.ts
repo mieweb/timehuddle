@@ -88,8 +88,15 @@ function localDateKey(epochMs: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** A post's plan/wrap-up calendar date, falling back to its created date. */
+/**
+ * A post's plan/wrap-up calendar date, falling back to its created date. A
+ * delivered scheduled post groups by the date it actually appeared instead of
+ * the `postDate` stamped for its original schedule — otherwise sending one
+ * early (Send now) leaves it in tomorrow's Day/Session conversation with
+ * today's time inside it.
+ */
 function getPostDateKey(post: HuddlePost): string {
+  if (post.deliverAt && post.deliveredAt) return localDateKey(new Date(post.deliveredAt).getTime());
   return post.postDate ?? localDateKey(new Date(post.createdAt).getTime());
 }
 
