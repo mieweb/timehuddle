@@ -50,10 +50,10 @@ sequenceDiagram
 
 ## Phase 1 — Notify on post (prerequisite)
 
-- [ ] `notifyPostRecipients(post)` in a new `huddle-delivery.js`: notify @mentioned users
+- [x] `notifyPostRecipients(post)` in a new `huddle-delivery.js`: notify @mentioned users
       (not the author) through `createNotification`, so it pushes
-- [ ] Call it from `createHuddlePost` for immediate posts
-- [ ] Comment notifications go through `createNotification` too
+- [x] Call it from `createHuddlePost` for immediate posts
+- [x] Comment notifications go through `createNotification` too
 
 ## Phase 2 — Backend scheduling
 

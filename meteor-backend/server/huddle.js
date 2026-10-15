@@ -4,6 +4,8 @@ import { requireIdentity } from './auth-bridge';
 import { isBeforeWindow, resolveSince } from './huddle-window-core';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
+import { createNotification } from './notify-core';
+import { huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -409,7 +411,7 @@ export async function createHuddlePost(
   if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
     throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
   }
-  await requireTeamMember(userId, teamId);
+  const team = await requireTeamMember(userId, teamId);
 
   // Validate ticketId if provided
   if (ticketId) {
@@ -479,7 +481,11 @@ export async function createHuddlePost(
     await discardMedia(media);
     throw err;
   }
-  
+
+  notifyPostRecipients(doc, team).catch((err) =>
+    console.error('[huddle] post notifications failed:', err),
+  );
+
   return { id: doc._id.toHexString() };
 }
 
@@ -881,21 +887,20 @@ Meteor.methods({
     const commenterInfo = await getUserInfo(this.userId);
     const commenterName = commenterInfo.userName;
     
+    const commentData = {
+      type: 'huddle-comment',
+      postId,
+      teamId: String(post.teamId),
+      url: huddlePostUrl(String(post.teamId), postId),
+    };
+
     // Notify post author (if not the commenter)
     if (post.userId !== this.userId) {
-      await rawDb().collection('notifications').insertOne({
-        _id: new ObjectId(),
+      await createNotification({
         userId: post.userId,
         title: `${commenterName} commented on your post`,
         body: text.substring(0, 100),
-        read: false,
-        data: {
-          type: 'huddle-comment',
-          postId,
-          teamId: post.teamId,
-          url: `/app/huddle?postId=${postId}&teamId=${post.teamId}`,
-        },
-        createdAt: new Date(),
+        data: commentData,
       });
     }
     
@@ -904,19 +909,11 @@ Meteor.methods({
       const uniqueMentions = [...new Set(mentions)];
       for (const mentionedUserId of uniqueMentions) {
         if (mentionedUserId !== this.userId && mentionedUserId !== post.userId) {
-          await rawDb().collection('notifications').insertOne({
-            _id: new ObjectId(),
+          await createNotification({
             userId: mentionedUserId,
             title: `${commenterName} mentioned you in a comment`,
             body: text.substring(0, 100),
-            read: false,
-            data: {
-              type: 'huddle-comment',
-              postId,
-              teamId: post.teamId,
-              url: `/app/huddle?postId=${postId}&teamId=${post.teamId}`,
-            },
-            createdAt: new Date(),
+            data: commentData,
           });
         }
       }
