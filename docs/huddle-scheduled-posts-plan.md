@@ -57,17 +57,17 @@ sequenceDiagram
 
 ## Phase 2 — Backend scheduling
 
-- [ ] `huddle-schedule-core.js` (pure): validate `deliverAt`/`deliveryMode`, visibility filter,
+- [x] `huddle-schedule-core.js` (pure): validate `deliverAt`/`deliveryMode`, visibility filter,
       `isHiddenFrom(post, userId)` + unit tests
-- [ ] `createHuddlePost` / `huddle.createPost` accept `deliverAt` + `deliveryMode`; reject past, > 1 year, and plan/wrap-up posts; Wormhole schema updated
-- [ ] Agenda job `huddle-post-deliver` (unique per post) + `schedulePostDelivery` /
+- [x] `createHuddlePost` / `huddle.createPost` accept `deliverAt` + `deliveryMode`; reject past, > 1 year, and plan/wrap-up posts; Wormhole schema updated
+- [x] Agenda job `huddle-post-deliver` (unique per post) + `schedulePostDelivery` /
       `cancelPostDelivery`; `deliverScheduledPost` sets `deliveredAt` and notifies, idempotent
-- [ ] Hidden filter on `huddlePosts.byTeam` (snapshot + change stream), `huddle.getPosts`,
+- [x] Hidden filter on `huddlePosts.byTeam` (snapshot + change stream), `huddle.getPosts`,
       `huddle.getMyPosts`
-- [ ] `enrichPost` returns `deliverAt`, `deliveryMode`, `deliveredAt`
-- [ ] `huddle.sendScheduledNow` and `huddle.reschedulePost` (author only); `deletePost` cancels
+- [x] `enrichPost` returns `deliverAt`, `deliveryMode`, `deliveredAt`
+- [x] `huddle.sendScheduledNow` and `huddle.reschedulePost` (author only); `deletePost` cancels
       the job; exposed over Wormhole REST
-- [ ] Integration tests (create, hidden from others, deliver, reschedule, cancel)
+- [x] Integration tests (create, hidden from others, deliver, reschedule, cancel)
 
 ## Phase 3 — Frontend
 

@@ -3,6 +3,8 @@
  * create; a scheduled one notifies when its Agenda job delivers it. Kept apart
  * from huddle.js so agenda.js can deliver without importing the methods.
  */
+import { ObjectId } from 'mongodb';
+import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
@@ -35,4 +37,32 @@ export async function notifyPostRecipients(post, team) {
       }).catch((err) => console.error('[huddle] mention notification failed:', err)),
     ),
   );
+}
+
+/** A post's team, whichever form (string or legacy ObjectId) its id is stored in. */
+async function findPostTeam(teamId) {
+  const id = String(teamId);
+  const ids = /^[a-f0-9]{24}$/i.test(id) ? [id, new ObjectId(id)] : [id];
+  return rawDb().collection('teams').findOne({ _id: { $in: ids } });
+}
+
+/**
+ * Deliver a scheduled post: stamp `deliveredAt` (which reveals a hidden post
+ * through the feed's change stream) and notify. Atomic, so a job firing twice
+ * or racing "Send now" notifies once. False when there was nothing to deliver.
+ * `updatedAt` is left alone: delivery isn't an edit.
+ */
+export async function deliverScheduledPost(postId) {
+  if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return false;
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOneAndUpdate(
+      { _id: new ObjectId(postId), deliverAt: { $exists: true }, deliveredAt: null },
+      { $set: { deliveredAt: new Date() } },
+      { returnDocument: 'after' },
+    );
+  if (!post) return false;
+  const team = await findPostTeam(post.teamId);
+  if (team) await notifyPostRecipients(post, team);
+  return true;
 }

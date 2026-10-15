@@ -1659,8 +1659,48 @@ Meteor.startup(async() => {
         // Deprecated: kept so older clients' `draft: true` reaches the method
         // and is rejected instead of being stripped and published.
         draft: { type: 'boolean' },
+        deliverAt: {
+          type: 'string',
+          description: 'ISO date to schedule the post for; notifications wait until then',
+        },
+        deliveryMode: {
+          type: 'string',
+          enum: ['silent', 'hidden'],
+          description: 'silent: visible now, notify at deliverAt. hidden: visible and notify at deliverAt',
+        },
       },
       required: ['teamId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.sendScheduledNow', {
+    description: "Deliver one of the caller's scheduled huddle posts now",
+    inputSchema: {
+      type: 'object',
+      properties: { postId: { type: 'string' } },
+      required: ['postId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.reschedulePost', {
+    description: "Move one of the caller's scheduled huddle posts to a new time",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        deliverAt: { type: 'string' },
+        deliveryMode: { type: 'string', enum: ['silent', 'hidden'] },
+        postDate: { type: 'string' },
+      },
+      required: ['postId', 'deliverAt'],
     },
     outputSchema: {
       type: 'object',

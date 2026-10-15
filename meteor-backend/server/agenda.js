@@ -19,8 +19,11 @@ import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
 import { createNotification } from './notify-core';
+import { deliverScheduledPost } from './huddle-delivery';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+const POST_DELIVERY_JOB = 'huddle-post-deliver';
 
 const FOUR_HOURS_MS = 4 * 3600_000;
 const SHIFT_END_MS = 27_900_000; // 7h 45m
@@ -166,11 +169,17 @@ export async function initAgenda() {
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
+  // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────
+  _agenda.define(POST_DELIVERY_JOB, async (job) => {
+    await deliverScheduledPost(job.attrs.data.postId);
+    await job.remove(); // one-shot: remove so it doesn't re-fire
+  });
+
   // Processor loop is opt-in during coexistence (see file header).
   if (process.env.METEOR_AGENDA_ENABLED === 'true') {
     await _agenda.start();
     console.log(
-      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout'
+      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver'
     );
   } else {
     console.log(
@@ -255,6 +264,18 @@ export async function scheduleMissedClockout(clockEventId, userId, teamId, start
 /** Cancel all pending jobs for a clock event (manual clock-out or delete). */
 export async function cancelClockJobs(clockEventId) {
   await _agenda.cancel({ data: { clockEventId } });
+}
+
+/** (Re)schedule delivery of a scheduled Huddle post at `deliverAt`. */
+export async function schedulePostDelivery(postId, deliverAt) {
+  if (!_agenda) throw new Error('Agenda is not initialised');
+  await cancelPostDelivery(postId);
+  await _agenda.create(POST_DELIVERY_JOB, { postId }).schedule(deliverAt).save();
+}
+
+/** Drop a scheduled post's pending delivery (sent now, or deleted). */
+export async function cancelPostDelivery(postId) {
+  await _agenda?.cancel({ name: POST_DELIVERY_JOB, data: { postId } });
 }
 
 /** Cancel a single named job for a clock event. */
