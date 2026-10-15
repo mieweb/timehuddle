@@ -63,10 +63,6 @@ import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
-/** The page's main button — Clock in/out, the one thing this page is for. */
-const MAIN_ACTION_PILL =
-  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
-
 /** The compact "X or Y" pair beside the plan/wrap-up input — the submit
  *  button and the Pulse chip share this exact class list so the two read as
  *  equal alternatives rather than a primary action and an afterthought. `h-10`
@@ -591,11 +587,18 @@ export const ClockPage: React.FC = () => {
              Pulse alternative inline beside it. ── */}
         {composerMode && (
           <div className="clock-plan flex shrink-0 flex-col gap-3">
-            <Text as="h2" size="2xl" weight="bold" className="md:text-3xl">
+            {/* Same size/weight as every other page's title (PageTitle in
+                AppPage.tsx) — this heading stands in for it here since the
+                page's own title is hidden in favor of the compact status
+                line above. */}
+            <Text as="h2" size="2xl" weight="semibold" className="tracking-tight">
               {composerMode === 'plan' ? 'What are you working on?' : 'What did you work on?'}
             </Text>
 
-            <div className="clock-plan-composer flex flex-col gap-3 rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800 md:p-5">
+            {/* Flush on mobile/Capacitor — no border or padding boxing the
+                editor in, so it gets the full screen width. The bordered
+                card is a desktop treatment, from md: up. */}
+            <div className="clock-plan-composer flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800">
               <Text variant="muted" size="sm">
                 {planGoesToHuddle} goes to{' '}
                 <button
@@ -704,7 +707,7 @@ export const ClockPage: React.FC = () => {
                       }
                       isLoading={posting || clockInLoading || clockOutLoading}
                       disabled={!text.trim() || uploadInFlight}
-                      className="w-full sm:w-auto"
+                      className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
                     >
                       {composerMode === 'plan'
                         ? 'Clock in with a plan'
@@ -742,31 +745,34 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Plain actions when the gate is satisfied (or off) ── */}
+        {/* ── Plain actions when the gate is satisfied (or off) ──
+             Same compact pill as the composer's "Clock in with a plan", so
+             it reads as an equal "X or Y" pair with Pulse beside it rather
+             than a primary action next to an afterthought. No `items-start`
+             — children stretch to the container's full width on mobile, so
+             "or" actually centers and both buttons match width too. */}
         {!composerMode && (
-          <div className="clock-actions flex shrink-0 flex-col items-start gap-3 sm:flex-row sm:items-center">
+          <div className="clock-actions flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
             {!isClockedIn ? (
               <Button
                 variant="primary"
-                size="lg"
                 onClick={() => void clockIn()}
                 isLoading={clockInLoading}
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className={MAIN_ACTION_PILL}
+                className={COMPACT_PILL}
               >
                 Clock in
               </Button>
             ) : (
               <Button
                 variant="danger"
-                size="lg"
                 onClick={() => void clockOut()}
                 isLoading={clockOutLoading}
                 aria-label="Clock out"
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className={MAIN_ACTION_PILL}
+                className={COMPACT_PILL}
               >
                 Clock out
               </Button>
