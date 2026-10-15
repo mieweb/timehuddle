@@ -1194,9 +1194,17 @@ export interface HuddlePost {
   session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
+  /** Scheduled post (#596): when it notifies and, if hidden, appears. */
+  deliverAt?: string;
+  deliveryMode?: HuddleDeliveryMode;
+  /** When a scheduled post was delivered; absent while it is still waiting. */
+  deliveredAt?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+/** `silent`: visible now, notifies at `deliverAt`. `hidden`: appears and notifies then. */
+export type HuddleDeliveryMode = 'silent' | 'hidden';
 
 /** One window of a feed; `hasMore` means older posts exist before `since`. */
 export interface HuddleFeedPage {
@@ -1277,7 +1285,20 @@ export const huddleApi = {
     postDate?: string;
     clockEventId?: string;
     wrapUp?: boolean;
+    /** ISO date to schedule the post for. */
+    deliverAt?: string;
+    deliveryMode?: HuddleDeliveryMode;
   }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+
+  /** Deliver one of my scheduled posts now. */
+  sendScheduledNow: (postId: string) =>
+    wormholeCall<{ id: string }>('huddle.sendScheduledNow', { postId }),
+
+  /** Move one of my scheduled posts to a new time; `postDate` is its new local date. */
+  reschedulePost: (
+    postId: string,
+    schedule: { deliverAt: string; deliveryMode?: HuddleDeliveryMode; postDate?: string },
+  ) => wormholeCall<{ id: string }>('huddle.reschedulePost', { postId, ...schedule }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
    * Pass attachments/ticketId to edit them (omit to leave untouched). */

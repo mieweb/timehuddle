@@ -71,9 +71,9 @@ sequenceDiagram
 
 ## Phase 3 — Frontend
 
-- [ ] `api.ts`: `HuddlePost` schedule fields; `createPost` params; `sendScheduledNow`,
+- [x] `api.ts`: `HuddlePost` schedule fields; `createPost` params; `sendScheduledNow`,
       `reschedulePost`
-- [ ] `superChatFeed.ts`: scheduled label + hidden-post time; `stripInboxDecorations` keeps working;
+- [x] `superChatFeed.ts`: scheduled label + hidden-post time; `stripInboxDecorations` keeps working;
       unit tests
 - [ ] Schedule control in the composer's `leadingSlot` (`Modal` + `DateInput` datetime-local +
       mode `Radio`), chip showing the pending schedule

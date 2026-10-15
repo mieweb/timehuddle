@@ -402,6 +402,47 @@ describe('postsToConversations', () => {
     });
   });
 
+  describe('scheduled posts', () => {
+    const OCT_1_0900 = localMs(2026, 10, 1, 9, 0);
+    const scheduled = (overrides: Partial<HuddlePost> = {}) =>
+      makePost({
+        id: 'p-sched',
+        deliverAt: new Date(OCT_1_0900).toISOString(),
+        deliveryMode: 'silent',
+        ...overrides,
+      });
+    const messageOf = (post: HuddlePost) =>
+      postsToConversations([post], 'person', VIEWER_MEMBER, NOW)[0].thread.find(
+        (m) => m.id === post.id,
+      )!;
+
+    it('labels a silent post with when it notifies, at the time it was written', () => {
+      const message = messageOf(scheduled());
+      expect(message.text).toContain('*🔕 Notifies Thu, Oct 1 · 09:00*');
+      expect(message.time).toBe(new Date(SEP_29_0858).toISOString());
+    });
+
+    it('places a hidden post at its delivery time and says only you see it', () => {
+      const message = messageOf(scheduled({ deliveryMode: 'hidden' }));
+      expect(message.text).toContain('Scheduled for Thu, Oct 1 · 09:00 · only you can see this');
+      expect(message.time).toBe(new Date(OCT_1_0900).toISOString());
+    });
+
+    it('drops the label once delivered, keeping a hidden post where it was sent', () => {
+      const deliveredAt = new Date(SEP_29_1032).toISOString();
+      const message = messageOf(scheduled({ deliveryMode: 'hidden', deliveredAt }));
+      expect(message.text).toBe('Checklist UI is done.');
+      expect(message.time).toBe(deliveredAt);
+    });
+
+    it('strips the schedule label off an inline edit', () => {
+      const post = scheduled();
+      const shown = messageOf(post).text!;
+      const edited = shown.replace(post.content.text, 'Updated plan.');
+      expect(stripInboxDecorations(edited, shown, post.content.text)).toBe('Updated plan.');
+    });
+  });
+
   describe('posts without a session or ticket', () => {
     it('labels a session-view thread of off-the-clock posts, title and first line', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];

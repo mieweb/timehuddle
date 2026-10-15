@@ -63,7 +63,22 @@ const THREAD_TEXT = {
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
   postedWithoutClockingIn: 'Posted without clocking in',
+  scheduledHidden: (when: string) => `🕒 Scheduled for ${when} · only you can see this`,
+  scheduledSilent: (when: string) => `🔕 Notifies ${when}`,
 } as const;
+
+/** A scheduled post whose time hasn't come (and wasn't sent early). */
+export function isAwaitingDelivery(post: HuddlePost): boolean {
+  return !!post.deliverAt && !post.deliveredAt;
+}
+
+/** When a post sits in its thread: a hidden one when it appears, others when written. */
+function postAt(post: HuddlePost): string {
+  if (post.deliveryMode !== 'hidden') return post.createdAt;
+  return post.deliveredAt ?? post.deliverAt ?? post.createdAt;
+}
+
+const postTime = (post: HuddlePost) => new Date(postAt(post)).getTime();
 
 /** "YYYY-MM-DD" for the given epoch ms, based on the local calendar date. */
 function localDateKey(epochMs: number): string {
@@ -90,6 +105,11 @@ function formatDayLabel(dateKey: string): string {
   const [year, month, day] = dateKey.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** "Tue, Sep 29 · 08:58" for an epoch ms. */
+export function formatScheduleTime(epochMs: number): string {
+  return `${formatDayLabel(localDateKey(epochMs))} · ${formatClockTime(epochMs)}`;
 }
 
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
@@ -218,6 +238,14 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
+  if (post.deliverAt && isAwaitingDelivery(post)) {
+    const when = formatScheduleTime(new Date(post.deliverAt).getTime());
+    parts.push(
+      post.deliveryMode === 'hidden'
+        ? THREAD_TEXT.scheduledHidden(when)
+        : THREAD_TEXT.scheduledSilent(when),
+    );
+  }
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
@@ -370,14 +398,14 @@ export function postsToConversations(
     const lineContext: ClockLineContext = {
       viewer,
       includeDay: threadBy === 'person',
-      liveAt: Math.max(now, ...groupPosts.map((p) => new Date(p.createdAt).getTime() + 1)),
+      liveAt: Math.max(now, ...groupPosts.map((p) => postTime(p) + 1)),
     };
     const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
     // Session view: a thread of posts made without clocking in says so up
     // front, rather than looking like a shift with its clock lines missing.
     const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
     if (offTheClockThread) {
-      const earliest = Math.min(...groupPosts.map((p) => new Date(p.createdAt).getTime()));
+      const earliest = Math.min(...groupPosts.map(postTime));
       systemMessages.push({
         id: `${key}:off-the-clock`,
         type: 'system',
@@ -398,7 +426,7 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
-      time: post.createdAt,
+      time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
     }));
 
