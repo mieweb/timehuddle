@@ -22,7 +22,7 @@ const ACTION_BUTTONS: Array<string | RegExp> = [
   'Doc',
   'Ticket',
   '@Mention',
-  /(Post|Publish) plan and clock in/,
+  'Clock in with a plan',
 ];
 
 /**
