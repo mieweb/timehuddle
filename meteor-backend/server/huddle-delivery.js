@@ -6,6 +6,7 @@
 import { ObjectId } from 'mongodb';
 import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
+import { isAwaitingDelivery } from './huddle-schedule-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -52,11 +53,11 @@ async function findPostTeam(teamId) {
  * or racing "Send now" notifies once. False when there was nothing to deliver.
  * `updatedAt` is left alone: delivery isn't an edit.
  *
- * The Agenda job calls this without `force`, so a stale run — its row already
- * cancelled, but the callback itself was already past that point when a
- * reschedule moved `deliverAt` later — still finds the new time not yet due
- * and does nothing. `huddle.sendScheduledNow` passes `force: true` to ignore
- * `deliverAt` and send regardless of the clock.
+ * The Agenda job calls this without `force`, so a run that was already
+ * dequeued when a reschedule moved `deliverAt` later finds the new time not
+ * yet due and does nothing — see `isPostStillAwaitingDelivery` for why that
+ * run must not then remove the job row. `huddle.sendScheduledNow` passes
+ * `force: true` to ignore `deliverAt` and send regardless of the clock.
  */
 export async function deliverScheduledPost(postId, { force = false } = {}) {
   if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return false;
@@ -75,4 +76,21 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
   const team = await findPostTeam(post.teamId);
   if (team) await notifyPostRecipients(post, team);
   return true;
+}
+
+/**
+ * Whether `postId` still has a delivery pending. `schedulePostDelivery` upserts
+ * one job row per post (keyed by postId), so a reschedule updates that same
+ * row rather than replacing it; a run already dequeued under the row's old
+ * time sees `deliverScheduledPost` decline (not due yet) and must check this
+ * before deciding whether to remove the row — the reschedule already pointed
+ * it at the new time, and removing it regardless would strand the post with
+ * no job to ever deliver it.
+ */
+export async function isPostStillAwaitingDelivery(postId) {
+  if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return false;
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOne({ _id: new ObjectId(postId) }, { projection: { deliverAt: 1, deliveredAt: 1 } });
+  return !!post && isAwaitingDelivery(post);
 }

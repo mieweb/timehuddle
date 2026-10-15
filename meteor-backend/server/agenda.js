@@ -19,7 +19,7 @@ import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost } from './huddle-delivery';
+import { deliverScheduledPost, isPostStillAwaitingDelivery } from './huddle-delivery';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -171,7 +171,14 @@ export async function initAgenda() {
 
   // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────
   _agenda.define(POST_DELIVERY_JOB, async (job) => {
-    await deliverScheduledPost(job.attrs.data.postId);
+    const delivered = await deliverScheduledPost(job.attrs.data.postId);
+    if (!delivered && (await isPostStillAwaitingDelivery(job.attrs.data.postId))) {
+      // A reschedule moved deliverAt later while this run was already
+      // dequeued, upserting the SAME job row onto the new time. Removing it
+      // now would delete that reschedule along with this stale run, leaving
+      // the post pending with no job left to ever deliver it.
+      return;
+    }
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 

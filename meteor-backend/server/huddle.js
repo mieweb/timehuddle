@@ -719,7 +719,19 @@ Meteor.methods({
         { $set: { ...schedule, ...(postDate ? { postDate } : {}) } },
       );
     if (!matchedCount) throw new Meteor.Error('conflict', 'This post has already been sent');
-    await schedulePostDelivery(postId, schedule.deliverAt);
+    try {
+      await schedulePostDelivery(postId, schedule.deliverAt);
+    } catch (err) {
+      // The post's new time already committed above; if the job write then
+      // fails, put it back rather than leave a schedule with no job behind it.
+      await rawDb()
+        .collection('huddlePosts')
+        .updateOne(
+          { _id: post._id, deliveredAt: null },
+          { $set: { deliverAt: post.deliverAt, ...(postDate ? { postDate: post.postDate } : {}) } },
+        );
+      throw err;
+    }
     return { id: postId };
   },
   
