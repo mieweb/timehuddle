@@ -1233,8 +1233,14 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.timeEntries.preview', {
     description:
-      'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',
-    inputSchema: { type: 'object', properties: {} },
+      'Preview the ticket-day totals a push would send to Redmine, or one ticket-day when an issue id and a day are given. Read-only — creates nothing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id, to preview one ticket-day' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD, with ticketId' },
+      },
+    },
   });
 
   Wormhole.expose('redmine.timeEntries.discard', {
@@ -1245,6 +1251,24 @@ Meteor.startup(async() => {
       properties: {
         ticketId: { type: 'string', description: 'Redmine issue id' },
         date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+      },
+      required: ['ticketId', 'date'],
+    },
+  });
+
+  Wormhole.expose('redmine.timeEntries.sendTicketDay', {
+    description:
+      "Send one ticket-day's unsent time to Redmine as a single entry, with an optional comment. Irreversible.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+        comment: { type: 'string', description: "The entry's comment; optional" },
+        activityId: {
+          type: 'number',
+          description: "Optional override of the resolved activity; must be one the issue's project allows",
+        },
       },
       required: ['ticketId', 'date'],
     },
@@ -1268,6 +1292,7 @@ Meteor.startup(async() => {
                 type: 'number',
                 description: 'Optional override of the resolved activity',
               },
+              comment: { type: 'string', description: "The entry's comment; optional" },
             },
             required: ['ticketId', 'date'],
           },

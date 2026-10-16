@@ -74,4 +74,44 @@ export const ticketTimerText = {
   cancelPendingStart: 'Cancel',
   cancelPendingStartLabel: (label: string) => `Don't start the timer on ${label}`,
   clockOutStopsTimer: (label: string) => `Clocking out will stop the timer on ${label}.`,
+
+  /**
+   * Asked when a timer on a Redmine issue ends (#688): the time is sent to
+   * Redmine with the comment, or without one. `time` is `h:mm`.
+   */
+  redmineSendTitle: 'Send time to Redmine',
+  redmineSendPermanent: 'A sent entry can only be changed in Redmine.',
+  redmineSendActivityLabel: 'Activity',
+  /** Shown in the activity field until the issue's activities have been read. */
+  redmineSendActivityLoading: 'Loading activities…',
+  /** The list could not be read, or is empty: Send still works, under the server's pick. */
+  redmineSendActivityAuto: 'Chosen automatically',
+  /** The activity list can be long (a project may allow dozens), so it filters as you type. */
+  redmineSendActivitySearch: 'Search activities',
+  redmineSendActivityNoMatch: 'No activity matches',
+  redmineSendCommentLabel: 'Comment (optional)',
+  /** Sends the time, with the comment when one was written. */
+  redmineSend: 'Send',
+  /** Closes the prompt; the time stays unsent, in the push dialog. */
+  redmineSendLater: 'Later',
+  /** The keys that do the same as the two buttons. */
+  redmineSendShortcuts: 'Cmd/Ctrl+Enter sends · Esc dismisses',
+  redmineSent: (time: string, issue: string, activity?: string | null) =>
+    activity
+      ? `Sent ${time} on ${issue} to Redmine as ${activity}`
+      : `Sent ${time} on ${issue} to Redmine`,
+  /** `reason` is a sentence fragment from `redminePushStrings`. */
+  redmineNotSent: (issue: string, reason: string) =>
+    `Time on ${issue} was not sent to Redmine: ${reason}. It is waiting on the Clock page.`,
+  /**
+   * Nothing was left by the time Send was pressed. It may have been sent from
+   * another tab or the push dialog, or marked Never send, so this claims neither.
+   */
+  redmineNothingToSend: (issue: string) => `There is no time left to send on ${issue}.`,
+  /** The send itself could not be made; the prompt stays open. */
+  redmineSendFailed:
+    'Could not send the time to Redmine. Try again, or close this to send it later.',
+  /** The entry exists, but its read-back did not confirm it. */
+  redmineSentUnverified: (issue: string, reason: string) =>
+    `Time on ${issue} went to Redmine, but: ${reason}. Check the entry in Redmine.`,
 };

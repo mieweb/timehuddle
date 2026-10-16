@@ -13,6 +13,7 @@ import {
   hoursAgree,
   isPushable,
   buildPushRows,
+  sendableForTicketDay,
   unsentTotals,
 } from '../server/redmine-time-entries';
 
@@ -263,5 +264,30 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
       new Map([['12|2026-09-21', { seconds: 1800, discardedSeconds: 1800, minutes: 0 }]]),
     );
     expect(row).toMatchObject({ seconds: 1800, minutes: 30 });
+  });
+});
+
+describe('sendableForTicketDay (#688 — what a timer that just ended left to send)', () => {
+  const unsent = [
+    { ticketId: '15', date: '2026-09-21', seconds: 2215, alreadySentSeconds: 4546, minutes: 37 },
+    { ticketId: '15', date: '2026-09-22', seconds: 600, alreadySentSeconds: 0, minutes: 10 },
+    { ticketId: '20', date: '2026-09-21', seconds: 20, alreadySentSeconds: 0, minutes: 0 },
+  ];
+
+  it('is the one issue-day asked for, in the hours a send would use', () => {
+    expect(sendableForTicketDay(unsent, '15', '2026-09-21')).toEqual({
+      ticketId: '15',
+      date: '2026-09-21',
+      hours: 0.62,
+    });
+  });
+
+  it('is nothing for an issue-day with no unsent time', () => {
+    expect(sendableForTicketDay(unsent, '15', '2026-09-23')).toBeNull();
+    expect(sendableForTicketDay([], '15', '2026-09-21')).toBeNull();
+  });
+
+  it('is nothing for under a minute, which Redmine would refuse', () => {
+    expect(sendableForTicketDay(unsent, '20', '2026-09-21')).toBeNull();
   });
 });

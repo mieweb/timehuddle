@@ -31,8 +31,8 @@ import {
 const sendButton = (page: Page) =>
   page.getByRole('button', { name: 'Send work entries to Redmine' });
 const summary = (page: Page) => page.locator('.redmine-push-summary [aria-live="polite"]');
-const entriesTable = (page: Page) =>
-  page.getByRole('table', { name: 'Time entries to send to Redmine' });
+const entriesList = (page: Page) =>
+  page.getByRole('list', { name: 'Time entries to send to Redmine' });
 const confirmButton = (page: Page) => page.getByRole('button', { name: /^Send \d+ entr/ });
 
 async function openClock(page: Page, overrides: Record<string, StubValue>): Promise<RedmineStub> {
@@ -77,10 +77,12 @@ test.describe('Redmine push panel', () => {
     await sendButton(page).click();
 
     await expect(page.getByRole('heading', { name: 'Send work entries to Redmine' })).toBeVisible();
-    const row = entriesTable(page).locator('tbody tr').first();
+    const row = entriesList(page).getByRole('listitem').first();
     await expect(row).toContainText('#15');
     await expect(row).toContainText('Fix the intake form validation');
-    await expect(row).toContainText(date);
+    // The day as people say it, with the exact date behind it.
+    await expect(row).toContainText('Today');
+    await expect(row.locator('time')).toHaveAttribute('datetime', date);
     await expect(row).toContainText('0:37');
   });
 
@@ -142,7 +144,7 @@ test.describe('Redmine push panel', () => {
     await expect(summary(page)).toContainText('1 can’t be sent');
     await sendButton(page).click();
 
-    const blockedRow = entriesTable(page).locator('tbody tr').filter({ hasText: '#99' });
+    const blockedRow = entriesList(page).getByRole('listitem').filter({ hasText: '#99' });
     await expect(blockedRow).toContainText('Unavailable');
     await expect(blockedRow).toContainText('Issue could not be loaded from Redmine');
     // A blocked row offers no activity to choose — there is nothing to send.
@@ -167,7 +169,7 @@ test.describe('Redmine push panel', () => {
 
     await sendButton(page).click();
 
-    await expect(entriesTable(page).locator('tbody tr').filter({ hasText: '#42' })).toContainText(
+    await expect(entriesList(page).getByRole('listitem').filter({ hasText: '#42' })).toContainText(
       'This issue’s project allows no activity in Redmine',
     );
   });
@@ -237,7 +239,7 @@ test.describe('Redmine push panel', () => {
 
     await sendButton(page).click();
 
-    const row = entriesTable(page).locator('tbody tr').first();
+    const row = entriesList(page).getByRole('listitem').first();
     await expect(row).toContainText('0:15');
     await expect(row).toContainText('new time only · 0:37 already sent');
   });
@@ -260,6 +262,69 @@ test.describe('Redmine push panel', () => {
     // The panel always sends the resolved activity, so assert the *changed* id.
     expect(rm.calls('timeEntries.push')[0]).toEqual({
       entries: [{ ticketId: '15', date, activityId: 10 }],
+    });
+    // The result names the activity it went under, not the row's default.
+    await expect(page.locator('.redmine-push-entry-sent')).toContainText('QA');
+  });
+
+  test('pressing the hours switches every figure between time and Redmine hours', async ({
+    page,
+  }) => {
+    await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [previewRow({ ticketId: '15', seconds: 2232 })], // 0:37, which Redmine stores as 0.62
+      }),
+    });
+
+    await sendButton(page).click();
+    const row = entriesList(page).getByRole('listitem').first();
+    await expect(row).toContainText('0:37');
+
+    await row.getByRole('button', { name: /Show as Redmine hours/ }).click();
+
+    await expect(row).toContainText('0.62 h');
+    await expect(confirmButton(page)).toContainText('0.62 h');
+
+    await row.getByRole('button', { name: /Show as time/ }).click();
+    await expect(row).toContainText('0:37');
+  });
+
+  test('a row\u2019s activity list filters as you type', async ({ page }) => {
+    const date = today();
+    await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [previewRow({ ticketId: '15', activityId: 9, activityName: 'Development' })],
+      }),
+    });
+
+    await sendButton(page).click();
+    await page.getByRole('combobox', { name: `Activity for issue 15 on ${date}` }).click();
+    await page.getByPlaceholder('Search activities').fill('des');
+
+    await expect(page.getByRole('option', { name: 'Design', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'QA', exact: true })).toHaveCount(0);
+  });
+
+  test('a comment written on a row travels in the pushed body', async ({ page }) => {
+    const date = today();
+    const rm = await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [previewRow({ ticketId: '15', activityId: 9, activityName: 'Development' })],
+      }),
+      'timeEntries.push': () => pushResult(pushOutcome({ ticketId: '15' })),
+    });
+
+    await sendButton(page).click();
+    await page
+      .getByRole('textbox', { name: `Comment for issue 15 on ${date}` })
+      .fill('  Fixed the intake form validation  ');
+    await confirmButton(page).click();
+
+    await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
+    expect(rm.calls('timeEntries.push')[0]).toEqual({
+      entries: [
+        { ticketId: '15', date, activityId: 9, comment: 'Fixed the intake form validation' },
+      ],
     });
   });
 

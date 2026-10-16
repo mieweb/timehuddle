@@ -189,6 +189,12 @@ const DISCONNECTED: Record<string, unknown> = {
   },
   'timeEntries.preview': { connected: false, idle: true, rows: [], baseUrl: null },
   'timeEntries.push': { results: [] },
+  'timeEntries.sendTicketDay': {
+    ticketId: null,
+    date: null,
+    ok: false,
+    reason: 'already-synced-or-gone',
+  },
 };
 
 function isFailure(value: unknown): value is RedmineFailure {

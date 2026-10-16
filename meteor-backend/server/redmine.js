@@ -12,8 +12,16 @@
 import { randomUUID } from 'node:crypto';
 
 import { Meteor } from 'meteor/meteor';
+import { Mongo } from 'meteor/mongo';
 
-import { ClockEvents, DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Timers } from './collections';
+import {
+  ClockEvents,
+  DUPLICATE_KEY_ERROR_CODE,
+  RedmineLinks,
+  Timers,
+  WorkItems,
+  isObjectIdHex,
+} from './collections';
 import { requireIdentity } from './auth-bridge';
 import {
   createTimeEntry,
@@ -44,9 +52,17 @@ import {
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
-import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
+import {
+  buildPushRows,
+  hoursAgree,
+  MAX_COMMENT_LENGTH,
+  PUSH_COMMENT,
+  sendableForTicketDay,
+  unsentTotals,
+} from './redmine-time-entries';
 import { flagEntry, pushLedgerFor, recordDiscard, recordEntry } from './redmine-time-sync';
 import { ticketDayKey } from './redmine-net-hours';
+import { REDMINE, normalizeSource } from './ticket-refs';
 import { redmineTicketDaysFor } from './timer-core';
 
 /**
@@ -239,17 +255,106 @@ async function withPushLock(userId, work) {
 }
 
 /**
+ * The caller's ticket-days with time that has been neither sent nor discarded.
+ * Local data only: nothing is read from Redmine. `only` is one ticket-day,
+ * `{ ticketId, date }`: that day alone is read, not the user's whole history.
+ */
+async function unsentTicketDays(userId, account, only) {
+  const totals = await redmineTicketDaysFor(userId, {
+    includeLinked: onDefaultRedmine(account),
+    only,
+  });
+  return totals.length ? unsentTotals(totals, await pushLedgerFor(userId, only)) : [];
+}
+
+/** The Redmine issue a timer session's time belongs to, as a string id, or null. */
+async function redmineIssueOf(session, account) {
+  // A link names an issue on the deployment's own Redmine (see `redmineStampFor`).
+  if (session.redmineIssueId) return onDefaultRedmine(account) ? session.redmineIssueId : null;
+  // `isValidId` also passes legacy Meteor ids, which `Mongo.ObjectID` throws on.
+  if (!isObjectIdHex(session.workItemId)) return null;
+  const workItem = await WorkItems.findOneAsync(new Mongo.ObjectID(session.workItemId), {
+    fields: { source: 1, ticketId: 1 },
+  });
+  return normalizeSource(workItem?.source) === REDMINE ? workItem.ticketId : null;
+}
+
+/**
+ * What a session that has just closed left to send to Redmine: its issue-day
+ * and the hours not yet sent, or null when there is nothing worth sending (not
+ * a Redmine issue, no linked account, or under a minute).
+ *
+ * The answer to "should the user be asked for a comment now?" (#688). Local
+ * data only, and never a reason for the stop that asked to fail.
+ * @returns {Promise<{ticketId: string, date: string, hours: number} | null>}
+ */
+export async function unsentRedmineFor(userId, session) {
+  if (!session) return null;
+  try {
+    const account = await findRedmineAccount(userId);
+    if (!account) return null;
+    const ticketId = await redmineIssueOf(session, account);
+    if (!ticketId) return null;
+    const only = { ticketId, date: session.date };
+    return sendableForTicketDay(await unsentTicketDays(userId, account, only), ticketId, session.date);
+  } catch (err) {
+    console.error('[redmine] could not work out unsent time for a closed session:', err);
+    return null;
+  }
+}
+
+/** Refuse anything that is not one ticket-day: a Redmine issue id and a day. */
+function requireTicketDay(ticketId, date) {
+  if (
+    typeof ticketId !== 'string' ||
+    !/^\d+$/.test(ticketId) ||
+    typeof date !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
+    throw new Meteor.Error('bad-request', 'A ticket id and a YYYY-MM-DD date are required.');
+  }
+}
+
+/**
+ * A time entry's comment as it will be sent: trimmed, or '' for none. Refuses
+ * anything that is not text, or is longer than Redmine accepts.
+ */
+function requireComment(comment) {
+  if (comment != null && typeof comment !== 'string') {
+    throw new Meteor.Error('bad-request', 'The comment must be text.');
+  }
+  const text = (comment ?? '').trim();
+  if (text.length > MAX_COMMENT_LENGTH) {
+    throw new Meteor.Error(
+      'bad-request',
+      `Keep the comment to ${MAX_COMMENT_LENGTH} characters or fewer.`,
+    );
+  }
+  return text;
+}
+
+/**
+ * The activity a row goes under: the one asked for, when the issue's project
+ * allows it (the list the row's drop-down was built from), else the row's
+ * default when none was asked for. Null for one the project does not allow:
+ * the entry is permanent, and writing an activity the user did not choose is
+ * worse than writing nothing.
+ */
+function chosenActivity(row, requestedId) {
+  if (requestedId == null) return { id: row.activityId, name: row.activityName };
+  return row.activityOptions.find((option) => option.id === requestedId) ?? null;
+}
+
+/**
  * The unsynced ticket-days for a user, shaped for the dialog.
  *
  * Shared by `preview` and `push` so the two can never disagree about what is
  * eligible — `push` re-derives this rather than trusting what the client sends.
  */
-async function buildPreviewRows(userId, account) {
-  const totals = await redmineTicketDaysFor(userId, { includeLinked: onDefaultRedmine(account) });
-  if (!totals.length) return [];
-
-  // Only the time not already covered by earlier entries.
-  const unsynced = unsentTotals(totals, await pushLedgerFor(userId));
+async function buildPreviewRows(userId, account, { only } = {}) {
+  // `only` is one ticket-day, `{ ticketId, date }`: sending one issue's time
+  // reads neither the user's other days nor their issues from Redmine.
+  const unsynced = await unsentTicketDays(userId, account, only);
   if (!unsynced.length) return [];
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
@@ -312,7 +417,7 @@ async function buildPreviewRows(userId, account) {
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
-async function pushOneEntry(userId, account, row, activityId) {
+async function pushOneEntry(userId, account, row, activityId, comment) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
 
   let created;
@@ -322,7 +427,7 @@ async function pushOneEntry(userId, account, row, activityId) {
       hours: row.hours,
       activityId,
       spentOn: row.date,
-      comments: PUSH_COMMENT,
+      comments: comment || PUSH_COMMENT,
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a
@@ -472,15 +577,23 @@ Meteor.methods({
    * still returned, carrying a `blockedReason`, so the dialog can explain the
    * omission rather than quietly showing a shorter list than the user's day.
    */
-  async 'redmine.timeEntries.preview'() {
+  async 'redmine.timeEntries.preview'({ ticketId, date } = {}) {
     const { userId } = await requireIdentity(this);
+    // One ticket-day only, for the prompt shown when a timer ends (#688): it
+    // needs that issue's activities, not every unsent day.
+    const one = ticketId != null || date != null;
+    if (one) requireTicketDay(ticketId, date);
 
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
     enforceRedmineLimit(accountLimiter, userId);
 
     const idle = await isIdleForPush(userId);
-    const rows = await buildPreviewRows(userId, account);
+    const rows = await buildPreviewRows(
+      userId,
+      account,
+      one ? { only: { ticketId, date } } : {},
+    );
     return { connected: true, idle, rows, baseUrl: account.baseUrl };
   },
 
@@ -496,24 +609,12 @@ Meteor.methods({
     // Not metered with `enforceRedmineLimit`, unlike its neighbours: it never
     // calls Redmine (local timer data and one Mongo write), and the push lock
     // below already serializes it per user.
-    if (
-      typeof ticketId !== 'string' ||
-      !/^\d+$/.test(ticketId) ||
-      typeof date !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(date)
-    ) {
-      throw new Meteor.Error('bad-request', 'A ticket id and a YYYY-MM-DD date are required.');
-    }
+    requireTicketDay(ticketId, date);
     const account = await requireRedmineAccount(userId);
 
     // The push lock: a push running now could otherwise send the same seconds.
     return withPushLock(userId, async () => {
-      const totals = (
-        await redmineTicketDaysFor(userId, { includeLinked: onDefaultRedmine(account) })
-      ).filter(
-        (total) => String(total.ticketId) === ticketId && total.date === date,
-      );
-      const [unsent] = unsentTotals(totals, await pushLedgerFor(userId));
+      const [unsent] = await unsentTicketDays(userId, account, { ticketId, date });
       if (!unsent) return { discardedSeconds: 0 };
       await recordDiscard(userId, ticketId, date, unsent.seconds);
       return { discardedSeconds: unsent.seconds };
@@ -536,6 +637,9 @@ Meteor.methods({
     if (!Array.isArray(entries) || entries.length === 0) {
       throw new Meteor.Error('bad-request', 'Nothing to send.');
     }
+    // Checked before anything is sent: a bad comment on one row must not leave
+    // the rows before it already written.
+    for (const entry of entries) requireComment(entry?.comment);
 
     const account = await requireRedmineAccount(userId);
 
@@ -558,6 +662,48 @@ Meteor.methods({
       // now out of date about the issues this push covered.
       bustUserCaches(userId);
       return { results };
+    });
+  },
+
+  /**
+   * Send one ticket-day's unsent time as a single entry, with the user's own
+   * comment: what the prompt shown when a ticket timer ends calls (#688).
+   *
+   * **Irreversible**, like `push`, and built from the same parts: the hours are
+   * recomputed here, under the same lock and against the same ledger, so the
+   * two can never send the same time twice. Unlike `push` it is allowed while
+   * clocked in or with another timer running. Only closed sessions are ever
+   * summed, so neither can put partial time in the entry. The activity is the
+   * one the issue's project rules choose, unless `activityId` names another
+   * that the project allows.
+   */
+  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment, activityId } = {}) {
+    const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(accountLimiter, userId);
+    requireTicketDay(ticketId, date);
+    const text = requireComment(comment);
+    if (activityId != null && !Number.isInteger(activityId)) {
+      throw new Meteor.Error('bad-request', 'The activity must be an id.');
+    }
+    const account = await requireRedmineAccount(userId);
+
+    return withPushLock(userId, async (stillHeld) => {
+      const [row] = await buildPreviewRows(userId, account, { only: { ticketId, date } });
+      if (!row) return { ticketId, date, ok: false, reason: 'already-synced-or-gone' };
+      if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
+
+      const activity = chosenActivity(row, activityId);
+      if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
+
+      // Renewed right before the write, as `push` does per entry: reading the
+      // issue from Redmine can take long enough for the lock to go stale, and
+      // losing it means another send may be writing this same time.
+      if (!(await stillHeld())) return { ticketId, date, ok: false, reason: 'push-interrupted' };
+
+      const outcome = await pushOneEntry(userId, account, row, activity.id, text);
+      // As in `push`: logged time is one of the relevant list's signals.
+      bustUserCaches(userId);
+      return { ...outcome, activityName: activity.name };
     });
   },
 });
@@ -595,18 +741,11 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       continue;
     }
 
-    // An override is honoured only if the issue's project allows that activity:
-    // the same list the row's drop-down was built from. An invalid one rejects
-    // the row instead of falling back to the default: the entry is permanent,
-    // and writing an activity the user did not choose is worse than writing
-    // nothing.
-    let activityId = row.activityId;
-    if (requested.activityId != null) {
-      if (!row.activityOptions.some((option) => option.id === requested.activityId)) {
-        results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
-        continue;
-      }
-      activityId = requested.activityId;
+    // An override the project does not allow rejects the row (`chosenActivity`).
+    const activity = chosenActivity(row, requested.activityId);
+    if (!activity) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
+      continue;
     }
 
     // Renewed before every write, so the lock cannot go stale under a long
@@ -617,7 +756,9 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       continue;
     }
 
-    results.push(await pushOneEntry(userId, account, row, activityId));
+    results.push(
+      await pushOneEntry(userId, account, row, activity.id, requireComment(requested.comment)),
+    );
   }
 
   return results;
