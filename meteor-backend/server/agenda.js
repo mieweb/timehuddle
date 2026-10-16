@@ -15,7 +15,7 @@
  */
 import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
-import { MongoBackend } from '@agendajs/mongo-backend';
+import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
 import { createNotification } from './notify-core';
@@ -66,10 +66,26 @@ export async function initAgenda() {
   // client — avoids a duplicate pool and the eager-connect failures that would
   // otherwise crash the server (the agenda client cannot tolerate a transient
   // DNS miss the way Meteor's retrying driver can).
+  //
+  // notificationChannel watches `agendajobs` via a MongoDB change stream (our
+  // replica set already has one — Meteor's own live queries require it), so a
+  // newly scheduled or rescheduled job is picked up the instant it's written
+  // instead of waiting for the next processEvery tick. processEvery stays on
+  // as the fallback for whatever the change stream misses (a reconnect gap,
+  // or a job whose due time is further out than it watches) — it no longer
+  // carries the normal-case latency on its own.
+  const notificationChannel = new MongoChangeStreamNotificationChannel({
+    db: rawDb(),
+    collection: 'agendajobs',
+  });
+  notificationChannel.on('error', (err) =>
+    console.error('[agenda] change-stream notification channel error (falling back to polling):', err)
+  );
   _agenda = new Agenda({
     backend: new MongoBackend({ mongo: rawDb(), collection: 'agendajobs' }),
     processEvery: '30 seconds',
     defaultLockLifetime: 10_000,
+    notificationChannel,
   });
 
   // ── Job: 4h "Take a Break" reminder ──────────────────────────────────────
