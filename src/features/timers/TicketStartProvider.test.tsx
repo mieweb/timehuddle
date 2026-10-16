@@ -632,6 +632,45 @@ describe('TicketStartProvider', () => {
       );
     });
 
+    it('keeps the prompt and its comment when Billable moved, shows the new value, and sends on a second Send', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      const base = previewWith(0.52);
+      // The first read fails, so nothing was shown; the next one finds Billable.
+      mockPreview.mockRejectedValueOnce(new Error('Redmine is unreachable'));
+      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'billable-changed',
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      // Nothing was sent, and nothing was lost: the prompt, the comment, and why.
+      expect(await screen.findByText(/Billable status changed in Redmine/)).toBeTruthy();
+      expect(screen.getByText('Send time to Redmine')).toBeTruthy();
+      expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
+      expect(toast.error).not.toHaveBeenCalled();
+      // Read again, so the card now shows the value a second Send will use.
+      expect(await screen.findByText('Yes')).toBeTruthy();
+      expect(mockPreview).toHaveBeenCalledTimes(2);
+
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      fireEvent.click(sendButton());
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend).toHaveBeenLastCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: 9,
+        billable,
+      });
+    });
+
     it('does not claim an entry was sent when nothing was left to send', async () => {
       // Sent from another tab, or marked Never send: the server says the same for both.
       mockSend.mockResolvedValue({

@@ -108,6 +108,12 @@ export const ticketTimerText = {
    * another tab or the push dialog, or marked Never send, so this claims neither.
    */
   redmineNothingToSend: (issue: string) => `There is no time left to send on ${issue}.`,
+  /**
+   * Billable moved in Redmine since the prompt showed it. Nothing was sent; the
+   * prompt stays open, with the comment, and shows the value now.
+   */
+  redmineBillableChanged:
+    'Billable status changed in Redmine, so nothing was sent. Check it below, then press Send again.',
   /** The send itself could not be made; the prompt stays open. */
   redmineSendFailed:
     'Could not send the time to Redmine. Try again, or close this to send it later.',

@@ -72,6 +72,8 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   const [row, setRow] = useState<RedmineTimeEntryRow | null>(null);
   // The read has answered, one way or the other: no longer "loading".
   const [activitiesRead, setActivitiesRead] = useState(false);
+  // Bumped to read the preview again, when the server says what was shown has moved.
+  const [rereads, setRereads] = useState(0);
   // Why the server will not send this entry (its project allows no activity,
   // or the issue could not be read), when it said so.
   const blockedReason = row?.blockedReason ?? null;
@@ -105,7 +107,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     return () => {
       current = false;
     };
-  }, [time.ticketId, time.date, time.hours]);
+  }, [time.ticketId, time.date, time.hours, rereads]);
 
   // What the server will send: its total as just read, else the one from the stop.
   const hours = row?.hours ?? time.hours;
@@ -139,6 +141,16 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
       // Nothing was decided (a push already running, the network): the prompt
       // stays open with the comment intact, to try again or close.
       setError(err instanceof ApiError && err.message ? err.message : text.redmineSendFailed);
+      busyRef.current = false;
+      setSending(false);
+      return;
+    }
+
+    if (outcome.reason === 'billable-changed') {
+      // Nothing was sent. Stay open with the comment, and read the value again
+      // so the card shows what a second Send would use.
+      setError(text.redmineBillableChanged);
+      setRereads((count) => count + 1);
       busyRef.current = false;
       setSending(false);
       return;
