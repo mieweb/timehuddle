@@ -23,7 +23,12 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
+import {
+  composerAttachmentToFile,
+  fetchTeamMembers,
+  toPostAttachment,
+  uploadMedia,
+} from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
@@ -46,7 +51,7 @@ import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
-import { useTeamMentions } from '../features/huddle/useTeamMentions';
+import { detectMentions, useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
@@ -338,19 +343,6 @@ export default function Huddle() {
     refreshMyPosts().finally(() => setMyPostsLoading(false));
   }, [scope, refreshMyPosts]);
 
-  // Personal scope has no live subscription — huddle.getMyPosts is a one-time
-  // REST call — so a post's own Agenda-driven delivery while this tab is open
-  // would otherwise never update it here (unlike a team's DDP-backed feed).
-  // Poll while any of mine are still waiting, matching Agenda's own
-  // processEvery, so the dashed bubble and "Scheduled (n)" catch up without a
-  // manual refresh.
-  useEffect(() => {
-    if (scope !== 'me') return;
-    if (!myPosts.some((p) => isAwaitingDelivery(p))) return;
-    const id = setInterval(() => void refreshMyPosts(), 30_000);
-    return () => clearInterval(id);
-  }, [scope, myPosts, refreshMyPosts]);
-
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open
@@ -393,26 +385,22 @@ export default function Huddle() {
         // Clock-out doesn't touch the post, so the DDP copy keeps its open
         // session snapshot; take the closed one from the post-clock-out refetch.
         byId.set(id, { ...ddpPost, session: restPost.session });
-      } else if (
-        ddpPost.deliveredAt == null &&
-        (restPost.deliverAt !== ddpPost.deliverAt ||
-          restPost.deliveredAt !== ddpPost.deliveredAt ||
-          restPost.postDate !== ddpPost.postDate)
-      ) {
+      } else if ((restPost.scheduleVersion ?? 0) > (ddpPost.scheduleVersion ?? 0)) {
         // Delivery and reschedule don't bump updatedAt either (so a scheduled
-        // post isn't shown as edited), so take REST's schedule fields the same
-        // way the clock-out case does above — covers Send now / Reschedule
-        // while DDP is disconnected. postDate moves with a cross-day
-        // reschedule, so it comes along too, or Day/Session grouping keeps
-        // the old date. Gated on the DDP copy not being delivered yet:
-        // delivery is one-way, so once DDP has it, an older cached REST
+        // post isn't shown as edited), so compare scheduleVersion instead —
+        // it's bumped on every write to deliverAt/deliveredAt/postDate.
+        // Whichever copy has the higher version is the newer one: this
+        // covers Send now / Reschedule made from another tab, or made here
+        // while DDP was disconnected, without letting an older cached REST
         // snapshot (e.g. from right after the post was created, before
-        // Agenda delivered it) must never un-deliver it again.
+        // either happened) undo a delivery or reschedule that's since
+        // happened live.
         byId.set(id, {
           ...ddpPost,
           deliverAt: restPost.deliverAt,
           deliveredAt: restPost.deliveredAt,
           postDate: restPost.postDate,
+          scheduleVersion: restPost.scheduleVersion,
         });
       }
     }
@@ -582,6 +570,19 @@ export default function Huddle() {
     () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
     [activePosts, user?.id],
   );
+
+  // Personal scope has no live subscription at all (huddle.getMyPosts is a
+  // one-time REST call), and a team's own DDP feed can just as easily be
+  // disconnected (mobile backgrounded for a Pulse recording) — either way, a
+  // post's own Agenda-driven delivery while this tab is open would otherwise
+  // never update it here. Poll the active scope's own REST refresh while any
+  // of mine are still waiting, matching Agenda's own processEvery, so the
+  // dashed bubble and "Scheduled (n)" catch up without a manual refresh.
+  useEffect(() => {
+    if (!myScheduledPosts.length) return;
+    const id = setInterval(() => void refreshActiveScopeRef.current(), 30_000);
+    return () => clearInterval(id);
+  }, [myScheduledPosts.length]);
 
   // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
   // notifications) opens the conversation containing it once loaded. Its team
@@ -970,13 +971,15 @@ export default function Huddle() {
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
-    // `mentions` only has this team's roster loaded, so an edit from a
-    // different team (the Personal view can show any team's posts) keeps the
-    // original mentions rather than resolving against the wrong roster.
-    const editedMentions =
+    // The composer's own roster (`mentions`) only covers `postingTeamId`; the
+    // Personal view can show a post from any team, so load that team's own
+    // roster to resolve against rather than reuse a roster from a different
+    // team (or skip recomputing it).
+    const editedMentions = (
       post.teamId === postingTeamId
-        ? mentions.detect(body).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID)
-        : post.content.mentions;
+        ? mentions.detect(body)
+        : detectMentions(body, await fetchTeamMembers(post.teamId))
+    ).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID);
     try {
       await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the

@@ -1198,6 +1198,10 @@ export interface HuddlePost {
   deliverAt?: string;
   /** When a scheduled post was delivered; absent while it is still waiting. */
   deliveredAt?: string;
+  /** Bumped on every write to deliverAt/deliveredAt/postDate — lets a client
+   *  merging a cached snapshot against a live one tell which is newer, since
+   *  those writes deliberately don't touch updatedAt. */
+  scheduleVersion?: number;
   createdAt: string;
   updatedAt: string;
 }

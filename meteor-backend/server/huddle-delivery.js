@@ -13,31 +13,91 @@ export function huddlePostUrl(teamId, postId) {
   return `/app/huddle?team=${encodeURIComponent(teamId)}&post=${encodeURIComponent(postId)}`;
 }
 
+/** Title/body for a post's mention notification, computed once and reused per recipient. */
+async function mentionNotificationText(post) {
+  return {
+    title: `${await userDisplayName(post.userId)} mentioned you in Huddle`,
+    body: (post.content?.text ?? '').substring(0, 100),
+  };
+}
+
+/** Send one recipient's mention notification; true on success, logs and returns false on failure. */
+async function sendMentionNotification(userId, post, { title, body }) {
+  const postId = String(post._id);
+  const teamId = String(post.teamId);
+  try {
+    await createNotification({
+      userId,
+      title,
+      body,
+      data: { type: 'huddle-mention', postId, teamId, url: huddlePostUrl(teamId, postId) },
+    });
+    return true;
+  } catch (err) {
+    console.error('[huddle] mention notification failed:', err);
+    return false;
+  }
+}
+
 /**
  * Notify the users @mentioned in `post` — never its author, and only those
- * still on `team`, so a mention can't leak the text outside the team.
+ * still on `team`, so a mention can't leak the text outside the team. Returns
+ * the ids of any recipients whose notification failed, so the caller can
+ * retry them later rather than lose them silently.
  */
 export async function notifyPostRecipients(post, team) {
   const onTeam = new Set([...(team.members ?? []), ...(team.admins ?? [])].map(String));
   const recipients = [...new Set(post.content?.mentions ?? [])].filter(
     (userId) => userId !== post.userId && onTeam.has(String(userId)),
   );
-  if (!recipients.length) return;
+  if (!recipients.length) return [];
 
-  const postId = String(post._id);
-  const teamId = String(post.teamId);
-  const title = `${await userDisplayName(post.userId)} mentioned you in Huddle`;
-  const body = (post.content?.text ?? '').substring(0, 100);
-  await Promise.all(
-    recipients.map((userId) =>
-      createNotification({
-        userId,
-        title,
-        body,
-        data: { type: 'huddle-mention', postId, teamId, url: huddlePostUrl(teamId, postId) },
-      }).catch((err) => console.error('[huddle] mention notification failed:', err)),
-    ),
+  const text = await mentionNotificationText(post);
+  const results = await Promise.all(
+    recipients.map(async (userId) => ({
+      userId,
+      ok: await sendMentionNotification(userId, post, text),
+    })),
   );
+  return results.filter((r) => !r.ok).map((r) => r.userId);
+}
+
+/**
+ * Retry a post's mention notifications for exactly `recipientIds`, used by
+ * the `huddle-mention-retry` Agenda job. Deduplicates against the
+ * `notifications` collection, so a recipient a previous attempt already
+ * reached is never notified twice, and drops anyone no longer on the team.
+ * Returns the ids still unreached, for the job to retry again (or give up on).
+ */
+export async function retryMentionNotifications(postId, recipientIds) {
+  if (!recipientIds?.length) return [];
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOne({ _id: new ObjectId(postId) }, { projection: { userId: 1, teamId: 1, content: 1 } });
+  if (!post) return []; // the post is gone — nothing left to notify about
+  const team = await findPostTeam(post.teamId);
+  if (!team) return [];
+
+  const onTeam = new Set([...(team.members ?? []), ...(team.admins ?? [])].map(String));
+  const candidates = [...new Set(recipientIds)].filter((userId) => onTeam.has(String(userId)));
+  if (!candidates.length) return [];
+
+  const already = await rawDb()
+    .collection('notifications')
+    .find(
+      { userId: { $in: candidates }, 'data.type': 'huddle-mention', 'data.postId': postId },
+      { projection: { userId: 1 } },
+    )
+    .toArray();
+  const notified = new Set(already.map((n) => String(n.userId)));
+  const pending = candidates.filter((userId) => !notified.has(String(userId)));
+  if (!pending.length) return [];
+
+  const text = await mentionNotificationText(post);
+  const results = await Promise.all(
+    pending.map(async (userId) => ({ userId, ok: await sendMentionNotification(userId, post, text) })),
+  );
+  return results.filter((r) => !r.ok).map((r) => r.userId);
 }
 
 /** A post's team, whichever form (string or legacy ObjectId) its id is stored in. */
@@ -45,6 +105,11 @@ async function findPostTeam(teamId) {
   const id = String(teamId);
   const ids = /^[a-f0-9]{24}$/i.test(id) ? [id, new ObjectId(id)] : [id];
   return rawDb().collection('teams').findOne({ _id: { $in: ids } });
+}
+
+/** Whether `userId` is still a member or admin of `team`. */
+function isTeamMember(team, userId) {
+  return (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
 }
 
 /**
@@ -58,24 +123,47 @@ async function findPostTeam(teamId) {
  * yet due and does nothing — see `isPostStillAwaitingDelivery` for why that
  * run must not then remove the job row. `huddle.sendScheduledNow` passes
  * `force: true` to ignore `deliverAt` and send regardless of the clock.
+ *
+ * Checks the author's own team access before ever revealing the post —
+ * `teams.removeMember`/`orgs.blockMember` don't cancel a departed member's
+ * pending schedules, so without this a removed author's post would still
+ * surface and notify the team they no longer belong to. A post that fails
+ * the check was never shown to anyone, so it's dropped rather than left
+ * stranded with no way to ever be delivered or managed.
+ *
+ * Returns `{ delivered, failedRecipientIds }`: `failedRecipientIds` is only
+ * meaningful when `delivered` is true, and lists anyone `notifyPostRecipients`
+ * couldn't reach — the caller schedules a `huddle-mention-retry` job for them
+ * rather than lose them, since the post is visible either way once delivered.
  */
 export async function deliverScheduledPost(postId, { force = false } = {}) {
-  if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return false;
-  const post = await rawDb()
+  if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return { delivered: false };
+  const pending = await rawDb()
     .collection('huddlePosts')
-    .findOneAndUpdate(
+    .findOne(
       {
         _id: new ObjectId(postId),
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { $set: { deliveredAt: new Date() } },
+      { projection: { userId: 1, teamId: 1 } },
+    );
+  if (!pending) return { delivered: false };
+  const team = await findPostTeam(pending.teamId);
+  if (!team || !isTeamMember(team, pending.userId)) {
+    await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
+    return { delivered: false };
+  }
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOneAndUpdate(
+      { _id: pending._id, deliveredAt: null },
+      { $set: { deliveredAt: new Date() }, $inc: { scheduleVersion: 1 } },
       { returnDocument: 'after' },
     );
-  if (!post) return false;
-  const team = await findPostTeam(post.teamId);
-  if (team) await notifyPostRecipients(post, team);
-  return true;
+  if (!post) return { delivered: false }; // raced with something else (send now, delete) between the checks above
+  const failedRecipientIds = await notifyPostRecipients(post, team);
+  return { delivered: true, failedRecipientIds };
 }
 
 /**

@@ -14,7 +14,7 @@ import {
   parseSchedule,
   visibleTo,
 } from './huddle-schedule-core';
-import { cancelPostDelivery, schedulePostDelivery } from './agenda';
+import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -166,6 +166,7 @@ async function enrichPost(post) {
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
     deliverAt: post.deliverAt ? new Date(post.deliverAt).toISOString() : undefined,
     deliveredAt: post.deliveredAt ? new Date(post.deliveredAt).toISOString() : undefined,
+    scheduleVersion: post.scheduleVersion ?? 0,
     createdAt: post.createdAt instanceof Date ? post.createdAt.toISOString() : String(post.createdAt),
     updatedAt: post.updatedAt instanceof Date ? post.updatedAt.toISOString() : String(post.updatedAt ?? post.createdAt),
   };
@@ -492,6 +493,11 @@ export async function createHuddlePost(
     ...(clockEventId ? { clockEventId } : {}),
     ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
     ...(schedule ?? {}),
+    // Bumped on every write that changes deliverAt/deliveredAt/postDate, so a
+    // client merging a cached REST snapshot against a live DDP copy can tell
+    // which is actually newer — unlike updatedAt, which delivery and
+    // reschedule deliberately leave alone (neither reads as an edit).
+    ...(schedule ? { scheduleVersion: 1 } : {}),
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -513,9 +519,13 @@ export async function createHuddlePost(
       throw err;
     }
   } else {
-    notifyPostRecipients(doc, team).catch((err) =>
-      console.error('[huddle] post notifications failed:', err),
-    );
+    notifyPostRecipients(doc, team)
+      .then((failedRecipientIds) => {
+        if (failedRecipientIds?.length) {
+          scheduleMentionRetry(doc._id.toHexString(), failedRecipientIds);
+        }
+      })
+      .catch((err) => console.error('[huddle] post notifications failed:', err));
   }
 
   return { id: doc._id.toHexString() };
@@ -579,6 +589,9 @@ async function requireOwnScheduledPost(userId, postId) {
   if (!isAwaitingDelivery(post)) {
     throw new Meteor.Error('conflict', 'This post is not waiting to be sent');
   }
+  // Team access can be revoked after scheduling; a removed member must not be
+  // able to force-send or move a post into a team they no longer belong to.
+  await requireTeamMember(userId, post.teamId);
   return post;
 }
 
@@ -696,9 +709,11 @@ Meteor.methods({
   async 'huddle.sendScheduledNow'({ postId } = {}) {
     const identity = await requireIdentity(this);
     await requireOwnScheduledPost(identity.userId, postId);
-    if (!(await deliverScheduledPost(postId, { force: true }))) {
+    const { delivered, failedRecipientIds } = await deliverScheduledPost(postId, { force: true });
+    if (!delivered) {
       throw new Meteor.Error('conflict', 'This post has already been sent');
     }
+    if (failedRecipientIds?.length) scheduleMentionRetry(postId, failedRecipientIds);
     await cancelPostDelivery(postId);
     return { id: postId };
   },
@@ -716,7 +731,7 @@ Meteor.methods({
       .collection('huddlePosts')
       .updateOne(
         { _id: post._id, deliveredAt: null },
-        { $set: { ...schedule, ...(postDate ? { postDate } : {}) } },
+        { $set: { ...schedule, ...(postDate ? { postDate } : {}) }, $inc: { scheduleVersion: 1 } },
       );
     if (!matchedCount) throw new Meteor.Error('conflict', 'This post has already been sent');
     try {
@@ -728,7 +743,10 @@ Meteor.methods({
         .collection('huddlePosts')
         .updateOne(
           { _id: post._id, deliveredAt: null },
-          { $set: { deliverAt: post.deliverAt, ...(postDate ? { postDate: post.postDate } : {}) } },
+          {
+            $set: { deliverAt: post.deliverAt, ...(postDate ? { postDate: post.postDate } : {}) },
+            $inc: { scheduleVersion: 1 },
+          },
         );
       throw err;
     }

@@ -169,6 +169,7 @@ describe('scheduling a post', () => {
     const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) });
     expect(post!.deliveredAt).toBeInstanceOf(Date);
     expect(post!.updatedAt.getTime()).toBe(post!.createdAt.getTime());
+    expect(post!.scheduleVersion).toBe(2); // 1 at creation, +1 on delivery
 
     const again = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
     expect(again.ok).toBe(false);
@@ -186,6 +187,10 @@ describe('scheduling a post', () => {
     expect(jobs).toHaveLength(1);
     expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(later);
     expect(await feedIds(readerJwt)).not.toContain(postId);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) });
+    expect(post!.scheduleVersion).toBe(2); // 1 at creation, +1 on reschedule
   });
 
   it('drops the delivery job when the post is deleted', async () => {
@@ -216,5 +221,54 @@ describe('scheduling a post', () => {
     // Whichever request's time stuck on the post, the job must agree with it —
     // not be left at the other request's time.
     expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(post!.deliverAt.toISOString());
+  });
+});
+
+describe('access revoked before delivery', () => {
+  it('blocks a removed author from forcing or rescheduling their own pending post', async () => {
+    const REMOVED = { name: 'Sched Removed', email: 'sched-removed@test.dev', password: 'Password1!' };
+    await purgeUser(REMOVED.email);
+    const removedJwt = (await createUserAndGetJwt(REMOVED)).jwt;
+    const removedId = await userIdOf(REMOVED.email);
+
+    const db = await getDb();
+    const soloTeam = {
+      _id: new ObjectId(),
+      name: 'Solo Scheduled Team',
+      members: [removedId],
+      admins: [removedId],
+      code: 'SCHEDSOLO1',
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertOne(soloTeam);
+    const soloTeamId = soloTeam._id.toHexString();
+
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId: soloTeamId, content: { text: 'Orphaned', mentions: [] }, deliverAt: inHours(1) },
+      removedJwt,
+    );
+    expect(res.ok).toBe(true);
+    const postId = res.result.id;
+
+    // Access revoked after scheduling, before delivery.
+    await db
+      .collection('teams')
+      .updateOne({ _id: soloTeam._id }, { $pull: { members: removedId, admins: removedId } });
+
+    const sendNow = await wormhole('huddle.sendScheduledNow', { postId }, removedJwt);
+    expect(sendNow.ok).toBe(false);
+    const reschedule = await wormhole(
+      'huddle.reschedulePost',
+      { postId, deliverAt: inHours(2) },
+      removedJwt,
+    );
+    expect(reschedule.ok).toBe(false);
+
+    await db.collection('agendajobs').deleteMany({ 'data.postId': postId });
+    await db.collection('huddlePosts').deleteMany({ teamId: soloTeamId });
+    await db.collection('teams').deleteMany({ code: 'SCHEDSOLO1' });
+    await purgeUser(REMOVED.email);
   });
 });

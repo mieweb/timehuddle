@@ -19,11 +19,14 @@ import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost, isPostStillAwaitingDelivery } from './huddle-delivery';
+import { deliverScheduledPost, isPostStillAwaitingDelivery, retryMentionNotifications } from './huddle-delivery';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const POST_DELIVERY_JOB = 'huddle-post-deliver';
+const MENTION_RETRY_JOB = 'huddle-mention-retry';
+const MENTION_RETRY_DELAY_MS = 60_000; // 1 minute, backed off per attempt
+const MENTION_RETRY_MAX_ATTEMPTS = 5;
 
 const FOUR_HOURS_MS = 4 * 3600_000;
 const SHIFT_END_MS = 27_900_000; // 7h 45m
@@ -171,7 +174,7 @@ export async function initAgenda() {
 
   // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────
   _agenda.define(POST_DELIVERY_JOB, async (job) => {
-    const delivered = await deliverScheduledPost(job.attrs.data.postId);
+    const { delivered, failedRecipientIds } = await deliverScheduledPost(job.attrs.data.postId);
     if (!delivered && (await isPostStillAwaitingDelivery(job.attrs.data.postId))) {
       // A reschedule moved deliverAt later while this run was already
       // dequeued, upserting the SAME job row onto the new time. Removing it
@@ -179,14 +182,38 @@ export async function initAgenda() {
       // the post pending with no job left to ever deliver it.
       return;
     }
+    if (delivered && failedRecipientIds?.length) {
+      // The post is visible either way; don't lose the recipients a failed
+      // notification insert would otherwise drop silently.
+      scheduleMentionRetry(String(job.attrs.data.postId), failedRecipientIds);
+    }
     await job.remove(); // one-shot: remove so it doesn't re-fire
+  });
+
+  // ── Job: retry mention notifications a delivery failed to send (#596) ─────
+  _agenda.define(MENTION_RETRY_JOB, async (job) => {
+    const { postId, recipientIds, attempt = 1 } = job.attrs.data;
+    const stillFailed = await retryMentionNotifications(postId, recipientIds);
+    if (!stillFailed.length) {
+      await job.remove();
+      return;
+    }
+    if (attempt >= MENTION_RETRY_MAX_ATTEMPTS) {
+      console.error(
+        `[huddle] giving up on mention notifications for post ${postId}, recipients: ${stillFailed.join(', ')}`
+      );
+      await job.remove();
+      return;
+    }
+    job.attrs.data = { postId, recipientIds: stillFailed, attempt: attempt + 1 };
+    await job.schedule(new Date(Date.now() + MENTION_RETRY_DELAY_MS * attempt)).save();
   });
 
   // Processor loop is opt-in during coexistence (see file header).
   if (process.env.METEOR_AGENDA_ENABLED === 'true') {
     await _agenda.start();
     console.log(
-      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver'
+      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry'
     );
   } else {
     console.log(
@@ -289,6 +316,20 @@ export async function schedulePostDelivery(postId, deliverAt) {
 /** Drop a scheduled post's pending delivery (sent now, or deleted). */
 export async function cancelPostDelivery(postId) {
   await _agenda?.cancel({ name: POST_DELIVERY_JOB, data: { postId } });
+}
+
+/**
+ * Retry notifying `recipientIds` for a delivered post whose notification
+ * insert failed. Fire-and-forget: scheduling failures are logged, not thrown,
+ * since the post is already visible regardless of whether this succeeds.
+ */
+export function scheduleMentionRetry(postId, recipientIds) {
+  if (!_agenda || !recipientIds?.length) return;
+  _agenda
+    .create(MENTION_RETRY_JOB, { postId, recipientIds, attempt: 1 })
+    .schedule(new Date(Date.now() + MENTION_RETRY_DELAY_MS))
+    .save()
+    .catch((err) => console.error('[huddle] failed to schedule mention retry:', err));
 }
 
 /** Cancel a single named job for a clock event. */
