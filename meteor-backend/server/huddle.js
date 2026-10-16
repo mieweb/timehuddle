@@ -529,7 +529,16 @@ export async function createHuddlePost(
       try {
         await revealMedia(doc.attachments, userId, doc._id);
       } catch (releaseErr) {
+        // The post is about to be deleted below either way — ordinary
+        // uploaded attachments aren't touched by discardMedia(media) (that
+        // only cleans up externalized inline images), so a failed release
+        // here has nowhere left to ever retry except a queued job.
         console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
+        scheduleMentionRetry(doc._id.toHexString(), [], {
+          attachments: doc.attachments,
+          userId,
+          postId: doc._id,
+        });
       }
       await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
       await discardMedia(media);
@@ -540,8 +549,19 @@ export async function createHuddlePost(
     } catch (err) {
       // The hold is already in place but there is no job left to ever
       // deliver (and therefore reveal) it — release it now, or the
-      // attachments would stay stuck hidden with nothing scheduled.
-      await revealMedia(doc.attachments, userId, doc._id);
+      // attachments would stay stuck hidden with nothing scheduled. Caught
+      // independently so a failure here can't also skip deleting the post
+      // and discarding its media below.
+      try {
+        await revealMedia(doc.attachments, userId, doc._id);
+      } catch (releaseErr) {
+        console.error('[huddle] failed to release an attachment hold after a failed schedule:', releaseErr);
+        scheduleMentionRetry(doc._id.toHexString(), [], {
+          attachments: doc.attachments,
+          userId,
+          postId: doc._id,
+        });
+      }
       await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
       await discardMedia(media);
       throw err;
@@ -953,7 +973,18 @@ Meteor.methods({
             try {
               await revealMedia(added, replacedPost.userId, replacedPost._id);
             } catch (releaseErr) {
+              // The attachments list is about to drop `added` below either
+              // way, so delivery/deletion will no longer find this post
+              // referencing them — a failed release here has nowhere left
+              // to ever retry except a queued job, with the same
+              // reattachment guard the queued retry itself uses.
               console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
+              scheduleMentionRetry(postId, [], {
+                attachments: added,
+                userId: replacedPost.userId,
+                postId: replacedPost._id,
+                verifyStillRemoved: true,
+              });
             }
             const addedIds = new Set(added.map((att) => att.mediaId));
             await rawDb()
