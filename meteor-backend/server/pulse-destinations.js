@@ -116,14 +116,20 @@ async function addToLibrary(userId, video) {
     ...(pendingPostId ? { pendingPostId } : {}),
   });
   if (pendingPostId) {
-    // The lookup above can race with that very post's own delivery or
-    // deletion (both can run between it and the insert, now that Agenda
-    // wakes near-instantly) — re-check right away and release the hold
-    // immediately if it's already gone; nothing else will ever revisit this
-    // specific row again, so a stale hold here would stay stuck forever.
+    // The lookup above can race with that very post's own delivery, deletion,
+    // or an attachment edit that drops this video (all can run between it and
+    // the insert, now that Agenda wakes near-instantly) — re-check right away
+    // and release the hold immediately if it no longer applies; nothing else
+    // will ever revisit this specific row again, so a stale hold here would
+    // stay stuck forever. Re-matches the same attachment reference as the
+    // lookup above, not just "is the post still pending": an edit can leave
+    // the post pending while no longer referencing this video at all.
     const stillPending = await rawDb()
       .collection('huddlePosts')
-      .findOne({ _id: pendingPostId, deliveredAt: null }, { projection: { _id: 1 } });
+      .findOne(
+        { _id: pendingPostId, deliveredAt: null, 'attachments.mediaId': video.artifactId },
+        { projection: { _id: 1 } },
+      );
     if (!stillPending) {
       await media.updateOne({ _id }, { $unset: { pendingPostId: '' } });
     }

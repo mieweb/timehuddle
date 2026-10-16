@@ -887,14 +887,16 @@ Meteor.methods({
         }
       }
       if (added.length) {
-        // Re-read right before holding anything new back: a delivery can
-        // land between the update above and here, revealing the
-        // already-committed new attachments — hiding them now would leave
-        // nothing left to ever reveal them again.
+        // Re-read right before holding anything new back: a delivery (or a
+        // deletion, which removes the post entirely) can land between the
+        // update above and here, revealing or releasing the already-committed
+        // new attachments — hiding them now would leave nothing left to ever
+        // reveal them again. `current` being null (post deleted) must NOT
+        // pass this check: `null?.deliveredAt == null` is true too.
         const current = await rawDb()
           .collection('huddlePosts')
           .findOne({ _id: replacedPost._id }, { projection: { deliveredAt: 1 } });
-        if (current?.deliveredAt == null) {
+        if (current && current.deliveredAt == null) {
           try {
             await hideMediaUntilDelivery(added, replacedPost.userId, replacedPost._id);
           } catch (err) {
@@ -1004,7 +1006,15 @@ Meteor.methods({
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
       if (isAwaitingDelivery(deletedPost)) {
-        await cancelPostDelivery(postId);
+        // Best-effort: the post is already gone, so media cleanup must still
+        // run even if cancelling its job fails — a stale job will simply find
+        // no post to publish and no-op, but a skipped reveal here has nowhere
+        // left to recover except the retry job below.
+        try {
+          await cancelPostDelivery(postId);
+        } catch (err) {
+          console.error('[huddle] failed to cancel a deleted scheduled post\'s delivery job:', err);
+        }
         // Deleted before delivery: nothing will ever unhide its attachments
         // otherwise — and the post itself is already gone, so a failure here
         // has nowhere left to recover except a retry job carrying the
@@ -1098,7 +1108,15 @@ Meteor.methods({
     if (!isMember) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
-    
+    // A still-pending scheduled post is hidden from the feed, but this method
+    // has no visibility check of its own — without this, a comment (with its
+    // own mention notification, carrying the text and a link to the post)
+    // would leak it before delivery, through a side channel the "hidden until
+    // delivered" guarantee was never meant to have.
+    if (isAwaitingDelivery(post)) {
+      throw new Meteor.Error('forbidden', 'This post is still scheduled and cannot be commented on yet');
+    }
+
     const commentDoc = {
       _id: new ObjectId(),
       postId,
