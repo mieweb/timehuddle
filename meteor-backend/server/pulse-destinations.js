@@ -141,13 +141,17 @@ async function addToLibrary(userId, video) {
     // entries to this same row concurrently (once the row exists, it's a
     // normal target), and overwriting here would drop one of those.
     await media.updateOne({ _id }, { $addToSet: { pendingPostIds: { $each: pendingIds } } });
-    // Re-verify right away: one of the posts found above can itself deliver
-    // or be deleted in this same gap, and nothing else will ever revisit
-    // this specific row again to notice — only `$pull` the ones that are no
-    // longer actually pending, never the whole field, so a concurrent add
-    // from another post isn't lost either.
+  }
+  // Reconcile every id the row actually carries now, not just the ones found
+  // above — the initial seed (read before the row existed), a crashed
+  // attempt's leftovers, or a concurrent add can all include a post that's
+  // since delivered or been deleted, and this is the only pass that will
+  // ever revisit them again.
+  const current = await media.findOne({ _id }, { projection: { pendingPostIds: 1 } });
+  const persistedIds = current?.pendingPostIds ?? [];
+  if (persistedIds.length) {
     const stillPendingIds = new Set((await pendingPostIdsFor(userId, video.artifactId)).map(String));
-    const stale = pendingIds.filter((id) => !stillPendingIds.has(String(id)));
+    const stale = persistedIds.filter((id) => !stillPendingIds.has(String(id)));
     if (stale.length) {
       await media.updateOne({ _id }, { $pull: { pendingPostIds: { $in: stale } } });
     }

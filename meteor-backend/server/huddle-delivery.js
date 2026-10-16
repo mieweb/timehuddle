@@ -131,13 +131,18 @@ async function findPostTeam(teamId) {
  * would clear a hold the reattachment just re-established. Not used for a
  * delivered/deleted post's release: there, every one of its attachments is
  * meant to come out of hiding regardless of what the post currently lists.
+ *
+ * Only protects a reattachment while the post is still awaiting delivery —
+ * once delivered, a lingering hold has nothing left to ever release it
+ * again, so it must come out regardless of what the post's attachment list
+ * currently says (the post can't hide anything anymore either way).
  */
 export async function stillRemovedAttachments(postId, attachments) {
   if (!attachments?.length) return attachments ?? [];
   const post = await rawDb()
     .collection('huddlePosts')
-    .findOne({ _id: new ObjectId(postId) }, { projection: { attachments: 1 } });
-  if (!post) return attachments; // the post itself is gone — release as queued
+    .findOne({ _id: new ObjectId(postId) }, { projection: { attachments: 1, deliverAt: 1, deliveredAt: 1 } });
+  if (!post || !isAwaitingDelivery(post)) return attachments; // gone, or already delivered — release as queued
   const currentIds = new Set((post.attachments ?? []).map((att) => att.mediaId));
   return attachments.filter((att) => !currentIds.has(att.mediaId));
 }

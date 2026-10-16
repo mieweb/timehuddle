@@ -741,6 +741,13 @@ Meteor.methods({
       force: true,
     });
     if (!delivered) {
+      // Access can be revoked between requireOwnScheduledPost above and
+      // deliverScheduledPost's own membership check — that branch deletes
+      // the post and can still hand back a failed media release with
+      // nowhere else left to retry it; queue that before the throw below
+      // discards it, matching what the Agenda job handler already does for
+      // this same return shape.
+      if (revealMediaRetry) scheduleMentionRetry(postId, [], revealMediaRetry);
       throw new Meteor.Error('conflict', 'This post has already been sent');
     }
     if (failedRecipientIds?.length || revealMediaRetry) {
