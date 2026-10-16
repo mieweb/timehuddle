@@ -224,6 +224,54 @@ describe('scheduling a post', () => {
   });
 });
 
+describe('scheduled post attachments', () => {
+  it("keeps a scheduled post's attachment out of the author's library for a teammate until delivery", async () => {
+    const db = await getDb();
+    const media = {
+      _id: new ObjectId(),
+      userId: authorId,
+      type: 'image',
+      mimeType: 'image/png',
+      url: '/uploads/media/sched-attachment.png',
+      filename: 'sched-attachment.png',
+      size: 1234,
+      uploadedAt: new Date(),
+    };
+    await db.collection('mediaitems').insertOne(media);
+    const mediaId = media._id.toHexString();
+
+    try {
+      const res = await createPost({
+        deliverAt: inHours(1),
+        attachments: [{ mediaId, type: 'image', url: media.url, filename: media.filename }],
+      });
+      expect(res.ok).toBe(true);
+      const postId = res.result.id;
+
+      const beforeDelivery = await wormhole<{ items: { id: string }[] }>(
+        'media.listForUser',
+        { userId: authorId },
+        readerJwt,
+      );
+      expect(beforeDelivery.ok).toBe(true);
+      expect(beforeDelivery.result.items.map((item) => item.id)).not.toContain(mediaId);
+
+      const sent = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
+      expect(sent.ok).toBe(true);
+
+      const afterDelivery = await wormhole<{ items: { id: string }[] }>(
+        'media.listForUser',
+        { userId: authorId },
+        readerJwt,
+      );
+      expect(afterDelivery.ok).toBe(true);
+      expect(afterDelivery.result.items.map((item) => item.id)).toContain(mediaId);
+    } finally {
+      await db.collection('mediaitems').deleteOne({ _id: media._id });
+    }
+  });
+});
+
 describe('access revoked before delivery', () => {
   it('blocks a removed author from forcing or rescheduling their own pending post', async () => {
     const REMOVED = { name: 'Sched Removed', email: 'sched-removed@test.dev', password: 'Password1!' };

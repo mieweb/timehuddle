@@ -2,10 +2,10 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { resolveSince } from './huddle-window-core';
-import { discardMedia, hideMediaUntilDelivery, revealMedia } from './uploads';
+import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients, stillRemovedAttachments } from './huddle-delivery';
+import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
 import {
   isAwaitingDelivery,
   isHiddenFrom,
@@ -510,58 +510,13 @@ export async function createHuddlePost(
   }
 
   if (schedule) {
-    // Attached files (images/documents, and video via the Pulse `library`
-    // destination) land in the same library the delivery job later reveals
-    // the post through — hold them back FIRST, before the delivery job even
-    // exists: Agenda can wake near-instantly now (a MongoDB change stream,
-    // not just its poll), so creating the job before the hold would leave a
-    // real window where delivery reveals the post while its attachments are
-    // still an ordinary, visible library item.
-    try {
-      await hideMediaUntilDelivery(doc.attachments, userId, doc._id);
-    } catch (err) {
-      // Don't publish a post that's scheduled (hidden) but whose attachments
-      // never got the same guard — undo the whole thing instead of only
-      // logging. hideMediaUntilDelivery's updateMany isn't atomic across
-      // documents, so some attachments can already have the hold applied
-      // even though this threw — release them too (a no-op for whichever
-      // didn't), or they'd be stuck hidden with no post left to find them.
-      try {
-        await revealMedia(doc.attachments, userId, doc._id);
-      } catch (releaseErr) {
-        // The post is about to be deleted below either way — ordinary
-        // uploaded attachments aren't touched by discardMedia(media) (that
-        // only cleans up externalized inline images), so a failed release
-        // here has nowhere left to ever retry except a queued job.
-        console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
-        scheduleMentionRetry(doc._id.toHexString(), [], {
-          attachments: doc.attachments,
-          userId,
-          postId: doc._id,
-        });
-      }
-      await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
-      await discardMedia(media);
-      throw err;
-    }
+    // The post itself (and, since libraryItemsFilter in uploads.js reads
+    // this same deliverAt/deliveredAt, its attachments too) is already
+    // hidden from everyone but its author the moment it's inserted above —
+    // nothing further needs holding back here, just the job to deliver it.
     try {
       await schedulePostDelivery(doc._id.toHexString(), schedule.deliverAt);
     } catch (err) {
-      // The hold is already in place but there is no job left to ever
-      // deliver (and therefore reveal) it — release it now, or the
-      // attachments would stay stuck hidden with nothing scheduled. Caught
-      // independently so a failure here can't also skip deleting the post
-      // and discarding its media below.
-      try {
-        await revealMedia(doc.attachments, userId, doc._id);
-      } catch (releaseErr) {
-        console.error('[huddle] failed to release an attachment hold after a failed schedule:', releaseErr);
-        scheduleMentionRetry(doc._id.toHexString(), [], {
-          attachments: doc.attachments,
-          userId,
-          postId: doc._id,
-        });
-      }
       await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
       await discardMedia(media);
       throw err;
@@ -757,21 +712,12 @@ Meteor.methods({
   async 'huddle.sendScheduledNow'({ postId } = {}) {
     const identity = await requireIdentity(this);
     await requireOwnScheduledPost(identity.userId, postId);
-    const { delivered, failedRecipientIds, revealMediaRetry } = await deliverScheduledPost(postId, {
-      force: true,
-    });
+    const { delivered, failedRecipientIds } = await deliverScheduledPost(postId, { force: true });
     if (!delivered) {
-      // Access can be revoked between requireOwnScheduledPost above and
-      // deliverScheduledPost's own membership check — that branch deletes
-      // the post and can still hand back a failed media release with
-      // nowhere else left to retry it; queue that before the throw below
-      // discards it, matching what the Agenda job handler already does for
-      // this same return shape.
-      if (revealMediaRetry) scheduleMentionRetry(postId, [], revealMediaRetry);
       throw new Meteor.Error('conflict', 'This post has already been sent');
     }
-    if (failedRecipientIds?.length || revealMediaRetry) {
-      scheduleMentionRetry(postId, failedRecipientIds, revealMediaRetry);
+    if (failedRecipientIds?.length) {
+      scheduleMentionRetry(postId, failedRecipientIds);
     }
     // Best-effort: delivery and notifications already completed above, so a
     // thrown cancellation must not fail the whole method — the frontend would
@@ -916,92 +862,6 @@ Meteor.methods({
     }
     await discardUnreferencedInlineImages(replacedPost.content?.text);
 
-    // Keep a still-undelivered scheduled post's hidden-media set in step with
-    // an attachments edit: anything dropped goes back to being an ordinary
-    // library item, anything newly added is held back the same as at creation.
-    if (attachments !== undefined && isAwaitingDelivery(replacedPost)) {
-      const keptIds = new Set((attachments ?? []).map((att) => att.mediaId));
-      const priorIds = new Set((replacedPost.attachments ?? []).map((att) => att.mediaId));
-      const removed = (replacedPost.attachments ?? []).filter((att) => !keptIds.has(att.mediaId));
-      const added = (attachments ?? []).filter((att) => !priorIds.has(att.mediaId));
-      if (removed.length) {
-        try {
-          // Re-check against the post's CURRENT attachment list right before
-          // releasing: a concurrent edit request can reattach the same file
-          // between `replacedPost` being read and this running, and this
-          // release must not clear a hold that reattachment just established.
-          const stillRemoved = await stillRemovedAttachments(replacedPost._id, removed);
-          if (stillRemoved.length) await revealMedia(stillRemoved, replacedPost.userId, replacedPost._id);
-        } catch (err) {
-          // The edit already committed without `removed` in the attachments
-          // list, so there's nothing left to ever revisit this release again
-          // except a retry job carrying the attachments and ids on its own.
-          console.error('[huddle] failed to reveal a removed scheduled-post attachment:', err);
-          scheduleMentionRetry(postId, [], {
-            attachments: removed,
-            userId: replacedPost.userId,
-            postId: replacedPost._id,
-            verifyStillRemoved: true,
-          });
-        }
-      }
-      if (added.length) {
-        // Re-read right before holding anything new back: a delivery (or a
-        // deletion, which removes the post entirely) can land between the
-        // update above and here, revealing or releasing the already-committed
-        // new attachments — hiding them now would leave nothing left to ever
-        // reveal them again. `current` being null (post deleted) must NOT
-        // pass this check: `null?.deliveredAt == null` is true too.
-        const current = await rawDb()
-          .collection('huddlePosts')
-          .findOne({ _id: replacedPost._id }, { projection: { deliveredAt: 1 } });
-        if (current && current.deliveredAt == null) {
-          try {
-            await hideMediaUntilDelivery(added, replacedPost.userId, replacedPost._id);
-          } catch (err) {
-            // The attachments list already committed above with `added`
-            // referenced, but the hold on it failed — don't return success
-            // with the author-only guarantee broken: drop the unprotected
-            // attachment(s) from the post instead of silently leaving them
-            // visible on a still-pending post, and tell the caller to retry.
-            console.error('[huddle] failed to hide a new scheduled-post attachment:', err);
-            // hideMediaUntilDelivery's updateMany isn't atomic across
-            // documents, so some of `added` can already have the hold
-            // applied even though this threw — release them too (a no-op
-            // for whichever didn't), or stripping them from the post below
-            // would leave that hold behind with nothing left to find it.
-            try {
-              await revealMedia(added, replacedPost.userId, replacedPost._id);
-            } catch (releaseErr) {
-              // The attachments list is about to drop `added` below either
-              // way, so delivery/deletion will no longer find this post
-              // referencing them — a failed release here has nowhere left
-              // to ever retry except a queued job, with the same
-              // reattachment guard the queued retry itself uses.
-              console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
-              scheduleMentionRetry(postId, [], {
-                attachments: added,
-                userId: replacedPost.userId,
-                postId: replacedPost._id,
-                verifyStillRemoved: true,
-              });
-            }
-            const addedIds = new Set(added.map((att) => att.mediaId));
-            await rawDb()
-              .collection('huddlePosts')
-              .updateOne(
-                { _id: replacedPost._id },
-                { $set: { attachments: (attachments ?? []).filter((att) => !addedIds.has(att.mediaId)) } },
-              );
-            throw new Meteor.Error(
-              'internal-error',
-              'Could not attach the new file(s) to this scheduled post — please try again',
-            );
-          }
-        }
-      }
-    }
-
     return { id: postId };
   },
 
@@ -1086,28 +946,12 @@ Meteor.methods({
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
       if (isAwaitingDelivery(deletedPost)) {
-        // Best-effort: the post is already gone, so media cleanup must still
-        // run even if cancelling its job fails — a stale job will simply find
-        // no post to publish and no-op, but a skipped reveal here has nowhere
-        // left to recover except the retry job below.
+        // Best-effort: the post is already gone either way — a stale job
+        // will simply find no post to publish and no-op.
         try {
           await cancelPostDelivery(postId);
         } catch (err) {
           console.error('[huddle] failed to cancel a deleted scheduled post\'s delivery job:', err);
-        }
-        // Deleted before delivery: nothing will ever unhide its attachments
-        // otherwise — and the post itself is already gone, so a failure here
-        // has nowhere left to recover except a retry job carrying the
-        // attachment list and author id on its own.
-        try {
-          await revealMedia(deletedPost.attachments, deletedPost.userId, deletedPost._id);
-        } catch (err) {
-          console.error('[huddle] failed to reveal a deleted scheduled post\'s attachments:', err);
-          scheduleMentionRetry(postId, [], {
-            attachments: deletedPost.attachments,
-            userId: deletedPost.userId,
-            postId: deletedPost._id,
-          });
         }
       }
     }

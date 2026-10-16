@@ -420,18 +420,6 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   }
 }
 
-// Library and profile listings skip post-embedded media (it belongs to the
-// post's team, not to everyone who may view the author's profile), media
-// still held back for a scheduled post that hasn't been delivered yet, and a
-// Pulse video row mid-reconciliation (pulse-destinations.js addToLibrary) —
-// that last one hasn't necessarily been given its hold yet, so it must stay
-// unlisted on its own until reconciliation says otherwise.
-const LIBRARY_ITEMS = {
-  embedded: { $ne: true },
-  pendingReconciliation: { $ne: true },
-  $or: [{ pendingPostIds: { $exists: false } }, { pendingPostIds: { $size: 0 } }],
-};
-
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
   if (!docs.length) return;
@@ -442,64 +430,53 @@ export async function discardMedia(docs) {
 }
 
 /**
- * Match filter for the `mediaitems` backing a post's attachments. Images and
- * documents reference the library row's own `_id`; a composer-staged video's
- * `mediaId` is Pulse's `videoid` instead (src/features/huddle/api.ts
- * uploadMedia) — `addToLibrary` doesn't mint the row's own `_id` until the
- * upload lands, so it's matched by `videoid` rather than `_id`.
+ * mediaIds referenced by `userId`'s own still-undelivered scheduled posts —
+ * the read-time mirror of `isAwaitingDelivery` (huddle-schedule-core.js),
+ * applied to an attachment rather than to the post it belongs to: a
+ * scheduled post's raw file must not be any more visible than the post
+ * itself. Images/documents reference the library row's own `_id`; a
+ * composer-staged video's `mediaId` is Pulse's `videoid` instead
+ * (src/features/huddle/api.ts uploadMedia) — the row doesn't exist under its
+ * own `_id` until the upload lands, so it's matched by `videoid` instead.
  */
-function attachmentMediaFilter(attachments) {
-  const mediaIds = [...new Set((attachments ?? []).map((att) => att.mediaId))].filter(
-    (id) => typeof id === 'string' && id,
-  );
-  const objectIds = mediaIds.filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
-  const videoIds = mediaIds.filter((id) => !/^[a-f0-9]{24}$/i.test(id));
-  const clauses = [
-    ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
-    ...(videoIds.length ? [{ videoid: { $in: videoIds } }] : []),
-  ];
-  return clauses.length ? { $or: clauses } : null;
+async function pendingAttachmentMediaIds(userId) {
+  const posts = await rawDb()
+    .collection('huddlePosts')
+    .find({ userId, deliverAt: { $exists: true }, deliveredAt: null }, { projection: { attachments: 1 } })
+    .toArray();
+  const mediaIds = new Set();
+  for (const post of posts) {
+    for (const att of post.attachments ?? []) {
+      if (typeof att.mediaId === 'string' && att.mediaId) mediaIds.add(att.mediaId);
+    }
+  }
+  return mediaIds;
+}
+
+/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link pendingAttachmentMediaIds}). */
+function excludingMediaIds(mediaIds) {
+  if (!mediaIds.size) return {};
+  const objectIds = [...mediaIds].filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
+  const videoIds = [...mediaIds].filter((id) => !/^[a-f0-9]{24}$/i.test(id));
+  return {
+    ...(objectIds.length ? { _id: { $nin: objectIds } } : {}),
+    ...(videoIds.length ? { videoid: { $nin: videoIds } } : {}),
+  };
 }
 
 /**
- * Hold a scheduled post's attachments out of the library and profile Feed
- * (images/documents via `/api/media/upload`, video via the Pulse `library`
- * destination both land in `mediaitems`) until the post is actually
- * delivered — otherwise the raw file is visible to teammates the whole time
- * the post itself stays hidden, which defeats scheduling entirely.
- *
- * `pendingPostIds` is a set, not a single value: the same author-owned media
- * can be attached to two pending posts at once, and each needs its own
- * tracked hold that the OTHER's delivery or deletion can't clear — `$addToSet`
- * so scheduling the same attachment on a second post adds to the set instead
- * of clobbering the first post's entry.
- *
- * Scoped to `userId` (the post's own author): an attachment's `mediaId` is
- * client-supplied, so without this a post could name someone else's media
- * and hide it out from under them — this way that reference just can't
- * match anything, same as it already couldn't write anything else of theirs.
+ * Library and profile listings skip post-embedded media (it belongs to the
+ * post's team, not to everyone who may view the author's profile) and any
+ * media still attached only to one of `userId`'s own still-undelivered
+ * scheduled posts — filtered at read time against `huddlePosts`, the same
+ * way the post itself is hidden, rather than a hold written onto the media
+ * document.
  */
-export async function hideMediaUntilDelivery(attachments, userId, postId) {
-  const filter = attachmentMediaFilter(attachments);
-  if (!filter) return;
-  await rawDb()
-    .collection('mediaitems')
-    .updateMany({ ...filter, userId }, { $addToSet: { pendingPostIds: postId } });
-}
-
-/**
- * Undo {@link hideMediaUntilDelivery} for one post: it delivered, or was
- * deleted before it did. `$pull` removes only this post's own entry from
- * `pendingPostIds`, leaving any other pending post's hold on the same
- * attachment untouched — releasing by `userId` alone, or overwriting the
- * whole field, would drop a hold the OTHER post still needs.
- */
-export async function revealMedia(attachments, userId, postId) {
-  const filter = attachmentMediaFilter(attachments);
-  if (!filter) return;
-  await rawDb()
-    .collection('mediaitems')
-    .updateMany({ ...filter, userId }, { $pull: { pendingPostIds: postId } });
+async function libraryItemsFilter(userId) {
+  return {
+    embedded: { $ne: true },
+    ...excludingMediaIds(await pendingAttachmentMediaIds(userId)),
+  };
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────
@@ -638,7 +615,7 @@ Meteor.methods({
     const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId, ...LIBRARY_ITEMS })
+      .find({ userId, ...(await libraryItemsFilter(userId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -654,7 +631,7 @@ Meteor.methods({
     await requireProfileAccess(userId, targetUserId, 'Not a teammate');
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId, ...LIBRARY_ITEMS })
+      .find({ userId: targetUserId, ...(await libraryItemsFilter(targetUserId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -708,9 +685,67 @@ Meteor.methods({
 
 // ─── Publications ─────────────────────────────────────────────────────────────
 
-import { MediaItems } from './collections.js';
-
+/**
+ * Reactive to `mediaitems` writes directly (upload, edit, delete) via its own
+ * change stream, and — since delivery no longer writes anything onto the
+ * media document itself — to a post of this user's crossing into or out of
+ * "scheduled and undelivered" via a second change stream on `huddlePosts`,
+ * the only other thing `libraryItemsFilter` depends on.
+ */
 Meteor.publish('media.liveForUser', async function () {
   if (!this.userId) return this.ready();
-  return MediaItems.find({ userId: this.userId, ...LIBRARY_ITEMS });
+  const self = this;
+  const userId = this.userId;
+  const db = rawDb();
+  const mediaCollection = db.collection('mediaitems');
+  const postsCollection = db.collection('huddlePosts');
+
+  let sentIds = new Set();
+
+  async function sendSnapshot() {
+    const filter = await libraryItemsFilter(userId);
+    const docs = await mediaCollection.find({ userId, ...filter }).toArray();
+    const nextIds = new Set();
+    for (const doc of docs) {
+      const id = doc._id.toHexString();
+      const { _id, ...fields } = doc;
+      nextIds.add(id);
+      if (sentIds.has(id)) self.changed('mediaitems', id, fields);
+      else self.added('mediaitems', id, fields);
+    }
+    for (const id of sentIds) {
+      if (!nextIds.has(id)) self.removed('mediaitems', id);
+    }
+    sentIds = nextIds;
+  }
+
+  await sendSnapshot();
+  self.ready();
+
+  const { operationTime } = await db.command({ ping: 1 });
+  const watchOpts = {
+    fullDocument: 'updateLookup',
+    ...(operationTime ? { startAtOperationTime: operationTime } : {}),
+  };
+  const mediaStream = mediaCollection.watch([{ $match: { 'fullDocument.userId': userId } }], watchOpts);
+  // A post's own delete carries no fullDocument to match `userId` against,
+  // so any post's deletion triggers a recompute here — a cheap, userId-scoped
+  // requery — rather than risk missing the caller's own.
+  const postsStream = postsCollection.watch(
+    [{ $match: { $or: [{ 'fullDocument.userId': userId }, { operationType: 'delete' }] } }],
+    watchOpts,
+  );
+
+  const recompute = Meteor.bindEnvironment(() => {
+    sendSnapshot().catch((err) => console.error('[uploads] media.liveForUser recompute failed:', err));
+  });
+  mediaStream.on('change', recompute);
+  postsStream.on('change', recompute);
+  mediaStream.on('error', (err) => console.error('[uploads] media.liveForUser change stream error:', err));
+  postsStream.on('error', (err) => console.error('[uploads] media.liveForUser change stream error:', err));
+
+  self.onStop(() => {
+    mediaStream.close().catch((err) => console.error('[uploads] failed to close media change stream:', err));
+    postsStream.close().catch((err) => console.error('[uploads] failed to close posts change stream:', err));
+  });
 });

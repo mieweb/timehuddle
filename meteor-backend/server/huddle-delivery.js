@@ -7,7 +7,6 @@ import { ObjectId } from 'mongodb';
 import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 import { isAwaitingDelivery } from './huddle-schedule-core';
-import { revealMedia } from './uploads';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -122,52 +121,6 @@ async function findPostTeam(teamId) {
   return rawDb().collection('teams').findOne({ _id: { $in: ids } });
 }
 
-/**
- * Of `attachments`, only the ones `postId`'s CURRENT attachment list no
- * longer references. Guards a release that's specifically about "this
- * attachment was removed from the post" (an edit's `removed` list, released
- * immediately or via a retry after a failure) against the post reattaching
- * the same file before that release runs — without this, a stale release
- * would clear a hold the reattachment just re-established. Not used for a
- * delivered/deleted post's release: there, every one of its attachments is
- * meant to come out of hiding regardless of what the post currently lists.
- *
- * Only protects a reattachment while the post is still awaiting delivery —
- * once delivered, a lingering hold has nothing left to ever release it
- * again, so it must come out regardless of what the post's attachment list
- * currently says (the post can't hide anything anymore either way).
- */
-export async function stillRemovedAttachments(postId, attachments) {
-  if (!attachments?.length) return attachments ?? [];
-  const post = await rawDb()
-    .collection('huddlePosts')
-    .findOne({ _id: new ObjectId(postId) }, { projection: { attachments: 1, deliverAt: 1, deliveredAt: 1 } });
-  if (!post || !isAwaitingDelivery(post)) return attachments; // gone, or already delivered — release as queued
-  const currentIds = new Set((post.attachments ?? []).map((att) => att.mediaId));
-  return attachments.filter((att) => !currentIds.has(att.mediaId));
-}
-
-/**
- * {@link revealMedia}, swallowing its own failure so a transient error can't
- * also block (or re-run) notifying the post's recipients — `true` on
- * success, used by both `deliverScheduledPost` and the `huddle-mention-retry`
- * job's retry of a reveal that failed the first time.
- *
- * `verifyStillRemoved` re-checks against {@link stillRemovedAttachments}
- * first — set it for an edit's "attachment removed" release (immediate or
- * retried), never for a delivered/deleted post's release.
- */
-export async function retryMediaReveal(attachments, userId, postId, { verifyStillRemoved = false } = {}) {
-  try {
-    const toRelease = verifyStillRemoved ? await stillRemovedAttachments(postId, attachments) : attachments;
-    await revealMedia(toRelease, userId, postId);
-    return true;
-  } catch (err) {
-    console.error('[huddle] failed to reveal attachments:', err);
-    return false;
-  }
-}
-
 /** Whether `userId` is still a member or admin of `team`. */
 function isTeamMember(team, userId) {
   return (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
@@ -192,16 +145,10 @@ function isTeamMember(team, userId) {
  * the check was never shown to anyone, so it's dropped rather than left
  * stranded with no way to ever be delivered or managed.
  *
- * Returns `{ delivered, failedRecipientIds, revealMediaRetry }`:
- * `failedRecipientIds` is only meaningful when `delivered` is true, and lists
- * anyone `notifyPostRecipients` couldn't reach. `revealMediaRetry` is set when
- * revealing the post's held-back attachments itself failed (`{ attachments,
- * userId, postId }`, for {@link retryMediaReveal}) — including when the post
- * was dropped for failing its own access check, since its attachments may
- * still need releasing even though there's no post left to deliver. The
- * caller schedules a `huddle-mention-retry` job for either, since the post is
- * visible either way once delivered — a failure here must not also block or
- * re-run notifying.
+ * Returns `{ delivered, failedRecipientIds }`: `failedRecipientIds` is only
+ * meaningful when `delivered` is true, and lists anyone `notifyPostRecipients`
+ * couldn't reach — the caller schedules a `huddle-mention-retry` job for
+ * those, since the post is visible either way once delivered.
  */
 export async function deliverScheduledPost(postId, { force = false } = {}) {
   if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return { delivered: false };
@@ -213,28 +160,15 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { projection: { userId: 1, teamId: 1, attachments: 1 } },
+      { projection: { userId: 1, teamId: 1 } },
     );
   if (!pending) return { delivered: false };
   const team = await findPostTeam(pending.teamId);
   if (!team || !isTeamMember(team, pending.userId)) {
-    // findOneAndDelete, not pending.attachments: an edit can commit and hold
-    // a new attachment during the findPostTeam() await above, and the
-    // deleted document is the only place left to find that current list —
-    // pending's own snapshot predates it.
-    const deleted = await rawDb()
-      .collection('huddlePosts')
-      .findOneAndDelete({ _id: pending._id, deliveredAt: null }, { projection: { attachments: 1 } });
-    const attachments = deleted?.attachments ?? pending.attachments;
-    // Never shown to anyone, but its attachments were already held back — undo
-    // that too; nothing else will ever get the chance to once the post is gone.
-    const revealed = await retryMediaReveal(attachments, pending.userId, pending._id);
-    return {
-      delivered: false,
-      revealMediaRetry: revealed
-        ? undefined
-        : { attachments, userId: pending.userId, postId: pending._id },
-    };
+    // Never shown to anyone — drop it rather than leave it stranded with no
+    // way to ever be delivered or managed.
+    await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
+    return { delivered: false };
   }
   const post = await rawDb()
     .collection('huddlePosts')
@@ -250,17 +184,8 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
       { returnDocument: 'after' },
     );
   if (!post) return { delivered: false }; // raced with something else (send now, delete, reschedule) between the checks above
-  // Guarded, and ahead of notifying: a reveal failure must not also skip or
-  // re-run notifications on a post that's already committed as delivered.
-  const revealed = await retryMediaReveal(post.attachments, post.userId, post._id);
   const failedRecipientIds = await notifyPostRecipients(post, team);
-  return {
-    delivered: true,
-    failedRecipientIds,
-    revealMediaRetry: revealed
-      ? undefined
-      : { attachments: post.attachments, userId: post.userId, postId: post._id },
-  };
+  return { delivered: true, failedRecipientIds };
 }
 
 /**
