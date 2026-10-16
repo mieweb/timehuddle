@@ -546,6 +546,65 @@ describe('TicketStartProvider', () => {
       expect(mockSend).not.toHaveBeenCalled();
     });
 
+    /** A preview row for #15 with `hours` left to send. */
+    const previewWith = (hours: number) => ({
+      connected: true,
+      idle: false,
+      baseUrl: null,
+      rows: [
+        {
+          ticketId: '15',
+          date: UNSENT.date,
+          seconds: Math.round(hours * 3600),
+          alreadySentSeconds: 0,
+          hours,
+          subject: 'Fix the clock',
+          trackerName: 'Bug',
+          issueMissing: false,
+          activityId: 9,
+          activityName: 'Development',
+          activityReason: 'tracker' as const,
+          activityOptions: [{ id: 9, name: 'Development' }],
+          blockedReason: null,
+        },
+      ],
+    });
+
+    it('shows the total the server will send, not the one from the stop', async () => {
+      // Part of the day was sent elsewhere between the stop and the prompt.
+      mockPreview.mockResolvedValue(previewWith(0.27));
+      await stopIssue();
+
+      expect(screen.getByRole('button', { name: /^0:16 on issue 15/ })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /^0:31 on issue 15/ })).toBeNull();
+    });
+
+    it('reads again, holding Send, when a newer total arrives for the open prompt', async () => {
+      mockPreview.mockResolvedValue(previewWith(0.52));
+      const { result } = renderProvider();
+      vi.mocked(timerApi.stopSession).mockResolvedValue({ unsentRedmine: UNSENT } as never);
+      await act(async () => {
+        await result.current.stop({ sessionId: 's0', ticketKey: 'redmine:15', label: '#15' });
+      });
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+
+      // Another stop on the same issue-day while the prompt is open.
+      let answer!: (value: ReturnType<typeof previewWith>) => void;
+      mockPreview.mockReturnValue(new Promise((resolve) => (answer = resolve)) as never);
+      vi.mocked(timerApi.stopSession).mockResolvedValue({
+        unsentRedmine: { ...UNSENT, hours: 0.75 },
+      } as never);
+      await act(async () => {
+        await result.current.stop({ sessionId: 's1', ticketKey: 'redmine:15', label: '#15' });
+      });
+
+      expect(mockPreview).toHaveBeenCalledTimes(2);
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => answer(previewWith(0.75)));
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      expect(screen.getByRole('button', { name: /^0:45 on issue 15/ })).toBeTruthy();
+    });
+
     it('says the activity is chosen automatically when the list could not be read', async () => {
       mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
       await stopIssue();

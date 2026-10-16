@@ -429,7 +429,9 @@ async function buildPreviewRows(userId, account, { only } = {}) {
   }
 
   const resolveActivity = (issue) => {
-    const allowed = activitiesByProject.get(issue?.projectId) ?? [];
+    // An issue with no project id falls back to the instance list, as an
+    // unreadable project does; a project that allows none still gets [].
+    const allowed = issue ? (activitiesByProject.get(issue.projectId) ?? enumeration) : [];
     const { activity, reason } = pickDefaultActivity(allowed, issue?.trackerName ?? null);
     return {
       activityId: activity?.id ?? null,

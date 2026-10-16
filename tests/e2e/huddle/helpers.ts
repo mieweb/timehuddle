@@ -241,15 +241,33 @@ export async function seedPostDaysAgo(params: {
   text: string;
   daysAgo: number;
 }): Promise<string> {
-  const createdAt = new Date(Date.now() - params.daysAgo * 24 * 60 * 60 * 1000);
+  const { daysAgo, ...post } = params;
+  return insertPost({ ...post, createdAt: Date.now() - daysAgo * 24 * 60 * 60 * 1000 });
+}
+
+/**
+ * Insert a post as any user, at any time, straight into the test DB — for a
+ * teammate's post, or a plan written just before its clock started. Pair with
+ * {@link deletePost}.
+ */
+export async function insertPost(params: {
+  teamId: string;
+  userId: string;
+  text: string;
+  createdAt: number;
+  clockEventId?: string;
+}): Promise<string> {
+  const { createdAt: createdAtMs, clockEventId, ...rest } = params;
+  const createdAt = new Date(createdAtMs);
   const { insertedId } = await withDb((db) =>
     db.collection('huddlePosts').insertOne({
-      teamId: params.teamId,
-      userId: params.userId,
-      content: { text: params.text, mentions: [] },
+      teamId: rest.teamId,
+      userId: rest.userId,
+      content: { text: rest.text, mentions: [] },
       attachments: [],
       likes: [],
       commentCount: 0,
+      ...(clockEventId ? { clockEventId } : {}),
       createdAt,
       updatedAt: createdAt,
     }),

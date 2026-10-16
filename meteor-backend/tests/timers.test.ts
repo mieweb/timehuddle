@@ -39,6 +39,7 @@ beforeAll(async () => {
     admins: [userId],
     code: 'WHTIMER',
     isPersonal: false,
+    settings: { requirePlanForClock: false },
     createdAt: new Date(),
   };
   await db.collection('teams').insertOne(teamDoc);

@@ -154,8 +154,8 @@ test.describe('Huddle inbox filters', () => {
       const row = conversationRows(page).first();
       await expect(row).toContainText('\u2013'); // start–end span in the title
       await expect(row).not.toContainText('Off the clock');
-      await expect(messageLog(page)).toContainText('Clocked in at');
-      await expect(messageLog(page)).toContainText('Clocked out at');
+      await expect(messageLog(page)).toContainText('You clocked in');
+      await expect(messageLog(page)).toContainText('You clocked out');
       await expect(messageLog(page)).not.toContainText('Posted without clocking in');
     } finally {
       await deleteClockSession(clockEventId);
