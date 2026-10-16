@@ -15,12 +15,22 @@
  */
 import { MongoInternals } from 'meteor/mongo';
 import { Agenda } from 'agenda';
-import { MongoBackend } from '@agendajs/mongo-backend';
+import { MongoBackend, MongoChangeStreamNotificationChannel } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
 import { createNotification } from './notify-core';
+import {
+  deliverScheduledPost,
+  isPostStillAwaitingDelivery,
+  retryMentionNotifications,
+} from './huddle-delivery';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+const POST_DELIVERY_JOB = 'huddle-post-deliver';
+const MENTION_RETRY_JOB = 'huddle-mention-retry';
+const MENTION_RETRY_DELAY_MS = 60_000; // 1 minute, backed off per attempt
+const MENTION_RETRY_MAX_ATTEMPTS = 5;
 
 const FOUR_HOURS_MS = 4 * 3600_000;
 const SHIFT_END_MS = 27_900_000; // 7h 45m
@@ -55,10 +65,31 @@ export async function initAgenda() {
   // client — avoids a duplicate pool and the eager-connect failures that would
   // otherwise crash the server (the agenda client cannot tolerate a transient
   // DNS miss the way Meteor's retrying driver can).
+  //
+  // notificationChannel watches `agendajobs` via a MongoDB change stream (our
+  // replica set already has one — Meteor's own live queries require it).
+  // processEvery is still what discovers a job at all: on each tick Agenda
+  // looks for anything due within the next processEvery window and, once
+  // found, times its exact delivery with a per-job setTimeout — so ordinary
+  // future schedules (minutes to months out) were already delivered with
+  // sub-second precision, just discovered up to one processEvery tick in
+  // advance. The change stream closes the one real gap in that: a job whose
+  // due time already falls inside the window the moment it's written or
+  // rescheduled (e.g. a reschedule to a few seconds out) would otherwise sit
+  // until the next periodic tick to even be noticed; the change stream
+  // notifies for it immediately instead.
+  const notificationChannel = new MongoChangeStreamNotificationChannel({
+    db: rawDb(),
+    collection: 'agendajobs',
+  });
+  notificationChannel.on('error', (err) =>
+    console.error('[agenda] change-stream notification channel error (falling back to polling):', err)
+  );
   _agenda = new Agenda({
     backend: new MongoBackend({ mongo: rawDb(), collection: 'agendajobs' }),
     processEvery: '30 seconds',
     defaultLockLifetime: 10_000,
+    notificationChannel,
   });
 
   // ── Job: 4h "Take a Break" reminder ──────────────────────────────────────
@@ -166,11 +197,48 @@ export async function initAgenda() {
     await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
+  // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────
+  _agenda.define(POST_DELIVERY_JOB, async (job) => {
+    const { delivered, failedRecipientIds } = await deliverScheduledPost(job.attrs.data.postId);
+    if (!delivered && (await isPostStillAwaitingDelivery(job.attrs.data.postId))) {
+      // A reschedule moved deliverAt later while this run was already
+      // dequeued, upserting the SAME job row onto the new time. Removing it
+      // now would delete that reschedule along with this stale run, leaving
+      // the post pending with no job left to ever deliver it.
+      return;
+    }
+    if (delivered && failedRecipientIds?.length) {
+      // The post is visible either way; don't lose the recipients a failed
+      // notification insert would otherwise drop silently.
+      scheduleMentionRetry(String(job.attrs.data.postId), failedRecipientIds);
+    }
+    await job.remove(); // one-shot: remove so it doesn't re-fire
+  });
+
+  // ── Job: retry a delivery's failed mention notifications (#596) ─────────
+  _agenda.define(MENTION_RETRY_JOB, async (job) => {
+    const { postId, recipientIds, attempt = 1 } = job.attrs.data;
+    const stillFailed = recipientIds?.length ? await retryMentionNotifications(postId, recipientIds) : [];
+    if (!stillFailed.length) {
+      await job.remove();
+      return;
+    }
+    if (attempt >= MENTION_RETRY_MAX_ATTEMPTS) {
+      console.error(
+        `[huddle] giving up on mention notifications for post ${postId}, recipients: ${stillFailed.join(', ')}`
+      );
+      await job.remove();
+      return;
+    }
+    job.attrs.data = { postId, recipientIds: stillFailed, attempt: attempt + 1 };
+    await job.schedule(new Date(Date.now() + MENTION_RETRY_DELAY_MS * attempt)).save();
+  });
+
   // Processor loop is opt-in during coexistence (see file header).
   if (process.env.METEOR_AGENDA_ENABLED === 'true') {
     await _agenda.start();
     console.log(
-      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout'
+      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry'
     );
   } else {
     console.log(
@@ -255,6 +323,38 @@ export async function scheduleMissedClockout(clockEventId, userId, teamId, start
 /** Cancel all pending jobs for a clock event (manual clock-out or delete). */
 export async function cancelClockJobs(clockEventId) {
   await _agenda.cancel({ data: { clockEventId } });
+}
+
+/** (Re)schedule delivery of a scheduled Huddle post at `deliverAt`. `.unique()`
+ *  upserts the job in place, so a reschedule can never leave the post with no
+ *  delivery job (the cancel-then-create it replaces could, if the create step
+ *  failed after the cancel succeeded). */
+export async function schedulePostDelivery(postId, deliverAt) {
+  if (!_agenda) throw new Error('Agenda is not initialised');
+  await _agenda
+    .create(POST_DELIVERY_JOB, { postId })
+    .unique({ 'data.postId': postId, name: POST_DELIVERY_JOB })
+    .schedule(deliverAt)
+    .save();
+}
+
+/** Drop a scheduled post's pending delivery (sent now, or deleted). */
+export async function cancelPostDelivery(postId) {
+  await _agenda?.cancel({ name: POST_DELIVERY_JOB, data: { postId } });
+}
+
+/**
+ * Retry `recipientIds` whose mention notification a delivery couldn't send.
+ * Fire-and-forget: scheduling failures are logged, not thrown, since the
+ * post is already visible regardless of whether this succeeds.
+ */
+export function scheduleMentionRetry(postId, recipientIds) {
+  if (!_agenda || !recipientIds?.length) return;
+  _agenda
+    .create(MENTION_RETRY_JOB, { postId, recipientIds, attempt: 1 })
+    .schedule(new Date(Date.now() + MENTION_RETRY_DELAY_MS))
+    .save()
+    .catch((err) => console.error('[huddle] failed to schedule mention retry:', err));
 }
 
 /** Cancel a single named job for a clock event. */

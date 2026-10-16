@@ -63,7 +63,21 @@ const THREAD_TEXT = {
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
   postedWithoutClockingIn: 'Posted without clocking in',
+  scheduledHidden: '🔒 Only you can see this until it is sent',
 } as const;
+
+/** A scheduled post whose time hasn't come (and wasn't sent early). */
+export function isAwaitingDelivery(post: HuddlePost): boolean {
+  return !!post.deliverAt && !post.deliveredAt;
+}
+
+/** When a post sits in its thread: a scheduled one when it is sent, others when written. */
+function postAt(post: HuddlePost): string {
+  if (!post.deliverAt) return post.createdAt;
+  return post.deliveredAt ?? post.deliverAt;
+}
+
+const postTime = (post: HuddlePost) => new Date(postAt(post)).getTime();
 
 /** "YYYY-MM-DD" for the given epoch ms, based on the local calendar date. */
 function localDateKey(epochMs: number): string {
@@ -74,8 +88,15 @@ function localDateKey(epochMs: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** A post's plan/wrap-up calendar date, falling back to its created date. */
+/**
+ * A post's plan/wrap-up calendar date, falling back to its created date. A
+ * delivered scheduled post groups by the date it actually appeared instead of
+ * the `postDate` stamped for its original schedule — otherwise sending one
+ * early (Send now) leaves it in tomorrow's Day/Session conversation with
+ * today's time inside it.
+ */
 function getPostDateKey(post: HuddlePost): string {
+  if (post.deliverAt && post.deliveredAt) return localDateKey(new Date(post.deliveredAt).getTime());
   return post.postDate ?? localDateKey(new Date(post.createdAt).getTime());
 }
 
@@ -218,6 +239,10 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
+  // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
+  if (isAwaitingDelivery(post)) {
+    parts.push(THREAD_TEXT.scheduledHidden);
+  }
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
@@ -370,14 +395,14 @@ export function postsToConversations(
     const lineContext: ClockLineContext = {
       viewer,
       includeDay: threadBy === 'person',
-      liveAt: Math.max(now, ...groupPosts.map((p) => new Date(p.createdAt).getTime() + 1)),
+      liveAt: Math.max(now, ...groupPosts.map((p) => postTime(p) + 1)),
     };
     const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
     // Session view: a thread of posts made without clocking in says so up
     // front, rather than looking like a shift with its clock lines missing.
     const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
     if (offTheClockThread) {
-      const earliest = Math.min(...groupPosts.map((p) => new Date(p.createdAt).getTime()));
+      const earliest = Math.min(...groupPosts.map(postTime));
       systemMessages.push({
         id: `${key}:off-the-clock`,
         type: 'system',
@@ -398,8 +423,9 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
-      time: post.createdAt,
+      time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
+      ...(isAwaitingDelivery(post) && { scheduledFor: post.deliverAt }),
     }));
 
     // On a tie the clock-in goes first, above the plan it shares a moment with;
