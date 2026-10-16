@@ -394,14 +394,20 @@ export default function Huddle() {
         // session snapshot; take the closed one from the post-clock-out refetch.
         byId.set(id, { ...ddpPost, session: restPost.session });
       } else if (
-        restPost.deliverAt !== ddpPost.deliverAt ||
-        restPost.deliveredAt !== ddpPost.deliveredAt
+        ddpPost.deliveredAt == null &&
+        (restPost.deliverAt !== ddpPost.deliverAt ||
+          restPost.deliveredAt !== ddpPost.deliveredAt ||
+          restPost.postDate !== ddpPost.postDate)
       ) {
         // Delivery and reschedule don't bump updatedAt either (so a scheduled
         // post isn't shown as edited), so take REST's schedule fields the same
-        // way the clock-out case does — covers Send now / Reschedule while DDP
-        // is disconnected. postDate moves with a cross-day reschedule, so it
-        // has to come along too or Day/Session grouping keeps the old date.
+        // way the clock-out case does above — covers Send now / Reschedule
+        // while DDP is disconnected. postDate moves with a cross-day
+        // reschedule, so it comes along too, or Day/Session grouping keeps
+        // the old date. Gated on the DDP copy not being delivered yet:
+        // delivery is one-way, so once DDP has it, an older cached REST
+        // snapshot (e.g. from right after the post was created, before
+        // Agenda delivered it) must never un-deliver it again.
         byId.set(id, {
           ...ddpPost,
           deliverAt: restPost.deliverAt,
@@ -961,8 +967,18 @@ export default function Huddle() {
     if (!post) return;
     const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
     const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
+    // Recompute from the edited text rather than keeping the original
+    // mentions: a scheduled post can sit unsent for a while, and swapping who
+    // it mentions before delivery must notify the new name, not the old one.
+    // `mentions` only has this team's roster loaded, so an edit from a
+    // different team (the Personal view can show any team's posts) keeps the
+    // original mentions rather than resolving against the wrong roster.
+    const editedMentions =
+      post.teamId === postingTeamId
+        ? mentions.detect(body).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID)
+        : post.content.mentions;
     try {
-      await huddleApi.updatePost(messageId, { text: body, mentions: post.content.mentions });
+      await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
       await refreshActiveScope();

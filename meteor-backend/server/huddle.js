@@ -732,6 +732,23 @@ Meteor.methods({
         );
       throw err;
     }
+    // Two concurrent reschedules can each pass the update above (neither
+    // conflicts with the other — both are valid writes to an undelivered
+    // post), then race scheduling the job: whichever writes it last wins,
+    // which need not be the same request whose time is the post's current
+    // value. Re-check after our own job write and, if someone else's write
+    // landed on the post after ours, bring the job back in line with
+    // whatever the post currently says rather than leave the two
+    // disagreeing — converges once nothing else is still racing.
+    for (;;) {
+      const latest = await rawDb()
+        .collection('huddlePosts')
+        .findOne({ _id: post._id }, { projection: { deliverAt: 1, deliveredAt: 1 } });
+      if (!latest || latest.deliveredAt || !latest.deliverAt) break;
+      if (latest.deliverAt.getTime() === schedule.deliverAt.getTime()) break;
+      schedule.deliverAt = latest.deliverAt;
+      await schedulePostDelivery(postId, schedule.deliverAt);
+    }
     return { id: postId };
   },
   

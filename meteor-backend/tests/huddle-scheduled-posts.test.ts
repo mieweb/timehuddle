@@ -197,4 +197,24 @@ describe('scheduling a post', () => {
     expect(await deliveryJobs(postId)).toHaveLength(0);
     expect(await mentionsFor(postId)).toHaveLength(0);
   });
+
+  it('leaves the post and its job agreeing after two concurrent reschedules', async () => {
+    const res = await createPost({ deliverAt: inHours(1) });
+    const postId = res.result.id;
+    const soon = inHours(2);
+    const later = inHours(10);
+
+    await Promise.all([
+      wormhole('huddle.reschedulePost', { postId, deliverAt: soon }, authorJwt),
+      wormhole('huddle.reschedulePost', { postId, deliverAt: later }, authorJwt),
+    ]);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) });
+    const jobs = await deliveryJobs(postId);
+    expect(jobs).toHaveLength(1);
+    // Whichever request's time stuck on the post, the job must agree with it —
+    // not be left at the other request's time.
+    expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(post!.deliverAt.toISOString());
+  });
 });
