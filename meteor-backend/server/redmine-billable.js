@@ -81,10 +81,36 @@ export function isBillableLookupIncomplete(err) {
 }
 
 /**
+ * The Billable field on the newest entry of one scope, read a page at a time, or
+ * null once every entry of the scope has been read and none has it.
+ *
+ * Reading stops after `maxPages` pages. A scope that long may still hold the
+ * field further back, so that is `BillableLookupIncomplete`, not null. The end
+ * is Redmine's own `total_count` when it gave one, so a scope of exactly
+ * `maxPages` full pages counts as read in full; without it, a short page is the
+ * end.
+ *
+ * @param {(offset: number, limit: number) => Promise<{entries: object[], totalCount?: number}>} fetchPage
+ * @param {{issue_id?: number|string}} params the scope, as sent to Redmine
+ */
+export async function findBillableInPages(fetchPage, params, { pageSize = 100, maxPages = 3 } = {}) {
+  for (let page = 0; page < maxPages; page += 1) {
+    const offset = page * pageSize;
+    const { entries, totalCount } = await fetchPage(offset, pageSize);
+    const found = firstBillable(entries, params.issue_id);
+    if (found) return found;
+    const readSoFar = offset + entries.length;
+    const atEnd = Number.isInteger(totalCount) ? readSoFar >= totalCount : entries.length < pageSize;
+    if (atEnd || entries.length === 0) return null;
+  }
+  throw new BillableLookupIncomplete(params);
+}
+
+/**
  * The Billable field to send for each issue, keyed by issue id as a string.
  *
  * @param {Array<{id: number, project?: {id: number}}>} issues raw Redmine issues
- * @param {(params: object) => Promise<object|null>} recentBillable the Billable
+ * @param {(params: Record<string, unknown>) => Promise<object|null>} recentBillable the Billable
  *   field on the newest time entry matching `params` (`issue_id`, `project_id`
  *   or `user_id`), or null. What it throws, this throws, except a
  *   `BillableLookupIncomplete`: that issue is left without a value, and no wider

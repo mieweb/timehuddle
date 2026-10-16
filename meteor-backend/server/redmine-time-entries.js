@@ -147,8 +147,8 @@ export function sendableForTicketDay(unsent, ticketId, date) {
  * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
- * @param {Map<string, {subject: string, trackerName: string|null, projectId: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
- * @param {(issue: object|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
+ * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
+ * @param {(issue: {trackerName: string|null}|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
  *   the activity for one issue, and the `options` its project allows. An
  *   unresolved issue is passed as null.
  */

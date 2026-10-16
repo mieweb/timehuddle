@@ -9,6 +9,7 @@ import {
   BillableLookupIncomplete,
   billableByIssue,
   billableFieldOf,
+  findBillableInPages,
   firstBillable,
   sameBillable,
 } from '../server/redmine-billable';
@@ -193,3 +194,61 @@ describe('sameBillable', () => {
     expect(sameBillable({ ...BILLABLE, value: ['a'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(false);
   });
 });
+
+describe('findBillableInPages', () => {
+  const without = (count: number) => Array.from({ length: count }, () => ({ custom_fields: [] }));
+  const withBillable = { custom_fields: [BILLABLE] };
+
+  /** A scope of `entries`, served a page at a time the way Redmine does, counting its reads. */
+  function scope(entries: object[], { totalCount = true } = {}) {
+    const offsets: number[] = [];
+    const fetchPage = async (offset: number, limit: number) => {
+      offsets.push(offset);
+      return {
+        entries: entries.slice(offset, offset + limit),
+        totalCount: totalCount ? entries.length : undefined,
+      };
+    };
+    return { offsets, fetchPage };
+  }
+
+  it('finds the field on a later page', async () => {
+    const { offsets, fetchPage } = scope([...without(100), ...without(40), withBillable]);
+    expect(await findBillableInPages(fetchPage, {})).toEqual(BILLABLE);
+    expect(offsets).toEqual([0, 100]);
+  });
+
+  it('is null once every entry was read and none has the field', async () => {
+    expect(await findBillableInPages(scope(without(150)).fetchPage, {})).toBeNull();
+  });
+
+  it('is null, not incomplete, for a scope of exactly three full pages without the field', async () => {
+    const { offsets, fetchPage } = scope(without(300));
+    expect(await findBillableInPages(fetchPage, {})).toBeNull();
+    expect(offsets).toEqual([0, 100, 200]);
+  });
+
+  it('is incomplete when more entries remain after the last page it reads', async () => {
+    await expect(findBillableInPages(scope(without(301)).fetchPage, { issue_id: 5 })).rejects.toBeInstanceOf(
+      BillableLookupIncomplete,
+    );
+  });
+
+  it('without a total, ends on a short page, and is incomplete after three full ones', async () => {
+    expect(await findBillableInPages(scope(without(150), { totalCount: false }).fetchPage, {})).toBeNull();
+    await expect(
+      findBillableInPages(scope(without(300), { totalCount: false }).fetchPage, {}),
+    ).rejects.toBeInstanceOf(BillableLookupIncomplete);
+  });
+
+  it('stops on an empty page even when the total says more', async () => {
+    const fetchPage = async () => ({ entries: [], totalCount: 999 });
+    expect(await findBillableInPages(fetchPage, {})).toBeNull();
+  });
+
+  it('for an issue, counts only that issue’s own entries', async () => {
+    const subtask = { issue: { id: 22 }, custom_fields: [BILLABLE] };
+    expect(await findBillableInPages(scope([subtask]).fetchPage, { issue_id: 11 })).toBeNull();
+  });
+});
+

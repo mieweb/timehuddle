@@ -32,6 +32,7 @@ const BILLABLE_ISSUE = 915;
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
 
 type Outcome = {
+  ticketId?: string | null;
   ok: boolean;
   reason?: string;
   detail?: string[];

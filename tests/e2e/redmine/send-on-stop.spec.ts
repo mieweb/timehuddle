@@ -176,8 +176,8 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
 
     await expect(prompt(page)).toHaveCount(0);
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
-      { ticketId: '15', date: UNSENT.date, comment: 'Fixed the form', billable: null },
-      { ticketId: '15', date: UNSENT.date, billable: null },
+      { ticketId: '15', date: UNSENT.date, comment: 'Fixed the form' },
+      { ticketId: '15', date: UNSENT.date },
     ]);
   });
 
@@ -220,9 +220,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
     await prompt(page).getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as Development')).toBeVisible();
-    expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
-      { ticketId: '15', date: UNSENT.date, billable: null },
-    ]);
+    expect(rm.calls('timeEntries.sendTicketDay')).toEqual([{ ticketId: '15', date: UNSENT.date }]);
   });
 
   test('a switch starts the next timer, then asks about the ticket it left', async ({ page }) => {
