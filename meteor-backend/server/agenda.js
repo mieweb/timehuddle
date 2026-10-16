@@ -203,6 +203,15 @@ export async function initAgenda() {
     const { delivered, failedRecipientIds, revealMediaRetry } = await deliverScheduledPost(
       job.attrs.data.postId
     );
+    if (!delivered && revealMediaRetry) {
+      // The post's own access check dropped it (removed team member): it's
+      // already gone, but its attachments are still hidden — nothing else
+      // will ever retry revealing them once this job is removed, so that
+      // retry needs to be queued here instead of the usual delivered branch.
+      scheduleMentionRetry(String(job.attrs.data.postId), [], revealMediaRetry);
+      await job.remove();
+      return;
+    }
     if (!delivered && (await isPostStillAwaitingDelivery(job.attrs.data.postId))) {
       // A reschedule moved deliverAt later while this run was already
       // dequeued, upserting the SAME job row onto the new time. Removing it
@@ -224,7 +233,7 @@ export async function initAgenda() {
   _agenda.define(MENTION_RETRY_JOB, async (job) => {
     const { postId, recipientIds, revealMediaRetry, attempt = 1 } = job.attrs.data;
     const revealed = revealMediaRetry
-      ? await retryMediaReveal(revealMediaRetry.attachments, revealMediaRetry.userId)
+      ? await retryMediaReveal(revealMediaRetry.attachments, revealMediaRetry.userId, revealMediaRetry.postId)
       : true;
     const stillFailed = recipientIds?.length ? await retryMentionNotifications(postId, recipientIds) : [];
     if (!stillFailed.length && revealed) {
@@ -364,9 +373,9 @@ export async function cancelPostDelivery(postId) {
 /**
  * Retry what a delivery couldn't finish: `recipientIds` whose mention
  * notification failed, and/or a failed `revealMedia` attempt (`{ attachments,
- * userId }`, retried as-is). Fire-and-forget: scheduling failures are logged,
- * not thrown, since the post is already visible regardless of whether this
- * succeeds.
+ * userId, postId }`, retried as-is). Fire-and-forget: scheduling failures are
+ * logged, not thrown, since the post is already visible regardless of whether
+ * this succeeds.
  */
 export function scheduleMentionRetry(postId, recipientIds, revealMediaRetry) {
   if (!_agenda || !(recipientIds?.length || revealMediaRetry)) return;

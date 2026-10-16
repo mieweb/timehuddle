@@ -474,13 +474,22 @@ export async function hideMediaUntilDelivery(attachments, userId, postId) {
     .updateMany({ ...filter, userId }, { $set: { pendingPostId: postId } });
 }
 
-/** Undo {@link hideMediaUntilDelivery}: the post delivered, or was deleted before it did. */
-export async function revealMedia(attachments, userId) {
+/**
+ * Undo {@link hideMediaUntilDelivery}: the post delivered, or was deleted
+ * before it did.
+ *
+ * Scoped to `postId` as well as `userId`: the same author-owned media can be
+ * attached to two pending posts at once, and `pendingPostId` only holds the
+ * most recent one's id — releasing by `userId` alone would clear a hold the
+ * OTHER post still needs the moment this one delivers or is deleted first.
+ * Only release a hold this specific post actually still owns.
+ */
+export async function revealMedia(attachments, userId, postId) {
   const filter = attachmentMediaFilter(attachments);
   if (!filter) return;
   await rawDb()
     .collection('mediaitems')
-    .updateMany({ ...filter, userId }, { $unset: { pendingPostId: '' } });
+    .updateMany({ ...filter, userId, pendingPostId: postId }, { $unset: { pendingPostId: '' } });
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────

@@ -98,6 +98,7 @@ async function addToLibrary(userId, video) {
       { userId, 'attachments.mediaId': video.artifactId },
       { projection: { _id: 1, deliverAt: 1, deliveredAt: 1 } },
     );
+  const pendingPostId = pendingPost && isAwaitingDelivery(pendingPost) ? pendingPost._id : undefined;
   await media.insertOne({
     _id,
     userId,
@@ -112,8 +113,21 @@ async function addToLibrary(userId, video) {
     altText: null,
     thumbnail: null,
     uploadedAt: new Date(),
-    ...(pendingPost && isAwaitingDelivery(pendingPost) ? { pendingPostId: pendingPost._id } : {}),
+    ...(pendingPostId ? { pendingPostId } : {}),
   });
+  if (pendingPostId) {
+    // The lookup above can race with that very post's own delivery or
+    // deletion (both can run between it and the insert, now that Agenda
+    // wakes near-instantly) — re-check right away and release the hold
+    // immediately if it's already gone; nothing else will ever revisit this
+    // specific row again, so a stale hold here would stay stuck forever.
+    const stillPending = await rawDb()
+      .collection('huddlePosts')
+      .findOne({ _id: pendingPostId, deliveredAt: null }, { projection: { _id: 1 } });
+    if (!stillPending) {
+      await media.updateOne({ _id }, { $unset: { pendingPostId: '' } });
+    }
+  }
   return _id.toHexString();
 }
 
