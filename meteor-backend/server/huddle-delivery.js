@@ -188,15 +188,22 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
   if (!pending) return { delivered: false };
   const team = await findPostTeam(pending.teamId);
   if (!team || !isTeamMember(team, pending.userId)) {
-    await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
+    // findOneAndDelete, not pending.attachments: an edit can commit and hold
+    // a new attachment during the findPostTeam() await above, and the
+    // deleted document is the only place left to find that current list —
+    // pending's own snapshot predates it.
+    const deleted = await rawDb()
+      .collection('huddlePosts')
+      .findOneAndDelete({ _id: pending._id, deliveredAt: null }, { projection: { attachments: 1 } });
+    const attachments = deleted?.attachments ?? pending.attachments;
     // Never shown to anyone, but its attachments were already held back — undo
     // that too; nothing else will ever get the chance to once the post is gone.
-    const revealed = await retryMediaReveal(pending.attachments, pending.userId, pending._id);
+    const revealed = await retryMediaReveal(attachments, pending.userId, pending._id);
     return {
       delivered: false,
       revealMediaRetry: revealed
         ? undefined
-        : { attachments: pending.attachments, userId: pending.userId, postId: pending._id },
+        : { attachments, userId: pending.userId, postId: pending._id },
     };
   }
   const post = await rawDb()

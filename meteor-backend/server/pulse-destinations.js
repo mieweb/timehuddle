@@ -103,12 +103,13 @@ async function addToLibrary(userId, video) {
   // stages a video's `mediaId` as this `videoid` before this row exists at
   // all — if a still-undelivered scheduled post already references it, this
   // row must start out held back too, or it's visible before its post is.
-  // Resolved only AFTER the row exists (not from a lookup taken before it
-  // did): any number of posts can reference the same author-owned
-  // attachment, and any of them can be created, edited, delivered, or
-  // deleted around this insert, now that Agenda wakes near-instantly — a
-  // lookup that found nothing yet, taken before the row existed, must not be
-  // the only chance to ever notice a hold that applies to it.
+  // Resolved BEFORE the insert too (not only after): the row is listable
+  // the instant it's written, so whatever this lookup already knows about
+  // goes into that same insert — the only way to have no gap at all in the
+  // common case. The reconciliation below still covers whatever this
+  // lookup missed (a post created, edited, delivered, or deleted around
+  // this insert, now that Agenda wakes near-instantly).
+  const initialPendingIds = await pendingPostIdsFor(userId, video.artifactId);
   await media.insertOne({
     _id,
     userId,
@@ -123,6 +124,7 @@ async function addToLibrary(userId, video) {
     altText: null,
     thumbnail: null,
     uploadedAt: new Date(),
+    ...(initialPendingIds.length ? { pendingPostIds: initialPendingIds } : {}),
   });
   const pendingIds = await pendingPostIdsFor(userId, video.artifactId);
   if (pendingIds.length) {

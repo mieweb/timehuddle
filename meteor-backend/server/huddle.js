@@ -521,7 +521,16 @@ export async function createHuddlePost(
       await hideMediaUntilDelivery(doc.attachments, userId, doc._id);
     } catch (err) {
       // Don't publish a post that's scheduled (hidden) but whose attachments
-      // never got the same guard — undo the whole thing instead of only logging.
+      // never got the same guard — undo the whole thing instead of only
+      // logging. hideMediaUntilDelivery's updateMany isn't atomic across
+      // documents, so some attachments can already have the hold applied
+      // even though this threw — release them too (a no-op for whichever
+      // didn't), or they'd be stuck hidden with no post left to find them.
+      try {
+        await revealMedia(doc.attachments, userId, doc._id);
+      } catch (releaseErr) {
+        console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
+      }
       await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
       await discardMedia(media);
       throw err;
@@ -737,7 +746,16 @@ Meteor.methods({
     if (failedRecipientIds?.length || revealMediaRetry) {
       scheduleMentionRetry(postId, failedRecipientIds, revealMediaRetry);
     }
-    await cancelPostDelivery(postId);
+    // Best-effort: delivery and notifications already completed above, so a
+    // thrown cancellation must not fail the whole method — the frontend would
+    // treat an already-sent post as failed and skip its refresh, and a retry
+    // would then hit the "already sent" conflict above. A leftover job
+    // safely no-ops once the post shows deliveredAt.
+    try {
+      await cancelPostDelivery(postId);
+    } catch (err) {
+      console.error('[huddle] failed to cancel a sent scheduled post\'s delivery job:', err);
+    }
     return { id: postId };
   },
 
@@ -914,6 +932,16 @@ Meteor.methods({
             // attachment(s) from the post instead of silently leaving them
             // visible on a still-pending post, and tell the caller to retry.
             console.error('[huddle] failed to hide a new scheduled-post attachment:', err);
+            // hideMediaUntilDelivery's updateMany isn't atomic across
+            // documents, so some of `added` can already have the hold
+            // applied even though this threw — release them too (a no-op
+            // for whichever didn't), or stripping them from the post below
+            // would leave that hold behind with nothing left to find it.
+            try {
+              await revealMedia(added, replacedPost.userId, replacedPost._id);
+            } catch (releaseErr) {
+              console.error('[huddle] failed to release a partially applied attachment hold:', releaseErr);
+            }
             const addedIds = new Set(added.map((att) => att.mediaId));
             await rawDb()
               .collection('huddlePosts')
