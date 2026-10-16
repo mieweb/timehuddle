@@ -96,36 +96,45 @@ async function pendingPostIdsFor(userId, videoArtifactId) {
 /** The video's media-library item, created once; returns its id. */
 async function addToLibrary(userId, video) {
   const media = rawDb().collection('mediaitems');
-  const existing = await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-  if (existing) return existing._id.toHexString();
-  const _id = new ObjectId();
-  // The composer's own attach flow (src/features/huddle/api.ts uploadMedia)
-  // stages a video's `mediaId` as this `videoid` before this row exists at
-  // all — if a still-undelivered scheduled post already references it, this
-  // row must start out held back too, or it's visible before its post is.
-  // Resolved BEFORE the insert too (not only after): the row is listable
-  // the instant it's written, so whatever this lookup already knows about
-  // goes into that same insert — the only way to have no gap at all in the
-  // common case. The reconciliation below still covers whatever this
-  // lookup missed (a post created, edited, delivered, or deleted around
-  // this insert, now that Agenda wakes near-instantly).
-  const initialPendingIds = await pendingPostIdsFor(userId, video.artifactId);
-  await media.insertOne({
-    _id,
-    userId,
-    type: 'video',
-    mimeType: video.mimeType,
-    url: video.url,
-    videoid: video.artifactId,
-    filename: video.filename,
-    size: video.size,
-    title: video.title,
-    caption: null,
-    altText: null,
-    thumbnail: null,
-    uploadedAt: new Date(),
-    ...(initialPendingIds.length ? { pendingPostIds: initialPendingIds } : {}),
-  });
+  const existing = await media.findOne(
+    { videoid: video.artifactId },
+    { projection: { _id: 1, pendingReconciliation: 1 } },
+  );
+  // Fully processed already — nothing left to do. An `existing` row that's
+  // still `pendingReconciliation` is a crashed first attempt that never
+  // finished below; PulseVault replays `onUploadComplete` in that case
+  // (deliver() is idempotent on the video id), so fall through and resume
+  // reconciliation on that same row instead of inserting a second one.
+  if (existing && !existing.pendingReconciliation) return existing._id.toHexString();
+  const _id = existing ? existing._id : new ObjectId();
+  if (!existing) {
+    // The composer's own attach flow (src/features/huddle/api.ts uploadMedia)
+    // stages a video's `mediaId` as this `videoid` before this row exists at
+    // all — if a still-undelivered scheduled post already references it,
+    // this row must start out held back too, or it's visible before its
+    // post is. `pendingReconciliation` keeps it out of every listing from
+    // the instant it's written until the reconciliation below finishes —
+    // including the moment right after this insert, before any hold (found
+    // below or not) has actually landed.
+    const initialPendingIds = await pendingPostIdsFor(userId, video.artifactId);
+    await media.insertOne({
+      _id,
+      userId,
+      type: 'video',
+      mimeType: video.mimeType,
+      url: video.url,
+      videoid: video.artifactId,
+      filename: video.filename,
+      size: video.size,
+      title: video.title,
+      caption: null,
+      altText: null,
+      thumbnail: null,
+      uploadedAt: new Date(),
+      pendingReconciliation: true,
+      ...(initialPendingIds.length ? { pendingPostIds: initialPendingIds } : {}),
+    });
+  }
   const pendingIds = await pendingPostIdsFor(userId, video.artifactId);
   if (pendingIds.length) {
     // `$addToSet` rather than `$set`: hideMediaUntilDelivery can add its own
@@ -143,6 +152,7 @@ async function addToLibrary(userId, video) {
       await media.updateOne({ _id }, { $pull: { pendingPostIds: { $in: stale } } });
     }
   }
+  await media.updateOne({ _id }, { $unset: { pendingReconciliation: '' } });
   return _id.toHexString();
 }
 
@@ -253,8 +263,11 @@ const DESTINATIONS = {
     async delivered(_userId, _destination, video) {
       const item = await rawDb()
         .collection('mediaitems')
-        .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-      return item ? LIBRARY_NOTE : null;
+        .findOne({ videoid: video.artifactId }, { projection: { _id: 1, pendingReconciliation: 1 } });
+      // A row stuck in pendingReconciliation is a crashed first attempt, not
+      // a completed delivery — treating it as done here would stop a replay
+      // from ever calling deliver() again to resume and clear that state.
+      return item && !item.pendingReconciliation ? LIBRARY_NOTE : null;
     },
     async deliver(userId, _destination, video) {
       await addToLibrary(userId, video);

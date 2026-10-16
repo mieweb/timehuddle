@@ -233,7 +233,9 @@ export async function initAgenda() {
   _agenda.define(MENTION_RETRY_JOB, async (job) => {
     const { postId, recipientIds, revealMediaRetry, attempt = 1 } = job.attrs.data;
     const revealed = revealMediaRetry
-      ? await retryMediaReveal(revealMediaRetry.attachments, revealMediaRetry.userId, revealMediaRetry.postId)
+      ? await retryMediaReveal(revealMediaRetry.attachments, revealMediaRetry.userId, revealMediaRetry.postId, {
+          verifyStillRemoved: revealMediaRetry.verifyStillRemoved,
+        })
       : true;
     const stillFailed = recipientIds?.length ? await retryMentionNotifications(postId, recipientIds) : [];
     if (!stillFailed.length && revealed) {
@@ -373,9 +375,11 @@ export async function cancelPostDelivery(postId) {
 /**
  * Retry what a delivery couldn't finish: `recipientIds` whose mention
  * notification failed, and/or a failed `revealMedia` attempt (`{ attachments,
- * userId, postId }`, retried as-is). Fire-and-forget: scheduling failures are
- * logged, not thrown, since the post is already visible regardless of whether
- * this succeeds.
+ * userId, postId, verifyStillRemoved? }`, retried as-is — `verifyStillRemoved`
+ * re-checks the attachment is still actually removed from the post before
+ * releasing it, for an edit's removed-attachment release specifically).
+ * Fire-and-forget: scheduling failures are logged, not thrown, since the
+ * post is already visible regardless of whether this succeeds.
  */
 export function scheduleMentionRetry(postId, recipientIds, revealMediaRetry) {
   if (!_agenda || !(recipientIds?.length || revealMediaRetry)) return;

@@ -5,7 +5,7 @@ import { resolveSince } from './huddle-window-core';
 import { discardMedia, hideMediaUntilDelivery, revealMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
+import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients, stillRemovedAttachments } from './huddle-delivery';
 import {
   isAwaitingDelivery,
   isHiddenFrom,
@@ -899,7 +899,12 @@ Meteor.methods({
       const added = (attachments ?? []).filter((att) => !priorIds.has(att.mediaId));
       if (removed.length) {
         try {
-          await revealMedia(removed, replacedPost.userId, replacedPost._id);
+          // Re-check against the post's CURRENT attachment list right before
+          // releasing: a concurrent edit request can reattach the same file
+          // between `replacedPost` being read and this running, and this
+          // release must not clear a hold that reattachment just established.
+          const stillRemoved = await stillRemovedAttachments(replacedPost._id, removed);
+          if (stillRemoved.length) await revealMedia(stillRemoved, replacedPost.userId, replacedPost._id);
         } catch (err) {
           // The edit already committed without `removed` in the attachments
           // list, so there's nothing left to ever revisit this release again
@@ -909,6 +914,7 @@ Meteor.methods({
             attachments: removed,
             userId: replacedPost.userId,
             postId: replacedPost._id,
+            verifyStillRemoved: true,
           });
         }
       }

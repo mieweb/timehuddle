@@ -421,10 +421,14 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
 }
 
 // Library and profile listings skip post-embedded media (it belongs to the
-// post's team, not to everyone who may view the author's profile) and media
-// still held back for a scheduled post that hasn't been delivered yet.
+// post's team, not to everyone who may view the author's profile), media
+// still held back for a scheduled post that hasn't been delivered yet, and a
+// Pulse video row mid-reconciliation (pulse-destinations.js addToLibrary) —
+// that last one hasn't necessarily been given its hold yet, so it must stay
+// unlisted on its own until reconciliation says otherwise.
 const LIBRARY_ITEMS = {
   embedded: { $ne: true },
+  pendingReconciliation: { $ne: true },
   $or: [{ pendingPostIds: { $exists: false } }, { pendingPostIds: { $size: 0 } }],
 };
 

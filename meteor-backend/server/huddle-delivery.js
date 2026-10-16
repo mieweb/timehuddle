@@ -123,14 +123,39 @@ async function findPostTeam(teamId) {
 }
 
 /**
+ * Of `attachments`, only the ones `postId`'s CURRENT attachment list no
+ * longer references. Guards a release that's specifically about "this
+ * attachment was removed from the post" (an edit's `removed` list, released
+ * immediately or via a retry after a failure) against the post reattaching
+ * the same file before that release runs — without this, a stale release
+ * would clear a hold the reattachment just re-established. Not used for a
+ * delivered/deleted post's release: there, every one of its attachments is
+ * meant to come out of hiding regardless of what the post currently lists.
+ */
+export async function stillRemovedAttachments(postId, attachments) {
+  if (!attachments?.length) return attachments ?? [];
+  const post = await rawDb()
+    .collection('huddlePosts')
+    .findOne({ _id: new ObjectId(postId) }, { projection: { attachments: 1 } });
+  if (!post) return attachments; // the post itself is gone — release as queued
+  const currentIds = new Set((post.attachments ?? []).map((att) => att.mediaId));
+  return attachments.filter((att) => !currentIds.has(att.mediaId));
+}
+
+/**
  * {@link revealMedia}, swallowing its own failure so a transient error can't
  * also block (or re-run) notifying the post's recipients — `true` on
  * success, used by both `deliverScheduledPost` and the `huddle-mention-retry`
  * job's retry of a reveal that failed the first time.
+ *
+ * `verifyStillRemoved` re-checks against {@link stillRemovedAttachments}
+ * first — set it for an edit's "attachment removed" release (immediate or
+ * retried), never for a delivered/deleted post's release.
  */
-export async function retryMediaReveal(attachments, userId, postId) {
+export async function retryMediaReveal(attachments, userId, postId, { verifyStillRemoved = false } = {}) {
   try {
-    await revealMedia(attachments, userId, postId);
+    const toRelease = verifyStillRemoved ? await stillRemovedAttachments(postId, attachments) : attachments;
+    await revealMedia(toRelease, userId, postId);
     return true;
   } catch (err) {
     console.error('[huddle] failed to reveal attachments:', err);
