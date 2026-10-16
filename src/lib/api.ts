@@ -1928,6 +1928,17 @@ export interface TimerUpdateRef {
   teamId: string;
 }
 
+/**
+ * What a timer session that just closed left to send to Redmine: its issue-day
+ * and the hours not yet sent. Null when there is nothing worth sending (not a
+ * Redmine issue, no linked account, or under a minute).
+ */
+export interface UnsentRedmineTime {
+  ticketId: string;
+  date: string;
+  hours: number;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
@@ -1947,10 +1958,13 @@ export const timerApi = {
     startNow?: boolean;
     discardSessionId?: string;
   }) =>
-    wormholeCall<{ entry: WorkItem; session: Timer | null; update?: TimerUpdateRef | null }>(
-      'timers.createEntry',
-      { ...data, tz: clientTz() },
-    ),
+    wormholeCall<{
+      entry: WorkItem;
+      session: Timer | null;
+      update?: TimerUpdateRef | null;
+      /** From the session this start closed, if any. */
+      unsentRedmine?: UnsentRedmineTime | null;
+    }>('timers.createEntry', { ...data, tz: clientTz() }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. `discardSessionId` as in `createEntry`. */
   startSession: (entryId: string, now?: number, discardSessionId?: string) =>
@@ -1958,6 +1972,7 @@ export const timerApi = {
       session: Timer;
       closedSessionId?: string | null;
       update?: TimerUpdateRef | null;
+      unsentRedmine?: UnsentRedmineTime | null;
     }>('timers.startSession', {
       entryId,
       now: now ?? Date.now(),
@@ -1970,7 +1985,11 @@ export const timerApi = {
    * removes the session's own "Started" update instead and posts nothing.
    */
   stopSession: (sessionId: string, now?: number, discardUpdate = false) =>
-    wormholeCall<{ session: Timer; update?: TimerUpdateRef | null }>('timers.stopSession', {
+    wormholeCall<{
+      session: Timer;
+      update?: TimerUpdateRef | null;
+      unsentRedmine?: UnsentRedmineTime | null;
+    }>('timers.stopSession', {
       sessionId,
       now: now ?? Date.now(),
       discardUpdate,
@@ -2338,8 +2357,6 @@ export interface RedmineStatus {
   redmineName?: string;
   baseUrl?: string;
   linkedAt?: string | null;
-  /** The user's chosen time-entry activity, or null until they pick one. */
-  defaultActivityId?: number | null;
   /** Whether this deployment lets users link their own Redmine URL (dev/test only). */
   customUrlAllowed?: boolean;
   /** The server's Redmine URL — what a custom URL field starts from. */
@@ -2378,9 +2395,23 @@ export interface RedmineTimeEntryRow {
   issueMissing: boolean;
   activityId: number | null;
   activityName: string | null;
-  /** Which rule chose the activity: `tracker`, `chosen`, `named`, … */
+  /** Which rule chose the activity: `tracker`, `is_default`, `named`, … */
   activityReason: string;
+  /** The activities this issue's project allows: the only ones the row may be sent under. */
+  activityOptions: { id: number; name: string }[];
+  /**
+   * The Billable custom field the entry is sent with, copied from the newest
+   * time entry that has one; null when Redmine has none to copy (#686).
+   */
+  billable: RedmineBillable | null;
   blockedReason: RedmineBlockedReason | null;
+}
+
+/** A Redmine time entry's Billable custom field: `1`/`0` for yes/no, or a list value. */
+export interface RedmineBillable {
+  id: number;
+  name: string;
+  value: string | string[];
 }
 
 export interface RedmineTimeEntryPreview {
@@ -2396,6 +2427,13 @@ export interface RedmineTimeEntryPushRequest {
   date: string;
   /** Optional override of the resolved activity. */
   activityId?: number;
+  /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
+  comment?: string;
+  /**
+   * The Billable value the user was shown, `null` for none. The server sends its
+   * own lookup, and refuses the entry if that no longer matches what was shown.
+   */
+  billable?: RedmineBillable | null;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2414,6 +2452,11 @@ export interface RedmineTimeEntryPushOutcome {
 
 export interface RedmineTimeEntryPushResult {
   results: RedmineTimeEntryPushOutcome[];
+}
+
+/** One ticket-day's outcome, with the activity it was sent under. */
+export interface RedmineTicketDaySendOutcome extends RedmineTimeEntryPushOutcome {
+  activityName?: string | null;
 }
 
 /** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
@@ -2578,31 +2621,6 @@ export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
   confirmed: boolean;
 }
 
-/** A Redmine time-entry activity. Redmine rejects a time entry without one. */
-export interface RedmineActivity {
-  id: number;
-  name: string;
-  isDefault: boolean;
-}
-
-/**
- * Which rule chose the active activity — lets the UI say so rather than pick
- * silently. `tracker` means it was derived from the issue's Redmine tracker.
- */
-export type RedmineActivityReason =
-  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
-
-/**
- * Response for `redmine.activities.*`. An empty `activities` on a connected
- * account means the instance has none configured and cannot receive time.
- */
-export interface RedmineActivityList {
-  connected: boolean;
-  activities: RedmineActivity[];
-  selectedId: number | null;
-  selectedReason: RedmineActivityReason;
-}
-
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
@@ -2719,20 +2737,13 @@ export const redmineApi = {
       wormholeCall<RedmineFormOptions>('redmine.projects.formOptions', { projectId }),
   },
 
-  activities: {
-    /** The instance's time-entry activities and which one is active. */
-    list: (): Promise<RedmineActivityList> =>
-      wormholeCall<RedmineActivityList>('redmine.activities.list', {}),
-
-    /** Set the activity the caller's synced time is logged under. */
-    setDefault: (activityId: number): Promise<RedmineActivityList> =>
-      wormholeCall<RedmineActivityList>('redmine.activities.setDefault', { activityId }),
-  },
-
   timeEntries: {
-    /** What a push would send. Read-only — creates nothing in Redmine. */
-    preview: (): Promise<RedmineTimeEntryPreview> =>
-      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', {}),
+    /**
+     * What a push would send. Read-only — creates nothing in Redmine. With
+     * `only`, that one ticket-day: its hours and the activities its project allows.
+     */
+    preview: (only?: { ticketId: string; date: string }): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', { ...only }),
 
     /**
      * Send the confirmed ticket-days to Redmine.
@@ -2743,6 +2754,31 @@ export const redmineApi = {
      */
     push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
+
+    /**
+     * Send one ticket-day's unsent time as a single entry, with an optional
+     * comment: what the prompt shown when a ticket timer ends calls.
+     *
+     * **Irreversible**, like `push`, but allowed while clocked in. The hours
+     * are worked out server-side, and so is the activity unless `activityId`
+     * names another that the issue's project allows.
+     */
+    sendTicketDay: (
+      ticketId: string,
+      date: string,
+      {
+        comment,
+        activityId,
+        billable,
+      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
+    ): Promise<RedmineTicketDaySendOutcome> =>
+      wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
+        ticketId,
+        date,
+        comment,
+        activityId,
+        billable,
+      }),
 
     /**
      * Never send one ticket-day's unsent time to Redmine. Nothing is written to

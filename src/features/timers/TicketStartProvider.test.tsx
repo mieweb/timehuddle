@@ -1,8 +1,8 @@
-import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, timerApi } from '../../lib/api';
+import { ApiError, redmineApi, timerApi } from '../../lib/api';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
 import { startTicketTimer } from '../tickets/startTicketTimer';
@@ -26,6 +26,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return {
     ApiError: actual.ApiError,
     timerApi: { startSession: vi.fn(), stopSession: vi.fn() },
+    redmineApi: { timeEntries: { sendTicketDay: vi.fn(), preview: vi.fn() } },
   };
 });
 
@@ -45,6 +46,8 @@ vi.mock('../../ui/router', () => ({
 }));
 
 const mockStart = vi.mocked(startTicketTimer);
+const mockSend = vi.mocked(redmineApi.timeEntries.sendTicketDay);
+const mockPreview = vi.mocked(redmineApi.timeEntries.preview);
 const mockClockToggle = vi.mocked(useClockToggle);
 const mockRunning = vi.mocked(useRunningTicket);
 
@@ -64,6 +67,8 @@ const runningFor = (ageMs: number): RunningTicket => ({
   startTime: Date.now() - ageMs,
 });
 const MINUTE = 60 * 1000;
+/** What a closed session on Redmine issue #15 left to send: 31 minutes. */
+const UNSENT = { ticketId: '15', date: '2026-10-09', hours: 0.52 };
 let running: RunningTicket | null = null;
 
 function applyMocks() {
@@ -333,5 +338,444 @@ describe('TicketStartProvider', () => {
 
     expect(result.current.pending).toBeNull();
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  describe('time left to send to Redmine when a timer ends (#688)', () => {
+    const sendButton = () => screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement;
+    /**
+     * Stop a timer on issue #15, which opens the prompt. Send waits for the
+     * issue's activities to be read; `settled: false` leaves that to the test.
+     */
+    const stopIssue = async ({ settled = true } = {}) => {
+      vi.mocked(timerApi.stopSession).mockResolvedValue({ unsentRedmine: UNSENT } as never);
+      const { result } = renderProvider();
+      await act(async () => {
+        await result.current.stop({ sessionId: 's0', ticketKey: 'redmine:15', label: '#15' });
+      });
+      if (settled) await waitFor(() => expect(sendButton().disabled).toBe(false));
+    };
+    const comment = () => screen.getByLabelText('Comment (optional)');
+
+    // The prompt reads the issue's activities; none here, so the server picks.
+    beforeEach(() => {
+      mockPreview.mockResolvedValue({ connected: true, idle: false, rows: [], baseUrl: null });
+    });
+
+    // Some of these end with the prompt still open, which the next would find.
+    afterEach(cleanup);
+
+    it('a stop asks for a comment, and sends the time with it', async () => {
+      mockSend.mockResolvedValue({
+        ticketId: '15',
+        date: UNSENT.date,
+        hours: 0.52,
+        ok: true,
+        activityName: 'Development',
+      });
+      const heard = vi.fn();
+      window.addEventListener('redmine:time-sent', heard);
+      await stopIssue();
+
+      // The entry, as a card: the issue and its hours.
+      expect(await screen.findByText('Send time to Redmine')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^0:31 on issue 15/ })).toBeTruthy();
+      // Nothing goes until Send is pressed.
+      expect(mockSend).not.toHaveBeenCalled();
+      expect(mockPreview).toHaveBeenCalledWith({ ticketId: '15', date: UNSENT.date });
+
+      fireEvent.change(comment(), { target: { value: '  Fixed the clock  ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(toast.success).toHaveBeenCalledWith('Sent 0:31 on #15 to Redmine as Development'),
+      );
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: undefined,
+        billable: null,
+      });
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
+      expect(heard).toHaveBeenCalled();
+      window.removeEventListener('redmine:time-sent', heard);
+    });
+
+    it('sends without a comment when none was written', async () => {
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue();
+
+      // A comment of spaces is no comment.
+      fireEvent.change(comment(), { target: { value: '   ' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(toast.success).toHaveBeenCalledWith('Sent 0:31 on #15 to Redmine'),
+      );
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: undefined,
+        activityId: undefined,
+        billable: null,
+      });
+    });
+
+    it('plain Enter in the comment does not send; Cmd/Ctrl+Enter does', async () => {
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue();
+
+      // The comment has focus when the prompt opens, and a sent entry is permanent.
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.keyDown(comment(), { key: 'Enter' });
+      fireEvent.keyDown(comment(), { key: 'Enter', shiftKey: true });
+      expect(mockSend).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(comment(), { key: 'Enter', ctrlKey: true });
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: undefined,
+        billable: null,
+      });
+    });
+
+    it('Ctrl+Enter or Cmd+Enter sends from anywhere in the prompt, once', async () => {
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue();
+
+      // From a button, not the comment field.
+      fireEvent.keyDown(await screen.findByRole('button', { name: 'Later' }), {
+        key: 'Enter',
+        metaKey: true,
+      });
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+      expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+        comment: undefined,
+        activityId: undefined,
+        billable: null,
+      });
+    });
+
+    it('holds Send, and the keys, until the issue\u2019s activities have been read', async () => {
+      // A sent entry is permanent: the activity it goes under is shown first.
+      let answer!: (value: Awaited<ReturnType<typeof redmineApi.timeEntries.preview>>) => void;
+      mockPreview.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, hours: 0.52, ok: true });
+      await stopIssue({ settled: false });
+
+      expect(sendButton().disabled).toBe(true);
+      fireEvent.keyDown(comment(), { key: 'Enter' });
+      fireEvent.keyDown(comment(), { key: 'Enter', metaKey: true });
+      expect(mockSend).not.toHaveBeenCalled();
+
+      await act(async () => answer({ connected: true, idle: false, rows: [], baseUrl: null }));
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('sends the Billable value it showed, so the server can tell when it has moved', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      mockPreview.mockResolvedValue({
+        connected: true,
+        idle: false,
+        baseUrl: null,
+        rows: [
+          {
+            ticketId: '15',
+            date: UNSENT.date,
+            seconds: 1860,
+            alreadySentSeconds: 0,
+            hours: 0.52,
+            subject: 'Fix the clock',
+            trackerName: 'Bug',
+            issueMissing: false,
+            activityId: 9,
+            activityName: 'Development',
+            activityReason: 'tracker',
+            activityOptions: [{ id: 9, name: 'Development' }],
+            billable,
+            blockedReason: null,
+          },
+        ],
+      });
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      expect(await screen.findByText('Yes')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: 9,
+          billable,
+        }),
+      );
+    });
+
+    it('says why an entry cannot be sent, and does not offer to send it', async () => {
+      mockPreview.mockResolvedValue({
+        connected: true,
+        idle: false,
+        baseUrl: null,
+        rows: [
+          {
+            ticketId: '15',
+            date: UNSENT.date,
+            seconds: 1860,
+            alreadySentSeconds: 0,
+            hours: 0.52,
+            subject: 'Fix the clock',
+            trackerName: 'Bug',
+            issueMissing: false,
+            activityId: null,
+            activityName: null,
+            activityReason: 'none',
+            activityOptions: [],
+            billable: null,
+            blockedReason: 'no-activity',
+          },
+        ],
+      });
+      await stopIssue({ settled: false });
+
+      expect(
+        await screen.findByText('This issue\u2019s project allows no activity in Redmine'),
+      ).toBeTruthy();
+      // Not "Chosen automatically": the server would only refuse it.
+      expect(screen.queryByText('Chosen automatically')).toBeNull();
+      expect(sendButton().disabled).toBe(true);
+      fireEvent.keyDown(comment(), { key: 'Enter', metaKey: true });
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    /** A preview row for #15 with `hours` left to send. */
+    const previewWith = (hours: number) => ({
+      connected: true,
+      idle: false,
+      baseUrl: null,
+      rows: [
+        {
+          ticketId: '15',
+          date: UNSENT.date,
+          seconds: Math.round(hours * 3600),
+          alreadySentSeconds: 0,
+          hours,
+          subject: 'Fix the clock',
+          trackerName: 'Bug',
+          issueMissing: false,
+          activityId: 9,
+          activityName: 'Development',
+          activityReason: 'tracker' as const,
+          activityOptions: [{ id: 9, name: 'Development' }],
+          billable: null,
+          blockedReason: null,
+        },
+      ],
+    });
+
+    it('shows the total the server will send, not the one from the stop', async () => {
+      // Part of the day was sent elsewhere between the stop and the prompt.
+      mockPreview.mockResolvedValue(previewWith(0.27));
+      await stopIssue();
+
+      expect(screen.getByRole('button', { name: /^0:16 on issue 15/ })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /^0:31 on issue 15/ })).toBeNull();
+    });
+
+    it('reads again, holding Send, when a newer total arrives for the open prompt', async () => {
+      mockPreview.mockResolvedValue(previewWith(0.52));
+      const { result } = renderProvider();
+      vi.mocked(timerApi.stopSession).mockResolvedValue({ unsentRedmine: UNSENT } as never);
+      await act(async () => {
+        await result.current.stop({ sessionId: 's0', ticketKey: 'redmine:15', label: '#15' });
+      });
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+
+      // Another stop on the same issue-day while the prompt is open.
+      let answer!: (value: ReturnType<typeof previewWith>) => void;
+      mockPreview.mockReturnValue(new Promise((resolve) => (answer = resolve)) as never);
+      vi.mocked(timerApi.stopSession).mockResolvedValue({
+        unsentRedmine: { ...UNSENT, hours: 0.75 },
+      } as never);
+      await act(async () => {
+        await result.current.stop({ sessionId: 's1', ticketKey: 'redmine:15', label: '#15' });
+      });
+
+      expect(mockPreview).toHaveBeenCalledTimes(2);
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => answer(previewWith(0.75)));
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      expect(screen.getByRole('button', { name: /^0:45 on issue 15/ })).toBeTruthy();
+    });
+
+    it('says the activity is chosen automatically when the list could not be read', async () => {
+      mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
+      await stopIssue();
+
+      // Not "Loading activities…" for ever: the read has answered, and Send still works.
+      expect(await screen.findByText('Chosen automatically')).toBeTruthy();
+      expect(screen.queryByText('Loading activities…')).toBeNull();
+    });
+
+    it('says no Billable was shown when the preview could not be read, so one found later is refused', async () => {
+      mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      // `null`, not left out: left out, the server would send a value nobody saw.
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: undefined,
+          billable: null,
+        }),
+      );
+    });
+
+    it('keeps the prompt and its comment when Billable moved, shows the new value, and sends on a second Send', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      const base = previewWith(0.52);
+      // The first read fails, so nothing was shown; the next one finds Billable.
+      mockPreview.mockRejectedValueOnce(new Error('Redmine is unreachable'));
+      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'billable-changed',
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      // Nothing was sent, and nothing was lost: the prompt, the comment, and why.
+      expect(await screen.findByText(/Billable status changed in Redmine/)).toBeTruthy();
+      expect(screen.getByText('Send time to Redmine')).toBeTruthy();
+      expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
+      expect(toast.error).not.toHaveBeenCalled();
+      // Read again, so the card now shows the value a second Send will use.
+      expect(await screen.findByText('Yes')).toBeTruthy();
+      expect(mockPreview).toHaveBeenCalledTimes(2);
+
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      fireEvent.click(sendButton());
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend).toHaveBeenLastCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: 9,
+        billable,
+      });
+    });
+
+    it('does not claim an entry was sent when nothing was left to send', async () => {
+      // Sent from another tab, or marked Never send: the server says the same for both.
+      mockSend.mockResolvedValue({
+        ticketId: '15',
+        date: UNSENT.date,
+        ok: false,
+        reason: 'already-synced-or-gone',
+      });
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(toast.info).toHaveBeenCalledWith('There is no time left to send on #15.'),
+      );
+    });
+
+    it('Later closes the prompt and sends nothing', async () => {
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Later' }));
+
+      await waitFor(() => expect(screen.queryByText('Send time to Redmine')).toBeNull());
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('a switch starts the next timer first, then asks about the ticket it left', async () => {
+      mockStart.mockResolvedValue({
+        outcome: 'started-and-added',
+        update: UPDATE,
+        unsentRedmine: UNSENT,
+      });
+      const { result } = renderProvider();
+
+      let outcome;
+      await act(async () => {
+        outcome = await result.current.start({
+          ...redmineStart,
+          ticket: { sourceId: 'redmine', id: '16' },
+          label: '#16',
+        });
+      });
+
+      // The start is over and confirmed while the prompt is still open.
+      expect(outcome).toBe('started-and-added');
+      expect(toast.success).toHaveBeenCalledWith('Started #16', expect.anything());
+      // The entry, as a card: the issue and its hours.
+      expect(await screen.findByText('Send time to Redmine')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^0:31 on issue 15/ })).toBeTruthy();
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('says why Redmine refused, and that the time is still waiting', async () => {
+      mockSend.mockResolvedValue({
+        ticketId: '15',
+        date: UNSENT.date,
+        hours: 0.52,
+        ok: false,
+        reason: 'rejected-by-redmine',
+        detail: ['Activity is not included in the list'],
+      });
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(
+          'Time on #15 was not sent to Redmine: Redmine: Activity is not included in the list. It is waiting on the Clock page.',
+        ),
+      );
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
+    });
+
+    it('stays open with the comment when the send could not be made', async () => {
+      mockSend.mockRejectedValue(
+        new ApiError('A push to Redmine is already running.', 400, 'push-in-progress'),
+      );
+      await stopIssue();
+
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      expect((await screen.findByRole('alert')).textContent).toBe(
+        'A push to Redmine is already running.',
+      );
+      expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
+    });
+
+    it('closing the prompt sends nothing', async () => {
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: /close/i }));
+
+      await waitFor(() => expect(screen.queryByText('Send time to Redmine')).toBeNull());
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('a ticket with nothing to send is not asked about', async () => {
+      vi.mocked(timerApi.stopSession).mockResolvedValue({ unsentRedmine: null } as never);
+      const { result } = renderProvider();
+      await act(async () => {
+        await result.current.stop({ sessionId: 's0', ticketKey: 'huddle:abc', label: 'Fix login' });
+      });
+
+      expect(screen.queryByText('Send time to Redmine')).toBeNull();
+    });
   });
 });

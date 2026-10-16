@@ -13,6 +13,7 @@ import {
   hoursAgree,
   isPushable,
   buildPushRows,
+  sendableForTicketDay,
   unsentTotals,
 } from '../server/redmine-time-entries';
 
@@ -23,9 +24,11 @@ import {
  */
 const asRedmineWouldStore = (hours: number) => Math.round((Math.round(hours * 60) / 60) * 100) / 100;
 
-const resolver = (trackerName: string | null) =>
-  trackerName === 'Bug'
-    ? { activityId: 9, activityName: 'Development', reason: 'tracker' }
+const DEVELOPMENT = { id: 9, name: 'Development' };
+
+const resolver = (issue: { trackerName: string | null } | null) =>
+  issue?.trackerName === 'Bug'
+    ? { activityId: 9, activityName: 'Development', reason: 'tracker', options: [DEVELOPMENT] }
     : { activityId: null, activityName: null, reason: 'none' };
 
 const issues = new Map([
@@ -111,6 +114,7 @@ describe('buildPushRows', () => {
       subject: 'Fix the clock',
       activityId: 9,
       activityReason: 'tracker',
+      activityOptions: [DEVELOPMENT],
       blockedReason: null,
     });
   });
@@ -156,7 +160,7 @@ describe('buildPushRows', () => {
     });
   });
 
-  it('blocks a row whose activity could not be resolved', () => {
+  it('blocks a row whose project has no usable activity', () => {
     // Feature maps to nothing in this stub resolver.
     const [row] = buildPushRows(
       [{ ticketId: '20', date: '2026-09-19', seconds: 3600 }],
@@ -164,6 +168,26 @@ describe('buildPushRows', () => {
       resolver,
     );
     expect(row.blockedReason).toBe('no-activity');
+    expect(row.activityOptions).toEqual([]);
+  });
+
+  it('carries the issue’s Billable field, or null when it has none (#686)', () => {
+    const billable = { id: 7, name: 'Billable status', value: '1' };
+    const withBillable = new Map([['19', { ...issues.get('19')!, billable }]]);
+
+    const [row] = buildPushRows(
+      [{ ticketId: '19', date: '2026-09-19', seconds: 1820 }],
+      withBillable,
+      resolver,
+    );
+    const [plain] = buildPushRows(
+      [{ ticketId: '19', date: '2026-09-19', seconds: 1820 }],
+      issues,
+      resolver,
+    );
+
+    expect(row.billable).toEqual(billable);
+    expect(plain.billable).toBeNull();
   });
 
   it('tolerates a non-array input', () => {
@@ -259,5 +283,30 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
       new Map([['12|2026-09-21', { seconds: 1800, discardedSeconds: 1800, minutes: 0 }]]),
     );
     expect(row).toMatchObject({ seconds: 1800, minutes: 30 });
+  });
+});
+
+describe('sendableForTicketDay (#688 — what a timer that just ended left to send)', () => {
+  const unsent = [
+    { ticketId: '15', date: '2026-09-21', seconds: 2215, alreadySentSeconds: 4546, minutes: 37 },
+    { ticketId: '15', date: '2026-09-22', seconds: 600, alreadySentSeconds: 0, minutes: 10 },
+    { ticketId: '20', date: '2026-09-21', seconds: 20, alreadySentSeconds: 0, minutes: 0 },
+  ];
+
+  it('is the one issue-day asked for, in the hours a send would use', () => {
+    expect(sendableForTicketDay(unsent, '15', '2026-09-21')).toEqual({
+      ticketId: '15',
+      date: '2026-09-21',
+      hours: 0.62,
+    });
+  });
+
+  it('is nothing for an issue-day with no unsent time', () => {
+    expect(sendableForTicketDay(unsent, '15', '2026-09-23')).toBeNull();
+    expect(sendableForTicketDay([], '15', '2026-09-21')).toBeNull();
+  });
+
+  it('is nothing for under a minute, which Redmine would refuse', () => {
+    expect(sendableForTicketDay(unsent, '20', '2026-09-21')).toBeNull();
   });
 });

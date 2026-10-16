@@ -91,14 +91,18 @@ async function backfillSyncedSeconds() {
  * What has already been handled per ticket-day, for one user: the raw seconds
  * covered (sent or discarded), how many of those were discarded, and the whole
  * minutes Redmine holds from the entries sent.
+ *
+ * `only` narrows it to one ticket-day, `{ ticketId, date }`, as in
+ * `redmineTicketDaysFor`.
  * @returns {Promise<Map<string, {seconds: number, discardedSeconds: number, minutes: number}>>}
  *   keyed by `ticketDayKey`
  */
-export async function pushLedgerFor(userId) {
+export async function pushLedgerFor(userId, only) {
   // Discarded time counts too: "handled" is what keeps it out of the dialog.
   const rows = await RedmineTimeSyncs.find(
     {
       userId,
+      ...(only ? { ticketId: String(only.ticketId), date: only.date } : {}),
       $or: [{ redmineTimeEntryId: { $type: 'number' } }, { discardedAt: { $type: 'date' } }],
     },
     { fields: { ticketId: 1, date: 1, syncedSeconds: 1, syncedHours: 1, redmineTimeEntryId: 1 } },
