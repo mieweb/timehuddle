@@ -135,6 +135,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           date: row.date,
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
           comment: comments[rowKey(row)]?.trim() || undefined,
+          billable: row.billable,
         })),
       );
       setResults(outcome);

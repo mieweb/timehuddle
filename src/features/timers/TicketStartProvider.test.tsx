@@ -392,6 +392,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
       expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
@@ -412,6 +413,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -430,6 +432,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -447,6 +450,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -464,6 +468,46 @@ describe('TicketStartProvider', () => {
 
       await act(async () => answer({ connected: true, idle: false, rows: [], baseUrl: null }));
       await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('sends the Billable value it showed, so the server can tell when it has moved', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      mockPreview.mockResolvedValue({
+        connected: true,
+        idle: false,
+        baseUrl: null,
+        rows: [
+          {
+            ticketId: '15',
+            date: UNSENT.date,
+            seconds: 1860,
+            alreadySentSeconds: 0,
+            hours: 0.52,
+            subject: 'Fix the clock',
+            trackerName: 'Bug',
+            issueMissing: false,
+            activityId: 9,
+            activityName: 'Development',
+            activityReason: 'tracker',
+            activityOptions: [{ id: 9, name: 'Development' }],
+            billable,
+            blockedReason: null,
+          },
+        ],
+      });
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      expect(await screen.findByText('Yes')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: 9,
+          billable,
+        }),
+      );
     });
 
     it('says why an entry cannot be sent, and does not offer to send it', async () => {

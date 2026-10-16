@@ -287,7 +287,7 @@ test.describe('Redmine push panel', () => {
     await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
     // The panel always sends the resolved activity, so assert the *changed* id.
     expect(rm.calls('timeEntries.push')[0]).toEqual({
-      entries: [{ ticketId: '15', date, activityId: 10 }],
+      entries: [{ ticketId: '15', date, activityId: 10, billable: null }],
     });
     // The result names the activity it went under, not the row's default.
     await expect(page.locator('.redmine-push-entry-sent')).toContainText('QA');
@@ -349,7 +349,13 @@ test.describe('Redmine push panel', () => {
     await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
     expect(rm.calls('timeEntries.push')[0]).toEqual({
       entries: [
-        { ticketId: '15', date, activityId: 9, comment: 'Fixed the intake form validation' },
+        {
+          ticketId: '15',
+          date,
+          activityId: 9,
+          comment: 'Fixed the intake form validation',
+          billable: null,
+        },
       ],
     });
   });

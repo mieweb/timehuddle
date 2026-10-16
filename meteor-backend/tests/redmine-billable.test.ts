@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { billableByIssue, billableFieldOf, firstBillable } from '../server/redmine-billable';
+import {
+  BillableLookupIncomplete,
+  billableByIssue,
+  billableFieldOf,
+  firstBillable,
+  sameBillable,
+} from '../server/redmine-billable';
 
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
 
@@ -133,5 +139,57 @@ describe('billableByIssue', () => {
   it('is null for every issue on a Redmine with no Billable field', async () => {
     const byIssue = await billableByIssue(issues, lookup({}).recentBillable);
     expect([...byIssue.values()]).toEqual([null, null, null]);
+  });
+
+  it('leaves an issue without a value, and asks no wider scope, when its lookup is incomplete', async () => {
+    const calls: string[] = [];
+    const recentBillable = async (params: Record<string, unknown>) => {
+      calls.push(Object.keys(params)[0]);
+      if ('issue_id' in params) {
+        if (params.issue_id === 1) throw new BillableLookupIncomplete(params);
+        return null;
+      }
+      return { ...BILLABLE, value: 'wider' };
+    };
+
+    const byIssue = await billableByIssue(issues, recentBillable);
+
+    expect(byIssue.get('1')).toBeNull();
+    // The others still answer from their own scopes.
+    expect(byIssue.get('2')?.value).toBe('wider');
+    expect(calls.filter((scope) => scope === 'project_id')).toEqual(['project_id', 'project_id']);
+  });
+
+  it('still fails the read for any other error', async () => {
+    const recentBillable = async () => {
+      throw new Error('Redmine is down');
+    };
+    await expect(billableByIssue(issues, recentBillable)).rejects.toThrow('Redmine is down');
+  });
+});
+
+describe('sameBillable', () => {
+  it('is true when neither has a value', () => {
+    expect(sameBillable(null, null)).toBe(true);
+    expect(sameBillable(undefined, null)).toBe(true);
+  });
+
+  it('is false when only one has a value', () => {
+    expect(sameBillable(BILLABLE, null)).toBe(false);
+    expect(sameBillable(null, BILLABLE)).toBe(false);
+  });
+
+  it('is true for the same field and value, whatever its name', () => {
+    expect(sameBillable(BILLABLE, { ...BILLABLE, name: 'Billable' })).toBe(true);
+  });
+
+  it('is false when the value or the field differs', () => {
+    expect(sameBillable(BILLABLE, { ...BILLABLE, value: '0' })).toBe(false);
+    expect(sameBillable(BILLABLE, { ...BILLABLE, id: 8 })).toBe(false);
+  });
+
+  it('compares a list value by its contents', () => {
+    expect(sameBillable({ ...BILLABLE, value: ['a', 'b'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(true);
+    expect(sameBillable({ ...BILLABLE, value: ['a'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(false);
   });
 });

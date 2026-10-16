@@ -53,12 +53,42 @@ export function firstBillable(entries, issueId) {
 }
 
 /**
+ * Whether two Billable fields send the same thing: neither has one, or both
+ * name the same field with the same value. A value that has been shown to the
+ * user is checked against the one a send is about to use.
+ */
+export function sameBillable(shown, current) {
+  if (!shown || !current) return !shown && !current;
+  const words = (field) => [field.value].flat().join('\n');
+  return shown.id === current.id && words(shown) === words(current);
+}
+
+/**
+ * Thrown by a lookup that gave up before it had read every entry. The Billable
+ * value is then unknown, not absent: a wider scope must not answer for it.
+ */
+export class BillableLookupIncomplete extends Error {
+  constructor(params) {
+    super(`The Billable lookup for ${JSON.stringify(params)} stopped before reading every entry.`);
+    this.name = 'BillableLookupIncomplete';
+    this.billableLookupIncomplete = true;
+  }
+}
+
+/** True for what `BillableLookupIncomplete` raised, however many modules it crossed. */
+export function isBillableLookupIncomplete(err) {
+  return err?.billableLookupIncomplete === true;
+}
+
+/**
  * The Billable field to send for each issue, keyed by issue id as a string.
  *
  * @param {Array<{id: number, project?: {id: number}}>} issues raw Redmine issues
  * @param {(params: object) => Promise<object|null>} recentBillable the Billable
  *   field on the newest time entry matching `params` (`issue_id`, `project_id`
- *   or `user_id`), or null. What it throws, this throws.
+ *   or `user_id`), or null. What it throws, this throws, except a
+ *   `BillableLookupIncomplete`: that issue is left without a value, and no wider
+ *   scope is asked in its place.
  */
 export async function billableByIssue(issues, recentBillable) {
   // A project, or the caller's own entries, is asked once however many issues share it.
@@ -73,12 +103,21 @@ export async function billableByIssue(issues, recentBillable) {
   const forCaller = () => (own ??= recentBillable({ user_id: 'me' }));
 
   const pairs = await mapInChunks(issues, LOOKUPS_AT_ONCE, async (issue) => {
-      const projectId = issue.project?.id ?? null;
-      const field =
-        (await recentBillable({ issue_id: issue.id })) ??
-        (projectId != null ? await forProject(projectId) : null) ??
-        (await forCaller());
-      return [String(issue.id), field];
+    const projectId = issue.project?.id ?? null;
+    const scopes = [
+      () => recentBillable({ issue_id: issue.id }),
+      ...(projectId != null ? [() => forProject(projectId)] : []),
+      forCaller,
+    ];
+    try {
+      for (const scope of scopes) {
+        const field = await scope();
+        if (field) return [String(issue.id), field];
+      }
+    } catch (err) {
+      if (!isBillableLookupIncomplete(err)) throw err;
+    }
+    return [String(issue.id), null];
   });
   return new Map(pairs);
 }

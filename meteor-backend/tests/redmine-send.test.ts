@@ -272,6 +272,83 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     expect(JSON.stringify(preview)).not.toContain('Patient');
   });
 
+  it('sends when the Billable it was shown is still the one Redmine has', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+
+    const res = await send(String(BILLABLE_ISSUE), {
+      billable: { id: BILLABLE.id, value: BILLABLE.value },
+    });
+
+    expect(res.result).toMatchObject({ ok: true });
+    expect(created).toHaveLength(1);
+  });
+
+  it('sends nothing when the Billable shown is not the one Redmine has now', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+    const recordedBefore = (await ledger(String(BILLABLE_ISSUE))).length;
+
+    const res = await send(String(BILLABLE_ISSUE), { billable: { id: BILLABLE.id, value: '0' } });
+
+    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
+    expect(created).toHaveLength(0);
+    // Still unsent, so the next preview offers it again with the new value.
+    expect(await ledger(String(BILLABLE_ISSUE))).toHaveLength(recordedBefore);
+  });
+
+  it('sends nothing when no Billable was shown but Redmine has one now', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+
+    const res = await send(String(BILLABLE_ISSUE), { billable: null });
+
+    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
+    expect(created).toHaveLength(0);
+  });
+
+  it('sends when none was shown and Redmine has none', async () => {
+    await loggedTime('916');
+
+    const res = await send('916', { billable: null });
+
+    expect(res.result).toMatchObject({ ok: true });
+    expect(created).toHaveLength(1);
+    expect(created[0].custom_fields).toBeUndefined();
+  });
+
+  it('the bulk push also turns away an entry whose Billable moved, and sends the rest', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+    await loggedTime('917');
+
+    const bulk = await wormhole<{ results: Outcome[] }>(
+      'redmine.timeEntries.push',
+      {
+        entries: [
+          {
+            ticketId: String(BILLABLE_ISSUE),
+            date: today,
+            billable: { id: BILLABLE.id, value: '0' },
+          },
+          { ticketId: '917', date: today, billable: null },
+        ],
+      },
+      jwt,
+    );
+
+    expect(bulk.ok && bulk.result.results.map((r) => [r.ticketId, r.ok, r.reason])).toEqual([
+      [String(BILLABLE_ISSUE), false, 'billable-changed'],
+      ['917', true, undefined],
+    ]);
+    expect(created).toHaveLength(1);
+  });
+
+  it('refuses a Billable that is not an id and a value', async () => {
+    await loggedTime('918');
+
+    const res = await send('918', { billable: { id: 'seven', value: 1 } });
+
+    expect(res.ok).toBe(false);
+    expect(created).toHaveLength(0);
+  });
+
   it('a send and a bulk push at the same moment create one entry between them', async () => {
     await loggedTime('913');
     // Long enough for the second request to arrive while the first holds the lock.

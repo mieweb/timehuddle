@@ -2391,6 +2391,11 @@ export interface RedmineTimeEntryPushRequest {
   activityId?: number;
   /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
   comment?: string;
+  /**
+   * The Billable value the user was shown, `null` for none. The server sends its
+   * own lookup, and refuses the entry if that no longer matches what was shown.
+   */
+  billable?: RedmineBillable | null;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2723,13 +2728,18 @@ export const redmineApi = {
     sendTicketDay: (
       ticketId: string,
       date: string,
-      { comment, activityId }: { comment?: string; activityId?: number } = {},
+      {
+        comment,
+        activityId,
+        billable,
+      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
         date,
         comment,
         activityId,
+        billable,
       }),
 
     /**

@@ -20,7 +20,7 @@
  */
 import { createRateLimiter } from './rate-limit';
 import { activityIssueRefs } from './redmine-atom';
-import { firstBillable } from './redmine-billable';
+import { BillableLookupIncomplete, firstBillable } from './redmine-billable';
 
 /**
  * The server-wide Redmine base URL, trailing slash trimmed, or null when Redmine
@@ -414,15 +414,33 @@ export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
     .map((entry) => ({ issueId: Number(entry.issue.id), at: entry.spent_on ?? null }));
 }
 
+// Billable is looked for in the newest 300 entries of a scope, a page of 100 at a time.
+const BILLABLE_PAGE_SIZE = 100;
+const BILLABLE_MAX_PAGES = 3;
+
 /**
  * The Billable field on the newest time entry matching `params` (`issue_id`,
- * `project_id` or `user_id`), or null. Each entry is reduced to that one field
- * as it arrives; see redmine-billable.js for why.
+ * `project_id` or `user_id`), or null when every entry of that scope was read
+ * and none has it. Each entry is reduced to that one field as it arrives; see
+ * redmine-billable.js for why.
+ *
+ * Reading stops after `BILLABLE_MAX_PAGES` pages. A scope that long may still
+ * hold the field further back, so that is `BillableLookupIncomplete`, not null.
  */
 export async function findRecentBillable(account, params) {
-  const query = new URLSearchParams({ limit: '25', ...params });
-  const data = await redmineRequest(`/time_entries.json?${query.toString()}`, { account });
-  return firstBillable(data?.time_entries, params.issue_id);
+  for (let page = 0; page < BILLABLE_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      limit: String(BILLABLE_PAGE_SIZE),
+      offset: String(page * BILLABLE_PAGE_SIZE),
+      ...params,
+    });
+    const data = await redmineRequest(`/time_entries.json?${query.toString()}`, { account });
+    const entries = Array.isArray(data?.time_entries) ? data.time_entries : [];
+    const found = firstBillable(entries, params.issue_id);
+    if (found) return found;
+    if (entries.length < BILLABLE_PAGE_SIZE) return null;
+  }
+  throw new BillableLookupIncomplete(params);
 }
 
 /**

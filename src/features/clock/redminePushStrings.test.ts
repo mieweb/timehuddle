@@ -17,6 +17,12 @@ describe('failureText', () => {
     }
   });
 
+  it('says nothing was sent when Billable changed since it was shown', () => {
+    const text = failureText({ ok: false, reason: 'billable-changed' } as never);
+    expect(text).toContain('Billable status changed in Redmine');
+    expect(text).toContain('Nothing was sent');
+  });
+
   it('keeps Redmine’s own words for a message it has no hint for', () => {
     const text = failureText({
       reason: 'rejected-by-redmine',

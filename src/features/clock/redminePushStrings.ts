@@ -31,6 +31,8 @@ const FAILURE_TEXT: Record<string, string> = {
   'push-interrupted': 'Not sent: another push took over. Try again',
   'already-synced-or-gone': 'Already sent, or no longer eligible',
   'invalid-activity': 'This issue’s project does not allow that activity',
+  'billable-changed':
+    'Billable status changed in Redmine since you opened this. Nothing was sent: close it and open it again to review the new value',
 };
 
 /**
