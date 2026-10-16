@@ -7,6 +7,7 @@ import { ObjectId } from 'mongodb';
 import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 import { isAwaitingDelivery } from './huddle-schedule-core';
+import { revealMedia } from './uploads';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -149,6 +150,9 @@ function isTeamMember(team, userId) {
  * meaningful when `delivered` is true, and lists anyone `notifyPostRecipients`
  * couldn't reach — the caller schedules a `huddle-mention-retry` job for them
  * rather than lose them, since the post is visible either way once delivered.
+ * Attachments held back by `huddle.createPost`/`updatePost` are revealed here
+ * too (or on the access-revoked delete path), so a teammate can't still be
+ * blocked from the post's own visible content after it's no longer hidden.
  */
 export async function deliverScheduledPost(postId, { force = false } = {}) {
   if (typeof postId !== 'string' || !/^[a-f0-9]{24}$/i.test(postId)) return { delivered: false };
@@ -160,12 +164,14 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { projection: { userId: 1, teamId: 1 } },
+      { projection: { userId: 1, teamId: 1, attachments: 1 } },
     );
   if (!pending) return { delivered: false };
   const team = await findPostTeam(pending.teamId);
   if (!team || !isTeamMember(team, pending.userId)) {
     await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
+    // Never shown to anyone, but its attachments were already held back — undo that too.
+    await revealMedia(pending.attachments);
     return { delivered: false };
   }
   const post = await rawDb()
@@ -182,6 +188,7 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
       { returnDocument: 'after' },
     );
   if (!post) return { delivered: false }; // raced with something else (send now, delete, reschedule) between the checks above
+  await revealMedia(post.attachments);
   const failedRecipientIds = await notifyPostRecipients(post, team);
   return { delivered: true, failedRecipientIds };
 }

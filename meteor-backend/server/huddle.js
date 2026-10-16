@@ -2,7 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { resolveSince } from './huddle-window-core';
-import { discardMedia } from './uploads';
+import { discardMedia, hideMediaUntilDelivery, revealMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
 import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
@@ -518,6 +518,15 @@ export async function createHuddlePost(
       await discardMedia(media);
       throw err;
     }
+    // Attached files (images/documents, and video via the Pulse `library`
+    // destination) land in the same library the delivery job later reveals
+    // the post through — hold them back too, or they'd be visible to
+    // teammates for as long as the post itself stays hidden.
+    try {
+      await hideMediaUntilDelivery(doc.attachments, doc._id);
+    } catch (err) {
+      console.error('[huddle] failed to hide scheduled post attachments:', err);
+    }
   } else {
     notifyPostRecipients(doc, team)
       .then((failedRecipientIds) => {
@@ -847,7 +856,23 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Post not found');
     }
     await discardUnreferencedInlineImages(replacedPost.content?.text);
-    
+
+    // Keep a still-undelivered scheduled post's hidden-media set in step with
+    // an attachments edit: anything dropped goes back to being an ordinary
+    // library item, anything newly added is held back the same as at creation.
+    if (attachments !== undefined && isAwaitingDelivery(replacedPost)) {
+      const keptIds = new Set((attachments ?? []).map((att) => att.mediaId));
+      const priorIds = new Set((replacedPost.attachments ?? []).map((att) => att.mediaId));
+      const removed = (replacedPost.attachments ?? []).filter((att) => !keptIds.has(att.mediaId));
+      const added = (attachments ?? []).filter((att) => !priorIds.has(att.mediaId));
+      try {
+        if (removed.length) await revealMedia(removed);
+        if (added.length) await hideMediaUntilDelivery(added, replacedPost._id);
+      } catch (err) {
+        console.error('[huddle] failed to reconcile scheduled post attachment visibility:', err);
+      }
+    }
+
     return { id: postId };
   },
 
@@ -931,7 +956,11 @@ Meteor.methods({
     if (deletedPost) {
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
-      if (isAwaitingDelivery(deletedPost)) await cancelPostDelivery(postId);
+      if (isAwaitingDelivery(deletedPost)) {
+        await cancelPostDelivery(postId);
+        // Deleted before delivery: nothing will ever unhide its attachments otherwise.
+        await revealMedia(deletedPost.attachments);
+      }
     }
     
     return 'ok';

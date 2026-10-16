@@ -420,9 +420,10 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   }
 }
 
-// Library and profile listings skip post-embedded media: it belongs to the
-// post's team, not to everyone who may view the author's profile.
-const LIBRARY_ITEMS = { embedded: { $ne: true } };
+// Library and profile listings skip post-embedded media (it belongs to the
+// post's team, not to everyone who may view the author's profile) and media
+// still held back for a scheduled post that hasn't been delivered yet.
+const LIBRARY_ITEMS = { embedded: { $ne: true }, pendingPostId: { $exists: false } };
 
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
@@ -431,6 +432,37 @@ export async function discardMedia(docs) {
   await rawDb()
     .collection('mediaitems')
     .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+}
+
+/** `mediaitems` ids from a post's `attachments`, valid ObjectId hex only. */
+function attachmentMediaIds(attachments) {
+  return [...new Set((attachments ?? []).map((att) => att.mediaId))]
+    .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+    .map((id) => new ObjectId(id));
+}
+
+/**
+ * Hold a scheduled post's attachments out of the library and profile Feed
+ * (images/documents via `/api/media/upload`, video via the Pulse `library`
+ * destination both land in `mediaitems`) until the post is actually
+ * delivered — otherwise the raw file is visible to teammates the whole time
+ * the post itself stays hidden, which defeats scheduling entirely.
+ */
+export async function hideMediaUntilDelivery(attachments, postId) {
+  const ids = attachmentMediaIds(attachments);
+  if (!ids.length) return;
+  await rawDb()
+    .collection('mediaitems')
+    .updateMany({ _id: { $in: ids } }, { $set: { pendingPostId: postId } });
+}
+
+/** Undo {@link hideMediaUntilDelivery}: the post delivered, or was deleted before it did. */
+export async function revealMedia(attachments) {
+  const ids = attachmentMediaIds(attachments);
+  if (!ids.length) return;
+  await rawDb()
+    .collection('mediaitems')
+    .updateMany({ _id: { $in: ids } }, { $unset: { pendingPostId: '' } });
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────
