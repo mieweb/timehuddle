@@ -101,7 +101,7 @@ export const RowListItem: React.FC<RowListItemProps> = ({
             {meta}
           </div>
         )}
-        <div className="row-list-title text-base leading-snug break-words">{title}</div>
+        <div className="row-list-title text-sm leading-snug break-words">{title}</div>
         {properties && (
           <div className="row-list-properties flex min-w-0 flex-wrap items-center gap-1.5 pt-2 pb-1">
             {properties}

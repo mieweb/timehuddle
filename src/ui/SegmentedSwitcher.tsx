@@ -176,7 +176,10 @@ export function SegmentedSwitcher<T extends string>({
                 {option.icon}
                 {!option.iconOnly && option.label}
                 {option.detail != null && (
-                  <span className="segmented-switcher-detail text-xs font-normal tabular-nums opacity-80">
+                  // Dimmed only beside an option that is not chosen: the chosen one reads at full strength.
+                  <span
+                    className={`segmented-switcher-detail text-xs font-normal tabular-nums ${selected ? '' : 'opacity-80'}`}
+                  >
                     {option.detail}
                   </span>
                 )}

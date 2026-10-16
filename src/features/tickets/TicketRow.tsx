@@ -26,6 +26,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Checkbox,
   DropdownContent,
   DropdownItem,
@@ -80,7 +81,7 @@ export interface TicketRowProps {
  * most of what tells one ticket from another and a phone has no hover tooltip.
  */
 const TITLE_CLASS =
-  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-base leading-snug font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
+  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
 
 /** Assignee names a row shows before it counts the rest. */
 const SHOWN_ASSIGNEES = 3;
@@ -197,6 +198,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     <>
       {selecting && (
         <Checkbox
+          size="sm"
           checked={selected}
           onChange={(e) => onSelectedChange(ticket, e.target.checked)}
           aria-label={text.select(ticket.title)}
@@ -324,28 +326,33 @@ export const TicketRow: React.FC<TicketRowProps> = ({
 
   const actions = (
     <>
-      <BoardToggleButton
-        onBoard={onBoard}
-        isLoading={boardLoading}
-        // Not while this row's timer is starting: the start decides whether to
-        // add the ticket from where the board stood when it was pressed.
-        disabled={timerLoading || !boardKnown}
-        onClick={() => onToggleBoard(ticket)}
-        ariaLabel={onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)}
-        className="h-8 w-8 shrink-0"
-      />
-      <Button
-        ref={menuTriggerRef}
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        aria-label={text.options}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((o) => !o)}
-      >
-        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-      </Button>
+      {/* The row's own actions, side by side: one group, as adjacent buttons are. */}
+      <ButtonGroup orientation="horizontal" className="ticket-row-actions gap-1">
+        <BoardToggleButton
+          onBoard={onBoard}
+          isLoading={boardLoading}
+          // Not while this row's timer is starting: the start decides whether to
+          // add the ticket from where the board stood when it was pressed.
+          disabled={timerLoading || !boardKnown}
+          onClick={() => onToggleBoard(ticket)}
+          ariaLabel={
+            onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
+          }
+          className="h-8 w-8 shrink-0"
+        />
+        <Button
+          ref={menuTriggerRef}
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          aria-label={text.options}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((o) => !o)}
+        >
+          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+        </Button>
+      </ButtonGroup>
       {menuOpen &&
         createPortal(
           <div

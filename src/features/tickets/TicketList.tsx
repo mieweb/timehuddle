@@ -224,6 +224,7 @@ export const TicketList: React.FC<TicketListProps> = ({
       <div className="ticket-list-header-primary flex shrink-0 items-center gap-2">
         {showSelectionControls && (
           <Checkbox
+            size="sm"
             checked={allSelected}
             indeterminate={someSelected}
             disabled={tickets.length === 0}
