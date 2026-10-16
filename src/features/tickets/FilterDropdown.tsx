@@ -108,16 +108,37 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     });
   }, []);
 
+  // Scrolling what the trigger sits in closes the menu, as a menu does: kept
+  // open, it would ride along over the list's header. Other scrolling only
+  // moves it: the menu's own list, the page as a whole, and the scroll iOS
+  // makes to show the keyboard for a search box inside the menu.
   React.useEffect(() => {
     if (!open) return;
     updatePosition();
+    const handleScroll = (e: Event) => {
+      const target = e.target;
+      const menu = menuRef.current;
+      if (target instanceof Node && menu?.contains(target)) return;
+      const typingInMenu =
+        isTextEntry(document.activeElement) && menu?.contains(document.activeElement);
+      if (
+        target instanceof Element &&
+        triggerRef.current &&
+        target.contains(triggerRef.current) &&
+        !typingInMenu
+      ) {
+        handleOpenChange(false);
+        return;
+      }
+      updatePosition();
+    };
     window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('scroll', handleScroll, true);
     };
-  }, [open, updatePosition]);
+  }, [open, updatePosition, handleOpenChange]);
 
   // `updatePosition` anchors the menu to the trigger before its actual
   // (content-dependent) width is known, so a menu docked near a screen edge

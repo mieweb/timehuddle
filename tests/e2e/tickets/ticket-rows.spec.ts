@@ -230,6 +230,42 @@ test.describe('Ticket rows', () => {
     await page.keyboard.press('Escape');
   });
 
+  test("a row's menu closes when the list scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 600 });
+    const stamp = Date.now();
+    for (const n of [1, 2, 3, 4]) await tickets.createTicket(`E2E Menu Scroll ${stamp} ${n}`);
+    await tickets.search(`E2E Menu Scroll ${stamp}`);
+
+    await tickets.activePanel.getByRole('button', { name: 'Ticket options' }).first().click();
+    await expect(page.getByRole('menu')).toBeVisible();
+
+    // Kept open, it would ride along over the header as the rows move under it.
+    await tickets.activePanel
+      .locator('.row-list-scroll')
+      .evaluate((area) => area.scrollBy({ top: 120 }));
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  });
+
+  test('leaving the page drops the selection', async ({ page }) => {
+    const title = `E2E Leave Select ${Date.now()}`;
+    await tickets.createTicket(title);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const row = tickets.rowByTitle(title);
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+
+    // The page stays mounted under another route, so this is the same list.
+    await page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByText('Huddle', { exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/app\/huddle/);
+    await tickets.navigateFromSidebar();
+
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+  });
+
   test('switches between open and closed tickets from the header', async ({ page }) => {
     const title = `E2E Phone Closed ${Date.now()}`;
     await tickets.createTicket(title);

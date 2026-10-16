@@ -429,8 +429,10 @@ export const TicketsPage: React.FC = () => {
     clearBoardSelection();
   }, [selectionOn, clearTicketsSelection, clearBoardSelection]);
 
-  // A selection belongs to the view it was made in; resizing keeps it visible.
-  const selectionScope = activeView;
+  // A selection belongs to the view it was made in, and to this visit to the
+  // page: the page stays mounted while another route shows (`AppLayout`), so
+  // leaving it must drop the selection as switching views does. Resizing keeps it.
+  const selectionScope = `${activeView}|${pathname === '/app/tickets'}`;
   const lastSelectionScope = React.useRef(selectionScope);
   useEffect(() => {
     if (lastSelectionScope.current === selectionScope) return;
