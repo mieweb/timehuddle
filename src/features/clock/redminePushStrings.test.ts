@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
-import { asClock, billableValueLabel, entryDayLabel, hoursLabel } from './redminePushStrings';
+import {
+  asClock,
+  billableValueLabel,
+  entryDayLabel,
+  failureText,
+  hoursLabel,
+} from './redminePushStrings';
+
+describe('failureText', () => {
+  it('tells a user Redmine refused for a missing Billable what to do, whichever name the field has', () => {
+    for (const message of ['Billable status cannot be blank', 'Billable cannot be blank']) {
+      const text = failureText({ reason: 'rejected-by-redmine', detail: [message] } as never);
+      expect(text).toContain('Log one time entry with Billable status set in Redmine');
+      expect(text).toContain('contact your Redmine administrator');
+    }
+  });
+
+  it('keeps Redmine’s own words for a message it has no hint for', () => {
+    const text = failureText({
+      reason: 'rejected-by-redmine',
+      detail: ['Hours is invalid'],
+    } as never);
+    expect(text).toBe('Redmine: Hours is invalid');
+  });
+});
 
 describe('hoursLabel', () => {
   it('reads as time worked, or as Redmine stores it', () => {

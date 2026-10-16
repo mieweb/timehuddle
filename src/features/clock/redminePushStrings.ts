@@ -34,6 +34,14 @@ const FAILURE_TEXT: Record<string, string> = {
 };
 
 /**
+ * Billable is copied from an entry that already has it (#686). With none to
+ * copy, Redmine refuses the entry; the way out is one Billable entry made in
+ * Redmine itself, or an administrator who can sort out the field.
+ */
+const BILLABLE_REQUIRED_HINT =
+  'Redmine requires a Billable status on every time entry, and TimeHuddle has none to copy yet. Log one time entry with Billable status set in Redmine, then send again. If that does not help, contact your Redmine administrator.';
+
+/**
  * Redmine messages whose wording hides the fix, keyed by their English text.
  * "Issue is invalid" is what Redmine answers when the issue is fine but you may
  * not log time on it: it drops an issue the key cannot see, or one in a project
@@ -42,6 +50,8 @@ const FAILURE_TEXT: Record<string, string> = {
 const REDMINE_MESSAGE_HINTS: Record<string, string> = {
   'Issue is invalid':
     "Redmine won't take time on this issue from you: its project may have time tracking switched off, or your role there may be missing “Log spent time”.",
+  'Billable status cannot be blank': BILLABLE_REQUIRED_HINT,
+  'Billable cannot be blank': BILLABLE_REQUIRED_HINT,
 };
 
 /** Why a row failed: Redmine's own words when it gave any, else our summary. */
