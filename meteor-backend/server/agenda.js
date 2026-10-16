@@ -68,12 +68,17 @@ export async function initAgenda() {
   // DNS miss the way Meteor's retrying driver can).
   //
   // notificationChannel watches `agendajobs` via a MongoDB change stream (our
-  // replica set already has one — Meteor's own live queries require it), so a
-  // newly scheduled or rescheduled job is picked up the instant it's written
-  // instead of waiting for the next processEvery tick. processEvery stays on
-  // as the fallback for whatever the change stream misses (a reconnect gap,
-  // or a job whose due time is further out than it watches) — it no longer
-  // carries the normal-case latency on its own.
+  // replica set already has one — Meteor's own live queries require it).
+  // processEvery is still what discovers a job at all: on each tick Agenda
+  // looks for anything due within the next processEvery window and, once
+  // found, times its exact delivery with a per-job setTimeout — so ordinary
+  // future schedules (minutes to months out) were already delivered with
+  // sub-second precision, just discovered up to one processEvery tick in
+  // advance. The change stream closes the one real gap in that: a job whose
+  // due time already falls inside the window the moment it's written or
+  // rescheduled (e.g. a reschedule to a few seconds out) would otherwise sit
+  // until the next periodic tick to even be noticed; the change stream
+  // notifies for it immediately instead.
   const notificationChannel = new MongoChangeStreamNotificationChannel({
     db: rawDb(),
     collection: 'agendajobs',
