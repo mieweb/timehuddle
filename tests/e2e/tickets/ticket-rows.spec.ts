@@ -171,6 +171,44 @@ test.describe('Ticket rows', () => {
     await expect(row.getByRole('checkbox')).toBeChecked();
   });
 
+  test('a selection made on a wide screen keeps its checkboxes on a phone', async ({ page }) => {
+    const title = `E2E Wide Select ${Date.now()}`;
+    await tickets.createTicket(title);
+    const row = tickets.rowByTitle(title);
+
+    // Wide: the checkboxes are there without Select being pressed.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await row.getByRole('checkbox').check();
+    await expect(tickets.deselectAllButton).toBeVisible();
+
+    // Narrowed to a phone, the ticked row is still shown ticked, and the
+    // button offers Done rather than Select, which would wipe it.
+    await page.setViewportSize(PHONE);
+    await expect(row.getByRole('checkbox')).toBeChecked();
+    await expect(tickets.doneSelectingButton).toHaveAttribute('aria-pressed', 'true');
+
+    await tickets.doneSelectingButton.click();
+    await expect(row.getByRole('checkbox')).toHaveCount(0);
+    await expect(tickets.deselectAllButton).toHaveCount(0);
+  });
+
+  test("a row's menu works from the keyboard", async ({ page }) => {
+    const title = `E2E Row Menu Keys ${Date.now()}`;
+    await tickets.createTicket(title);
+    const trigger = tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' });
+    const items = page.getByRole('menu').getByRole('menuitem');
+
+    // Focus goes into the menu, the arrows walk it, and Escape comes back.
+    await trigger.click();
+    await expect(items.first()).toBeFocused();
+    await expect(items.first()).toHaveText('Ticket Details');
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
   test('switches between open and closed tickets from the header', async ({ page }) => {
     const title = `E2E Phone Closed ${Date.now()}`;
     await tickets.createTicket(title);

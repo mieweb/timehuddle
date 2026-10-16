@@ -355,6 +355,7 @@ export const TicketListControls: React.FC<TicketListControlsProps> = ({
   const inlineCountRef = React.useRef(inlineCount);
   const paneId = React.useId();
   const layoutRef = React.useRef<HTMLDivElement>(null);
+  const paneRef = React.useRef<HTMLDivElement>(null);
   // A pill's width is kept from when it was last on the line, so one that has
   // left it can still be counted back in when there is room again.
   const pillWidths = React.useRef(new Map<string, number>());
@@ -375,7 +376,12 @@ export const TicketListControls: React.FC<TicketListControlsProps> = ({
     const updateLayout = () => {
       if (layout.clientWidth === 0) return;
 
-      for (const element of layout.querySelectorAll<HTMLElement>('[data-ticket-pill]')) {
+      // The pane's pills count too: one can grow a count while it is there,
+      // and must not come back to the line at its old width.
+      const pills = [layout, paneRef.current].flatMap((part) =>
+        part ? [...part.querySelectorAll<HTMLElement>('[data-ticket-pill]')] : [],
+      );
+      for (const element of pills) {
         const width = element.getBoundingClientRect().width;
         if (width > 0) pillWidths.current.set(element.dataset.ticketPill ?? '', width);
       }
@@ -409,8 +415,9 @@ export const TicketListControls: React.FC<TicketListControlsProps> = ({
     observer.observe(layout);
     updateLayout();
     return () => observer.disconnect();
-    // The clear button comes and goes with the filters, and takes room.
-  }, [fieldSignature, chosenSignature]);
+    // The clear button comes and goes with the filters, and takes room; the
+    // pane opening and closing changes which pills can be measured.
+  }, [fieldSignature, chosenSignature, expanded]);
 
   const overflowing = inlineCount < fields.length;
   // The pane holds every pill, so the line above it keeps only the chevron.
@@ -486,6 +493,7 @@ export const TicketListControls: React.FC<TicketListControlsProps> = ({
       </div>
       {paneOpen && (
         <div
+          ref={paneRef}
           id={paneId}
           role="group"
           aria-label={text.pane}

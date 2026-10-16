@@ -1,6 +1,7 @@
 /**
  * FilterDropdown — a trigger plus a portaled menu, used for the ticket list's
- * individual filters and sort-and-filter overflow menu.
+ * sort and filter pills (`TicketListControls`) and each row's ⋮ menu
+ * (`TicketRow`), so all of them share one keyboard and focus model.
  *
  * The menu is portaled to <body> and positioned with `fixed` coordinates rather
  * than using `@mieweb/ui`'s `Dropdown` directly, because the list card clips

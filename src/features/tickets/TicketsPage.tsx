@@ -418,11 +418,16 @@ export const TicketsPage: React.FC = () => {
   // would be no way to see, or undo, what was still ticked.
   const clearTicketsSelection = ticketsView.clearSelection;
   const clearBoardSelection = boardView.clearSelection;
+  // A wide screen shows checkboxes without Select being pressed, so a row can
+  // be ticked there with `selecting` off. Anything ticked keeps selection mode
+  // on: narrowed to a phone, the checkboxes stay and the button reads Done.
+  const hasSelection = ticketsView.selectedKeys.size + boardView.selectedKeys.size > 0;
+  const selectionOn = selecting || hasSelection;
   const toggleSelecting = useCallback(() => {
-    setSelecting((on) => !on);
+    setSelecting(!selectionOn);
     clearTicketsSelection();
     clearBoardSelection();
-  }, [clearTicketsSelection, clearBoardSelection]);
+  }, [selectionOn, clearTicketsSelection, clearBoardSelection]);
 
   // A selection belongs to the view it was made in; resizing keeps it visible.
   const selectionScope = activeView;
@@ -839,7 +844,7 @@ export const TicketsPage: React.FC = () => {
 
   // What both tabs' lists share; each tab adds its own view and labels.
   const sharedListProps = {
-    selecting,
+    selecting: selectionOn,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -874,14 +879,14 @@ export const TicketsPage: React.FC = () => {
               onValueChange={setActiveView}
             />
             <Button
-              variant={selecting ? 'primary' : 'secondary'}
+              variant={selectionOn ? 'primary' : 'secondary'}
               size="sm"
-              aria-pressed={selecting}
+              aria-pressed={selectionOn}
               rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
               onClick={toggleSelecting}
               className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
             >
-              {selecting ? viewText.doneSelecting : viewText.select}
+              {selectionOn ? viewText.doneSelecting : viewText.select}
             </Button>
           </div>
 

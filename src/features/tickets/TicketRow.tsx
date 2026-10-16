@@ -28,14 +28,12 @@ import {
   Button,
   ButtonGroup,
   Checkbox,
-  DropdownContent,
   DropdownItem,
   DropdownSeparator,
   Tooltip,
 } from '@mieweb/ui';
 import { CircleUser, ClipboardCopy, ClipboardX } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback } from 'react';
 
 import { timeAgo } from '../../lib/date';
 import { useCopyLink } from '../../lib/useCopyLink';
@@ -46,6 +44,7 @@ import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { ticketTimerText } from '../timers/ticketTimerStrings';
 
 import { BoardToggleButton } from './BoardToggleButton';
+import { FilterDropdown } from './FilterDropdown';
 import { boardText } from './boardStrings';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { SOURCE_LABELS, displaySourceId, ticketDetailPath, type UnifiedTicket } from './sources';
@@ -128,11 +127,6 @@ export const TicketRow: React.FC<TicketRowProps> = ({
 }) => {
   const { navigate } = useRouter();
   const copyLink = useCopyLink();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
-
   const { capabilities, status, externalUrl, assignees } = ticket;
   // "Only the creator edits" is Huddle's own rule. An external source enforces
   // its own permissions server-side (Redmine checks the user's role and
@@ -144,52 +138,6 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   const openExternal = useCallback(() => {
     if (externalUrl) window.open(externalUrl, '_blank', 'noopener,noreferrer');
   }, [externalUrl]);
-
-  // The options menu is portaled to <body> and positioned with `fixed`
-  // coordinates computed from the trigger's own rect, so it escapes the list's
-  // scroll area instead of being clipped by it.
-  const updateMenuPosition = useCallback(() => {
-    const trigger = menuTriggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const gutter = 8;
-    setMenuStyle({
-      position: 'fixed',
-      top: rect.bottom + 8,
-      right: Math.max(gutter, window.innerWidth - rect.right),
-      left: 'auto',
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    updateMenuPosition();
-    window.addEventListener('resize', updateMenuPosition);
-    window.addEventListener('scroll', updateMenuPosition, true);
-    return () => {
-      window.removeEventListener('resize', updateMenuPosition);
-      window.removeEventListener('scroll', updateMenuPosition, true);
-    };
-  }, [menuOpen, updateMenuPosition]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handlePointerDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (menuTriggerRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      setMenuOpen(false);
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [menuOpen]);
 
   // Starting a timer puts the ticket on My Board, so off the board the button
   // says it will: in its name, and in its tooltip.
@@ -340,115 +288,75 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           }
           className="h-8 w-8 shrink-0"
         />
-        <Button
-          ref={menuTriggerRef}
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          aria-label={text.options}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((o) => !o)}
+        {/* The same menu as the list header's: focus moves into it, the arrow
+            keys walk it, Tab and Escape leave it, and a choice closes it. */}
+        <FilterDropdown
+          triggerAriaLabel={text.options}
+          triggerClassName="rounded-md"
+          trigger={
+            <span className="ticket-row-menu-trigger flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+              <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" aria-hidden="true" />
+            </span>
+          }
         >
-          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-        </Button>
-      </ButtonGroup>
-      {menuOpen &&
-        createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            style={menuStyle}
-            className="z-99999 max-w-xs overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+          <DropdownItem icon={<FontAwesomeIcon icon={faEye} />} onClick={openTicket}>
+            Ticket Details
+          </DropdownItem>
+          <DropdownItem
+            icon={<FontAwesomeIcon icon={faLink} />}
+            onClick={() => void copyLink(ticketDetailPath(ticket))}
           >
-            <DropdownContent className="bg-white dark:bg-neutral-800">
+            Copy Link
+          </DropdownItem>
+          {/* The same toggle as the row's own button, in words. */}
+          <DropdownItem
+            icon={
+              onBoard ? (
+                <ClipboardX className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <ClipboardCopy className="h-3.5 w-3.5" aria-hidden="true" />
+              )
+            }
+            disabled={timerLoading || boardLoading || !boardKnown}
+            onClick={() => onToggleBoard(ticket)}
+          >
+            {onBoard ? boardText.remove : boardText.add}
+          </DropdownItem>
+          {capabilities.openExternal && externalUrl && (
+            <DropdownItem icon={<FontAwesomeIcon icon={faExternalLink} />} onClick={openExternal}>
+              {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}
+            </DropdownItem>
+          )}
+          {canEdit && (
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faPen} />}
+              onClick={() => onEditRequest(ticket)}
+            >
+              Edit Ticket
+            </DropdownItem>
+          )}
+          {capabilities.changeStatus && (
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faRightLeft} />}
+              onClick={() => onChangeStatusRequest(ticket)}
+            >
+              Change Status
+            </DropdownItem>
+          )}
+          {capabilities.delete && isCreator && (
+            <>
+              <DropdownSeparator />
               <DropdownItem
-                icon={<FontAwesomeIcon icon={faEye} />}
-                onClick={() => {
-                  setMenuOpen(false);
-                  openTicket();
-                }}
+                icon={<FontAwesomeIcon icon={faTrash} />}
+                variant="danger"
+                onClick={() => onDeleteRequest(ticket)}
               >
-                Ticket Details
+                Delete Ticket
               </DropdownItem>
-              <DropdownItem
-                icon={<FontAwesomeIcon icon={faLink} />}
-                onClick={() => {
-                  setMenuOpen(false);
-                  void copyLink(ticketDetailPath(ticket));
-                }}
-              >
-                Copy Link
-              </DropdownItem>
-              {/* The same toggle as the row's own button, in words. */}
-              <DropdownItem
-                icon={
-                  onBoard ? (
-                    <ClipboardX className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <ClipboardCopy className="h-3.5 w-3.5" aria-hidden="true" />
-                  )
-                }
-                disabled={timerLoading || boardLoading || !boardKnown}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onToggleBoard(ticket);
-                }}
-              >
-                {onBoard ? boardText.remove : boardText.add}
-              </DropdownItem>
-              {capabilities.openExternal && externalUrl && (
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faExternalLink} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    openExternal();
-                  }}
-                >
-                  {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}
-                </DropdownItem>
-              )}
-              {canEdit && (
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faPen} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onEditRequest(ticket);
-                  }}
-                >
-                  Edit Ticket
-                </DropdownItem>
-              )}
-              {capabilities.changeStatus && (
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faRightLeft} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onChangeStatusRequest(ticket);
-                  }}
-                >
-                  Change Status
-                </DropdownItem>
-              )}
-              {capabilities.delete && isCreator && (
-                <>
-                  <DropdownSeparator />
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faTrash} />}
-                    variant="danger"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onDeleteRequest(ticket);
-                    }}
-                  >
-                    Delete Ticket
-                  </DropdownItem>
-                </>
-              )}
-            </DropdownContent>
-          </div>,
-          document.body,
-        )}
+            </>
+          )}
+        </FilterDropdown>
+      </ButtonGroup>
     </>
   );
 
