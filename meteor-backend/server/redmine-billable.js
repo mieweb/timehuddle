@@ -37,9 +37,15 @@ export function billableFieldOf(entry) {
     : null;
 }
 
-/** The Billable field of the first entry in `entries` that has one set, or null. */
-export function firstBillable(entries) {
+/**
+ * The Billable field of the first entry in `entries` that has one set, or null.
+ * With `issueId`, only that issue's own entries count: Redmine's `issue_id`
+ * filter can include subtasks, and a child's newer entry must not supply its
+ * parent's value.
+ */
+export function firstBillable(entries, issueId) {
   for (const entry of Array.isArray(entries) ? entries : []) {
+    if (issueId != null && Number(entry?.issue?.id) !== Number(issueId)) continue;
     const field = billableFieldOf(entry);
     if (field) return field;
   }

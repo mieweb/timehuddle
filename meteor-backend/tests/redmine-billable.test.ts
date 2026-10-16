@@ -61,6 +61,23 @@ describe('firstBillable', () => {
     expect(firstBillable(entries)).toEqual({ ...BILLABLE, value: '0' });
   });
 
+  it('for an issue, skips a subtask’s newer entry and takes the issue’s own', () => {
+    const entries = [
+      { issue: { id: 22 }, custom_fields: [{ ...BILLABLE, value: '0' }] },
+      { issue: { id: 11 }, custom_fields: [BILLABLE] },
+    ];
+    expect(firstBillable(entries, 11)).toEqual(BILLABLE);
+    expect(firstBillable(entries, '11')).toEqual(BILLABLE);
+  });
+
+  it('for an issue, is null when only a subtask has the field', () => {
+    expect(firstBillable([{ issue: { id: 22 }, custom_fields: [BILLABLE] }], 11)).toBeNull();
+  });
+
+  it('without an issue, takes entries from any issue', () => {
+    expect(firstBillable([{ issue: { id: 22 }, custom_fields: [BILLABLE] }])).toEqual(BILLABLE);
+  });
+
   it('is null for no entries', () => {
     expect(firstBillable([])).toBeNull();
     expect(firstBillable(undefined)).toBeNull();

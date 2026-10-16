@@ -104,7 +104,14 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
           const onIssue = url.searchParams.get('issue_id') === String(BILLABLE_ISSUE);
           return json(200, {
             time_entries: onIssue
-              ? [{ id: 1, comments: 'Patient Jane Doe', custom_fields: [BILLABLE] }]
+              ? [
+                  {
+                    id: 1,
+                    issue: { id: BILLABLE_ISSUE },
+                    comments: 'Patient Jane Doe',
+                    custom_fields: [BILLABLE],
+                  },
+                ]
               : [],
           });
         }

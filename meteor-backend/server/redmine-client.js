@@ -422,7 +422,7 @@ export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
 export async function findRecentBillable(account, params) {
   const query = new URLSearchParams({ limit: '25', ...params });
   const data = await redmineRequest(`/time_entries.json?${query.toString()}`, { account });
-  return firstBillable(data?.time_entries);
+  return firstBillable(data?.time_entries, params.issue_id);
 }
 
 /**
