@@ -209,6 +209,27 @@ test.describe('Ticket rows', () => {
     await expect(trigger).toBeFocused();
   });
 
+  test("a row's menu steps over a disabled choice", async ({ page }) => {
+    const title = `E2E Row Menu Disabled ${Date.now()}`;
+    await tickets.createTicket(title);
+    // Until My Board has been read, its menu item is disabled: hold the read back.
+    await page.route('**/api/myBoard_list', () => {});
+    await page.reload();
+    await tickets.waitForLoad();
+
+    await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem', { name: /My Board$/ })).toBeDisabled();
+
+    // Ticket Details, Copy Link, then past the disabled My Board item.
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Copy Link' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Edit Ticket' })).toBeFocused();
+    await page.keyboard.press('Escape');
+  });
+
   test('switches between open and closed tickets from the header', async ({ page }) => {
     const title = `E2E Phone Closed ${Date.now()}`;
     await tickets.createTicket(title);

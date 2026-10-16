@@ -43,9 +43,17 @@ const MENU_KEY_STEP: Record<string, 1 | -1 | 'first' | 'last' | undefined> = {
 const isTextEntry = (target: EventTarget | null) =>
   target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 
+/**
+ * The choices the keyboard can land on. A disabled one is skipped: it cannot
+ * take focus, so stepping onto it would leave focus where it was.
+ */
 const menuItems = (menu: HTMLElement | null) =>
   menu
-    ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]'))
+    ? Array.from(
+        menu.querySelectorAll<HTMLElement>(
+          ':is([role="menuitem"], [role="menuitemcheckbox"]):not(:disabled, [aria-disabled="true"])',
+        ),
+      )
     : [];
 
 export const FilterDropdown: React.FC<FilterDropdownProps> = ({
@@ -236,11 +244,14 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       </Button>
       {open &&
         createPortal(
+          // \`w-max\`: sized by its choices, not by the room right of the trigger,
+          // so a menu opened near the screen's edge is moved into view whole
+          // rather than wrapped first.
           <div
             ref={menuRef}
             role="menu"
             style={menuStyle}
-            className="z-9999 max-w-[calc(100vw-1rem)] min-w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+            className="z-9999 w-max max-w-[calc(100vw-1rem)] min-w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
             /* Clicking any item bubbles up here and closes the dropdown. Focus
                goes back to the trigger: the item it was on is about to unmount. */
             onClick={(e) => {
