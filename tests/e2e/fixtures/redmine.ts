@@ -68,6 +68,7 @@ export interface RedmineRowShape {
   activityName: string | null;
   activityReason: string;
   activityOptions: { id: number; name: string }[];
+  billable: { id: number; name: string; value: string | string[] } | null;
   blockedReason: RedmineBlockedReason | null;
 }
 
@@ -338,6 +339,7 @@ export function previewRow(overrides: Partial<RedmineRowShape> = {}): RedmineRow
       { id: 9, name: 'Development' },
       { id: 10, name: 'QA' },
     ],
+    billable: null,
     blockedReason: null,
     ...overrides,
   };

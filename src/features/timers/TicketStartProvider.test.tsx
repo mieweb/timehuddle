@@ -392,6 +392,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
       expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
@@ -412,6 +413,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -430,6 +432,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -447,6 +450,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -464,6 +468,46 @@ describe('TicketStartProvider', () => {
 
       await act(async () => answer({ connected: true, idle: false, rows: [], baseUrl: null }));
       await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('sends the Billable value it showed, so the server can tell when it has moved', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      mockPreview.mockResolvedValue({
+        connected: true,
+        idle: false,
+        baseUrl: null,
+        rows: [
+          {
+            ticketId: '15',
+            date: UNSENT.date,
+            seconds: 1860,
+            alreadySentSeconds: 0,
+            hours: 0.52,
+            subject: 'Fix the clock',
+            trackerName: 'Bug',
+            issueMissing: false,
+            activityId: 9,
+            activityName: 'Development',
+            activityReason: 'tracker',
+            activityOptions: [{ id: 9, name: 'Development' }],
+            billable,
+            blockedReason: null,
+          },
+        ],
+      });
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      expect(await screen.findByText('Yes')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: 9,
+          billable,
+        }),
+      );
     });
 
     it('says why an entry cannot be sent, and does not offer to send it', async () => {
@@ -485,6 +529,7 @@ describe('TicketStartProvider', () => {
             activityName: null,
             activityReason: 'none',
             activityOptions: [],
+            billable: null,
             blockedReason: 'no-activity',
           },
         ],
@@ -520,6 +565,7 @@ describe('TicketStartProvider', () => {
           activityName: 'Development',
           activityReason: 'tracker' as const,
           activityOptions: [{ id: 9, name: 'Development' }],
+          billable: null,
           blockedReason: null,
         },
       ],
@@ -567,6 +613,62 @@ describe('TicketStartProvider', () => {
       // Not "Loading activities…" for ever: the read has answered, and Send still works.
       expect(await screen.findByText('Chosen automatically')).toBeTruthy();
       expect(screen.queryByText('Loading activities…')).toBeNull();
+    });
+
+    it('says no Billable was shown when the preview could not be read, so one found later is refused', async () => {
+      mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+      // `null`, not left out: left out, the server would send a value nobody saw.
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: undefined,
+          billable: null,
+        }),
+      );
+    });
+
+    it('keeps the prompt and its comment when Billable moved, shows the new value, and sends on a second Send', async () => {
+      const billable = { id: 7, name: 'Billable status', value: '1' };
+      const base = previewWith(0.52);
+      // The first read fails, so nothing was shown; the next one finds Billable.
+      mockPreview.mockRejectedValueOnce(new Error('Redmine is unreachable'));
+      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'billable-changed',
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      // Nothing was sent, and nothing was lost: the prompt, the comment, and why.
+      expect(await screen.findByText(/Billable status changed in Redmine/)).toBeTruthy();
+      expect(screen.getByText('Send time to Redmine')).toBeTruthy();
+      expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
+      expect(toast.error).not.toHaveBeenCalled();
+      // Read again, so the card now shows the value a second Send will use.
+      expect(await screen.findByText('Yes')).toBeTruthy();
+      expect(mockPreview).toHaveBeenCalledTimes(2);
+
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      fireEvent.click(sendButton());
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend).toHaveBeenLastCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: 9,
+        billable,
+      });
     });
 
     it('does not claim an entry was sent when nothing was left to send', async () => {

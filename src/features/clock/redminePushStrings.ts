@@ -31,7 +31,17 @@ const FAILURE_TEXT: Record<string, string> = {
   'push-interrupted': 'Not sent: another push took over. Try again',
   'already-synced-or-gone': 'Already sent, or no longer eligible',
   'invalid-activity': 'This issue’s project does not allow that activity',
+  'billable-changed':
+    'Billable status changed in Redmine since you opened this. Nothing was sent: close it and open it again to review the new value',
 };
+
+/**
+ * Billable is copied from an entry that already has it (#686). With none to
+ * copy, Redmine refuses the entry; the way out is one Billable entry made in
+ * Redmine itself, or an administrator who can sort out the field.
+ */
+const BILLABLE_REQUIRED_HINT =
+  'Redmine requires a Billable status on every time entry, and TimeHuddle has none to copy yet. Log one time entry with Billable status set in Redmine, then send again. If that does not help, contact your Redmine administrator.';
 
 /**
  * Redmine messages whose wording hides the fix, keyed by their English text.
@@ -42,6 +52,8 @@ const FAILURE_TEXT: Record<string, string> = {
 const REDMINE_MESSAGE_HINTS: Record<string, string> = {
   'Issue is invalid':
     "Redmine won't take time on this issue from you: its project may have time tracking switched off, or your role there may be missing “Log spent time”.",
+  'Billable status cannot be blank': BILLABLE_REQUIRED_HINT,
+  'Billable cannot be blank': BILLABLE_REQUIRED_HINT,
 };
 
 /** Why a row failed: Redmine's own words when it gave any, else our summary. */
@@ -90,9 +102,21 @@ export function entryDayLabel(date: string, today: Date = new Date()): string {
   });
 }
 
+/**
+ * A Billable value as people read it. Redmine sends a yes/no field as `1`/`0`;
+ * a list field's own words are shown as they are.
+ */
+export function billableValueLabel(value: string | string[]): string {
+  if (Array.isArray(value)) return value.join(', ');
+  return value === '1' ? entryCardText.yes : value === '0' ? entryCardText.no : value;
+}
+
 /** Words on the entry card, shared by both dialogs that send time. */
 export const entryCardText = {
   activity: 'Activity',
+  billable: 'Billable',
+  yes: 'Yes',
+  no: 'No',
   comment: 'Comment',
   commentPlaceholder: 'Optional',
   showAsTime: 'Show as time',

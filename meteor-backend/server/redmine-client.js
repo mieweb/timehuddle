@@ -20,6 +20,7 @@
  */
 import { createRateLimiter } from './rate-limit';
 import { activityIssueRefs } from './redmine-atom';
+import { findBillableInPages } from './redmine-billable';
 
 /**
  * The server-wide Redmine base URL, trailing slash trimmed, or null when Redmine
@@ -414,6 +415,24 @@ export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
 }
 
 /**
+ * The Billable field on the newest time entry matching `params` (`issue_id`,
+ * `project_id` or `user_id`), or null when every entry of that scope was read
+ * and none has it. Each entry is reduced to that one field as it arrives; see
+ * redmine-billable.js for why, and for how far back it reads (up to 300 entries,
+ * a page of 100 at a time).
+ */
+export async function findRecentBillable(account, params) {
+  return findBillableInPages(async (offset, limit) => {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset), ...params });
+    const data = await redmineRequest(`/time_entries.json?${query.toString()}`, { account });
+    return {
+      entries: Array.isArray(data?.time_entries) ? data.time_entries : [],
+      totalCount: data?.total_count,
+    };
+  }, params);
+}
+
+/**
  * The issues the caller's own activity feed mentions since `from`, as
  * `{ issueId, at }`.
  *
@@ -544,9 +563,14 @@ export async function searchIssues(account, query, { limit = 25, timeoutMs } = {
  * @param {number} entry.hours      decimal hours, already rounded by the caller
  * @param {number} entry.activityId resolved enumeration id — never hardcoded
  * @param {string} entry.spentOn    the day being logged, `YYYY-MM-DD`
+ * @param {Array<{id: number, value: string|string[]}>} [entry.customFields]
+ *   sent as `custom_fields`, and left out when empty
  * @returns {Promise<object|null>} the created entry as Redmine echoes it back
  */
-export async function createTimeEntry(account, { issueId, hours, activityId, spentOn, comments }) {
+export async function createTimeEntry(
+  account,
+  { issueId, hours, activityId, spentOn, comments, customFields = [] },
+) {
   const data = await redmineRequest('/time_entries.json', {
     account,
     method: 'POST',
@@ -557,6 +581,7 @@ export async function createTimeEntry(account, { issueId, hours, activityId, spe
         activity_id: activityId,
         spent_on: spentOn,
         ...(comments ? { comments } : {}),
+        ...(customFields.length ? { custom_fields: customFields } : {}),
       },
     },
   });

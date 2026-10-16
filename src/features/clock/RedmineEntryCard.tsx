@@ -13,7 +13,14 @@ import { Button, Card, Text } from '@mieweb/ui';
 import { ArrowLeftRight } from 'lucide-react';
 import React from 'react';
 
-import { entryCardText as text, entryDayLabel, hoursLabel } from './redminePushStrings';
+import type { RedmineBillable } from '@lib/api';
+
+import {
+  billableValueLabel,
+  entryCardText as text,
+  entryDayLabel,
+  hoursLabel,
+} from './redminePushStrings';
 
 export interface RedmineEntryCardProps {
   ticketId: string;
@@ -26,6 +33,8 @@ export interface RedmineEntryCardProps {
   decimalHours: boolean;
   /** A press on the hours switches between the two. */
   onToggleHours: () => void;
+  /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
+  billable?: RedmineBillable | null;
   /** No border or padding: for the one entry of a dialog that frames it already. */
   bare?: boolean;
   children?: React.ReactNode;
@@ -38,6 +47,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   hours,
   decimalHours,
   onToggleHours,
+  billable = null,
   bare = false,
   children,
 }) => {
@@ -73,6 +83,16 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           </Text>
         </div>
       </div>
+      {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
+      {billable && (
+        <RedmineEntryField label={text.billable}>
+          <Text size="sm" className="redmine-entry-billable">
+            {/* The field's label is for the eye only; this names it for a screen reader. */}
+            <span className="sr-only">{billable.name}: </span>
+            {billableValueLabel(billable.value)}
+          </Text>
+        </RedmineEntryField>
+      )}
       {children}
     </>
   );

@@ -2399,7 +2399,19 @@ export interface RedmineTimeEntryRow {
   activityReason: string;
   /** The activities this issue's project allows: the only ones the row may be sent under. */
   activityOptions: { id: number; name: string }[];
+  /**
+   * The Billable custom field the entry is sent with, copied from the newest
+   * time entry that has one; null when Redmine has none to copy (#686).
+   */
+  billable: RedmineBillable | null;
   blockedReason: RedmineBlockedReason | null;
+}
+
+/** A Redmine time entry's Billable custom field: `1`/`0` for yes/no, or a list value. */
+export interface RedmineBillable {
+  id: number;
+  name: string;
+  value: string | string[];
 }
 
 export interface RedmineTimeEntryPreview {
@@ -2417,6 +2429,11 @@ export interface RedmineTimeEntryPushRequest {
   activityId?: number;
   /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
   comment?: string;
+  /**
+   * The Billable value the user was shown, `null` for none. The server sends its
+   * own lookup, and refuses the entry if that no longer matches what was shown.
+   */
+  billable?: RedmineBillable | null;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2749,13 +2766,18 @@ export const redmineApi = {
     sendTicketDay: (
       ticketId: string,
       date: string,
-      { comment, activityId }: { comment?: string; activityId?: number } = {},
+      {
+        comment,
+        activityId,
+        billable,
+      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
         date,
         comment,
         activityId,
+        billable,
       }),
 
     /**

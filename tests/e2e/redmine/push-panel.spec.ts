@@ -86,6 +86,32 @@ test.describe('Redmine push panel', () => {
     await expect(row).toContainText('0:37');
   });
 
+  test('shows the Billable value a row is sent with, and nothing when there is none', async ({
+    page,
+  }) => {
+    await openClock(page, {
+      'timeEntries.preview': preview({
+        rows: [
+          previewRow({
+            ticketId: '15',
+            billable: { id: 7, name: 'Billable status', value: '1' },
+          }),
+          previewRow({ ticketId: '23' }),
+        ],
+      }),
+    });
+
+    await sendButton(page).click();
+
+    const [billed, plain] = [15, 23].map((id) =>
+      entriesList(page)
+        .getByRole('listitem')
+        .filter({ hasText: `#${id}` }),
+    );
+    await expect(billed.locator('.redmine-entry-billable')).toHaveText('Billable status: Yes');
+    await expect(plain.locator('.redmine-entry-billable')).toHaveCount(0);
+  });
+
   test('warns that the entries are permanent', async ({ page }) => {
     await openClock(page, {
       'timeEntries.preview': preview({ rows: [previewRow()] }),
@@ -261,7 +287,7 @@ test.describe('Redmine push panel', () => {
     await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
     // The panel always sends the resolved activity, so assert the *changed* id.
     expect(rm.calls('timeEntries.push')[0]).toEqual({
-      entries: [{ ticketId: '15', date, activityId: 10 }],
+      entries: [{ ticketId: '15', date, activityId: 10, billable: null }],
     });
     // The result names the activity it went under, not the row's default.
     await expect(page.locator('.redmine-push-entry-sent')).toContainText('QA');
@@ -323,7 +349,13 @@ test.describe('Redmine push panel', () => {
     await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
     expect(rm.calls('timeEntries.push')[0]).toEqual({
       entries: [
-        { ticketId: '15', date, activityId: 9, comment: 'Fixed the intake form validation' },
+        {
+          ticketId: '15',
+          date,
+          activityId: 9,
+          comment: 'Fixed the intake form validation',
+          billable: null,
+        },
       ],
     });
   });

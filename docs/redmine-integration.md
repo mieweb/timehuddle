@@ -51,6 +51,7 @@ After each entry is created, TimeHuddle reads it back from Redmine to confirm th
 - Entries are **created, never edited or deleted** — logged time is permanent, and correcting it is an administrative act in Redmine.
 - **Unsent time from earlier days is included**, so forgetting to send on Monday doesn't lose Monday.
 - Time you track on a day after sending it is offered again on its own, and goes to Redmine as a further entry.
+- **Billable.** Where Redmine requires a Billable value on time entries, TimeHuddle copies it from the newest entry that has one: on the same issue, else in the same project, else your own. Each card shows the value it will be sent with. Where no entry has one (or Redmine has no such field) nothing extra is sent.
 - If Redmine refuses an entry, you're told why in Redmine's own words, and the time stays unsent. **Never send** drops a row you don't want in Redmine; the time stays in TimeHuddle.
 - Time logged in Redmine by hand is never changed or double-counted.
 

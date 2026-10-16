@@ -25,6 +25,7 @@ import {
 import { requireIdentity } from './auth-bridge';
 import {
   createTimeEntry,
+  findRecentBillable,
   getCurrentUser,
   getTimeEntry,
   isRedmineBudgetExhausted,
@@ -49,6 +50,7 @@ import {
   getActivitiesForUser,
   pickDefaultActivity,
 } from './redmine-activities';
+import { billableByIssue, isBillableLookupIncomplete, sameBillable } from './redmine-billable';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -334,6 +336,26 @@ function requireComment(comment) {
 }
 
 /**
+ * The Billable field the user was shown before confirming: `null` for none,
+ * `undefined` when the caller did not say (nothing is checked then). Only its
+ * id and value are read; what is sent is always the server's own lookup.
+ */
+function requireShownBillable(shown) {
+  if (shown == null) return shown;
+  const validValue = (value) =>
+    typeof value === 'string' || (Array.isArray(value) && value.every((v) => typeof v === 'string'));
+  if (!Number.isInteger(shown.id) || !validValue(shown.value)) {
+    throw new Meteor.Error('bad-request', 'The Billable value must be an id and a value.');
+  }
+  return { id: shown.id, value: shown.value };
+}
+
+/** True when the row's Billable is no longer what the user was shown. */
+function billableChanged(row, shown) {
+  return shown !== undefined && !sameBillable(shown, row.billable);
+}
+
+/**
  * The activity a row goes under: the one asked for, when the issue's project
  * allows it (the list the row's drop-down was built from), else the row's
  * default when none was asked for. Null for one the project does not allow:
@@ -369,6 +391,19 @@ async function buildPreviewRows(userId, account, { only } = {}) {
       listIssuesByIds(account, issueIds),
       getActivitiesForUser(userId, account),
     ]);
+    // A failed lookup means no Billable value, not a failed preview: the entry
+    // goes without one, as before #686, and Redmine says if it needed one. Two
+    // things pass through instead. An exhausted request budget fails the read
+    // like any other Redmine outage, rather than sending entries that will be
+    // refused. A lookup that stopped before reading every entry is left for
+    // `billableByIssue`, which leaves that issue without a value rather than
+    // answering from a wider scope.
+    const billable = await billableByIssue(issues, (params) =>
+      findRecentBillable(account, params).catch((err) => {
+        if (isRedmineBudgetExhausted(err) || isBillableLookupIncomplete(err)) throw err;
+        return null;
+      }),
+    );
     issuesById = new Map(
       issues.map((issue) => [
         String(issue.id),
@@ -376,6 +411,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
           subject: issue.subject ?? '',
           trackerName: issue.tracker?.name ?? null,
           projectId: issue.project?.id ?? null,
+          billable: billable.get(String(issue.id)) ?? null,
         },
       ]),
     );
@@ -428,6 +464,7 @@ async function pushOneEntry(userId, account, row, activityId, comment) {
       activityId,
       spentOn: row.date,
       comments: comment || PUSH_COMMENT,
+      customFields: row.billable ? [{ id: row.billable.id, value: row.billable.value }] : [],
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a
@@ -639,7 +676,10 @@ Meteor.methods({
     }
     // Checked before anything is sent: a bad comment on one row must not leave
     // the rows before it already written.
-    for (const entry of entries) requireComment(entry?.comment);
+    for (const entry of entries) {
+      requireComment(entry?.comment);
+      requireShownBillable(entry?.billable);
+    }
 
     const account = await requireRedmineAccount(userId);
 
@@ -677,7 +717,7 @@ Meteor.methods({
    * one the issue's project rules choose, unless `activityId` names another
    * that the project allows.
    */
-  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment, activityId } = {}) {
+  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment, activityId, billable } = {}) {
     const { userId } = await requireIdentity(this);
     enforceRedmineLimit(accountLimiter, userId);
     requireTicketDay(ticketId, date);
@@ -685,12 +725,18 @@ Meteor.methods({
     if (activityId != null && !Number.isInteger(activityId)) {
       throw new Meteor.Error('bad-request', 'The activity must be an id.');
     }
+    const shownBillable = requireShownBillable(billable);
     const account = await requireRedmineAccount(userId);
 
     return withPushLock(userId, async (stillHeld) => {
       const [row] = await buildPreviewRows(userId, account, { only: { ticketId, date } });
       if (!row) return { ticketId, date, ok: false, reason: 'already-synced-or-gone' };
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
+      // Billable is read again here, and a sent entry is permanent: a value that
+      // moved since the user confirmed it needs confirming again.
+      if (billableChanged(row, shownBillable)) {
+        return { ticketId, date, ok: false, reason: 'billable-changed' };
+      }
 
       const activity = chosenActivity(row, activityId);
       if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
@@ -738,6 +784,12 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     }
     if (row.blockedReason) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: row.blockedReason });
+      continue;
+    }
+
+    // As in `sendTicketDay`: a Billable value that moved since it was shown.
+    if (billableChanged(row, requireShownBillable(requested.billable))) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'billable-changed' });
       continue;
     }
 

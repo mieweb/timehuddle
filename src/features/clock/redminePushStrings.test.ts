@@ -1,6 +1,36 @@
 import { describe, expect, it } from 'vitest';
 
-import { asClock, entryDayLabel, hoursLabel } from './redminePushStrings';
+import {
+  asClock,
+  billableValueLabel,
+  entryDayLabel,
+  failureText,
+  hoursLabel,
+} from './redminePushStrings';
+
+describe('failureText', () => {
+  it('tells a user Redmine refused for a missing Billable what to do, whichever name the field has', () => {
+    for (const message of ['Billable status cannot be blank', 'Billable cannot be blank']) {
+      const text = failureText({ reason: 'rejected-by-redmine', detail: [message] } as never);
+      expect(text).toContain('Log one time entry with Billable status set in Redmine');
+      expect(text).toContain('contact your Redmine administrator');
+    }
+  });
+
+  it('says nothing was sent when Billable changed since it was shown', () => {
+    const text = failureText({ ok: false, reason: 'billable-changed' } as never);
+    expect(text).toContain('Billable status changed in Redmine');
+    expect(text).toContain('Nothing was sent');
+  });
+
+  it('keeps Redmine’s own words for a message it has no hint for', () => {
+    const text = failureText({
+      reason: 'rejected-by-redmine',
+      detail: ['Hours is invalid'],
+    } as never);
+    expect(text).toBe('Redmine: Hours is invalid');
+  });
+});
 
 describe('hoursLabel', () => {
   it('reads as time worked, or as Redmine stores it', () => {
@@ -38,5 +68,17 @@ describe('entryDayLabel', () => {
 
   it('hands back anything that is not a date as it came', () => {
     expect(entryDayLabel('soon', today)).toBe('soon');
+  });
+});
+
+describe('billableValueLabel', () => {
+  it('reads a yes/no field as Yes or No', () => {
+    expect(billableValueLabel('1')).toBe('Yes');
+    expect(billableValueLabel('0')).toBe('No');
+  });
+
+  it('shows a list value in its own words', () => {
+    expect(billableValueLabel('Non-billable')).toBe('Non-billable');
+    expect(billableValueLabel(['Client A', 'Client B'])).toBe('Client A, Client B');
   });
 });
