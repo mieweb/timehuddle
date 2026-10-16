@@ -52,7 +52,15 @@ export async function notifyPostRecipients(post, team) {
   );
   if (!recipients.length) return [];
 
-  const text = await mentionNotificationText(post);
+  let text;
+  try {
+    text = await mentionNotificationText(post);
+  } catch (err) {
+    // Shared lookup (author display name) failed before any send was attempted —
+    // treat everyone as failed so the retry job still gets a chance to reach them.
+    console.error('[huddle] mention notification text failed:', err);
+    return recipients;
+  }
   const results = await Promise.all(
     recipients.map(async (userId) => ({
       userId,
@@ -93,7 +101,13 @@ export async function retryMentionNotifications(postId, recipientIds) {
   const pending = candidates.filter((userId) => !notified.has(String(userId)));
   if (!pending.length) return [];
 
-  const text = await mentionNotificationText(post);
+  let text;
+  try {
+    text = await mentionNotificationText(post);
+  } catch (err) {
+    console.error('[huddle] mention notification text failed:', err);
+    return pending;
+  }
   const results = await Promise.all(
     pending.map(async (userId) => ({ userId, ok: await sendMentionNotification(userId, post, text) })),
   );
@@ -157,11 +171,17 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
   const post = await rawDb()
     .collection('huddlePosts')
     .findOneAndUpdate(
-      { _id: pending._id, deliveredAt: null },
+      {
+        _id: pending._id,
+        deliveredAt: null,
+        // Re-check the deadline here too: a reschedule committed while
+        // findPostTeam() above was in flight must not still be revealed early.
+        deliverAt: force ? { $exists: true } : { $lte: new Date() },
+      },
       { $set: { deliveredAt: new Date() }, $inc: { scheduleVersion: 1 } },
       { returnDocument: 'after' },
     );
-  if (!post) return { delivered: false }; // raced with something else (send now, delete) between the checks above
+  if (!post) return { delivered: false }; // raced with something else (send now, delete, reschedule) between the checks above
   const failedRecipientIds = await notifyPostRecipients(post, team);
   return { delivered: true, failedRecipientIds };
 }

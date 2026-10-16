@@ -975,12 +975,12 @@ export default function Huddle() {
     // Personal view can show a post from any team, so load that team's own
     // roster to resolve against rather than reuse a roster from a different
     // team (or skip recomputing it).
-    const editedMentions = (
-      post.teamId === postingTeamId
-        ? mentions.detect(body)
-        : detectMentions(body, await fetchTeamMembers(post.teamId))
-    ).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID);
     try {
+      const editedMentions = (
+        post.teamId === postingTeamId
+          ? mentions.detect(body)
+          : detectMentions(body, await fetchTeamMembers(post.teamId))
+      ).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID);
       await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
