@@ -15,9 +15,9 @@ export const UNASSIGNED = '__unassigned__';
  *
  * It cannot be a concrete assignee value like the derived options are: "me" is
  * one person holding a different id in every source's namespace (a Meteor id in
- * Huddle, a numeric account id in Redmine), while `filters.assignee` holds a
- * single string. So the sentinel is resolved at filter time against the caller's
- * `meKeys` instead — see `applyFilters`.
+ * Huddle, a numeric account id in Redmine), while a value in
+ * `filters.assignees` is a single string. So the sentinel is resolved at filter
+ * time against the caller's `meKeys` instead — see `applyFilters`.
  */
 export const ME = '__me__';
 /** Sentinel for the "No priority" option. */
@@ -26,22 +26,33 @@ export const NO_PRIORITY = '__none__';
 export interface TicketFilters {
   /** Empty means "every source" — no source is hidden by default. */
   sources: TicketSourceId[];
-  status: string | null;
-  priority: string | null;
-  assignee: string | null;
-  container: string | null;
+  /** Any of these statuses, by native name. Empty means "any status". */
+  statuses: string[];
+  /** Any of these priorities. Empty means "any". May hold `NO_PRIORITY`. */
+  priorities: string[];
+  /**
+   * Any of these: a ticket matches when one of its assignees is among them.
+   * Empty means "anyone". May hold the `ME` and `UNASSIGNED` sentinels.
+   */
+  assignees: string[];
+  /** Any of these projects. Empty means "every project". */
+  containers: string[];
 }
 
 export const EMPTY_FILTERS: TicketFilters = {
   sources: [],
-  status: null,
-  priority: null,
-  assignee: null,
-  container: null,
+  statuses: [],
+  priorities: [],
+  assignees: [],
+  containers: [],
 };
 
 export const hasActiveFilters = (f: TicketFilters): boolean =>
-  f.sources.length > 0 || Boolean(f.status || f.priority || f.assignee || f.container);
+  f.sources.length > 0 ||
+  f.statuses.length > 0 ||
+  f.priorities.length > 0 ||
+  f.assignees.length > 0 ||
+  f.containers.length > 0;
 
 /** A selectable value in a column's filter menu. */
 export interface FilterOption {
@@ -184,29 +195,36 @@ export function applyFilters(
     if (filters.sources.length > 0 && !filters.sources.includes(displaySourceId(ticket))) {
       return false;
     }
-    if (filters.status && ticket.status.native !== filters.status) return false;
-
-    if (filters.priority === NO_PRIORITY) {
-      if (ticket.priority) return false;
-    } else if (filters.priority && ticket.priority?.native !== filters.priority) {
+    if (filters.statuses.length > 0 && !filters.statuses.includes(ticket.status.native)) {
       return false;
     }
 
-    if (filters.assignee === UNASSIGNED) {
-      if (ticket.assignees.length > 0) return false;
-    } else if (filters.assignee === ME) {
-      // "Me" matches against the whole key set, not a single value (see `ME`).
-      const match = ticket.assignees.some((a) => meKeySet.has(`${ticket.sourceId}:${a.id}`));
-      if (!match) return false;
-    } else if (filters.assignee) {
+    if (
+      filters.priorities.length > 0 &&
+      !filters.priorities.includes(ticket.priority?.native ?? NO_PRIORITY)
+    ) {
+      return false;
+    }
+
+    if (filters.assignees.length > 0) {
       // Assignee keys are source-namespaced; see assigneeOptions.
-      const match = ticket.assignees.some((a) => `${ticket.sourceId}:${a.id}` === filters.assignee);
+      const keys = ticket.assignees.map((a) => `${ticket.sourceId}:${a.id}`);
+      const match = filters.assignees.some((wanted) =>
+        wanted === UNASSIGNED
+          ? keys.length === 0
+          : wanted === ME
+            ? // "Me" matches against the whole key set, not a single value (see `ME`).
+              keys.some((key) => meKeySet.has(key))
+            : keys.includes(wanted),
+      );
       if (!match) return false;
     }
 
     if (
-      filters.container &&
-      (!ticket.container || `${ticket.sourceId}:${ticket.container.id}` !== filters.container)
+      filters.containers.length > 0 &&
+      !(
+        ticket.container && filters.containers.includes(`${ticket.sourceId}:${ticket.container.id}`)
+      )
     ) {
       return false;
     }
