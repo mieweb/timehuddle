@@ -523,9 +523,14 @@ export async function createHuddlePost(
     // the post through — hold them back too, or they'd be visible to
     // teammates for as long as the post itself stays hidden.
     try {
-      await hideMediaUntilDelivery(doc.attachments, doc._id);
+      await hideMediaUntilDelivery(doc.attachments, userId, doc._id);
     } catch (err) {
-      console.error('[huddle] failed to hide scheduled post attachments:', err);
+      // Don't publish a post that's scheduled (hidden) but whose attachments
+      // never got the same guard — undo the whole thing instead of only logging.
+      await cancelPostDelivery(doc._id.toHexString());
+      await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
+      await discardMedia(media);
+      throw err;
     }
   } else {
     notifyPostRecipients(doc, team)
@@ -718,11 +723,15 @@ Meteor.methods({
   async 'huddle.sendScheduledNow'({ postId } = {}) {
     const identity = await requireIdentity(this);
     await requireOwnScheduledPost(identity.userId, postId);
-    const { delivered, failedRecipientIds } = await deliverScheduledPost(postId, { force: true });
+    const { delivered, failedRecipientIds, revealMediaRetry } = await deliverScheduledPost(postId, {
+      force: true,
+    });
     if (!delivered) {
       throw new Meteor.Error('conflict', 'This post has already been sent');
     }
-    if (failedRecipientIds?.length) scheduleMentionRetry(postId, failedRecipientIds);
+    if (failedRecipientIds?.length || revealMediaRetry) {
+      scheduleMentionRetry(postId, failedRecipientIds, revealMediaRetry);
+    }
     await cancelPostDelivery(postId);
     return { id: postId };
   },
@@ -866,8 +875,19 @@ Meteor.methods({
       const removed = (replacedPost.attachments ?? []).filter((att) => !keptIds.has(att.mediaId));
       const added = (attachments ?? []).filter((att) => !priorIds.has(att.mediaId));
       try {
-        if (removed.length) await revealMedia(removed);
-        if (added.length) await hideMediaUntilDelivery(added, replacedPost._id);
+        if (removed.length) await revealMedia(removed, replacedPost.userId);
+        if (added.length) {
+          // Re-read right before holding anything new back: a delivery can
+          // land between the update above and here, revealing the
+          // already-committed new attachments — hiding them now would leave
+          // nothing left to ever reveal them again.
+          const current = await rawDb()
+            .collection('huddlePosts')
+            .findOne({ _id: replacedPost._id }, { projection: { deliveredAt: 1 } });
+          if (current?.deliveredAt == null) {
+            await hideMediaUntilDelivery(added, replacedPost.userId, replacedPost._id);
+          }
+        }
       } catch (err) {
         console.error('[huddle] failed to reconcile scheduled post attachment visibility:', err);
       }
@@ -959,7 +979,7 @@ Meteor.methods({
       if (isAwaitingDelivery(deletedPost)) {
         await cancelPostDelivery(postId);
         // Deleted before delivery: nothing will ever unhide its attachments otherwise.
-        await revealMedia(deletedPost.attachments);
+        await revealMedia(deletedPost.attachments, deletedPost.userId);
       }
     }
     

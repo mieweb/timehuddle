@@ -434,11 +434,24 @@ export async function discardMedia(docs) {
     .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
 }
 
-/** `mediaitems` ids from a post's `attachments`, valid ObjectId hex only. */
-function attachmentMediaIds(attachments) {
-  return [...new Set((attachments ?? []).map((att) => att.mediaId))]
-    .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
-    .map((id) => new ObjectId(id));
+/**
+ * Match filter for the `mediaitems` backing a post's attachments. Images and
+ * documents reference the library row's own `_id`; a composer-staged video's
+ * `mediaId` is Pulse's `videoid` instead (src/features/huddle/api.ts
+ * uploadMedia) — `addToLibrary` doesn't mint the row's own `_id` until the
+ * upload lands, so it's matched by `videoid` rather than `_id`.
+ */
+function attachmentMediaFilter(attachments) {
+  const mediaIds = [...new Set((attachments ?? []).map((att) => att.mediaId))].filter(
+    (id) => typeof id === 'string' && id,
+  );
+  const objectIds = mediaIds.filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
+  const videoIds = mediaIds.filter((id) => !/^[a-f0-9]{24}$/i.test(id));
+  const clauses = [
+    ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
+    ...(videoIds.length ? [{ videoid: { $in: videoIds } }] : []),
+  ];
+  return clauses.length ? { $or: clauses } : null;
 }
 
 /**
@@ -447,22 +460,27 @@ function attachmentMediaIds(attachments) {
  * destination both land in `mediaitems`) until the post is actually
  * delivered — otherwise the raw file is visible to teammates the whole time
  * the post itself stays hidden, which defeats scheduling entirely.
+ *
+ * Scoped to `userId` (the post's own author): an attachment's `mediaId` is
+ * client-supplied, so without this a post could name someone else's media
+ * and hide it out from under them — this way that reference just can't
+ * match anything, same as it already couldn't write anything else of theirs.
  */
-export async function hideMediaUntilDelivery(attachments, postId) {
-  const ids = attachmentMediaIds(attachments);
-  if (!ids.length) return;
+export async function hideMediaUntilDelivery(attachments, userId, postId) {
+  const filter = attachmentMediaFilter(attachments);
+  if (!filter) return;
   await rawDb()
     .collection('mediaitems')
-    .updateMany({ _id: { $in: ids } }, { $set: { pendingPostId: postId } });
+    .updateMany({ ...filter, userId }, { $set: { pendingPostId: postId } });
 }
 
 /** Undo {@link hideMediaUntilDelivery}: the post delivered, or was deleted before it did. */
-export async function revealMedia(attachments) {
-  const ids = attachmentMediaIds(attachments);
-  if (!ids.length) return;
+export async function revealMedia(attachments, userId) {
+  const filter = attachmentMediaFilter(attachments);
+  if (!filter) return;
   await rawDb()
     .collection('mediaitems')
-    .updateMany({ _id: { $in: ids } }, { $unset: { pendingPostId: '' } });
+    .updateMany({ ...filter, userId }, { $unset: { pendingPostId: '' } });
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────

@@ -29,6 +29,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
+import { isAwaitingDelivery } from './huddle-schedule-core';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -87,6 +88,16 @@ async function addToLibrary(userId, video) {
   const existing = await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
   if (existing) return existing._id.toHexString();
   const _id = new ObjectId();
+  // The composer's own attach flow (src/features/huddle/api.ts uploadMedia)
+  // stages a video's `mediaId` as this `videoid` before this row exists at
+  // all — if a still-undelivered scheduled post already references it, this
+  // row must start out held back too, or it's visible before its post is.
+  const pendingPost = await rawDb()
+    .collection('huddlePosts')
+    .findOne(
+      { userId, 'attachments.mediaId': video.artifactId },
+      { projection: { _id: 1, deliverAt: 1, deliveredAt: 1 } },
+    );
   await media.insertOne({
     _id,
     userId,
@@ -101,6 +112,7 @@ async function addToLibrary(userId, video) {
     altText: null,
     thumbnail: null,
     uploadedAt: new Date(),
+    ...(pendingPost && isAwaitingDelivery(pendingPost) ? { pendingPostId: pendingPost._id } : {}),
   });
   return _id.toHexString();
 }
