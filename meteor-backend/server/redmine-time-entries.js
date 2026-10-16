@@ -124,8 +124,10 @@ const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
  * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
- * @param {Map<string, {subject: string, trackerName: string|null}>} issuesById
- * @param {(trackerName: string|null) => {activityId: number|null, activityName: string|null, reason: string}} resolveActivity
+ * @param {Map<string, {subject: string, trackerName: string|null, projectId: number|null}>} issuesById
+ * @param {(issue: object|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
+ *   the activity for one issue, and the `options` its project allows. An
+ *   unresolved issue is passed as null.
  */
 export function buildPushRows(totals, issuesById, resolveActivity) {
   if (!Array.isArray(totals)) return [];
@@ -135,7 +137,7 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
       const issue = issuesById.get(String(total.ticketId)) ?? null;
       const hours =
         total.minutes == null ? toHours(total.seconds) : minutesToHours(total.minutes);
-      const activity = resolveActivity(issue?.trackerName ?? null);
+      const activity = resolveActivity(issue);
 
       return {
         ticketId: String(total.ticketId),
@@ -149,6 +151,8 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityId: activity.activityId,
         activityName: activity.activityName,
         activityReason: activity.reason,
+        // What the row may be sent under. `push` checks an override against it.
+        activityOptions: activity.options ?? [],
         // Every reason a row cannot be sent, so the dialog explains itself
         // rather than just disabling a checkbox.
         blockedReason: !isPushable(hours)

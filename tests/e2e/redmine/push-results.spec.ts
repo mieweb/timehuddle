@@ -15,7 +15,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { ClockPage } from '../pages/ClockPage';
 import {
-  activityList,
   connectedStatus,
   delayed,
   preview,
@@ -40,7 +39,6 @@ const rowFor = (page: Page, ticketId: string) =>
 async function openClock(page: Page, overrides: Record<string, StubValue>): Promise<RedmineStub> {
   const rm = await stubRedmine(page, {
     status: connectedStatus(),
-    'activities.list': activityList(),
     ...overrides,
   });
   await page.goto('/app/clock');
@@ -125,7 +123,7 @@ test.describe('Redmine push results', () => {
     ['unconfirmed', 'Sent, but Redmine did not let us confirm it'],
     ['push-interrupted', 'Not sent: another push took over. Try again'],
     ['already-synced-or-gone', 'Already sent, or no longer eligible'],
-    ['invalid-activity', 'That activity no longer exists in Redmine'],
+    ['invalid-activity', 'This issue’s project does not allow that activity'],
   ] as const) {
     test(`explains "${reason}" in words`, async ({ page }) => {
       await openClock(page, {
