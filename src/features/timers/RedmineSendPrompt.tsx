@@ -130,9 +130,10 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         // The activity shown, even when left as the default: the server checks
         // it is still allowed, and does not pick again behind the user's back.
         activityId: activityId ?? row?.activityId ?? undefined,
-        // The Billable value shown: the server refuses the entry if it moved since.
-        // Unread (the preview failed) is not "none shown", so nothing is claimed.
-        billable: row ? row.billable : undefined,
+        // The Billable value shown, `null` for none: the server refuses the entry
+        // if it moved since. When the preview failed nothing was shown, so a value
+        // the server finds on its own is refused, never sent unseen.
+        billable: row?.billable ?? null,
       });
     } catch (err) {
       // Nothing was decided (a push already running, the network): the prompt

@@ -392,6 +392,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
       expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
@@ -412,6 +413,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -430,6 +432,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: 'Fixed the clock',
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -447,6 +450,7 @@ describe('TicketStartProvider', () => {
       expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
         comment: undefined,
         activityId: undefined,
+        billable: null,
       });
     });
 
@@ -611,17 +615,21 @@ describe('TicketStartProvider', () => {
       expect(screen.queryByText('Loading activities…')).toBeNull();
     });
 
-    it('claims no Billable value when the preview could not be read', async () => {
+    it('says no Billable was shown when the preview could not be read, so one found later is refused', async () => {
       mockPreview.mockRejectedValue(new Error('Redmine is unreachable'));
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
 
       fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
 
-      await waitFor(() => expect(mockSend).toHaveBeenCalled());
-      // Not `null`, which would say "none was shown": nothing was shown at all.
-      expect(vi.mocked(mockSend).mock.calls[0][2]).not.toHaveProperty('billable', null);
-      expect(vi.mocked(mockSend).mock.calls[0][2]?.billable).toBeUndefined();
+      // `null`, not left out: left out, the server would send a value nobody saw.
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: undefined,
+          billable: null,
+        }),
+      );
     });
 
     it('does not claim an entry was sent when nothing was left to send', async () => {
