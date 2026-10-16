@@ -423,7 +423,10 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
 // Library and profile listings skip post-embedded media (it belongs to the
 // post's team, not to everyone who may view the author's profile) and media
 // still held back for a scheduled post that hasn't been delivered yet.
-const LIBRARY_ITEMS = { embedded: { $ne: true }, pendingPostId: { $exists: false } };
+const LIBRARY_ITEMS = {
+  embedded: { $ne: true },
+  $or: [{ pendingPostIds: { $exists: false } }, { pendingPostIds: { $size: 0 } }],
+};
 
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
@@ -461,6 +464,12 @@ function attachmentMediaFilter(attachments) {
  * delivered — otherwise the raw file is visible to teammates the whole time
  * the post itself stays hidden, which defeats scheduling entirely.
  *
+ * `pendingPostIds` is a set, not a single value: the same author-owned media
+ * can be attached to two pending posts at once, and each needs its own
+ * tracked hold that the OTHER's delivery or deletion can't clear — `$addToSet`
+ * so scheduling the same attachment on a second post adds to the set instead
+ * of clobbering the first post's entry.
+ *
  * Scoped to `userId` (the post's own author): an attachment's `mediaId` is
  * client-supplied, so without this a post could name someone else's media
  * and hide it out from under them — this way that reference just can't
@@ -471,25 +480,22 @@ export async function hideMediaUntilDelivery(attachments, userId, postId) {
   if (!filter) return;
   await rawDb()
     .collection('mediaitems')
-    .updateMany({ ...filter, userId }, { $set: { pendingPostId: postId } });
+    .updateMany({ ...filter, userId }, { $addToSet: { pendingPostIds: postId } });
 }
 
 /**
- * Undo {@link hideMediaUntilDelivery}: the post delivered, or was deleted
- * before it did.
- *
- * Scoped to `postId` as well as `userId`: the same author-owned media can be
- * attached to two pending posts at once, and `pendingPostId` only holds the
- * most recent one's id — releasing by `userId` alone would clear a hold the
- * OTHER post still needs the moment this one delivers or is deleted first.
- * Only release a hold this specific post actually still owns.
+ * Undo {@link hideMediaUntilDelivery} for one post: it delivered, or was
+ * deleted before it did. `$pull` removes only this post's own entry from
+ * `pendingPostIds`, leaving any other pending post's hold on the same
+ * attachment untouched — releasing by `userId` alone, or overwriting the
+ * whole field, would drop a hold the OTHER post still needs.
  */
 export async function revealMedia(attachments, userId, postId) {
   const filter = attachmentMediaFilter(attachments);
   if (!filter) return;
   await rawDb()
     .collection('mediaitems')
-    .updateMany({ ...filter, userId, pendingPostId: postId }, { $unset: { pendingPostId: '' } });
+    .updateMany({ ...filter, userId }, { $pull: { pendingPostIds: postId } });
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────

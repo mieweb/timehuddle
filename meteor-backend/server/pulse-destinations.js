@@ -29,7 +29,6 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
-import { isAwaitingDelivery } from './huddle-schedule-core';
 import { requireTeamMembership } from './permissions.js';
 import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
@@ -82,6 +81,18 @@ const attachment = (kind, check) => ({
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
+/** Every one of `userId`'s posts that still awaits delivery and references `videoArtifactId`. */
+async function pendingPostIdsFor(userId, videoArtifactId) {
+  const posts = await rawDb()
+    .collection('huddlePosts')
+    .find(
+      { userId, 'attachments.mediaId': videoArtifactId, deliverAt: { $exists: true }, deliveredAt: null },
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+  return posts.map((post) => post._id);
+}
+
 /** The video's media-library item, created once; returns its id. */
 async function addToLibrary(userId, video) {
   const media = rawDb().collection('mediaitems');
@@ -92,13 +103,12 @@ async function addToLibrary(userId, video) {
   // stages a video's `mediaId` as this `videoid` before this row exists at
   // all — if a still-undelivered scheduled post already references it, this
   // row must start out held back too, or it's visible before its post is.
-  const pendingPost = await rawDb()
-    .collection('huddlePosts')
-    .findOne(
-      { userId, 'attachments.mediaId': video.artifactId },
-      { projection: { _id: 1, deliverAt: 1, deliveredAt: 1 } },
-    );
-  const pendingPostId = pendingPost && isAwaitingDelivery(pendingPost) ? pendingPost._id : undefined;
+  // Resolved only AFTER the row exists (not from a lookup taken before it
+  // did): any number of posts can reference the same author-owned
+  // attachment, and any of them can be created, edited, delivered, or
+  // deleted around this insert, now that Agenda wakes near-instantly — a
+  // lookup that found nothing yet, taken before the row existed, must not be
+  // the only chance to ever notice a hold that applies to it.
   await media.insertOne({
     _id,
     userId,
@@ -113,25 +123,22 @@ async function addToLibrary(userId, video) {
     altText: null,
     thumbnail: null,
     uploadedAt: new Date(),
-    ...(pendingPostId ? { pendingPostId } : {}),
   });
-  if (pendingPostId) {
-    // The lookup above can race with that very post's own delivery, deletion,
-    // or an attachment edit that drops this video (all can run between it and
-    // the insert, now that Agenda wakes near-instantly) — re-check right away
-    // and release the hold immediately if it no longer applies; nothing else
-    // will ever revisit this specific row again, so a stale hold here would
-    // stay stuck forever. Re-matches the same attachment reference as the
-    // lookup above, not just "is the post still pending": an edit can leave
-    // the post pending while no longer referencing this video at all.
-    const stillPending = await rawDb()
-      .collection('huddlePosts')
-      .findOne(
-        { _id: pendingPostId, deliveredAt: null, 'attachments.mediaId': video.artifactId },
-        { projection: { _id: 1 } },
-      );
-    if (!stillPending) {
-      await media.updateOne({ _id }, { $unset: { pendingPostId: '' } });
+  const pendingIds = await pendingPostIdsFor(userId, video.artifactId);
+  if (pendingIds.length) {
+    // `$addToSet` rather than `$set`: hideMediaUntilDelivery can add its own
+    // entries to this same row concurrently (once the row exists, it's a
+    // normal target), and overwriting here would drop one of those.
+    await media.updateOne({ _id }, { $addToSet: { pendingPostIds: { $each: pendingIds } } });
+    // Re-verify right away: one of the posts found above can itself deliver
+    // or be deleted in this same gap, and nothing else will ever revisit
+    // this specific row again to notice — only `$pull` the ones that are no
+    // longer actually pending, never the whole field, so a concurrent add
+    // from another post isn't lost either.
+    const stillPendingIds = new Set((await pendingPostIdsFor(userId, video.artifactId)).map(String));
+    const stale = pendingIds.filter((id) => !stillPendingIds.has(String(id)));
+    if (stale.length) {
+      await media.updateOne({ _id }, { $pull: { pendingPostIds: { $in: stale } } });
     }
   }
   return _id.toHexString();

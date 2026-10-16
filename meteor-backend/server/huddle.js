@@ -883,7 +883,15 @@ Meteor.methods({
         try {
           await revealMedia(removed, replacedPost.userId, replacedPost._id);
         } catch (err) {
+          // The edit already committed without `removed` in the attachments
+          // list, so there's nothing left to ever revisit this release again
+          // except a retry job carrying the attachments and ids on its own.
           console.error('[huddle] failed to reveal a removed scheduled-post attachment:', err);
+          scheduleMentionRetry(postId, [], {
+            attachments: removed,
+            userId: replacedPost.userId,
+            postId: replacedPost._id,
+          });
         }
       }
       if (added.length) {
