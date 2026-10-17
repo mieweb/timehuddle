@@ -81,15 +81,27 @@ export async function findPostByText(
  * Open the Clock tab's plan composer. Needs the plan gate on for the selected
  * team (see {@link setSharedTeamPlanGate}); a session left open by an earlier
  * test is wrapped up and closed first, since that hides the plan composer.
+ *
+ * The composer starts collapsed to a single-line stand-in until focused (see
+ * `composerExpanded` in ClockPage.tsx) — focusing it swaps in the real editor.
  */
 export async function openComposer(page: Page): Promise<void> {
   await new ClockPage(page).ensureClockedOut();
+  const collapsed = page.getByRole('textbox', { name: 'Write a plan' });
+  if (
+    await collapsed
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
+    await collapsed.click();
+  }
   await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
 }
 
-/** The plan composer's submit button ("Publish" when it resumed a draft). */
+/** The plan composer's submit button. */
 export function postButton(page: Page): Locator {
-  return page.getByRole('button', { name: /(Post|Publish) plan and clock in/ });
+  return page.getByRole('button', { name: 'Clock in with a plan' });
 }
 
 /** Close the session a posted plan opened, so the next test starts clocked out. */
@@ -440,5 +452,5 @@ export async function attachTicket(page: Page, ticketTitle: string): Promise<voi
  */
 export async function submitPost(page: Page): Promise<void> {
   await postButton(page).click();
-  await page.getByText('Wrap up before you clock out').waitFor({ timeout: 30000 });
+  await page.getByRole('heading', { name: 'What did you work on?' }).waitFor({ timeout: 30000 });
 }
