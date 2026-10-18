@@ -24,6 +24,8 @@
     "ui:sync": "node scripts/vendor-ui.mjs sync",
     "typecheck": "tsc --noEmit",
     "test": "playwright test -c tests/playwright.config.ts",
+    "test:sharded": "tests/e2e-shard-runner.sh",
+    "test:sharded:cleanup": "tests/e2e-shard-cleanup.sh",
     "test:headed": "playwright test -c tests/playwright.config.ts --headed",
     "test:ui": "playwright test -c tests/playwright.config.ts --ui",
     "test:unit": "vitest run",
