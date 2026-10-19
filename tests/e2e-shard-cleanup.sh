@@ -39,17 +39,20 @@ descends_from_self() {
   return 1
 }
 
+# This script's ancestors — when the runner calls this from its EXIT trap,
+# the runner is one of them.
+ancestors=" "
+p=$PPID
+while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+  ancestors+="$p "
+  p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+done
+
 # PIDs carrying this run's ID, minus this script, its descendants, and its
-# ancestors (the runner waiting on this very call). Filtered by ancestry, not
-# by process group, so it's correct whether or not the caller has job control.
+# ancestors. Filtered by ancestry, not by process group, so it's correct
+# whether or not the caller has job control.
 owned_pids() {
-  local ancestors p pid
-  ancestors=" "
-  p=$PPID
-  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
-    ancestors+="$p "
-    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
-  done
+  local pid
   for pid in $(ps eww -ax -o pid=,command= 2>/dev/null \
     | grep -E "E2E_SHARD_RUN_ID=${RUN_ID}( |$)" | awk '{ print $1 }'); do
     case "$ancestors" in *" $pid "*) continue ;; esac
@@ -62,6 +65,34 @@ owned_pids() {
     echo "$pid"
   done
 }
+
+# Run standalone while a run is still live, the runner itself must be stopped
+# first: it exports E2E_SHARD_RUN_ID after it starts, and ps only shows a
+# process's starting environment, so the ID sweep below never finds it. Left
+# alive, it could launch fresh shards after this script removed the state
+# file. SIGTERM makes the runner run its own EXIT-trap cleanup; waiting for it
+# to exit before going further keeps the two cleanup paths from racing. The
+# PID comes from the run ID (e2e-<time>-<runner pid>) and is only trusted if
+# it is still an e2e-shard-runner.sh process. Skipped when the runner is the
+# caller (it's an ancestor).
+if [ -n "$RUN_ID" ]; then
+  runner_pid="${RUN_ID##*-}"
+  if case "$ancestors" in *" $runner_pid "*) false ;; *) true ;; esac &&
+    ps -o command= -p "$runner_pid" 2>/dev/null | grep -q "e2e-shard-runner.sh"; then
+    echo "=== Stopping sharded run still in progress (runner pid $runner_pid) ==="
+    kill -TERM "$runner_pid" 2>/dev/null || true
+    for _ in $(seq 1 60); do
+      kill -0 "$runner_pid" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$runner_pid" 2>/dev/null; then
+      echo "runner did not exit within 60s, SIGKILL"
+      kill -KILL "$runner_pid" 2>/dev/null || true
+    else
+      echo "runner exited after running its own cleanup"
+    fi
+  fi
+fi
 
 if [ -n "$RUN_ID" ]; then
   echo "=== Terminating processes owned by run $RUN_ID ==="
