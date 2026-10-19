@@ -971,16 +971,15 @@ export default function Huddle() {
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
-    // The composer's own roster (`mentions`) only covers `postingTeamId`; the
-    // Personal view can show a post from any team, so load that team's own
-    // roster to resolve against rather than reuse a roster from a different
-    // team (or skip recomputing it).
+    // Always load the post's own team roster rather than reuse the composer's:
+    // that one only covers `postingTeamId` (the Personal view shows posts from
+    // any team), and it is empty while loading or after a failed fetch, which
+    // would save `mentions: []` and deliver a scheduled post silently. A failed
+    // fetch here fails the save instead.
     try {
-      const editedMentions = (
-        post.teamId === postingTeamId
-          ? mentions.detect(body)
-          : detectMentions(body, await fetchTeamMembers(post.teamId))
-      ).filter((participantId) => participantId !== SYSTEM_PARTICIPANT_ID);
+      const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
+        (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
+      );
       await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
