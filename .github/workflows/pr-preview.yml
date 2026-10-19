@@ -131,6 +131,94 @@ jobs:
             echo "Ensure ghcr.io/mieweb/timehuddle is manually set to public."
           fi
 
+  # ── E2E tests against the PR image, one shard per runner ───────────────────
+  # Reuses the image build-and-push just pushed (Mongo + prebuilt Meteor
+  # bundle), so the backend under test always matches this PR's code and no
+  # second build is needed. All the wiring lives in the script, which runs the
+  # same way locally on Linux — see tests/e2e-container-shard.sh.
+  e2e:
+    if: github.event.action != 'closed'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: e2e-${{ github.event.pull_request.number }}-${{ matrix.shard }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # The shard count is the length of this list; --shard below reads it
+        # back via strategy.job-total, so this is the only place to change it.
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run e2e shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/blob-report
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: >-
+          tests/e2e-container-shard.sh "$IMAGE_TAG"
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+          --reporter=list,blob
+
+      - name: Upload shard blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 3
+
+  # ── Merge the shard reports into one HTML report ───────────────────────────
+  e2e-report:
+    if: ${{ !cancelled() && github.event.action != 'closed' }}
+    needs: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge shard reports
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   # ── Deploy preview container via the container API ─────────────────────────
   deploy-preview:
     if: github.event.action != 'closed'

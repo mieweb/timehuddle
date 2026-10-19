@@ -27,6 +27,7 @@ _build
 /test-results/
 /playwright-report/
 /playwright-report-shard*/
+/blob-report/
 .playwright-mcp/
 
 # Local runtime secrets (never commit)
