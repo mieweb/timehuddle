@@ -39,19 +39,18 @@ async function sendMentionNotification(userId, post, { title, body }) {
   }
 }
 
-/**
- * Notify the users @mentioned in `post` — never its author, and only those
- * still on `team`, so a mention can't leak the text outside the team. Returns
- * the ids of any recipients whose notification failed, so the caller can
- * retry them later rather than lose them silently.
- */
-export async function notifyPostRecipients(post, team) {
-  const onTeam = new Set([...(team.members ?? []), ...(team.admins ?? [])].map(String));
-  const recipients = [...new Set(post.content?.mentions ?? [])].filter(
-    (userId) => userId !== post.userId && onTeam.has(String(userId)),
-  );
-  if (!recipients.length) return [];
+/** Ids of everyone still on `team` (members and admins), as strings. */
+function teamMemberIds(team) {
+  return new Set([...(team.members ?? []), ...(team.admins ?? [])].map(String));
+}
 
+/**
+ * Send `post`'s mention notification to each of `recipientIds`. Returns the
+ * ids it couldn't reach, so the caller can retry them later rather than lose
+ * them silently.
+ */
+async function sendMentionNotifications(post, recipientIds) {
+  if (!recipientIds.length) return [];
   let text;
   try {
     text = await mentionNotificationText(post);
@@ -59,15 +58,28 @@ export async function notifyPostRecipients(post, team) {
     // Shared lookup (author display name) failed before any send was attempted —
     // treat everyone as failed so the retry job still gets a chance to reach them.
     console.error('[huddle] mention notification text failed:', err);
-    return recipients;
+    return recipientIds;
   }
   const results = await Promise.all(
-    recipients.map(async (userId) => ({
+    recipientIds.map(async (userId) => ({
       userId,
       ok: await sendMentionNotification(userId, post, text),
     })),
   );
   return results.filter((r) => !r.ok).map((r) => r.userId);
+}
+
+/**
+ * Notify the users @mentioned in `post` — never its author, and only those
+ * still on `team`, so a mention can't leak the text outside the team. Returns
+ * the ids of any recipients whose notification failed.
+ */
+export async function notifyPostRecipients(post, team) {
+  const onTeam = teamMemberIds(team);
+  const recipients = [...new Set(post.content?.mentions ?? [])].filter(
+    (userId) => userId !== post.userId && onTeam.has(String(userId)),
+  );
+  return sendMentionNotifications(post, recipients);
 }
 
 /**
@@ -86,7 +98,7 @@ export async function retryMentionNotifications(postId, recipientIds) {
   const team = await findPostTeam(post.teamId);
   if (!team) return [];
 
-  const onTeam = new Set([...(team.members ?? []), ...(team.admins ?? [])].map(String));
+  const onTeam = teamMemberIds(team);
   const candidates = [...new Set(recipientIds)].filter((userId) => onTeam.has(String(userId)));
   if (!candidates.length) return [];
 
@@ -98,20 +110,10 @@ export async function retryMentionNotifications(postId, recipientIds) {
     )
     .toArray();
   const notified = new Set(already.map((n) => String(n.userId)));
-  const pending = candidates.filter((userId) => !notified.has(String(userId)));
-  if (!pending.length) return [];
-
-  let text;
-  try {
-    text = await mentionNotificationText(post);
-  } catch (err) {
-    console.error('[huddle] mention notification text failed:', err);
-    return pending;
-  }
-  const results = await Promise.all(
-    pending.map(async (userId) => ({ userId, ok: await sendMentionNotification(userId, post, text) })),
+  return sendMentionNotifications(
+    post,
+    candidates.filter((userId) => !notified.has(String(userId))),
   );
-  return results.filter((r) => !r.ok).map((r) => r.userId);
 }
 
 /** A post's team, whichever form (string or legacy ObjectId) its id is stored in. */
