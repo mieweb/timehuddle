@@ -81,7 +81,6 @@ const attachment = (kind, check) => ({
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
-
 /** The video's media-library item, created once; returns its id. */
 async function addToLibrary(userId, video) {
   const media = rawDb().collection('mediaitems');
