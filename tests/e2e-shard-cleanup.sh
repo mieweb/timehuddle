@@ -45,5 +45,24 @@ for app in "${SHARD_APPS[@]}"; do
   fi
 done
 
-echo "=== Remaining e2e-related processes (should be empty) ==="
-ps aux | grep -E "playwright test -c tests/playwright|e2e-shard-runner\.sh|vite --port 300[0-9]" | grep -v grep || echo "(none)"
+echo "=== Terminating remaining e2e-related processes ==="
+# This is the real backstop for the SIGKILL case: the runner's own PGID
+# tracking (e2e-shard-runner.sh) only exists in that process's memory, so a
+# SIGKILL'd runner leaves no record for THIS script to read — matching by
+# command line is the only way left to find a stranded worker or browser.
+#
+# Deliberately does NOT match "e2e-shard-runner.sh" itself: this script is
+# normally invoked FROM that runner's own cleanup() trap while it's still
+# alive and waiting on this very call — matching its command line here would
+# kill the live, still-cleaning-up caller out from under itself (confirmed:
+# this is exactly what the first version of this line did, killing the
+# runner mid-cleanup and taking the whole run down with SIGKILL). A runner
+# that's actually gone (the SIGKILL case this script exists for) was never
+# going to show up in this search anyway — it's already dead.
+remaining_pids=$(ps aux | grep -E "playwright test -c tests/playwright|vite --port 300[0-9]|chrome-headless-shell" | grep -v grep | awk '{print $2}')
+if [ -n "$remaining_pids" ]; then
+  echo "killing: $remaining_pids"
+  kill -9 $remaining_pids 2>/dev/null || true
+else
+  echo "(none)"
+fi

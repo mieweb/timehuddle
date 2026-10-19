@@ -21,6 +21,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Job control: with this on, each `( ... ) &` background shard job below
+# becomes its own process group (PGID == its own PID), so `kill -TERM -$pgid`
+# in cleanup() reaches the whole tree — the npx/node/playwright process AND
+# any Chromium children it spawned — not just the top-level shell `wait`
+# already sees. Without it, those children keep running after this script
+# exits, still hammering the shard's Mongo/Meteor backend.
+set -m
+
 # Number of shards to run — must match 1 + E2E_EXTRA_SHARDS in
 # ecosystem.config.cjs (that's where the extra shards' pm2 apps come from).
 # Ports/db names are derived by formula below, not hardcoded, so growing the
@@ -47,12 +55,34 @@ shard_def() {
 # Handles graceful exits (success, failure, Ctrl-C). A run that gets
 # force-killed (SIGKILL) skips this entirely — see e2e-shard-cleanup.sh,
 # which is the backstop for that case and shares the same kill logic.
+#
+# INT/TERM only set the exit code and return — they do NOT call cleanup
+# directly. Bash still runs the EXIT trap after any trap handler returns (or
+# calls `exit`), so cleanup fires exactly once either way. The earlier version
+# called cleanup() from the INT/TERM handlers too and then returned instead of
+# exiting: a Ctrl-C during the health-polling loop below would resume that
+# loop and launch Playwright right after cleanup had just stopped the shard
+# backends it depends on; a Ctrl-C during `wait` would only interrupt that one
+# `wait` call and leave every other shard's job running.
+pgids=()
 cleanup() {
   echo
   echo "=== Cleanup ==="
+  # Negative PID = "the whole process group", not just that one PID — see the
+  # `set -m` comment above for why this reaches each shard's Chromium/worker
+  # children too. Best-effort: a group that already exited errors harmlessly.
+  for pgid in "${pgids[@]:-}"; do
+    [ -n "$pgid" ] && kill -TERM -"$pgid" 2>/dev/null || true
+  done
+  sleep 1
+  for pgid in "${pgids[@]:-}"; do
+    [ -n "$pgid" ] && kill -KILL -"$pgid" 2>/dev/null || true
+  done
   tests/e2e-shard-cleanup.sh
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 wait_for_health() {
   local url="$1" label="$2" deadline=$((SECONDS + 120))
@@ -73,7 +103,27 @@ for shard_num in $(seq 1 "$n"); do
 
   if [ -n "$app" ]; then
     echo "=== Ensuring shard-$shard_num backend ($app) is running ==="
-    pm2 start ecosystem.config.cjs --only "$app" > /dev/null 2>&1 || true
+    # ecosystem.config.cjs is gitignored/local-only (it holds real dev
+    # secrets), so its shard app definitions aren't something this repo can
+    # ship — but a developer missing them from their own copy deserves a
+    # clear error now, not a silent no-op followed by a 120s health-check
+    # timeout with no explanation. Fail immediately with PM2's own message,
+    # pointing at the generator (E2E_EXTRA_SHARDS) their copy needs it from.
+    #
+    # Checked independently of `pm2 start`'s own exit code: PM2's CLI is not
+    # guaranteed to return nonzero for "no such app in this config" (some
+    # subcommands print a warning and exit 0) — `pm2 describe` on the name
+    # itself is the one check that's actually conditioned on the app existing.
+    pm2_output=$(pm2 start ecosystem.config.cjs --only "$app" 2>&1) || true
+    if ! pm2 describe "$app" > /dev/null 2>&1; then
+      echo "ERROR: pm2 app '$app' does not exist after 'pm2 start':" >&2
+      echo "$pm2_output" >&2
+      echo "Your local (gitignored) ecosystem.config.cjs likely predates the" \
+        "E2E_EXTRA_SHARDS shard-backend generator — see its comments for the" \
+        "app shape '$app' needs, or set E2E_SHARDS=1 to run a single shard" \
+        "against only the always-on dev backend." >&2
+      exit 1
+    fi
   fi
 
   wait_for_health "http://localhost:$port" "shard-$shard_num backend"
@@ -90,12 +140,18 @@ for shard_num in $(seq 1 "$n"); do
     MONGO_URL="mongodb://127.0.0.1:27017/$db?replicaSet=rs0" \
     API_TARGET="http://localhost:$port" \
     METEOR_BASE_URL="http://localhost:$port" \
+    METEOR_WS="ws://localhost:$port/websocket" \
     E2E_PORT="$e2e_port" \
     PLAYWRIGHT_HTML_REPORT="../playwright-report-shard$shard_num" \
-    npx playwright test -c tests/playwright.config.ts --shard="$shard_num/$n" "$@" \
+    npx playwright test -c tests/playwright.config.ts --output="test-results/shard$shard_num" --shard="$shard_num/$n" "$@" \
       > "playwright-report-shard$shard_num.log" 2>&1
   ) &
-  pids+=("$!")
+  pid="$!"
+  pids+=("$pid")
+  # With `set -m` above, a backgrounded job's PGID equals its own PID — this
+  # is what cleanup() targets with `kill -TERM -$pgid` to reach the whole
+  # tree, not just this one subshell.
+  pgids+=("$pid")
 done
 
 status=0
