@@ -1194,6 +1194,14 @@ export interface HuddlePost {
   session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
+  /** Scheduled post (#596): only its author sees it, and nobody is notified, until then. */
+  deliverAt?: string;
+  /** When a scheduled post was delivered; absent while it is still waiting. */
+  deliveredAt?: string;
+  /** Bumped on every write to deliverAt/deliveredAt/postDate — lets a client
+   *  merging a cached snapshot against a live one tell which is newer, since
+   *  those writes deliberately don't touch updatedAt. */
+  scheduleVersion?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1277,7 +1285,17 @@ export const huddleApi = {
     postDate?: string;
     clockEventId?: string;
     wrapUp?: boolean;
+    /** ISO date to schedule the post for. */
+    deliverAt?: string;
   }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+
+  /** Deliver one of my scheduled posts now. */
+  sendScheduledNow: (postId: string) =>
+    wormholeCall<{ id: string }>('huddle.sendScheduledNow', { postId }),
+
+  /** Move one of my scheduled posts to a new time; `postDate` is its new local date. */
+  reschedulePost: (postId: string, schedule: { deliverAt: string; postDate?: string }) =>
+    wormholeCall<{ id: string }>('huddle.reschedulePost', { postId, ...schedule }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
    * Pass attachments/ticketId to edit them (omit to leave untouched). */

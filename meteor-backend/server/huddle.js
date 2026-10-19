@@ -1,9 +1,20 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { isBeforeWindow, resolveSince } from './huddle-window-core';
+import { resolveSince } from './huddle-window-core';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
+import { createNotification } from './notify-core';
+import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
+import {
+  isAwaitingDelivery,
+  isHiddenFrom,
+  isOutsideWindow,
+  inWindowOrPending,
+  parseSchedule,
+  visibleTo,
+} from './huddle-schedule-core';
+import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -34,6 +45,11 @@ Meteor.startup(async () => {
     const posts = rawDb().collection('huddlePosts');
     await posts.createIndex({ teamId: 1, createdAt: -1 });
     await posts.createIndex({ userId: 1, createdAt: -1 });
+    // agenda.js's overdue-delivery sweep: undelivered posts by due time.
+    await posts.createIndex(
+      { deliveredAt: 1, deliverAt: 1 },
+      { partialFilterExpression: { deliverAt: { $exists: true } } }
+    );
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
@@ -153,6 +169,9 @@ async function enrichPost(post) {
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
+    deliverAt: post.deliverAt ? new Date(post.deliverAt).toISOString() : undefined,
+    deliveredAt: post.deliveredAt ? new Date(post.deliveredAt).toISOString() : undefined,
+    scheduleVersion: post.scheduleVersion ?? 0,
     createdAt: post.createdAt instanceof Date ? post.createdAt.toISOString() : String(post.createdAt),
     updatedAt: post.updatedAt instanceof Date ? post.updatedAt.toISOString() : String(post.updatedAt ?? post.createdAt),
   };
@@ -298,8 +317,11 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   });
 
   // Initial fetch and send — published posts only (drafts are author-only
-  // and never appear in the team feed), from the window onward.
-  const inWindow = { createdAt: { $gte: sinceDate } };
+  // and never appear in the team feed), from the window onward (or, for a
+  // scheduled post, from when it was actually delivered — and the caller's
+  // own still-waiting post regardless of age). A hidden scheduled post is
+  // the author's alone until it is delivered.
+  const inWindow = { $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate)] };
   let posts = await collection
     .find({ teamId, ...PUBLISHED, ...inWindow })
     .sort({ createdAt: -1 })
@@ -345,10 +367,11 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
         const docId = change.fullDocument._id.toHexString
           ? change.fullDocument._id.toHexString()
           : String(change.fullDocument._id);
-        // Older than the window: not this subscription's to send.
-        if (isBeforeWindow(change.fullDocument.createdAt, sinceDate)) return;
-        // Drafts never reach the feed.
-        if (change.fullDocument.status === 'draft') {
+        // Older than the window: not this subscription's to send — unless it's a
+        // scheduled post delivered within it, or the caller's own still-waiting post.
+        if (isOutsideWindow(change.fullDocument, sinceDate, self.userId)) return;
+        // Drafts never reach the feed; nor does someone else's undelivered hidden post.
+        if (change.fullDocument.status === 'draft' || isHiddenFrom(change.fullDocument, self.userId)) {
           if (sentIds.has(docId)) {
             sentIds.delete(docId);
             self.removed('huddlePosts', docId);
@@ -401,7 +424,7 @@ export async function requireTeamMember(userId, teamId) {
  */
 export async function createHuddlePost(
   userId,
-  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp },
+  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt },
 ) {
   if (!content || typeof content.text !== 'string') {
     throw new Meteor.Error('bad-request', 'content.text is required');
@@ -409,7 +432,12 @@ export async function createHuddlePost(
   if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
     throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
   }
-  await requireTeamMember(userId, teamId);
+  const { schedule, error: scheduleError } = parseSchedule({ deliverAt });
+  if (scheduleError) throw new Meteor.Error('bad-request', scheduleError);
+  if (schedule && (clockEventId || wrapUp === true)) {
+    throw new Meteor.Error('bad-request', 'Plan and wrap-up posts cannot be scheduled');
+  }
+  const team = await requireTeamMember(userId, teamId);
 
   // Validate ticketId if provided
   if (ticketId) {
@@ -469,6 +497,12 @@ export async function createHuddlePost(
     // session somehow has no plan post.
     ...(clockEventId ? { clockEventId } : {}),
     ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
+    ...(schedule ?? {}),
+    // Bumped on every write that changes deliverAt/deliveredAt/postDate, so a
+    // client merging a cached REST snapshot against a live DDP copy can tell
+    // which is actually newer — unlike updatedAt, which delivery and
+    // reschedule deliberately leave alone (neither reads as an edit).
+    ...(schedule ? { scheduleVersion: 1 } : {}),
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -479,7 +513,29 @@ export async function createHuddlePost(
     await discardMedia(media);
     throw err;
   }
-  
+
+  if (schedule) {
+    // The post itself (and, since libraryItemsFilter in uploads.js reads
+    // this same deliverAt/deliveredAt, its attachments too) is already
+    // hidden from everyone but its author the moment it's inserted above —
+    // nothing further needs holding back here, just the job to deliver it.
+    try {
+      await schedulePostDelivery(doc._id.toHexString(), schedule.deliverAt);
+    } catch (err) {
+      await rawDb().collection('huddlePosts').deleteOne({ _id: doc._id });
+      await discardMedia(media);
+      throw err;
+    }
+  } else {
+    notifyPostRecipients(doc, team)
+      .then((failedRecipientIds) => {
+        if (failedRecipientIds?.length) {
+          scheduleMentionRetry(doc._id.toHexString(), failedRecipientIds);
+        }
+      })
+      .catch((err) => console.error('[huddle] post notifications failed:', err));
+  }
+
   return { id: doc._id.toHexString() };
 }
 
@@ -526,6 +582,27 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
   ]);
 }
 
+/**
+ * The caller's own post that is still waiting to be delivered; throws
+ * otherwise. Only the author moves or sends a schedule — not team admins.
+ */
+async function requireOwnScheduledPost(userId, postId) {
+  if (!postId || !isValidId(postId)) {
+    throw new Meteor.Error('bad-request', 'Invalid postId');
+  }
+  const post = await rawDb().collection('huddlePosts').findOne({ _id: toId(postId) });
+  if (!post || post.userId !== userId) {
+    throw new Meteor.Error('not-found', 'Post not found');
+  }
+  if (!isAwaitingDelivery(post)) {
+    throw new Meteor.Error('conflict', 'This post is not waiting to be sent');
+  }
+  // Team access can be revoked after scheduling; a removed member must not be
+  // able to force-send or move a post into a team they no longer belong to.
+  await requireTeamMember(userId, post.teamId);
+  return post;
+}
+
 Meteor.methods({
   async 'huddle.getPosts'({ teamId, since, withPosts = true }) {
     // requireIdentity, not this.userId: this is the REST feed refresh the
@@ -551,14 +628,22 @@ Meteor.methods({
     
     const sinceDate = requireSince(since);
     // Legacy posts store teamId as an ObjectId — match both forms.
-    const filter = { teamId: { $in: [teamId, toId(teamId)] }, ...PUBLISHED };
+    const filter = {
+      teamId: { $in: [teamId, toId(teamId)] },
+      ...PUBLISHED,
+      ...visibleTo(identity.userId),
+    };
     // `withPosts: false` answers only `hasMore` — for a client already receiving
     // the window's posts from the huddlePosts.byTeam subscription.
     if (withPosts === false) {
       return { posts: [], hasMore: await hasPostsBefore(filter, sinceDate) };
     }
     const posts = await rawDb().collection('huddlePosts')
-      .find({ ...filter, createdAt: { $gte: sinceDate } })
+      .find({
+        teamId: { $in: [teamId, toId(teamId)] },
+        ...PUBLISHED,
+        $and: [visibleTo(identity.userId), inWindowOrPending(identity.userId, sinceDate)],
+      })
       .sort({ createdAt: -1 })
       .toArray();
     const hasMore = await hasPostsBefore(filter, sinceDate);
@@ -592,7 +677,7 @@ Meteor.methods({
     const mine = { userId: identity.userId, teamId: { $in: teamIds }, ...PUBLISHED };
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ...mine, createdAt: { $gte: sinceDate } })
+      .find({ ...mine, ...inWindowOrPending(identity.userId, sinceDate) })
       .sort({ createdAt: -1 })
       .toArray();
     const hasMore = await hasPostsBefore(mine, sinceDate);
@@ -604,7 +689,7 @@ Meteor.methods({
     return { posts: enriched, hasMore };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -616,7 +701,92 @@ Meteor.methods({
     if (draft === true) {
       throw new Meteor.Error('bad-request', 'Drafts are no longer supported; update the app to post');
     }
-    return createHuddlePost(identity.userId, { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp });
+    return createHuddlePost(identity.userId, {
+      teamId,
+      content,
+      ticketId,
+      attachments,
+      postDate,
+      clockEventId,
+      wrapUp,
+      deliverAt,
+    });
+  },
+
+  /** Deliver one of the caller's scheduled posts right away. */
+  async 'huddle.sendScheduledNow'({ postId } = {}) {
+    const identity = await requireIdentity(this);
+    await requireOwnScheduledPost(identity.userId, postId);
+    const { delivered, failedRecipientIds } = await deliverScheduledPost(postId, { force: true });
+    if (!delivered) {
+      throw new Meteor.Error('conflict', 'This post has already been sent');
+    }
+    if (failedRecipientIds?.length) {
+      scheduleMentionRetry(postId, failedRecipientIds);
+    }
+    // Best-effort: delivery and notifications already completed above, so a
+    // thrown cancellation must not fail the whole method — the frontend would
+    // treat an already-sent post as failed and skip its refresh, and a retry
+    // would then hit the "already sent" conflict above. A leftover job
+    // safely no-ops once the post shows deliveredAt.
+    try {
+      await cancelPostDelivery(postId);
+    } catch (err) {
+      console.error('[huddle] failed to cancel a sent scheduled post\'s delivery job:', err);
+    }
+    return { id: postId };
+  },
+
+  /** Move one of the caller's scheduled posts to a new time (and its local date). */
+  async 'huddle.reschedulePost'({ postId, deliverAt, postDate } = {}) {
+    const identity = await requireIdentity(this);
+    const post = await requireOwnScheduledPost(identity.userId, postId);
+    if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
+      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
+    }
+    const { schedule, error } = parseSchedule({ deliverAt });
+    if (error || !schedule) throw new Meteor.Error('bad-request', error ?? 'deliverAt is required');
+    const { matchedCount } = await rawDb()
+      .collection('huddlePosts')
+      .updateOne(
+        { _id: post._id, deliveredAt: null },
+        { $set: { ...schedule, ...(postDate ? { postDate } : {}) }, $inc: { scheduleVersion: 1 } },
+      );
+    if (!matchedCount) throw new Meteor.Error('conflict', 'This post has already been sent');
+    try {
+      await schedulePostDelivery(postId, schedule.deliverAt);
+    } catch (err) {
+      // The post's new time already committed above; if the job write then
+      // fails, put it back rather than leave a schedule with no job behind it.
+      await rawDb()
+        .collection('huddlePosts')
+        .updateOne(
+          { _id: post._id, deliveredAt: null },
+          {
+            $set: { deliverAt: post.deliverAt, ...(postDate ? { postDate: post.postDate } : {}) },
+            $inc: { scheduleVersion: 1 },
+          },
+        );
+      throw err;
+    }
+    // Two concurrent reschedules can each pass the update above (neither
+    // conflicts with the other — both are valid writes to an undelivered
+    // post), then race scheduling the job: whichever writes it last wins,
+    // which need not be the same request whose time is the post's current
+    // value. Re-check after our own job write and, if someone else's write
+    // landed on the post after ours, bring the job back in line with
+    // whatever the post currently says rather than leave the two
+    // disagreeing — converges once nothing else is still racing.
+    for (;;) {
+      const latest = await rawDb()
+        .collection('huddlePosts')
+        .findOne({ _id: post._id }, { projection: { deliverAt: 1, deliveredAt: 1 } });
+      if (!latest || latest.deliveredAt || !latest.deliverAt) break;
+      if (latest.deliverAt.getTime() === schedule.deliverAt.getTime()) break;
+      schedule.deliverAt = latest.deliverAt;
+      await schedulePostDelivery(postId, schedule.deliverAt);
+    }
+    return { id: postId };
   },
   
   async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketId }) {
@@ -696,7 +866,7 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Post not found');
     }
     await discardUnreferencedInlineImages(replacedPost.content?.text);
-    
+
     return { id: postId };
   },
 
@@ -780,6 +950,15 @@ Meteor.methods({
     if (deletedPost) {
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
+      if (isAwaitingDelivery(deletedPost)) {
+        // Best-effort: the post is already gone either way — a stale job
+        // will simply find no post to publish and no-op.
+        try {
+          await cancelPostDelivery(postId);
+        } catch (err) {
+          console.error('[huddle] failed to cancel a deleted scheduled post\'s delivery job:', err);
+        }
+      }
     }
     
     return 'ok';
@@ -858,7 +1037,15 @@ Meteor.methods({
     if (!isMember) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
-    
+    // A still-pending scheduled post is hidden from the feed, but this method
+    // has no visibility check of its own — without this, a comment (with its
+    // own mention notification, carrying the text and a link to the post)
+    // would leak it before delivery, through a side channel the "hidden until
+    // delivered" guarantee was never meant to have.
+    if (isAwaitingDelivery(post)) {
+      throw new Meteor.Error('forbidden', 'This post is still scheduled and cannot be commented on yet');
+    }
+
     const commentDoc = {
       _id: new ObjectId(),
       postId,
@@ -881,21 +1068,20 @@ Meteor.methods({
     const commenterInfo = await getUserInfo(this.userId);
     const commenterName = commenterInfo.userName;
     
+    const commentData = {
+      type: 'huddle-comment',
+      postId,
+      teamId: String(post.teamId),
+      url: huddlePostUrl(String(post.teamId), postId),
+    };
+
     // Notify post author (if not the commenter)
     if (post.userId !== this.userId) {
-      await rawDb().collection('notifications').insertOne({
-        _id: new ObjectId(),
+      await createNotification({
         userId: post.userId,
         title: `${commenterName} commented on your post`,
         body: text.substring(0, 100),
-        read: false,
-        data: {
-          type: 'huddle-comment',
-          postId,
-          teamId: post.teamId,
-          url: `/app/huddle?postId=${postId}&teamId=${post.teamId}`,
-        },
-        createdAt: new Date(),
+        data: commentData,
       });
     }
     
@@ -904,19 +1090,11 @@ Meteor.methods({
       const uniqueMentions = [...new Set(mentions)];
       for (const mentionedUserId of uniqueMentions) {
         if (mentionedUserId !== this.userId && mentionedUserId !== post.userId) {
-          await rawDb().collection('notifications').insertOne({
-            _id: new ObjectId(),
+          await createNotification({
             userId: mentionedUserId,
             title: `${commenterName} mentioned you in a comment`,
             body: text.substring(0, 100),
-            read: false,
-            data: {
-              type: 'huddle-comment',
-              postId,
-              teamId: post.teamId,
-              url: `/app/huddle?postId=${postId}&teamId=${post.teamId}`,
-            },
-            createdAt: new Date(),
+            data: commentData,
           });
         }
       }
@@ -1009,7 +1187,7 @@ Meteor.methods({
     if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ticketId, ...PUBLISHED })
+      .find({ ticketId, ...PUBLISHED, ...visibleTo(identity.userId) })
       .sort({ createdAt: -1 })
       .toArray();
     const enriched = await Promise.all(posts.map(enrichPost));
