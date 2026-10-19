@@ -51,6 +51,10 @@ jobs:
       packages: write
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
+      # Digest-pinned reference to the exact image this run built. The
+      # :pr-<n> tag is mutable — a later push to the same PR overwrites it —
+      # so anything that must match this run's checkout (e2e) uses this.
+      image_ref: ${{ steps.image-ref.outputs.ref }}
       container_name: ${{ steps.container.outputs.name }}
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +93,8 @@ jobs:
         run: |
           echo "tag=${{ env.REGISTRY }}/${{ github.repository_owner }}/timehuddle:pr-${{ github.event.pull_request.number }}" | tr '[:upper:]' '[:lower:]' >> $GITHUB_OUTPUT
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -104,6 +109,18 @@ jobs:
           # Aggressive layer cache — Meteor package installs are the slow part
           cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
           cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
+
+      - id: image-ref
+        name: Compute digest-pinned image reference
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          if [ -z "$DIGEST" ]; then
+            echo "::error::docker/build-push-action reported no digest."
+            exit 1
+          fi
+          echo "ref=${IMAGE_TAG%:*}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       # Launchpad pulls images anonymously — the package must be public.
       # Requires GHCR_ADMIN_TOKEN secret: a PAT from an org admin with write:packages scope.
@@ -175,9 +192,9 @@ jobs:
       - name: Run e2e shard ${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/blob-report
-          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
         run: >-
-          tests/e2e-container-shard.sh "$IMAGE_TAG"
+          tests/e2e-container-shard.sh "$IMAGE_REF"
           --shard=${{ matrix.shard }}/${{ strategy.job-total }}
           --reporter=list,blob
 

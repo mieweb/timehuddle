@@ -1,68 +1,100 @@
 #!/usr/bin/env bash
-# Stops every e2e shard process this test infra can start, regardless of how
-# the last run ended. e2e-shard-runner.sh's own trap handles graceful exits
-# (success, failure, Ctrl-C), but a run that gets force-killed (SIGKILL — e.g.
-# the harness killing a hung background job) skips traps entirely and can
-# leave a Vite dev server pegging a CPU core indefinitely, or a shard's
-# Meteor backend sitting "online" with nothing using it. Run this any time
-# you're not sure what's still running, or before/after a sharded run as a
-# belt-and-suspenders step.
+# Stops everything a sharded e2e run started, regardless of how that run
+# ended. e2e-shard-runner.sh calls this from its own EXIT trap; run it by hand
+# (`npm run test:sharded:cleanup`) after a run that was SIGKILLed, which
+# skips that trap and can leave a Vite server pegging a CPU core or a shard's
+# Meteor backend sitting "online" indefinitely.
 #
-# Never touches timehuddle-meteor-test (shard 1) — that's the pre-existing
-# always-on dev instance, not something this test infra owns the lifecycle of.
+# Only kills what the run owns:
+#   - processes carrying the run's E2E_SHARD_RUN_ID (inherited by every
+#     process the runner starts — Playwright, its detached Vite server and
+#     browsers). Taken from the environment when the runner calls this, or
+#     from the .e2e-shard-run state file it leaves behind otherwise.
+#   - the shard pm2 apps timehuddle-meteor-test2..N, which exist only for this.
+# Never matches by process name or port, so other projects' Vite, Chromium or
+# Playwright processes — and timehuddle-meteor-test (shard 1, the always-on
+# dev instance) — are never touched.
 #
 # Usage: tests/e2e-shard-cleanup.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# Covers up to this many shards regardless of how many are actually
-# configured right now (E2E_SHARDS in e2e-shard-runner.sh / E2E_EXTRA_SHARDS
-# in ecosystem.config.cjs) — a few extra no-op checks for ports/apps that
-# don't exist are harmless, and it means this never needs editing when
-# someone bumps the shard count.
+RUN_STATE_FILE=".e2e-shard-run"
+RUN_ID="${E2E_SHARD_RUN_ID:-$(cat "$RUN_STATE_FILE" 2>/dev/null || true)}"
+
+# Covers up to this many shards regardless of how many are configured now, so
+# this never needs editing when someone bumps E2E_SHARDS / E2E_EXTRA_SHARDS.
 MAX_SHARDS=8
-E2E_PORTS=()
-SHARD_APPS=()
-for n in $(seq 1 "$MAX_SHARDS"); do
-  E2E_PORTS+=($((3002 + n)))
-  [ "$n" -gt 1 ] && SHARD_APPS+=("timehuddle-meteor-test${n}")
-done
 
-echo "=== Killing anything bound to e2e shard ports: ${E2E_PORTS[*]} ==="
-for port in "${E2E_PORTS[@]}"; do
-  pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+# Walks a PID's parent chain; succeeds if this script ($$) is on it — i.e. the
+# PID is this script or something it spawned (its own ps/grep pipeline
+# inherits the run ID too).
+descends_from_self() {
+  local p="$1" hops=0
+  while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$hops" -lt 64 ]; do
+    [ "$p" = "$$" ] && return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+# PIDs carrying this run's ID, minus this script, its descendants, and its
+# ancestors (the runner waiting on this very call). Filtered by ancestry, not
+# by process group, so it's correct whether or not the caller has job control.
+owned_pids() {
+  local ancestors p pid
+  ancestors=" "
+  p=$PPID
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    ancestors+="$p "
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  for pid in $(ps eww -ax -o pid=,command= 2>/dev/null \
+    | grep -E "E2E_SHARD_RUN_ID=${RUN_ID}( |$)" | awk '{ print $1 }'); do
+    case "$ancestors" in *" $pid "*) continue ;; esac
+    # Re-checked per PID: drops the listing pipeline's own short-lived
+    # processes (gone by now, so their ancestry can't be traced to $$) and
+    # any PID the OS has reused for something else since the listing.
+    ps eww -o command= -p "$pid" 2>/dev/null \
+      | grep -qE "E2E_SHARD_RUN_ID=${RUN_ID}( |$)" || continue
+    descends_from_self "$pid" && continue
+    echo "$pid"
+  done
+}
+
+if [ -n "$RUN_ID" ]; then
+  echo "=== Terminating processes owned by run $RUN_ID ==="
+  pids=$(owned_pids)
   if [ -n "$pids" ]; then
-    echo "port $port -> killing pid(s): $pids"
-    kill -9 $pids 2>/dev/null || true
+    echo "SIGTERM: $(echo $pids)"
+    kill -TERM $pids 2>/dev/null || true
+    sleep 2
+    pids=$(owned_pids)
+    if [ -n "$pids" ]; then
+      echo "still running, SIGKILL: $(echo $pids)"
+      kill -KILL $pids 2>/dev/null || true
+    fi
+  else
+    echo "(none)"
   fi
-done
+else
+  echo "=== No recorded sharded run — no processes to terminate ==="
+fi
 
-echo "=== Stopping shard backend(s): ${SHARD_APPS[*]} ==="
-for app in "${SHARD_APPS[@]}"; do
+echo "=== Stopping shard backends ==="
+stopped=""
+for n in $(seq 2 "$MAX_SHARDS"); do
+  app="timehuddle-meteor-test${n}"
   if pm2 describe "$app" > /dev/null 2>&1; then
     pm2 stop "$app" > /dev/null 2>&1 || true
-    echo "$app stopped"
+    stopped+="$app "
   fi
 done
+echo "${stopped:-(none registered)}"
 
-echo "=== Terminating remaining e2e-related processes ==="
-# This is the real backstop for the SIGKILL case: the runner's own PGID
-# tracking (e2e-shard-runner.sh) only exists in that process's memory, so a
-# SIGKILL'd runner leaves no record for THIS script to read — matching by
-# command line is the only way left to find a stranded worker or browser.
-#
-# Deliberately does NOT match "e2e-shard-runner.sh" itself: this script is
-# normally invoked FROM that runner's own cleanup() trap while it's still
-# alive and waiting on this very call — matching its command line here would
-# kill the live, still-cleaning-up caller out from under itself (confirmed:
-# this is exactly what the first version of this line did, killing the
-# runner mid-cleanup and taking the whole run down with SIGKILL). A runner
-# that's actually gone (the SIGKILL case this script exists for) was never
-# going to show up in this search anyway — it's already dead.
-remaining_pids=$(ps aux | grep -E "playwright test -c tests/playwright|vite --port 300[0-9]|chrome-headless-shell" | grep -v grep | awk '{print $2}')
-if [ -n "$remaining_pids" ]; then
-  echo "killing: $remaining_pids"
-  kill -9 $remaining_pids 2>/dev/null || true
-else
-  echo "(none)"
+# Only clear the state file when it's the run just cleaned up, so a stale
+# value in the environment can't erase the record of a different run.
+if [ -n "$RUN_ID" ] && [ "$(cat "$RUN_STATE_FILE" 2>/dev/null)" = "$RUN_ID" ]; then
+  rm -f "$RUN_STATE_FILE"
 fi

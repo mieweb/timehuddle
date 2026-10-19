@@ -23,11 +23,35 @@ cd "$(dirname "$0")/.."
 
 # Job control: with this on, each `( ... ) &` background shard job below
 # becomes its own process group (PGID == its own PID), so `kill -TERM -$pgid`
-# in cleanup() reaches the whole tree — the npx/node/playwright process AND
-# any Chromium children it spawned — not just the top-level shell `wait`
-# already sees. Without it, those children keep running after this script
-# exits, still hammering the shard's Mongo/Meteor backend.
+# in cleanup() reaches the npx/node/playwright tree, not just the subshell
+# `wait` sees. It does NOT reach the Vite server or browsers: Playwright
+# launches those detached, in process groups of their own — the run ID below
+# is what finds those.
 set -m
+
+# Every process this run starts inherits E2E_SHARD_RUN_ID, including the
+# detached Vite servers and browsers. e2e-shard-cleanup.sh kills by this ID
+# and nothing else, so other projects' Vite/Chromium/Playwright processes on
+# this machine are never touched. The state file is what lets a standalone
+# cleanup recover a run that was SIGKILLed before its EXIT trap could fire.
+#
+# Checked before the EXIT trap exists on purpose: refusing to start must not
+# trigger cleanup, which would read this file and kill the run it points at.
+RUN_STATE_FILE=".e2e-shard-run"
+if [ -f "$RUN_STATE_FILE" ]; then
+  prev_run_id=$(cat "$RUN_STATE_FILE")
+  prev_pid="${prev_run_id##*-}"
+  if ps -o command= -p "$prev_pid" 2>/dev/null | grep -q "e2e-shard-runner.sh"; then
+    echo "ERROR: another sharded run is still in progress (pid $prev_pid)." >&2
+    echo "Both would reset the same shard databases. Wait for it, or stop it" \
+      "with: npm run test:sharded:cleanup" >&2
+    exit 1
+  fi
+  echo "=== Previous sharded run ($prev_run_id) never cleaned up — recovering it ==="
+  tests/e2e-shard-cleanup.sh
+fi
+export E2E_SHARD_RUN_ID="e2e-$(date +%s)-$$"
+echo "$E2E_SHARD_RUN_ID" > "$RUN_STATE_FILE"
 
 # Number of shards to run — must match 1 + E2E_EXTRA_SHARDS in
 # ecosystem.config.cjs (that's where the extra shards' pm2 apps come from).
@@ -69,8 +93,8 @@ cleanup() {
   echo
   echo "=== Cleanup ==="
   # Negative PID = "the whole process group", not just that one PID — see the
-  # `set -m` comment above for why this reaches each shard's Chromium/worker
-  # children too. Best-effort: a group that already exited errors harmlessly.
+  # `set -m` comment above for what this does and doesn't reach. Best-effort:
+  # a group that already exited errors harmlessly.
   for pgid in "${pgids[@]:-}"; do
     [ -n "$pgid" ] && kill -TERM -"$pgid" 2>/dev/null || true
   done
