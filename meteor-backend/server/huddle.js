@@ -45,6 +45,11 @@ Meteor.startup(async () => {
     const posts = rawDb().collection('huddlePosts');
     await posts.createIndex({ teamId: 1, createdAt: -1 });
     await posts.createIndex({ userId: 1, createdAt: -1 });
+    // agenda.js's overdue-delivery sweep: undelivered posts by due time.
+    await posts.createIndex(
+      { deliveredAt: 1, deliverAt: 1 },
+      { partialFilterExpression: { deliverAt: { $exists: true } } }
+    );
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }

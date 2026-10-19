@@ -31,6 +31,9 @@ const POST_DELIVERY_JOB = 'huddle-post-deliver';
 const MENTION_RETRY_JOB = 'huddle-mention-retry';
 const MENTION_RETRY_DELAY_MS = 60_000; // 1 minute, backed off per attempt
 const MENTION_RETRY_MAX_ATTEMPTS = 5;
+const POST_SWEEP_JOB = 'huddle-post-sweep';
+const POST_SWEEP_GRACE_MS = 60_000; // leave on-time delivery to the post's own job
+const POST_SWEEP_BATCH = 100; // posts per tick; any remainder waits for the next one
 
 const FOUR_HOURS_MS = 4 * 3600_000;
 const SHIFT_END_MS = 27_900_000; // 7h 45m
@@ -199,20 +202,45 @@ export async function initAgenda() {
 
   // ── Job: deliver a scheduled Huddle post (#596) ──────────────────────────
   _agenda.define(POST_DELIVERY_JOB, async (job) => {
-    const { delivered, failedRecipientIds } = await deliverScheduledPost(job.attrs.data.postId);
-    if (!delivered && (await isPostStillAwaitingDelivery(job.attrs.data.postId))) {
+    const postId = String(job.attrs.data.postId);
+    if (!(await deliverPost(postId)) && (await isPostStillAwaitingDelivery(postId))) {
       // A reschedule moved deliverAt later while this run was already
       // dequeued, upserting the SAME job row onto the new time. Removing it
-      // now would delete that reschedule along with this stale run, leaving
-      // the post pending with no job left to ever deliver it.
+      // now would delete that reschedule along with this stale run. Agenda's
+      // own end-of-run state write can still null the row's new nextRunAt;
+      // the POST_SWEEP_JOB below delivers the post if that happens.
       return;
     }
-    if (delivered && failedRecipientIds?.length) {
-      // The post is visible either way; don't lose the recipients a failed
-      // notification insert would otherwise drop silently.
-      scheduleMentionRetry(String(job.attrs.data.postId), failedRecipientIds);
-    }
     await job.remove(); // one-shot: remove so it doesn't re-fire
+  });
+
+  // ── Job: deliver overdue scheduled Huddle posts (#596) ──────────────────
+  // Backstop for a post whose delivery job can no longer fire — e.g. Agenda
+  // nulled the row's nextRunAt when a reschedule landed mid-run. Delivery is
+  // atomic, so racing the post's own job, "Send now", a reschedule or a
+  // delete is harmless: at most one of them delivers, and only the post's
+  // current deliverAt counts as due.
+  _agenda.define(POST_SWEEP_JOB, async () => {
+    const overdue = await rawDb()
+      .collection('huddlePosts')
+      .find(
+        { deliveredAt: null, deliverAt: { $lte: new Date(Date.now() - POST_SWEEP_GRACE_MS) } },
+        { projection: { _id: 1 } }
+      )
+      .sort({ deliverAt: 1 })
+      .limit(POST_SWEEP_BATCH)
+      .toArray();
+    for (const { _id } of overdue) {
+      const postId = _id.toHexString();
+      try {
+        await deliverPost(postId);
+        // Delivered or deleted (an author who left the team) is final — such
+        // a post can't be rescheduled — so its job row can only be dead.
+        if (!(await isPostStillAwaitingDelivery(postId))) await cancelPostDelivery(postId);
+      } catch (err) {
+        console.error(`[huddle] sweep failed to deliver post ${postId}:`, err);
+      }
+    }
   });
 
   // ── Job: retry a delivery's failed mention notifications (#596) ─────────
@@ -237,8 +265,9 @@ export async function initAgenda() {
   // Processor loop is opt-in during coexistence (see file header).
   if (process.env.METEOR_AGENDA_ENABLED === 'true') {
     await _agenda.start();
+    await _agenda.every('1 minute', POST_SWEEP_JOB);
     console.log(
-      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry'
+      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry, huddle-post-sweep'
     );
   } else {
     console.log(
@@ -336,6 +365,17 @@ export async function schedulePostDelivery(postId, deliverAt) {
     .unique({ 'data.postId': postId, name: POST_DELIVERY_JOB })
     .schedule(deliverAt)
     .save();
+}
+
+/**
+ * Deliver a due scheduled post and queue a retry for any mention it couldn't
+ * send — the post is visible either way, so those recipients aren't dropped.
+ * True when this call delivered it.
+ */
+async function deliverPost(postId) {
+  const { delivered, failedRecipientIds } = await deliverScheduledPost(postId);
+  if (delivered && failedRecipientIds?.length) scheduleMentionRetry(postId, failedRecipientIds);
+  return delivered;
 }
 
 /** Drop a scheduled post's pending delivery (sent now, or deleted). */

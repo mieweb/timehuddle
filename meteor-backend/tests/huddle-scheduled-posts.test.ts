@@ -222,6 +222,35 @@ describe('scheduling a post', () => {
     // not be left at the other request's time.
     expect(new Date(jobs[0].nextRunAt).toISOString()).toBe(post!.deliverAt.toISOString());
   });
+
+  it('delivers an overdue post whose delivery job can no longer fire', async () => {
+    const res = await createPost({ deliverAt: inHours(1) });
+    const postId = res.result.id;
+    const db = await getDb();
+    // The state Agenda leaves when a reschedule lands mid-run: the post is
+    // due, but its job row's nextRunAt was nulled by the run's final save.
+    await db
+      .collection('huddlePosts')
+      .updateOne({ _id: new ObjectId(postId) }, { $set: { deliverAt: new Date(Date.now() - 2 * 60_000) } });
+    await db
+      .collection('agendajobs')
+      .updateOne({ name: 'huddle-post-deliver', 'data.postId': postId }, { $set: { nextRunAt: null } });
+    // Run the sweep now rather than wait up to a minute for its next tick.
+    // Agenda locks a job it has queued for its upcoming tick, so unlock it too.
+    await db
+      .collection('agendajobs')
+      .updateOne({ name: 'huddle-post-sweep' }, { $set: { nextRunAt: new Date(), lockedAt: null } });
+
+    let post = null;
+    for (let attempt = 0; attempt < 50 && !post?.deliveredAt; attempt++) {
+      await new Promise((r) => setTimeout(r, 200));
+      post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) });
+    }
+    expect(post!.deliveredAt).toBeTruthy();
+    expect(await feedIds(readerJwt)).toContain(postId);
+    expect(await waitForMentions(postId, 1)).toHaveLength(1);
+    expect(await deliveryJobs(postId)).toHaveLength(0);
+  });
 });
 
 describe('scheduled post attachments', () => {
