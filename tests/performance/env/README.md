@@ -64,10 +64,15 @@ It replaces any existing perf fixture, so point it at a throwaway database.
 
 ## Build and deploy
 
-The [Perf Comparison Image](../../../.github/workflows/perf-env.yml) workflow
-builds `ghcr.io/mieweb/timehuddle:perf` and smoke-tests it. It runs on demand
-(once merged) and on pushes to the PR branch that touch this folder. Locally,
-with Docker and buildx:
+The [Perf Comparison Environment](../../../.github/workflows/perf-env.yml)
+workflow does both. It builds `ghcr.io/mieweb/timehuddle:perf`, smoke-tests it,
+then replaces the Launchpad container `huddle-perf` and maps its ports to
+`huddle-perf-old` (3000), `huddle-perf-new` (3001) and `huddle-perf-api` (3100)
+on `os.mieweb.org`. It runs on demand (once merged; the `name` input changes
+the `huddle-perf` prefix) and on pushes to the PR branch that touch this
+folder. Replacing the container wipes its database; the seed refills it.
+
+To build and smoke-test locally, with Docker and buildx:
 
 ```bash
 PERF_PASSWORD=… tests/performance/env/build.sh   # see the script for options
@@ -79,9 +84,6 @@ tests/performance/env/smoke-test.sh
   [`Dockerfile`](Dockerfile) adds the old frontend from `OLD_REF`.
 - [`start.sh`](start.sh) starts the base entrypoint, the new frontend on 3001
   and the seed.
-
-Deploy with Launchpad from that image and map the three hostnames to ports
-3000, 3001 and 3100.
 
 ## Running the suite against it
 

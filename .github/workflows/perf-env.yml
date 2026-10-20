@@ -1,9 +1,10 @@
-name: Perf Comparison Image
+name: Perf Comparison Environment
 
 # Builds the before/after perf comparison image (old frontend on 3000, new on
-# 3001, one backend on 3100), pushes it to GHCR and smoke-tests it. All logic
+# 3001, one backend on 3100), smoke-tests it, then (re)deploys it with
+# Launchpad as <name>-old / <name>-new / <name>-api.os.mieweb.org. Build logic
 # lives in tests/performance/env/*.sh so it runs the same locally — see
-# tests/performance/env/README.md. Deploy the image with Launchpad.
+# tests/performance/env/README.md.
 
 on:
   workflow_dispatch:
@@ -11,19 +12,22 @@ on:
       old_ref:
         description: Commit served as "old" on port 3000
         default: c9dc10f92898ddc55b3fcf17cbdc7d02dac59b48
-      api_url:
-        description: Public URL of the backend (port 3100)
-        default: https://huddle-perf-api.os.mieweb.org
-      new_url:
-        description: Public URL of the new frontend (port 3001)
-        default: https://huddle-perf-new.os.mieweb.org
+      name:
+        description: Hostname prefix — serves <name>-old, <name>-new and <name>-api.os.mieweb.org
+        default: huddle-perf
   # workflow_dispatch only becomes available once this file is on main, so the
-  # PR branch also builds when the environment changes.
+  # PR branch also builds and deploys when the environment changes.
   push:
     branches: [perf/login-signup-performance]
     paths:
       - tests/performance/env/**
       - .github/workflows/perf-env.yml
+
+concurrency: perf-env
+
+env:
+  NAME: ${{ inputs.name || 'huddle-perf' }}
+  IMAGE: ghcr.io/mieweb/timehuddle:perf
 
 jobs:
   build:
@@ -31,8 +35,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE: ghcr.io/mieweb/timehuddle:perf
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,18 +55,101 @@ jobs:
         env:
           PERF_PASSWORD: ${{ secrets.PERF_ENV_PASSWORD }}
           OLD_REF: ${{ inputs.old_ref }}
-          API_URL: ${{ inputs.api_url }}
-          NEW_URL: ${{ inputs.new_url }}
+          API_URL: https://${{ env.NAME }}-api.os.mieweb.org
+          NEW_URL: https://${{ env.NAME }}-new.os.mieweb.org
         run: |
           if [ -z "$PERF_PASSWORD" ]; then
             echo "::error::Set the PERF_ENV_PASSWORD repository secret (the perf account's sign-in password)."
             exit 1
           fi
-          # Empty on push events — build.sh falls back to its defaults.
+          # Empty on push events — build.sh falls back to its default.
           [ -n "$OLD_REF" ] || unset OLD_REF
-          [ -n "$API_URL" ] || unset API_URL
-          [ -n "$NEW_URL" ] || unset NEW_URL
           tests/performance/env/build.sh
 
       - name: Smoke test
         run: tests/performance/env/smoke-test.sh "$IMAGE"
+
+  # Replaces the container on every run: Launchpad creates from the image as it
+  # is now, and the fixture is re-seeded on start.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: locate
+        name: Locate existing container
+        uses: mieweb/opensource-server/.github/actions/get-container@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          hostname: ${{ env.NAME }}
+
+      - name: Delete existing container
+        if: steps.locate.outputs.found == 'true'
+        uses: mieweb/opensource-server/.github/actions/delete-container@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          container_id: ${{ steps.locate.outputs.container_id }}
+
+      # The service hostnames stay claimed until the old container is gone.
+      - name: Wait for the old container to disappear
+        if: steps.locate.outputs.found == 'true'
+        env:
+          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
+          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
+        run: |
+          for attempt in $(seq 1 30); do
+            ID=$(curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
+              "$API_URL/api/v1/sites/1/containers?hostname=$NAME" \
+              | jq -r '.data[0].id // .data[0].containerId // .containers[0].id // empty' 2>/dev/null)
+            if [ -z "$ID" ]; then echo "Old container removed."; exit 0; fi
+            echo "Poll $attempt/30 — still present (ID $ID)."
+            sleep 10
+          done
+          echo "::error::Timed out waiting for container $NAME to be deleted."
+          exit 1
+
+      - id: create
+        name: Create container
+        uses: mieweb/opensource-server/.github/actions/create-container@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          hostname: ${{ env.NAME }}
+          template_name: ${{ env.IMAGE }}
+          services: >-
+            [{"type":"http","internalPort":3000,"externalHostname":"${{ env.NAME }}-old","externalDomainId":1},{"type":"http","internalPort":3001,"externalHostname":"${{ env.NAME }}-new","externalDomainId":1},{"type":"http","internalPort":3100,"externalHostname":"${{ env.NAME }}-api","externalDomainId":1}]
+
+      - id: wait-job
+        name: Wait for the create job
+        if: steps.create.outputs.created == 'true'
+        uses: mieweb/opensource-server/.github/actions/wait-for-job@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          job_id: ${{ steps.create.outputs.job_id }}
+
+      - id: status
+        name: Query container status
+        uses: mieweb/opensource-server/.github/actions/get-container@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          hostname: ${{ env.NAME }}
+
+      - name: Verify running and report URLs
+        env:
+          FOUND: ${{ steps.status.outputs.found }}
+          STATUS: ${{ steps.status.outputs.status }}
+        run: |
+          if [ "$FOUND" != "true" ] || [ "$STATUS" != "running" ]; then
+            echo "::error::Container $NAME is '${STATUS:-missing}', expected 'running'."
+            exit 1
+          fi
+          {
+            echo "### Perf comparison environment"
+            echo "- Old: https://$NAME-old.os.mieweb.org"
+            echo "- New: https://$NAME-new.os.mieweb.org"
+            echo "- API: https://$NAME-api.os.mieweb.org"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Running — https://$NAME-old.os.mieweb.org and https://$NAME-new.os.mieweb.org"
