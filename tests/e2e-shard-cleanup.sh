@@ -111,27 +111,38 @@ else
 fi
 
 echo "=== Stopping shard backends ==="
-# Discovered from pm2's own registry rather than looped over a fixed max, so
-# a shard count raised past any previous ceiling — or a backend left behind
-# by an interrupted run with a now-reverted E2E_SHARDS — is still found and
-# stopped. `name` appears twice per app in `pm2 jlist` (top-level and under
-# pm2_env), hence the `sort -u`.
-stopped=""
-shard_apps=$(pm2 jlist 2>/dev/null \
-  | grep -o '"name":"timehuddle-meteor-test[0-9][0-9]*"' \
-  | sed -E 's/"name":"(.*)"/\1/' | sort -u)
-for app in $shard_apps; do
-  pm2 stop "$app" > /dev/null 2>&1 || true
-  stopped+="$app "
-done
-echo "${stopped:-(none registered)}"
+# Re-check ownership right here, not just at the top of the script: when
+# this cleanup had to wait (above) for a live runner to exit, that runner's
+# own EXIT trap released the lock the moment it started shutting down — a
+# brand-new run can acquire it and record itself in RUN_STATE_FILE during
+# that wait. Blindly stopping backends and dropping the lock past this point
+# would stop that new run's backends and tear down its lock out from under
+# it. Only proceed when nobody now holds a *different* recorded run than the
+# one this invocation was cleaning up — an empty/matching owner means it's
+# either genuinely unclaimed or still this run.
+current_owner="$(cat "$RUN_STATE_FILE" 2>/dev/null || true)"
+if [ -n "$current_owner" ] && [ "$current_owner" != "$RUN_ID" ]; then
+  echo "(skipped — run $current_owner now holds the lock; leaving its backends and lock alone)"
+else
+  # Discovered from pm2's own registry rather than looped over a fixed max,
+  # so a shard count raised past any previous ceiling — or a backend left
+  # behind by an interrupted run with a now-reverted E2E_SHARDS — is still
+  # found and stopped. `name` appears twice per app in `pm2 jlist`
+  # (top-level and under pm2_env), hence the `sort -u`.
+  stopped=""
+  shard_apps=$(pm2 jlist 2>/dev/null \
+    | grep -o '"name":"timehuddle-meteor-test[0-9][0-9]*"' \
+    | sed -E 's/"name":"(.*)"/\1/' | sort -u)
+  for app in $shard_apps; do
+    pm2 stop "$app" > /dev/null 2>&1 || true
+    stopped+="$app "
+  done
+  echo "${stopped:-(none registered)}"
 
-# Only clear the state file when it's the run just cleaned up, so a stale
-# value in the environment can't erase the record of a different run.
-if [ -n "$RUN_ID" ] && [ "$(cat "$RUN_STATE_FILE" 2>/dev/null)" = "$RUN_ID" ]; then
-  rm -f "$RUN_STATE_FILE"
+  # Only clear the state file when it's the run just cleaned up, so a stale
+  # value in the environment can't erase the record of a different run.
+  if [ -n "$RUN_ID" ] && [ "$(cat "$RUN_STATE_FILE" 2>/dev/null)" = "$RUN_ID" ]; then
+    rm -f "$RUN_STATE_FILE"
+  fi
+  rmdir "$LOCK_DIR" 2>/dev/null || true
 fi
-# The lock dir has no independent identity to check against — by this point
-# any runner that held it has either exited on its own or just been
-# terminated above, so it's always safe to drop.
-rmdir "$LOCK_DIR" 2>/dev/null || true

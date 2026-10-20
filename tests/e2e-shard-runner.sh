@@ -26,6 +26,23 @@ cd "$(dirname "$0")/.."
 # repo root, and ../playwright-report-shardN then lands one level above it.
 repo_root="$PWD"
 
+# A non-positive or non-numeric value makes every `seq 1 "$n"` loop below
+# empty, so the script would otherwise exit 0 having silently run zero
+# shards and zero tests instead of failing loudly on the bad config. Checked
+# before the lock below is acquired, so a bad config leaves nothing to clean
+# up.
+E2E_SHARDS="${E2E_SHARDS:-3}"
+case "$E2E_SHARDS" in
+  ''|*[!0-9]*)
+    echo "ERROR: E2E_SHARDS must be a positive integer, got '$E2E_SHARDS'." >&2
+    exit 1
+    ;;
+esac
+if [ "$E2E_SHARDS" -lt 1 ]; then
+  echo "ERROR: E2E_SHARDS must be a positive integer, got '$E2E_SHARDS'." >&2
+  exit 1
+fi
+
 # Job control: with this on, each `( ... ) &` background shard job below
 # becomes its own process group (PGID == its own PID), so `kill -TERM -$pgid`
 # in cleanup() reaches the npx/node/playwright tree, not just the subshell
@@ -65,23 +82,34 @@ if ! acquire_lock; then
       exit 1
     fi
     echo "=== Previous sharded run ($prev_run_id) never cleaned up — recovering it ==="
+    tests/e2e-shard-cleanup.sh
+    acquire_lock ||
+      { echo "ERROR: failed to acquire the run lock after cleanup ($LOCK_DIR still exists)." >&2; exit 1; }
   else
-    echo "=== Stale run lock with no recorded run — recovering it ==="
+    # The lock exists but no run is recorded under it yet. A snapshot of the
+    # filesystem can't tell that apart from a run that is this instant
+    # between acquiring the lock and writing its ID — auto-recovering here
+    # would risk deleting a live run's lock out from under it right as it
+    # starts. Only a positively-confirmed-dead run (the branch above, where
+    # the recorded PID no longer exists) is safe to clean up automatically;
+    # this case needs a human to confirm nothing is actually starting up.
+    echo "ERROR: run lock ($LOCK_DIR) is held but no run is recorded under it yet." >&2
+    echo "If a run is genuinely starting, wait a moment and retry. If it" \
+      "crashed before recording itself, confirm nothing is running and then:" \
+      "npm run test:sharded:cleanup" >&2
+    exit 1
   fi
-  tests/e2e-shard-cleanup.sh
-  acquire_lock ||
-    { echo "ERROR: failed to acquire the run lock after cleanup ($LOCK_DIR still exists)." >&2; exit 1; }
 fi
 export E2E_SHARD_RUN_ID="e2e-$(date +%s)-$$"
 echo "$E2E_SHARD_RUN_ID" > "$RUN_STATE_FILE"
 
-# Number of shards to run — must match 1 + E2E_EXTRA_SHARDS in
-# ecosystem.config.cjs (that's where the extra shards' pm2 apps come from).
-# Ports/db names are derived by formula below, not hardcoded, so growing the
-# suite over time (more spec files) needs no changes here — Playwright's own
-# --shard=i/N already rebalances whatever files exist across however many
-# shards this is set to. Bump both constants together to add more shards.
-E2E_SHARDS="${E2E_SHARDS:-3}"
+# Number of shards to run (validated above) — must match 1 + E2E_EXTRA_SHARDS
+# in ecosystem.config.cjs (that's where the extra shards' pm2 apps come
+# from). Ports/db names are derived by formula below, not hardcoded, so
+# growing the suite over time (more spec files) needs no changes here —
+# Playwright's own --shard=i/N already rebalances whatever files exist
+# across however many shards this is set to. Bump both constants together
+# to add more shards.
 
 # Shard N -> "pm2-app-name:port:db-name:e2e-port". Shard 1 has no pm2-app-name
 # — it's the pre-existing always-on timehuddle-meteor-test, never stopped by

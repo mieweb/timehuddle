@@ -5,6 +5,14 @@ const e2ePort = process.env.E2E_PORT ?? '3003';
 // shard (see e2e-shard-runner.sh) so each shard's frontend hits its own
 // isolated backend/db instead of always 3101.
 const apiTarget = process.env.API_TARGET ?? 'http://localhost:3101';
+// webServer's command string below sets VITE_TIMECORE_URL for the spawned
+// Vite dev server only — tests/e2e/fixtures/users.ts reads the same name
+// directly in the worker process for its login-failure health check, which
+// never sees that value and falls back to :3101. Setting it here, before
+// Playwright forks workers from this process, makes both see the same
+// target — the right shard in local dev, and the actual backend (not :3101)
+// in CI or on shards 2+.
+process.env.VITE_TIMECORE_URL ??= apiTarget;
 
 export default defineConfig({
   testDir: './e2e',
