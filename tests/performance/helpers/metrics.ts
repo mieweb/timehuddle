@@ -1,5 +1,5 @@
 import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export type Sample = Record<string, number>;
@@ -28,6 +28,10 @@ if (!NETWORK_KEYS.includes(rawNetwork as keyof typeof NETWORK_PROFILES)) {
 const NETWORK = rawNetwork as keyof typeof NETWORK_PROFILES;
 // Baseline captures (e.g. of `main`) record numbers without failing on the budget.
 const REPORT_ONLY = Boolean(process.env.PERF_REPORT_ONLY);
+// When set, page flows record each run and keep the video of the median run (see keepMedianVideo).
+const VIDEO_DIR = process.env.PERF_VIDEO_DIR;
+// Optional filename prefix, e.g. "old"/"new", so videos from two builds can share a folder.
+const VIDEO_LABEL = process.env.PERF_VIDEO_LABEL;
 
 /** Soft budget check; with PERF_REPORT_ONLY an overrun is only logged. */
 export function withinBudget(value: number, budget: number, label: string): void {
@@ -38,12 +42,21 @@ export function withinBudget(value: number, budget: number, label: string): void
   }
 }
 
-/** Fresh browser context = cold HTTP cache; no stored session unless `storageState` is given. */
+/**
+ * Fresh browser context = cold HTTP cache; no stored session unless `storageState` is given.
+ * With `recordVideo` and PERF_VIDEO_DIR set, the run is recorded for keepMedianVideo.
+ */
 export async function newColdPage(
   browser: Browser,
   storageState?: BrowserContextOptions['storageState'],
+  { recordVideo = false }: { recordVideo?: boolean } = {},
 ): Promise<Page> {
-  const context = await browser.newContext({ storageState });
+  const context = await browser.newContext({
+    storageState,
+    ...(recordVideo && VIDEO_DIR
+      ? { recordVideo: { dir: path.join(VIDEO_DIR, '.runs'), size: { width: 1280, height: 720 } } }
+      : {}),
+  });
   const page = await context.newPage();
 
   // LCP/CLS are only observable live; buffer them so they can be read after load.
@@ -221,4 +234,34 @@ export function report(name: string, samples: Sample[]): Sample {
     JSON.stringify({ name, network: NETWORK, runs: samples, summary }, null, 2),
   );
   return summary;
+}
+
+/**
+ * Keeps the video of the run whose `metric` is the reported median — the
+ * nearest one when an even PERF_RUNS has no middle run — and deletes the rest,
+ * so every published video shows the same load its number came from.
+ * Saved as `<label>-<name>-<ms>ms.webm` in PERF_VIDEO_DIR. No-op without it.
+ */
+export function keepMedianVideo(
+  name: string,
+  metric: string,
+  samples: Sample[],
+  videos: (string | undefined)[],
+): void {
+  if (!VIDEO_DIR) return;
+  const target = median(samples.map((s) => s[metric]));
+  let keep = 0;
+  samples.forEach((s, i) => {
+    if (Math.abs(s[metric] - target) < Math.abs(samples[keep][metric] - target)) keep = i;
+  });
+  const prefix = VIDEO_LABEL ? `${VIDEO_LABEL}-` : '';
+  videos.forEach((file, i) => {
+    if (!file) return;
+    if (i === keep) {
+      const ms = Math.round(samples[i][metric]);
+      renameSync(file, path.join(VIDEO_DIR, `${prefix}${name}-${ms}ms.webm`));
+    } else {
+      rmSync(file, { force: true });
+    }
+  });
 }

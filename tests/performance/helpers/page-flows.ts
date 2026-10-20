@@ -4,6 +4,7 @@ import {
   apiTotals,
   collectApiCalls,
   collectJs,
+  keepMedianVideo,
   newColdPage,
   report,
   reportEndpoints,
@@ -50,8 +51,9 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
   test.describe(name, () => {
     test(`sign in to ${name}`, async ({ browser }) => {
       let costs: EndpointCost[] = [];
+      const videos: (string | undefined)[] = [];
       const samples = await sample(RUNS, async () => {
-        const page = await newColdPage(browser);
+        const page = await newColdPage(browser, undefined, { recordVideo: true });
         const ws = trackWebSocket(page);
         // Signed out, a deep link shows the login form and returns here after sign-in.
         await page.goto(path);
@@ -68,11 +70,14 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
         await page.waitForLoadState('networkidle');
         costs = await collectApiCalls(page, mark);
         const js = await collectJs(page, mark);
+        const video = page.video();
         await page.context().close();
+        videos.push(await video?.path());
         return { signInToReady, ...apiTotals(costs), ...ws(), ...js };
       });
       const m = report(`${name}-signin`, samples);
       reportEndpoints(`${name}-signin-api`, costs);
+      keepMedianVideo(`${name}-signin`, 'signInToReady', samples, videos);
       withinBudget(m.signInToReady, budgetMs, `sign in → ${name}`);
     });
 
@@ -85,8 +90,9 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
       await setup.context().close();
 
       let costs: EndpointCost[] = [];
+      const videos: (string | undefined)[] = [];
       const samples = await sample(RUNS, async () => {
-        const page = await newColdPage(browser, session);
+        const page = await newColdPage(browser, session, { recordVideo: true });
         const ws = trackWebSocket(page);
         const data = dataResponses(page, dataCalls);
         await page.goto(path);
@@ -96,11 +102,14 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
         await page.waitForLoadState('networkidle');
         costs = await collectApiCalls(page);
         const js = await collectJs(page);
+        const video = page.video();
         await page.context().close();
+        videos.push(await video?.path());
         return { visitToReady, ...apiTotals(costs), ...ws(), ...js };
       });
       const m = report(`${name}-returning`, samples);
       reportEndpoints(`${name}-returning-api`, costs);
+      keepMedianVideo(`${name}-returning`, 'visitToReady', samples, videos);
       withinBudget(m.visitToReady, budgetMs, `visit → ${name}`);
     });
   });

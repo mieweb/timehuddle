@@ -1,0 +1,70 @@
+name: Perf Comparison Image
+
+# Builds the before/after perf comparison image (old frontend on 3000, new on
+# 3001, one backend on 3100), pushes it to GHCR and smoke-tests it. All logic
+# lives in tests/performance/env/*.sh so it runs the same locally — see
+# tests/performance/env/README.md. Deploy the image with Launchpad.
+
+on:
+  workflow_dispatch:
+    inputs:
+      old_ref:
+        description: Commit served as "old" on port 3000
+        default: c9dc10f92898ddc55b3fcf17cbdc7d02dac59b48
+      api_url:
+        description: Public URL of the backend (port 3100)
+        default: https://huddle-perf-api.os.mieweb.org
+      new_url:
+        description: Public URL of the new frontend (port 3001)
+        default: https://huddle-perf-new.os.mieweb.org
+  # workflow_dispatch only becomes available once this file is on main, so the
+  # PR branch also builds when the environment changes.
+  push:
+    branches: [perf/login-signup-performance]
+    paths:
+      - tests/performance/env/**
+      - .github/workflows/perf-env.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/mieweb/timehuddle:perf
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init meteor-wormhole submodule
+        run: git submodule update --init vendor/meteor-wormhole
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        env:
+          PERF_PASSWORD: ${{ secrets.PERF_ENV_PASSWORD }}
+          OLD_REF: ${{ inputs.old_ref }}
+          API_URL: ${{ inputs.api_url }}
+          NEW_URL: ${{ inputs.new_url }}
+        run: |
+          if [ -z "$PERF_PASSWORD" ]; then
+            echo "::error::Set the PERF_ENV_PASSWORD repository secret (the perf account's sign-in password)."
+            exit 1
+          fi
+          # Empty on push events — build.sh falls back to its defaults.
+          [ -n "$OLD_REF" ] || unset OLD_REF
+          [ -n "$API_URL" ] || unset API_URL
+          [ -n "$NEW_URL" ] || unset NEW_URL
+          tests/performance/env/build.sh
+
+      - name: Smoke test
+        run: tests/performance/env/smoke-test.sh "$IMAGE"
