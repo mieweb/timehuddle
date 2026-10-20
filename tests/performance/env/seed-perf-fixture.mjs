@@ -344,13 +344,17 @@ async function seed() {
   // Spread evenly from HISTORY_DAYS + 2 days ago up to about an hour ago.
   const activitySpan = (HISTORY_DAYS + 2) * DAY;
   const activities = Array.from({ length: ACTIVITIES }, (_, n) => {
-    const actor = members[n % members.length];
+    // `userId` owns the log entry (the Activity page shows the viewer's own
+    // log); ticket events in it are done by a teammate, clocking by the owner.
+    const owner = members[n % members.length];
+    const type = ACTIVITY_TYPES[n % ACTIVITY_TYPES.length];
+    const actor = type.startsWith('ticket.') ? benchIds[(n * 7) % BENCH_USERS] : owner;
     const ticket = dashTickets[n % DASH_TICKETS];
     return {
       _id: oid(KIND.activity, n),
-      userId: actor,
+      userId: owner,
       teamId: dashTeam,
-      type: ACTIVITY_TYPES[n % ACTIVITY_TYPES.length],
+      type,
       actor: { id: actor, name: nameOf.get(actor) },
       payload: { ticketId: ticket._id.toHexString(), ticketTitle: ticket.title, teamId: dashTeam },
       occurredAt: new Date(now - ((ACTIVITIES - n) * activitySpan) / ACTIVITIES),
