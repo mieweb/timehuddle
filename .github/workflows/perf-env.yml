@@ -1,9 +1,10 @@
 name: Perf Comparison Environment
 
 # Builds the before/after perf comparison image (old frontend on 3000, new on
-# 3001, one backend on 3100), smoke-tests it, then (re)deploys it with
-# Launchpad as <name>-old / <name>-new / <name>-api.os.mieweb.org. Build logic
-# lives in tests/performance/env/*.sh so it runs the same locally — see
+# 3001, one backend on 3100), smoke-tests it, (re)deploys it with Launchpad as
+# <name>-old / <name>-new / <name>-api.os.mieweb.org, then measures both sites
+# and attaches the results and videos. The logic lives in
+# tests/performance/env/*.sh so it runs the same locally — see
 # tests/performance/env/README.md.
 
 on:
@@ -15,6 +16,10 @@ on:
       name:
         description: Hostname prefix — serves <name>-old, <name>-new and <name>-api.os.mieweb.org
         default: huddle-perf
+      measure_only:
+        description: Skip build and deploy; just re-measure the running environment
+        type: boolean
+        default: false
   # workflow_dispatch only becomes available once this file is on main, so the
   # PR branch also builds and deploys when the environment changes.
   push:
@@ -31,6 +36,7 @@ env:
 
 jobs:
   build:
+    if: ${{ !inputs.measure_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,6 +79,7 @@ jobs:
   # is now, and the fixture is re-seeded on start.
   deploy:
     needs: build
+    if: ${{ !inputs.measure_only }}
     runs-on: ubuntu-latest
     steps:
       - id: locate
@@ -153,3 +160,46 @@ jobs:
             echo "- API: https://$NAME-api.os.mieweb.org"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Running — https://$NAME-old.os.mieweb.org and https://$NAME-new.os.mieweb.org"
+
+  # Measures both sites from a clean runner; results and the median-run videos
+  # are attached as the perf-comparison artifact.
+  measure:
+    needs: [build, deploy]
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.deploy.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the suite against old and new
+        env:
+          PERF_PASSWORD: ${{ secrets.PERF_ENV_PASSWORD }}
+          # A fresh deploy is still seeding when the sites first answer.
+          SETTLE_SECONDS: ${{ inputs.measure_only && '0' || '90' }}
+        run: tests/performance/env/run-comparison.sh perf-comparison
+
+      - name: Publish the comparison table
+        if: always()
+        run: |
+          {
+            echo "### Before/after (https://$NAME-old.os.mieweb.org → https://$NAME-new.os.mieweb.org)"
+            cat perf-comparison/comparison.md 2>/dev/null || echo "_No comparison was produced._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-comparison
+          path: perf-comparison/
+          retention-days: 30

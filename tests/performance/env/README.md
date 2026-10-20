@@ -87,20 +87,18 @@ tests/performance/env/smoke-test.sh
 
 ## Running the suite against it
 
-Run once per site. `PERF_VIDEO_DIR` records every run and keeps the video of
-the median one, so each video matches its reported number:
+The workflow's `measure` job does this after every deploy (or on its own with
+`measure_only`): it runs the suite against both sites from a clean GitHub
+runner and attaches the `perf-comparison` artifact — results, logs, the
+before/after table (also on the run's summary page) and one video per page
+flow. Locally, the same script:
 
 ```bash
-for side in old new; do
-  PERF_BASE_URL=https://huddle-perf-$side.os.mieweb.org \
-  PERF_EMAIL=perf-bot@test.local PERF_PASSWORD=… \
-  PERF_DASH_TEAM_ID=7e2f01000000000000000000 \
-  PERF_NETWORK=fast4g PERF_RUNS=5 PERF_REPORT_ONLY=1 \
-  PERF_RESULTS_DIR=results/$side PERF_VIDEO_DIR=videos PERF_VIDEO_LABEL=$side \
-  npm run test:performance
-done
-npm run test:performance:compare -- results/old results/new
+PERF_PASSWORD=… tests/performance/env/run-comparison.sh perf-comparison
 ```
 
-Videos land in `videos/` as `<side>-<page>-<returning|signin>-<ms>ms.webm`.
-Use an odd `PERF_RUNS` so the median is a real run.
+[`run-comparison.sh`](run-comparison.sh) runs the suite once per site with
+`PERF_VIDEO_DIR`, which records every run and keeps the video of the median
+one, so each video matches its reported number. Videos are named
+`<side>-<page>-<returning|signin>-<ms>ms.webm`; keep `PERF_RUNS` odd so the
+median is a real run.
