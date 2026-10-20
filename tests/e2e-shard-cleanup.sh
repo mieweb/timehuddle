@@ -20,11 +20,8 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 RUN_STATE_FILE=".e2e-shard-run"
+LOCK_DIR=".e2e-shard-run.lock"
 RUN_ID="${E2E_SHARD_RUN_ID:-$(cat "$RUN_STATE_FILE" 2>/dev/null || true)}"
-
-# Covers up to this many shards regardless of how many are configured now, so
-# this never needs editing when someone bumps E2E_SHARDS / E2E_EXTRA_SHARDS.
-MAX_SHARDS=8
 
 # Walks a PID's parent chain; succeeds if this script ($$) is on it — i.e. the
 # PID is this script or something it spawned (its own ps/grep pipeline
@@ -114,13 +111,18 @@ else
 fi
 
 echo "=== Stopping shard backends ==="
+# Discovered from pm2's own registry rather than looped over a fixed max, so
+# a shard count raised past any previous ceiling — or a backend left behind
+# by an interrupted run with a now-reverted E2E_SHARDS — is still found and
+# stopped. `name` appears twice per app in `pm2 jlist` (top-level and under
+# pm2_env), hence the `sort -u`.
 stopped=""
-for n in $(seq 2 "$MAX_SHARDS"); do
-  app="timehuddle-meteor-test${n}"
-  if pm2 describe "$app" > /dev/null 2>&1; then
-    pm2 stop "$app" > /dev/null 2>&1 || true
-    stopped+="$app "
-  fi
+shard_apps=$(pm2 jlist 2>/dev/null \
+  | grep -o '"name":"timehuddle-meteor-test[0-9][0-9]*"' \
+  | sed -E 's/"name":"(.*)"/\1/' | sort -u)
+for app in $shard_apps; do
+  pm2 stop "$app" > /dev/null 2>&1 || true
+  stopped+="$app "
 done
 echo "${stopped:-(none registered)}"
 
@@ -129,3 +131,7 @@ echo "${stopped:-(none registered)}"
 if [ -n "$RUN_ID" ] && [ "$(cat "$RUN_STATE_FILE" 2>/dev/null)" = "$RUN_ID" ]; then
   rm -f "$RUN_STATE_FILE"
 fi
+# The lock dir has no independent identity to check against — by this point
+# any runner that held it has either exited on its own or just been
+# terminated above, so it's always safe to drop.
+rmdir "$LOCK_DIR" 2>/dev/null || true

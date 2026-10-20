@@ -20,6 +20,11 @@
 #   tests/e2e-shard-runner.sh tests/e2e/huddle/*.spec.ts  # just these files
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# Captured once, right after the cd above, so every shard's report path is
+# anchored to this checkout regardless of what directory the script was
+# invoked from — a path relative to CWD at this point would already be the
+# repo root, and ../playwright-report-shardN then lands one level above it.
+repo_root="$PWD"
 
 # Job control: with this on, each `( ... ) &` background shard job below
 # becomes its own process group (PGID == its own PID), so `kill -TERM -$pgid`
@@ -38,17 +43,34 @@ set -m
 # Checked before the EXIT trap exists on purpose: refusing to start must not
 # trigger cleanup, which would read this file and kill the run it points at.
 RUN_STATE_FILE=".e2e-shard-run"
-if [ -f "$RUN_STATE_FILE" ]; then
-  prev_run_id=$(cat "$RUN_STATE_FILE")
-  prev_pid="${prev_run_id##*-}"
-  if ps -o command= -p "$prev_pid" 2>/dev/null | grep -q "e2e-shard-runner.sh"; then
-    echo "ERROR: another sharded run is still in progress (pid $prev_pid)." >&2
-    echo "Both would reset the same shard databases. Wait for it, or stop it" \
-      "with: npm run test:sharded:cleanup" >&2
-    exit 1
+# `mkdir` is an atomic test-and-set (one syscall, one winner) — unlike the
+# previous plain `[ -f "$RUN_STATE_FILE" ]` check followed later by a
+# separate write, which left a window for two simultaneous launches to both
+# see no run in progress and start against the same shard databases/PM2
+# apps. Acquiring this first and holding it through cleanup is what makes
+# that race impossible.
+LOCK_DIR=".e2e-shard-run.lock"
+acquire_lock() {
+  mkdir "$LOCK_DIR" 2>/dev/null
+}
+
+if ! acquire_lock; then
+  if [ -f "$RUN_STATE_FILE" ]; then
+    prev_run_id=$(cat "$RUN_STATE_FILE")
+    prev_pid="${prev_run_id##*-}"
+    if ps -o command= -p "$prev_pid" 2>/dev/null | grep -q "e2e-shard-runner.sh"; then
+      echo "ERROR: another sharded run is still in progress (pid $prev_pid)." >&2
+      echo "Both would reset the same shard databases. Wait for it, or stop it" \
+        "with: npm run test:sharded:cleanup" >&2
+      exit 1
+    fi
+    echo "=== Previous sharded run ($prev_run_id) never cleaned up — recovering it ==="
+  else
+    echo "=== Stale run lock with no recorded run — recovering it ==="
   fi
-  echo "=== Previous sharded run ($prev_run_id) never cleaned up — recovering it ==="
   tests/e2e-shard-cleanup.sh
+  acquire_lock ||
+    { echo "ERROR: failed to acquire the run lock after cleanup ($LOCK_DIR still exists)." >&2; exit 1; }
 fi
 export E2E_SHARD_RUN_ID="e2e-$(date +%s)-$$"
 echo "$E2E_SHARD_RUN_ID" > "$RUN_STATE_FILE"
@@ -166,7 +188,8 @@ for shard_num in $(seq 1 "$n"); do
     METEOR_BASE_URL="http://localhost:$port" \
     METEOR_WS="ws://localhost:$port/websocket" \
     E2E_PORT="$e2e_port" \
-    PLAYWRIGHT_HTML_REPORT="../playwright-report-shard$shard_num" \
+    PLAYWRIGHT_HTML_REPORT="$repo_root/playwright-report-shard$shard_num" \
+    PLAYWRIGHT_HTML_OPEN=never \
     npx playwright test -c tests/playwright.config.ts --output="test-results/shard$shard_num" --shard="$shard_num/$n" "$@" \
       > "playwright-report-shard$shard_num.log" 2>&1
   ) &

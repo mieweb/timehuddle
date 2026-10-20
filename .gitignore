@@ -29,6 +29,7 @@ _build
 /playwright-report-shard*/
 /blob-report/
 /.e2e-shard-run
+/.e2e-shard-run.lock
 .playwright-mcp/
 
 # Local runtime secrets (never commit)
