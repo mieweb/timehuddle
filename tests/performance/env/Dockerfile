@@ -9,7 +9,9 @@
 ARG BASE_IMAGE
 
 # ── Old frontend ──────────────────────────────────────────────────────────────
-FROM node:22-slim AS old-frontend
+# Node 24 is the repo's pinned version (.nvmrc); the clone brings .npmrc's
+# engine-strict=true, so an older Node refuses to install.
+FROM node:24-slim AS old-frontend
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
