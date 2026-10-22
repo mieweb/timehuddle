@@ -106,6 +106,8 @@ async function buildOrgAccess(userId, org) {
   };
 }
 
+const PREFIXES_CHANGED = 'The ticket IDs changed while you were editing. Reload and try again.';
+
 // The org, if `userId` owns it. Ticket ID prefixes are an owner's call alone.
 async function requireOrgOwner(orgId, userId) {
   if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
@@ -504,9 +506,14 @@ Meteor.methods({
     if ((org.sourcePrefixes ?? []).some((entry) => entry.prefix === prefix)) {
       throw new Meteor.Error('validation-error', `${prefix} is already used for a server.`);
     }
-    await rawDb()
+    // Checked again in the write, so a server named meanwhile can't take the same prefix.
+    const { matchedCount } = await rawDb()
       .collection('organizations')
-      .updateOne({ _id: org._id }, { $set: { ticketPrefix: prefix, updatedAt: new Date() } });
+      .updateOne(
+        { _id: org._id, 'sourcePrefixes.prefix': { $ne: prefix } },
+        { $set: { ticketPrefix: prefix, updatedAt: new Date() } },
+      );
+    if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
     // Live team subscriptions republish the prefix, so open ticket lists relabel.
     announceSettingsChanged();
     return { ticketPrefix: prefix };
@@ -525,9 +532,14 @@ Meteor.methods({
     } catch (error) {
       throw new Meteor.Error('validation-error', error.message);
     }
-    await rawDb()
+    // Only over the ticket prefix these were checked against.
+    const { matchedCount } = await rawDb()
       .collection('organizations')
-      .updateOne({ _id: org._id }, { $set: { sourcePrefixes: entries, updatedAt: new Date() } });
+      .updateOne(
+        { _id: org._id, ticketPrefix: org.ticketPrefix ?? null },
+        { $set: { sourcePrefixes: entries, updatedAt: new Date() } },
+      );
+    if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
     return { sourcePrefixes: entries };
   },
 
