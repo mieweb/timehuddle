@@ -113,6 +113,11 @@ function formatDayLabel(dateKey: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+/** Titles of a post's tickets that still exist. */
+function ticketTitles(post: HuddlePost): string[] {
+  return (post.tickets ?? []).flatMap((t) => (t.title ? [t.title] : []));
+}
+
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
   switch (threadBy) {
     case 'session':
@@ -122,7 +127,8 @@ function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
     case 'person':
       return post.userId;
     case 'ticket':
-      return post.ticketId ?? 'none';
+      // A post threads under its first ticket; its label still names them all.
+      return post.tickets?.[0]?.id ?? 'none';
   }
 }
 
@@ -246,8 +252,8 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
-  if (post.ticketTitle) {
-    parts.push(`🎫 ${post.ticketTitle}`);
+  for (const title of ticketTitles(post)) {
+    parts.push(`🎫 ${title}`);
   }
   if (teamName) {
     parts.push(teamName);
@@ -319,7 +325,7 @@ function buildTitle(
     case 'person':
       return displayName(first, viewer);
     case 'ticket':
-      return first.ticketId ? (first.ticketTitle ?? 'Ticket') : 'No ticket';
+      return first.tickets?.length ? (first.tickets[0].title ?? 'Ticket') : 'No ticket';
     case 'session': {
       const dateLabel = formatDayLabel(getPostDateKey(first));
       const name = displayName(first, viewer);
@@ -472,7 +478,7 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
   return [
     post.content.text,
     post.userName,
-    post.ticketTitle,
+    ...ticketTitles(post),
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
     post.clockEventId ? undefined : OFF_THE_CLOCK,
     post.session && post.session.endTime == null ? 'live' : undefined,

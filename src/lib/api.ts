@@ -1181,8 +1181,8 @@ export interface HuddlePost {
     text: string;
     mentions: string[];
   };
-  ticketId?: string;
-  ticketTitle?: string;
+  /** Linked tickets; `title` is null when the ticket no longer exists. */
+  tickets?: { id: string; title: string | null }[];
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
@@ -1280,7 +1280,7 @@ export const huddleApi = {
   createPost: (params: {
     teamId: string;
     content: { text: string; mentions: string[] };
-    ticketId?: string;
+    ticketIds?: string[];
     attachments?: HuddlePostAttachment[];
     postDate?: string;
     clockEventId?: string;
@@ -1298,14 +1298,14 @@ export const huddleApi = {
     wormholeCall<{ id: string }>('huddle.reschedulePost', { postId, ...schedule }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
-   * Pass attachments/ticketId to edit them (omit to leave untouched). */
+   * Pass attachments/ticketIds to edit them (omit to leave untouched; `[]` clears tickets). */
   updatePost: (
     postId: string,
     content: { text: string; mentions: string[] },
     options?: {
       wrapUp?: boolean;
       attachments?: HuddlePostAttachment[];
-      ticketId?: string | null;
+      ticketIds?: string[];
     },
   ) => wormholeCall<{ id: string }>('huddle.updatePost', { postId, content, ...options }),
 
