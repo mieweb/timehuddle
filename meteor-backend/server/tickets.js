@@ -158,7 +158,21 @@ Meteor.methods({
     }
 
     const count = (condition) => ({ $sum: { $cond: [condition, 1, 0] } });
-    const assignees = { $ifNull: ['$assignedTo', []] };
+    // Older tickets store a single assignee as a string; one bad shape would fail every count.
+    const assignees = {
+      $switch: {
+        branches: [
+          { case: { $isArray: '$assignedTo' }, then: '$assignedTo' },
+          {
+            case: {
+              $and: [{ $eq: [{ $type: '$assignedTo' }, 'string'] }, { $ne: ['$assignedTo', ''] }],
+            },
+            then: ['$assignedTo'],
+          },
+        ],
+        default: [],
+      },
+    };
     const done = { $in: ['$status', ['closed', 'reviewed']] };
     const open = { $not: [done] };
     const highPriority = { $in: ['$priority', ['high', 'critical']] };

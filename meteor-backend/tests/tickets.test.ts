@@ -871,6 +871,51 @@ describe('tickets.dashboardSummary (wormhole)', () => {
     expect(Object.keys(res.result)).toHaveLength(7);
   });
 
+  it('counts a legacy single-string assignee instead of failing the summary', async () => {
+    const db = await getDb();
+    const legacyTeam = {
+      _id: new ObjectId(),
+      name: 'WH Summary Legacy Team',
+      members: [ownerId, memberId],
+      admins: [ownerId],
+      code: 'WHSUMLEGACY',
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection('teams').insertOne(legacyTeam);
+    const legacyTeamId = legacyTeam._id.toHexString();
+    const legacy = (fields: Record<string, unknown>) => ({
+      teamId: legacyTeamId,
+      title: 'Legacy ticket',
+      github: '',
+      status: 'open',
+      createdBy: ownerId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...fields,
+    });
+    await db
+      .collection('tickets')
+      .insertMany([
+        legacy({ assignedTo: ownerId }),
+        legacy({ assignedTo: '' }),
+        legacy({}),
+        legacy({ assignedTo: [memberId] }),
+      ]);
+    try {
+      const res = await wormhole<Record<string, number>>(
+        'tickets.dashboardSummary',
+        { teamId: legacyTeamId, ...window() },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result).toMatchObject({ open: 4, unassignedOpen: 2, myOpen: 1 });
+    } finally {
+      await db.collection('teams').deleteOne({ _id: legacyTeam._id });
+      await db.collection('tickets').deleteMany({ teamId: legacyTeamId });
+    }
+  });
+
   it('rejects outsiders and missing day bounds', async () => {
     const outsider = await wormhole(
       'tickets.dashboardSummary',
