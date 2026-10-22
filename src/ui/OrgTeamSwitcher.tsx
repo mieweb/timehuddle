@@ -6,7 +6,7 @@
  * bottom sheet on mobile, a centered dialog on desktop (shared `Modal`
  * primitive), matching the redesign prototype's "Switch organization / team"
  * sheet: an Organization select, a Team list with member counts, and a
- * "+ New team" action.
+ * "+ New team" action, which swaps the sheet for the shared Create Team modal.
  *
  * Switching is client-side only: TeamContext persists the selection and
  * re-scopes `teams` to the selected org, auto-picking a valid team.
@@ -15,12 +15,12 @@ import { faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, ModalHeader, ModalBody, Select, Text } from '@mieweb/ui';
 import { AppModal } from './AppModal';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { CreateTeamModal } from '../features/teams/CreateTeamModal';
 import { useTeam } from '../lib/TeamContext';
 import { Logo } from './Logo';
-import { useRouter } from './router';
 
 type OrganizationRole = 'owner' | 'admin' | 'member';
 
@@ -41,9 +41,9 @@ export const OrgTeamSwitcher: React.FC = () => {
     teamsReady,
     pendingRequests,
   } = useTeam();
-  const { navigate } = useRouter();
-
   const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const selectedOrg = useMemo(
     () => organizations.find((org) => org.id === selectedOrgId) ?? null,
@@ -76,8 +76,20 @@ export const OrgTeamSwitcher: React.FC = () => {
 
   const handleNewTeam = useCallback(() => {
     setOpen(false);
-    navigate('/app/teams');
-  }, [navigate]);
+    setCreateOpen(true);
+  }, []);
+
+  // The sheet that held "+ New team" is gone by the time the modal closes, so
+  // focus goes back to the switcher trigger instead of the document body.
+  const handleCreateOpenChange = useCallback((next: boolean) => {
+    setCreateOpen(next);
+    if (!next) triggerRef.current?.focus();
+  }, []);
+
+  const handleTeamCreated = useCallback(
+    () => handleCreateOpenChange(false),
+    [handleCreateOpenChange],
+  );
 
   if (organizations.length === 0 && teams.length === 0) return null;
 
@@ -93,6 +105,7 @@ export const OrgTeamSwitcher: React.FC = () => {
        title to absorb all of it — both ellipse instead of one vanishing. */
     <div className="org-team-switcher min-w-0 shrink">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         /* Names the action *and* the current scope — the visible text is
@@ -239,6 +252,16 @@ export const OrgTeamSwitcher: React.FC = () => {
             </p>
           </ModalBody>
         </AppModal>,
+        document.body,
+      )}
+
+      {/* Portaled like the sheet, so the header's stacking context can't clip it. */}
+      {createPortal(
+        <CreateTeamModal
+          open={createOpen}
+          onOpenChange={handleCreateOpenChange}
+          onCreated={handleTeamCreated}
+        />,
         document.body,
       )}
     </div>
