@@ -83,6 +83,16 @@ describe('tickets (wormhole)', () => {
     ticketId = res.result.id;
   });
 
+  it('numbers each new ticket after the last one in its organization', async () => {
+    const create = (title: string) =>
+      wormhole<{ number: number }>('tickets.create', { teamId, title }, ownerJwt);
+    const first = await create('Numbered 1');
+    const second = await create('Numbered 2');
+    expect(first.ok && second.ok).toBe(true);
+    expect(Number.isInteger(first.result.number)).toBe(true);
+    expect(second.result.number).toBe(first.result.number + 1);
+  });
+
   it('lists tickets for the team', async () => {
     const res = await wormhole<Array<{ id: string; title: string }>>(
       'tickets.list',

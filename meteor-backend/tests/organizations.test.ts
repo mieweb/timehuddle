@@ -355,3 +355,33 @@ describe('a member removed from the default organization', () => {
     expect(await listedMember(defaultOrgId)).toBeUndefined();
   });
 });
+
+describe('orgs.setTicketPrefix', () => {
+  const setPrefix = (jwt: string, ticketPrefix: string) =>
+    wormhole<{ ticketPrefix: string }>('orgs.setTicketPrefix', { orgId, ticketPrefix }, jwt);
+
+  it('lets an owner set it, stored uppercase, and teams in the org show it', async () => {
+    const teamId = await addTeam({ name: 'Prefix Team', members: [ownerId], admins: [ownerId] });
+    const res = await setPrefix(ownerJwt, 'tj');
+    expect(res.ok).toBe(true);
+    expect(res.result.ticketPrefix).toBe('TJ');
+
+    const org = await wormhole<{ organization: { ticketPrefix: string } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.ticketPrefix).toBe('TJ');
+    const teams = await wormhole<{ teams: { id: string; ticketPrefix: string }[] }>('teams.list', {}, ownerJwt);
+    expect(teams.result.teams.find((t) => t.id === teamId.toHexString())?.ticketPrefix).toBe('TJ');
+  });
+
+  it('refuses an admin and a member', async () => {
+    await addMembership(memberId, 'admin');
+    expect((await setPrefix(memberJwt, 'AD')).ok).toBe(false);
+    const db = await getDb();
+    await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
+    expect((await setPrefix(memberJwt, 'ME')).ok).toBe(false);
+  });
+
+  it('refuses a prefix that is not a letter followed by up to five letters or digits', async () => {
+    expect((await setPrefix(ownerJwt, '1TH')).ok).toBe(false);
+    expect((await setPrefix(ownerJwt, 'TOOLONG')).ok).toBe(false);
+  });
+});

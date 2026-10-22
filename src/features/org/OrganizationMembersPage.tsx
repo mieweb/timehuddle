@@ -35,6 +35,7 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
+import { TicketIdsCard } from './TicketIdsCard';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
@@ -96,7 +97,12 @@ export const OrganizationMembersPage: React.FC = () => {
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState<{ orgId: string; view: SettingsEditView } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    orgId: string;
+    view: SettingsEditView;
+    role: 'owner' | 'admin' | 'member' | null;
+    ticketPrefix: string;
+  } | null>(null);
   const loadSeqRef = useRef(0);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -137,7 +143,12 @@ export const OrganizationMembersPage: React.FC = () => {
       const organization = await orgApi.getOrganizationById(selectedOrgId);
       if (isStale()) return;
       setOrganizationName(organization.name);
-      setLoaded({ orgId: selectedOrgId, view: organization });
+      setLoaded({
+        orgId: selectedOrgId,
+        view: organization,
+        role: organization.role,
+        ticketPrefix: organization.ticketPrefix,
+      });
       setCanManage(organization.canManage);
 
       if (!organization.canManage) {
@@ -201,7 +212,7 @@ export const OrganizationMembersPage: React.FC = () => {
       setSettingsError(null);
       try {
         const view = await orgApi.updateSettings(selectedOrgId, patch);
-        setLoaded({ orgId: selectedOrgId, view });
+        setLoaded((prev) => (prev?.orgId === selectedOrgId ? { ...prev, view } : prev));
         refreshTeamSettings();
         refetchOrganizations();
       } catch (err) {
@@ -439,6 +450,9 @@ export const OrganizationMembersPage: React.FC = () => {
           error={settingsError}
           onSave={(patch) => void handleSaveSettings(patch)}
         />
+      )}
+      {selectedOrgId && loaded?.orgId === selectedOrgId && loaded.role === 'owner' && (
+        <TicketIdsCard orgId={selectedOrgId} ticketPrefix={loaded.ticketPrefix} />
       )}
       <Card padding="lg" className="space-y-4">
         <CardHeader className="flex items-start justify-between gap-3">

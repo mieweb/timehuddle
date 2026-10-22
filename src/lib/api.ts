@@ -698,10 +698,18 @@ export const orgApi = {
         name: string;
         slug: string;
         allowAutoJoin: boolean;
+        ticketPrefix: string;
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
       } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
+
+  /** Sets the prefix every ticket in the org is shown with. Org owners only. */
+  setTicketPrefix: (id: string, ticketPrefix: string) =>
+    wormholeCall<{ ticketPrefix: string }>('orgs.setTicketPrefix', {
+      orgId: id,
+      ticketPrefix,
+    }).then((r) => r.ticketPrefix),
 
   /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
   updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
@@ -1033,6 +1041,8 @@ export interface Ticket {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  /** The ticket's number in its organization, shown as `TH-12`. Missing until numbered. */
+  number?: number;
   sharedWithTimeharbor?: boolean;
   /** The external issue this ticket is linked to, or null. */
   linkedIssue: LinkedIssue | null;
@@ -1368,6 +1378,8 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
+  /** The prefix the team's tickets are shown with, from its organization: `TH` in `TH-12`. */
+  ticketPrefix: string;
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
   settings: Record<TeamSettingKey, boolean>;
   resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;

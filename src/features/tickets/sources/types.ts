@@ -117,7 +117,7 @@ export interface UnifiedTicket {
 export interface TicketSourceContext {
   userId: string | null;
   /** Teams the signed-in user belongs to, for team-scoped sources. */
-  teams: { id: string; name: string }[];
+  teams: { id: string; name: string; ticketPrefix?: string }[];
   /** Resolves a Huddle user id to a display name. */
   resolveMemberName: (userId: string) => string | null;
   /**

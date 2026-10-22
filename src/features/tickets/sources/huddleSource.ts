@@ -23,11 +23,12 @@ const PRIORITY_RANK: Record<string, number> = {
 };
 
 /**
- * A Huddle ticket's short reference, e.g. `#3fa2c`. Huddle tickets have no
- * human number, so the table and the ticket page both show the tail of the id.
+ * A Huddle ticket's short reference: its organization's prefix and its number,
+ * e.g. `TH-12`. Before a ticket is numbered, or when the prefix is unknown, the
+ * tail of its id stands in, e.g. `#3fa2c`.
  */
-export function huddleTicketRef(id: string): string {
-  return `#${id.slice(-5)}`;
+export function huddleTicketRef(ticket: { id: string; number?: number }, prefix?: string): string {
+  return ticket.number && prefix ? `${prefix}-${ticket.number}` : `#${ticket.id.slice(-5)}`;
 }
 
 const CAPABILITIES: SourceCapabilities = {
@@ -66,7 +67,7 @@ export const huddleSource: TicketSource<Ticket> = {
       key: ticketKey('huddle', ticket.id),
       sourceId: 'huddle',
       id: ticket.id,
-      ref: huddleTicketRef(ticket.id),
+      ref: huddleTicketRef(ticket, team?.ticketPrefix),
       title: ticket.title,
       container: team ? { id: team.id, name: team.name } : null,
       status: { native: status, isClosed: CLOSED_STATUSES.has(status) },

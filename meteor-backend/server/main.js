@@ -40,6 +40,7 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
+import { migrateTicketNumbers } from './ticket-numbers';
 import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
@@ -85,6 +86,13 @@ Meteor.startup(async () => {
   }
   // Hear settings changes made by other server instances.
   watchSettingsChanges(rawDb());
+});
+
+// Not awaited before serving: a ticket without a number shows its short id until it gets one.
+Meteor.startup(() => {
+  migrateTicketNumbers(rawDb()).catch((error) =>
+    console.error('[tickets] numbering existing tickets failed:', error),
+  );
 });
 
 /**
@@ -2181,6 +2189,7 @@ Meteor.startup(async() => {
   Wormhole.expose('orgs.get', { description: 'Get organization details', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.update', { description: 'Update organization (name, slug, settings)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.updateSettings', { description: 'Update org settings and locks. Setting values: true/false, or null to reset to inherited. Locks: true to lock, false/null to unlock. allowAutoJoin alone is still accepted', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, allowAutoJoin: { type: 'boolean' }, settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } }, locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.setTicketPrefix', { description: 'Set the prefix tickets in the organization are shown with, e.g. TH for TH-12 (org owners only)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, ticketPrefix: { type: 'string' } }, required: ['orgId', 'ticketPrefix'] } });
   Wormhole.expose('orgs.join', { description: 'Join organization (if auto-join enabled)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.listMembers', { description: 'List org members (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.listUsers', { description: 'List org users (accessible)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });

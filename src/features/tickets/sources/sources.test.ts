@@ -16,8 +16,8 @@ import type { TicketSourceContext } from './types';
 const ctx: TicketSourceContext = {
   userId: 'u1',
   teams: [
-    { id: 'team-1', name: 'Platform' },
-    { id: 'team-2', name: 'Mobile' },
+    { id: 'team-1', name: 'Platform', ticketPrefix: 'TJ' },
+    { id: 'team-2', name: 'Mobile', ticketPrefix: 'TJ' },
   ],
   resolveMemberName: (id) => (id === 'u1' ? 'Ada Lovelace' : null),
 };
@@ -54,6 +54,14 @@ const redmineIssue: RedmineIssue = {
 const raw: RedmineRaw = { issue: redmineIssue, baseUrl: 'https://redmine.example.com' };
 
 describe('huddleSource.toUnified', () => {
+  it("shows a numbered ticket as its org's prefix and number", () => {
+    expect(huddleSource.toUnified({ ...huddleTicket, number: 12 }, ctx).ref).toBe('TJ-12');
+  });
+
+  it('shows the tail of the id until the ticket is numbered', () => {
+    expect(huddleSource.toUnified(huddleTicket, ctx).ref).toBe('#t1');
+  });
+
   it('normalizes a ticket', () => {
     expect(huddleSource.toUnified(huddleTicket, ctx)).toEqual({
       key: 'huddle:t1',

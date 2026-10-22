@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
+import { DEFAULT_TICKET_PREFIX, ticketPrefixesFor } from './ticket-numbers';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import {
   ensureDefaultOrganization,
@@ -122,7 +123,7 @@ function toPublicInvitation(doc, invitedByName) {
   };
 }
 
-function publicTeamShape(team, resolved) {
+function publicTeamShape(team, resolved, ticketPrefix) {
   const id = team._id?.toHexString ? team._id.toHexString() : String(team._id);
   return {
     id,
@@ -134,6 +135,7 @@ function publicTeamShape(team, resolved) {
     admins: team.admins,
     code: team.code,
     isPersonal: team.isPersonal ?? false,
+    ticketPrefix,
     settings: legacyTeamSettings(resolved),
     resolvedSettings: publicTeamSettings(resolved),
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
@@ -142,35 +144,43 @@ function publicTeamShape(team, resolved) {
 }
 
 async function toPublicTeam(team) {
-  return publicTeamShape(team, await resolveSettings(team));
+  const prefixes = await ticketPrefixesFor(rawDb(), [team.orgId]);
+  return publicTeamShape(team, await resolveSettings(team), prefixes.get(team.orgId) ?? DEFAULT_TICKET_PREFIX);
 }
 
 async function toPublicTeams(teams) {
-  const resolved = await resolveSettingsForTeams(teams);
-  return teams.map((team, i) => publicTeamShape(team, resolved[i]));
+  const [resolved, prefixes] = await Promise.all([
+    resolveSettingsForTeams(teams),
+    ticketPrefixesFor(rawDb(), teams.map((team) => team.orgId)),
+  ]);
+  return teams.map((team, i) =>
+    publicTeamShape(team, resolved[i], prefixes.get(team.orgId) ?? DEFAULT_TICKET_PREFIX),
+  );
 }
 
 // Publishes the user's teams with the resolved settings in place of the raw
-// ones: `resolvedSettings` carries value, source and lock; `settings` keeps the
+// ones, plus their org's ticket prefix: `resolvedSettings` carries value, source and lock; `settings` keeps the
 // plain booleans older clients read. Any settings change (team, org or
-// enterprise) republishes them through `onSettingsChanged`.
+// enterprise), or ticket prefix change, republishes them through `onSettingsChanged`.
 Meteor.publish('teams.byUser', async function () {
   if (!this.userId) return this.ready();
   const docs = new Map();
   const sent = new Map();
   const hexOf = (id) => (typeof id === 'string' ? id : id.toHexString());
 
-  // Sends `settings` for a team unless the client already has these values.
-  const sendSettings = async (id, extraFields = {}, resolvedNow) => {
+  // Sends `settings` and the ticket prefix for a team unless the client already has these values.
+  const sendSettings = async (id, extraFields = {}, resolvedNow, prefixNow) => {
     const doc = docs.get(hexOf(id));
     if (!doc) return;
     const resolved = resolvedNow ?? (await resolveSettings(doc));
+    const ticketPrefix =
+      prefixNow ?? (await ticketPrefixesFor(rawDb(), [doc.orgId])).get(doc.orgId) ?? DEFAULT_TICKET_PREFIX;
     const resolvedSettings = publicTeamSettings(resolved);
-    const serialized = JSON.stringify(resolvedSettings);
+    const serialized = JSON.stringify({ resolvedSettings, ticketPrefix });
     if (sent.get(hexOf(id)) === serialized && !Object.keys(extraFields).length) return;
     const isNew = !sent.has(hexOf(id));
     sent.set(hexOf(id), serialized);
-    const fields = { ...extraFields, settings: legacyTeamSettings(resolved), resolvedSettings };
+    const fields = { ...extraFields, settings: legacyTeamSettings(resolved), resolvedSettings, ticketPrefix };
     if (isNew) this.added('teams', id, fields);
     else this.changed('teams', id, fields);
   };
@@ -184,8 +194,13 @@ Meteor.publish('teams.byUser', async function () {
   // Resolved together so each org and enterprise is read once, not once per team.
   const resendAll = async () => {
     const targets = [...sent.keys()].map((key) => docs.get(key)).filter(Boolean);
-    const resolved = await resolveSettingsForTeams(targets);
-    for (const [i, doc] of targets.entries()) await sendSettings(doc._id, {}, resolved[i]);
+    const [resolved, prefixes] = await Promise.all([
+      resolveSettingsForTeams(targets),
+      ticketPrefixesFor(rawDb(), targets.map((doc) => doc.orgId)),
+    ]);
+    for (const [i, doc] of targets.entries()) {
+      await sendSettings(doc._id, {}, resolved[i], prefixes.get(doc.orgId) ?? DEFAULT_TICKET_PREFIX);
+    }
   };
 
   // Every update runs here in order, so an older resolve can't land after a newer one.

@@ -9,8 +9,10 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
+import { DEFAULT_TICKET_PREFIX, normalizeTicketPrefix } from './ticket-numbers';
 import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
+import { announceSettingsChanged } from './settings/changes';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -111,6 +113,7 @@ async function toOrgSummary(org, role) {
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
+    ticketPrefix: org.ticketPrefix || DEFAULT_TICKET_PREFIX,
     allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
@@ -472,6 +475,33 @@ Meteor.methods({
         effectiveSettings,
       },
     };
+  },
+
+  /** Set the prefix every ticket in the org is shown with (`TH-12`). Org owners only. */
+  async 'orgs.setTicketPrefix'({ orgId, ticketPrefix }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    const prefix = normalizeTicketPrefix(ticketPrefix);
+    if (!prefix) {
+      throw new Meteor.Error(
+        'validation-error',
+        'A ticket prefix is a letter followed by up to five letters or digits.',
+      );
+    }
+    const db = rawDb();
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const membership = await getOrgMembership(orgId, userId);
+    if (membership?.role !== 'owner') {
+      throw new Meteor.Error('forbidden', 'Only an organization owner can set the ticket prefix');
+    }
+    await db
+      .collection('organizations')
+      .updateOne({ _id: org._id }, { $set: { ticketPrefix: prefix, updatedAt: new Date() } });
+    // Live team subscriptions republish the prefix, so open ticket lists relabel.
+    announceSettingsChanged();
+    return { ticketPrefix: prefix };
   },
 
   async 'orgs.join'({ orgId }) {

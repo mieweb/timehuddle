@@ -363,6 +363,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     );
   }
 
+  const team = teams.find((t) => t.id === ticket.teamId);
+
   const assigneeOptions = [
     { value: '', label: 'Unassigned' },
     ...members.map((m) => ({ value: m.id, label: m.name || m.email })),
@@ -458,7 +460,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         <div className="ticket-title-meta mt-1.5 flex flex-wrap items-center gap-2">
           <span className="ticket-id inline-flex items-center gap-1">
             <Text size="sm" variant="muted" className="font-mono">
-              {huddleTicketRef(ticket.id)}
+              {huddleTicketRef(ticket, team?.ticketPrefix)}
             </Text>
             <Button
               variant="ghost"
@@ -711,7 +713,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           {ticket.teamId && (
             <div className="ticket-sidebar-badges flex flex-wrap gap-1.5">
               <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                Team: {teams.find((t) => t.id === ticket.teamId)?.name ?? ticket.teamId}
+                Team: {team?.name ?? ticket.teamId}
               </span>
             </div>
           )}
