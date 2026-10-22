@@ -52,7 +52,7 @@ test.describe('Ticket rows', () => {
     const row = tickets.rowByTitle(title);
 
     // Where the ticket sits, then its title, then who has it and its state.
-    await expect(row.locator('.ticket-row-meta')).toContainText('#');
+    await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');

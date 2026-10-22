@@ -73,7 +73,7 @@ test.describe('Unified ticket table', () => {
     const row = tickets.rowByTitle(title);
 
     await expect(page.getByRole('columnheader')).toHaveCount(0);
-    await expect(row.locator('.ticket-row-meta')).toContainText('#');
+    await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
