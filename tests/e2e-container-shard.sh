@@ -27,7 +27,9 @@ IMAGE="${1:?usage: $0 <image> [playwright-test-args...]}"
 shift
 
 BACKEND_URL="http://localhost:3100"
-E2E_FRONTEND_URL="http://localhost:3003"
+# Same port Playwright's webServer starts Vite on (playwright.config.ts), so
+# the backend's reset/invite links and allowed origins point at this run.
+E2E_FRONTEND_URL="http://localhost:${E2E_PORT:-3003}"
 MONGO_URL="mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0"
 MAILPIT_IMAGE="axllent/mailpit:v1.31.3"
 APP_CONTAINER="timehuddle-e2e-app-$$"
@@ -42,6 +44,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# The containers share the host network, so a backend already answering on
+# this port would pass the health check below in place of the container's,
+# and global-setup would seed whatever database that one uses.
+if curl -s -o /dev/null --max-time 2 "$BACKEND_URL/health"; then
+  echo "ERROR: something is already listening on $BACKEND_URL — stop it first" >&2
+  exit 1
+fi
 
 echo "=== Starting Mailpit ($MAILPIT_IMAGE) on :1025 (SMTP) / :8025 (API) ==="
 docker run -d --name "$MAILPIT_CONTAINER" --network host "$MAILPIT_IMAGE" > /dev/null || exit 1
@@ -67,6 +77,12 @@ docker run -d --name "$APP_CONTAINER" --network host \
 
 deadline=$((SECONDS + 180))
 until curl -sf "$BACKEND_URL/health" > /dev/null 2>&1; do
+  # e.g. the image's mongod could not bind :27017 because the host's has it.
+  if [ "$(docker inspect -f '{{.State.Running}}' "$APP_CONTAINER" 2> /dev/null)" != "true" ]; then
+    echo "ERROR: backend container exited before becoming healthy" >&2
+    docker logs --tail 100 "$APP_CONTAINER" >&2
+    exit 1
+  fi
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "ERROR: backend did not become healthy within 180s ($BACKEND_URL/health)" >&2
     docker logs --tail 100 "$APP_CONTAINER" >&2
