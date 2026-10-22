@@ -57,7 +57,7 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 | Profile                         | `tab` (Feed when absent)                                                                    |
 | Org Members                     | `q`                                                                                         |
 | Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                               |
-| Settings                        | `github=connected\|taken\|expired` — the Connect GitHub result, read once and removed       |
+| Settings                        | `github=taken\|expired`, `github_confirm=<code>` — Connect GitHub, read once and removed    |
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 

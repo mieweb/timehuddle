@@ -2613,12 +2613,17 @@ export const githubApi = {
 
   /**
    * Where to send the browser to link a GitHub account to the caller. The
-   * backend runs the OAuth round trip and returns to `/app/settings?github=`.
+   * backend runs the OAuth round trip and returns to `/app/settings`, with
+   * `?github_confirm=` for `confirmLink` or `?github=` saying why it refused.
    */
   linkUrl: async (): Promise<string> => {
     const { token } = await wormholeCall<{ token: string }>('github.linkToken', {});
     return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ link: token })}`;
   },
+
+  /** Finish the link the OAuth callback staged, as the user who started it. */
+  confirmLink: (code: string): Promise<{ result: string; status: GitHubLinkStatus }> =>
+    wormholeCall<{ result: string; status: GitHubLinkStatus }>('github.confirmLink', { code }),
 
   disconnect: (): Promise<GitHubLinkStatus> =>
     wormholeCall<GitHubLinkStatus>('github.disconnect', {}),

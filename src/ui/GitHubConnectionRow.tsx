@@ -1,10 +1,10 @@
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { githubApi, type GitHubLinkStatus } from '../lib/api';
-import { useQueryParam } from './router';
+import { useQueryParams } from './router';
 
 interface RowProps {
   label: string;
@@ -28,23 +28,40 @@ const Row: React.FC<RowProps> = ({ label, hint, children }) => (
   </div>
 );
 
-/** What `/auth/github?link=` reports back in `?github=` after the OAuth round trip. */
+/**
+ * The outcome of Connect GitHub: what `/auth/github?link=` reports back in
+ * `?github=` when it refuses, or what `github.confirmLink` returns.
+ */
 const LINK_RESULT_MESSAGES: Record<string, string> = {
   connected: 'GitHub connected. You can now sign in with GitHub.',
   taken: 'That GitHub account is already connected to another TimeHuddle user.',
   expired: 'The GitHub connection timed out. Please try again.',
 };
 
+/** Only the declared results — `?github=__proto__` must not reach the page. */
+function linkMessage(result: string | null): string | undefined {
+  return result && Object.hasOwn(LINK_RESULT_MESSAGES, result)
+    ? LINK_RESULT_MESSAGES[result]
+    : undefined;
+}
+
 export const GitHubConnectionRow: React.FC = () => {
   const [status, setStatus] = useState<GitHubLinkStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [linkResult, setLinkResult] = useQueryParam('github');
-  const [message] = useState(() => (linkResult ? LINK_RESULT_MESSAGES[linkResult] : undefined));
+  const { params, setParams } = useQueryParams();
+  const linkResult = params.get('github');
+  // Set by the OAuth callback when GitHub came back fine: the link is staged
+  // and this signed-in user has to confirm it (see github-link.js for why).
+  const confirmCode = params.get('github_confirm');
+  // Both are read once — the effect below removes them from the URL.
+  const [message, setMessage] = useState(() => linkMessage(linkResult));
+  const [codeToConfirm] = useState(confirmCode);
+  const confirmStarted = useRef(false);
 
   useEffect(() => {
     // Shown once — a reload shouldn't repeat it.
-    if (linkResult) setLinkResult(null);
-  }, [linkResult, setLinkResult]);
+    if (linkResult || confirmCode) setParams({ github: null, github_confirm: null });
+  }, [linkResult, confirmCode, setParams]);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,8 +72,24 @@ export const GitHubConnectionRow: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!codeToConfirm) {
+      void refresh();
+      return;
+    }
+    // The code is single-use, and StrictMode runs effects twice.
+    if (confirmStarted.current) return;
+    confirmStarted.current = true;
+    githubApi
+      .confirmLink(codeToConfirm)
+      .then(({ result, status: confirmed }) => {
+        setStatus(confirmed);
+        setMessage(linkMessage(result));
+      })
+      .catch(() => {
+        setMessage(linkMessage('expired'));
+        void refresh();
+      });
+  }, [codeToConfirm, refresh]);
 
   const handleConnect = async () => {
     setBusy(true);

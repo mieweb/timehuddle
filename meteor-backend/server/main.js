@@ -21,7 +21,7 @@ import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
-import { findUserIdByGithubId, redeemGithubLink } from './github-link';
+import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
 import './redmine';
@@ -482,10 +482,14 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
     const { isNative, join, invite, orgInvite, link } = decodeOAuthState(state);
 
-    // Settings → Connect GitHub: link the account, then return to Settings.
+    // Settings → Connect GitHub: stage the link, then return to Settings,
+    // which confirms it as the signed-in user (see github-link.js).
     if (link) {
-      const result = await redeemGithubLink(link, githubUser);
-      res.writeHead(302, { Location: `${frontendUrl}/app/settings?github=${result}` });
+      const { result, code } = await stageGithubLink(link, githubUser);
+      const params = code ? { github_confirm: code } : { github: result };
+      res.writeHead(302, {
+        Location: `${frontendUrl}/app/settings?${new URLSearchParams(params)}`,
+      });
       res.end();
       return;
     }
@@ -1106,6 +1110,15 @@ Meteor.startup(async() => {
   Wormhole.expose('github.linkToken', {
     description: 'A single-use token to start linking a GitHub account via /auth/github?link=',
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('github.confirmLink', {
+    description: 'Finish linking the GitHub account the OAuth callback staged, as the user who started it',
+    inputSchema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+    },
   });
 
   Wormhole.expose('github.disconnect', {

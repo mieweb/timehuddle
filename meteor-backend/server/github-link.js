@@ -9,8 +9,16 @@
  *
  * The OAuth round trip leaves the app, so the caller is identified on the way
  * back by a single-use link token: issued here to a signed-in user, carried
- * through the OAuth `state`, and redeemed by the callback. Only its hash is
- * stored, and it expires after LINK_TOKEN_TTL_MS.
+ * through the OAuth `state`, and redeemed by the callback.
+ *
+ * The callback does not link on its own. Whoever holds a link URL can finish
+ * it in any browser, so an attacker could send theirs to someone else and
+ * have that person's GitHub attached to the attacker's account — after which
+ * the victim's GitHub sign-in lands in it. So the callback only stages the
+ * GitHub account on the token's owner and hands the browser a one-time
+ * confirm code; `github.confirmLink` completes it, and only for that same
+ * signed-in user. Only hashes of the token and the code are stored, and each
+ * expires after LINK_TOKEN_TTL_MS.
  */
 import { Accounts } from 'meteor/accounts-base';
 import { Meteor } from 'meteor/meteor';
@@ -37,33 +45,49 @@ export async function findUserIdByGithubId(githubId) {
 }
 
 /**
- * Redeem a link token and link `githubUser` to the user who requested it.
- * Returns `'connected'`, or the reason it was refused: `'expired'` (unknown,
- * used or expired token) or `'taken'` (that GitHub account is another user's).
+ * Atomically remove and return the caller's pending link if `filter` still
+ * matches it unexpired — so of two overlapping redemptions only one wins.
  */
-export async function redeemGithubLink(linkToken, githubUser) {
-  const hashed = Accounts._hashLoginToken(linkToken);
-  const user = await Meteor.users.findOneAsync(
-    {
-      'services.githubLink.hashedToken': hashed,
-      'services.githubLink.expiresAt': { $gt: new Date() },
-    },
-    { fields: { _id: 1 } },
-  );
-  // Single use, whatever happens next.
-  await Meteor.users.updateAsync(
-    { 'services.githubLink.hashedToken': hashed },
+async function consumeGithubLink(filter) {
+  return Meteor.users.rawCollection().findOneAndUpdate(
+    { ...filter, 'services.githubLink.expiresAt': { $gt: new Date() } },
     { $unset: { 'services.githubLink': 1 } },
+    { projection: { _id: 1, 'services.githubLink': 1 } },
   );
-  if (!user) return 'expired';
+}
 
-  const owner = await findUserIdByGithubId(githubUser.id);
-  if (owner && owner !== user._id) return 'taken';
+/** True when `githubId` is already linked to someone other than `userId`. */
+async function linkedElsewhere(githubId, userId) {
+  const owner = await findUserIdByGithubId(githubId);
+  return !!owner && owner !== userId;
+}
 
-  await Meteor.users.updateAsync(user._id, {
-    $set: { 'services.github': { id: githubUser.id, username: githubUser.login } },
+/**
+ * OAuth callback half: redeem a link token and stage `githubUser` on the user
+ * who requested it, pending `github.confirmLink` (see the header for why).
+ * Returns `{ result: 'pending', code }`, or the reason it was refused:
+ * `'expired'` (unknown, used or expired token) or `'taken'` (that GitHub
+ * account is another user's).
+ */
+export async function stageGithubLink(linkToken, githubUser) {
+  const user = await consumeGithubLink({
+    'services.githubLink.hashedToken': Accounts._hashLoginToken(linkToken),
   });
-  return 'connected';
+  if (!user) return { result: 'expired' };
+  if (await linkedElsewhere(githubUser.id, user._id)) return { result: 'taken' };
+
+  const code = Random.secret();
+  await Meteor.users.updateAsync(user._id, {
+    $set: {
+      'services.githubLink': {
+        confirmHash: Accounts._hashLoginToken(code),
+        githubId: githubUser.id,
+        username: githubUser.login,
+        expiresAt: new Date(Date.now() + LINK_TOKEN_TTL_MS),
+      },
+    },
+  });
+  return { result: 'pending', code };
 }
 
 Meteor.methods({
@@ -86,6 +110,33 @@ Meteor.methods({
       },
     });
     return { token };
+  },
+
+  /**
+   * Finish a link the OAuth callback staged, as the user who started it.
+   * Returns `{ result, status }`, `result` being `'connected'`, `'expired'`
+   * (unknown, used or expired code, or another user's) or `'taken'`.
+   */
+  async 'github.confirmLink'({ code } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (typeof code !== 'string' || !code) {
+      throw new Meteor.Error('bad-request', 'code is required');
+    }
+    const user = await consumeGithubLink({
+      _id: userId,
+      'services.githubLink.confirmHash': Accounts._hashLoginToken(code),
+    });
+    const pending = user?.services?.githubLink;
+    const current = () => Meteor.users.findOneAsync(userId, { fields: { 'services.github': 1 } });
+    if (!pending) return { result: 'expired', status: statusFor(await current()) };
+    // Checked again: another user may have linked it since the callback.
+    if (await linkedElsewhere(pending.githubId, userId)) {
+      return { result: 'taken', status: statusFor(await current()) };
+    }
+
+    const github = { id: pending.githubId, username: pending.username };
+    await Meteor.users.updateAsync(userId, { $set: { 'services.github': github } });
+    return { result: 'connected', status: statusFor({ services: { github } }) };
   },
 
   /**
