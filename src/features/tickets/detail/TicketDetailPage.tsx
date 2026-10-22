@@ -116,7 +116,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const { navigate } = useRouter();
   const copyLink = useCopyLink();
   const { user } = useSession();
-  const { teams } = useTeam();
+  // Every team, not the selected org's: a ticket link can lead into another org.
+  const { allTeams: teams } = useTeam();
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
