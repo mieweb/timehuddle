@@ -466,7 +466,14 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       },
     });
     const githubUser = await userRes.json();
-    
+    // Both the link and sign-in branches key on the GitHub id; an error body
+    // without one must not reach a `services.github.id` lookup.
+    if (!userRes.ok || !Number.isInteger(githubUser?.id)) {
+      res.writeHead(502);
+      res.end('GitHub profile unavailable');
+      return;
+    }
+
     // Get user email
     const emailRes = await fetch('https://api.github.com/user/emails', {
       headers: {

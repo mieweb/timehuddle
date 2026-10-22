@@ -106,6 +106,8 @@ export const GitHubConnectionRow: React.FC = () => {
     setBusy(true);
     try {
       setStatus(await githubApi.disconnect());
+      // A "connected" result from this visit no longer describes the row.
+      setMessage(undefined);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to disconnect GitHub.');
     } finally {
