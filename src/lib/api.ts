@@ -661,6 +661,7 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
+        sourcePrefixes?: SourcePrefix[];
       }>;
     }>('orgs.list', {}).then((r) => r.organizations),
 
