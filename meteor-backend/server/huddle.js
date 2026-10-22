@@ -53,7 +53,66 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
+  // #723: posts used to link one `ticketId`; move it into the `ticketIds` list.
+  try {
+    await rawDb().collection('huddlePosts').updateMany({ ticketId: { $exists: true } }, [
+      {
+        $set: {
+          ticketIds: {
+            $cond: [{ $eq: [{ $type: '$ticketId' }, 'string'] }, ['$ticketId'], []],
+          },
+        },
+      },
+      { $unset: 'ticketId' },
+    ]);
+  } catch (error) {
+    console.error('[huddle] failed to migrate ticketId to ticketIds:', error);
+  }
 });
+
+/**
+ * The deduped ticket list a write sends — `ticketIds`, or an older client's
+ * single `ticketId` as a one-item list. `undefined` when neither is sent.
+ */
+function resolveTicketIds({ ticketIds, ticketId }) {
+  if (ticketIds !== undefined) {
+    if (!Array.isArray(ticketIds) || ticketIds.some((id) => typeof id !== 'string' || !id)) {
+      throw new Meteor.Error('bad-request', 'ticketIds must be an array of ticket ids');
+    }
+    return [...new Set(ticketIds)];
+  }
+  if (ticketId !== undefined) return ticketId ? [ticketId] : [];
+  return undefined;
+}
+
+/** Throws unless every ticket in `ticketIds` exists in `teamId`. */
+async function requireTeamTickets(ticketIds, teamId) {
+  if (!ticketIds?.length) return;
+  const tickets = await rawDb()
+    .collection('tickets')
+    .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { teamId: 1 } })
+    .toArray();
+  if (tickets.length !== ticketIds.length) {
+    throw new Meteor.Error('not-found', 'Ticket not found');
+  }
+  if (tickets.some((ticket) => ticket.teamId !== teamId)) {
+    throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
+  }
+}
+
+/** `{ id, title }` for each of a post's tickets, given a title lookup. */
+function toPostTickets(post, titlesById) {
+  return (post.ticketIds ?? []).map((id) => ({ id, title: titlesById.get(String(id)) ?? null }));
+}
+
+async function fetchTicketTitles(ticketIds) {
+  if (!ticketIds.length) return new Map();
+  const tickets = await rawDb()
+    .collection('tickets')
+    .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { title: 1 } })
+    .toArray();
+  return new Map(tickets.map((t) => [String(t._id), t.title]));
+}
 
 /** The window start for a feed read, or a bad-request when `since` isn't a date. */
 function requireSince(since) {
@@ -114,15 +173,12 @@ async function getUserInfo(userId) {
 }
 
 async function enrichPost(post) {
-  // `authorInfo` / `ticketTitle` are pre-filled by attachEnrichment for list
+  // `authorInfo` / `tickets` are pre-filled by attachEnrichment for list
   // call sites; single-post call sites fall back to their own lookups.
   const { userName, userInitials } = post.authorInfo ?? (await getUserInfo(post.userId));
 
-  let ticketTitle = post.ticketTitle ?? undefined;
-  if (post.ticketId && post.ticketTitle === undefined) {
-    const ticket = await rawDb().collection('tickets').findOne({ _id: toId(post.ticketId) });
-    ticketTitle = ticket?.title;
-  }
+  const tickets =
+    post.tickets ?? toPostTickets(post, await fetchTicketTitles(post.ticketIds ?? []));
 
   const id = post._id?.toHexString ? post._id.toHexString() : String(post._id);
 
@@ -147,8 +203,7 @@ async function enrichPost(post) {
     userName,
     userInitials,
     content: post.content ?? { text: '', mentions: [] },
-    ticketId: post.ticketId ?? undefined,
-    ticketTitle,
+    tickets,
     attachments: (post.attachments ?? []).map((att) => ({
       ...att,
       url: att.url && /^https?:\/\//i.test(att.url)
@@ -227,30 +282,24 @@ async function attachSessions(posts) {
  * authors and ticket titles instead of one per post, since
  * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
  * unbounded feed. Mutates each post with `session`, `authorInfo` and
- * `ticketTitle`, which `enrichPost` then just passes through.
+ * `tickets`, which `enrichPost` then just passes through.
  */
 async function attachEnrichment(posts) {
   if (!posts.length) return posts;
   const userIds = [...new Set(posts.map((p) => String(p.userId)))];
-  const ticketIds = [...new Set(posts.filter((p) => p.ticketId).map((p) => String(p.ticketId)))];
-  const [users, tickets] = await Promise.all([
+  const ticketIds = [...new Set(posts.flatMap((p) => (p.ticketIds ?? []).map(String)))];
+  const [users, titlesById] = await Promise.all([
     rawDb()
       .collection('users')
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
-    ticketIds.length
-      ? rawDb()
-          .collection('tickets')
-          .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { title: 1 } })
-          .toArray()
-      : [],
+    fetchTicketTitles(ticketIds),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
-  const titlesById = new Map(tickets.map((t) => [String(t._id), t.title]));
   for (const post of posts) {
     post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
-    if (post.ticketId) post.ticketTitle = titlesById.get(String(post.ticketId)) ?? null;
+    post.tickets = toPostTickets(post, titlesById);
   }
   return posts;
 }
@@ -424,7 +473,7 @@ export async function requireTeamMember(userId, teamId) {
  */
 export async function createHuddlePost(
   userId,
-  { teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt },
+  { teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt },
 ) {
   if (!content || typeof content.text !== 'string') {
     throw new Meteor.Error('bad-request', 'content.text is required');
@@ -439,16 +488,8 @@ export async function createHuddlePost(
   }
   const team = await requireTeamMember(userId, teamId);
 
-  // Validate ticketId if provided
-  if (ticketId) {
-    const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
-    if (!ticket) {
-      throw new Meteor.Error('not-found', 'Ticket not found');
-    }
-    if (ticket.teamId !== teamId) {
-      throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
-    }
-  }
+  const postTicketIds = resolveTicketIds({ ticketIds, ticketId }) ?? [];
+  await requireTeamTickets(postTicketIds, teamId);
   
   // Validate mentions if provided
   if (content.mentions && Array.isArray(content.mentions)) {
@@ -487,7 +528,7 @@ export async function createHuddlePost(
       text,
       mentions: content.mentions ?? [],
     },
-    ticketId: ticketId ?? undefined,
+    ticketIds: postTicketIds,
     attachments: attachments ?? [],
     likes: [],
     commentCount: 0,
@@ -689,7 +730,7 @@ Meteor.methods({
     return { posts: enriched, hasMore };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
+  async 'huddle.createPost'({ teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -704,6 +745,7 @@ Meteor.methods({
     return createHuddlePost(identity.userId, {
       teamId,
       content,
+      ticketIds,
       ticketId,
       attachments,
       postDate,
@@ -789,7 +831,7 @@ Meteor.methods({
     return { id: postId };
   },
   
-  async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketId }) {
+  async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketIds, ticketId }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     const identity = await requireIdentity(this);
     if (!postId || !isValidId(postId)) {
@@ -824,16 +866,9 @@ Meteor.methods({
       }
     }
 
-    // Validate ticketId when the caller is (re)assigning one. `null` clears it.
-    if (ticketId !== undefined && ticketId !== null) {
-      const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
-      if (!ticket) {
-        throw new Meteor.Error('not-found', 'Ticket not found');
-      }
-      if (ticket.teamId !== post.teamId) {
-        throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
-      }
-    }
+    // Omitted keeps the post's tickets; `[]` (or a legacy `ticketId: null`) clears them.
+    const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
+    await requireTeamTickets(postTicketIds, post.teamId);
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
     let replacedPost;
@@ -846,10 +881,10 @@ Meteor.methods({
               text,
               mentions: content.mentions ?? [],
             },
-            // Only touch attachments/ticketId when the editor sends them, so the
+            // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.
             ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
-            ...(ticketId !== undefined ? { ticketId: ticketId ?? undefined } : {}),
+            ...(postTicketIds !== undefined ? { ticketIds: postTicketIds } : {}),
             ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
             updatedAt: new Date(),
           },
@@ -1187,7 +1222,7 @@ Meteor.methods({
     if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ticketId, ...PUBLISHED, ...visibleTo(identity.userId) })
+      .find({ ticketIds: ticketId, ...PUBLISHED, ...visibleTo(identity.userId) })
       .sort({ createdAt: -1 })
       .toArray();
     const enriched = await Promise.all(posts.map(enrichPost));

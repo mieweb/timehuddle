@@ -1715,6 +1715,8 @@ Meteor.startup(async() => {
       properties: {
         teamId: { type: 'string' },
         content: huddlePostContentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket, read as `ticketIds: [ticketId]`.
         ticketId: { type: 'string' },
         attachments: huddlePostAttachmentSchema,
         postDate: { type: 'string' },
@@ -1776,6 +1778,8 @@ Meteor.startup(async() => {
         content: huddlePostContentSchema,
         wrapUp: { type: 'boolean' },
         attachments: huddlePostAttachmentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket; `null` clears them.
         ticketId: { type: ['string', 'null'] },
       },
       required: ['postId', 'content'],
