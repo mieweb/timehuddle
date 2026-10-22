@@ -146,32 +146,35 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
       </CardHeader>
       <CardContent className="space-y-6">
         {prefixSave.error && <Alert variant="danger">{prefixSave.error}</Alert>}
-        <form
-          className="org-ticket-prefix-form flex flex-wrap items-end gap-3"
-          onSubmit={savePrefix}
-        >
-          <div className="org-ticket-prefix-field w-48">
-            <Input
-              label={TICKET_IDS_STRINGS.prefixLabel}
-              helperText={TICKET_IDS_STRINGS.prefixHelp(normalizedPrefix)}
-              value={prefixDraft}
-              maxLength={6}
-              autoComplete="off"
-              disabled={prefixSave.saving}
-              onChange={(event) => {
-                setPrefixDraft(event.target.value);
-                prefixSave.clearStatus();
-              }}
-            />
+        <form className="org-ticket-prefix-form space-y-1" onSubmit={savePrefix}>
+          <div className="org-ticket-prefix-row flex flex-wrap items-end gap-3">
+            <div className="org-ticket-prefix-field w-48">
+              <Input
+                label={TICKET_IDS_STRINGS.prefixLabel}
+                aria-describedby="org-ticket-prefix-help"
+                value={prefixDraft}
+                maxLength={6}
+                autoComplete="off"
+                disabled={prefixSave.saving}
+                onChange={(event) => {
+                  setPrefixDraft(event.target.value);
+                  prefixSave.clearStatus();
+                }}
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={prefixSave.saving || !normalizedPrefix || normalizedPrefix === savedPrefix}
+            >
+              {prefixSave.saving ? TICKET_IDS_STRINGS.saving : TICKET_IDS_STRINGS.save}
+            </Button>
+            <Text variant="muted" size="sm" role="status" aria-live="polite">
+              {prefixSave.status}
+            </Text>
           </div>
-          <Button
-            type="submit"
-            disabled={prefixSave.saving || !normalizedPrefix || normalizedPrefix === savedPrefix}
-          >
-            {prefixSave.saving ? TICKET_IDS_STRINGS.saving : TICKET_IDS_STRINGS.save}
-          </Button>
-          <Text variant="muted" size="sm" role="status" aria-live="polite">
-            {prefixSave.status}
+          {/* Below the row, not under the narrow field, so Save lines up with the input. */}
+          <Text id="org-ticket-prefix-help" variant="muted" size="xs">
+            {TICKET_IDS_STRINGS.prefixHelp(normalizedPrefix)}
           </Text>
         </form>
 
