@@ -1,4 +1,5 @@
 import { definePageFlowTests } from './helpers/page-flows';
+import { PERF_USER } from './helpers/user';
 
 // Settings, Enterprise, Members, Usage and What's New: one spec per page.
 // Members, Usage and Enterprise need the test user to be an org/enterprise owner.
@@ -7,7 +8,7 @@ definePageFlowTests({
   name: 'settings',
   path: '/app/settings',
   dataCalls: [/\/api\/users_get/],
-  ready: (page) => page.locator('main').getByText('perf-bot@test.local'),
+  ready: (page) => page.locator('main').getByText(PERF_USER.email),
   budgetMs: 2500,
 });
 

@@ -145,47 +145,89 @@ export function collectJs(page: Page, sinceMs = 0): Promise<Sample> {
   }, sinceMs);
 }
 
-/** `/api/*` fetches that started at or after `sinceMs` (page clock), grouped by endpoint. */
-export function collectApiCalls(page: Page, sinceMs = 0): Promise<EndpointCost[]> {
-  return page.evaluate((since) => {
-    const entries = (
-      performance.getEntriesByType('resource') as PerformanceResourceTiming[]
-    ).filter(
-      (r) => r.initiatorType === 'fetch' && r.startTime >= since && r.name.includes('/api/'),
+interface ApiCall {
+  endpoint: string;
+  /** Method, URL and body: two calls with the same key fetched the same thing twice. */
+  key: string;
+  durationMs: number;
+  bytes: number;
+}
+
+/**
+ * Records `/api/*` fetches from now on, through Playwright rather than Resource Timing,
+ * which reports 0 bytes for a cross-origin API without `Timing-Allow-Origin`.
+ * `reset()` drops what was recorded so far; `collect()` waits for every body to be read.
+ */
+export function trackApiCalls(page: Page) {
+  let calls: Promise<ApiCall | null>[] = [];
+  page.on('requestfinished', (request) => {
+    if (request.resourceType() !== 'fetch' || !request.url().includes('/api/')) return;
+    calls.push(
+      (async () => {
+        const response = await request.response();
+        const body = await response?.body().catch(() => null);
+        const url = new URL(request.url());
+        return {
+          endpoint: url.pathname.replace(/^.*\/api\//, ''),
+          key: `${request.method()} ${url.href} ${request.postData() ?? ''}`,
+          durationMs: request.timing().responseEnd,
+          bytes: body?.length ?? 0,
+        };
+      })().catch(() => null),
     );
-    const byEndpoint = new Map<
-      string,
-      { calls: number; total: number; max: number; bytes: number }
-    >();
-    for (const r of entries) {
-      const key = new URL(r.name).pathname.replace(/^\/api\//, '');
-      const cost = byEndpoint.get(key) ?? { calls: 0, total: 0, max: 0, bytes: 0 };
-      cost.calls += 1;
-      cost.total += r.duration;
-      cost.max = Math.max(cost.max, r.duration);
-      cost.bytes += r.decodedBodySize;
-      byEndpoint.set(key, cost);
-    }
-    return [...byEndpoint.entries()]
-      .map(([endpoint, c]) => ({
-        endpoint,
-        calls: c.calls,
-        totalMs: Math.round(c.total),
-        maxMs: Math.round(c.max),
-        decodedKB: Math.round((c.bytes / 1024) * 10) / 10,
-      }))
-      .sort((a, b) => b.totalMs - a.totalMs);
-  }, sinceMs);
+  });
+  return {
+    reset: () => {
+      calls = [];
+    },
+    collect: async (): Promise<ApiCosts> => {
+      const done = (await Promise.all(calls)).filter((c): c is ApiCall => c !== null);
+      return { endpoints: costByEndpoint(done), duplicateCalls: done.length - countKeys(done) };
+    },
+  };
+}
+
+export interface ApiCosts {
+  endpoints: EndpointCost[];
+  /** Calls that repeated an earlier identical request (same method, URL and body). */
+  duplicateCalls: number;
+}
+
+function countKeys(calls: ApiCall[]): number {
+  return new Set(calls.map((c) => c.key)).size;
+}
+
+function costByEndpoint(calls: ApiCall[]): EndpointCost[] {
+  const byEndpoint = new Map<
+    string,
+    { calls: number; total: number; max: number; bytes: number }
+  >();
+  for (const c of calls) {
+    const cost = byEndpoint.get(c.endpoint) ?? { calls: 0, total: 0, max: 0, bytes: 0 };
+    cost.calls += 1;
+    cost.total += c.durationMs;
+    cost.max = Math.max(cost.max, c.durationMs);
+    cost.bytes += c.bytes;
+    byEndpoint.set(c.endpoint, cost);
+  }
+  return [...byEndpoint.entries()]
+    .map(([endpoint, c]) => ({
+      endpoint,
+      calls: c.calls,
+      totalMs: Math.round(c.total),
+      maxMs: Math.round(c.max),
+      decodedKB: Math.round((c.bytes / 1024) * 10) / 10,
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
 }
 
 /** Numeric summary of an API-cost breakdown, for the median table. */
-export function apiTotals(costs: EndpointCost[]): Sample {
-  const calls = costs.reduce((sum, c) => sum + c.calls, 0);
+export function apiTotals({ endpoints, duplicateCalls }: ApiCosts): Sample {
   return {
-    apiCalls: calls,
-    apiDuplicateCalls: calls - costs.length,
-    apiDecodedKB: Math.round(costs.reduce((sum, c) => sum + c.decodedKB, 0) * 10) / 10,
-    slowestApiMs: Math.max(0, ...costs.map((c) => c.maxMs)),
+    apiCalls: endpoints.reduce((sum, c) => sum + c.calls, 0),
+    apiDuplicateCalls: duplicateCalls,
+    apiDecodedKB: Math.round(endpoints.reduce((sum, c) => sum + c.decodedKB, 0) * 10) / 10,
+    slowestApiMs: Math.max(0, ...endpoints.map((c) => c.maxMs)),
   };
 }
 

@@ -12,6 +12,10 @@ definePageFlowTests({
     /\/api\/tickets_(dashboardSummary|list)/,
     /\/api\/timers_getTeamRunning/,
   ],
-  ready: (page) => page.getByText('Hours today'),
+  // The labels render before the data; the seeded user always has open tickets assigned.
+  ready: (page) =>
+    page
+      .locator('main div:has(> :text-is("Open tickets")) > :nth-child(2)')
+      .filter({ hasText: /^[1-9]\d*$/ }),
   budgetMs: 2500,
 });
