@@ -400,11 +400,14 @@ export const ClockPage: React.FC = () => {
   const sessionPlan = composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch) : null;
   const ticketsSeededForRef = useRef<string | null>(null);
   useEffect(() => {
+    // Leaving wrap-up clears the selection (above), so the same plan must
+    // reseed when the composer reopens — else its wrap-up would send `[]`.
+    if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
     if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
     ticketsSeededForRef.current = sessionPlan.id;
     const planTicketIds = (sessionPlan.tickets ?? []).map((t) => t.id);
     setSelectedTicketIds((prev) => [...new Set([...planTicketIds, ...prev])]);
-  }, [sessionPlan, setSelectedTicketIds]);
+  }, [composerMode, sessionPlan, setSelectedTicketIds]);
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
