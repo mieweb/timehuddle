@@ -52,6 +52,7 @@ import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
+import { useTicketSelection } from '../huddle/useTicketSelection';
 import {
   appendImageMarkdown,
   isInlineImage,
@@ -127,7 +128,12 @@ export const ClockPage: React.FC = () => {
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
+  const {
+    ticketIds: selectedTicketIds,
+    setTicketIds: setSelectedTicketIds,
+    addTicket,
+    removeTicket,
+  } = useTicketSelection();
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   // Completed fraction (0–1) of an attachment upload in flight, or null when
   // none is — same single-bar treatment as the Huddle composer, aggregated
@@ -227,7 +233,7 @@ export const ClockPage: React.FC = () => {
   // still takes over for realtime once it arrives.
   const [sessionPostFetch, setSessionPostFetch] = useState<Pick<
     HuddlePost,
-    'id' | 'content'
+    'id' | 'content' | 'tickets'
   > | null>(null);
   // Whether the wrap-up seed lookup has settled (resolved or failed). The
   // editor must not mount before this: RichEditor reads `value` on mount only,
@@ -384,9 +390,21 @@ export const ClockPage: React.FC = () => {
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
     setAttachments([]);
-    setSelectedTicketId(undefined);
+    setSelectedTicketIds([]);
     setMentions([]);
-  }, [composerMode]);
+  }, [composerMode, setSelectedTicketIds]);
+
+  // The wrap-up starts with the tickets the plan linked at clock-in, so
+  // clocking out keeps them unless removed here. Declared after the reset
+  // above so a same-commit mode switch can't clear the seed.
+  const sessionPlan = composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch) : null;
+  const ticketsSeededForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
+    ticketsSeededForRef.current = sessionPlan.id;
+    const planTicketIds = (sessionPlan.tickets ?? []).map((t) => t.id);
+    setSelectedTicketIds((prev) => [...new Set([...planTicketIds, ...prev])]);
+  }, [sessionPlan, setSelectedTicketIds]);
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
@@ -398,7 +416,7 @@ export const ClockPage: React.FC = () => {
       const created = await huddleApi.createPost({
         teamId: gateTeamId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        ticketId: selectedTicketId,
+        ticketIds: selectedTicketIds,
         attachments: attachments.map(toPostAttachment),
         postDate: toDateString(new Date()),
       });
@@ -452,7 +470,12 @@ export const ClockPage: React.FC = () => {
           {
             wrapUp: true,
             attachments: postAttachments.length ? postAttachments : undefined,
-            ticketId: selectedTicketId,
+            // The list replaces the plan's, so send it only once it was seeded
+            // from the plan — otherwise just what was picked, if anything.
+            ticketIds:
+              ticketsSeededForRef.current === effectivePostId || selectedTicketIds.length
+                ? selectedTicketIds
+                : undefined,
           },
         );
       } else {
@@ -467,7 +490,7 @@ export const ClockPage: React.FC = () => {
           postDate: toDateString(new Date()),
           clockEventId: activeClockEvent.id,
           wrapUp: true,
-          ticketId: selectedTicketId,
+          ticketIds: selectedTicketIds,
           attachments: postAttachments,
         });
       }
@@ -718,8 +741,8 @@ export const ClockPage: React.FC = () => {
 
             {/* ── Ticket / mention / attachment chips ── */}
             <ComposerChips
-              selectedTicketId={selectedTicketId}
-              onTicketRemove={() => setSelectedTicketId(undefined)}
+              selectedTicketIds={selectedTicketIds}
+              onTicketRemove={removeTicket}
               mentions={mentions}
               onMentionRemove={handleMentionRemove}
               attachments={attachments}
@@ -731,8 +754,8 @@ export const ClockPage: React.FC = () => {
               <ComposerAttachButtons
                 teamId={gateTeamId}
                 onAttachmentAdd={handleAttachmentAdd}
-                selectedTicketId={selectedTicketId}
-                onTicketSelect={setSelectedTicketId}
+                selectedTicketIds={selectedTicketIds}
+                onTicketSelect={addTicket}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}
