@@ -26,10 +26,7 @@ _build
 # Playwright
 /test-results/
 /playwright-report/
-/playwright-report-shard*/
 /blob-report/
-/.e2e-shard-run
-/.e2e-shard-run.lock
 .playwright-mcp/
 
 # Local runtime secrets (never commit)
@@ -51,7 +48,6 @@ my-submodule/*
 .gitmodules
 .meteor/local
 **/.meteor/local-test/
-**/.meteor/local-test[0-9]*/
 current.md
 pollenate-test-*.png
 
@@ -60,7 +56,6 @@ meteor-backend/prod-build/
 meteor-backend/packages/
 meteor-backend/.meteor/local/
 meteor-backend/.meteor/local-test/
-meteor-backend/.meteor/local-test[0-9]*/
 
 # Local development scripts and configs (machine-specific, never commit)
 backend/nginx-apple-proxy.conf
@@ -82,4 +77,3 @@ uploads/
 # Published OTA bundles — written at runtime by /ota/publish
 ota-bundles/
 uploads-test/
-uploads-test[0-9]*/

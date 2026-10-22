@@ -9,11 +9,12 @@
 #
 # This is what CI runs per shard (see the e2e job in pr-preview.yml) — one
 # shard per runner VM, so shards scale across machines rather than competing
-# for one laptop's RAM the way tests/e2e-shard-runner.sh's pm2 shards do.
+# for one laptop's CPU and RAM.
 #
 # Requires Linux: the image's mongod listens on 127.0.0.1 only, so the
 # container shares this host's network (--network host) for global-setup and
-# the specs that talk to Mongo directly. On macOS, use `npm run test:sharded`.
+# the specs that talk to Mongo directly. On macOS, run the suite (or one spec)
+# with `npm test` against the local timehuddle-meteor-test backend instead.
 #
 # Usage:
 #   tests/e2e-container-shard.sh <image> [playwright-test-args...]
@@ -33,8 +34,8 @@ APP_CONTAINER="timehuddle-e2e-app-$$"
 MAILPIT_CONTAINER="timehuddle-e2e-mailpit-$$"
 
 # Both containers are removed on every exit path; INT/TERM only set the code
-# so the EXIT trap runs cleanup exactly once (same pattern as
-# e2e-shard-runner.sh). Nothing started here outlives the run.
+# so the EXIT trap runs cleanup exactly once. Nothing started here outlives
+# the run.
 cleanup() {
   docker rm -f "$APP_CONTAINER" "$MAILPIT_CONTAINER" > /dev/null 2>&1 || true
 }
