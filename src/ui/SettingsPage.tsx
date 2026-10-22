@@ -335,16 +335,17 @@ const PushNotificationsSettings: React.FC = () => {
 
 const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
   const { user, refetch } = useSession();
-  const { teams, teamsReady } = useTeam();
+  // Reports To is account-wide, so use every team, not just the selected organization's.
+  const { allTeams, teamsReady } = useTeam();
   // Rerun the teammate lookup only when the set of shared teams changes.
   const sharedTeamIds = React.useMemo(
     () =>
-      teams
+      allTeams
         .filter((team) => !team.isPersonal)
         .map((team) => team.id)
         .sort()
         .join(','),
-    [teams],
+    [allTeams],
   );
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');

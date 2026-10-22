@@ -85,13 +85,16 @@ const EMPTY_SUMMARY: TicketDashboardSummary = {
   myHighPriorityOpen: 0,
 };
 
-/** Local-midnight bounds of today, which only the browser's timezone can say. */
-function todayBounds(): { since: number; until: number } {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
+/** Local midnight at the start of the day containing `time` — only the browser's timezone can say. */
+function startOfLocalDay(time: number): number {
+  return new Date(time).setHours(0, 0, 0, 0);
+}
+
+/** Local-midnight bounds of the day starting at `dayStart`. */
+function dayBounds(dayStart: number): { since: number; until: number } {
+  const end = new Date(dayStart);
   end.setDate(end.getDate() + 1);
-  return { since: start.getTime(), until: end.getTime() };
+  return { since: dayStart, until: end.getTime() };
 }
 
 // ─── DashboardPage ────────────────────────────────────────────────────────────
@@ -261,11 +264,14 @@ export const DashboardPage: React.FC = () => {
     return new Date(date).toLocaleDateString();
   };
 
+  // Changes only at local midnight, so "Closed today" refetches when the day rolls over.
+  const todayStart = startOfLocalDay(currentTime);
+
   const fetchData = useCallback(async () => {
     if (!user || !selectedTeamId) return;
     setLoading(true);
     try {
-      const { since, until } = todayBounds();
+      const { since, until } = dayBounds(todayStart);
       const [s, m, r] = await Promise.all([
         ticketApi.getDashboardSummary(selectedTeamId, since, until).catch(() => EMPTY_SUMMARY),
         teamDashboardApi
@@ -279,7 +285,7 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, selectedTeamId]);
+  }, [user, selectedTeamId, todayStart]);
 
   useEffect(() => {
     fetchData();

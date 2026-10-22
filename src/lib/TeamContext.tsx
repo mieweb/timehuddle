@@ -576,8 +576,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
-  // When the last REST read of the active clock started.
-  const clockFetchedAt = useRef(0);
+  // The last REST read of the active clock: when it started, and whether it succeeded.
+  const lastClockRead = useRef<{ startedAt: number; succeeded: Promise<boolean> } | null>(null);
 
   const refetchClock = useCallback(async () => {
     if (!userId) {
@@ -585,15 +585,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setClockReady(true);
       return;
     }
-    clockFetchedAt.current = Date.now();
-    try {
-      const event = await clockApi.getActive();
-      setActiveClockEvent(event);
-    } catch {
-      setActiveClockEvent(null);
-    } finally {
-      setClockReady(true);
-    }
+    const read = clockApi.getActive().then(
+      (event) => {
+        setActiveClockEvent(event);
+        return true;
+      },
+      () => {
+        setActiveClockEvent(null);
+        return false;
+      },
+    );
+    lastClockRead.current = { startedAt: Date.now(), succeeded: read };
+    await read;
+    setClockReady(true);
   }, [userId]);
 
   // Initial fetch (fallback if the DDP connection fails)
@@ -642,15 +646,23 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
+    // Only refetch if we have a valid token — avoids 500 errors when
+    // the subscription ready fires before auth is fully established
+    const recoverClock = () => {
+      if (localStorage.getItem('meteor_resume_token')) void refetchClock();
+    };
     const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
       applyLiveDocs();
       // The initial fetch usually started moments ago; asking again returns the same event.
-      if (Date.now() - clockFetchedAt.current < 2000) return;
-      // Only refetch if we have a valid token — avoids 500 errors when
-      // the subscription ready fires before auth is fully established
-      if (localStorage.getItem('meteor_resume_token')) {
-        void refetchClock();
+      // It can't restore a cross-team clock or break details if it failed, so retry then.
+      const recent = lastClockRead.current;
+      if (recent && Date.now() - recent.startedAt < 2000) {
+        void recent.succeeded.then((ok) => {
+          if (!ok) recoverClock();
+        });
+        return;
       }
+      recoverClock();
     });
 
     return () => {
