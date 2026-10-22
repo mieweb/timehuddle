@@ -3,7 +3,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { authApi, sessionToken, type AuthAccount } from '../lib/api';
+import { githubApi, type GitHubLinkStatus } from '../lib/api';
+import { useQueryParam } from './router';
 
 interface RowProps {
   label: string;
@@ -18,7 +19,7 @@ const Row: React.FC<RowProps> = ({ label, hint, children }) => (
         {label}
       </Text>
       {hint && (
-        <Text variant="muted" size="xs" className="mt-0.5">
+        <Text variant="muted" size="xs" className="mt-0.5" aria-live="polite">
           {hint}
         </Text>
       )}
@@ -27,18 +28,29 @@ const Row: React.FC<RowProps> = ({ label, hint, children }) => (
   </div>
 );
 
+/** What `/auth/github?link=` reports back in `?github=` after the OAuth round trip. */
+const LINK_RESULT_MESSAGES: Record<string, string> = {
+  connected: 'GitHub connected. You can now sign in with GitHub.',
+  taken: 'That GitHub account is already connected to another TimeHuddle user.',
+  expired: 'The GitHub connection timed out. Please try again.',
+};
+
 export const GitHubConnectionRow: React.FC = () => {
-  const [accounts, setAccounts] = useState<AuthAccount[]>([]);
+  const [status, setStatus] = useState<GitHubLinkStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [linkResult, setLinkResult] = useQueryParam('github');
+  const [message] = useState(() => (linkResult ? LINK_RESULT_MESSAGES[linkResult] : undefined));
+
+  useEffect(() => {
+    // Shown once — a reload shouldn't repeat it.
+    if (linkResult) setLinkResult(null);
+  }, [linkResult, setLinkResult]);
 
   const refresh = useCallback(async () => {
     try {
-      // Skip if no Fastify session — Meteor users don't have linked Better Auth accounts
-      if (!sessionToken.get()) return;
-      const list = await authApi.listAccounts();
-      setAccounts(list);
+      setStatus(await githubApi.status());
     } catch {
-      // ignore — user may not have any linked accounts
+      // leave the row in its "not connected" state
     }
   }, []);
 
@@ -46,15 +58,10 @@ export const GitHubConnectionRow: React.FC = () => {
     void refresh();
   }, [refresh]);
 
-  const githubAccount = accounts.find((a) => a.providerId === 'github');
-  const hasPasswordLogin = accounts.some((a) => a.providerId === 'credential');
-  const canDisconnect = hasPasswordLogin;
-
   const handleConnect = async () => {
     setBusy(true);
     try {
-      const url = await authApi.linkSocial('github', `${window.location.origin}/app/settings`);
-      window.location.href = url;
+      window.location.href = await githubApi.linkUrl();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to connect GitHub.');
       setBusy(false);
@@ -62,12 +69,10 @@ export const GitHubConnectionRow: React.FC = () => {
   };
 
   const handleDisconnect = async () => {
-    if (!githubAccount) return;
     if (!window.confirm('Disconnect your GitHub account?')) return;
     setBusy(true);
     try {
-      await authApi.unlinkAccount(githubAccount.providerId);
-      await refresh();
+      setStatus(await githubApi.disconnect());
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to disconnect GitHub.');
     } finally {
@@ -75,24 +80,25 @@ export const GitHubConnectionRow: React.FC = () => {
     }
   };
 
+  const connected = status?.connected ?? false;
+
   return (
     <Row
       label="GitHub"
       hint={
-        githubAccount
-          ? canDisconnect
-            ? 'Your GitHub account is connected'
-            : 'Your GitHub account is connected — set a password before disconnecting'
-          : 'Connect GitHub to sign in with your GitHub account'
+        message ??
+        (connected
+          ? `Connected as @${status?.username}`
+          : 'Connect GitHub to sign in with your GitHub account')
       }
     >
-      {githubAccount ? (
+      {connected ? (
         <Button
           variant="outline"
           size="sm"
           leftIcon={<FontAwesomeIcon icon={faGithub} className="text-xs" />}
           onClick={() => void handleDisconnect()}
-          disabled={busy || !canDisconnect}
+          disabled={busy}
           isLoading={busy}
         >
           Disconnect
