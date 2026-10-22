@@ -1086,6 +1086,7 @@ function toTicket(raw: Record<string, unknown>): Ticket {
     reviewedAt: (raw.reviewedAt as string | undefined) ?? null,
     createdAt: String(raw.createdAt),
     updatedAt: (raw.updatedAt as string | undefined) ?? null,
+    number: typeof raw.number === 'number' ? raw.number : undefined,
     sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
     linkedIssue: toLinkedIssue(raw.linkedIssue),
   };

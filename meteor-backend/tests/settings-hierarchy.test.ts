@@ -20,12 +20,18 @@ import { METEOR_URL } from './setup';
 const USERS = {
   entAdmin: { name: 'Set Ent Admin', email: 'wh-set-ent-admin@test.dev', password: 'Password1!' },
   orgOwner: { name: 'Set Org Owner', email: 'wh-set-org-owner@test.dev', password: 'Password1!' },
-  teamAdmin: { name: 'Set Team Admin', email: 'wh-set-team-admin@test.dev', password: 'Password1!' },
+  teamAdmin: {
+    name: 'Set Team Admin',
+    email: 'wh-set-team-admin@test.dev',
+    password: 'Password1!',
+  },
   member: { name: 'Set Member', email: 'wh-set-member@test.dev', password: 'Password1!' },
 };
 
 type Settings = { requirePlanForClock: SettingValue; autoAcceptJoins: SettingValue };
-type TeamsList = { teams: Array<{ id: string; settings: Record<string, boolean>; resolvedSettings: Settings }> };
+type TeamsList = {
+  teams: Array<{ id: string; settings: Record<string, boolean>; resolvedSettings: Settings }>;
+};
 
 const jwts = {} as Record<keyof typeof USERS, string>;
 const ids = {} as Record<keyof typeof USERS, string>;
@@ -48,7 +54,9 @@ beforeAll(async () => {
 
   const db = await getDb();
   for (const key of Object.keys(USERS) as Array<keyof typeof USERS>) {
-    ids[key] = String((await db.collection('users').findOne({ 'emails.address': USERS[key].email }))!._id);
+    ids[key] = String(
+      (await db.collection('users').findOne({ 'emails.address': USERS[key].email }))!._id,
+    );
   }
 
   const now = new Date();
@@ -119,14 +127,12 @@ afterAll(async () => {
 
 beforeEach(async () => {
   const db = await getDb();
-  await db.collection('enterprises').updateOne(
-    { _id: enterpriseId },
-    { $set: { settings: {}, settingsLocks: {} } },
-  );
-  await db.collection('organizations').updateOne(
-    { _id: orgId },
-    { $set: { settings: {}, settingsLocks: {} } },
-  );
+  await db
+    .collection('enterprises')
+    .updateOne({ _id: enterpriseId }, { $set: { settings: {}, settingsLocks: {} } });
+  await db
+    .collection('organizations')
+    .updateOne({ _id: orgId }, { $set: { settings: {}, settingsLocks: {} } });
   await db.collection('teams').updateOne({ _id: teamId }, { $unset: { settings: '' } });
   await db
     .collection('teams')
@@ -437,6 +443,21 @@ describe('teams.byUser publication', () => {
     });
   });
 
+  it("publishes the org's ticket prefix, and pushes a change to it (#689)", async () => {
+    expect(published(teamId)?.ticketPrefix).toBe('TH');
+    const res = await wormhole(
+      'orgs.setTicketPrefix',
+      { orgId: orgId.toHexString(), ticketPrefix: 'TJ' },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+    await waitForPublished(() => published(teamId)?.ticketPrefix === 'TJ');
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $unset: { ticketPrefix: '' } });
+  });
+
   it('pushes a change another instance wrote straight to the database', async () => {
     const db = await getDb();
     await db
@@ -521,10 +542,9 @@ describe('sub-teams', () => {
 
   it('notifies the members of a sub-team when its parent turns the plan requirement on', async () => {
     const db = await getDb();
-    await db.collection('teams').updateOne(
-      { _id: parentId },
-      { $set: { 'settings.requirePlanForClock': false } },
-    );
+    await db
+      .collection('teams')
+      .updateOne({ _id: parentId }, { $set: { 'settings.requirePlanForClock': false } });
     await wormhole(
       'orgs.updateSettings',
       { orgId: orgId.toHexString(), settings: { requirePlanForClock: false } },
@@ -574,7 +594,9 @@ describe('org edits and inherited auto-join', () => {
     const db = await getDb();
     const org = await db.collection('organizations').findOne({ _id: orgId });
     expect(org?.settings).toEqual({});
-    await db.collection('organizations').updateOne({ _id: orgId }, { $set: { name: 'Settings Org' } });
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $set: { name: 'Settings Org' } });
   });
 
   it('creating an org with the effective value does not pin it', async () => {
@@ -600,7 +622,9 @@ describe('org edits and inherited auto-join', () => {
     );
     expect(set.ok).toBe(true);
     const db = await getDb();
-    expect((await db.collection('organizations').findOne({ _id: orgId }))?.allowAutoJoin).toBe(true);
+    expect((await db.collection('organizations').findOne({ _id: orgId }))?.allowAutoJoin).toBe(
+      true,
+    );
 
     const reset = await wormhole(
       'orgs.updateSettings',

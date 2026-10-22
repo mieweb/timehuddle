@@ -203,7 +203,7 @@ export const TicketsPage: React.FC = () => {
   const sourceCtx = useMemo(
     () => ({
       userId,
-      teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
+      teams: teams.map((t: Team) => ({ id: t.id, name: t.name, ticketPrefix: t.ticketPrefix })),
       resolveMemberName: getAssigneeName,
       membersKey: allMembers.map((m) => `${m.id}:${m.name || m.email}`).join('|'),
     }),
