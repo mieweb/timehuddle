@@ -175,6 +175,10 @@ html[data-theme='dark'] {
     width: 100%;
     border-radius: 1rem 1rem 0 0;
     animation: none;
+    /* AppModal zeroes the Modal's own safe-area padding for centered popups;
+       this one is a bottom sheet that touches the screen edge, so it needs
+       its own clearance above the home indicator back. */
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
   }
   /* `data-state` is still a library internal, but it is the only handle the
    * Modal exposes for its open/close transition, and the bottom sheet needs a
