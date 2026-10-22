@@ -86,11 +86,6 @@ export const OrgTeamSwitcher: React.FC = () => {
     if (!next) triggerRef.current?.focus();
   }, []);
 
-  const handleTeamCreated = useCallback(
-    () => handleCreateOpenChange(false),
-    [handleCreateOpenChange],
-  );
-
   if (organizations.length === 0 && teams.length === 0) return null;
 
   const teamLabel = selectedTeam?.name ?? (teamsReady ? 'No team' : '…');
@@ -260,7 +255,7 @@ export const OrgTeamSwitcher: React.FC = () => {
         <CreateTeamModal
           open={createOpen}
           onOpenChange={handleCreateOpenChange}
-          onCreated={handleTeamCreated}
+          onCreated={() => handleCreateOpenChange(false)}
         />,
         document.body,
       )}

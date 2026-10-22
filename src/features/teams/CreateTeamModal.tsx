@@ -61,7 +61,8 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
   };
 
   const handleCreate = useCallback(async () => {
-    if (!name.trim()) return;
+    // Enter in the name field bypasses the disabled button, so guard here too.
+    if (loading || !name.trim()) return;
     if (!selectedOrgId) {
       setError('Select an organization before creating a team.');
       return;
@@ -82,7 +83,7 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [name, description, selectedOrgId, setSelectedTeamId, refetchTeams, onCreated]);
+  }, [loading, name, description, selectedOrgId, setSelectedTeamId, refetchTeams, onCreated]);
 
   return (
     <AppModal open={open} onOpenChange={handleOpenChange} size="md">
