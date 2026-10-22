@@ -1,0 +1,309 @@
+import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+export type Sample = Record<string, number>;
+
+/** Chrome DevTools throttling presets; `none` measures the raw connection. */
+const NETWORK_PROFILES = {
+  none: null,
+  fast4g: {
+    latency: 40,
+    downloadThroughput: (9 * 1024 * 1024) / 8,
+    uploadThroughput: (1.5 * 1024 * 1024) / 8,
+  },
+  slow4g: {
+    latency: 150,
+    downloadThroughput: (1.6 * 1024 * 1024) / 8,
+    uploadThroughput: (750 * 1024) / 8,
+  },
+} as const;
+
+export const RUNS = Number(process.env.PERF_RUNS ?? 3);
+const NETWORK_KEYS = Object.keys(NETWORK_PROFILES) as (keyof typeof NETWORK_PROFILES)[];
+const rawNetwork = process.env.PERF_NETWORK ?? 'none';
+if (!NETWORK_KEYS.includes(rawNetwork as keyof typeof NETWORK_PROFILES)) {
+  throw new Error(`PERF_NETWORK must be one of ${NETWORK_KEYS.join(', ')}, got "${rawNetwork}"`);
+}
+const NETWORK = rawNetwork as keyof typeof NETWORK_PROFILES;
+// Baseline captures (e.g. of `main`) record numbers without failing on the budget.
+const REPORT_ONLY = Boolean(process.env.PERF_REPORT_ONLY);
+// When set, page flows record each run and keep the video of the median run (see keepMedianVideo).
+const VIDEO_DIR = process.env.PERF_VIDEO_DIR;
+// Optional filename prefix, e.g. "old"/"new", so videos from two builds can share a folder.
+const VIDEO_LABEL = process.env.PERF_VIDEO_LABEL;
+
+/** Soft budget check; with PERF_REPORT_ONLY an overrun is only logged. */
+export function withinBudget(value: number, budget: number, label: string): void {
+  if (!REPORT_ONLY) {
+    expect.soft(value, label).toBeLessThan(budget);
+  } else if (value >= budget) {
+    console.log(`[perf] over budget (report only): ${label} ${value} >= ${budget}`);
+  }
+}
+
+/**
+ * Fresh browser context = cold HTTP cache; no stored session unless `storageState` is given.
+ * With `recordVideo` and PERF_VIDEO_DIR set, the run is recorded for keepMedianVideo.
+ */
+export async function newColdPage(
+  browser: Browser,
+  storageState?: BrowserContextOptions['storageState'],
+  { recordVideo = false }: { recordVideo?: boolean } = {},
+): Promise<Page> {
+  const context = await browser.newContext({
+    storageState,
+    ...(recordVideo && VIDEO_DIR
+      ? { recordVideo: { dir: path.join(VIDEO_DIR, '.runs'), size: { width: 1280, height: 720 } } }
+      : {}),
+  });
+  const page = await context.newPage();
+
+  // LCP/CLS are only observable live; buffer them so they can be read after load.
+  await page.addInitScript(() => {
+    const vitals = { lcp: 0, cls: 0 };
+    (window as unknown as { __vitals: typeof vitals }).__vitals = vitals;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) vitals.lcp = entry.startTime;
+    }).observe({ type: 'largest-contentful-paint', buffered: true });
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as unknown as {
+        value: number;
+        hadRecentInput: boolean;
+      }[]) {
+        if (!entry.hadRecentInput) vitals.cls += entry.value;
+      }
+    }).observe({ type: 'layout-shift', buffered: true });
+  });
+
+  const profile = NETWORK_PROFILES[NETWORK];
+  if (profile) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, ...profile });
+  }
+  return page;
+}
+
+/** Page-load metrics in ms (sizes in KB), measured from navigation start. */
+export async function collectLoadMetrics(page: Page): Promise<Sample> {
+  await page.waitForLoadState('networkidle');
+  return page.evaluate(() => {
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+    const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+    const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? 0;
+    const vitals = (window as unknown as { __vitals: { lcp: number; cls: number } }).__vitals;
+    const isJs = (r: PerformanceResourceTiming) => /\.m?js(\?|$)/.test(r.name);
+    const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
+    return {
+      ttfb: Math.round(nav.responseStart),
+      fcp: Math.round(fcp),
+      lcp: Math.round(vitals.lcp),
+      cls: Math.round(vitals.cls * 1000) / 1000,
+      domContentLoaded: Math.round(nav.domContentLoadedEventEnd),
+      load: Math.round(nav.loadEventEnd),
+      requests: resources.length + 1,
+      transferKB: kb(nav.transferSize + resources.reduce((sum, r) => sum + r.transferSize, 0)),
+      jsTransferKB: kb(resources.filter(isJs).reduce((sum, r) => sum + r.transferSize, 0)),
+      jsDecodedKB: kb(resources.filter(isJs).reduce((sum, r) => sum + r.decodedBodySize, 0)),
+    };
+  });
+}
+
+export interface EndpointCost {
+  endpoint: string;
+  calls: number;
+  totalMs: number;
+  maxMs: number;
+  decodedKB: number;
+}
+
+/** Counts DDP websocket frames/bytes received from now on; call before navigating. */
+export function trackWebSocket(page: Page): () => Sample {
+  let frames = 0;
+  let bytes = 0;
+  page.on('websocket', (ws) =>
+    ws.on('framereceived', (frame) => {
+      frames += 1;
+      bytes += Buffer.byteLength(frame.payload);
+    }),
+  );
+  return () => ({ wsFrames: frames, wsKB: Math.round((bytes / 1024) * 10) / 10 });
+}
+
+/** JS fetched at or after `sinceMs` (page clock): what opening this page had to download. */
+export function collectJs(page: Page, sinceMs = 0): Promise<Sample> {
+  return page.evaluate((since) => {
+    const js = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter(
+      (r) => r.startTime >= since && /\.m?js(\?|$)/.test(r.name),
+    );
+    const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
+    return {
+      jsFiles: js.length,
+      jsDecodedKB: kb(js.reduce((sum, r) => sum + r.decodedBodySize, 0)),
+    };
+  }, sinceMs);
+}
+
+interface ApiCall {
+  endpoint: string;
+  /** Method, URL and body: two calls with the same key fetched the same thing twice. */
+  key: string;
+  durationMs: number;
+  bytes: number;
+}
+
+/**
+ * Records `/api/*` fetches from now on, through Playwright rather than Resource Timing,
+ * which reports 0 bytes for a cross-origin API without `Timing-Allow-Origin`.
+ * `reset()` drops what was recorded so far; `collect()` waits for every body to be read.
+ */
+export function trackApiCalls(page: Page) {
+  let calls: Promise<ApiCall | null>[] = [];
+  page.on('requestfinished', (request) => {
+    if (request.resourceType() !== 'fetch' || !request.url().includes('/api/')) return;
+    calls.push(
+      (async () => {
+        const response = await request.response();
+        const body = await response?.body().catch(() => null);
+        const url = new URL(request.url());
+        return {
+          endpoint: url.pathname.replace(/^.*\/api\//, ''),
+          key: `${request.method()} ${url.href} ${request.postData() ?? ''}`,
+          durationMs: request.timing().responseEnd,
+          bytes: body?.length ?? 0,
+        };
+      })().catch(() => null),
+    );
+  });
+  return {
+    reset: () => {
+      calls = [];
+    },
+    collect: async (): Promise<ApiCosts> => {
+      const done = (await Promise.all(calls)).filter((c): c is ApiCall => c !== null);
+      return { endpoints: costByEndpoint(done), duplicateCalls: done.length - countKeys(done) };
+    },
+  };
+}
+
+export interface ApiCosts {
+  endpoints: EndpointCost[];
+  /** Calls that repeated an earlier identical request (same method, URL and body). */
+  duplicateCalls: number;
+}
+
+function countKeys(calls: ApiCall[]): number {
+  return new Set(calls.map((c) => c.key)).size;
+}
+
+function costByEndpoint(calls: ApiCall[]): EndpointCost[] {
+  const byEndpoint = new Map<
+    string,
+    { calls: number; total: number; max: number; bytes: number }
+  >();
+  for (const c of calls) {
+    const cost = byEndpoint.get(c.endpoint) ?? { calls: 0, total: 0, max: 0, bytes: 0 };
+    cost.calls += 1;
+    cost.total += c.durationMs;
+    cost.max = Math.max(cost.max, c.durationMs);
+    cost.bytes += c.bytes;
+    byEndpoint.set(c.endpoint, cost);
+  }
+  return [...byEndpoint.entries()]
+    .map(([endpoint, c]) => ({
+      endpoint,
+      calls: c.calls,
+      totalMs: Math.round(c.total),
+      maxMs: Math.round(c.max),
+      decodedKB: Math.round((c.bytes / 1024) * 10) / 10,
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
+}
+
+/** Numeric summary of an API-cost breakdown, for the median table. */
+export function apiTotals({ endpoints, duplicateCalls }: ApiCosts): Sample {
+  return {
+    apiCalls: endpoints.reduce((sum, c) => sum + c.calls, 0),
+    apiDuplicateCalls: duplicateCalls,
+    apiDecodedKB: Math.round(endpoints.reduce((sum, c) => sum + c.decodedKB, 0) * 10) / 10,
+    slowestApiMs: Math.max(0, ...endpoints.map((c) => c.maxMs)),
+  };
+}
+
+/** ms since navigation start, read inside the page. */
+export const sinceNavigationStart = (page: Page): Promise<number> =>
+  page.evaluate(() => Math.round(performance.now()));
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** Median of each metric across runs. */
+export function summarize(samples: Sample[]): Sample {
+  return Object.fromEntries(
+    Object.keys(samples[0]).map((key) => [key, median(samples.map((s) => s[key]))]),
+  );
+}
+
+function resultsDir(): string {
+  const dir = process.env.PERF_RESULTS_DIR ?? path.join(__dirname, '..', 'results');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Prints a per-endpoint cost table and writes it to results/<name>.json. */
+export function reportEndpoints(name: string, costs: EndpointCost[]): void {
+  console.log(`\n[perf] ${name}  (API calls, last run)`);
+  console.table(costs);
+  writeFileSync(path.join(resultsDir(), `${name}.json`), JSON.stringify({ name, costs }, null, 2));
+}
+
+/** Prints a median/min/max table and writes raw samples to results/<name>.json. */
+export function report(name: string, samples: Sample[]): Sample {
+  const summary = summarize(samples);
+  const rows = Object.keys(summary).map((metric) => {
+    const values = samples.map((s) => s[metric]);
+    return { metric, median: summary[metric], min: Math.min(...values), max: Math.max(...values) };
+  });
+  console.log(`\n[perf] ${name}  (${samples.length} runs, network=${NETWORK})`);
+  console.table(rows);
+
+  writeFileSync(
+    path.join(resultsDir(), `${name}.json`),
+    JSON.stringify({ name, network: NETWORK, runs: samples, summary }, null, 2),
+  );
+  return summary;
+}
+
+/**
+ * Keeps the video of the run whose `metric` is the reported median — the
+ * nearest one when an even PERF_RUNS has no middle run — and deletes the rest,
+ * so every published video shows the same load its number came from.
+ * Saved as `<label>-<name>-<ms>ms.webm` in PERF_VIDEO_DIR. No-op without it.
+ */
+export function keepMedianVideo(
+  name: string,
+  metric: string,
+  samples: Sample[],
+  videos: (string | undefined)[],
+): void {
+  if (!VIDEO_DIR) return;
+  const target = median(samples.map((s) => s[metric]));
+  let keep = 0;
+  samples.forEach((s, i) => {
+    if (Math.abs(s[metric] - target) < Math.abs(samples[keep][metric] - target)) keep = i;
+  });
+  const prefix = VIDEO_LABEL ? `${VIDEO_LABEL}-` : '';
+  videos.forEach((file, i) => {
+    if (!file) return;
+    if (i === keep) {
+      const ms = Math.round(samples[i][metric]);
+      renameSync(file, path.join(VIDEO_DIR, `${prefix}${name}-${ms}ms.webm`));
+    } else {
+      rmSync(file, { force: true });
+    }
+  });
+}
