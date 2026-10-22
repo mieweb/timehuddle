@@ -89,23 +89,40 @@ export async function nextTicketNumber(db, orgId) {
   return counter.seq;
 }
 
+/** What a team shows its tickets with when its org has set nothing. */
+export const DEFAULT_TICKET_IDS = Object.freeze({
+  ticketPrefix: DEFAULT_TICKET_PREFIX,
+  sourcePrefixes: Object.freeze([]),
+});
+
 /**
- * The ticket prefix of each org in `orgIds`, keyed by org id. An org without
- * one, or a missing org, gets the default.
+ * Each org's ticket IDs, keyed by org id: its ticket prefix and the servers it
+ * names. An org that has set neither, or a missing org, gets the defaults.
  */
-export async function ticketPrefixesFor(db, orgIds) {
+export async function ticketIdsFor(db, orgIds) {
   const ids = [...new Set(orgIds.filter(Boolean))];
   const orgs = ids.length
     ? await db
         .collection('organizations')
         .find(
           { _id: { $in: ids.map((id) => toDocId(id)) } },
-          { projection: { ticketPrefix: 1 } },
+          { projection: { ticketPrefix: 1, sourcePrefixes: 1 } },
         )
         .toArray()
     : [];
-  const byId = new Map(orgs.map((org) => [String(org._id), org.ticketPrefix]));
-  return new Map(ids.map((id) => [id, byId.get(id) || DEFAULT_TICKET_PREFIX]));
+  const byId = new Map(orgs.map((org) => [String(org._id), org]));
+  return new Map(
+    ids.map((id) => {
+      const org = byId.get(id);
+      return [
+        id,
+        {
+          ticketPrefix: org?.ticketPrefix || DEFAULT_TICKET_PREFIX,
+          sourcePrefixes: org?.sourcePrefixes ?? DEFAULT_TICKET_IDS.sourcePrefixes,
+        },
+      ];
+    }),
+  );
 }
 
 /**

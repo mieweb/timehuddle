@@ -640,6 +640,9 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
     code: String(doc.code ?? ''),
     isPersonal: Boolean(doc.isPersonal),
     ticketPrefix: String(doc.ticketPrefix ?? ''),
+    sourcePrefixes: Array.isArray(doc.sourcePrefixes)
+      ? (doc.sourcePrefixes as import('./api').SourcePrefix[])
+      : [],
     settings: doc.settings as import('./api').Team['settings'],
     resolvedSettings: doc.resolvedSettings as import('./api').Team['resolvedSettings'],
     createdAt: String(doc.createdAt ?? ''),

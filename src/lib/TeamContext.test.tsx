@@ -189,6 +189,7 @@ function team(id: string, orgId: string) {
     code: id,
     isPersonal: false,
     ticketPrefix: 'TH',
+    sourcePrefixes: [],
     settings: { requirePlanForClock: true, autoAcceptJoins: false },
     resolvedSettings: {
       requirePlanForClock: { value: true, source: 'system' as const, locked: false },

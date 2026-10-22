@@ -12,7 +12,7 @@ import {
   nextTicketNumber,
   normalizeTicketPrefix,
   numberExistingTickets,
-  ticketPrefixesFor,
+  ticketIdsFor,
 } from '../server/ticket-ids';
 
 const tag = `num689-${Date.now()}`;
@@ -83,13 +83,17 @@ describe('nextTicketNumber', () => {
   });
 });
 
-describe('ticketPrefixesFor', () => {
-  it("gives each org its own prefix, and the default to one that has none", async () => {
+describe('ticketIdsFor', () => {
+  it("gives each org its own prefixes, and the defaults to one that has set none", async () => {
     const db = await getDb();
-    const [custom, plain] = await Promise.all([insertOrg({ ticketPrefix: 'TJ' }), insertOrg()]);
-    const prefixes = await ticketPrefixesFor(db, [custom, plain, null]);
-    expect(prefixes.get(custom)).toBe('TJ');
-    expect(prefixes.get(plain)).toBe(DEFAULT_TICKET_PREFIX);
+    const servers = [{ host: 'redmine.example.com', prefix: 'PM' }];
+    const [custom, plain] = await Promise.all([
+      insertOrg({ ticketPrefix: 'TJ', sourcePrefixes: servers }),
+      insertOrg(),
+    ]);
+    const ids = await ticketIdsFor(db, [custom, plain, null]);
+    expect(ids.get(custom)).toEqual({ ticketPrefix: 'TJ', sourcePrefixes: servers });
+    expect(ids.get(plain)).toEqual({ ticketPrefix: DEFAULT_TICKET_PREFIX, sourcePrefixes: [] });
   });
 });
 

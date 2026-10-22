@@ -20,8 +20,9 @@ export function announceSettingsChanged() {
 }
 
 const WATCHED_COLLECTIONS = ['teams', 'organizations', 'enterprises'];
-// Fields that decide a team's resolved settings, plus the org ticket prefix it publishes.
-const RESOLVING_FIELDS = '^(settings|parentTeamId|orgId|isPersonal|enterpriseId|ticketPrefix)';
+// Fields that decide a team's resolved settings, plus the org ticket IDs it publishes.
+const RESOLVING_FIELDS =
+  '^(settings|parentTeamId|orgId|isPersonal|enterpriseId|ticketPrefix|sourcePrefixes)';
 const DEBOUNCE_MS = 100;
 const RETRY_MS = 5000;
 

@@ -85,7 +85,7 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
   ticketPrefix,
   sourcePrefixes,
 }) => {
-  const { refetchTeams, refetchOrganizations } = useTeam();
+  const { refetchTeams } = useTeam();
   const prefixSave = useSaver();
   const serversSave = useSaver();
   const [savedPrefix, setSavedPrefix] = useState(ticketPrefix);
@@ -122,8 +122,8 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
       );
       setServers(toDrafts(saved));
       setServersChanged(false);
-      // The org list carries the servers, so ticket lists relabel when it arrives.
-      refetchOrganizations();
+      // Teams carry the servers, so ticket lists relabel when they arrive.
+      refetchTeams();
     });
   };
 

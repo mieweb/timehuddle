@@ -458,6 +458,24 @@ describe('teams.byUser publication', () => {
       .updateOne({ _id: orgId }, { $unset: { ticketPrefix: '' } });
   });
 
+  it("publishes the org's named servers, and pushes a change to them (#689)", async () => {
+    expect(published(teamId)?.sourcePrefixes).toEqual([]);
+    const servers = [{ host: 'redmine.example.com', prefix: 'PM' }];
+    const res = await wormhole(
+      'orgs.setSourcePrefixes',
+      { orgId: orgId.toHexString(), sourcePrefixes: servers },
+      jwts.orgOwner,
+    );
+    expect(res.ok).toBe(true);
+    await waitForPublished(
+      () => JSON.stringify(published(teamId)?.sourcePrefixes) === JSON.stringify(servers),
+    );
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $unset: { sourcePrefixes: '' } });
+  });
+
   it('pushes a change another instance wrote straight to the database', async () => {
     const db = await getDb();
     await db
@@ -704,5 +722,42 @@ describe('org creation under an enterprise lock', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/locked by the enterprise/);
+  });
+});
+
+describe('only an org owner can edit ticket IDs (#689)', () => {
+  type Org = { organization: { role: string; canManage: boolean; canEditTicketIds: boolean } };
+  const getOrg = (jwt: string) => wormhole<Org>('orgs.get', { orgId: orgId.toHexString() }, jwt);
+
+  it('lets an org owner edit them', async () => {
+    const res = await getOrg(jwts.orgOwner);
+    expect(res.result.organization.canEditTicketIds).toBe(true);
+  });
+
+  it('does not let an enterprise owner who is an org admin, though they can manage the org', async () => {
+    const db = await getDb();
+    const membership = {
+      _id: new ObjectId(),
+      orgId: orgId.toHexString(),
+      userId: ids.entAdmin,
+      role: 'admin',
+      auto: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.collection('org_members').insertOne(membership);
+    try {
+      const res = await getOrg(jwts.entAdmin);
+      expect(res.result.organization.canManage).toBe(true);
+      expect(res.result.organization.canEditTicketIds).toBe(false);
+      const save = await wormhole(
+        'orgs.setTicketPrefix',
+        { orgId: orgId.toHexString(), ticketPrefix: 'EO' },
+        jwts.entAdmin,
+      );
+      expect(save.ok).toBe(false);
+    } finally {
+      await db.collection('org_members').deleteOne({ _id: membership._id });
+    }
   });
 });

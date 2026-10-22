@@ -101,7 +101,7 @@ export const OrganizationMembersPage: React.FC = () => {
   const [loaded, setLoaded] = useState<{
     orgId: string;
     view: SettingsEditView;
-    role: 'owner' | 'admin' | 'member' | null;
+    canEditTicketIds: boolean;
     ticketPrefix: string;
     sourcePrefixes: SourcePrefix[];
   } | null>(null);
@@ -148,7 +148,7 @@ export const OrganizationMembersPage: React.FC = () => {
       setLoaded({
         orgId: selectedOrgId,
         view: organization,
-        role: organization.role,
+        canEditTicketIds: organization.canEditTicketIds,
         ticketPrefix: organization.ticketPrefix,
         sourcePrefixes: organization.sourcePrefixes,
       });
@@ -454,7 +454,7 @@ export const OrganizationMembersPage: React.FC = () => {
           onSave={(patch) => void handleSaveSettings(patch)}
         />
       )}
-      {selectedOrgId && loaded?.orgId === selectedOrgId && loaded.role === 'owner' && (
+      {selectedOrgId && loaded?.orgId === selectedOrgId && loaded.canEditTicketIds && (
         <TicketIdsCard
           orgId={selectedOrgId}
           ticketPrefix={loaded.ticketPrefix}

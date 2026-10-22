@@ -661,7 +661,6 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
-        sourcePrefixes?: SourcePrefix[];
       }>;
     }>('orgs.list', {}).then((r) => r.organizations),
 
@@ -709,6 +708,8 @@ export const orgApi = {
         sourcePrefixes: SourcePrefix[];
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
+        /** An org owner by membership; only they may change ticket IDs. */
+        canEditTicketIds: boolean;
       } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
 
@@ -1396,6 +1397,8 @@ export interface Team {
   isPersonal: boolean;
   /** The prefix the team's tickets are shown with, from its organization: `TH` in `TH-12`. */
   ticketPrefix: string;
+  /** The servers the team's organization has named, for outside IDs like `RM0-214`. */
+  sourcePrefixes: SourcePrefix[];
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
   settings: Record<TeamSettingKey, boolean>;
   resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;

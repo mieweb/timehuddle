@@ -108,13 +108,15 @@ async function buildOrgAccess(userId, org) {
 
 const PREFIXES_CHANGED = 'The ticket IDs changed while you were editing. Reload and try again.';
 
-// The org, if `userId` owns it. Ticket ID prefixes are an owner's call alone.
+// Ticket ID prefixes are an owner's call alone: an org owner, by membership.
+const isOrgOwner = (membership) => membership?.role === 'owner';
+
+// The org, if `userId` owns it.
 async function requireOrgOwner(orgId, userId) {
   if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
   const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
   if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-  const membership = await getOrgMembership(orgId, userId);
-  if (membership?.role !== 'owner') {
+  if (!isOrgOwner(await getOrgMembership(orgId, userId))) {
     throw new Meteor.Error('forbidden', 'Only an organization owner can change ticket IDs');
   }
   return org;
@@ -411,6 +413,8 @@ Meteor.methods({
       organization: {
         ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
+        // The same rule `requireOrgOwner` enforces: an org owner, not an enterprise one.
+        canEditTicketIds: isOrgOwner(membership),
       },
     };
   },
@@ -540,6 +544,8 @@ Meteor.methods({
         { $set: { sourcePrefixes: entries, updatedAt: new Date() } },
       );
     if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
+    // Live team subscriptions republish the servers, so open ticket lists relabel.
+    announceSettingsChanged();
     return { sourcePrefixes: entries };
   },
 

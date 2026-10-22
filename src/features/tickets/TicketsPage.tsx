@@ -144,9 +144,9 @@ const viewPanelClass = (showing: boolean) =>
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeam, selectedTeamId, teamsReady, organizations, selectedOrgId } =
-    useTeam();
-  const sourcePrefixes = organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
+  const { teams, selectedTeam, selectedTeamId, teamsReady, selectedOrgId } = useTeam();
+  // Named servers are the selected org's; every team carries its org's, live.
+  const sourcePrefixes = (teams.find((t) => t.orgId === selectedOrgId) ?? teams[0])?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
   const toast = useToast();
 
