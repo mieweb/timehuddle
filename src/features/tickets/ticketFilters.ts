@@ -7,7 +7,7 @@
  * differently.
  */
 import { displaySourceId, type TicketSourceId, type UnifiedTicket } from './sources';
-import { refNumber } from './ticketIds';
+import { leadingRefOf, refNumber } from './ticketIds';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
@@ -253,7 +253,7 @@ function compare(a: UnifiedTicket, b: UnifiedTicket, field: SortField): number {
     case 'title':
       return a.title.localeCompare(b.title);
     case 'ref':
-      return a.ref.localeCompare(b.ref, undefined, { numeric: true });
+      return leadingRefOf(a).localeCompare(leadingRefOf(b), undefined, { numeric: true });
     case 'source':
       return displaySourceId(a).localeCompare(displaySourceId(b));
     case 'status':

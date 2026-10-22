@@ -12,6 +12,7 @@
 import type { SourcePrefix } from '../../lib/api';
 
 import { parseGithubIssueUrl } from './githubIssue';
+import type { UnifiedTicket } from './sources/types';
 
 /** A number at the end of the path, before any query or fragment. */
 const TRAILING_NUMBER = /\/(\d+)\/?$/;
@@ -47,4 +48,18 @@ export function outsideIdOf(
 /** The number at the end of a ref, `233` in `PM-233` or `#233`, or null. */
 export function refNumber(ref: string): string | null {
   return ref.match(/(\d+)$/)?.[1] ?? null;
+}
+
+/**
+ * The outside ID a ticket goes by, when it has one: the issue it is linked to
+ * (`RM0-214`), or the link it carries (`timehuddle-717`). Null for a pure
+ * TimeHuddle ticket, and for an issue's own row, whose `ref` already is one.
+ */
+export function outsideRefOf(ticket: UnifiedTicket): string | null {
+  return ticket.linked?.ref ?? ticket.externalRef?.id ?? null;
+}
+
+/** The ID a ticket is shown and sorted by: its outside one first, else its own. */
+export function leadingRefOf(ticket: UnifiedTicket): string {
+  return outsideRefOf(ticket) ?? ticket.ref;
 }

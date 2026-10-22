@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { outsideIdOf, refNumber } from './ticketIds';
+import type { UnifiedTicket } from './sources/types';
+import { leadingRefOf, outsideIdOf, outsideRefOf, refNumber } from './ticketIds';
 
 const prefixes = [{ host: 'redmine.example.com', prefix: 'PM' }];
 
@@ -44,5 +45,35 @@ describe('refNumber', () => {
     expect(refNumber('PM-233')).toBe('233');
     expect(refNumber('#233')).toBe('233');
     expect(refNumber('#3fa2c')).toBeNull();
+  });
+});
+
+describe('outsideRefOf and leadingRefOf', () => {
+  const ticket = (fields: Partial<UnifiedTicket>) =>
+    ({ ref: 'THX-18', linked: null, externalRef: null, ...fields }) as UnifiedTicket;
+
+  it('leads with the TimeHuddle ID of a pure TimeHuddle ticket', () => {
+    expect(outsideRefOf(ticket({}))).toBeNull();
+    expect(leadingRefOf(ticket({}))).toBe('THX-18');
+  });
+
+  it('leads with the issue a ticket is linked to', () => {
+    const linked = ticket({
+      ref: 'THX-20',
+      linked: { sourceId: 'redmine', id: '214', ref: 'RM0-214', status: null, assignee: null },
+    });
+    expect(outsideRefOf(linked)).toBe('RM0-214');
+    expect(leadingRefOf(linked)).toBe('RM0-214');
+  });
+
+  it('leads with the outside ID of a link the ticket carries, when it has one', () => {
+    const url = 'https://github.com/mieweb/timehuddle/issues/717';
+    const named = ticket({
+      ref: 'THX-19',
+      externalRef: { url, label: 'GitHub', id: 'timehuddle-717' },
+    });
+    expect(leadingRefOf(named)).toBe('timehuddle-717');
+    const unnamed = ticket({ ref: 'THX-19', externalRef: { url, label: 'Issue link', id: null } });
+    expect(leadingRefOf(unnamed)).toBe('THX-19');
   });
 });

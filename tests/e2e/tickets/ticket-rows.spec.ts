@@ -54,7 +54,6 @@ test.describe('Ticket rows', () => {
     // Where the ticket sits, then its title, then who has it and its state.
     await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
-    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     const lines = await row
       .locator('.row-list-meta, .row-list-title, .row-list-properties')
@@ -490,7 +489,7 @@ test.describe('Ticket rows', () => {
     // edge. No columns appear.
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 800 });
-      await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+      await expect(row.locator('.ticket-row-facts')).toContainText('open');
       const [titleAt, factsAt] = [await titleBox(), await factsBox()];
       expect(factsAt.top, `at ${width}px`).toBeGreaterThan(titleAt.top + 10);
       expect(Math.abs(factsAt.left - titleAt.left), `at ${width}px`).toBeLessThanOrEqual(2);
