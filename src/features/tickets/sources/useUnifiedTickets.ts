@@ -65,6 +65,14 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     [teams],
   );
 
+  // Rows are labelled when they load (`TH-12`, `PM-233`), so a changed prefix reloads them.
+  const { sourcePrefixes } = ctx;
+  const labelsKey = useMemo(
+    () =>
+      JSON.stringify([teams.map((t) => `${t.id}:${t.ticketPrefix ?? ''}`), sourcePrefixes ?? []]),
+    [teams, sourcePrefixes],
+  );
+
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
@@ -122,9 +130,9 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     // This hook outlives a sign-in as someone else, and a load keeps the rows it
     // had: the next user must not see the previous one's while theirs arrive.
     if (previous && previous.userId !== userId) setPartitions(initialPartitions());
-    // Member data arriving only renames people on rows already shown.
+    // Member data or a changed prefix only renames what rows already show.
     load(previous?.userId === userId && previous.teamsKey === teamsKey);
-  }, [load, userId, teamsKey, membersKey]);
+  }, [load, userId, teamsKey, membersKey, labelsKey]);
 
   const refetch = useCallback(() => load(), [load]);
 

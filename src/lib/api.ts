@@ -639,6 +639,12 @@ export const usageApi = {
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
+/** A server an org has named, so an issue on `host` shows as `PM-233` (#689). */
+export interface SourcePrefix {
+  host: string;
+  prefix: string;
+}
+
 export const orgApi = {
   checkSlugAvailability: (slug: string, excludeId?: string) =>
     wormholeCall<{ available: boolean }>('orgs.checkSlug', {
@@ -655,6 +661,7 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
+        sourcePrefixes?: SourcePrefix[];
       }>;
     }>('orgs.list', {}).then((r) => r.organizations),
 
@@ -699,6 +706,7 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         ticketPrefix: string;
+        sourcePrefixes: SourcePrefix[];
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
       } & SettingsEditView;
@@ -710,6 +718,13 @@ export const orgApi = {
       orgId: id,
       ticketPrefix,
     }).then((r) => r.ticketPrefix),
+
+  /** Names the servers outside issues live on, replacing the list. Org owners only. */
+  setSourcePrefixes: (id: string, sourcePrefixes: SourcePrefix[]) =>
+    wormholeCall<{ sourcePrefixes: SourcePrefix[] }>('orgs.setSourcePrefixes', {
+      orgId: id,
+      sourcePrefixes,
+    }).then((r) => r.sourcePrefixes),
 
   /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
   updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>

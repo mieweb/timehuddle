@@ -385,3 +385,41 @@ describe('orgs.setTicketPrefix', () => {
     expect((await setPrefix(ownerJwt, 'TOOLONG')).ok).toBe(false);
   });
 });
+
+describe('orgs.setSourcePrefixes', () => {
+  type Entry = { host: string; prefix: string };
+  const setSources = (jwt: string, sourcePrefixes: unknown) =>
+    wormhole<{ sourcePrefixes: Entry[] }>('orgs.setSourcePrefixes', { orgId, sourcePrefixes }, jwt);
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: new ObjectId(orgId) }, { $unset: { sourcePrefixes: '', ticketPrefix: '' } });
+  });
+
+  it('lets an owner name servers, and orgs.get returns them', async () => {
+    const res = await setSources(ownerJwt, [{ host: 'https://Redmine.Example.com/', prefix: 'pm' }]);
+    expect(res.ok).toBe(true);
+    expect(res.result.sourcePrefixes).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+    const org = await wormhole<{ organization: { sourcePrefixes: Entry[] } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.sourcePrefixes).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+  });
+
+  it('refuses an admin and a member', async () => {
+    const entries = [{ host: 'redmine.example.com', prefix: 'PM' }];
+    await addMembership(memberId, 'admin');
+    expect((await setSources(memberJwt, entries)).ok).toBe(false);
+    const db = await getDb();
+    await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
+    expect((await setSources(memberJwt, entries)).ok).toBe(false);
+  });
+
+  it("keeps server prefixes and the org's ticket prefix apart", async () => {
+    expect((await setSources(ownerJwt, [{ host: 'a.example.com', prefix: 'TH' }])).ok).toBe(false);
+    expect((await setSources(ownerJwt, [{ host: 'a.example.com', prefix: 'PM' }])).ok).toBe(true);
+    expect(
+      (await wormhole('orgs.setTicketPrefix', { orgId, ticketPrefix: 'PM' }, ownerJwt)).ok,
+    ).toBe(false);
+  });
+});

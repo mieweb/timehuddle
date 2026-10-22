@@ -32,6 +32,7 @@ import {
   type OrganizationInvitation,
   type SettingsEditView,
   type SettingsPatch,
+  type SourcePrefix,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
@@ -102,6 +103,7 @@ export const OrganizationMembersPage: React.FC = () => {
     view: SettingsEditView;
     role: 'owner' | 'admin' | 'member' | null;
     ticketPrefix: string;
+    sourcePrefixes: SourcePrefix[];
   } | null>(null);
   const loadSeqRef = useRef(0);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -148,6 +150,7 @@ export const OrganizationMembersPage: React.FC = () => {
         view: organization,
         role: organization.role,
         ticketPrefix: organization.ticketPrefix,
+        sourcePrefixes: organization.sourcePrefixes,
       });
       setCanManage(organization.canManage);
 
@@ -452,7 +455,11 @@ export const OrganizationMembersPage: React.FC = () => {
         />
       )}
       {selectedOrgId && loaded?.orgId === selectedOrgId && loaded.role === 'owner' && (
-        <TicketIdsCard orgId={selectedOrgId} ticketPrefix={loaded.ticketPrefix} />
+        <TicketIdsCard
+          orgId={selectedOrgId}
+          ticketPrefix={loaded.ticketPrefix}
+          sourcePrefixes={loaded.sourcePrefixes}
+        />
       )}
       <Card padding="lg" className="space-y-4">
         <CardHeader className="flex items-start justify-between gap-3">

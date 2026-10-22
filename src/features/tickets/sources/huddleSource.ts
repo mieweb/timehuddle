@@ -8,6 +8,7 @@
 import { ticketApi, type Ticket } from '../../../lib/api';
 
 import { isWebUrl } from '../link/ticketLinkForm';
+import { outsideIdOf } from '../ticketIds';
 
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
@@ -90,6 +91,7 @@ export const huddleSource: TicketSource<Ticket> = {
         ? {
             url: ticket.github,
             label: ticket.github.includes('github.com') ? 'GitHub' : 'Issue link',
+            id: outsideIdOf(ticket.github, ctx.sourcePrefixes ?? []),
           }
         : null,
       sharedWithTimeharbor: ticket.sharedWithTimeharbor === true,

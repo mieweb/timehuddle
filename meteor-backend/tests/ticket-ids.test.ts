@@ -1,16 +1,19 @@
 /**
- * Ticket numbers (server/ticket-numbers.js), #689: each organization numbers
- * its tickets from one counter, and existing tickets are numbered oldest first.
+ * Ticket IDs (server/ticket-ids.js), #689: each organization numbers its
+ * tickets from one counter, existing tickets are numbered oldest first, and
+ * an org names the servers its outside issues live on.
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { getDb, closeDb, ObjectId } from './helpers';
 import {
   DEFAULT_TICKET_PREFIX,
+  hostOf,
+  normalizeSourcePrefixes,
   nextTicketNumber,
   normalizeTicketPrefix,
   numberExistingTickets,
   ticketPrefixesFor,
-} from '../server/ticket-numbers';
+} from '../server/ticket-ids';
 
 const tag = `num689-${Date.now()}`;
 const createdOrgs: ObjectId[] = [];
@@ -110,5 +113,42 @@ describe('numberExistingTickets', () => {
     await numberExistingTickets(db);
     expect(await numberOf(newest)).toBe(3);
     expect(await nextTicketNumber(db, orgId)).toBe(4);
+  });
+});
+
+describe('hostOf', () => {
+  it('takes the lowercase host from a URL or a bare hostname', () => {
+    expect(hostOf('https://Redmine.Example.com/issues/12?x=1')).toBe('redmine.example.com');
+    expect(hostOf('redmine.example.com')).toBe('redmine.example.com');
+    expect(hostOf('http://localhost:3200')).toBe('localhost');
+  });
+
+  it('refuses what is not a server address', () => {
+    for (const bad of ['', '   ', 'not a host', 'nodot', null]) expect(hostOf(bad)).toBeNull();
+  });
+});
+
+describe('normalizeSourcePrefixes', () => {
+  it('stores bare hosts and uppercase prefixes', () => {
+    expect(
+      normalizeSourcePrefixes([{ host: 'https://redmine.example.com/projects', prefix: 'pm' }], 'TH'),
+    ).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+  });
+
+  it('refuses a repeated host, a repeated prefix, or the org ticket prefix', () => {
+    const row = { host: 'a.example.com', prefix: 'AA' };
+    expect(() => normalizeSourcePrefixes([row, { ...row, prefix: 'BB' }], 'TH')).toThrow(/twice/);
+    expect(() => normalizeSourcePrefixes([row, { host: 'b.example.com', prefix: 'aa' }], 'TH')).toThrow(
+      /already in use/,
+    );
+    expect(() => normalizeSourcePrefixes([{ host: 'c.example.com', prefix: 'TH' }], 'TH')).toThrow(
+      /already in use/,
+    );
+  });
+
+  it('refuses a bad host, a bad prefix, or something that is not a list', () => {
+    expect(() => normalizeSourcePrefixes([{ host: 'nope', prefix: 'PM' }], 'TH')).toThrow(/server address/);
+    expect(() => normalizeSourcePrefixes([{ host: 'a.example.com', prefix: '9' }], 'TH')).toThrow(/prefix/);
+    expect(() => normalizeSourcePrefixes('PM', 'TH')).toThrow(/list/);
   });
 });

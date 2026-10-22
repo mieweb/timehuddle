@@ -144,7 +144,9 @@ const viewPanelClass = (showing: boolean) =>
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeam, selectedTeamId, teamsReady, organizations, selectedOrgId } =
+    useTeam();
+  const sourcePrefixes = organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
   const toast = useToast();
 
@@ -204,10 +206,11 @@ export const TicketsPage: React.FC = () => {
     () => ({
       userId,
       teams: teams.map((t: Team) => ({ id: t.id, name: t.name, ticketPrefix: t.ticketPrefix })),
+      sourcePrefixes,
       resolveMemberName: getAssigneeName,
       membersKey: allMembers.map((m) => `${m.id}:${m.name || m.email}`).join('|'),
     }),
-    [userId, teams, getAssigneeName, allMembers],
+    [userId, teams, sourcePrefixes, getAssigneeName, allMembers],
   );
 
   const {

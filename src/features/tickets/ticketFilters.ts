@@ -7,6 +7,7 @@
  * differently.
  */
 import { displaySourceId, type TicketSourceId, type UnifiedTicket } from './sources';
+import { refNumber } from './ticketIds';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
@@ -147,12 +148,20 @@ export function toggleSort(current: SortSpec, field: SortField): SortSpec {
   return { field, direction: startsDescending ? 'desc' : 'asc' };
 }
 
+/** Every ID a ticket goes by, lowercase: its own, and the outside one it is linked to or carries. */
+function ticketRefs(ticket: UnifiedTicket): string[] {
+  return [ticket.ref, ticket.linked?.ref, ticket.externalRef?.id]
+    .filter((ref): ref is string => !!ref)
+    .map((ref) => ref.toLowerCase());
+}
+
 /**
  * Match a query against the fields a user would reasonably search by.
  *
  * Two prefixes narrow it, the same way for every source:
  * - `@name` matches an assignee's name; `@` alone matches any assigned ticket
- * - `#ref` matches the start of the row's reference, so `#9` is not `#19`
+ * - `#ref` matches the start of any ID the ticket goes by, or of the number in
+ *   one, so `#233` finds `PM-233`, and `#9` is not `#19`
  */
 export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -167,11 +176,17 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
       (assignee) => assignee.name !== assignee.id && assignee.name.toLowerCase().includes(name),
     );
   }
-  if (q.startsWith('#')) return ticket.ref.toLowerCase().startsWith(q);
+  const refs = ticketRefs(ticket);
+  if (q.startsWith('#')) {
+    const id = q.slice(1);
+    return refs.some(
+      (ref) => ref.replace(/^#/, '').startsWith(id) || (refNumber(ref)?.startsWith(id) ?? false),
+    );
+  }
 
   return (
     ticket.title.toLowerCase().includes(q) ||
-    ticket.ref.toLowerCase().includes(q) ||
+    refs.some((ref) => ref.includes(q)) ||
     (ticket.container?.name.toLowerCase().includes(q) ?? false) ||
     (ticket.externalRef?.url.toLowerCase().includes(q) ?? false)
   );

@@ -93,6 +93,7 @@ const text = {
   updated: (date: string) => `Updated ${date}`,
   options: 'Ticket options',
   sharedWithTimeharbor: 'Shared with TimeHarbor',
+  openOutside: (id: string, label: string) => `Open ${id} (${label}) in a new tab`,
 };
 
 /**
@@ -190,7 +191,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
       {ticket.container?.name && (
         <span className="min-w-0 break-words">{ticket.container.name}</span>
       )}
-      {ticket.externalRef ? (
+      {ticket.externalRef && !ticket.externalRef.id ? (
         <a
           href={ticket.externalRef.url}
           target="_blank"
@@ -261,6 +262,20 @@ export const TicketRow: React.FC<TicketRowProps> = ({
             {ticket.linked.ref}
           </Badge>
         </Tooltip>
+      )}
+      {ticket.externalRef?.id && (
+        <a
+          href={ticket.externalRef.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={text.openOutside(ticket.externalRef.id, ticket.externalRef.label)}
+          className="ticket-row-outside-id inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Badge variant="outline" size="sm" className="hover:underline">
+            <FontAwesomeIcon icon={faExternalLink} className="me-1 text-[9px]" aria-hidden="true" />
+            {ticket.externalRef.id}
+          </Badge>
+        </a>
       )}
       {ticket.sharedWithTimeharbor && (
         <Tooltip content={text.sharedWithTimeharbor}>

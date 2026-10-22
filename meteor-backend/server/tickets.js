@@ -17,7 +17,7 @@ import { createNotification, userDisplayName } from './notify-core';
 import { addBoardEntryIfRoom } from './my-board';
 import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
 import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
-import { nextTicketNumber } from './ticket-numbers';
+import { nextTicketNumber } from './ticket-ids';
 import { HUDDLE } from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;

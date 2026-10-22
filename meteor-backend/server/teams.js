@@ -2,7 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
-import { DEFAULT_TICKET_PREFIX, ticketPrefixesFor } from './ticket-numbers';
+import { DEFAULT_TICKET_PREFIX, ticketPrefixesFor } from './ticket-ids';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import {
   ensureDefaultOrganization,

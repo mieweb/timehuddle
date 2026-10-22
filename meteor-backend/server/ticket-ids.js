@@ -1,11 +1,13 @@
 /**
- * Ticket numbers (#689): every ticket gets a number from its organization's
- * counter, and is shown as `<org prefix>-<number>`, e.g. `TH-12`.
+ * Ticket IDs (#689). Every ticket gets a number from its organization's
+ * counter, and is shown as `<org prefix>-<number>`, e.g. `TH-12`. An org can
+ * also name the servers its outside issues live on, so Redmine issue 233 on
+ * `redmine.example.com` shows as `PM-233`.
  *
- * The prefix lives on the organization and is read at display time, never
- * copied onto tickets, so renaming it relabels every ticket at once. Takes the
+ * Prefixes live on the organization and are read at display time, never
+ * copied onto tickets, so renaming one relabels every ticket at once. Takes the
  * Mongo `db` and has no Meteor imports, so it is testable
- * (tests/ticket-numbers.test.ts).
+ * (tests/ticket-ids.test.ts).
  */
 import { ObjectId } from 'mongodb';
 
@@ -26,6 +28,48 @@ export function normalizeTicketPrefix(input) {
   if (typeof input !== 'string') return null;
   const prefix = input.trim().toUpperCase();
   return TICKET_PREFIX_RE.test(prefix) ? prefix : null;
+}
+
+/** How many servers an org can name. */
+export const MAX_SOURCE_PREFIXES = 20;
+
+/** The bare lowercase hostname of a pasted URL or hostname, or null. */
+export function hostOf(input) {
+  if (typeof input !== 'string' || !input.trim()) return null;
+  const text = input.trim();
+  try {
+    const { hostname } = new URL(text.includes('://') ? text : `https://${text}`);
+    return hostname.includes('.') || hostname === 'localhost' ? hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The server prefixes to store for `input`, a list of `{ host, prefix }`.
+ * Throws an Error whose message says what is wrong, for the caller to show.
+ * `ticketPrefix` is the org's own, which no server may share.
+ */
+export function normalizeSourcePrefixes(input, ticketPrefix) {
+  if (!Array.isArray(input)) throw new Error('sourcePrefixes must be a list');
+  if (input.length > MAX_SOURCE_PREFIXES) {
+    throw new Error(`An organization can name up to ${MAX_SOURCE_PREFIXES} servers`);
+  }
+  const hosts = new Set();
+  const prefixes = new Set([ticketPrefix]);
+  return input.map((entry) => {
+    const host = hostOf(entry?.host);
+    if (!host) throw new Error(`Not a server address: ${entry?.host ?? ''}`);
+    const prefix = normalizeTicketPrefix(entry?.prefix);
+    if (!prefix) {
+      throw new Error(`${host}: a prefix is a letter followed by up to five letters or digits`);
+    }
+    if (hosts.has(host)) throw new Error(`${host} is listed twice`);
+    if (prefixes.has(prefix)) throw new Error(`${prefix} is already in use`);
+    hosts.add(host);
+    prefixes.add(prefix);
+    return { host, prefix };
+  });
 }
 
 // Legacy orgs can carry non-ObjectId string ids.
