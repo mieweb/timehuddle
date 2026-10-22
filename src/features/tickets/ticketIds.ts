@@ -51,12 +51,16 @@ export function refNumber(ref: string): string | null {
 }
 
 /**
- * The outside ID a ticket goes by, when it has one: the issue it is linked to
- * (`RM0-214`), or the link it carries (`timehuddle-717`). Null for a pure
- * TimeHuddle ticket, and for an issue's own row, whose `ref` already is one.
+ * The outside ID a ticket goes by, when it has a named one: the issue it is
+ * linked to (`RM0-214`), or the link it carries (`timehuddle-717`). Null for a
+ * pure TimeHuddle ticket, and for an issue's own row, whose `ref` already is one.
+ *
+ * A linked issue the viewer can't read keeps a bare `#214`, which says nothing
+ * of where it lives, so it never stands in for the ticket's own ID.
  */
 export function outsideRefOf(ticket: UnifiedTicket): string | null {
-  return ticket.linked?.ref ?? ticket.externalRef?.id ?? null;
+  const linked = ticket.linked?.ref;
+  return (linked && !linked.startsWith('#') ? linked : null) ?? ticket.externalRef?.id ?? null;
 }
 
 /** The ID a ticket is shown and sorted by: its outside one first, else its own. */

@@ -66,6 +66,15 @@ describe('outsideRefOf and leadingRefOf', () => {
     expect(leadingRefOf(linked)).toBe('RM0-214');
   });
 
+  it("keeps the ticket's own ID when the linked issue is only a bare #number", () => {
+    const unread = ticket({
+      ref: 'THX-20',
+      linked: { sourceId: 'redmine', id: '214', ref: '#214', status: null, assignee: null },
+    });
+    expect(outsideRefOf(unread)).toBeNull();
+    expect(leadingRefOf(unread)).toBe('THX-20');
+  });
+
   it('leads with the outside ID of a link the ticket carries, when it has one', () => {
     const url = 'https://github.com/mieweb/timehuddle/issues/717';
     const named = ticket({
