@@ -11,7 +11,7 @@ import {
   Input,
   Text,
 } from '@mieweb/ui';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { ApiError, orgApi, type SourcePrefix } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -85,7 +85,7 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
   ticketPrefix,
   sourcePrefixes,
 }) => {
-  const { refetchTeams } = useTeam();
+  const { refetchTeams, refetchOrganizations } = useTeam();
   const prefixSave = useSaver();
   const serversSave = useSaver();
   const [savedPrefix, setSavedPrefix] = useState(ticketPrefix);
@@ -93,12 +93,24 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
   const [servers, setServers] = useState(() => toDrafts(sourcePrefixes));
   const [serversChanged, setServersChanged] = useState(false);
 
+  // The page reloads the org whenever its members change, handing over equal
+  // values in new arrays. Another org starts both editors afresh; the same org
+  // updates only an editor with no unsaved edits, so a refresh never wipes them.
+  const shownOrgId = useRef(orgId);
+  const edits = useRef({ savedPrefix, prefixDraft, serversChanged });
+  edits.current = { savedPrefix, prefixDraft, serversChanged };
+  const serversKey = JSON.stringify(sourcePrefixes);
   useEffect(() => {
+    const otherOrg = shownOrgId.current !== orgId;
+    shownOrgId.current = orgId;
+    const { savedPrefix: saved, prefixDraft: draft, serversChanged: changed } = edits.current;
+    if (otherOrg || draft === saved) setPrefixDraft(ticketPrefix);
     setSavedPrefix(ticketPrefix);
-    setPrefixDraft(ticketPrefix);
-    setServers(toDrafts(sourcePrefixes));
-    setServersChanged(false);
-  }, [orgId, ticketPrefix, sourcePrefixes]);
+    if (otherOrg || !changed) {
+      setServers(toDrafts(JSON.parse(serversKey) as SourcePrefix[]));
+      setServersChanged(false);
+    }
+  }, [orgId, ticketPrefix, serversKey]);
 
   const normalizedPrefix = prefixDraft.trim().toUpperCase();
 
@@ -122,8 +134,10 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
       );
       setServers(toDrafts(saved));
       setServersChanged(false);
-      // Teams carry the servers, so ticket lists relabel when they arrive.
+      // Teams carry the servers, and the org list for a viewer in none of its
+      // teams, so ticket lists relabel when they arrive.
       refetchTeams();
+      refetchOrganizations();
     });
   };
 
