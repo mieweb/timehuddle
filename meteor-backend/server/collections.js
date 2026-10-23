@@ -17,7 +17,6 @@ export const Timers = new Mongo.Collection('timers', { idGeneration: 'MONGO' });
 export const Notifications = new Mongo.Collection('notifications', { idGeneration: 'MONGO' });
 export const TeamJoinRequests = new Mongo.Collection('teamjoinrequests', { idGeneration: 'MONGO' });
 export const WorkItems = new Mongo.Collection('workitems', { idGeneration: 'MONGO' });
-export const MediaItems = new Mongo.Collection('mediaitems', { idGeneration: 'MONGO' });
 export const OrgMembers = new Mongo.Collection('org_members', { idGeneration: 'MONGO' });
 export const HuddlePosts = new Mongo.Collection('huddlePosts', { idGeneration: 'MONGO' });
 export const TimesheetChangeRequests = new Mongo.Collection('timesheetchangerequests', {

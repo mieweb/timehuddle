@@ -21,6 +21,7 @@ import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
+import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
 import './redmine';
@@ -359,8 +360,9 @@ function sendNativeAuthRedirect(res, token, resumeToken, extraParams = {}) {
 // OAuth `state` round-trips through the third-party IdP unmodified, so it's
 // the only place to smuggle context (native flag + pending team/org join
 // links) through the redirect-away-and-back flow. Encoded as base64url JSON.
-function encodeOAuthState({ isNative, join, invite, orgInvite } = {}) {
+function encodeOAuthState({ isNative, join, invite, orgInvite, link } = {}) {
   const payload = { n: !!isNative, r: Random.secret() };
+  if (link) payload.l = link;
   if (join) payload.j = join;
   if (invite) payload.i = invite;
   if (orgInvite) payload.o = orgInvite;
@@ -375,10 +377,17 @@ function decodeOAuthState(state) {
       join: payload.j || null,
       invite: payload.i || null,
       orgInvite: payload.o || null,
+      link: payload.l || null,
     };
   } catch {
     // Legacy format (plain 'native_' prefix) — no join/invite context available.
-    return { isNative: state?.startsWith('native_') ?? false, join: null, invite: null, orgInvite: null };
+    return {
+      isNative: state?.startsWith('native_') ?? false,
+      join: null,
+      invite: null,
+      orgInvite: null,
+      link: null,
+    };
   }
 }
 
@@ -398,6 +407,8 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     join: reqParams.get('join'),
     invite: reqParams.get('invite'),
     orgInvite: reqParams.get('org_invite'),
+    // Settings → Connect GitHub: a single-use token naming the signed-in user (#725).
+    link: reqParams.get('link'),
   });
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
   
@@ -411,8 +422,6 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&scope=user:email` +
     `&state=${credentialToken}`;
-  
-  console.log('[github-oauth] Full auth URL:', githubAuthUrl);
   
   res.writeHead(302, { Location: githubAuthUrl });
   res.end();
@@ -457,7 +466,14 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       },
     });
     const githubUser = await userRes.json();
-    
+    // Both the link and sign-in branches key on the GitHub id; an error body
+    // without one must not reach a `services.github.id` lookup.
+    if (!userRes.ok || !Number.isInteger(githubUser?.id)) {
+      res.writeHead(502);
+      res.end('GitHub profile unavailable');
+      return;
+    }
+
     // Get user email
     const emailRes = await fetch('https://api.github.com/user/emails', {
       headers: {
@@ -468,18 +484,35 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
     const emails = await emailRes.json();
     const primaryEmail =
       emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
-    
-    if (!primaryEmail) {
+
+    const frontendUrl =
+      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    const { isNative, join, invite, orgInvite, link } = decodeOAuthState(state);
+
+    // Settings → Connect GitHub: stage the link, then return to Settings,
+    // which confirms it as the signed-in user (see github-link.js).
+    if (link) {
+      const { result, code } = await stageGithubLink(link, githubUser);
+      const params = code ? { github_confirm: code } : { github: result };
+      res.writeHead(302, {
+        Location: `${frontendUrl}/app/settings?${new URLSearchParams(params)}`,
+      });
+      res.end();
+      return;
+    }
+
+    // A linked GitHub account wins over the email match.
+    const linkedUserId = await findUserIdByGithubId(githubUser.id);
+    if (!linkedUserId && !primaryEmail) {
       res.writeHead(400);
       res.end('No email found');
       return;
     }
-    
+
     // Find or create user in Meteor
-    const userId = await findOrCreateUser(
-      primaryEmail,
-      githubUser.name || githubUser.login
-    );
+    const userId =
+      linkedUserId ??
+      (await findOrCreateUser(primaryEmail, githubUser.name || githubUser.login));
     
     // Create Meteor login token for this user
     const stampedToken = Accounts._generateStampedLoginToken();
@@ -506,7 +539,6 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       .sign(secret);
     
     // Redirect back — native apps get a deep link, browsers get the frontend URL
-    const { isNative, join, invite, orgInvite } = decodeOAuthState(state);
     if (isNative) {
       sendNativeAuthRedirect(res, token, stampedToken.token, {
         join,
@@ -514,8 +546,6 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
         org_invite: orgInvite,
       });
     } else {
-      const frontendUrl =
-        process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
       const redirectParams = new URLSearchParams({
         meteor_token: token,
         meteor_resume: stampedToken.token,
@@ -1077,6 +1107,32 @@ Meteor.startup(async() => {
 
   // ── Redmine ──────────────────────────────────────────────────────────────
 
+  // ── GitHub account link ──────────────────────────────────────────────────
+
+  Wormhole.expose('github.status', {
+    description: "The caller's linked GitHub account, if any",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('github.linkToken', {
+    description: 'A single-use token to start linking a GitHub account via /auth/github?link=',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('github.confirmLink', {
+    description: 'Finish linking the GitHub account the OAuth callback staged, as the user who started it',
+    inputSchema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+    },
+  });
+
+  Wormhole.expose('github.disconnect', {
+    description: "Unlink the caller's GitHub account",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   Wormhole.expose('redmine.connect', {
     description: "Link the caller's personal Redmine account by validating an API key",
     inputSchema: {
@@ -1231,27 +1287,16 @@ Meteor.startup(async() => {
     },
   });
 
-  Wormhole.expose('redmine.activities.list', {
+  Wormhole.expose('redmine.timeEntries.preview', {
     description:
-      "The instance's time-entry activities plus which one the caller's time logs under",
-    inputSchema: { type: 'object', properties: {} },
-  });
-
-  Wormhole.expose('redmine.activities.setDefault', {
-    description: "Set the caller's default Redmine time-entry activity",
+      'Preview the ticket-day totals a push would send to Redmine, or one ticket-day when an issue id and a day are given. Read-only — creates nothing.',
     inputSchema: {
       type: 'object',
       properties: {
-        activityId: { type: 'number', description: 'Redmine time-entry activity id' },
+        ticketId: { type: 'string', description: 'Redmine issue id, to preview one ticket-day' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD, with ticketId' },
       },
-      required: ['activityId'],
     },
-  });
-
-  Wormhole.expose('redmine.timeEntries.preview', {
-    description:
-      'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',
-    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('redmine.timeEntries.discard', {
@@ -1262,6 +1307,24 @@ Meteor.startup(async() => {
       properties: {
         ticketId: { type: 'string', description: 'Redmine issue id' },
         date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+      },
+      required: ['ticketId', 'date'],
+    },
+  });
+
+  Wormhole.expose('redmine.timeEntries.sendTicketDay', {
+    description:
+      "Send one ticket-day's unsent time to Redmine as a single entry, with an optional comment. Irreversible.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'Redmine issue id' },
+        date: { type: 'string', description: 'The day, YYYY-MM-DD' },
+        comment: { type: 'string', description: "The entry's comment; optional" },
+        activityId: {
+          type: 'number',
+          description: "Optional override of the resolved activity; must be one the issue's project allows",
+        },
       },
       required: ['ticketId', 'date'],
     },
@@ -1285,6 +1348,7 @@ Meteor.startup(async() => {
                 type: 'number',
                 description: 'Optional override of the resolved activity',
               },
+              comment: { type: 'string', description: "The entry's comment; optional" },
             },
             required: ['ticketId', 'date'],
           },
@@ -1651,6 +1715,8 @@ Meteor.startup(async() => {
       properties: {
         teamId: { type: 'string' },
         content: huddlePostContentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket, read as `ticketIds: [ticketId]`.
         ticketId: { type: 'string' },
         attachments: huddlePostAttachmentSchema,
         postDate: { type: 'string' },
@@ -1659,8 +1725,43 @@ Meteor.startup(async() => {
         // Deprecated: kept so older clients' `draft: true` reaches the method
         // and is rejected instead of being stripped and published.
         draft: { type: 'boolean' },
+        deliverAt: {
+          type: 'string',
+          description:
+            'ISO date to schedule the post for; only the author sees it, and nobody is notified, until then',
+        },
       },
       required: ['teamId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.sendScheduledNow', {
+    description: "Deliver one of the caller's scheduled huddle posts now",
+    inputSchema: {
+      type: 'object',
+      properties: { postId: { type: 'string' } },
+      required: ['postId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.reschedulePost', {
+    description: "Move one of the caller's scheduled huddle posts to a new time",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        deliverAt: { type: 'string' },
+        postDate: { type: 'string' },
+      },
+      required: ['postId', 'deliverAt'],
     },
     outputSchema: {
       type: 'object',
@@ -1677,6 +1778,8 @@ Meteor.startup(async() => {
         content: huddlePostContentSchema,
         wrapUp: { type: 'boolean' },
         attachments: huddlePostAttachmentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket; `null` clears them.
         ticketId: { type: ['string', 'null'] },
       },
       required: ['postId', 'content'],

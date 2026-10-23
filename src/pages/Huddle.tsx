@@ -1,4 +1,9 @@
-import { faCheck, faChevronDown, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCheck,
+  faChevronDown,
+  faClock,
+  faMagnifyingGlass,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -18,12 +23,18 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { composerAttachmentToFile, toPostAttachment, uploadMedia } from '../features/huddle/api';
+import {
+  composerAttachmentToFile,
+  fetchTeamMembers,
+  toPostAttachment,
+  uploadMedia,
+} from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
 import {
   defaultConversation,
+  isAwaitingDelivery,
   postsToConversations,
   searchConversations,
   starterConversation,
@@ -33,13 +44,16 @@ import {
   withTodayConversation,
 } from '../features/huddle/superChatFeed';
 import type { MediaItem } from '../features/huddle/types';
+import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
+import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
-import { useTeamMentions } from '../features/huddle/useTeamMentions';
+import { detectMentions, useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
+import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
 import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
@@ -64,6 +78,8 @@ const ME_FEED_KEY = 'me';
 const LINK_SEARCH_MAX_DAYS = 360;
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
 const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
+/** The send button's "Send later…" option id. */
+const SEND_LATER = 'schedule';
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   session: 'Session',
@@ -247,21 +263,35 @@ export default function Huddle() {
   // view, the selected team otherwise.
   const postingTeamId = scope === 'me' ? personalTeamId : selectedTeamId;
 
-  // The ticket the chat input's Ticket button adds to the next post, reset
+  // The tickets the chat input's Ticket button adds to the next post, reset
   // per team so one picked for one team can't land in another team's post.
   // (Pulse isn't staged here: the server posts a Pulse video itself — see PulseButton.)
-  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
-  // The picked ticket's own videos come along with it.
-  const ticketVideos = useTicketVideos(selectedTicketId);
+  const {
+    ticketIds: selectedTicketIds,
+    setTicketIds: setSelectedTicketIds,
+    addTicket,
+    removeTicket,
+  } = useTicketSelection();
+  // The picked tickets' own videos come along with them.
+  const ticketVideos = useTicketVideos(selectedTicketIds);
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
   // A send is in flight. The ref is what guards re-entry; the state only
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
+  // The open "Send later…" dialog: settles the send that is waiting on it.
+  const [schedulePrompt, setSchedulePrompt] = useState<{
+    resolve: (schedule: PostSchedule) => void;
+    reject: () => void;
+  } | null>(null);
+  const askForSchedule = () =>
+    new Promise<PostSchedule>((resolve, reject) =>
+      setSchedulePrompt({ resolve, reject: () => reject(new Error('Scheduling cancelled')) }),
+    );
   useEffect(() => {
-    setSelectedTicketId(undefined);
-  }, [postingTeamId]);
+    setSelectedTicketIds([]);
+  }, [postingTeamId, setSelectedTicketIds]);
 
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
@@ -361,6 +391,23 @@ export default function Huddle() {
         // Clock-out doesn't touch the post, so the DDP copy keeps its open
         // session snapshot; take the closed one from the post-clock-out refetch.
         byId.set(id, { ...ddpPost, session: restPost.session });
+      } else if ((restPost.scheduleVersion ?? 0) > (ddpPost.scheduleVersion ?? 0)) {
+        // Delivery and reschedule don't bump updatedAt either (so a scheduled
+        // post isn't shown as edited), so compare scheduleVersion instead —
+        // it's bumped on every write to deliverAt/deliveredAt/postDate.
+        // Whichever copy has the higher version is the newer one: this
+        // covers Send now / Reschedule made from another tab, or made here
+        // while DDP was disconnected, without letting an older cached REST
+        // snapshot (e.g. from right after the post was created, before
+        // either happened) undo a delivery or reschedule that's since
+        // happened live.
+        byId.set(id, {
+          ...ddpPost,
+          deliverAt: restPost.deliverAt,
+          deliveredAt: restPost.deliveredAt,
+          postDate: restPost.postDate,
+          scheduleVersion: restPost.scheduleVersion,
+        });
       }
     }
     const teamPosts = [...byId.values()].sort(
@@ -525,6 +572,23 @@ export default function Huddle() {
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's own posts across every team.
   const activePosts = scope === 'me' ? myPosts : posts;
+  const myScheduledPosts = useMemo(
+    () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
+    [activePosts, user?.id],
+  );
+
+  // Personal scope has no live subscription at all (huddle.getMyPosts is a
+  // one-time REST call), and a team's own DDP feed can just as easily be
+  // disconnected (mobile backgrounded for a Pulse recording) — either way, a
+  // post's own Agenda-driven delivery while this tab is open would otherwise
+  // never update it here. Poll the active scope's own REST refresh while any
+  // of mine are still waiting, matching Agenda's own processEvery, so the
+  // dashed bubble and "Scheduled (n)" catch up without a manual refresh.
+  useEffect(() => {
+    if (!myScheduledPosts.length) return;
+    const id = setInterval(() => void refreshActiveScopeRef.current(), 30_000);
+    return () => clearInterval(id);
+  }, [myScheduledPosts.length]);
 
   // A post link (dashboard Recent Activity, clock-in/out and huddle-comment
   // notifications) opens the conversation containing it once loaded. Its team
@@ -823,11 +887,15 @@ export default function Huddle() {
     text: string,
     sentMentions: string[],
     composerAttachments: ComposerAttachment[],
+    sendOption?: string,
   ) {
     // A Pulse video or ticket keeps the send button live with an empty box, so
     // a second click during the upload would post the same thing again. The
     // composer's own `isSending` covers this a render later; the ref covers
     // the click that lands before that render.
+    if (sendingRef.current) return;
+    // Cancelling the dialog rejects, so SuperChat puts the typed text back.
+    const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
     if (sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
@@ -835,11 +903,11 @@ export default function Huddle() {
     let id: string;
     // Snapshot what's staged now: the uploads below take time, and anything
     // picked meanwhile belongs to the *next* post, not this one.
-    const ticketId = selectedTicketId;
+    const ticketIds = selectedTicketIds;
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
-        throw new Error("The ticket's videos are still loading. Send again in a moment.");
+        throw new Error("The tickets' videos are still loading. Send again in a moment.");
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
@@ -861,9 +929,10 @@ export default function Huddle() {
             (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
           ),
         },
-        ticketId,
+        ticketIds,
         attachments: [...media, ...staged].map(toPostAttachment),
-        postDate: toDateString(new Date()),
+        postDate: toDateString(sendSchedule?.deliverAt ?? new Date()),
+        ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
@@ -875,7 +944,7 @@ export default function Huddle() {
     }
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
-    setSelectedTicketId((prev) => (prev === ticketId ? undefined : prev));
+    setSelectedTicketIds((prev) => prev.filter((id) => !ticketIds.includes(id)));
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
@@ -905,8 +974,19 @@ export default function Huddle() {
     if (!post) return;
     const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
     const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
+    // Recompute from the edited text rather than keeping the original
+    // mentions: a scheduled post can sit unsent for a while, and swapping who
+    // it mentions before delivery must notify the new name, not the old one.
+    // Always load the post's own team roster rather than reuse the composer's:
+    // that one only covers `postingTeamId` (the Personal view shows posts from
+    // any team), and it is empty while loading or after a failed fetch, which
+    // would save `mentions: []` and deliver a scheduled post silently. A failed
+    // fetch here fails the save instead.
     try {
-      await huddleApi.updatePost(messageId, { text: body, mentions: post.content.mentions });
+      const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
+        (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
+      );
+      await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
       await refreshActiveScope();
@@ -980,6 +1060,21 @@ export default function Huddle() {
 
               <ComposerError message={inboxError} onDismiss={() => setInboxError(null)} />
 
+              {schedulePrompt && (
+                <ScheduleDialog
+                  title={SCHEDULE_TEXT.dialogTitle}
+                  confirmLabel={SCHEDULE_TEXT.confirm}
+                  onConfirm={(picked) => {
+                    schedulePrompt.resolve(picked);
+                    setSchedulePrompt(null);
+                  }}
+                  onClose={() => {
+                    schedulePrompt.reject();
+                    setSchedulePrompt(null);
+                  }}
+                />
+              )}
+
               {/* SuperChatInbox, grouped by the selected Thread by option.
                   Its chat input posts to the team; own messages edit inline.
                   Stays mounted through an empty search so the filters in its
@@ -1018,8 +1113,8 @@ export default function Huddle() {
                     }
                     renderPlugins={renderPlugins}
                     acceptedFileTypes={['image', 'video', 'pdf']}
-                    onMessageSent={(text, { mentions: sentMentions, attachments }) =>
-                      handleMessageSent(text, sentMentions, attachments)
+                    onMessageSent={(text, { mentions: sentMentions, attachments, sendOption }) =>
+                      handleMessageSent(text, sentMentions, attachments, sendOption)
                     }
                     onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
                     composerProps={{
@@ -1031,12 +1126,21 @@ export default function Huddle() {
                         : 'Share an update…',
                       maxFileSize: COMPOSER_MAX_FILE_BYTES,
                       // A ticket is a post on its own.
-                      canSendWhenEmpty: !!selectedTicketId,
+                      canSendWhenEmpty: selectedTicketIds.length > 0,
                       // Also busy while staged content is still settling: a send
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
                       isSending: sending || ticketVideos.loading,
                       mentionOptions: mentions.options,
+                      sendOptions: postingTeamId
+                        ? [
+                            {
+                              id: SEND_LATER,
+                              label: SCHEDULE_TEXT.sendLater,
+                              icon: <FontAwesomeIcon icon={faClock} aria-hidden="true" />,
+                            },
+                          ]
+                        : undefined,
                       leadingSlot: (
                         // ChatComposer's leadingSlot wrapper has no gap of its own, and the
                         // CSS module lets its two children join the composer's row.
@@ -1045,18 +1149,36 @@ export default function Huddle() {
                             {postingTeamId && (
                               <TicketPicker
                                 teamId={postingTeamId}
-                                onSelect={setSelectedTicketId}
-                                selectedId={selectedTicketId}
+                                onSelect={addTicket}
+                                selectedIds={selectedTicketIds}
                               />
                             )}
                             <TicketVideoChips videos={ticketVideos.videos} />
                             <ComposerChips
-                              selectedTicketId={selectedTicketId}
-                              onTicketRemove={() => setSelectedTicketId(undefined)}
+                              selectedTicketIds={selectedTicketIds}
+                              onTicketRemove={removeTicket}
                               mentions={[]}
                               onMentionRemove={() => {}}
                               attachments={[]}
                               onAttachmentRemove={() => {}}
+                            />
+                            <ScheduledPostsButton
+                              posts={myScheduledPosts}
+                              onSendNow={async (post) => {
+                                await huddleApi.sendScheduledNow(post.id);
+                                await refreshActiveScope();
+                              }}
+                              onReschedule={async (post, next) => {
+                                await huddleApi.reschedulePost(post.id, {
+                                  deliverAt: next.deliverAt.toISOString(),
+                                  postDate: toDateString(next.deliverAt),
+                                });
+                                await refreshActiveScope();
+                              }}
+                              onDelete={async (post) => {
+                                await huddleApi.deletePost(post.id);
+                                await refreshActiveScope();
+                              }}
                             />
                           </div>
                           {/* After the composer's +, behind a "/" (or): a Pulse video posts

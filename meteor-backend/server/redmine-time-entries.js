@@ -4,8 +4,11 @@
  */
 import { ticketDayKey } from './redmine-net-hours';
 
-/** Marker written into every entry's `comments` so its origin is legible in Redmine. */
+/** An entry's `comments` when the user wrote none, so its origin is legible in Redmine. */
 export const PUSH_COMMENT = 'Logged by TimeHuddle';
+
+/** The longest comment Redmine accepts on a time entry. */
+export const MAX_COMMENT_LENGTH = 1024;
 
 /**
  * Seconds → the decimal hours to send Redmine.
@@ -37,6 +40,14 @@ export function toHours(seconds) {
 /** Whole minutes as the 2-decimal hours Redmine is sent. */
 function minutesToHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
+}
+
+/**
+ * The hours to send for one unsent total (see `unsentTotals`): its `minutes`,
+ * or without them its seconds rounded as they stand.
+ */
+export function hoursToSend(total) {
+  return total.minutes == null ? toHours(total.seconds) : minutesToHours(total.minutes);
 }
 
 /**
@@ -110,6 +121,18 @@ export function unsentTotals(totals, ledgerByKey) {
 const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
 
 /**
+ * What one ticket-day has left that is worth sending, out of `unsentTotals`'
+ * result: `{ ticketId, date, hours }`, or null when it has nothing unsent or
+ * less than a minute of it.
+ */
+export function sendableForTicketDay(unsent, ticketId, date) {
+  const key = ticketDayKey(ticketId, date);
+  const total = unsent.find((each) => ticketDayKey(each.ticketId, each.date) === key);
+  const hours = total ? hoursToSend(total) : 0;
+  return isPushable(hours) ? { ticketId: String(ticketId), date, hours } : null;
+}
+
+/**
  * Build the confirmation-dialog rows for a set of unsynced ticket-days.
  *
  * Pure: the caller supplies the already-computed net seconds, the issues it
@@ -124,8 +147,10 @@ const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
  * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
- * @param {Map<string, {subject: string, trackerName: string|null}>} issuesById
- * @param {(trackerName: string|null) => {activityId: number|null, activityName: string|null, reason: string}} resolveActivity
+ * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
+ * @param {(issue: {trackerName: string|null}|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
+ *   the activity for one issue, and the `options` its project allows. An
+ *   unresolved issue is passed as null.
  */
 export function buildPushRows(totals, issuesById, resolveActivity) {
   if (!Array.isArray(totals)) return [];
@@ -133,9 +158,8 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
   return totals
     .map((total) => {
       const issue = issuesById.get(String(total.ticketId)) ?? null;
-      const hours =
-        total.minutes == null ? toHours(total.seconds) : minutesToHours(total.minutes);
-      const activity = resolveActivity(issue?.trackerName ?? null);
+      const hours = hoursToSend(total);
+      const activity = resolveActivity(issue);
 
       return {
         ticketId: String(total.ticketId),
@@ -149,6 +173,10 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityId: activity.activityId,
         activityName: activity.activityName,
         activityReason: activity.reason,
+        // What the row may be sent under. `push` checks an override against it.
+        activityOptions: activity.options ?? [],
+        // The Billable field the entry is sent with, or null for none (#686).
+        billable: issue?.billable ?? null,
         // Every reason a row cannot be sent, so the dialog explains itself
         // rather than just disabling a checkbox.
         blockedReason: !isPushable(hours)

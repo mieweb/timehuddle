@@ -443,7 +443,7 @@ export async function attachTicket(page: Page, ticketTitle: string): Promise<voi
     .filter({ hasText: ticketTitle })
     .first()
     .click();
-  await expect(page.getByRole('button', { name: 'Remove ticket' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove ticket' }).last()).toBeVisible();
 }
 
 /**
