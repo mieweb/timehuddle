@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, type Route } from '@playwright/test';
 import { MongoClient } from 'mongodb';
 import { ClockPage } from '../pages/ClockPage';
 
@@ -308,6 +308,25 @@ export async function attachFile(page: Page, kind: 'image' | 'doc' | 'video'): P
   await expect
     .poll(() => attachmentChipCount(page), { timeout: kind === 'video' ? 60000 : 20000 })
     .toBe(chipsBefore + 1);
+}
+
+/**
+ * Hold every attachment upload's response open for `ms`.
+ *
+ * The fixtures are small and the backend is on localhost, so a real upload
+ * finishes before an assertion can observe the "in flight" state — the
+ * progress bar is gone by the time it is looked for. Delaying the response
+ * (not the request) keeps the upload open long enough to inspect it without
+ * faking anything the real upload doesn't already do. Covers both paths:
+ * images/docs (multipart media endpoint) and videos (PulseVault TUS).
+ */
+export async function holdUploadResponses(page: Page, ms = 1000): Promise<void> {
+  const hold = async (route: Route) => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    await route.continue();
+  };
+  await page.route('**/api/media/upload', hold);
+  await page.route('**/pulsevault/upload**', hold);
 }
 
 /** How many attachment chips the composer is currently showing. */

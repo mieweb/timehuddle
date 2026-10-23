@@ -34,6 +34,7 @@ import {
   composerEditor,
   findPostByText,
   getUserIdByEmail,
+  holdUploadResponses,
   mentionMember,
   openComposer,
   openPostInInbox,
@@ -258,6 +259,9 @@ test.describe('Huddle composer — upload progress', () => {
   test('shows a progress bar while a video uploads and blocks posting until it lands', async ({
     page,
   }) => {
+    // Without this the fixture lands before the bar can be inspected.
+    await holdUploadResponses(page);
+
     await composerEditor(page).fill(`Upload progress ${Date.now()}`);
 
     const progressBar = page.locator('[data-testid="post-progress-bar"]');
