@@ -129,8 +129,9 @@ export const ClockPage: React.FC = () => {
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
   const {
+    tickets: selectedTickets,
     ticketIds: selectedTicketIds,
-    setTicketIds: setSelectedTicketIds,
+    setTickets: setSelectedTickets,
     addTicket,
     removeTicket,
   } = useTicketSelection();
@@ -390,9 +391,9 @@ export const ClockPage: React.FC = () => {
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
     setAttachments([]);
-    setSelectedTicketIds([]);
+    setSelectedTickets([]);
     setMentions([]);
-  }, [composerMode, setSelectedTicketIds]);
+  }, [composerMode, setSelectedTickets]);
 
   // The wrap-up starts with the tickets the plan linked at clock-in, so
   // clocking out keeps them unless removed here. Declared after the reset
@@ -405,9 +406,13 @@ export const ClockPage: React.FC = () => {
     if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
     if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
     ticketsSeededForRef.current = sessionPlan.id;
-    const planTicketIds = (sessionPlan.tickets ?? []).map((t) => t.id);
-    setSelectedTicketIds((prev) => [...new Set([...planTicketIds, ...prev])]);
-  }, [composerMode, sessionPlan, setSelectedTicketIds]);
+    // Seed with the plan's titles too, so the chips can name its tickets.
+    const planTickets = sessionPlan.tickets ?? [];
+    setSelectedTickets((prev) => [
+      ...planTickets,
+      ...prev.filter((t) => !planTickets.some((p) => p.id === t.id)),
+    ]);
+  }, [composerMode, sessionPlan, setSelectedTickets]);
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
@@ -744,7 +749,7 @@ export const ClockPage: React.FC = () => {
 
             {/* ── Ticket / mention / attachment chips ── */}
             <ComposerChips
-              selectedTicketIds={selectedTicketIds}
+              selectedTickets={selectedTickets}
               onTicketRemove={removeTicket}
               mentions={mentions}
               onMentionRemove={handleMentionRemove}

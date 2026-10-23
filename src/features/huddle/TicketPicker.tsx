@@ -4,10 +4,11 @@ import { ComposerChipButton } from './ComposerChipButton';
 import { AnchoredMenu } from '@ui/AnchoredMenu';
 import { fetchTeamTickets } from './api';
 import type { Ticket } from './types';
+import type { TicketRef } from './useTicketSelection';
 
 interface TicketPickerProps {
   teamId: string;
-  onSelect: (ticketId: string) => void;
+  onSelect: (ticket: TicketRef) => void;
   /** Tickets already attached — marked in the list and not pickable again. */
   selectedIds?: string[];
 }
@@ -48,8 +49,8 @@ export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPicke
     }
   };
 
-  const handleSelect = (ticketId: string) => {
-    onSelect(ticketId);
+  const handleSelect = (ticket: Ticket) => {
+    onSelect({ id: ticket.id, title: ticket.title });
     setIsOpen(false);
     setSearchQuery('');
   };
@@ -123,7 +124,7 @@ export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPicke
                   key={ticket.id}
                   type="button"
                   role="menuitem"
-                  onClick={() => handleSelect(ticket.id)}
+                  onClick={() => handleSelect(ticket)}
                   disabled={attached}
                   aria-disabled={attached}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500 ${
