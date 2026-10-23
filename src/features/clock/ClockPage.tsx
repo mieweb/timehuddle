@@ -651,7 +651,11 @@ export const ClockPage: React.FC = () => {
                 {planGoesToHuddle} goes to{' '}
                 <button
                   type="button"
-                  onClick={() => navigate('/app/huddle')}
+                  // The session's own team, which a mid-shift team switch can
+                  // make differ from the selected one — where this post lands.
+                  onClick={() =>
+                    navigate(gateTeamId ? `/app/huddle?team=${gateTeamId}` : '/app/huddle')
+                  }
                   className="underline underline-offset-2"
                 >
                   Huddle

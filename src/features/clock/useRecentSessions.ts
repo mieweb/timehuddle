@@ -65,28 +65,28 @@ export function useRecentSessions(
     [sessions, teamId],
   );
 
-  // Rounded to the minute: Today/Last-7-days only ever display at minute
-  // precision, so there's no need to recompute on the caller's per-second
-  // tick — just often enough that the totals don't go stale across midnight
-  // or as sessions age out of the rolling 7-day window on a page left open.
-  // The live shift is measured from the exact `nowMs` and then floored to
-  // whole minutes, so it keeps pace with the timer, whose minutes don't line
-  // up with the wall clock's.
+  // The completed history only needs recomputing once a minute — often enough
+  // that the totals don't go stale across midnight or as sessions age out of
+  // the rolling 7-day window on a page left open.
   const minuteKey = Math.floor(nowMs / 60000);
-  const isActiveHere = !!activeClockEvent && activeClockEvent.teamId === teamId;
-  const activeStartTime = isActiveHere ? activeClockEvent.startTime : null;
-  const liveSeconds = isActiveHere
-    ? Math.floor(getActiveClockSeconds(activeClockEvent, nowMs) / 60) * 60
-    : 0;
-  const { todaySeconds, last7DaysSeconds } = useMemo(
-    () =>
-      getTodayAndLast7DaysSeconds(
-        teamSessions,
-        new Date(minuteKey * 60000),
-        activeStartTime == null ? null : { startTime: activeStartTime, seconds: liveSeconds },
-      ),
-    [teamSessions, minuteKey, activeStartTime, liveSeconds],
+  const completedTotals = useMemo(
+    () => getTodayAndLast7DaysSeconds(teamSessions, new Date(minuteKey * 60000)),
+    [teamSessions, minuteKey],
   );
+
+  // The live shift is added at full precision every tick, through the same
+  // day/window rule, so it keeps pace with the timer and nothing is rounded
+  // until the final total is formatted.
+  const liveTotals =
+    activeClockEvent && activeClockEvent.teamId === teamId
+      ? getTodayAndLast7DaysSeconds([], new Date(nowMs), {
+          startTime: activeClockEvent.startTime,
+          seconds: getActiveClockSeconds(activeClockEvent, nowMs),
+        })
+      : { todaySeconds: 0, last7DaysSeconds: 0 };
+
+  const todaySeconds = completedTotals.todaySeconds + liveTotals.todaySeconds;
+  const last7DaysSeconds = completedTotals.last7DaysSeconds + liveTotals.last7DaysSeconds;
 
   return { sessions: teamSessions, loading, todaySeconds, last7DaysSeconds };
 }
