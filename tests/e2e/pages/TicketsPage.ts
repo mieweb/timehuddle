@@ -3,7 +3,7 @@ import { BasePage } from './BasePage';
 import { keepShortStintUpdates } from '../fixtures/timers';
 
 /** Properties with nothing to filter: their pill is the sort itself. */
-const SORT_ONLY_FIELDS = new Set(['Title', 'Issue #', 'Updated']);
+const SORT_ONLY_FIELDS = new Set(['Title', 'Updated']);
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -138,8 +138,9 @@ export class TicketsPage extends BasePage {
 
   /** The pill of a property that can be filtered; it opens that property's menu. */
   filterControl(field: string): Locator {
+    // A pill with only view options, such as Issue #, opens "Options for …".
     return this.page.getByRole('button', {
-      name: new RegExp(`^Filter by ${escapeRegExp(field)}(?::|$)`),
+      name: new RegExp(`^(Filter by|Options for) ${escapeRegExp(field)}(?::|$)`),
     });
   }
 

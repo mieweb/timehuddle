@@ -17,6 +17,7 @@ import { createNotification, userDisplayName } from './notify-core';
 import { addBoardEntryIfRoom } from './my-board';
 import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
 import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
+import { nextTicketNumber } from './ticket-ids';
 import { HUDDLE } from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -131,7 +132,7 @@ Meteor.methods({
   async 'tickets.create'({ teamId, title, description, github, priority, assignedToUserIds } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    await requireTeamMembership(userId, teamId);
+    const team = await requireTeamMembership(userId, teamId);
     if (typeof title !== 'string' || !title.trim()) {
       throw new Meteor.Error('validation-error', 'title is required');
     }
@@ -146,6 +147,7 @@ Meteor.methods({
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
     const _id = await Tickets.insertAsync({
       teamId,
+      number: await nextTicketNumber(rawDb(), team.orgId),
       title: title.trim(),
       ...(typeof description === 'string' ? { description } : {}),
       github: typeof github === 'string' ? github : '',

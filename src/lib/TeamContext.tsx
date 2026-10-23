@@ -35,6 +35,7 @@ import {
   clockApi,
   type Team,
   type ClockEvent,
+  type SourcePrefix,
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
@@ -120,6 +121,7 @@ export interface TeamContextValue {
     slug: string;
     allowAutoJoin: boolean;
     role: 'owner' | 'admin' | 'member' | null;
+    sourcePrefixes?: SourcePrefix[];
   }>;
   teamsReady: boolean;
   refetchTeams: () => void;
@@ -194,6 +196,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       slug: string;
       allowAutoJoin: boolean;
       role: 'owner' | 'admin' | 'member' | null;
+      sourcePrefixes?: SourcePrefix[];
     }>
   >([]);
   const [teamsReady, setTeamsReady] = useState(false);

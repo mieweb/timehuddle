@@ -608,6 +608,12 @@ export const usageApi = {
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
+/** A server an org has named, so an issue on `host` shows as `PM-233` (#689). */
+export interface SourcePrefix {
+  host: string;
+  prefix: string;
+}
+
 export const orgApi = {
   checkSlugAvailability: (slug: string, excludeId?: string) =>
     wormholeCall<{ available: boolean }>('orgs.checkSlug', {
@@ -624,6 +630,7 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
+        sourcePrefixes?: SourcePrefix[];
       }>;
     }>('orgs.list', {}).then((r) => r.organizations),
 
@@ -667,10 +674,28 @@ export const orgApi = {
         name: string;
         slug: string;
         allowAutoJoin: boolean;
+        ticketPrefix: string;
+        sourcePrefixes: SourcePrefix[];
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
+        /** An org owner by membership; only they may change ticket IDs. */
+        canEditTicketIds: boolean;
       } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
+
+  /** Sets the prefix every ticket in the org is shown with. Org owners only. */
+  setTicketPrefix: (id: string, ticketPrefix: string) =>
+    wormholeCall<{ ticketPrefix: string }>('orgs.setTicketPrefix', {
+      orgId: id,
+      ticketPrefix,
+    }).then((r) => r.ticketPrefix),
+
+  /** Names the servers outside issues live on, replacing the list. Org owners only. */
+  setSourcePrefixes: (id: string, sourcePrefixes: SourcePrefix[]) =>
+    wormholeCall<{ sourcePrefixes: SourcePrefix[] }>('orgs.setSourcePrefixes', {
+      orgId: id,
+      sourcePrefixes,
+    }).then((r) => r.sourcePrefixes),
 
   /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
   updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
@@ -1002,6 +1027,8 @@ export interface Ticket {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  /** The ticket's number in its organization, shown as `TH-12`. Missing until numbered. */
+  number?: number;
   sharedWithTimeharbor?: boolean;
   /** The external issue this ticket is linked to, or null. */
   linkedIssue: LinkedIssue | null;
@@ -1045,6 +1072,7 @@ function toTicket(raw: Record<string, unknown>): Ticket {
     reviewedAt: (raw.reviewedAt as string | undefined) ?? null,
     createdAt: String(raw.createdAt),
     updatedAt: (raw.updatedAt as string | undefined) ?? null,
+    number: typeof raw.number === 'number' ? raw.number : undefined,
     sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
     linkedIssue: toLinkedIssue(raw.linkedIssue),
   };
@@ -1337,6 +1365,10 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
+  /** The prefix the team's tickets are shown with, from its organization: `TH` in `TH-12`. */
+  ticketPrefix: string;
+  /** The servers the team's organization has named, for outside IDs like `RM0-214`. */
+  sourcePrefixes: SourcePrefix[];
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
   settings: Record<TeamSettingKey, boolean>;
   resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;

@@ -186,6 +186,37 @@ describe('applyFilters', () => {
       expect(applyFilters([redmine, huddleRef], EMPTY_FILTERS, '#a3f')).toEqual([huddleRef]);
     });
 
+    it('finds a prefixed ID by its number, and not a longer one (#689)', () => {
+      const pm = make({ key: 'redmine:233', sourceId: 'redmine', id: '233', ref: 'PM-233' });
+      const th = make({ key: 'huddle:12', id: '12', ref: 'TH-12' });
+      const th120 = make({ key: 'huddle:120', id: '120', ref: 'TH-120' });
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#233')).toEqual([pm]);
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#th-12')).toEqual([th, th120]);
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#2')).toEqual([pm]);
+    });
+
+    it('finds a ticket by the outside ID it is linked to or carries (#689)', () => {
+      const linked = make({
+        key: 'huddle:20',
+        id: '20',
+        ref: 'TH-20',
+        linked: { sourceId: 'redmine', id: '482', ref: 'PM-482', status: null, assignee: null },
+      });
+      const carried = make({
+        key: 'huddle:21',
+        id: '21',
+        ref: 'TH-21',
+        externalRef: {
+          url: 'https://github.com/mieweb/timehuddle/issues/223',
+          label: 'GitHub',
+          id: 'timehuddle-223',
+        },
+      });
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, 'pm-482')).toEqual([linked]);
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, '#482')).toEqual([linked]);
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, 'timehuddle-223')).toEqual([carried]);
+    });
+
     it('does not match a title that contains the reference', () => {
       const mention = make({ key: 'huddle:7', id: '7', ref: '#7', title: 'Follow-up to #9' });
       expect(applyFilters([mention], EMPTY_FILTERS, '#9')).toEqual([]);

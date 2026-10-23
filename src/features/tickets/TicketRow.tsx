@@ -46,8 +46,9 @@ import { ticketTimerText } from '../timers/ticketTimerStrings';
 import { BoardToggleButton } from './BoardToggleButton';
 import { FilterDropdown } from './FilterDropdown';
 import { boardText } from './boardStrings';
-import { ticketLinkText } from './link/ticketLinkStrings';
-import { SOURCE_LABELS, displaySourceId, ticketDetailPath, type UnifiedTicket } from './sources';
+import { outsideRefOf } from './ticketIds';
+import { useShowHuddleIds } from './useShowHuddleIds';
+import { SOURCE_LABELS, ticketDetailPath, type UnifiedTicket } from './sources';
 
 export interface TicketRowProps {
   ticket: UnifiedTicket;
@@ -126,6 +127,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   onDeleteRequest,
   onChangeStatusRequest,
 }) => {
+  const [showHuddleIds] = useShowHuddleIds();
   const { navigate } = useRouter();
   const copyLink = useCopyLink();
   const { capabilities, status, externalUrl, assignees } = ticket;
@@ -186,24 +188,18 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   // Where the ticket sits, then what it is called by: project, reference, age.
   const updatedAt = ticket.updatedAt ?? ticket.createdAt;
   const refClass = 'ticket-row-ref font-semibold text-foreground';
+  const outsideRef = outsideRefOf(ticket);
+  const leadingRef = outsideRef ?? ticket.ref;
   const meta = (
     <span className="ticket-row-meta contents">
       {ticket.container?.name && (
         <span className="min-w-0 break-words">{ticket.container.name}</span>
       )}
-      {ticket.externalRef ? (
-        <a
-          href={ticket.externalRef.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`${ticket.ref}, ${ticket.externalRef.label}`}
-          className={`${refClass} inline-flex items-center gap-1 hover:underline`}
-        >
-          {ticket.ref}
-          <FontAwesomeIcon icon={faExternalLink} className="text-[9px]" aria-hidden="true" />
-        </a>
-      ) : (
-        <span className={refClass}>{ticket.ref}</span>
+      {/* The outside ID leads. Plain text for every source: where it comes from
+          and its links belong to the ticket's page. */}
+      <span className={refClass}>{leadingRef}</span>
+      {showHuddleIds && outsideRef && (
+        <span className="ticket-row-huddle-ref text-xs text-muted-foreground">{ticket.ref}</span>
       )}
       {updatedAt && (
         <time
@@ -262,23 +258,6 @@ export const TicketRow: React.FC<TicketRowProps> = ({
         <Badge variant={priorityVariant(ticket.priority.rank)} size="sm">
           {ticket.priority.native}
         </Badge>
-      )}
-      <Badge variant="outline" size="sm">
-        {SOURCE_LABELS[displaySourceId(ticket)]}
-      </Badge>
-      {ticket.linked && (
-        <Tooltip
-          content={
-            ticket.linked.status
-              ? ticketLinkText.linkedToWithStatus(ticket.linked.ref, ticket.linked.status.native)
-              : ticketLinkText.linkedTo(ticket.linked.ref)
-          }
-        >
-          <Badge variant="outline" size="sm">
-            <FontAwesomeIcon icon={faLink} className="me-1 text-[10px]" aria-hidden="true" />
-            {ticket.linked.ref}
-          </Badge>
-        </Tooltip>
       )}
       {ticket.sharedWithTimeharbor && (
         <Tooltip content={text.sharedWithTimeharbor}>

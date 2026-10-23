@@ -16,8 +16,8 @@ import type { TicketSourceContext } from './types';
 const ctx: TicketSourceContext = {
   userId: 'u1',
   teams: [
-    { id: 'team-1', name: 'Platform' },
-    { id: 'team-2', name: 'Mobile' },
+    { id: 'team-1', name: 'Platform', ticketPrefix: 'TJ' },
+    { id: 'team-2', name: 'Mobile', ticketPrefix: 'TJ' },
   ],
   resolveMemberName: (id) => (id === 'u1' ? 'Ada Lovelace' : null),
 };
@@ -54,6 +54,14 @@ const redmineIssue: RedmineIssue = {
 const raw: RedmineRaw = { issue: redmineIssue, baseUrl: 'https://redmine.example.com' };
 
 describe('huddleSource.toUnified', () => {
+  it("shows a numbered ticket as its org's prefix and number", () => {
+    expect(huddleSource.toUnified({ ...huddleTicket, number: 12 }, ctx).ref).toBe('TJ-12');
+  });
+
+  it('shows the tail of the id until the ticket is numbered', () => {
+    expect(huddleSource.toUnified(huddleTicket, ctx).ref).toBe('#t1');
+  });
+
   it('normalizes a ticket', () => {
     expect(huddleSource.toUnified(huddleTicket, ctx)).toEqual({
       key: 'huddle:t1',
@@ -80,7 +88,7 @@ describe('huddleSource.toUnified', () => {
     });
   });
 
-  it('labels a GitHub link and leaves other links generic', () => {
+  it('labels a GitHub link, and names it by its repo and number', () => {
     const gh = huddleSource.toUnified(
       { ...huddleTicket, github: 'https://github.com/o/r/issues/1' },
       ctx,
@@ -88,10 +96,19 @@ describe('huddleSource.toUnified', () => {
     expect(gh.externalRef).toEqual({
       url: 'https://github.com/o/r/issues/1',
       label: 'GitHub',
+      id: 'r-1',
     });
+  });
 
+  it('names another link only when its server is named', () => {
     const other = huddleSource.toUnified({ ...huddleTicket, github: 'https://x.dev/i/2' }, ctx);
-    expect(other.externalRef?.label).toBe('Issue link');
+    expect(other.externalRef).toMatchObject({ label: 'Issue link', id: null });
+
+    const named = huddleSource.toUnified(
+      { ...huddleTicket, github: 'https://x.dev/i/2' },
+      { ...ctx, sourcePrefixes: [{ host: 'x.dev', prefix: 'XD' }] },
+    );
+    expect(named.externalRef?.id).toBe('XD-2');
   });
 
   it.each([
@@ -145,6 +162,11 @@ describe('huddleSource.toUnified', () => {
 });
 
 describe('redmineSource.toUnified', () => {
+  it("names an issue by its server's prefix once the org has named the server", () => {
+    const named = { ...ctx, sourcePrefixes: [{ host: 'redmine.example.com', prefix: 'PM' }] };
+    expect(redmineSource.toUnified(raw, named).ref).toBe('PM-101');
+  });
+
   it('normalizes an issue', () => {
     expect(redmineSource.toUnified(raw, ctx)).toEqual({
       key: 'redmine:101',
