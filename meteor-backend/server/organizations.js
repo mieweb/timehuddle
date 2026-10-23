@@ -108,15 +108,22 @@ async function buildOrgAccess(userId, org) {
 
 const PREFIXES_CHANGED = 'The ticket IDs changed while you were editing. Reload and try again.';
 
-// Ticket ID prefixes are an owner's call alone: an org owner, by membership.
-const isOrgOwner = (membership) => membership?.role === 'owner';
+// Ticket ID prefixes are an owner's call alone: an org owner, by membership,
+// and not blocked from the org (a block keeps their `org_members` row).
+async function isOrgOwner(orgId, userId) {
+  if ((await getOrgMembership(orgId, userId))?.role !== 'owner') return false;
+  const blocked = await rawDb()
+    .collection('users')
+    .findOne({ _id: String(userId), 'blocked.orgId': orgId }, { projection: { _id: 1 } });
+  return !blocked;
+}
 
 // The org, if `userId` owns it.
 async function requireOrgOwner(orgId, userId) {
   if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
   const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
   if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-  if (!isOrgOwner(await getOrgMembership(orgId, userId))) {
+  if (!(await isOrgOwner(orgId, userId))) {
     throw new Meteor.Error('forbidden', 'Only an organization owner can change ticket IDs');
   }
   return org;
@@ -414,7 +421,7 @@ Meteor.methods({
         ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
         // The same rule `requireOrgOwner` enforces: an org owner, not an enterprise one.
-        canEditTicketIds: isOrgOwner(membership),
+        canEditTicketIds: await isOrgOwner(orgId, userId),
       },
     };
   },

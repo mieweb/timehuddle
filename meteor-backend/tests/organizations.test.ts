@@ -116,6 +116,7 @@ beforeEach(async () => {
     { $set: { owners: [ownerId], admins: [] } },
   );
   await db.collection('users').updateOne({ _id: memberId as never }, { $unset: { removedFromOrgs: '' } });
+  await db.collection('users').updateOne({ _id: ownerId as never }, { $unset: { blocked: '' } });
   await addMembership(ownerId, 'owner');
 });
 
@@ -356,6 +357,14 @@ describe('a member removed from the default organization', () => {
   });
 });
 
+// A block keeps the owner's org_members row; only users.blocked records it.
+async function blockOwner() {
+  const db = await getDb();
+  await db
+    .collection('users')
+    .updateOne({ _id: ownerId as never }, { $push: { blocked: { orgId, blockedAt: new Date() } } as never });
+}
+
 describe('orgs.setTicketPrefix', () => {
   const setPrefix = (jwt: string, ticketPrefix: string) =>
     wormhole<{ ticketPrefix: string }>('orgs.setTicketPrefix', { orgId, ticketPrefix }, jwt);
@@ -378,6 +387,13 @@ describe('orgs.setTicketPrefix', () => {
     const db = await getDb();
     await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
     expect((await setPrefix(memberJwt, 'ME')).ok).toBe(false);
+  });
+
+  it('refuses an owner blocked from the org, and stops offering them the setting', async () => {
+    await blockOwner();
+    expect((await setPrefix(ownerJwt, 'BL')).ok).toBe(false);
+    const org = await wormhole<{ organization: { canEditTicketIds: boolean } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.canEditTicketIds).toBe(false);
   });
 
   it('refuses a prefix that is not a letter followed by up to five letters or digits', async () => {
@@ -413,6 +429,11 @@ describe('orgs.setSourcePrefixes', () => {
     const db = await getDb();
     await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
     expect((await setSources(memberJwt, entries)).ok).toBe(false);
+  });
+
+  it('refuses an owner blocked from the org', async () => {
+    await blockOwner();
+    expect((await setSources(ownerJwt, [{ host: 'redmine.example.com', prefix: 'PM' }])).ok).toBe(false);
   });
 
   it("keeps server prefixes and the org's ticket prefix apart", async () => {
