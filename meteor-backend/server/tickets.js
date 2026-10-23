@@ -106,6 +106,42 @@ async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTi
   );
 }
 
+/**
+ * Insert a new open ticket in team `teamId`, numbered in org `orgId`, and do
+ * what every new ticket gets: a place on its creator's My Board, a
+ * `ticket.created` activity and a notice to its assignees. `fields` are
+ * already validated. Returns the stored document.
+ */
+export async function insertTicket(userId, { teamId, orgId }, fields) {
+  const _id = await Tickets.insertAsync({
+    teamId,
+    number: await nextTicketNumber(rawDb(), orgId),
+    github: '',
+    ...fields,
+    status: 'open',
+    createdBy: userId,
+    createdAt: new Date(),
+  });
+  const doc = await Tickets.findOneAsync(_id);
+  const ticketId = doc._id.toHexString();
+  // A new ticket starts on its creator's My Board. Best-effort: a full board,
+  // or a failed write, must not fail the create.
+  await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId }).catch((err) =>
+    console.error('[ticket] add to My Board failed:', err),
+  );
+  await emitTicketActivity(userId, teamId, 'ticket.created', {
+    ticketId,
+    ticketTitle: doc.title,
+    teamId,
+  });
+  await notifyNewAssignees(userId, doc.assignedTo ?? [], {
+    ticketId,
+    ticketTitle: doc.title,
+    teamId,
+  });
+  return doc;
+}
+
 const LINKED_TO_REDMINE =
   'This ticket is linked to a Redmine issue. Remove that link before adding another one.';
 // The link is rendered as an `href` for the whole team, so it is checked here
@@ -145,34 +181,12 @@ Meteor.methods({
     }
     const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
-    const _id = await Tickets.insertAsync({
-      teamId,
-      number: await nextTicketNumber(rawDb(), team.orgId),
+    const doc = await insertTicket(userId, { teamId, orgId: team.orgId }, {
       title: title.trim(),
       ...(typeof description === 'string' ? { description } : {}),
       github: typeof github === 'string' ? github : '',
-      status: 'open',
       ...(priority && !clearPriority ? { priority } : {}),
-      createdBy: identity.userId,
       assignedTo: assignees,
-      createdAt: new Date(),
-    });
-    const doc = await Tickets.findOneAsync(_id);
-    const createdTicketId = doc._id.toHexString();
-    // A new ticket starts on its creator's My Board. Best-effort: a full board,
-    // or a failed write, must not fail the create.
-    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId: createdTicketId }).catch((err) =>
-      console.error('[ticket] add to My Board failed:', err),
-    );
-    await emitTicketActivity(identity.userId, teamId, 'ticket.created', {
-      ticketId: createdTicketId,
-      ticketTitle: doc.title,
-      teamId,
-    });
-    await notifyNewAssignees(identity.userId, assignees, {
-      ticketId: createdTicketId,
-      ticketTitle: doc.title,
-      teamId,
     });
     return toPublicTicket(doc);
   },

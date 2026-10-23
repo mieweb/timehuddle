@@ -23,6 +23,7 @@ import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './ticket-links';
+import './ticket-carry';
 import './redmine';
 import './redmine-issue-methods';
 import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
@@ -1011,6 +1012,19 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('tickets.carryIssue', {
+    description:
+      "The team's ticket carrying a Redmine issue, created from the issue and linked if there is none. Returns { ticket, created }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        issueId: { type: 'integer', description: 'The Redmine issue number' },
+      },
+      required: ['teamId', 'issueId'],
+    },
+  });
+
   Wormhole.expose('tickets.unlink', {
     description: "Remove a ticket's link to a Redmine issue. Nothing changes in Redmine",
     inputSchema: {
@@ -1154,6 +1168,12 @@ Meteor.startup(async() => {
       },
       required: ['issueId', 'state'],
     },
+  });
+
+  Wormhole.expose('redmine.issues.assignedIds', {
+    description:
+      "The ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table",
+    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('redmine.issues.removeFromTable', {

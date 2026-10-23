@@ -1,10 +1,10 @@
 /**
  * Linking a TimeHuddle ticket to a Redmine issue (#636).
  *
- * The ticket keeps `linkedIssue: { source: 'redmine', id }` — the issue's number
- * and nothing else. Its subject, status and assignee are never stored: every
- * viewer reads them from Redmine with their own key (`redmine.issues.relevant`
- * returns them as `linkedIssues`).
+ * The ticket keeps `linkedIssue: { source: 'redmine', id, host }`: the issue's
+ * number and the server it is on (#736), and nothing else. Its subject, status
+ * and assignee are never stored: every viewer reads them from Redmine with
+ * their own key (`redmine.issues.relevant` returns them as `linkedIssues`).
  *
  * Anyone who may edit the ticket may change its link. Linking is checked
  * against Redmine under the caller's own key, so a ticket can only be linked to
@@ -21,7 +21,7 @@ import { createRateLimiter } from './rate-limit';
 import { enforceRedmineLimit, toRedmineMeteorError } from './redmine';
 import { requireRedmineAccount } from './redmine-account';
 import { bustUserCaches } from './redmine-cache';
-import { getIssue, onDefaultRedmine } from './redmine-client';
+import { getIssue, onDefaultRedmine, optionalRedmineBaseUrl } from './redmine-client';
 import { pushLedgerFor } from './redmine-time-sync';
 import {
   linkAction,
@@ -30,9 +30,11 @@ import {
   linkedTimeSummary,
   lockMessage,
   matchesExpectedLink,
+  redmineLinkFor,
 } from './ticket-link-core';
+import { hostOf } from './ticket-ids';
 import { assertUnlocked, findLockHolders, usersWithTimeOn } from './ticket-lock';
-import { HUDDLE, REDMINE, isRedmineIssueId, sourceSelector } from './ticket-refs';
+import { HUDDLE, isRedmineIssueId, sourceSelector } from './ticket-refs';
 import { emitTicketActivity, toPublicTicket } from './tickets';
 import { redmineTicketDaysFor } from './timer-core';
 
@@ -147,6 +149,36 @@ async function notifyLinkChange(actorId, ticket, change, teamUserIds) {
 }
 
 /**
+ * Read Redmine issue `issueId` with the caller's own key, for a ticket to be
+ * linked to it. Refused unless the caller has connected Redmine on the
+ * deployment's own server, and the issue exists for them. Returns the issue.
+ */
+export async function readLinkableIssue(userId, issueId) {
+  const account = await requireRedmineAccount(userId);
+  // A link is shared by the team and names an issue by number alone, so it
+  // can only mean an issue on the deployment's own Redmine.
+  if (!onDefaultRedmine(account)) {
+    throw new Meteor.Error(
+      'custom-instance',
+      'Tickets can only be linked to issues on the Redmine server this TimeHuddle uses.',
+    );
+  }
+  let issue;
+  try {
+    issue = await getIssue(account, Number(issueId));
+  } catch (err) {
+    throw toRedmineMeteorError(err);
+  }
+  if (!issue) {
+    throw new Meteor.Error(
+      'issue-unavailable',
+      "That Redmine issue doesn't exist, or you don't have access to it.",
+    );
+  }
+  return issue;
+}
+
+/**
  * Write the link (`nextId`) or remove it (`nextId` null), provided the stored
  * link is still the one the caller saw. Records the change in the ticket's
  * activity, with ids only.
@@ -161,20 +193,34 @@ async function writeLink(userId, ticket, nextId) {
     },
     // A ticket has one link: linking it to a Redmine issue replaces a GitHub URL.
     nextId
-      ? { $set: { linkedIssue: { source: REDMINE, id: nextId }, github: '', ...stamp } }
+      ? {
+          $set: {
+            linkedIssue: redmineLinkFor(nextId, hostOf(optionalRedmineBaseUrl())),
+            github: '',
+            ...stamp,
+          },
+        }
       : { $unset: { linkedIssue: '' }, $set: stamp },
   );
   if (!changed) throw new Meteor.Error('stale-link', STALE_LINK);
 
-  const updated = await Tickets.findOneAsync(ticket._id);
-  const ticketId = ticket._id.toHexString();
+  await announceLinkChange(userId, ticket, previousId, nextId);
+  return toPublicTicket(await Tickets.findOneAsync(ticket._id));
+}
+
+/**
+ * What follows a change to `ticket`'s link from `previousId` to `nextId`
+ * (either null for none): the activity entry, with ids only, fresh Redmine
+ * lists for the team, and a notice to teammates with time on the ticket.
+ */
+export async function announceLinkChange(userId, ticket, previousId, nextId) {
   const change = {
     action: linkAction(previousId, nextId),
     ...(nextId ? { issueId: nextId } : {}),
     ...(previousId ? { previousIssueId: previousId } : {}),
   };
   await emitTicketActivity(userId, ticket.teamId, 'ticket.updated', {
-    ticketId,
+    ticketId: ticket._id.toHexString(),
     ticketTitle: ticket.title,
     teamId: ticket.teamId,
     ...change,
@@ -182,7 +228,6 @@ async function writeLink(userId, ticket, nextId) {
   const teamUserIds = await currentTeamUserIds(ticket.teamId);
   bustTeamCaches(teamUserIds);
   await notifyLinkChange(userId, ticket, change, teamUserIds);
-  return toPublicTicket(updated);
 }
 
 Meteor.methods({
@@ -207,28 +252,7 @@ Meteor.methods({
     await assertUnlocked(ticket, userId, { evenIfUnlinked: true });
 
     enforceRedmineLimit(linkLimiter, userId);
-    const account = await requireRedmineAccount(userId);
-    // A link is shared by the team and names an issue by number alone, so it
-    // can only mean an issue on the deployment's own Redmine.
-    if (!onDefaultRedmine(account)) {
-      throw new Meteor.Error(
-        'custom-instance',
-        'Tickets can only be linked to issues on the Redmine server this TimeHuddle uses.',
-      );
-    }
-
-    let issue;
-    try {
-      issue = await getIssue(account, Number(nextId));
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
-    if (!issue) {
-      throw new Meteor.Error(
-        'issue-unavailable',
-        "That Redmine issue doesn't exist, or you don't have access to it.",
-      );
-    }
+    await readLinkableIssue(userId, nextId);
 
     // Checked again: reading the issue takes a moment, and a timer started
     // meanwhile must not find the ticket linked underneath it.
