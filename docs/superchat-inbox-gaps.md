@@ -93,7 +93,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 1.12 | Labeled "+ New DM" button                                                                                                                                | ⚠️ Only an unlabeled "+" icon                                                                                                                                                | P3       |
 | 1.13 | Filter chips (Everyone / Only mine / each person / Missing wrap-up)                                                                                      | ❌ Could live in the host app if the header slot (1.8) exists                                                                                                                | P3       |
 | 1.14 | Search box                                                                                                                                               | ❌                                                                                                                                                                           | P3       |
-| 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ⚠️ Fixed at `w-64` (256px), with no prop                                                                                                                                     | P3       |
+| 1.15 | Adjustable sidebar width (mockup uses 300px)                                                                                                             | ✅ **Built on the PR branch** (`resizableSidebar`, `sidebarWidth`, `onSidebarWidthChange`); Huddle remembers the width the reader drags it to (#719)                         | P3       |
 | 1.16 | Unread badge                                                                                                                                             | ✅                                                                                                                                                                           | —        |
 | 1.17 | A slot after the last conversation, for a "load older" control or end-of-list marker                                                                     | ✅ **Built on the PR branch** (`listFooter`); Huddle loads the previous 30 days when it scrolls into view (#635)                                                             | P1       |
 | 1.18 | On a phone, open straight into a conversation rather than the list                                                                                       | ✅ **Built on the PR branch** (`defaultMobileView`); Huddle opens on Today, and the back arrow still reaches the list (#635)                                                 | P1       |
@@ -192,7 +192,7 @@ interface SuperChatInboxProps {
   renderSectionHeader?: (section: string, items: SuperChatConversation[]) => React.ReactNode; // 1.5, 1.9
   sidebarTitle?: React.ReactNode; // 1.7
   sidebarHeaderExtra?: React.ReactNode; // 1.8, 1.13, 1.14
-  sidebarClassName?: string; // 1.15
+  resizableSidebar?: boolean; // 1.15 – built: drag/keyboard divider, sidebarWidth / onSidebarWidthChange
   emptyState?: React.ReactNode; // 1.11
   renderConversationItem?: (c: SuperChatConversation, active: boolean) => React.ReactNode; // escape hatch for all of section 1
   formatTime?: (time: Date) => string; // 3.9
@@ -255,6 +255,11 @@ Huddle first.
 - [x] **`defaultMobileView` on `SuperChatInbox`** (1.18, #635) — built on the branch: which pane a
       narrow screen opens on (`'list'`, the existing behaviour, or `'chat'`). Huddle opens on
       Today; the back arrow still returns to the list.
+- [x] **`resizableSidebar` on `SuperChatInbox`** (1.15, #719) — built on the branch: a focusable
+      `role="separator"` between list and panel (from `sm` up) that drags or moves with the arrow
+      keys, Home and End, inverted in RTL; double-click restores `defaultSidebarWidth`. Width is
+      `sidebarWidth` (controlled) or internal, clamped to `minSidebarWidth`–`maxSidebarWidth`
+      (200–480), reported through `onSidebarWidthChange`. Huddle keeps it in `localStorage`.
 - [ ] **`emptyState` on `SuperChatInbox`** (1.11) — shown in the panel when there are no
       conversations, **with the message box still rendered**, so the first post can be written.
       `onMessageSent` then gets `conversation: undefined`.
