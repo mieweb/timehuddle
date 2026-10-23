@@ -376,6 +376,20 @@ export const TicketsPage: React.FC = () => {
   // back to its ticket, e.g. to gate the bulk Delete button.
   const ticketByKey = useMemo(() => new Map(allTickets.map((t) => [t.key, t])), [allTickets]);
 
+  // The ticket carrying each Redmine issue in the selected team, the oldest
+  // when there are several (#736). Timing or boarding the issue acts on it, so
+  // a search suggestion reads as running or on the board when its carrier is.
+  const carrierByIssueId = useMemo(() => {
+    const carriers = new Map<string, UnifiedTicket>();
+    for (const ticket of allTickets) {
+      const issueId = ticket.linked?.sourceId === 'redmine' ? ticket.linked.id : null;
+      if (!issueId || ticket.container?.id !== selectedTeamId) continue;
+      const held = carriers.get(issueId);
+      if (!held || (ticket.createdAt ?? '') < (held.createdAt ?? '')) carriers.set(issueId, ticket);
+    }
+    return carriers;
+  }, [allTickets, selectedTeamId]);
+
   /**
    * Board entries with no ticket behind them. A board row is identity-only, so
    * it outlives the ticket it points at: a Redmine issue is unreachable while
@@ -497,8 +511,18 @@ export const TicketsPage: React.FC = () => {
   const handleToggleTimer = useCallback(
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
       const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
-      if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
-        return stopTimer({ sessionId: runningTicket.sessionId, ticketKey: ticket.key, label });
+      // A bare issue is timed as the ticket carrying it (#736).
+      const carrierKey =
+        ticket.sourceId === 'redmine' ? (carrierByIssueId.get(ticket.id)?.key ?? null) : null;
+      if (
+        runningTicket?.sessionId &&
+        (runningTicket.key === ticket.key || runningTicket.key === carrierKey)
+      ) {
+        return stopTimer({
+          sessionId: runningTicket.sessionId,
+          ticketKey: runningTicket.key,
+          label,
+        });
       }
       // Clocked out, this opens the clock-in prompt; a Redmine suggestion that
       // is not a table row yet is pinned into the table (`startTicketTimer`).
@@ -512,7 +536,7 @@ export const TicketsPage: React.FC = () => {
         onBoard: isOnBoard(ticket, boardKeys),
       });
     },
-    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys],
+    [runningTicket, startTimer, stopTimer, ticketByKey, boardKeys, carrierByIssueId],
   );
 
   // A suggestion is a Redmine issue, not yet a table row: shape it the way the
@@ -539,8 +563,13 @@ export const TicketsPage: React.FC = () => {
       ),
     [shownTickets],
   );
+  const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
   const runningRedmineIssueId =
-    runningTicket?.source === 'redmine' ? Number(runningTicket.id) : null;
+    runningTicket?.source === 'redmine'
+      ? Number(runningTicket.id)
+      : runningLinked?.sourceId === 'redmine'
+        ? Number(runningLinked.id)
+        : null;
 
   const startCreate = useCallback(() => {
     if (!selectedTeam) {
@@ -717,14 +746,22 @@ export const TicketsPage: React.FC = () => {
   // board shown here is updated at once rather than after that read.
   const boardActions = useBoardActions();
 
-  /** Put rows on My Board. Resolves to whether they were added; a failure is toasted. */
+  /**
+   * Put rows on My Board. Resolves to whether they were added; a failure is
+   * toasted. A Redmine issue goes on as the ticket carrying it in the selected
+   * team (#736), so with no team selected the team dialog opens instead.
+   */
   const addToBoard = useCallback(
-    (keys: string[]) =>
-      boardActions.add(keys).then((added) => {
-        if (added) setBoardKeys((prev) => new Set([...prev, ...keys]));
-        return added;
-      }),
-    [boardActions, setBoardKeys],
+    async (keys: string[]) => {
+      if (!selectedTeam && keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) {
+        setShowNoTeamDialog(true);
+        return false;
+      }
+      const added = await boardActions.add(keys);
+      if (added) setBoardKeys((prev) => new Set([...prev, ...added]));
+      return added !== null;
+    },
+    [boardActions, setBoardKeys, selectedTeam],
   );
 
   /** Take rows off My Board; `undoLabel` as in `useBoardActions`. */
@@ -744,24 +781,33 @@ export const TicketsPage: React.FC = () => {
   );
 
   // A suggestion's board button, for an issue that may not be a table row yet.
+  // An issue counts as on the board through its own entry, or its carrier's (#736).
   const boardRedmineIssueIds = useMemo(
     () =>
-      new Set(
-        [...boardKeys]
+      new Set([
+        ...[...boardKeys]
           .map(ticketRefOf)
           .filter((ref) => ref.sourceId === 'redmine')
           .map((ref) => Number(ref.ticketId)),
-      ),
-    [boardKeys],
+        ...[...carrierByIssueId]
+          .filter(([, carrier]) => isOnBoard(carrier, boardKeys))
+          .map(([issueId]) => Number(issueId)),
+      ]),
+    [boardKeys, carrierByIssueId],
   );
   const handleSuggestionBoard = useCallback(
     (issue: RedmineIssue) => {
       const key = ticketKey('redmine', String(issue.id));
-      return boardKeys.has(key)
-        ? removeFromBoard([key], timerLabel('redmine', String(issue.id)))
+      const carrier = carrierByIssueId.get(String(issue.id));
+      const entryKeys = [
+        ...(boardKeys.has(key) ? [key] : []),
+        ...(carrier ? boardEntryKeys(carrier, boardKeys) : []),
+      ];
+      return entryKeys.length > 0
+        ? removeFromBoard([...new Set(entryKeys)], timerLabel('redmine', String(issue.id)))
         : addToBoard([key]);
     },
-    [boardKeys, addToBoard, removeFromBoard],
+    [boardKeys, carrierByIssueId, addToBoard, removeFromBoard],
   );
 
   // One row's board button: on puts it there, off takes it away again.

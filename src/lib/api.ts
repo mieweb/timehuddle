@@ -1166,6 +1166,16 @@ export const ticketApi = {
       expectedIssueId,
     }).then(toTicket),
 
+  /**
+   * The team's ticket carrying Redmine issue `issueId`, created from the issue
+   * and linked when there is none (#736). `created` says which.
+   */
+  carryIssue: (teamId: string, issueId: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
+      teamId,
+      issueId: Number(issueId),
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
     wormholeCall<Record<string, unknown>>('tickets.unlink', {
