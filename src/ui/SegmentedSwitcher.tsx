@@ -55,6 +55,12 @@ export interface SegmentedSwitcherProps<T extends string> {
   disabled?: boolean;
   /** A lower track, the height of a small `Button`, for a row it shares with some. */
   compact?: boolean;
+  /**
+   * Fully rounded, with no track of its own and the selected option filled in
+   * the accent colour: for a switcher sitting on a panel that is already a
+   * surface, beside pill-shaped controls.
+   */
+  accent?: boolean;
 }
 
 export function SegmentedSwitcher<T extends string>({
@@ -66,6 +72,7 @@ export function SegmentedSwitcher<T extends string>({
   disabled = false,
   hideLabel = false,
   compact = false,
+  accent = false,
 }: SegmentedSwitcherProps<T>) {
   const reducedMotion = useReducedMotion();
   const phone = useMediaQuery(PHONE_QUERY);
@@ -108,7 +115,9 @@ export function SegmentedSwitcher<T extends string>({
         aria-labelledby={`${name}-label`}
         aria-disabled={disabled || undefined}
         onKeyDown={onKeyDown}
-        className={`segmented-switcher-track inline-flex max-w-full gap-0.5 rounded-lg bg-muted sm:gap-1 ${compact ? 'p-0.5' : 'p-1'}`}
+        className={`segmented-switcher-track inline-flex max-w-full gap-0.5 sm:gap-1 ${
+          accent ? 'rounded-full' : `rounded-lg bg-muted ${compact ? 'p-0.5' : 'p-1'}`
+        }`}
       >
         {options.map((option) => {
           const selected = option.value === value;
@@ -130,14 +139,17 @@ export function SegmentedSwitcher<T extends string>({
               onClick={() => select(option.value)}
               className={[
                 // `hover:bg-transparent`: the sliding highlight is the only fill.
-                'segmented-switcher-option relative h-auto min-w-0 shrink rounded-md hover:bg-transparent dark:hover:bg-transparent',
+                'segmented-switcher-option relative h-auto min-w-0 shrink hover:bg-transparent dark:hover:bg-transparent',
+                accent ? 'rounded-full' : 'rounded-md',
                 compact ? 'py-1' : 'py-1.5',
                 // An icon alone is narrower than a word, so it gets more room either side.
                 option.iconOnly ? 'px-3.5 sm:px-5' : 'px-2 sm:px-3',
                 option.toneClassName
                   ? `${option.toneClassName} ${selected ? '' : 'opacity-60 hover:opacity-100'}`
                   : selected
-                    ? 'text-primary-700 dark:text-primary-300'
+                    ? accent
+                      ? 'text-white hover:text-white'
+                      : 'text-primary-700 dark:text-primary-300'
                     : 'text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
@@ -145,7 +157,12 @@ export function SegmentedSwitcher<T extends string>({
                 <motion.span
                   layoutId={`${name}-thumb`}
                   aria-hidden="true"
-                  className="segmented-switcher-thumb absolute inset-0 rounded-md bg-background shadow-sm ring-1 ring-border"
+                  className={`segmented-switcher-thumb absolute inset-0 ${
+                    accent
+                      ? // The fill of the library's primary `Button`.
+                        'rounded-full bg-primary-800'
+                      : 'rounded-md bg-background shadow-sm ring-1 ring-border'
+                  }`}
                   transition={
                     reducedMotion
                       ? { duration: 0 }
@@ -159,7 +176,10 @@ export function SegmentedSwitcher<T extends string>({
                 {option.icon}
                 {!option.iconOnly && option.label}
                 {option.detail != null && (
-                  <span className="segmented-switcher-detail text-xs font-normal tabular-nums opacity-80">
+                  // Dimmed only beside an option that is not chosen: the chosen one reads at full strength.
+                  <span
+                    className={`segmented-switcher-detail text-xs font-normal tabular-nums ${selected ? '' : 'opacity-80'}`}
+                  >
                     {option.detail}
                   </span>
                 )}
