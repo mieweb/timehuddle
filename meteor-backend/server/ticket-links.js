@@ -183,7 +183,7 @@ export async function readLinkableIssue(userId, issueId) {
  * link is still the one the caller saw. Records the change in the ticket's
  * activity, with ids only.
  */
-export async function writeLink(userId, ticket, nextId) {
+async function writeLink(userId, ticket, nextId) {
   const previousId = linkedIssueIdOf(ticket);
   const stamp = { updatedAt: new Date(), updatedBy: userId };
   const changed = await Tickets.updateAsync(
@@ -204,15 +204,23 @@ export async function writeLink(userId, ticket, nextId) {
   );
   if (!changed) throw new Meteor.Error('stale-link', STALE_LINK);
 
-  const updated = await Tickets.findOneAsync(ticket._id);
-  const ticketId = ticket._id.toHexString();
+  await announceLinkChange(userId, ticket, previousId, nextId);
+  return toPublicTicket(await Tickets.findOneAsync(ticket._id));
+}
+
+/**
+ * What follows a change to `ticket`'s link from `previousId` to `nextId`
+ * (either null for none): the activity entry, with ids only, fresh Redmine
+ * lists for the team, and a notice to teammates with time on the ticket.
+ */
+export async function announceLinkChange(userId, ticket, previousId, nextId) {
   const change = {
     action: linkAction(previousId, nextId),
     ...(nextId ? { issueId: nextId } : {}),
     ...(previousId ? { previousIssueId: previousId } : {}),
   };
   await emitTicketActivity(userId, ticket.teamId, 'ticket.updated', {
-    ticketId,
+    ticketId: ticket._id.toHexString(),
     ticketTitle: ticket.title,
     teamId: ticket.teamId,
     ...change,
@@ -220,7 +228,6 @@ export async function writeLink(userId, ticket, nextId) {
   const teamUserIds = await currentTeamUserIds(ticket.teamId);
   bustTeamCaches(teamUserIds);
   await notifyLinkChange(userId, ticket, change, teamUserIds);
-  return toPublicTicket(updated);
 }
 
 Meteor.methods({

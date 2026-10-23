@@ -27,6 +27,7 @@ import {
 import { toLocalDateStr } from '../../lib/date';
 
 import { ticketTimerText as text } from '../timers/ticketTimerStrings';
+import { boardText } from './boardStrings';
 import { NoTeamError, carriedKey } from './carryIssue';
 import { ticketKey, ticketRefOf } from './sources';
 
@@ -86,7 +87,7 @@ export interface StartTicketTimerOptions {
  * clocked out, the 8h auto-clockout fired), so the server's answer is authoritative.
  */
 export function timerErrorMessage(err: unknown): string {
-  if (err instanceof NoTeamError) return text.errorNoTeam;
+  if (err instanceof NoTeamError) return boardText.noTeam;
   const code = err instanceof ApiError ? err.code : undefined;
   if (code === 'no-active-shift') return text.errorNoShift;
   if (code === 'issue-unavailable') return text.errorIssueUnavailable;

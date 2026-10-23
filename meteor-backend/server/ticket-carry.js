@@ -13,8 +13,11 @@ import { Tickets, rawDb } from './collections';
 import { requireTeamMembership } from './permissions';
 import { createRateLimiter } from './rate-limit';
 import { enforceRedmineLimit } from './redmine';
+import { optionalRedmineBaseUrl } from './redmine-client';
 import { carriedTitle, carryLockId, findOrCarry, withCarryLock } from './ticket-carry-core';
-import { readLinkableIssue, writeLink } from './ticket-links';
+import { redmineLinkFor } from './ticket-link-core';
+import { announceLinkChange, readLinkableIssue } from './ticket-links';
+import { hostOf } from './ticket-ids';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 import { insertTicket, toPublicTicket } from './tickets';
 
@@ -53,7 +56,6 @@ Meteor.methods({
       throw new Meteor.Error('validation-error', 'issueId must be a Redmine issue number');
     }
     const id = String(issueId);
-    enforceRedmineLimit(carryLimiter, userId);
 
     let result;
     try {
@@ -63,14 +65,25 @@ Meteor.methods({
             const doc = await findCarrier(teamId, id);
             return doc ? toPublicTicket(doc) : null;
           },
-          readIssue: () => readLinkableIssue(userId, id),
+          // Only creating a ticket asks Redmine, so only that counts against the limit.
+          readIssue: () => {
+            enforceRedmineLimit(carryLimiter, userId);
+            return readLinkableIssue(userId, id);
+          },
+          // Inserted already linked, in one write: a failure after it leaves a
+          // ticket the next carry finds, never an unlinked one beside it.
           createCarrier: async (issue) => {
             const doc = await insertTicket(
               userId,
               { teamId, orgId: team.orgId },
-              { title: carriedTitle(issue, id), assignedTo: [userId] },
+              {
+                title: carriedTitle(issue, id),
+                assignedTo: [userId],
+                linkedIssue: redmineLinkFor(id, hostOf(optionalRedmineBaseUrl())),
+              },
             );
-            return writeLink(userId, doc, id);
+            await announceLinkChange(userId, doc, null, id);
+            return toPublicTicket(doc);
           },
         }),
       );

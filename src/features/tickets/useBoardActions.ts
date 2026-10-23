@@ -45,7 +45,6 @@ export interface BoardActions {
 
 export function useBoardActions(): BoardActions {
   const toast = useToast();
-
   const { selectedTeamId } = useTeam();
 
   const add = useCallback(

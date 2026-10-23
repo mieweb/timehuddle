@@ -9,7 +9,12 @@
  * No Meteor imports, so this is unit-testable (tests/ticket-carry-core.test.ts).
  */
 
-/** How long a lock row may sit before another caller takes it over (a crash mid-carry). */
+/**
+ * How long a lock row may sit before another caller takes it over (a crash
+ * mid-carry). Well above a carry's longest step: a Redmine read times out after
+ * 8 seconds (`DEFAULT_TIMEOUT_MS` in redmine-client.js), so a live carry is
+ * never taken over.
+ */
 export const CARRY_LOCK_STALE_MS = 30 * 1000;
 
 /** How often, and how long, a caller waits for someone else's carry of the same issue. */
