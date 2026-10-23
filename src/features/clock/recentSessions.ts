@@ -65,21 +65,39 @@ export function formatDayGroupLabel(dateKey: string, todayKey: string): string {
   return `${weekday} · ${dayPart}`;
 }
 
-/** Today's and the rolling-7-day total worked seconds, from completed sessions. */
+/** A clocked-in shift's live worked seconds, keyed by when it started. */
+export interface ActiveShiftTotal {
+  startTime: number;
+  seconds: number;
+}
+
+/**
+ * Today's and the rolling-7-day total worked seconds. Every shift counts
+ * whole toward the day it started — the same rule the timesheets use — so
+ * an overnight shift that is still running counts toward the same day it
+ * will once it is clocked out, and the totals don't jump at clock-out.
+ */
 export function getTodayAndLast7DaysSeconds(
   sessions: ClockEvent[],
   now: Date,
+  activeShift?: ActiveShiftTotal | null,
 ): { todaySeconds: number; last7DaysSeconds: number } {
   const todayKey = getLocalDateKey(now.getTime());
   const windowStart = now.getTime() - SEVEN_DAYS_MS;
 
+  const shifts: ActiveShiftTotal[] = sessions
+    .filter((session) => session.endTime != null)
+    .map((session) => ({
+      startTime: session.startTime,
+      seconds: getSessionDurationSeconds(session),
+    }));
+  if (activeShift) shifts.push(activeShift);
+
   let todaySeconds = 0;
   let last7DaysSeconds = 0;
-  for (const session of sessions) {
-    if (session.endTime == null) continue;
-    const duration = getSessionDurationSeconds(session);
-    if (getLocalDateKey(session.startTime) === todayKey) todaySeconds += duration;
-    if (session.startTime >= windowStart) last7DaysSeconds += duration;
+  for (const { startTime, seconds } of shifts) {
+    if (getLocalDateKey(startTime) === todayKey) todaySeconds += seconds;
+    if (startTime >= windowStart) last7DaysSeconds += seconds;
   }
   return { todaySeconds, last7DaysSeconds };
 }

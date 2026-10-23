@@ -12,7 +12,8 @@
  * listed), but `activeClockEvent`'s live worked time — when it's for this
  * same team — is folded into the totals. Otherwise "Today" reads 0m for the
  * first hours of someone's first shift of the day, even as the big timer
- * right above it ticks up.
+ * right above it ticks up. Like a completed shift, it counts toward the day
+ * it started (see `getTodayAndLast7DaysSeconds`).
  */
 import { useEffect, useMemo, useState } from 'react';
 
@@ -62,17 +63,18 @@ export function useRecentSessions(
   // tick — just often enough that the totals don't go stale across midnight
   // or as sessions age out of the rolling 7-day window on a page left open.
   const minuteKey = Math.floor(nowMs / 60000);
-  const liveSeconds =
-    activeClockEvent && activeClockEvent.teamId === teamId
-      ? getActiveClockSeconds(activeClockEvent, minuteKey * 60000)
-      : 0;
-  const { todaySeconds, last7DaysSeconds } = useMemo(() => {
-    const completedTotals = getTodayAndLast7DaysSeconds(sessions, new Date(minuteKey * 60000));
-    return {
-      todaySeconds: completedTotals.todaySeconds + liveSeconds,
-      last7DaysSeconds: completedTotals.last7DaysSeconds + liveSeconds,
-    };
-  }, [sessions, minuteKey, liveSeconds]);
+  const isActiveHere = !!activeClockEvent && activeClockEvent.teamId === teamId;
+  const activeStartTime = isActiveHere ? activeClockEvent.startTime : null;
+  const liveSeconds = isActiveHere ? getActiveClockSeconds(activeClockEvent, minuteKey * 60000) : 0;
+  const { todaySeconds, last7DaysSeconds } = useMemo(
+    () =>
+      getTodayAndLast7DaysSeconds(
+        sessions,
+        new Date(minuteKey * 60000),
+        activeStartTime == null ? null : { startTime: activeStartTime, seconds: liveSeconds },
+      ),
+    [sessions, minuteKey, activeStartTime, liveSeconds],
+  );
 
   return { sessions, loading, todaySeconds, last7DaysSeconds };
 }

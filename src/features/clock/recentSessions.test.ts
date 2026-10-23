@@ -144,3 +144,28 @@ describe('getTodayAndLast7DaysSeconds', () => {
     expect(last7DaysSeconds).toBe(0);
   });
 });
+
+describe('getTodayAndLast7DaysSeconds — a shift still clocked in', () => {
+  it('adds a running shift that started today to both totals', () => {
+    const now = new Date(2026, 9, 12, 12, 0, 0);
+    const startTime = new Date(2026, 9, 12, 10, 0, 0).getTime();
+    const totals = getTodayAndLast7DaysSeconds([], now, { startTime, seconds: 2 * 3600 });
+    expect(totals).toEqual({ todaySeconds: 2 * 3600, last7DaysSeconds: 2 * 3600 });
+  });
+
+  it('counts an overnight shift toward the day it started, before and after clock-out', () => {
+    // 23:00 yesterday → 01:00 today. Like the timesheets, the whole shift
+    // belongs to yesterday, so Today must not jump when it is clocked out.
+    const now = new Date(2026, 9, 12, 1, 0, 0);
+    const startTime = new Date(2026, 9, 11, 23, 0, 0).getTime();
+
+    const running = getTodayAndLast7DaysSeconds([], now, { startTime, seconds: 2 * 3600 });
+    const finished = getTodayAndLast7DaysSeconds(
+      [session({ startTime, endTime: now.getTime(), workSeconds: 2 * 3600 })],
+      now,
+    );
+
+    expect(running).toEqual({ todaySeconds: 0, last7DaysSeconds: 2 * 3600 });
+    expect(finished).toEqual(running);
+  });
+});
