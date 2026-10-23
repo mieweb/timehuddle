@@ -56,6 +56,7 @@ import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerS
 import { PulseChip } from '../pulse-upload/PulseButton';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
+import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText } from './clockStrings';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
 import { useRecentSessions } from './useRecentSessions';
@@ -362,7 +363,7 @@ export const ClockPage: React.FC = () => {
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
-  const clockPulseLabel = isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse';
+  const clockPulseLabel = clockText.pulse(isClockedIn);
 
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
@@ -488,16 +489,24 @@ export const ClockPage: React.FC = () => {
   }
 
   // ── Status line copy ──
-  const eyebrow = !isClockedIn ? 'Clocked out' : isPaused ? 'On break' : 'Clocked in';
+  const eyebrow = clockText.status(
+    !isClockedIn ? 'clockedOut' : isPaused ? 'onBreak' : 'clockedIn',
+  );
 
-  const planGoesToHuddle = composerMode === 'wrapup' ? 'Your wrap-up' : 'Your plan';
   // A wrap-up always posts to the session's own team (gateTeamId), which can
   // differ from whatever team is currently selected if the user switched
-  // teams mid-shift — name it so the destination isn't a surprise.
-  const wrapUpTeamSuffix =
-    composerMode === 'wrapup' && teamName && gateTeamId !== selectedTeamId
-      ? ` in "${teamName}"`
-      : '';
+  // teams mid-shift — name it so the destination isn't a surprise. Split
+  // around the link's token so a translation can put the link anywhere.
+  const [destinationBefore, destinationAfter] = composerMode
+    ? clockText
+        .destination(
+          composerMode,
+          composerMode === 'wrapup' && teamName && gateTeamId !== selectedTeamId
+            ? teamName
+            : undefined,
+        )
+        .split(HUDDLE_LINK_TOKEN)
+    : ['', ''];
 
   if (!teamsReady) {
     return (
@@ -530,7 +539,7 @@ export const ClockPage: React.FC = () => {
             ·
           </span>
           <span>
-            Today{' '}
+            {clockText.today}{' '}
             <strong className="text-neutral-900 dark:text-neutral-50">
               {formatDuration(todaySeconds)}
             </strong>
@@ -539,7 +548,7 @@ export const ClockPage: React.FC = () => {
             ·
           </span>
           <span>
-            Last 7 days{' '}
+            {clockText.last7Days}{' '}
             <strong className="text-neutral-900 dark:text-neutral-50">
               {formatDuration(last7DaysSeconds)}
             </strong>
@@ -555,7 +564,7 @@ export const ClockPage: React.FC = () => {
           </div>
           {activeClockEvent && (
             <Text variant="muted" size="sm" className="mt-1">
-              since {formatTime(new Date(activeClockEvent.startTime))}
+              {clockText.since(formatTime(new Date(activeClockEvent.startTime), CLOCK_LOCALE))}
             </Text>
           )}
           {/* Break/Resume lives with the timer so it stays visible in every
@@ -640,7 +649,7 @@ export const ClockPage: React.FC = () => {
                 page's own title is hidden in favor of the compact status
                 line above. */}
             <Text as="h2" size="2xl" weight="semibold" className="tracking-tight">
-              {composerMode === 'plan' ? 'What are you working on?' : 'What did you work on?'}
+              {clockText.prompt(composerMode)}
             </Text>
 
             {/* Flush on mobile/Capacitor — no border or padding boxing the
@@ -648,7 +657,7 @@ export const ClockPage: React.FC = () => {
                 card is a desktop treatment, from md: up. */}
             <div className="clock-plan-composer flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800">
               <Text variant="muted" size="sm">
-                {planGoesToHuddle} goes to{' '}
+                {destinationBefore}
                 <button
                   type="button"
                   // The session's own team, which a mid-shift team switch can
@@ -658,9 +667,9 @@ export const ClockPage: React.FC = () => {
                   }
                   className="underline underline-offset-2"
                 >
-                  Huddle
+                  {clockText.huddleLink}
                 </button>
-                {wrapUpTeamSuffix} so the team can see it
+                {destinationAfter}
               </Text>
 
               {!composerExpanded ? (
@@ -670,8 +679,8 @@ export const ClockPage: React.FC = () => {
                   <div className="min-w-0 flex-1 sm:min-w-64">
                     <Input
                       readOnly
-                      placeholder={composerMode === 'plan' ? "Today I'll…" : 'I worked on…'}
-                      aria-label={composerMode === 'plan' ? 'Write a plan' : 'Write a wrap-up'}
+                      placeholder={clockText.placeholder(composerMode)}
+                      aria-label={clockText.writeLabel(composerMode)}
                       onFocus={() => setComposerExpanded(true)}
                     />
                   </div>
@@ -680,12 +689,12 @@ export const ClockPage: React.FC = () => {
                     onClick={() => setComposerExpanded(true)}
                     className={COMPACT_PILL}
                   >
-                    {composerMode === 'plan' ? 'Clock in with a plan' : 'Clock out with a wrap-up'}
+                    {clockText.submit(composerMode)}
                   </Button>
                   {clockPulse && (
                     <>
                       <Text variant="muted" size="sm" className="shrink-0 text-center">
-                        or
+                        {clockText.or}
                       </Text>
                       <PulseChip
                         pulse={clockPulse}
@@ -705,7 +714,7 @@ export const ClockPage: React.FC = () => {
                       className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
                       data-testid="composer-seed-loading"
                     >
-                      <Spinner size="sm" label="Loading your plan…" />
+                      <Spinner size="sm" label={clockText.loadingPlan} />
                     </div>
                   ) : (
                     <MarkdownEditor
@@ -763,14 +772,12 @@ export const ClockPage: React.FC = () => {
                       disabled={!text.trim() || uploadInFlight}
                       className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
                     >
-                      {composerMode === 'plan'
-                        ? 'Clock in with a plan'
-                        : 'Clock out with a wrap-up'}
+                      {clockText.submit(composerMode)}
                     </Button>
                     {clockPulse && (
                       <>
                         <Text variant="muted" size="sm" className="shrink-0 text-center">
-                          or
+                          {clockText.or}
                         </Text>
                         <PulseChip
                           pulse={clockPulse}
@@ -780,12 +787,7 @@ export const ClockPage: React.FC = () => {
                       </>
                     )}
                     <Text variant="muted" size="sm" className="font-mono">
-                      {!text.trim()
-                        ? composerMode === 'plan'
-                          ? 'Write a plan first · '
-                          : 'Write a wrap-up first · '
-                        : ''}
-                      ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
+                      {clockText.shortcutHint(composerMode, !text.trim())}
                     </Text>
                   </div>
                   {postError && (
@@ -834,7 +836,7 @@ export const ClockPage: React.FC = () => {
             {clockPulse && (
               <>
                 <Text variant="muted" size="sm" className="shrink-0 text-center">
-                  or
+                  {clockText.or}
                 </Text>
                 <PulseChip
                   pulse={clockPulse}

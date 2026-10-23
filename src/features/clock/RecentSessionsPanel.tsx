@@ -21,6 +21,7 @@ import React, { useMemo, useState } from 'react';
 import type { ClockEvent } from '../../lib/api';
 import { formatDuration, formatTime } from '../../lib/timeUtils';
 import { getLocalDateKey } from './timesheetUtils';
+import { CLOCK_LOCALE, clockText } from './clockStrings';
 import { formatDayGroupLabel, groupSessionsByDay, isUnderOneMinute } from './recentSessions';
 
 // Cap by days, not raw session count: slicing sessions before grouping could
@@ -54,26 +55,26 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
     <div className="clock-recent-sessions flex shrink-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <Text as="h2" size="lg" weight="semibold">
-          Recent sessions
+          {clockText.recentSessions}
         </Text>
         <Button variant="link" size="sm" onClick={onViewAll}>
-          View all
+          {clockText.viewAll}
         </Button>
       </div>
       {loading ? (
-        <Spinner size="sm" label="Loading sessions…" />
+        <Spinner size="sm" label={clockText.loadingSessions} />
       ) : groups.length === 0 ? (
         <Text variant="muted" size="sm">
-          No sessions yet.
+          {clockText.noSessions}
         </Text>
       ) : (
         <>
-          <Table aria-label="Recent sessions" responsive={false}>
+          <Table aria-label={clockText.recentSessions} responsive={false}>
             <TableHeader>
               <TableRow>
-                <TableHead>Day</TableHead>
-                <TableHead>Time</TableHead>
-                <TableHead className="text-end">Tracked</TableHead>
+                <TableHead>{clockText.columnDay}</TableHead>
+                <TableHead>{clockText.columnTime}</TableHead>
+                <TableHead className="text-end">{clockText.columnTracked}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -82,16 +83,18 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
                   ? group.sessions
                   : group.sessions.filter((s) => !isUnderOneMinute(s));
                 const timeRanges = visibleSessions
-                  .map(
-                    (s) =>
-                      `${formatTime(new Date(s.startTime))} – ${formatTime(new Date(s.endTime as number))}`,
+                  .map((s) =>
+                    clockText.timeRange(
+                      formatTime(new Date(s.startTime), CLOCK_LOCALE),
+                      formatTime(new Date(s.endTime as number), CLOCK_LOCALE),
+                    ),
                   )
                   .join(' · ');
 
                 return (
                   <TableRow key={group.dateKey}>
                     <TableCell className="whitespace-nowrap font-medium">
-                      {formatDayGroupLabel(group.dateKey, todayKey)}
+                      {formatDayGroupLabel(group.dateKey, todayKey, CLOCK_LOCALE)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{timeRanges || '—'}</TableCell>
                     <TableCell className="text-end font-mono font-semibold tabular-nums">
@@ -104,10 +107,9 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
           </Table>
           {hiddenCount > 0 && (
             <Text variant="muted" size="xs">
-              {hiddenCount} session{hiddenCount === 1 ? '' : 's'} under 1 minute{' '}
-              {showHidden ? 'shown' : 'hidden'} ·{' '}
+              {clockText.shortSessions(hiddenCount, showHidden)} ·{' '}
               <Button variant="link" size="sm" onClick={() => setShowHidden((v) => !v)}>
-                {showHidden ? 'Hide' : 'Show'}
+                {clockText.showShortSessions(showHidden)}
               </Button>
             </Text>
           )}

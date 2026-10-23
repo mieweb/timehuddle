@@ -109,12 +109,19 @@ describe('groupSessionsByDay', () => {
 
 describe('formatDayGroupLabel', () => {
   it('labels the matching key "Today · <date>"', () => {
-    expect(formatDayGroupLabel('2026-10-12', '2026-10-12')).toBe('Today · Oct 12');
+    expect(formatDayGroupLabel('2026-10-12', '2026-10-12', 'en-US')).toBe('Today · Oct 12');
   });
 
   it('labels other days with their weekday', () => {
     // 2026-10-07 is a Wednesday.
-    expect(formatDayGroupLabel('2026-10-07', '2026-10-12')).toBe('Wed · Oct 7');
+    expect(formatDayGroupLabel('2026-10-07', '2026-10-12', 'en-US')).toBe('Wed · Oct 7');
+  });
+
+  it('formats both the weekday and the date in the given locale', () => {
+    // Abbreviation dots vary between ICU versions; the words must not.
+    expect(formatDayGroupLabel('2026-10-07', '2026-10-12', 'de-DE')).toMatch(
+      /^Mi\.? · 7\. Okt\.?$/,
+    );
   });
 });
 

@@ -9,6 +9,7 @@
  */
 import type { ClockEvent } from '../../lib/api';
 import { formatDate } from '../../lib/timeUtils';
+import { clockText } from './clockStrings';
 import { getLocalDateKey } from './timesheetUtils';
 
 const ONE_MINUTE_SECONDS = 60;
@@ -54,15 +55,15 @@ export function groupSessionsByDay(sessions: ClockEvent[]): DayGroup[] {
     .sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1));
 }
 
-/** "Today · Oct 12" for today's bucket, otherwise "Wed · Oct 7". */
-export function formatDayGroupLabel(dateKey: string, todayKey: string): string {
+/** "Today · Oct 12" for today's bucket, otherwise "Wed · Oct 7", both in `locale`. */
+export function formatDayGroupLabel(dateKey: string, todayKey: string, locale: string): string {
   // Parsed as local midnight, matching getLocalDateKey's own local-time basis.
   const [year, month, day] = dateKey.split('-').map(Number);
   const date = new Date(year, month - 1, day);
-  const dayPart = formatDate(date);
-  if (dateKey === todayKey) return `Today · ${dayPart}`;
-  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
-  return `${weekday} · ${dayPart}`;
+  const datePart = formatDate(date, false, locale);
+  if (dateKey === todayKey) return clockText.todayLabel(datePart);
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date);
+  return clockText.dayLabel(weekday, datePart);
 }
 
 /** A clocked-in shift's live worked seconds, keyed by when it started. */
