@@ -177,13 +177,15 @@ test.describe('Huddle composer — individual actions', () => {
     await submitPost(page);
 
     // The wrap-up starts with the plan's tickets; dropping one keeps the other.
+    // It opens collapsed to a single line, which hides the chips until focused.
+    await page.getByRole('textbox', { name: 'Write a wrap-up' }).click();
     const chips = page.getByRole('button', { name: /^Remove ticket #/ });
     await expect(chips).toHaveCount(2);
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
     await chips.first().click();
-    await page.getByRole('button', { name: 'Post wrap-up and clock out' }).click();
-    await expect(page.getByRole('button', { name: /plan and clock in/ })).toBeVisible({
+    await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
+    await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
       timeout: 30000,
     });
     const wrapped = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
