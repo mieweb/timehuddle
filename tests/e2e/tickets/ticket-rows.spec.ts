@@ -389,6 +389,17 @@ test.describe('Ticket rows', () => {
     await expect(page.getByRole('menuitemcheckbox').first()).toBeFocused();
   });
 
+  test("an assignee's badge opens their profile, not the ticket", async ({ page }) => {
+    const title = `E2E Assignee Profile ${Date.now()}`;
+    await tickets.createTicket(title);
+
+    await tickets
+      .rowByTitle(title)
+      .getByRole('button', { name: `View ${TEST_USERS.owner1.name}'s profile` })
+      .click();
+    await expect(page).toHaveURL(/\/app\/profile\//);
+  });
+
   test('keeps the whole menu reachable on a short screen', async ({ page }) => {
     await tickets.createTicket(`E2E Phone Short ${Date.now()}`);
     await page.setViewportSize({ width: 390, height: 520 });

@@ -90,6 +90,7 @@ const text = {
   startTimer: (title: string) => `Start timer for ${title}`,
   stopTimer: (title: string) => `Stop timer for ${title}`,
   moreAssignees: (names: string[]) => `and ${names.join(', ')}`,
+  viewProfile: (name: string) => `View ${name}'s profile`,
   updated: (date: string) => `Updated ${date}`,
   options: 'Ticket options',
   sharedWithTimeharbor: 'Shared with TimeHarbor',
@@ -223,12 +224,29 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   const properties = (
     <span className="ticket-row-facts contents [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
       {/* Names, not avatars: initials alone say less, and there is no hover on a phone. */}
-      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => (
-        <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">
-          <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{assignee.name}</span>
-        </Badge>
-      ))}
+      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => {
+        const badge = (
+          <Badge variant="secondary" size="sm" className="max-w-[11rem]">
+            <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{assignee.name}</span>
+          </Badge>
+        );
+        // Only a Huddle assignee's id is a TimeHuddle user with a profile. A
+        // button, so the row's own click leaves it be.
+        return ticket.sourceId === 'huddle' ? (
+          <Button
+            key={assignee.id}
+            variant="ghost"
+            className="ticket-row-assignee h-auto min-w-0 rounded-full p-0 hover:bg-transparent hover:opacity-80 dark:hover:bg-transparent"
+            onClick={() => navigate(`/app/profile/${assignee.id}`)}
+            aria-label={text.viewProfile(assignee.name)}
+          >
+            {badge}
+          </Button>
+        ) : (
+          <React.Fragment key={assignee.id}>{badge}</React.Fragment>
+        );
+      })}
       {extraAssignees.length > 0 && (
         <Tooltip content={extraAssignees.join(', ')}>
           <Badge variant="secondary" size="sm">
