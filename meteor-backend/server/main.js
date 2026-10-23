@@ -23,6 +23,7 @@ import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './ticket-links';
+import './ticket-carry';
 import './redmine';
 import './redmine-issue-methods';
 import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
@@ -1008,6 +1009,19 @@ Meteor.startup(async() => {
         },
       },
       required: ['ticketId', 'issueId'],
+    },
+  });
+
+  Wormhole.expose('tickets.carryIssue', {
+    description:
+      "The team's ticket carrying a Redmine issue, created from the issue and linked if there is none. Returns { ticket, created }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        issueId: { type: 'integer', description: 'The Redmine issue number' },
+      },
+      required: ['teamId', 'issueId'],
     },
   });
 
