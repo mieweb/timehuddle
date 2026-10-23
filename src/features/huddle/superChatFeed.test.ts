@@ -94,8 +94,8 @@ describe('postsToConversations', () => {
 
     it('groups by ticket, bucketing posts with no ticket under "none"', () => {
       const posts = [
-        makePost({ id: 'p1', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' }),
-        makePost({ id: 'p2', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' }),
+        makePost({ id: 'p1', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] }),
+        makePost({ id: 'p2', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] }),
         makePost({ id: 'p3' }),
       ];
       const conversations = postsToConversations(posts, 'ticket', VIEWER_MEMBER, NOW);
@@ -478,8 +478,7 @@ describe('postsToConversations', () => {
       const posts = [
         makePost({
           id: 'p1',
-          ticketId: 'tkt-1',
-          ticketTitle: 'Onboarding checklist',
+          tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }],
           clockEventId: 'evt-1',
           session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
         }),
@@ -543,8 +542,7 @@ describe('searchConversations', () => {
     makePost({
       id: 'p1',
       content: { text: 'Shipped the onboarding checklist', mentions: [] },
-      ticketId: 't-1',
-      ticketTitle: 'Onboarding checklist',
+      tickets: [{ id: 't-1', title: 'Onboarding checklist' }],
       clockEventId: 'evt-1',
       session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
       wrapUpAt: new Date(SEP_29_1032).toISOString(),

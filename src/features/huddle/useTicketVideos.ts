@@ -1,7 +1,7 @@
 /**
- * useTicketVideos — the videos already attached to a ticket, as composer
- * attachments. Picking a ticket for a post pulls these in, so a Pulse video
- * recorded on the ticket shows up in the Huddle post about it.
+ * useTicketVideos — the videos already attached to a post's tickets, as
+ * composer attachments. Picking a ticket for a post pulls these in, so a Pulse
+ * video recorded on the ticket shows up in the Huddle post about it.
  */
 import { useEffect, useState } from 'react';
 import { attachmentApi } from '@lib/api';
@@ -9,36 +9,40 @@ import type { MediaItem } from './types';
 
 export interface TicketVideos {
   videos: MediaItem[];
-  /** True until the *selected* ticket's own request has settled. */
+  /** True until the *selected* tickets' own requests have settled. */
   loading: boolean;
-  /** Set when the selected ticket's request failed, so a send can refuse. */
+  /** Set when a selected ticket's request failed, so a send can refuse. */
   error: string | null;
 }
 
 interface Loaded {
-  ticketId: string | undefined;
+  /** The selection the result is for, as {@link selectionKey}. */
+  key: string;
   videos: MediaItem[];
   error: string | null;
 }
 
-const NOTHING_LOADED: Loaded = { ticketId: undefined, videos: [], error: null };
+const NOTHING_LOADED: Loaded = { key: '', videos: [], error: null };
 
-export function useTicketVideos(ticketId: string | undefined): TicketVideos {
+const selectionKey = (ticketIds: string[]) => ticketIds.join(',');
+
+export function useTicketVideos(ticketIds: string[]): TicketVideos {
   const [loaded, setLoaded] = useState<Loaded>(NOTHING_LOADED);
+  const key = selectionKey(ticketIds);
 
   useEffect(() => {
-    // Drop the last result so reselecting the same ticket refetches before it reads as settled.
+    // Drop the last result so reselecting the same tickets refetches before it reads as settled.
     setLoaded(NOTHING_LOADED);
-    if (!ticketId) return;
+    if (!key) return;
     let cancelled = false;
-    attachmentApi
-      .list('ticket', ticketId)
-      .then((attachments) => {
+    Promise.all(key.split(',').map((ticketId) => attachmentApi.list('ticket', ticketId)))
+      .then((lists) => {
         if (cancelled) return;
         setLoaded({
-          ticketId,
+          key,
           error: null,
-          videos: attachments
+          videos: lists
+            .flat()
             .filter((att) => att.type === 'video')
             .map((att) => ({
               id: att.id,
@@ -54,24 +58,24 @@ export function useTicketVideos(ticketId: string | undefined): TicketVideos {
         console.error('[useTicketVideos] Failed to fetch ticket videos:', err);
         if (cancelled) return;
         setLoaded({
-          ticketId,
+          key,
           videos: [],
-          error: "Couldn't load the ticket's videos. Pick the ticket again to retry.",
+          error: "Couldn't load the tickets' videos. Remove and re-add a ticket to retry.",
         });
       });
     return () => {
       cancelled = true;
     };
-  }, [ticketId]);
+  }, [key]);
 
-  // State holds whichever ticket resolved last, not necessarily the selected
-  // one. Reporting it as the selection's would let a fast send attach ticket
+  // State holds whichever selection resolved last, not necessarily the current
+  // one. Reporting it as the current one's would let a fast send attach ticket
   // A's videos to a post about ticket B, so anything but an exact match reads
   // as "still loading" and the host holds the send.
-  const settled = !!ticketId && loaded.ticketId === ticketId;
+  const settled = !!key && loaded.key === key;
   return {
     videos: settled ? loaded.videos : [],
-    loading: !!ticketId && !settled,
+    loading: !!key && !settled,
     error: settled ? loaded.error : null,
   };
 }

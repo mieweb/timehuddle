@@ -87,14 +87,10 @@ export interface TimecoreUser {
   }>;
 }
 
-export interface AuthAccount {
-  id: string;
-  accountId: string;
-  providerId: string;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
-  scopes: string[];
+/** The caller's linked GitHub account (`github.status`). */
+export interface GitHubLinkStatus {
+  connected: boolean;
+  username: string | null;
 }
 
 export interface PublicUser {
@@ -339,33 +335,6 @@ export const authApi = {
     }
     const data = (await res.json()) as { url: string };
     return data.url;
-  },
-
-  /** Initiate linking a social provider to the currently authenticated user. */
-  linkSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
-    const data = await request<{ url: string }>('/api/auth/link-social', {
-      method: 'POST',
-      body: JSON.stringify({ provider, callbackURL }),
-    });
-    return data.url;
-  },
-
-  /** Remove a linked auth provider from the current account. */
-  unlinkAccount: async (providerId: string): Promise<void> => {
-    await request('/api/auth/unlink-account', {
-      method: 'POST',
-      body: JSON.stringify({ providerId }),
-    });
-  },
-
-  /** List auth providers linked to the current account. */
-  listAccounts: async (): Promise<AuthAccount[]> => {
-    try {
-      return await request<AuthAccount[]>('/api/auth/list-accounts');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) return [];
-      throw err;
-    }
   },
 
   /** Sign out — clears better-auth session cookie and stored token. */
@@ -1181,8 +1150,8 @@ export interface HuddlePost {
     text: string;
     mentions: string[];
   };
-  ticketId?: string;
-  ticketTitle?: string;
+  /** Linked tickets; `title` is null when the ticket no longer exists. */
+  tickets?: { id: string; title: string | null }[];
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
@@ -1280,7 +1249,7 @@ export const huddleApi = {
   createPost: (params: {
     teamId: string;
     content: { text: string; mentions: string[] };
-    ticketId?: string;
+    ticketIds?: string[];
     attachments?: HuddlePostAttachment[];
     postDate?: string;
     clockEventId?: string;
@@ -1298,14 +1267,14 @@ export const huddleApi = {
     wormholeCall<{ id: string }>('huddle.reschedulePost', { postId, ...schedule }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
-   * Pass attachments/ticketId to edit them (omit to leave untouched). */
+   * Pass attachments/ticketIds to edit them (omit to leave untouched; `[]` clears tickets). */
   updatePost: (
     postId: string,
     content: { text: string; mentions: string[] },
     options?: {
       wrapUp?: boolean;
       attachments?: HuddlePostAttachment[];
-      ticketId?: string | null;
+      ticketIds?: string[];
     },
   ) => wormholeCall<{ id: string }>('huddle.updatePost', { postId, content, ...options }),
 
@@ -2638,6 +2607,27 @@ export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
   issueId: number;
   confirmed: boolean;
 }
+
+export const githubApi = {
+  status: (): Promise<GitHubLinkStatus> => wormholeCall<GitHubLinkStatus>('github.status', {}),
+
+  /**
+   * Where to send the browser to link a GitHub account to the caller. The
+   * backend runs the OAuth round trip and returns to `/app/settings`, with
+   * `?github_confirm=` for `confirmLink` or `?github=` saying why it refused.
+   */
+  linkUrl: async (): Promise<string> => {
+    const { token } = await wormholeCall<{ token: string }>('github.linkToken', {});
+    return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ link: token })}`;
+  },
+
+  /** Finish the link the OAuth callback staged, as the user who started it. */
+  confirmLink: (code: string): Promise<{ result: string; status: GitHubLinkStatus }> =>
+    wormholeCall<{ result: string; status: GitHubLinkStatus }>('github.confirmLink', { code }),
+
+  disconnect: (): Promise<GitHubLinkStatus> =>
+    wormholeCall<GitHubLinkStatus>('github.disconnect', {}),
+};
 
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
