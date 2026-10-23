@@ -520,3 +520,23 @@ test.describe('Ticket rows', () => {
     }
   });
 });
+
+test.describe('Ticket rows on a touchscreen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: PHONE });
+
+  test('a menu with a search box starts on its first choice, not the keyboard', async ({
+    page,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+
+    await tickets.showAllControls();
+    await tickets.filterControl('Assignees').tap();
+    await expect(page.getByRole('searchbox', { name: 'Search people' })).not.toBeFocused();
+    // Its sort choices come first, then the people.
+    await expect(
+      page.getByRole('menu').locator('[role="menuitem"], [role="menuitemcheckbox"]').first(),
+    ).toBeFocused();
+  });
+});
