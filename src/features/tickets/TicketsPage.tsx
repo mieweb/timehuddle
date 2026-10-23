@@ -836,7 +836,7 @@ export const TicketsPage: React.FC = () => {
   // what the notice counts afterwards.
   const assignedIssues = useMemo(() => assignedToMe(allTickets, meKeys), [allTickets, meKeys]);
   const assignedOffBoard = useMemo(
-    () => assignedIssues.filter((t) => !boardKeys.has(t.key)),
+    () => assignedIssues.filter((t) => !isOnBoard(t, boardKeys)),
     [assignedIssues, boardKeys],
   );
   const assignedNotice = useAssignedNotice(userId);
@@ -845,16 +845,30 @@ export const TicketsPage: React.FC = () => {
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
   // Only for a board known to be empty: after a failed read it merely looks so.
-  const offerAssigned = boardKnown && boardKeys.size === 0 && assignedOffBoard.length > 0;
+  // Offered whenever Redmine is connected: the button asks Redmine itself, so
+  // it can bring back issues the table no longer lists (#736).
+  const offerAssigned = boardKnown && boardKeys.size === 0 && redmineConnected === true;
 
-  const handleGetAssigned = useCallback(() => {
-    const keys = assignedOffBoard.slice(0, STARTER_LIMIT).map((t) => t.key);
-    const moreRemain = assignedOffBoard.length > keys.length;
+  const handleGetAssigned = useCallback(async () => {
     setGettingAssigned(true);
-    void addToBoard(keys)
-      .then((added) => added && moreRemain && showAssignedNotice())
-      .finally(() => setGettingAssigned(false));
-  }, [assignedOffBoard, addToBoard, showAssignedNotice]);
+    try {
+      const { issueIds } = await redmineApi.issues.assignedIds();
+      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
+      const keys = issueIds
+        .map((id) => ticketKey('redmine', String(id)))
+        .filter((key) => !boardRedmineIssueIds.has(Number(ticketRefOf(key).ticketId)));
+      if (keys.length === 0) {
+        toast.info(starterText.noneAssigned);
+        return;
+      }
+      const batch = keys.slice(0, STARTER_LIMIT);
+      if ((await addToBoard(batch)) && keys.length > batch.length) showAssignedNotice();
+    } catch {
+      toast.error(starterText.fetchFailed);
+    } finally {
+      setGettingAssigned(false);
+    }
+  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, toast]);
 
   /** All Sources, narrowed to the user's assigned issues. */
   const showAssignedInAllSources = useCallback(() => {
@@ -1083,7 +1097,7 @@ export const TicketsPage: React.FC = () => {
                       leftIcon={<UserRoundArrowLeft className="h-4 w-4" aria-hidden="true" />}
                       isLoading={gettingAssigned}
                       loadingText={starterText.getting}
-                      onClick={handleGetAssigned}
+                      onClick={() => void handleGetAssigned()}
                     >
                       {starterText.getAssigned}
                     </Button>

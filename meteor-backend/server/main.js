@@ -1170,6 +1170,12 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('redmine.issues.assignedIds', {
+    description:
+      "The ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   Wormhole.expose('redmine.issues.removeFromTable', {
     description:
       "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",

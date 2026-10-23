@@ -2724,6 +2724,13 @@ export const redmineApi = {
     removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
       wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
 
+    /**
+     * The open issues assigned to the caller in Redmine, most recently updated
+     * first, whatever they removed from their Tickets table (#736).
+     */
+    assignedIds: (): Promise<{ issueIds: number[] }> =>
+      wormholeCall<{ issueIds: number[] }>('redmine.issues.assignedIds', {}),
+
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
       issueId: number,

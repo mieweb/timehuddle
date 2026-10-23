@@ -1,10 +1,10 @@
 /**
  * The first fill of an empty My Board: "Get issues assigned to me".
  *
- * It adds a handful of the user's assigned Redmine issues, and when more
- * remain, a notice points at All Sources filtered to them. Both read the rows
- * the page already has, through the same filter: the link shows every assigned
- * issue, and the notice counts the ones among them not on the board yet.
+ * It asks Redmine for the user's open assigned issues (#736), whatever they
+ * removed from their Tickets table, and puts a handful on the board, each as
+ * the ticket carrying it. When more remain, a notice points at All Sources
+ * filtered to them; the notice counts from the rows the page already has.
  *
  * The notice is remembered in the browser, per user: it is a pointer for
  * someone setting up this board, not a fact about their account.
@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { BOARD_ASSIGNED_NOTICE_KEY } from '../../lib/constants';
-import { applyFilters, EMPTY_FILTERS, ME, type TicketFilters } from './ticketFilters';
+import { EMPTY_FILTERS, ME, type TicketFilters } from './ticketFilters';
 import type { UnifiedTicket } from './sources';
 
 /** How many issues one press puts on the board. */
@@ -36,14 +36,20 @@ export const ASSIGNED_FILTERS: TicketFilters = {
  * Redmine rows arrive ranked by the server (their own recent work first), so
  * the head of this list is what a starter board should hold.
  *
- * Redmine issues only: a TimeHuddle ticket linked to an issue is filtered as
- * Redmine work, but "Me" on it is the TimeHuddle assignee, and it can be there
- * for someone with no Redmine account at all.
+ * An issue counts whether it is still a bare Redmine row or already carried by
+ * a TimeHuddle ticket, whose row then stands in for it (#736). What decides is
+ * the issue's Redmine assignee, never the ticket's TimeHuddle one: that can be
+ * someone with no Redmine account at all.
  */
 export function assignedToMe(tickets: UnifiedTicket[], meKeys: readonly string[]): UnifiedTicket[] {
-  return applyFilters(tickets, ASSIGNED_FILTERS, '', meKeys).filter(
-    (t) => t.sourceId === 'redmine' && !t.status.isClosed,
-  );
+  const me = new Set(meKeys);
+  const isMe = (redmineUserId: string | undefined) =>
+    redmineUserId !== undefined && me.has(`redmine:${redmineUserId}`);
+  return tickets.filter((t) => {
+    if (t.status.isClosed) return false;
+    if (t.sourceId === 'redmine') return t.assignees.some((a) => isMe(a.id));
+    return t.linked?.sourceId === 'redmine' && isMe(t.linked.assignee?.id);
+  });
 }
 
 /** Whether a count taken from `assigned` may be short of the real one. */
@@ -55,6 +61,8 @@ const plural = (count: number, one: string, many: string) => (count === 1 ? one 
 export const starterText = {
   getAssigned: 'Get issues assigned to me',
   getting: 'Adding issues…',
+  noneAssigned: 'Nothing is assigned to you in Redmine right now.',
+  fetchFailed: "Couldn't get your issues from Redmine. Try again in a moment.",
   /** `approximate` when the list the count came from may have been cut. */
   moreAssigned: (count: number, approximate: boolean) =>
     `${count}${approximate ? '+' : ''} more ${plural(count, 'issue', 'issues')} assigned to you ` +

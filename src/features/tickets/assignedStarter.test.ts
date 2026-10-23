@@ -57,6 +57,25 @@ describe('assignedToMe', () => {
     expect(assignedToMe([linked], ['huddle:u1'])).toEqual([]);
   });
 
+  it('keeps a ticket carrying an issue assigned to the user in Redmine (#736)', () => {
+    const carrier: UnifiedTicket = {
+      ...ticket('huddle', 'a', null),
+      linked: {
+        sourceId: 'redmine',
+        id: '30',
+        ref: 'PM-30',
+        status: { native: 'New', isClosed: false },
+        assignee: { id: '7', name: 'Me' },
+      },
+    };
+    const someoneElses: UnifiedTicket = {
+      ...carrier,
+      key: 'huddle:b',
+      linked: { ...carrier.linked!, assignee: { id: '8', name: 'Other' } },
+    };
+    expect(assignedToMe([carrier, someoneElses], ME_KEYS).map((t) => t.key)).toEqual(['huddle:a']);
+  });
+
   it('finds nothing without a Redmine identity', () => {
     expect(assignedToMe([ticket('redmine', '30', '7')], ['huddle:u1'])).toEqual([]);
   });

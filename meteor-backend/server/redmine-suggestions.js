@@ -29,6 +29,7 @@ import { createRateLimiter } from './rate-limit';
 import {
   getIssue,
   isIssueAssignedToMe,
+  listAssignedIssues,
   listIssuesAssignedTo,
   listIssuesByIds,
   listProjectMemberships,
@@ -103,6 +104,8 @@ const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
  * so an unmetered loop here is an unmetered loop against Redmine.
  */
 const prefsLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+// "Get issues assigned to me" is pressed by hand, on an empty board.
+const assignedLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
 
 Meteor.startup(async () => {
   try {
@@ -399,6 +402,28 @@ Meteor.methods({
       throw err;
     }
     return { ok: true };
+  },
+
+  /**
+   * The ids of the open issues assigned to the caller in Redmine, most recently
+   * updated first — for "Get issues assigned to me" on an empty My Board (#736).
+   *
+   * Asked of Redmine directly, so it ignores what the caller removed from their
+   * Tickets table or hid from suggestions: pressing the button asks for exactly
+   * this. Each issue then goes on the board as a ticket, never as a bare row, so
+   * a removal still stands for the table itself.
+   */
+  async 'redmine.issues.assignedIds'() {
+    const { userId } = await requireIdentity(this);
+    enforceLimit(assignedLimiter, userId);
+    const account = await requireRedmineAccount(userId);
+    let issues;
+    try {
+      issues = await listAssignedIssues(account);
+    } catch (err) {
+      throw toRedmineMeteorError(err);
+    }
+    return { issueIds: issues.map((issue) => issue.id).filter(isRedmineIssueId) };
   },
 
   /**
