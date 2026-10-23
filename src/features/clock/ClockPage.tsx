@@ -660,8 +660,10 @@ export const ClockPage: React.FC = () => {
               </Text>
 
               {!composerExpanded ? (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="flex-1">
+                // Wraps so the pills drop to their own line where they don't
+                // fit beside the input (e.g. tablet width with the sidebar open).
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                  <div className="min-w-0 flex-1 sm:min-w-64">
                     <Input
                       readOnly
                       placeholder={composerMode === 'plan' ? "Today I'll…" : 'I worked on…'}

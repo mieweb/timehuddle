@@ -58,23 +58,35 @@ export function useRecentSessions(
     };
   }, [teamId, isClockedIn]);
 
+  // Until a team switch's fetch lands, `sessions` still holds the previous
+  // team's events — filtered here so they never show as this team's hours.
+  const teamSessions = useMemo(
+    () => sessions.filter((session) => session.teamId === teamId),
+    [sessions, teamId],
+  );
+
   // Rounded to the minute: Today/Last-7-days only ever display at minute
   // precision, so there's no need to recompute on the caller's per-second
   // tick — just often enough that the totals don't go stale across midnight
   // or as sessions age out of the rolling 7-day window on a page left open.
+  // The live shift is measured from the exact `nowMs` and then floored to
+  // whole minutes, so it keeps pace with the timer, whose minutes don't line
+  // up with the wall clock's.
   const minuteKey = Math.floor(nowMs / 60000);
   const isActiveHere = !!activeClockEvent && activeClockEvent.teamId === teamId;
   const activeStartTime = isActiveHere ? activeClockEvent.startTime : null;
-  const liveSeconds = isActiveHere ? getActiveClockSeconds(activeClockEvent, minuteKey * 60000) : 0;
+  const liveSeconds = isActiveHere
+    ? Math.floor(getActiveClockSeconds(activeClockEvent, nowMs) / 60) * 60
+    : 0;
   const { todaySeconds, last7DaysSeconds } = useMemo(
     () =>
       getTodayAndLast7DaysSeconds(
-        sessions,
+        teamSessions,
         new Date(minuteKey * 60000),
         activeStartTime == null ? null : { startTime: activeStartTime, seconds: liveSeconds },
       ),
-    [sessions, minuteKey, activeStartTime, liveSeconds],
+    [teamSessions, minuteKey, activeStartTime, liveSeconds],
   );
 
-  return { sessions, loading, todaySeconds, last7DaysSeconds };
+  return { sessions: teamSessions, loading, todaySeconds, last7DaysSeconds };
 }
