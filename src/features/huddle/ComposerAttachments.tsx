@@ -10,15 +10,28 @@ import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
 import type { MediaItem } from './types';
+import type { TicketRef } from './useTicketSelection';
 
 export type MentionRef = { userId: string; name: string };
+
+/** User-facing text for the ticket chips, kept in one place for translation. */
+export const TICKET_CHIP_TEXT = {
+  /** Shown when the title can't be resolved, e.g. the ticket was deleted. */
+  fallbackLabel: (ticketId: string) => `Ticket #${ticketId}`,
+  remove: (label: string) => `Remove ticket ${label}`,
+};
+
+/** What a ticket chip calls its ticket: the title, or the id fallback. */
+export function ticketChipLabel(ticket: TicketRef): string {
+  return ticket.title?.trim() || TICKET_CHIP_TEXT.fallbackLabel(ticket.id);
+}
 
 interface ComposerAttachButtonsProps {
   teamId?: string | null;
   onAttachmentAdd: (media: MediaItem) => void;
   selectedTicketIds: string[];
   /** Adds a ticket to the post; the picker won't offer one already attached. */
-  onTicketSelect: (ticketId: string) => void;
+  onTicketSelect: (ticket: TicketRef) => void;
   onMentionSelect: (userId: string, name: string) => void;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
@@ -52,7 +65,7 @@ export function ComposerAttachButtons({
 }
 
 interface ComposerChipsProps {
-  selectedTicketIds: string[];
+  selectedTickets: TicketRef[];
   onTicketRemove: (ticketId: string) => void;
   mentions: MentionRef[];
   onMentionRemove: (userId: string) => void;
@@ -62,53 +75,64 @@ interface ComposerChipsProps {
 
 /** Ticket / mention / attachment chips selected in the composer so far. */
 export function ComposerChips({
-  selectedTicketIds,
+  selectedTickets,
   onTicketRemove,
   mentions,
   onMentionRemove,
   attachments,
   onAttachmentRemove,
 }: ComposerChipsProps) {
-  const hasChips = selectedTicketIds.length > 0 || mentions.length > 0 || attachments.length > 0;
+  const hasChips = selectedTickets.length > 0 || mentions.length > 0 || attachments.length > 0;
   if (!hasChips) return null;
 
   return (
     <>
-      {selectedTicketIds.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {selectedTicketIds.map((ticketId) => (
-            /* Badge has no amber/indigo variant, so the tint rides on className. */
-            <Badge
-              key={ticketId}
-              size="sm"
-              className="gap-2 border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                />
-              </svg>
-              Ticket #{ticketId}
-              <button
-                type="button"
-                onClick={() => onTicketRemove(ticketId)}
-                className="hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
-                aria-label={`Remove ticket #${ticketId}`}
+      {selectedTickets.length > 0 && (
+        <div className="mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
+          {selectedTickets.map((ticket) => {
+            const label = ticketChipLabel(ticket);
+            return (
+              /* Badge has no amber/indigo variant, so the tint rides on className. */
+              <Badge
+                key={ticket.id}
+                size="sm"
+                className="max-w-full min-w-0 gap-2 border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
               >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg
+                  className="w-3 h-3 shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
+                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
                   />
                 </svg>
-              </button>
-            </Badge>
-          ))}
+                <span className="truncate" title={label}>
+                  {label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onTicketRemove(ticket.id)}
+                  className="shrink-0 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
+                  aria-label={TICKET_CHIP_TEXT.remove(label)}
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </Badge>
+            );
+          })}
         </div>
       )}
 

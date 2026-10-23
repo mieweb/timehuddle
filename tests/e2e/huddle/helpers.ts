@@ -431,7 +431,8 @@ export async function attachTicket(page: Page, ticketTitle: string): Promise<voi
     .filter({ hasText: ticketTitle })
     .first()
     .click();
-  await expect(page.getByRole('button', { name: 'Remove ticket' }).last()).toBeVisible();
+  // The chip names the ticket by title, not its database id (#733).
+  await expect(page.getByRole('button', { name: `Remove ticket ${ticketTitle}` })).toBeVisible();
 }
 
 /**

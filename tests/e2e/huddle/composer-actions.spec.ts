@@ -164,7 +164,9 @@ test.describe('Huddle composer — individual actions', () => {
     const postText = `Multi-ticket post ${Date.now()}`;
     await composerEditor(page).fill(postText);
     for (const title of titles) await attachTicket(page, title);
-    await expect(page.getByRole('button', { name: /^Remove ticket #/ })).toHaveCount(2);
+    for (const title of titles) {
+      await expect(page.getByRole('button', { name: `Remove ticket ${title}` })).toBeVisible();
+    }
 
     // A ticket already attached is marked in the picker and can't be added again.
     await page.getByRole('button', { name: 'Ticket', exact: true }).click();
@@ -176,12 +178,14 @@ test.describe('Huddle composer — individual actions', () => {
 
     await submitPost(page);
 
-    // The wrap-up starts with the plan's tickets; dropping one keeps the other.
-    const chips = page.getByRole('button', { name: /^Remove ticket #/ });
-    await expect(chips).toHaveCount(2);
+    // The wrap-up starts with the plan's tickets, named by title; dropping one
+    // keeps the other.
+    for (const title of titles) {
+      await expect(page.getByRole('button', { name: `Remove ticket ${title}` })).toBeVisible();
+    }
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
-    await chips.first().click();
+    await page.getByRole('button', { name: `Remove ticket ${titles[0]}` }).click();
     await page.getByRole('button', { name: 'Post wrap-up and clock out' }).click();
     await expect(page.getByRole('button', { name: /plan and clock in/ })).toBeVisible({
       timeout: 30000,
