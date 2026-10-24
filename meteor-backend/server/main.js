@@ -24,9 +24,9 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './ticket-links';
 import './ticket-carry';
+import './redmine-suggestions';
 import './redmine';
 import './redmine-issue-methods';
-import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -41,7 +41,9 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
-import { migrateTicketNumbers } from './ticket-ids';
+import { hostOf, migrateTicketNumbers } from './ticket-ids';
+import { migrateBareRedmineData } from './redmine-cleanup-736';
+import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
@@ -93,6 +95,13 @@ Meteor.startup(async () => {
 Meteor.startup(() => {
   migrateTicketNumbers(rawDb()).catch((error) =>
     console.error('[tickets] numbering existing tickets failed:', error),
+  );
+});
+
+// Not awaited either: until it runs, old bare-issue board entries just don't show.
+Meteor.startup(() => {
+  migrateBareRedmineData(rawDb(), { redmineHost: hostOf(optionalRedmineBaseUrl()) }).catch(
+    (error) => console.error('[redmine] clearing bare-issue data failed:', error),
   );
 });
 
@@ -1174,23 +1183,6 @@ Meteor.startup(async() => {
     description:
       "The ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table",
     inputSchema: { type: 'object', properties: {} },
-  });
-
-  Wormhole.expose('redmine.issues.removeFromTable', {
-    description:
-      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        issueIds: {
-          type: 'array',
-          items: { type: 'integer' },
-          minItems: 1,
-          maxItems: MAX_REMOVE_PER_CALL,
-        },
-      },
-      required: ['issueIds'],
-    },
   });
 
   Wormhole.expose('redmine.prefs.listDismissed', {

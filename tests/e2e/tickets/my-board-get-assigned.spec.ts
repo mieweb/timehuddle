@@ -47,12 +47,15 @@ async function seedCarriers(): Promise<void> {
       .collection('users')
       .findOne({ 'emails.address': TEST_USERS.owner1.email });
     const ownerId = String(owner!._id);
+    // In the shared seed team's org, so the app lists it and keeps it selected.
+    const seedTeam = await db.collection('teams').findOne({ code: 'TEST01' });
     const team = new ObjectId();
     teamId = team.toHexString();
     await db.collection('teams').insertOne({
       _id: team,
       name: 'Get Assigned Team',
       code: TEAM_CODE,
+      orgId: seedTeam?.orgId,
       members: [ownerId],
       admins: [ownerId],
       isPersonal: false,
@@ -111,12 +114,13 @@ async function stubBoard(page: Page): Promise<BoardRef[]> {
 /** Sign-in done, Redmine answering with `count` assigned issues, on an empty board. */
 async function openEmptyBoard(page: Page, count: number): Promise<BoardRef[]> {
   const ids = ISSUE_IDS.slice(0, count);
+  const issues = ISSUE_IDS.map((id) => redmineIssue({ id, subject: `Assigned issue ${id}` }));
   const board = await stubBoard(page);
   await stubRedmine(page, {
     status: connectedStatus(),
-    'issues.relevant': relevantList(
-      ids.map((id) => redmineIssue({ id, subject: `Assigned issue ${id}` })),
-    ),
+    // The issues the seeded tickets carry, as Redmine reads them: each one's
+    // live status and assignee comes from here (#736).
+    'issues.relevant': relevantList([], { linkedIssues: issues }),
     'issues.assignedIds': { issueIds: ids },
   });
   await page.goto('/app/tickets');

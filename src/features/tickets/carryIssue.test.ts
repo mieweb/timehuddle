@@ -32,12 +32,7 @@ describe('carriedKey (#736)', () => {
     expect(carryIssue).not.toHaveBeenCalled();
   });
 
-  it('keeps the bare issue for an account on another Redmine server', async () => {
-    carryIssue.mockRejectedValue(new ApiError('other server', 400, 'custom-instance'));
-    await expect(carriedKey('redmine:482', 'team1')).resolves.toBe('redmine:482');
-  });
-
-  it('passes any other refusal on', async () => {
+  it('passes a refusal on', async () => {
     carryIssue.mockRejectedValue(new ApiError('gone', 404, 'issue-unavailable'));
     await expect(carriedKey('redmine:482', 'team1')).rejects.toThrow('gone');
   });

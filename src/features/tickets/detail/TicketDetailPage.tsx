@@ -448,7 +448,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             sourceId="huddle"
             id={ticket.id}
             title={ticket.title}
-            inTable
             linkedKey={
               ticket.linkedIssue
                 ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id)

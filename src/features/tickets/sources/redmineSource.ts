@@ -1,29 +1,18 @@
 /**
- * A connected Redmine instance as a unified source.
+ * A connected Redmine instance, as the live data behind carried tickets.
  *
- * Issues are edited and created under the user's own personal key, so Redmine,
- * not TimeHuddle, decides whether a given user may make a given change, and a
- * refusal is shown rather than pre-empted here.
+ * Since #736 a Redmine issue is never a row of its own: work on one is carried
+ * by a TimeHuddle ticket (`../carryIssue.ts`). This source reads, under the
+ * user's own key, the issues those tickets are linked to, so each ticket shows
+ * its issue's live status and assignee (`linkedTickets.ts`). Every item it
+ * returns is `linkOnly` and folds into the ticket that links to it.
  *
- * The rows come from `redmine.issues.relevant` rather than "every issue the
- * key can see": on a large instance that response is enormous and every
- * subject in it may carry PHI. The table shows the issues **assigned to the
- * user** (their groups included, as Redmine's `assigned_to_id=me` counts them)
- * and the issues they **pinned**. Starting a timer from a search suggestion
- * pins the issue, which is how an issue someone else owns joins the table —
- * and so My Board, which only shows rows the table has. An issue on My Board
- * is a table row too (`board`), so a board entry never outlives its row
- * because the issue was closed or reassigned. The rest of the relevant list
- * (recently logged, recent activity, watched) belongs to the search bar's
+ * The data comes from `redmine.issues.relevant`, whose `linkedIssues` are the
+ * issues TimeHuddle tickets the user can see are linked to. The rest of that
+ * list (assigned, recently logged, watched) belongs to the search bar's
  * suggestions.
- *
- * The fetch also carries the issues that TimeHuddle tickets are linked to.
- * Those are marked `linkOnly`: they exist to show live status on the linking
- * ticket and never become rows (see `linkedTickets.ts`).
  */
-import { useSyncExternalStore } from 'react';
-
-import { redmineApi, type RedmineIssue, type RedmineRelevanceReason } from '../../../lib/api';
+import { redmineApi, type RedmineIssue } from '../../../lib/api';
 
 import { outsideIdOf } from '../ticketIds';
 
@@ -42,9 +31,6 @@ const PRIORITY_RANK: Record<string, number> = {
   immediate: 5,
 };
 
-/** The relevance reasons that put an issue in the Tickets table. */
-const TABLE_REASONS: readonly RedmineRelevanceReason[] = ['assigned', 'pinned', 'board'];
-
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
   delete: false,
@@ -56,7 +42,7 @@ const CAPABILITIES: SourceCapabilities = {
 export interface RedmineRaw {
   issue: RedmineIssue;
   baseUrl: string | null;
-  /** Present only because a ticket links to it — not a table row. */
+  /** Always set: the issue is here because a ticket links to it, never as a row. */
   linkOnly?: boolean;
 }
 
@@ -68,34 +54,11 @@ export interface RedmineRaw {
  * so linking an account in Settings and coming back refetches instead of
  * replaying a stale "not connected" state.
  */
-const listCache = new Map<string, { raws: RedmineRaw[]; unavailableBoardIds: number[] }>();
-
-/** Told whenever the cache changes, for `useUnavailableRedmineBoardIds`. */
-const cacheListeners = new Set<() => void>();
-const notifyCacheChanged = () => cacheListeners.forEach((listener) => listener());
+const listCache = new Map<string, RedmineRaw[]>();
 
 /** Drop cached issues so the next fetch goes to Redmine. */
 export function invalidateRedmineCache(): void {
   listCache.clear();
-  notifyCacheChanged();
-}
-
-const NO_IDS: number[] = [];
-
-/**
- * My Board issues Redmine confirmed it no longer returns (deleted, or out of the
- * user's sight), from the last fetch — so the Tickets page can offer to drop
- * those board entries, and only those, never an entry that merely failed to
- * load. Re-renders whenever a fetch lands.
- */
-export function useUnavailableRedmineBoardIds(userId: string | null): number[] {
-  return useSyncExternalStore(
-    (listener) => {
-      cacheListeners.add(listener);
-      return () => cacheListeners.delete(listener);
-    },
-    () => (userId && listCache.get(userId)?.unavailableBoardIds) || NO_IDS,
-  );
 }
 
 export const redmineSource: TicketSource<RedmineRaw> = {
@@ -113,22 +76,19 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     if (!userId) return [];
 
     const cached = listCache.get(userId);
-    if (cached) return cached.raws;
+    if (cached) return cached;
 
     // `includeDismissed: true` — a dismissal is about the search dropdown only.
     const result = await redmineApi.issues.relevant(true);
     if (!result.connected) return [];
 
-    const rows: RedmineRaw[] = result.issues
-      .filter((issue) => issue.reasons.some((reason) => TABLE_REASONS.includes(reason)))
-      .map((issue) => ({ issue, baseUrl: result.baseUrl }));
-    const rowIds = new Set(rows.map(({ issue }) => issue.id));
-    const linkOnly: RedmineRaw[] = (result.linkedIssues ?? [])
-      .filter((issue) => !rowIds.has(issue.id))
-      .map((issue) => ({ issue, baseUrl: result.baseUrl, linkOnly: true }));
-    const raws = [...rows, ...linkOnly];
-    listCache.set(userId, { raws, unavailableBoardIds: result.unavailableBoardIds ?? NO_IDS });
-    notifyCacheChanged();
+    // Linked issues only: a Redmine issue is never a row of its own (#736).
+    const raws: RedmineRaw[] = (result.linkedIssues ?? []).map((issue) => ({
+      issue,
+      baseUrl: result.baseUrl,
+      linkOnly: true,
+    }));
+    listCache.set(userId, raws);
     return raws;
   },
 

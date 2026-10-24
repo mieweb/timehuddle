@@ -34,9 +34,6 @@ export const ticketTimerText = {
 
   /** The toast: what happened to one ticket, and nothing else. */
   started: (label: string) => `Started ${label}`,
-  /** 500 is the server's `MAX_PINS_PER_USER`. */
-  startedPinLimit: (label: string) =>
-    `Started ${label}. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.`,
   stopped: (label: string) => `Stopped ${label}`,
   /** Opens the update the start or stop posted to Huddle. */
   viewPost: 'View post',
