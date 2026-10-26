@@ -837,7 +837,8 @@ const RedmineConnection: React.FC = () => {
   }
 
   // No server to link to: a key could only be refused, so say why up front.
-  if (!status?.defaultBaseUrl && !showUrlField) {
+  // Only on an answer: a failed status read shows its error below instead.
+  if (status && !status.defaultBaseUrl && !showUrlField) {
     return (
       <div className="redmine-not-configured px-5 py-4">
         <Text variant="muted" size="xs" role="status">
