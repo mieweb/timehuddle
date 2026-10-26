@@ -227,12 +227,11 @@ export const PulseControls: React.FC<PulseControlsProps> = ({
       className={cn(
         'pulse-upload flex items-center gap-2',
         // wrap-reverse: the buttons keep the first line, a message that
-        // doesn't fit beside them drops below.
+        // doesn't fit beside them drops below. No `min-w-0`: never narrower
+        // than the buttons, so a header too narrow for them wraps them under
+        // its heading instead of drawing them over it.
         card
-          ? cn(
-              'min-w-0 flex-1 flex-wrap-reverse gap-y-1',
-              card === 'end' ? 'justify-end' : 'justify-start',
-            )
+          ? cn('flex-1 flex-wrap-reverse gap-y-1', card === 'end' ? 'justify-end' : 'justify-start')
           : 'flex-wrap',
       )}
     >
