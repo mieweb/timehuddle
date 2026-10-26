@@ -14,10 +14,57 @@
 import { faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
+
+/**
+ * How long to wait before each new look for a poster that wasn't there: the
+ * card can ask before Pulse's thumbnail has finished uploading. After these
+ * (about a minute and a half) the video keeps its plain box.
+ */
+export const POSTER_RETRY_MS = [2_000, 5_000, 10_000, 20_000, 40_000];
+
+/**
+ * The poster to show (null while there's none) and what its `<img>` calls when
+ * it fails. A miss is looked for again in the background: the card keeps its
+ * plain box meanwhile instead of flickering, and switches once a look finds it
+ * (at that URL, already loaded).
+ */
+function usePoster(video: string): { src: string | null; onError: () => void } {
+  const [attempt, setAttempt] = useState(0);
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    if (!missing || attempt >= POSTER_RETRY_MS.length) return;
+    let probe: HTMLImageElement | null = null;
+    const next = attempt + 1;
+    const timer = setTimeout(() => {
+      probe = new Image();
+      probe.onload = () => {
+        setAttempt(next);
+        setMissing(false);
+      };
+      probe.onerror = () => setAttempt(next);
+      probe.src = posterUrl(video, next);
+    }, POSTER_RETRY_MS[attempt]);
+    return () => {
+      clearTimeout(timer);
+      if (probe) probe.onload = probe.onerror = null;
+    };
+  }, [missing, attempt, video]);
+
+  const onError = useCallback(() => setMissing(true), []);
+  return { src: missing ? null : posterUrl(video, attempt), onError };
+}
+
+/** A fresh URL for each look, so a cached 404 can't answer for a later one. */
+function posterUrl(video: string, attempt: number): string {
+  return resolveMediaUrl(
+    attempt === 0 ? posterPath(video) : `${posterPath(video)}?attempt=${attempt}`,
+  );
+}
 
 /** The one video playing, so starting another pauses it. */
 let playingNow: HTMLVideoElement | null = null;
@@ -37,7 +84,7 @@ interface PulseVideoPlayerProps {
 export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
   // No poster (yet), or it failed to load: the same plain box with the ▶.
-  const [posterFailed, setPosterFailed] = useState(false);
+  const poster = usePoster(video);
   const name = title || 'Pulse video';
   // The play button unmounts on click: keep keyboard focus on what replaced it.
   // Played from here, still inside the tap's commit — iOS blocks `autoPlay`
@@ -62,7 +109,7 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
           ref={attachPlayer}
           className="pulse-video-player block max-h-[28rem] w-full bg-black object-contain"
           src={resolveMediaUrl(artifactPath(video))}
-          poster={posterFailed ? undefined : resolveMediaUrl(posterPath(video))}
+          poster={poster.src ?? undefined}
           controls
           playsInline
           onPlay={playAlone}
@@ -75,14 +122,14 @@ export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
           onClick={() => setPlaying(true)}
           aria-label={`Play ${name}`}
         >
-          {posterFailed ? (
+          {poster.src === null ? (
             <span className="pulse-video-poster-placeholder block aspect-video w-full" />
           ) : (
             <img
-              src={resolveMediaUrl(posterPath(video))}
+              src={poster.src}
               alt=""
               loading="lazy"
-              onError={() => setPosterFailed(true)}
+              onError={poster.onError}
               className="pulse-video-poster-image block max-h-[28rem] w-full object-cover"
             />
           )}

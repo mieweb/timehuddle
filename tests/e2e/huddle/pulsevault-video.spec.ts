@@ -127,9 +127,11 @@ test.describe('Huddle — a Pulse upload posts itself', () => {
       .toBe(true);
     expect(post!.content.text).toBe(name);
 
+    // Played from the new post itself: the shared team's conversation can
+    // hold earlier videos, and the first Play button may be one of theirs.
     await page.reload();
-    await expect(page.getByText(name).first()).toBeVisible({ timeout: 20000 });
-    await playPulseVideoCard(page.locator('body'), { videoid });
+    const message = await openPostInInbox(page, name);
+    await playPulseVideoCard(message, { videoid });
   });
 });
 
