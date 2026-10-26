@@ -69,7 +69,7 @@ describe('RecentSessionsPanel', () => {
 
   it('shows an empty state with no sessions', () => {
     render(<RecentSessionsPanel sessions={[]} loading={false} onViewAll={vi.fn()} />);
-    expect(screen.getByText('No sessions yet.')).toBeTruthy();
+    expect(screen.getByText('No sessions in the last 7 days.')).toBeTruthy();
   });
 
   it('calls onViewAll when "View all" is clicked', () => {

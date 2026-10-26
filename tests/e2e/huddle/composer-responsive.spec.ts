@@ -127,6 +127,16 @@ test.describe('Huddle composer — responsive layout', () => {
     });
   }
 
+  test('clicking the collapsed composer puts the cursor in the editor', async ({ page }) => {
+    // The editor is lazy-loaded and focuses itself only once it is ready, so
+    // this can't be checked by clicking into it, as every other test does.
+    await new ClockPage(page).ensureClockedOut();
+    await page.getByRole('textbox', { name: 'Write a plan' }).click();
+    await expect(composerEditor(page)).toBeFocused({ timeout: 10000 });
+    await page.keyboard.type('typed without clicking the editor');
+    await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeEnabled();
+  });
+
   test('the composer scrolls its own overflow instead of clipping it', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await openComposer(page);

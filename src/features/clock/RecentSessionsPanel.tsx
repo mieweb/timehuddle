@@ -1,7 +1,8 @@
 /**
  * RecentSessionsPanel — the Clock page's "Recent sessions" table.
  *
- * One row per day: its time ranges joined into a single line, and its total.
+ * One row per day of the last 7 (the same days as the status line's "Last 7
+ * days" total): its time ranges joined into a single line, and its total.
  * Sessions under a minute are hidden by default (most are an accidental tap);
  * "Show" reveals them across every row rather than per day.
  */
@@ -16,18 +17,13 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 
 import type { ClockEvent } from '../../lib/api';
 import { formatDuration, formatTime } from '../../lib/timeUtils';
 import { getLocalDateKey } from './timesheetUtils';
 import { CLOCK_LOCALE, clockText } from './clockStrings';
-import { formatDayGroupLabel, groupSessionsByDay, isUnderOneMinute } from './recentSessions';
-
-// Cap by days, not raw session count: slicing sessions before grouping could
-// cut a day's own list short while still showing its full total (or vice
-// versa), so the row's time ranges and its "Tracked" sum would disagree.
-const MAX_DAYS_SHOWN = 7;
+import { formatDayGroupLabel, groupLast7DaysByDay, isUnderOneMinute } from './recentSessions';
 
 interface RecentSessionsPanelProps {
   sessions: ClockEvent[];
@@ -42,13 +38,15 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
 }) => {
   const [showHidden, setShowHidden] = useState(false);
 
-  const groups = useMemo(() => groupSessionsByDay(sessions).slice(0, MAX_DAYS_SHOWN), [sessions]);
-  // Not memoized — it's cheap, and the page stays open across midnight, so
-  // this has to be recomputed on every render rather than pinned at mount.
-  const todayKey = getLocalDateKey(Date.now());
-  const hiddenCount = useMemo(
-    () => groups.reduce((sum, g) => sum + g.sessions.filter(isUnderOneMinute).length, 0),
-    [groups],
+  // Not memoized — it's cheap (at most a week of sessions), and the page stays
+  // open across midnight, which moves both the window and the "Today" label,
+  // so this has to be recomputed on every render rather than pinned at mount.
+  const now = new Date();
+  const todayKey = getLocalDateKey(now.getTime());
+  const groups = groupLast7DaysByDay(sessions, now);
+  const hiddenCount = groups.reduce(
+    (sum, g) => sum + g.sessions.filter(isUnderOneMinute).length,
+    0,
   );
 
   return (

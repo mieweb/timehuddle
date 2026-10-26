@@ -13,7 +13,8 @@ import { clockText } from './clockStrings';
 import { getLocalDateKey } from './timesheetUtils';
 
 const ONE_MINUTE_SECONDS = 60;
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+/** Today plus the six calendar days before it. */
+const LAST_7_DAYS_SPAN = 7;
 
 export interface DayGroup {
   dateKey: string;
@@ -55,6 +56,23 @@ export function groupSessionsByDay(sessions: ClockEvent[]): DayGroup[] {
     .sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1));
 }
 
+/**
+ * The first day key of the "Last 7 days" window: today and the six calendar
+ * days before it. Both the status-line total and the Recent sessions table
+ * use it, so the two always cover the same days. Calendar days rather than a
+ * rolling 168 hours, so a row the table shows is never half in the total.
+ */
+export function getLast7DaysStartKey(now: Date): string {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (LAST_7_DAYS_SPAN - 1));
+  return getLocalDateKey(start.getTime());
+}
+
+/** The day groups inside the "Last 7 days" window, most recent day first. */
+export function groupLast7DaysByDay(sessions: ClockEvent[], now: Date): DayGroup[] {
+  const startKey = getLast7DaysStartKey(now);
+  return groupSessionsByDay(sessions).filter((group) => group.dateKey >= startKey);
+}
+
 /** "Today · Oct 12" for today's bucket, otherwise "Wed · Oct 7", both in `locale`. */
 export function formatDayGroupLabel(dateKey: string, todayKey: string, locale: string): string {
   // Parsed as local midnight, matching getLocalDateKey's own local-time basis.
@@ -66,25 +84,26 @@ export function formatDayGroupLabel(dateKey: string, todayKey: string, locale: s
   return clockText.dayLabel(weekday, datePart);
 }
 
-/** A clocked-in shift's live worked seconds, keyed by when it started. */
+/** A shift not (yet) in the completed list — running, or just clocked out — keyed by when it started. */
 export interface ActiveShiftTotal {
   startTime: number;
   seconds: number;
 }
 
 /**
- * Today's and the rolling-7-day total worked seconds. Every shift counts
- * whole toward the day it started — the same rule the timesheets use — so
- * an overnight shift that is still running counts toward the same day it
- * will once it is clocked out, and the totals don't jump at clock-out.
+ * Today's and the last 7 days' total worked seconds (see
+ * `getLast7DaysStartKey`). Every shift counts whole toward the day it
+ * started — the same rule the timesheets use — so an overnight shift that is
+ * still running counts toward the same day it will once it is clocked out,
+ * and the totals don't jump at clock-out.
  */
 export function getTodayAndLast7DaysSeconds(
   sessions: ClockEvent[],
   now: Date,
-  activeShift?: ActiveShiftTotal | null,
+  extraShifts: ActiveShiftTotal[] = [],
 ): { todaySeconds: number; last7DaysSeconds: number } {
   const todayKey = getLocalDateKey(now.getTime());
-  const windowStart = now.getTime() - SEVEN_DAYS_MS;
+  const windowStartKey = getLast7DaysStartKey(now);
 
   const shifts: ActiveShiftTotal[] = sessions
     .filter((session) => session.endTime != null)
@@ -92,13 +111,14 @@ export function getTodayAndLast7DaysSeconds(
       startTime: session.startTime,
       seconds: getSessionDurationSeconds(session),
     }));
-  if (activeShift) shifts.push(activeShift);
+  shifts.push(...extraShifts);
 
   let todaySeconds = 0;
   let last7DaysSeconds = 0;
   for (const { startTime, seconds } of shifts) {
-    if (getLocalDateKey(startTime) === todayKey) todaySeconds += seconds;
-    if (startTime >= windowStart) last7DaysSeconds += seconds;
+    const dayKey = getLocalDateKey(startTime);
+    if (dayKey === todayKey) todaySeconds += seconds;
+    if (dayKey >= windowStartKey) last7DaysSeconds += seconds;
   }
   return { todaySeconds, last7DaysSeconds };
 }

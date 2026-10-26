@@ -182,9 +182,7 @@ test.describe('Huddle composer — individual actions', () => {
     await submitPost(page);
 
     // The wrap-up starts with the plan's tickets, named by title; dropping one
-    // keeps the other. It opens collapsed to a single line, which hides the
-    // chips until focused.
-    await page.getByRole('textbox', { name: 'Write a wrap-up' }).click();
+    // keeps the other. Seeded like this it opens expanded, chips showing.
     for (const title of titles) {
       await expect(
         page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),

@@ -76,4 +76,31 @@ describe('useRecentSessions totals', () => {
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.todaySeconds).toBe(1860);
   });
+
+  it('keeps a just-finished shift in the totals until its record loads', async () => {
+    getRecentSessions.mockResolvedValue([]);
+    const running = event({ id: 'shift', startTime: NOW - 3 * 60 * 60 * 1000 });
+    const { result, rerender } = renderHook(
+      ({ active }) => useRecentSessions('team-a', active, NOW),
+      { initialProps: { active: running as ClockEvent | null } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.todaySeconds).toBe(3 * 3600);
+
+    // Clocking out: the reload is still in flight, then fails. 3h stays.
+    let failReload!: (e: Error) => void;
+    getRecentSessions.mockReturnValue(new Promise((_, reject) => (failReload = reject)));
+    rerender({ active: null });
+    expect(result.current.todaySeconds).toBe(3 * 3600);
+    failReload(new Error('network'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.todaySeconds).toBe(3 * 3600);
+
+    // Once a reload includes the finished shift, it is counted once, not twice.
+    getRecentSessions.mockResolvedValue([{ ...running, endTime: NOW, workSeconds: 3 * 3600 }]);
+    rerender({ active: running });
+    rerender({ active: null });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    expect(result.current.todaySeconds).toBe(3 * 3600);
+  });
 });

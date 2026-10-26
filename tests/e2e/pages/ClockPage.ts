@@ -1,4 +1,4 @@
-import { type Page, type Locator } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
@@ -48,17 +48,15 @@ export class ClockPage extends BasePage {
   }
 
   /**
-   * Clicking the collapsed single-line stand-in swaps in the real editor.
-   * Already-expanded (or the composer genuinely absent) is fine too — waits
-   * briefly rather than trusting an instant `isVisible()`, which would read
-   * false during the moment right after navigation before React paints.
+   * Clicking the collapsed single-line stand-in swaps in the real editor. A
+   * composer that already holds something (a wrap-up seeded with its plan)
+   * opens expanded instead, so this waits for whichever of the two appears
+   * rather than trusting an instant `isVisible()`, which would read false
+   * during the moment right after navigation before React paints.
    */
   private async expandComposer(collapsedInput: Locator) {
-    const appeared = await collapsedInput
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
-    if (appeared) await collapsedInput.click();
+    await collapsedInput.or(this.proseMirror).first().waitFor({ state: 'visible', timeout: 10000 });
+    if (await collapsedInput.isVisible()) await collapsedInput.click();
   }
 
   async goto() {
@@ -112,15 +110,16 @@ export class ClockPage extends BasePage {
   }
 
   /**
-   * Type a wrap-up in the editor
+   * Type a wrap-up in the editor. `planText` is the session's plan, which the
+   * wrap-up opens seeded with.
    */
-  async typeWrapUp(wrapUpText: string) {
+  async typeWrapUp(wrapUpText: string, planText?: string) {
     await this.expandComposer(this.collapsedWrapUpInput);
     await this.proseMirror.waitFor({ state: 'visible', timeout: 10000 });
     // The element can be visible a tick before RichEditor finishes hydrating
     // the seeded plan text into it — reading innerText right away occasionally
     // raced an empty document, losing the plan when merged below.
-    await this.page.waitForTimeout(300);
+    if (planText) await expect(this.proseMirror).toContainText(planText, { timeout: 10000 });
     // Rebuild the content deterministically to avoid occasional selection races
     // that can replace the plan text with only the wrap-up.
     const existingText = (await this.proseMirror.innerText()).trim();

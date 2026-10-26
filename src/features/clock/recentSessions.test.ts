@@ -5,6 +5,7 @@ import {
   formatDayGroupLabel,
   getSessionDurationSeconds,
   getTodayAndLast7DaysSeconds,
+  groupLast7DaysByDay,
   groupSessionsByDay,
   isUnderOneMinute,
 } from './recentSessions';
@@ -126,7 +127,7 @@ describe('formatDayGroupLabel', () => {
 });
 
 describe('getTodayAndLast7DaysSeconds', () => {
-  it('sums only today for todaySeconds, and the rolling 7-day window for last7DaysSeconds', () => {
+  it('sums only today for todaySeconds, and the last 7 calendar days for last7DaysSeconds', () => {
     const now = new Date(2026, 9, 12, 12, 0, 0);
     const todayStart = new Date(2026, 9, 12, 9, 0, 0).getTime();
     const sixDaysAgo = now.getTime() - 6 * DAY;
@@ -143,6 +144,23 @@ describe('getTodayAndLast7DaysSeconds', () => {
     expect(last7DaysSeconds).toBe(2 * 3600);
   });
 
+  it('covers the same days as the Recent sessions table', () => {
+    // 7 days ago at 13:00 is under 168 hours before noon today, but it is an
+    // eighth calendar day: the table leaves that row out, so must the total.
+    const now = new Date(2026, 9, 12, 12, 0, 0);
+    const eighthDay = new Date(2026, 9, 5, 13, 0, 0).getTime();
+    const firstDay = new Date(2026, 9, 6, 8, 0, 0).getTime();
+    const sessions = [
+      session({ startTime: eighthDay, endTime: eighthDay + HOUR }),
+      session({ startTime: firstDay, endTime: firstDay + HOUR }),
+    ];
+
+    const groups = groupLast7DaysByDay(sessions, now);
+    expect(groups.map((g) => g.dateKey)).toEqual(['2026-10-06']);
+    const tableSeconds = groups.reduce((sum, g) => sum + g.totalSeconds, 0);
+    expect(getTodayAndLast7DaysSeconds(sessions, now).last7DaysSeconds).toBe(tableSeconds);
+  });
+
   it('ignores sessions still clocked in (no endTime)', () => {
     const now = new Date(2026, 9, 12, 12, 0, 0);
     const openSession = session({ startTime: now.getTime() - HOUR, endTime: null });
@@ -156,7 +174,7 @@ describe('getTodayAndLast7DaysSeconds — a shift still clocked in', () => {
   it('adds a running shift that started today to both totals', () => {
     const now = new Date(2026, 9, 12, 12, 0, 0);
     const startTime = new Date(2026, 9, 12, 10, 0, 0).getTime();
-    const totals = getTodayAndLast7DaysSeconds([], now, { startTime, seconds: 2 * 3600 });
+    const totals = getTodayAndLast7DaysSeconds([], now, [{ startTime, seconds: 2 * 3600 }]);
     expect(totals).toEqual({ todaySeconds: 2 * 3600, last7DaysSeconds: 2 * 3600 });
   });
 
@@ -166,7 +184,7 @@ describe('getTodayAndLast7DaysSeconds — a shift still clocked in', () => {
     const now = new Date(2026, 9, 12, 1, 0, 0);
     const startTime = new Date(2026, 9, 11, 23, 0, 0).getTime();
 
-    const running = getTodayAndLast7DaysSeconds([], now, { startTime, seconds: 2 * 3600 });
+    const running = getTodayAndLast7DaysSeconds([], now, [{ startTime, seconds: 2 * 3600 }]);
     const finished = getTodayAndLast7DaysSeconds(
       [session({ startTime, endTime: now.getTime(), workSeconds: 2 * 3600 })],
       now,

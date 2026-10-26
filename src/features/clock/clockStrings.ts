@@ -30,6 +30,19 @@ export const clockText = {
   today: 'Today',
   last7Days: 'Last 7 days',
   since: (time: string) => `since ${time}`,
+  /** Which team the clock action targets — beside the Clock in/out controls. */
+  team: (clockedIn: boolean, teamName: string) =>
+    clockedIn ? `Clocked in to ${teamName}` : `Clocking in to ${teamName}`,
+  planRequired: 'Plan required for this team',
+  openTicket: (title: string) => `Open ticket: ${title}`,
+
+  // ── Clock actions ──
+  clockIn: 'Clock in',
+  clockOut: 'Clock out',
+  takeBreak: 'Take a break',
+  /** The break button's accessible name — the same as the header's break control. */
+  takeBreakLabel: 'Start break',
+  resumeWork: 'Resume work',
 
   // ── Composer ──
   prompt: (mode: ComposerMode) =>
@@ -53,6 +66,8 @@ export const clockText = {
   /** Between the two ways to clock in or out: "Clock in with a plan or Clock in with Pulse". */
   or: 'or',
   loadingPlan: 'Loading your plan…',
+  postFailed: 'Failed to post. Please try again.',
+  noWrapUpTeam: 'No team for this session — cannot post a wrap-up.',
   shortcutHint: (mode: ComposerMode, empty: boolean) => {
     const action = mode === 'plan' ? 'clock in' : 'clock out';
     if (!empty) return `⌘↵ to post and ${action}`;
@@ -64,7 +79,7 @@ export const clockText = {
   recentSessions: 'Recent sessions',
   viewAll: 'View all',
   loadingSessions: 'Loading sessions…',
-  noSessions: 'No sessions yet.',
+  noSessions: 'No sessions in the last 7 days.',
   columnDay: 'Day',
   columnTime: 'Time',
   columnTracked: 'Tracked',
