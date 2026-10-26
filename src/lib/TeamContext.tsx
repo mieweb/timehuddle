@@ -35,6 +35,7 @@ import {
   clockApi,
   type Team,
   type ClockEvent,
+  type SourcePrefix,
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
@@ -120,6 +121,7 @@ export interface TeamContextValue {
     slug: string;
     allowAutoJoin: boolean;
     role: 'owner' | 'admin' | 'member' | null;
+    sourcePrefixes?: SourcePrefix[];
   }>;
   teamsReady: boolean;
   refetchTeams: () => void;
@@ -194,6 +196,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       slug: string;
       allowAutoJoin: boolean;
       role: 'owner' | 'admin' | 'member' | null;
+      sourcePrefixes?: SourcePrefix[];
     }>
   >([]);
   const [teamsReady, setTeamsReady] = useState(false);
@@ -274,8 +277,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refetchEnterprises]);
 
   useEffect(() => {
+    // The session fetched the list a moment ago and seeds it above; the fetch that
+    // matters is the one after the personal team exists, which can auto-join an org.
+    if (userId && !teamsReady) return;
     refetchOrganizations();
-  }, [refetchOrganizations, teamsReady, username]);
+  }, [refetchOrganizations, teamsReady, username, userId]);
 
   // Retry org fetch once if empty — handles race condition where
   // Accounts.onLogin auto-join hasn't completed when the first fetch fires.
@@ -573,6 +579,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
+  // The last REST read of the active clock: when it started, and whether it succeeded.
+  const lastClockRead = useRef<{ startedAt: number; succeeded: Promise<boolean> } | null>(null);
 
   const refetchClock = useCallback(async () => {
     if (!userId) {
@@ -580,14 +588,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setClockReady(true);
       return;
     }
-    try {
-      const event = await clockApi.getActive();
-      setActiveClockEvent(event);
-    } catch {
-      setActiveClockEvent(null);
-    } finally {
-      setClockReady(true);
-    }
+    const read = clockApi.getActive().then(
+      (event) => {
+        setActiveClockEvent(event);
+        return true;
+      },
+      () => {
+        setActiveClockEvent(null);
+        return false;
+      },
+    );
+    lastClockRead.current = { startedAt: Date.now(), succeeded: read };
+    await read;
+    setClockReady(true);
   }, [userId]);
 
   // Initial fetch (fallback if the DDP connection fails)
@@ -635,14 +648,30 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
+    // The initial snapshot can land across several notifications; a partial one (teammates only)
+    // would clear the REST-hydrated event and lose its break details, so wait for ready.
+    let snapshotReady = false;
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      if (snapshotReady) applyLiveDocs();
+    });
+    // Only refetch if we have a valid token — avoids 500 errors when
+    // the subscription ready fires before auth is fully established
+    const recoverClock = () => {
+      if (localStorage.getItem('meteor_resume_token')) void refetchClock();
+    };
     const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
+      snapshotReady = true;
       applyLiveDocs();
-      // Only refetch if we have a valid token — avoids 500 errors when
-      // the subscription ready fires before auth is fully established
-      if (localStorage.getItem('meteor_resume_token')) {
-        void refetchClock();
+      // The initial fetch usually started moments ago; asking again returns the same event.
+      // It can't restore a cross-team clock or break details if it failed, so retry then.
+      const recent = lastClockRead.current;
+      if (recent && Date.now() - recent.startedAt < 2000) {
+        void recent.succeeded.then((ok) => {
+          if (!ok) recoverClock();
+        });
+        return;
       }
+      recoverClock();
     });
 
     return () => {

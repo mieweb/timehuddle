@@ -186,6 +186,37 @@ describe('applyFilters', () => {
       expect(applyFilters([redmine, huddleRef], EMPTY_FILTERS, '#a3f')).toEqual([huddleRef]);
     });
 
+    it('finds a prefixed ID by its number, and not a longer one (#689)', () => {
+      const pm = make({ key: 'redmine:233', sourceId: 'redmine', id: '233', ref: 'PM-233' });
+      const th = make({ key: 'huddle:12', id: '12', ref: 'TH-12' });
+      const th120 = make({ key: 'huddle:120', id: '120', ref: 'TH-120' });
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#233')).toEqual([pm]);
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#th-12')).toEqual([th, th120]);
+      expect(applyFilters([pm, th, th120], EMPTY_FILTERS, '#2')).toEqual([pm]);
+    });
+
+    it('finds a ticket by the outside ID it is linked to or carries (#689)', () => {
+      const linked = make({
+        key: 'huddle:20',
+        id: '20',
+        ref: 'TH-20',
+        linked: { sourceId: 'redmine', id: '482', ref: 'PM-482', status: null, assignee: null },
+      });
+      const carried = make({
+        key: 'huddle:21',
+        id: '21',
+        ref: 'TH-21',
+        externalRef: {
+          url: 'https://github.com/mieweb/timehuddle/issues/223',
+          label: 'GitHub',
+          id: 'timehuddle-223',
+        },
+      });
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, 'pm-482')).toEqual([linked]);
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, '#482')).toEqual([linked]);
+      expect(applyFilters([linked, carried], EMPTY_FILTERS, 'timehuddle-223')).toEqual([carried]);
+    });
+
     it('does not match a title that contains the reference', () => {
       const mention = make({ key: 'huddle:7', id: '7', ref: '#7', title: 'Follow-up to #9' });
       expect(applyFilters([mention], EMPTY_FILTERS, '#9')).toEqual([]);
@@ -194,7 +225,39 @@ describe('applyFilters', () => {
   });
 
   it('filters by a source-specific native status', () => {
-    expect(applyFilters(all, withFilters({ status: 'Feedback' }), '')).toEqual([redmine]);
+    expect(applyFilters(all, withFilters({ statuses: ['Feedback'] }), '')).toEqual([redmine]);
+  });
+
+  it('lists a ticket assigned to any of several chosen people, or left unassigned', () => {
+    const ada = make({ key: 'huddle:2', id: '2', assignees: [{ id: 'u1', name: 'Ada' }] });
+    const grace = make({ key: 'huddle:3', id: '3', assignees: [{ id: 'u2', name: 'Grace' }] });
+    const linus = make({ key: 'huddle:4', id: '4', assignees: [{ id: 'u3', name: 'Linus' }] });
+    const nobody = make({ key: 'huddle:5', id: '5', assignees: [] });
+    const rows = [ada, grace, linus, nobody];
+
+    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u1', 'huddle:u2'] }), '')).toEqual([
+      ada,
+      grace,
+    ]);
+    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u3', UNASSIGNED] }), '')).toEqual([
+      linus,
+      nobody,
+    ]);
+  });
+
+  it('lists a ticket in any of several chosen projects', () => {
+    const platform = make({ key: 'huddle:2', id: '2', container: { id: '7', name: 'Platform' } });
+    const billing = make({ key: 'huddle:3', id: '3', container: { id: '8', name: 'Billing' } });
+    const support = make({ key: 'huddle:4', id: '4', container: { id: '9', name: 'Support' } });
+    const loose = make({ key: 'huddle:5', id: '5', container: null });
+
+    expect(
+      applyFilters(
+        [platform, billing, support, loose],
+        withFilters({ containers: ['huddle:7', 'huddle:9'] }),
+        '',
+      ),
+    ).toEqual([platform, support]);
   });
 
   it('matches assignees by source-namespaced key', () => {
@@ -206,13 +269,13 @@ describe('applyFilters', () => {
       id: '2',
       assignees: [{ id: 'u1', name: 'Ada' }],
     });
-    const result = applyFilters([mine, theirs], withFilters({ assignee: 'huddle:u1' }), '');
+    const result = applyFilters([mine, theirs], withFilters({ assignees: ['huddle:u1'] }), '');
     expect(result).toEqual([mine]);
   });
 
   it('finds unassigned tickets', () => {
     const assigned = make({ key: 'huddle:2', id: '2', assignees: [{ id: 'u1', name: 'Ada' }] });
-    expect(applyFilters([huddle, assigned], withFilters({ assignee: UNASSIGNED }), '')).toEqual([
+    expect(applyFilters([huddle, assigned], withFilters({ assignees: [UNASSIGNED] }), '')).toEqual([
       huddle,
     ]);
   });
@@ -231,7 +294,7 @@ describe('applyFilters', () => {
     it('matches the signed-in user across every source at once', () => {
       const result = applyFilters(
         [myHuddle, myRedmine, theirs, huddle],
-        withFilters({ assignee: ME }),
+        withFilters({ assignees: [ME] }),
         '',
         meKeys,
       );
@@ -239,7 +302,7 @@ describe('applyFilters', () => {
     });
 
     it('still works for Huddle before the Redmine id has loaded', () => {
-      const result = applyFilters([myHuddle, myRedmine], withFilters({ assignee: ME }), '', [
+      const result = applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }), '', [
         'huddle:u1',
       ]);
       expect(result).toEqual([myHuddle]);
@@ -248,22 +311,26 @@ describe('applyFilters', () => {
     it('does not match a same-numbered assignee in another namespace', () => {
       // Redmine account 8 must not be matched by a Huddle user literally id "8".
       const huddleEight = make({ key: 'huddle:9', id: '9', assignees: [{ id: '8', name: 'Ada' }] });
-      expect(applyFilters([huddleEight], withFilters({ assignee: ME }), '', ['redmine:8'])).toEqual(
-        [],
-      );
+      expect(
+        applyFilters([huddleEight], withFilters({ assignees: [ME] }), '', ['redmine:8']),
+      ).toEqual([]);
     });
 
     it('matches nothing rather than everything when the user is unknown', () => {
-      expect(applyFilters([myHuddle, myRedmine], withFilters({ assignee: ME }), '')).toEqual([]);
+      expect(applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }), '')).toEqual([]);
     });
   });
 
   it('finds tickets with no priority', () => {
     const high = make({ key: 'huddle:2', id: '2', priority: { native: 'high', rank: 3 } });
-    expect(applyFilters([huddle, high], withFilters({ priority: NO_PRIORITY }), '')).toEqual([
+    expect(applyFilters([huddle, high], withFilters({ priorities: [NO_PRIORITY] }), '')).toEqual([
       huddle,
     ]);
-    expect(applyFilters([huddle, high], withFilters({ priority: 'high' }), '')).toEqual([high]);
+    expect(applyFilters([huddle, high], withFilters({ priorities: ['high'] }), '')).toEqual([high]);
+    // Several at once: a ticket with any of them is listed.
+    expect(
+      applyFilters([huddle, high], withFilters({ priorities: ['high', NO_PRIORITY] }), ''),
+    ).toEqual([huddle, high]);
   });
 });
 

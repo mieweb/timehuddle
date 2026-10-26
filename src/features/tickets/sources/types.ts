@@ -6,7 +6,7 @@
  * external issue, which stores that issue's id and nothing else (`linked`).
  * See README.md for how to add a source.
  */
-import type { TicketSourceId } from '../../../lib/api';
+import type { SourcePrefix, TicketSourceId } from '../../../lib/api';
 
 /**
  * Registered source identifiers. Defined in `lib/api` because the timer
@@ -100,7 +100,8 @@ export interface UnifiedTicket {
   /** Set when the ticket lives elsewhere and the row should link out. */
   externalUrl: string | null;
   /** A related link the ticket points at, e.g. a Huddle ticket's GitHub issue. */
-  externalRef: { url: string; label: string } | null;
+  /** A link the ticket carries; `id` is its outside ID, e.g. `timehuddle-223`, when it has one. */
+  externalRef: { url: string; label: string; id: string | null } | null;
   /** Huddle-only; always false for other sources. */
   sharedWithTimeharbor: boolean;
   /** The external issue this ticket is linked to, or null. */
@@ -117,7 +118,9 @@ export interface UnifiedTicket {
 export interface TicketSourceContext {
   userId: string | null;
   /** Teams the signed-in user belongs to, for team-scoped sources. */
-  teams: { id: string; name: string }[];
+  teams: { id: string; name: string; ticketPrefix?: string }[];
+  /** The servers the viewer's organization has named, for outside IDs like `PM-233`. */
+  sourcePrefixes?: readonly SourcePrefix[];
   /** Resolves a Huddle user id to a display name. */
   resolveMemberName: (userId: string) => string | null;
   /**
@@ -144,6 +147,11 @@ export interface TicketSource<Raw = unknown> {
   isAvailable: (ctx: TicketSourceContext) => boolean;
   fetch: (ctx: TicketSourceContext) => Promise<Raw[]>;
   toUnified: (raw: Raw, ctx: TicketSourceContext) => UnifiedTicket;
+  /**
+   * Re-resolves member names on a row already normalized, so member data arriving
+   * later renames people without fetching the source again.
+   */
+  relabel?: (item: UnifiedTicket, ctx: TicketSourceContext) => UnifiedTicket;
 }
 
 /**
@@ -157,6 +165,7 @@ export interface AnyTicketSource {
   capabilities: SourceCapabilities;
   isAvailable: (ctx: TicketSourceContext) => boolean;
   load: (ctx: TicketSourceContext) => Promise<UnifiedTicket[]>;
+  relabel?: (item: UnifiedTicket, ctx: TicketSourceContext) => UnifiedTicket;
 }
 
 export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
@@ -165,6 +174,7 @@ export function defineSource<Raw>(source: TicketSource<Raw>): AnyTicketSource {
     label: source.label,
     capabilities: source.capabilities,
     isAvailable: source.isAvailable,
+    relabel: source.relabel,
     load: async (ctx) => {
       const raw = await source.fetch(ctx);
       return raw.map((item) => source.toUnified(item, ctx));

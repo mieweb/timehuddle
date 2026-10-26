@@ -7,6 +7,7 @@
  * differently.
  */
 import { displaySourceId, type TicketSourceId, type UnifiedTicket } from './sources';
+import { leadingRefOf, refNumber } from './ticketIds';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
@@ -15,9 +16,9 @@ export const UNASSIGNED = '__unassigned__';
  *
  * It cannot be a concrete assignee value like the derived options are: "me" is
  * one person holding a different id in every source's namespace (a Meteor id in
- * Huddle, a numeric account id in Redmine), while `filters.assignee` holds a
- * single string. So the sentinel is resolved at filter time against the caller's
- * `meKeys` instead — see `applyFilters`.
+ * Huddle, a numeric account id in Redmine), while a value in
+ * `filters.assignees` is a single string. So the sentinel is resolved at filter
+ * time against the caller's `meKeys` instead — see `applyFilters`.
  */
 export const ME = '__me__';
 /** Sentinel for the "No priority" option. */
@@ -26,22 +27,33 @@ export const NO_PRIORITY = '__none__';
 export interface TicketFilters {
   /** Empty means "every source" — no source is hidden by default. */
   sources: TicketSourceId[];
-  status: string | null;
-  priority: string | null;
-  assignee: string | null;
-  container: string | null;
+  /** Any of these statuses, by native name. Empty means "any status". */
+  statuses: string[];
+  /** Any of these priorities. Empty means "any". May hold `NO_PRIORITY`. */
+  priorities: string[];
+  /**
+   * Any of these: a ticket matches when one of its assignees is among them.
+   * Empty means "anyone". May hold the `ME` and `UNASSIGNED` sentinels.
+   */
+  assignees: string[];
+  /** Any of these projects. Empty means "every project". */
+  containers: string[];
 }
 
 export const EMPTY_FILTERS: TicketFilters = {
   sources: [],
-  status: null,
-  priority: null,
-  assignee: null,
-  container: null,
+  statuses: [],
+  priorities: [],
+  assignees: [],
+  containers: [],
 };
 
 export const hasActiveFilters = (f: TicketFilters): boolean =>
-  f.sources.length > 0 || Boolean(f.status || f.priority || f.assignee || f.container);
+  f.sources.length > 0 ||
+  f.statuses.length > 0 ||
+  f.priorities.length > 0 ||
+  f.assignees.length > 0 ||
+  f.containers.length > 0;
 
 /** A selectable value in a column's filter menu. */
 export interface FilterOption {
@@ -136,12 +148,20 @@ export function toggleSort(current: SortSpec, field: SortField): SortSpec {
   return { field, direction: startsDescending ? 'desc' : 'asc' };
 }
 
+/** Every ID a ticket goes by, lowercase: its own, and the outside one it is linked to or carries. */
+function ticketRefs(ticket: UnifiedTicket): string[] {
+  return [ticket.ref, ticket.linked?.ref, ticket.externalRef?.id]
+    .filter((ref): ref is string => !!ref)
+    .map((ref) => ref.toLowerCase());
+}
+
 /**
  * Match a query against the fields a user would reasonably search by.
  *
  * Two prefixes narrow it, the same way for every source:
  * - `@name` matches an assignee's name; `@` alone matches any assigned ticket
- * - `#ref` matches the start of the row's reference, so `#9` is not `#19`
+ * - `#ref` matches the start of any ID the ticket goes by, or of the number in
+ *   one, so `#233` finds `PM-233`, and `#9` is not `#19`
  */
 export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -156,11 +176,17 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
       (assignee) => assignee.name !== assignee.id && assignee.name.toLowerCase().includes(name),
     );
   }
-  if (q.startsWith('#')) return ticket.ref.toLowerCase().startsWith(q);
+  const refs = ticketRefs(ticket);
+  if (q.startsWith('#')) {
+    const id = q.slice(1);
+    return refs.some(
+      (ref) => ref.replace(/^#/, '').startsWith(id) || (refNumber(ref)?.startsWith(id) ?? false),
+    );
+  }
 
   return (
     ticket.title.toLowerCase().includes(q) ||
-    ticket.ref.toLowerCase().includes(q) ||
+    refs.some((ref) => ref.includes(q)) ||
     (ticket.container?.name.toLowerCase().includes(q) ?? false) ||
     (ticket.externalRef?.url.toLowerCase().includes(q) ?? false)
   );
@@ -184,29 +210,36 @@ export function applyFilters(
     if (filters.sources.length > 0 && !filters.sources.includes(displaySourceId(ticket))) {
       return false;
     }
-    if (filters.status && ticket.status.native !== filters.status) return false;
-
-    if (filters.priority === NO_PRIORITY) {
-      if (ticket.priority) return false;
-    } else if (filters.priority && ticket.priority?.native !== filters.priority) {
+    if (filters.statuses.length > 0 && !filters.statuses.includes(ticket.status.native)) {
       return false;
     }
 
-    if (filters.assignee === UNASSIGNED) {
-      if (ticket.assignees.length > 0) return false;
-    } else if (filters.assignee === ME) {
-      // "Me" matches against the whole key set, not a single value (see `ME`).
-      const match = ticket.assignees.some((a) => meKeySet.has(`${ticket.sourceId}:${a.id}`));
-      if (!match) return false;
-    } else if (filters.assignee) {
+    if (
+      filters.priorities.length > 0 &&
+      !filters.priorities.includes(ticket.priority?.native ?? NO_PRIORITY)
+    ) {
+      return false;
+    }
+
+    if (filters.assignees.length > 0) {
       // Assignee keys are source-namespaced; see assigneeOptions.
-      const match = ticket.assignees.some((a) => `${ticket.sourceId}:${a.id}` === filters.assignee);
+      const keys = ticket.assignees.map((a) => `${ticket.sourceId}:${a.id}`);
+      const match = filters.assignees.some((wanted) =>
+        wanted === UNASSIGNED
+          ? keys.length === 0
+          : wanted === ME
+            ? // "Me" matches against the whole key set, not a single value (see `ME`).
+              keys.some((key) => meKeySet.has(key))
+            : keys.includes(wanted),
+      );
       if (!match) return false;
     }
 
     if (
-      filters.container &&
-      (!ticket.container || `${ticket.sourceId}:${ticket.container.id}` !== filters.container)
+      filters.containers.length > 0 &&
+      !(
+        ticket.container && filters.containers.includes(`${ticket.sourceId}:${ticket.container.id}`)
+      )
     ) {
       return false;
     }
@@ -220,7 +253,7 @@ function compare(a: UnifiedTicket, b: UnifiedTicket, field: SortField): number {
     case 'title':
       return a.title.localeCompare(b.title);
     case 'ref':
-      return a.ref.localeCompare(b.ref, undefined, { numeric: true });
+      return leadingRefOf(a).localeCompare(leadingRefOf(b), undefined, { numeric: true });
     case 'source':
       return displaySourceId(a).localeCompare(displaySourceId(b));
     case 'status':

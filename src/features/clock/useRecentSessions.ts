@@ -21,6 +21,12 @@ import { clockApi, type ClockEvent } from '../../lib/api';
 import { getActiveClockSeconds } from '../../lib/timeUtils';
 import { getTodayAndLast7DaysSeconds } from './recentSessions';
 
+// The server's cap on `clock.events`. The panel shows the last 7 days that
+// have sessions and the totals span a rolling 7 days, so the 8 the page
+// once listed isn't enough. 100 covers any realistic week while keeping the
+// read narrowed to this team's finished sessions.
+const RECENT_SESSIONS_FETCHED = 100;
+
 export function useRecentSessions(
   teamId: string | null | undefined,
   activeClockEvent: ClockEvent | null | undefined,
@@ -39,13 +45,9 @@ export function useRecentSessions(
     let cancelled = false;
     setLoading(true);
     clockApi
-      .getEvents()
+      .getRecentSessions(teamId, RECENT_SESSIONS_FETCHED)
       .then((events) => {
-        if (cancelled) return;
-        const completed = events
-          .filter((e) => e.teamId === teamId && e.endTime != null)
-          .sort((a, b) => b.startTime - a.startTime);
-        setSessions(completed);
+        if (!cancelled) setSessions(events);
       })
       // A failed refresh keeps the last good history rather than zeroing the
       // totals; `teamSessions` below still hides it if it's another team's.

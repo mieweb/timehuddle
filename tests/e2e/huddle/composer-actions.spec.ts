@@ -34,6 +34,7 @@ import {
   composerEditor,
   findPostByText,
   getUserIdByEmail,
+  holdUploadResponses,
   mentionMember,
   openComposer,
   openPostInInbox,
@@ -164,7 +165,11 @@ test.describe('Huddle composer — individual actions', () => {
     const postText = `Multi-ticket post ${Date.now()}`;
     await composerEditor(page).fill(postText);
     for (const title of titles) await attachTicket(page, title);
-    await expect(page.getByRole('button', { name: /^Remove ticket #/ })).toHaveCount(2);
+    for (const title of titles) {
+      await expect(
+        page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),
+      ).toBeVisible();
+    }
 
     // A ticket already attached is marked in the picker and can't be added again.
     await page.getByRole('button', { name: 'Ticket', exact: true }).click();
@@ -176,14 +181,18 @@ test.describe('Huddle composer — individual actions', () => {
 
     await submitPost(page);
 
-    // The wrap-up starts with the plan's tickets; dropping one keeps the other.
-    // It opens collapsed to a single line, which hides the chips until focused.
+    // The wrap-up starts with the plan's tickets, named by title; dropping one
+    // keeps the other. It opens collapsed to a single line, which hides the
+    // chips until focused.
     await page.getByRole('textbox', { name: 'Write a wrap-up' }).click();
-    const chips = page.getByRole('button', { name: /^Remove ticket #/ });
-    await expect(chips).toHaveCount(2);
+    for (const title of titles) {
+      await expect(
+        page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),
+      ).toBeVisible();
+    }
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
-    await chips.first().click();
+    await page.getByRole('button', { name: `Remove ticket ${titles[0]}`, exact: true }).click();
     await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
     await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
       timeout: 30000,
@@ -256,6 +265,9 @@ test.describe('Huddle composer — upload progress', () => {
   test('shows a progress bar while a video uploads and blocks posting until it lands', async ({
     page,
   }) => {
+    // Without this the fixture lands before the bar can be inspected.
+    await holdUploadResponses(page);
+
     await composerEditor(page).fill(`Upload progress ${Date.now()}`);
 
     const progressBar = page.locator('[data-testid="post-progress-bar"]');

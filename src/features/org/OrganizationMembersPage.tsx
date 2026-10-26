@@ -32,9 +32,11 @@ import {
   type OrganizationInvitation,
   type SettingsEditView,
   type SettingsPatch,
+  type SourcePrefix,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
+import { TicketIdsCard } from './TicketIdsCard';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
@@ -96,7 +98,13 @@ export const OrganizationMembersPage: React.FC = () => {
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState<{ orgId: string; view: SettingsEditView } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    orgId: string;
+    view: SettingsEditView;
+    canEditTicketIds: boolean;
+    ticketPrefix: string;
+    sourcePrefixes: SourcePrefix[];
+  } | null>(null);
   const loadSeqRef = useRef(0);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -137,7 +145,13 @@ export const OrganizationMembersPage: React.FC = () => {
       const organization = await orgApi.getOrganizationById(selectedOrgId);
       if (isStale()) return;
       setOrganizationName(organization.name);
-      setLoaded({ orgId: selectedOrgId, view: organization });
+      setLoaded({
+        orgId: selectedOrgId,
+        view: organization,
+        canEditTicketIds: organization.canEditTicketIds,
+        ticketPrefix: organization.ticketPrefix,
+        sourcePrefixes: organization.sourcePrefixes,
+      });
       setCanManage(organization.canManage);
 
       if (!organization.canManage) {
@@ -145,12 +159,13 @@ export const OrganizationMembersPage: React.FC = () => {
         return;
       }
 
-      const result = await orgApi.listMembers(selectedOrgId);
+      // The picker options are optional; a search failure must not hide the member list.
+      const [result, searchableUsers] = await Promise.all([
+        orgApi.listMembers(selectedOrgId),
+        orgApi.searchUsers(selectedOrgId, '').catch(() => []),
+      ]);
       if (isStale()) return;
       setUsers(result);
-
-      const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
-      if (isStale()) return;
       setUserOptions(
         searchableUsers.map((u) => ({
           value: u.id,
@@ -182,11 +197,15 @@ export const OrganizationMembersPage: React.FC = () => {
 
     const ddp = getDdpClient();
 
-    // On any org_members change (role updates, add/remove members), refetch the list.
+    // The subscription's first batch is the members just loaded above; only
+    // changes after it (role updates, add/remove members) need a reload.
+    let ready = false;
     const offChange = ddp.onCollectionChange('org_members', () => {
-      void loadUsers();
+      if (ready) void loadUsers();
     });
-    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId]);
+    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId], () => {
+      ready = true;
+    });
 
     return () => {
       offChange();
@@ -201,7 +220,7 @@ export const OrganizationMembersPage: React.FC = () => {
       setSettingsError(null);
       try {
         const view = await orgApi.updateSettings(selectedOrgId, patch);
-        setLoaded({ orgId: selectedOrgId, view });
+        setLoaded((prev) => (prev?.orgId === selectedOrgId ? { ...prev, view } : prev));
         refreshTeamSettings();
         refetchOrganizations();
       } catch (err) {
@@ -438,6 +457,13 @@ export const OrganizationMembersPage: React.FC = () => {
           saving={savingSettings}
           error={settingsError}
           onSave={(patch) => void handleSaveSettings(patch)}
+        />
+      )}
+      {selectedOrgId && loaded?.orgId === selectedOrgId && loaded.canEditTicketIds && (
+        <TicketIdsCard
+          orgId={selectedOrgId}
+          ticketPrefix={loaded.ticketPrefix}
+          sourcePrefixes={loaded.sourcePrefixes}
         />
       )}
       <Card padding="lg" className="space-y-4">

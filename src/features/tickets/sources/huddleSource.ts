@@ -8,8 +8,15 @@
 import { ticketApi, type Ticket } from '../../../lib/api';
 
 import { isWebUrl } from '../link/ticketLinkForm';
+import { outsideIdOf } from '../ticketIds';
 
-import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
+import {
+  ticketKey,
+  type SourceCapabilities,
+  type TicketSource,
+  type TicketSourceContext,
+  type UnifiedTicket,
+} from './types';
 
 /** Huddle statuses that mean "no longer open". Mirrors the Open/Closed tabs. */
 const CLOSED_STATUSES = new Set(['closed', 'reviewed']);
@@ -23,11 +30,12 @@ const PRIORITY_RANK: Record<string, number> = {
 };
 
 /**
- * A Huddle ticket's short reference, e.g. `#3fa2c`. Huddle tickets have no
- * human number, so the table and the ticket page both show the tail of the id.
+ * A Huddle ticket's short reference: its organization's prefix and its number,
+ * e.g. `TH-12`. Before a ticket is numbered, or when the prefix is unknown, the
+ * tail of its id stands in, e.g. `#3fa2c`.
  */
-export function huddleTicketRef(id: string): string {
-  return `#${id.slice(-5)}`;
+export function huddleTicketRef(ticket: { id: string; number?: number }, prefix?: string): string {
+  return ticket.number && prefix ? `${prefix}-${ticket.number}` : `#${ticket.id.slice(-5)}`;
 }
 
 const CAPABILITIES: SourceCapabilities = {
@@ -37,6 +45,14 @@ const CAPABILITIES: SourceCapabilities = {
   openExternal: false,
 };
 
+const assigneesOf = (ids: string[], ctx: TicketSourceContext) =>
+  ids.map((id) => ({ id, name: ctx.resolveMemberName(id) ?? id }));
+
+const creatorOf = (id: string, ctx: TicketSourceContext) => ({
+  id,
+  name: ctx.resolveMemberName(id) ?? `user-${id.slice(-4)}`,
+});
+
 export const huddleSource: TicketSource<Ticket> = {
   id: 'huddle',
   label: 'TimeHuddle',
@@ -45,7 +61,10 @@ export const huddleSource: TicketSource<Ticket> = {
   isAvailable: (ctx) => ctx.teams.length > 0,
 
   fetch: async (ctx) => {
-    const results = await Promise.all(ctx.teams.map((team) => ticketApi.getTickets(team.id)));
+    const results = await Promise.all(
+      // The table never shows descriptions; the edit form fetches the full ticket.
+      ctx.teams.map((team) => ticketApi.getTickets(team.id, { brief: true })),
+    );
     // A ticket can come back from more than one team request; keep the first.
     const seen = new Set<string>();
     const merged: Ticket[] = [];
@@ -59,6 +78,15 @@ export const huddleSource: TicketSource<Ticket> = {
     return merged;
   },
 
+  relabel: (item, ctx) => ({
+    ...item,
+    assignees: assigneesOf(
+      item.assignees.map((a) => a.id),
+      ctx,
+    ),
+    createdBy: item.createdBy && creatorOf(item.createdBy.id, ctx),
+  }),
+
   toUnified: (ticket, ctx): UnifiedTicket => {
     const status = ticket.status || 'open';
     const team = ctx.teams.find((t) => t.id === ticket.teamId);
@@ -66,21 +94,15 @@ export const huddleSource: TicketSource<Ticket> = {
       key: ticketKey('huddle', ticket.id),
       sourceId: 'huddle',
       id: ticket.id,
-      ref: huddleTicketRef(ticket.id),
+      ref: huddleTicketRef(ticket, team?.ticketPrefix),
       title: ticket.title,
       container: team ? { id: team.id, name: team.name } : null,
       status: { native: status, isClosed: CLOSED_STATUSES.has(status) },
       priority: ticket.priority
         ? { native: ticket.priority, rank: PRIORITY_RANK[ticket.priority] ?? 0 }
         : null,
-      assignees: (ticket.assignedTo ?? []).map((id) => ({
-        id,
-        name: ctx.resolveMemberName(id) ?? id,
-      })),
-      createdBy: {
-        id: ticket.createdBy,
-        name: ctx.resolveMemberName(ticket.createdBy) ?? `user-${ticket.createdBy.slice(-4)}`,
-      },
+      assignees: assigneesOf(ticket.assignedTo ?? [], ctx),
+      createdBy: creatorOf(ticket.createdBy, ctx),
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
       externalUrl: null,
@@ -89,6 +111,7 @@ export const huddleSource: TicketSource<Ticket> = {
         ? {
             url: ticket.github,
             label: ticket.github.includes('github.com') ? 'GitHub' : 'Issue link',
+            id: outsideIdOf(ticket.github, ctx.sourcePrefixes ?? []),
           }
         : null,
       sharedWithTimeharbor: ticket.sharedWithTimeharbor === true,

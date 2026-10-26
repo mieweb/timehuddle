@@ -16,7 +16,7 @@ import { huddleTicketRef } from '../tickets/sources/huddleSource';
  */
 export function timerLabel(source: TicketSourceId, id: string, title?: string | null): string {
   if (source === 'redmine') return `#${id}`;
-  return title?.trim() || huddleTicketRef(id);
+  return title?.trim() || huddleTicketRef({ id });
 }
 
 export const ticketTimerText = {

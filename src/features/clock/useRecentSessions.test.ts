@@ -4,12 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ClockEvent } from '../../lib/api';
 import { useRecentSessions } from './useRecentSessions';
 
-const getEvents = vi.fn<() => Promise<ClockEvent[]>>();
-vi.mock('../../lib/api', () => ({ clockApi: { getEvents: () => getEvents() } }));
+const getRecentSessions = vi.fn<() => Promise<ClockEvent[]>>();
+vi.mock('../../lib/api', () => ({ clockApi: { getRecentSessions: () => getRecentSessions() } }));
 
 afterEach(() => {
   cleanup();
-  getEvents.mockReset();
+  getRecentSessions.mockReset();
 });
 
 const NOW = new Date(2026, 9, 12, 12, 0, 0).getTime();
@@ -30,7 +30,7 @@ describe('useRecentSessions totals', () => {
     // 90s finished + 90s running is 3 minutes. Rounding the running part down
     // to a whole minute first would show 2m until clock-out, then jump to 3m.
     const finishedStart = NOW - 3 * 60 * 60 * 1000;
-    getEvents.mockResolvedValue([
+    getRecentSessions.mockResolvedValue([
       event({ startTime: finishedStart, endTime: finishedStart + 90_000, workSeconds: 90 }),
     ]);
     const running = event({ id: 'running', startTime: NOW - 90_000 });
@@ -43,7 +43,7 @@ describe('useRecentSessions totals', () => {
   });
 
   it("never counts another team's sessions, even before a team switch's fetch lands", async () => {
-    getEvents.mockResolvedValue([
+    getRecentSessions.mockResolvedValue([
       event({ startTime: NOW - 60 * 60 * 1000, endTime: NOW - 30 * 60 * 1000, workSeconds: 1800 }),
     ]);
     const { result, rerender } = renderHook(({ teamId }) => useRecentSessions(teamId, null, NOW), {
@@ -51,7 +51,7 @@ describe('useRecentSessions totals', () => {
     });
     await waitFor(() => expect(result.current.todaySeconds).toBe(1800));
 
-    getEvents.mockReturnValue(new Promise(() => {})); // team B's fetch never lands
+    getRecentSessions.mockReturnValue(new Promise(() => {})); // team B's fetch never lands
     rerender({ teamId: 'team-b' });
 
     expect(result.current.todaySeconds).toBe(0);
@@ -59,7 +59,7 @@ describe('useRecentSessions totals', () => {
   });
 
   it('keeps the last loaded history when a refresh fails', async () => {
-    getEvents.mockResolvedValue([
+    getRecentSessions.mockResolvedValue([
       event({ startTime: NOW - 60 * 60 * 1000, endTime: NOW - 30 * 60 * 1000, workSeconds: 1800 }),
     ]);
     const { result, rerender } = renderHook(
@@ -69,7 +69,7 @@ describe('useRecentSessions totals', () => {
     await waitFor(() => expect(result.current.todaySeconds).toBe(1800));
 
     // Clocking in triggers a refresh; it fails, but the 30m already loaded stays.
-    getEvents.mockRejectedValue(new Error('network'));
+    getRecentSessions.mockRejectedValue(new Error('network'));
     rerender({ active: event({ id: 'running', startTime: NOW - 60_000 }) });
 
     await waitFor(() => expect(result.current.loading).toBe(false));

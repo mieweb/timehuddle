@@ -20,7 +20,7 @@ import { faMugHot, faPlay, faStop, faTicket } from '@fortawesome/free-solid-svg-
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Button, cn, Input, Spinner, Text } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -34,7 +34,6 @@ import {
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
-import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import { useTicketSelection } from '../huddle/useTicketSelection';
 import {
@@ -72,6 +71,12 @@ import { useRouter } from '../../ui/router';
  *  (h-12) internally — without overriding the height directly, matching
  *  padding alone still left it visibly taller than the plan/wrap-up button. */
 const COMPACT_PILL = 'h-10 gap-2 rounded-full px-4 text-sm font-semibold shrink-0';
+
+// The rich editor is most of this page's code and only shows while a plan or
+// wrap-up is being written, so it loads on demand.
+const MarkdownEditor = lazy(() =>
+  import('../huddle/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })),
+);
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
@@ -118,13 +123,13 @@ export const ClockPage: React.FC = () => {
   // as "what are you working on?" rather than opening on a full toolbar.
   // Focusing it swaps in the real (rich-text) editor and moves focus there.
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const editorRef = useRef<RichEditorHandle>(null);
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
   const {
+    tickets: selectedTickets,
     ticketIds: selectedTicketIds,
-    setTicketIds: setSelectedTicketIds,
+    setTickets: setSelectedTickets,
     addTicket,
     removeTicket,
   } = useTicketSelection();
@@ -215,17 +220,24 @@ export const ClockPage: React.FC = () => {
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
   const editorMounted = composerMode !== 'wrapup' || seedSettled;
-  // Focuses the editor once it's actually mounted. Two things can make the
-  // mounted instance change out from under this effect, so both are in the
-  // deps: `editorMounted` (expanding a wrap-up composer whose seed lookup is
-  // still in flight renders the loading spinner first — `editorRef` stays
-  // null until this later flips true), and `editorKey` (the seed-apply effect
-  // below bumps it once the fetched plan text arrives, remounting the editor
-  // — via its `key` — with that text; without `editorKey` here, focus landed
-  // on the now-discarded empty instance instead of its replacement).
-  useEffect(() => {
-    if (composerExpanded && editorMounted) editorRef.current?.focus();
-  }, [composerExpanded, editorMounted, editorKey]);
+  // Shown while the plan seed settles and while the editor's code downloads.
+  const composerLoading = (
+    <div
+      className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
+      data-testid="composer-seed-loading"
+    >
+      <Spinner size="sm" label={clockText.loadingPlan} />
+    </div>
+  );
+  // Focuses the editor whenever an instance actually mounts. It only renders
+  // inside the expanded composer, and its code is lazy-loaded, so mount time
+  // isn't known up front: it can follow the seed lookup, the chunk download,
+  // or an `editorKey` remount once the fetched plan text arrives. A stable
+  // callback ref catches every one of those, which an effect on
+  // `composerExpanded`/`editorMounted` can't once the editor arrives later.
+  const focusEditorOnMount = useCallback((editor: RichEditorHandle | null) => {
+    editor?.focus();
+  }, []);
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
@@ -369,10 +381,10 @@ export const ClockPage: React.FC = () => {
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
     setAttachments([]);
-    setSelectedTicketIds([]);
+    setSelectedTickets([]);
     setMentions([]);
     setComposerExpanded(false);
-  }, [composerMode, setSelectedTicketIds]);
+  }, [composerMode, setSelectedTickets]);
 
   // The wrap-up starts with the tickets the plan linked at clock-in, so
   // clocking out keeps them unless removed here. Declared after the reset
@@ -385,9 +397,13 @@ export const ClockPage: React.FC = () => {
     if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
     if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
     ticketsSeededForRef.current = sessionPlan.id;
-    const planTicketIds = (sessionPlan.tickets ?? []).map((t) => t.id);
-    setSelectedTicketIds((prev) => [...new Set([...planTicketIds, ...prev])]);
-  }, [composerMode, sessionPlan, setSelectedTicketIds]);
+    // Seed with the plan's titles too, so the chips can name its tickets.
+    const planTickets = sessionPlan.tickets ?? [];
+    setSelectedTickets((prev) => [
+      ...planTickets,
+      ...prev.filter((t) => !planTickets.some((p) => p.id === t.id)),
+    ]);
+  }, [composerMode, sessionPlan, setSelectedTickets]);
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
@@ -710,32 +726,29 @@ export const ClockPage: React.FC = () => {
                       Mounting earlier gives RichEditor an empty `value` it will never
                       replace, which silently drops the plan text on wrap-up. */}
                   {!editorMounted ? (
-                    <div
-                      className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
-                      data-testid="composer-seed-loading"
-                    >
-                      <Spinner size="sm" label={clockText.loadingPlan} />
-                    </div>
+                    composerLoading
                   ) : (
-                    <MarkdownEditor
-                      ref={editorRef}
-                      key={`${composerMode}-${editorKey}`}
-                      // `text`, not `seedText`: RichEditor reloads when `value` differs
-                      // from its own last output, which is how a pasted image shows inline.
-                      value={text}
-                      onChange={setText}
-                      onSubmit={() =>
-                        void (composerMode === 'plan'
-                          ? postPlanAndClockIn()
-                          : postWrapUpAndClockOut())
-                      }
-                      onFiles={uploadDroppedMedia}
-                    />
+                    <Suspense fallback={composerLoading}>
+                      <MarkdownEditor
+                        ref={focusEditorOnMount}
+                        key={`${composerMode}-${editorKey}`}
+                        // `text`, not `seedText`: RichEditor reloads when `value` differs
+                        // from its own last output, which is how a pasted image shows inline.
+                        value={text}
+                        onChange={setText}
+                        onSubmit={() =>
+                          void (composerMode === 'plan'
+                            ? postPlanAndClockIn()
+                            : postWrapUpAndClockOut())
+                        }
+                        onFiles={uploadDroppedMedia}
+                      />
+                    </Suspense>
                   )}
 
                   {/* ── Ticket / mention / attachment chips ── */}
                   <ComposerChips
-                    selectedTicketIds={selectedTicketIds}
+                    selectedTickets={selectedTickets}
                     onTicketRemove={removeTicket}
                     mentions={mentions}
                     onMentionRemove={handleMentionRemove}

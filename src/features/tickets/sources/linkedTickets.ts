@@ -59,7 +59,13 @@ export function mergeLinked(tickets: UnifiedTicket[]): UnifiedTicket[] {
     return {
       ...ticket,
       status: issue.status,
-      linked: { ...ticket.linked, status: issue.status, assignee: issue.assignees[0] ?? null },
+      // The issue's own ref names it the way its row would, e.g. `PM-482`.
+      linked: {
+        ...ticket.linked,
+        ref: issue.ref,
+        status: issue.status,
+        assignee: issue.assignees[0] ?? null,
+      },
     };
   });
 

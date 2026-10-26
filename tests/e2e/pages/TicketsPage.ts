@@ -2,14 +2,22 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { keepShortStintUpdates } from '../fixtures/timers';
 
+/** Properties with nothing to filter: their pill is the sort itself. */
+const SORT_ONLY_FIELDS = new Set(['Title', 'Updated']);
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * TicketsPage - Page object for the unified ticket table.
+ * TicketsPage - Page object for the unified ticket list.
  *
- * The page has two views over the same table, chosen with a switcher: My Board, which it opens on, and
+ * The page has two views over the same list, chosen with a switcher: My Board, which it opens on, and
  * All Sources, which shows every source (TimeHuddle, Redmine) at once. Rows
  * carry `data-ticket-source` so tests can assert on provenance. Sorting and
- * filtering both live on the column headers; a switch toggles open/closed, and
- * the rows scroll under a fixed header.
+ * filtering are pills in the list header, beside the Open/Closed switcher: a
+ * property only sorted by is a button, one that can be filtered opens a menu.
+ * The pills that do not fit the header's line are reached through a chevron
+ * that opens a pane of them all (`showAllControls`); the rows scroll under
+ * that header.
  *
  * `goto()` lands on All Sources, because that is the table most specs are
  * about; a spec about the board switches with `switchToTab('my-board')`, and
@@ -19,11 +27,13 @@ export class TicketsPage extends BasePage {
   readonly heading: Locator;
   readonly newTicketButton: Locator;
   readonly searchInput: Locator;
+  /** The chevron that opens the pane of every sort and filter pill, when they do not all fit. */
+  readonly showAllControlsButton: Locator;
   readonly openOption: Locator;
   readonly closedOption: Locator;
   readonly clearFiltersButton: Locator;
   readonly selectAllCheckbox: Locator;
-  /** Phone only: turns the rows' checkboxes on ("Select") and off ("Done"). */
+  /** Turns the rows' checkboxes on ("Select") and off ("Done"). */
   readonly selectModeButton: Locator;
   readonly doneSelectingButton: Locator;
   readonly ticketsTab: Locator;
@@ -44,8 +54,10 @@ export class TicketsPage extends BasePage {
     this.searchInput = this.page.getByRole('combobox', {
       name: 'Search tickets and Redmine issues',
     });
-    // Open/Closed is a switcher with counts: beside the search bar on a wide
-    // screen, in the table header on a phone. Only one of them is ever shown.
+    // Open/Closed sits in the list header at every width, labelled with its counts.
+    this.showAllControlsButton = this.page.getByRole('button', {
+      name: /^Show all sort and filter controls/,
+    });
     this.openOption = this.page.getByRole('radio', { name: /^Open tickets/ });
     this.closedOption = this.page.getByRole('radio', { name: /^Closed tickets/ });
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
@@ -72,6 +84,7 @@ export class TicketsPage extends BasePage {
 
   /** Check a ticket row's selection checkbox by title. */
   async selectTicket(title: string) {
+    if (await this.selectModeButton.isVisible()) await this.selectModeButton.click();
     await this.rowByTitle(title).getByRole('checkbox').click();
   }
 
@@ -118,18 +131,52 @@ export class TicketsPage extends BasePage {
     await this.switchToTab('my-board');
   }
 
-  /** The filter trigger inside a column header. */
-  filterTrigger(column: string): Locator {
-    return this.page
-      .getByRole('columnheader', { name: new RegExp(column) })
-      .getByRole('button', { name: new RegExp(`(Filter by|filtered by) ${column}`, 'i') });
+  /** Open the pane of every sort and filter pill, where the header's line cannot hold them. */
+  async showAllControls() {
+    if (await this.showAllControlsButton.isVisible()) await this.showAllControlsButton.click();
   }
 
-  /** Pick a value from a column's filter menu. */
-  async filterBy(column: string, option: string) {
-    await this.filterTrigger(column).click();
-    await this.page.getByRole('menuitem', { name: option, exact: true }).click();
+  /** The pill of a property that can be filtered; it opens that property's menu. */
+  filterControl(field: string): Locator {
+    // A pill with only view options, such as Issue #, opens "Options for …".
+    return this.page.getByRole('button', {
+      name: new RegExp(`^(Filter by|Options for) ${escapeRegExp(field)}(?::|$)`),
+    });
+  }
+
+  /** The pill of a property that is only sorted by; pressing it sorts, then reverses. */
+  sortControl(field: string): Locator {
+    return this.page.getByRole('button', {
+      name: new RegExp(`^(Sort by ${escapeRegExp(field)}$|Sorted by ${escapeRegExp(field)},)`),
+    });
+  }
+
+  /** Open a property's filter menu, from the header's line or from its pane. */
+  async openFilter(field: string) {
+    await this.showAllControls();
+    await this.filterControl(field).click();
+  }
+
+  /**
+   * Pick a value in a property's filter menu. A property that takes several
+   * values leaves its menu open, so it is closed here.
+   */
+  async filterBy(field: string, option: string) {
+    await this.openFilter(field);
+    const menu = this.page.getByRole('menu');
+    await menu
+      .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+      .filter({ hasText: new RegExp(`^${escapeRegExp(option)}(\\(selected\\))?$`) })
+      .click();
+    await this.page.waitForTimeout(150);
+    if (await menu.isVisible()) await this.page.keyboard.press('Escape');
     await this.page.waitForTimeout(300);
+  }
+
+  /** Turn every filter off. */
+  async clearFilters() {
+    await this.showAllControls();
+    await this.clearFiltersButton.click();
   }
 
   async goto() {
@@ -179,15 +226,16 @@ export class TicketsPage extends BasePage {
     await this.page.waitForTimeout(500);
   }
 
-  /** Clear search */
+  /** Clear search, closing the suggestion dropdown as `search` does. */
   async clearSearch() {
     await this.searchInput.clear();
+    await this.searchInput.press('Escape');
     await this.page.waitForTimeout(500);
   }
 
   /** Get the count of visible tickets */
   async getTicketCount(): Promise<number> {
-    return await this.activePanel.locator('tr[data-ticket-id]').count();
+    return await this.activePanel.locator('[data-ticket-id]').count();
   }
 
   /**
@@ -204,33 +252,51 @@ export class TicketsPage extends BasePage {
 
   /** All rows contributed by one source. */
   rowsFromSource(sourceId: 'huddle' | 'redmine'): Locator {
-    return this.activePanel.locator(`tr[data-ticket-source="${sourceId}"]`);
+    return this.activePanel.locator(`[data-ticket-source="${sourceId}"]`);
   }
 
   /** The row for a given ticket title, in whichever tab is showing. */
   rowByTitle(title: string): Locator {
-    return this.activePanel.locator('tr[data-ticket-id]').filter({ hasText: title });
+    return this.activePanel.locator('[data-ticket-id]').filter({ hasText: title });
   }
 
-  /** Restrict the table to a single source via the Source column filter. */
+  /** Restrict the list to a single source via the Source filter. */
   async filterBySource(label: 'TimeHuddle' | 'Redmine') {
     await this.filterBy('Source', label);
   }
 
-  /** Click a sortable column header to sort by it. */
-  async sortByColumn(header: string) {
-    await this.page
-      .getByRole('columnheader', { name: new RegExp(header) })
-      .getByRole('button', { name: new RegExp(`Sort by ${header}`, 'i') })
-      .click();
+  /** The "Sort by …" item at the top of a filterable property's menu. Opens the menu. */
+  private async openSortItem(field: string): Promise<Locator> {
+    await this.openFilter(field);
+    return this.page
+      .getByRole('menu')
+      .getByRole('menuitem', { name: new RegExp(`^Sort by ${escapeRegExp(field)}`) });
+  }
+
+  /** Sort by a property; choosing it again flips the direction. */
+  async sortBy(field: string) {
+    if (SORT_ONLY_FIELDS.has(field)) {
+      await this.showAllControls();
+      await this.sortControl(field).click();
+    } else {
+      await (await this.openSortItem(field)).click();
+    }
     await this.page.waitForTimeout(300);
   }
 
-  /** Current aria-sort value of a column header. */
-  async sortStateOf(header: string): Promise<string | null> {
-    return await this.page
-      .getByRole('columnheader', { name: new RegExp(header) })
-      .getAttribute('aria-sort');
+  /** How the list is sorted by a property, as its control says it in words. */
+  async sortStateOf(field: string): Promise<'ascending' | 'descending' | 'none'> {
+    let name: string;
+    if (SORT_ONLY_FIELDS.has(field)) {
+      await this.showAllControls();
+      name = (await this.sortControl(field).getAttribute('aria-label')) ?? '';
+    } else {
+      name = (await (await this.openSortItem(field)).textContent()) ?? '';
+      await this.page.keyboard.press('Escape');
+    }
+    if (name.includes('ascending')) return 'ascending';
+    if (name.includes('descending')) return 'descending';
+    return 'none';
   }
 
   /** Click on a ticket by title */

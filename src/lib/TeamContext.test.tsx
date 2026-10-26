@@ -21,6 +21,7 @@ vi.mock('./useSession', () => ({
 
 const listOrganizationsMock = vi.fn().mockResolvedValue([]);
 const getTeamsMock = vi.fn().mockResolvedValue({ teams: [], pendingRequests: [] });
+const getActiveMock = vi.fn().mockResolvedValue(null);
 
 vi.mock('./api', () => ({
   teamApi: {
@@ -34,7 +35,7 @@ vi.mock('./api', () => ({
     list: vi.fn().mockResolvedValue([]),
   },
   clockApi: {
-    getActive: vi.fn().mockResolvedValue(null),
+    getActive: (...args: unknown[]) => getActiveMock(...args),
   },
 }));
 
@@ -95,8 +96,7 @@ describe('TeamContext organization refetch', () => {
     // First call returns empty (race condition with auto-join),
     // subsequent calls return the org.
     listOrganizationsMock
-      .mockResolvedValueOnce([]) // initial fetch when userId appears
-      .mockResolvedValueOnce([]) // retry fetch (still empty during username claim)
+      .mockResolvedValueOnce([]) // fetch once teams have loaded
       .mockResolvedValue([defaultOrg]); // after username claim
 
     // Start with a user who has no username yet (needs claim)
@@ -188,6 +188,8 @@ function team(id: string, orgId: string) {
     admins: [],
     code: id,
     isPersonal: false,
+    ticketPrefix: 'TH',
+    sourcePrefixes: [],
     settings: { requirePlanForClock: true, autoAcceptJoins: false },
     resolvedSettings: {
       requirePlanForClock: { value: true, source: 'system' as const, locked: false },
@@ -343,5 +345,38 @@ describe('TeamContext URL scope', () => {
     act(() => ctx.setSelectedOrgId('org-b'));
     await waitFor(() => expect(scope()).toBe('t3|org-b|ok'));
     expect(window.location.search).toBe('?team=t3');
+  });
+});
+
+describe('TeamContext active clock read', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('meteor_resume_token', 'token');
+    mockUser = { id: 'user-1', username: 'jiadoe' };
+    localStorage.setItem('app:selectedTeamId:user-1', 't1');
+    localStorage.setItem('app:selectedOrgId:user-1', 'org-a');
+    listOrganizationsMock.mockReset().mockResolvedValue(orgs);
+    getTeamsMock
+      .mockReset()
+      .mockResolvedValue({ teams: [team('t1', 'org-a')], pendingRequests: [] });
+    getActiveMock.mockReset();
+  });
+
+  afterEach(cleanup);
+
+  it('skips the readiness read right after a successful read', async () => {
+    getActiveMock.mockResolvedValue(null);
+    renderAt('/app/dashboard');
+    await waitFor(() => expect(ctx.clockReady).toBe(true));
+    await act(async () => {});
+    expect(getActiveMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads again at readiness when the recent read failed', async () => {
+    const active = { id: 'c1', userId: 'user-1', teamId: 't2', startTime: 1, endTime: null };
+    getActiveMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(active);
+    renderAt('/app/dashboard');
+    await waitFor(() => expect(getActiveMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ctx.activeClockEvent).toEqual(active));
   });
 });

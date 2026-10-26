@@ -65,6 +65,14 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     [teams],
   );
 
+  // Rows are labelled when they load (`TH-12`, `PM-233`), so a changed prefix reloads them.
+  const { sourcePrefixes } = ctx;
+  const labelsKey = useMemo(
+    () =>
+      JSON.stringify([teams.map((t) => `${t.id}:${t.ticketPrefix ?? ''}`), sourcePrefixes ?? []]),
+    [teams, sourcePrefixes],
+  );
+
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
@@ -93,9 +101,14 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
         .load(current)
         .then((items) => {
           if (seq !== requestSeq.current) return;
+          // Members may have arrived while this was in flight.
+          const latest = ctxRef.current;
+          const labelled = source.relabel
+            ? items.map((item) => source.relabel!(item, latest))
+            : items;
           setPartitions((prev) => ({
             ...prev,
-            [source.id]: { items, loading: false, error: null },
+            [source.id]: { items: labelled, loading: false, error: null },
           }));
         })
         .catch((err: unknown) => {
@@ -114,17 +127,40 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     }
   }, []);
 
-  const loaded = useRef<{ userId: string | null; teamsKey: string } | null>(null);
+  const loaded = useRef<{
+    userId: string | null;
+    teamsKey: string;
+    membersKey?: string;
+    labelsKey?: string;
+  } | null>(null);
 
   useEffect(() => {
     const previous = loaded.current;
-    loaded.current = { userId, teamsKey };
+    loaded.current = { userId, teamsKey, membersKey, labelsKey };
     // This hook outlives a sign-in as someone else, and a load keeps the rows it
     // had: the next user must not see the previous one's while theirs arrive.
     if (previous && previous.userId !== userId) setPartitions(initialPartitions());
-    // Member data arriving only renames people on rows already shown.
-    load(previous?.userId === userId && previous.teamsKey === teamsKey);
-  }, [load, userId, teamsKey, membersKey]);
+    const sameScope = previous?.userId === userId && previous.teamsKey === teamsKey;
+    if (sameScope && previous.labelsKey === labelsKey && previous.membersKey !== membersKey) {
+      // Member data only renames people on rows already shown: no refetch.
+      setPartitions((prev) => {
+        const next = { ...prev };
+        for (const source of TICKET_SOURCES) {
+          const partition = next[source.id];
+          if (!source.relabel || !partition) continue;
+          const relabel = source.relabel;
+          next[source.id] = {
+            ...partition,
+            items: partition.items.map((item) => relabel(item, ctxRef.current)),
+          };
+        }
+        return next;
+      });
+      return;
+    }
+    // A changed prefix renames what rows already show, so it reloads behind them.
+    load(sameScope);
+  }, [load, userId, teamsKey, membersKey, labelsKey]);
 
   const refetch = useCallback(() => load(), [load]);
 

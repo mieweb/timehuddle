@@ -23,7 +23,6 @@ import {
   Select,
   Text,
   Textarea,
-  useMediaQuery,
   useToast,
 } from '@mieweb/ui';
 import { Binoculars, CheckCheck, Plus, X } from 'lucide-react';
@@ -60,8 +59,7 @@ import {
 } from './assignedStarter';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
-import { COMPACT_QUERY } from './TicketTable';
-import { TicketTablePanel, TicketViewControls } from './TicketTablePanel';
+import { TicketListPanel } from './TicketListPanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
 import { RedmineSuggestions } from './redmine/RedmineSuggestions';
@@ -137,7 +135,7 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
 ];
 
 /**
- * Both views stay mounted, so each keeps its filters, sort, page and selection
+ * Both views stay mounted once shown, so each keeps its filters, sort, page and selection
  * while the other is showing; the one not showing is only hidden.
  */
 const viewPanelClass = (showing: boolean) =>
@@ -146,7 +144,13 @@ const viewPanelClass = (showing: boolean) =>
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeam, selectedTeamId, teamsReady, selectedOrgId, organizations } =
+    useTeam();
+  // Named servers are the selected org's. A team carries its org's live; a viewer
+  // in no team of the org still sees Redmine rows, so the org list backs it up.
+  const sourcePrefixes =
+    teams.find((t) => t.orgId === selectedOrgId)?.sourcePrefixes ??
+    organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
   const toast = useToast();
 
@@ -160,20 +164,43 @@ export const TicketsPage: React.FC = () => {
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
 
+  // Stable key derived from sorted team IDs — effects below only rerun when the
+  // actual set of teams changes, not on every new array reference.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
+  // Rosters are reactive through TeamContext, so members are refetched when any
+  // team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => `${t.id}:${[...t.members, ...t.admins].sort().join(',')}`)
+        .sort()
+        .join('|'),
+    [teams],
+  );
+
   // Fetch members for all teams
   useEffect(() => {
-    if (!teams.length) return;
+    if (!rosterKey) return;
     void Promise.all(
-      teams.map(async (t) => {
+      rosterKey.split('|').map(async (entry) => {
+        const teamId = entry.slice(0, entry.indexOf(':'));
         try {
-          const members = await teamApi.getMembers(t.id);
-          return [t.id, members] as [string, TeamMember[]];
+          const members = await teamApi.getMembers(teamId);
+          return [teamId, members] as [string, TeamMember[]];
         } catch {
-          return [t.id, []] as [string, TeamMember[]];
+          return [teamId, []] as [string, TeamMember[]];
         }
       }),
     ).then((entries) => setMembersByTeam(new Map(entries)));
-  }, [teams]);
+  }, [rosterKey]);
 
   // Flat deduplicated member list across all teams
   const allMembers = useMemo(() => {
@@ -205,11 +232,12 @@ export const TicketsPage: React.FC = () => {
   const sourceCtx = useMemo(
     () => ({
       userId,
-      teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
+      teams: teams.map((t: Team) => ({ id: t.id, name: t.name, ticketPrefix: t.ticketPrefix })),
+      sourcePrefixes,
       resolveMemberName: getAssigneeName,
       membersKey: allMembers.map((m) => `${m.id}:${m.name || m.email}`).join('|'),
     }),
-    [userId, teams, getAssigneeName, allMembers],
+    [userId, teams, sourcePrefixes, getAssigneeName, allMembers],
   );
 
   const {
@@ -238,17 +266,6 @@ export const TicketsPage: React.FC = () => {
   // Redmine issues are edited in their own dialog, under the user's personal
   // Redmine key. A new one is created with a ticket, in the New Ticket dialog.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
-
-  // Stable key derived from sorted team IDs — the subscription only reconnects
-  // when the actual set of teams changes, not on every new array reference.
-  const teamIdsKey = useMemo(
-    () =>
-      teams
-        .map((t: Team) => t.id)
-        .sort()
-        .join(','),
-    [teams],
-  );
 
   // Links already covered by a Redmine fetch, read by the live feed below.
   const seenLinkKeys = React.useRef(new Set<string>());
@@ -332,9 +349,11 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
-  // On a phone the rows carry no checkbox until Select asks for them; the wide
-  // table always has its select column, so this is only read when compact.
-  const compact = useMediaQuery(COMPACT_QUERY);
+  // The All Sources list is a few hundred rows; render it from the first visit on,
+  // not while the page is opening on My Board.
+  const [allSourcesOpened, setAllSourcesOpened] = useState(false);
+  if (activeView === 'tickets' && !allSourcesOpened) setAllSourcesOpened(true);
+  // Rows carry no checkbox until Select asks for them, at every width.
   const [selecting, setSelecting] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement>(null);
   // The empty board's button hides itself by switching views. Focus goes to
@@ -422,17 +441,21 @@ export const TicketsPage: React.FC = () => {
   // would be no way to see, or undo, what was still ticked.
   const clearTicketsSelection = ticketsView.clearSelection;
   const clearBoardSelection = boardView.clearSelection;
+  // A wide screen shows checkboxes without Select being pressed, so a row can
+  // be ticked there with `selecting` off. Anything ticked keeps selection mode
+  // on: narrowed to a phone, the checkboxes stay and the button reads Done.
+  const hasSelection = ticketsView.selectedKeys.size + boardView.selectedKeys.size > 0;
+  const selectionOn = selecting || hasSelection;
   const toggleSelecting = useCallback(() => {
-    setSelecting((on) => !on);
+    setSelecting(!selectionOn);
     clearTicketsSelection();
     clearBoardSelection();
-  }, [clearTicketsSelection, clearBoardSelection]);
+  }, [selectionOn, clearTicketsSelection, clearBoardSelection]);
 
-  // A selection belongs to the table it was made in, at the size it was made.
-  // Switching view, or crossing between the phone and wide layouts, starts
-  // clean: otherwise rows ticked in the wide table stay selected on a phone
-  // with no checkbox showing, and the bulk bar acts on rows nobody can see.
-  const selectionScope = `${activeView}|${compact}`;
+  // A selection belongs to the view it was made in, and to this visit to the
+  // page: the page stays mounted while another route shows (`AppLayout`), so
+  // leaving it must drop the selection as switching views does. Resizing keeps it.
+  const selectionScope = `${activeView}|${pathname === '/app/tickets'}`;
   const lastSelectionScope = React.useRef(selectionScope);
   useEffect(() => {
     if (lastSelectionScope.current === selectionScope) return;
@@ -844,9 +867,9 @@ export const TicketsPage: React.FC = () => {
     </Button>
   );
 
-  // What both tabs' tables share; each tab adds its own view and labels.
-  const sharedTableProps = {
-    selecting,
+  // What both tabs' lists share; each tab adds its own view and labels.
+  const sharedListProps = {
+    selecting: selectionOn,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -875,24 +898,21 @@ export const TicketsPage: React.FC = () => {
               name="tickets-view"
               label={viewText.switcherLabel}
               hideLabel
-              // Beside the Select button on a phone, so it takes that button's height.
-              compact={compact}
+              compact
               options={VIEW_OPTIONS}
               value={activeView}
               onValueChange={setActiveView}
             />
-            {compact && (
-              <Button
-                variant={selecting ? 'primary' : 'secondary'}
-                size="sm"
-                aria-pressed={selecting}
-                rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-                onClick={toggleSelecting}
-                className="tickets-select-toggle shrink-0 rounded-lg"
-              >
-                {selecting ? viewText.doneSelecting : viewText.select}
-              </Button>
-            )}
+            <Button
+              variant={selectionOn ? 'primary' : 'secondary'}
+              size="sm"
+              aria-pressed={selectionOn}
+              rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+              onClick={toggleSelecting}
+              className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+            >
+              {selectionOn ? viewText.doneSelecting : viewText.select}
+            </Button>
           </div>
 
           {/* One toolbar for both views: it stays put when the tab changes. */}
@@ -912,42 +932,38 @@ export const TicketsPage: React.FC = () => {
               onToggleBoard={handleSuggestionBoard}
               inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
             />
-
-            <TicketViewControls
-              view={activeView === 'tickets' ? ticketsView : boardView}
-              loading={activeView === 'tickets' ? ticketsLoading : boardLoading}
-            />
           </div>
 
           {/* ── All Sources tab ── */}
-          <section
-            aria-label={viewText.allSources}
-            className={viewPanelClass(activeView === 'tickets')}
-          >
-            <TicketTablePanel
-              {...sharedTableProps}
-              view={ticketsView}
-              loading={ticketsLoading}
-              canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
-              onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
-              primaryLabel="Move to My Board"
-              onPrimaryAction={handleMoveToBoard}
-              emptyText={{
-                open: 'No open tickets',
-                closed: 'No closed tickets',
-                hint: 'Create one to get started.',
-              }}
-            />
-          </section>
+          {allSourcesOpened && (
+            <section
+              aria-label={viewText.allSources}
+              className={viewPanelClass(activeView === 'tickets')}
+            >
+              <TicketListPanel
+                {...sharedListProps}
+                view={ticketsView}
+                loading={ticketsLoading}
+                canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
+                onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
+                primaryLabel="Move to My Board"
+                onPrimaryAction={handleMoveToBoard}
+                emptyText={{
+                  open: 'No open tickets',
+                  closed: 'No closed tickets',
+                  hint: 'Create one to get started.',
+                }}
+              />
+            </section>
+          )}
 
           {/* ── My Board tab ── */}
           <section
             aria-label={viewText.myBoard}
             className={viewPanelClass(activeView === 'my-board')}
           >
-            <TicketTablePanel
-              {...sharedTableProps}
-              boardView
+            <TicketListPanel
+              {...sharedListProps}
               view={boardView}
               loading={boardLoading}
               // Unresolvable board entries, announced politely.
