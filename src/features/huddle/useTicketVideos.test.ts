@@ -29,7 +29,7 @@ describe('useTicketVideos', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reports no videos and no loading without a ticket', () => {
-    const { result } = renderHook(() => useTicketVideos(undefined));
+    const { result } = renderHook(() => useTicketVideos([]));
     expect(result.current).toEqual({ videos: [], loading: false, error: null });
     expect(mockList).not.toHaveBeenCalled();
   });
@@ -40,11 +40,22 @@ describe('useTicketVideos', () => {
       { id: 'doc-1', type: 'file', url: '/uploads/a.pdf', title: 'a.pdf' },
     ] as never);
 
-    const { result } = renderHook(() => useTicketVideos('ticket-a'));
+    const { result } = renderHook(() => useTicketVideos(['ticket-a']));
 
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.videos.map((v) => v.id)).toEqual(['vid-a']);
+  });
+
+  it('combines the videos of every selected ticket', async () => {
+    mockList.mockImplementation(
+      (_kind, ticketId) => Promise.resolve([videoAttachment(`vid-${ticketId}`)]) as never,
+    );
+
+    const { result } = renderHook(() => useTicketVideos(['ticket-a', 'ticket-b']));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.videos.map((v) => v.id)).toEqual(['vid-ticket-a', 'vid-ticket-b']);
   });
 
   it('never reports ticket A’s videos while ticket B is still loading', async () => {
@@ -53,15 +64,15 @@ describe('useTicketVideos', () => {
     mockList.mockImplementationOnce(() => a.promise as never);
     mockList.mockImplementationOnce(() => b.promise as never);
 
-    const { result, rerender } = renderHook(({ id }) => useTicketVideos(id), {
-      initialProps: { id: 'ticket-a' as string | undefined },
+    const { result, rerender } = renderHook(({ ids }) => useTicketVideos(ids), {
+      initialProps: { ids: ['ticket-a'] },
     });
 
     a.resolve([videoAttachment('vid-a')]);
     await waitFor(() => expect(result.current.videos.map((v) => v.id)).toEqual(['vid-a']));
 
     // Switch to B while B's request is still in flight.
-    rerender({ id: 'ticket-b' });
+    rerender({ ids: ['ticket-b'] });
     expect(result.current.videos).toEqual([]);
     expect(result.current.loading).toBe(true);
 
@@ -76,10 +87,10 @@ describe('useTicketVideos', () => {
     mockList.mockImplementationOnce(() => a.promise as never);
     mockList.mockImplementationOnce(() => b.promise as never);
 
-    const { result, rerender } = renderHook(({ id }) => useTicketVideos(id), {
-      initialProps: { id: 'ticket-a' as string | undefined },
+    const { result, rerender } = renderHook(({ ids }) => useTicketVideos(ids), {
+      initialProps: { ids: ['ticket-a'] },
     });
-    rerender({ id: 'ticket-b' });
+    rerender({ ids: ['ticket-b'] });
 
     // A resolves after the switch — out-of-order responses must not win.
     a.resolve([videoAttachment('vid-a')]);
@@ -93,7 +104,7 @@ describe('useTicketVideos', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mockList.mockRejectedValue(new Error('offline'));
 
-    const { result } = renderHook(() => useTicketVideos('ticket-a'));
+    const { result } = renderHook(() => useTicketVideos(['ticket-a']));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeTruthy();
@@ -102,12 +113,12 @@ describe('useTicketVideos', () => {
 
   it('clears back to idle when the ticket is deselected', async () => {
     mockList.mockResolvedValue([videoAttachment('vid-a')] as never);
-    const { result, rerender } = renderHook(({ id }) => useTicketVideos(id), {
-      initialProps: { id: 'ticket-a' as string | undefined },
+    const { result, rerender } = renderHook(({ ids }) => useTicketVideos(ids), {
+      initialProps: { ids: ['ticket-a'] },
     });
     await waitFor(() => expect(result.current.videos).toHaveLength(1));
 
-    rerender({ id: undefined });
+    rerender({ ids: [] });
     expect(result.current).toEqual({ videos: [], loading: false, error: null });
   });
 
@@ -115,13 +126,13 @@ describe('useTicketVideos', () => {
     const again = deferred<unknown[]>();
     mockList.mockResolvedValueOnce([videoAttachment('vid-a')] as never);
     mockList.mockImplementationOnce(() => again.promise as never);
-    const { result, rerender } = renderHook(({ id }) => useTicketVideos(id), {
-      initialProps: { id: 'ticket-a' as string | undefined },
+    const { result, rerender } = renderHook(({ ids }) => useTicketVideos(ids), {
+      initialProps: { ids: ['ticket-a'] },
     });
     await waitFor(() => expect(result.current.videos).toHaveLength(1));
 
-    rerender({ id: undefined });
-    rerender({ id: 'ticket-a' });
+    rerender({ ids: [] });
+    rerender({ ids: ['ticket-a'] });
     expect(result.current).toEqual({ videos: [], loading: true, error: null });
 
     again.resolve([]);

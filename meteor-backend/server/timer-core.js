@@ -101,12 +101,18 @@ export function findClosedAtTime(userId, endTime) {
  * for an account that is not on the deployment's own Redmine, where the issue
  * number a link stores would mean a different issue.
  *
+ * `only` narrows it to one ticket-day, `{ ticketId, date }`: the same rows and
+ * the same total for that day, read without the rest of the user's history.
+ * For the paths that act on one issue's day (a timer just ended, one entry
+ * being sent), which would otherwise slow down as that history grows.
+ *
  * @returns {Promise<Array<{ticketId: string, date: string, seconds: number}>>}
  */
-export async function redmineTicketDaysFor(userId, { includeLinked = true } = {}) {
+export async function redmineTicketDaysFor(userId, { includeLinked = true, only } = {}) {
+  const day = only ? { ticketId: String(only.ticketId), date: only.date } : null;
   const rows = await workItems()
     .find(
-      { userId, ...sourceSelector('redmine') },
+      { userId, ...sourceSelector('redmine'), ...(day ?? {}) },
       { projection: { _id: 1, ticketId: 1, date: 1 } },
     )
     .toArray();
@@ -131,7 +137,9 @@ export async function redmineTicketDaysFor(userId, { includeLinked = true } = {}
     includeLinked
       ? timers()
           .find(
-            { userId, redmineIssueId: { $type: 'string' }, ...closed },
+            day
+              ? { userId, redmineIssueId: day.ticketId, date: day.date, ...closed }
+              : { userId, redmineIssueId: { $type: 'string' }, ...closed },
             { projection: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1 } },
           )
           .toArray()
