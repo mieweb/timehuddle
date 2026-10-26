@@ -267,8 +267,9 @@ export default function Huddle() {
   // per team so one picked for one team can't land in another team's post.
   // (Pulse isn't staged here: the server posts a Pulse video itself — see PulseButton.)
   const {
+    tickets: selectedTickets,
     ticketIds: selectedTicketIds,
-    setTicketIds: setSelectedTicketIds,
+    setTickets: setSelectedTickets,
     addTicket,
     removeTicket,
   } = useTicketSelection();
@@ -290,8 +291,8 @@ export default function Huddle() {
       setSchedulePrompt({ resolve, reject: () => reject(new Error('Scheduling cancelled')) }),
     );
   useEffect(() => {
-    setSelectedTicketIds([]);
-  }, [postingTeamId, setSelectedTicketIds]);
+    setSelectedTickets([]);
+  }, [postingTeamId, setSelectedTickets]);
 
   const teamOptions = teams.filter((t) => !t.isPersonal);
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
@@ -944,7 +945,7 @@ export default function Huddle() {
     }
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
-    setSelectedTicketIds((prev) => prev.filter((id) => !ticketIds.includes(id)));
+    setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
@@ -1155,7 +1156,7 @@ export default function Huddle() {
                             )}
                             <TicketVideoChips videos={ticketVideos.videos} />
                             <ComposerChips
-                              selectedTicketIds={selectedTicketIds}
+                              selectedTickets={selectedTickets}
                               onTicketRemove={removeTicket}
                               mentions={[]}
                               onMentionRemove={() => {}}
