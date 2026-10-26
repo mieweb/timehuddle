@@ -9,6 +9,7 @@ import { Badge } from '@mieweb/ui';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
+import { timerLabel } from '../timers/ticketTimerStrings';
 import type { MediaItem } from './types';
 import type { TicketRef } from './useTicketSelection';
 
@@ -16,15 +17,8 @@ export type MentionRef = { userId: string; name: string };
 
 /** User-facing text for the ticket chips, kept in one place for translation. */
 export const TICKET_CHIP_TEXT = {
-  /** Shown when the title can't be resolved, e.g. the ticket was deleted. */
-  fallbackLabel: (ticketId: string) => `Ticket #${ticketId}`,
   remove: (label: string) => `Remove ticket ${label}`,
 };
-
-/** What a ticket chip calls its ticket: the title, or the id fallback. */
-export function ticketChipLabel(ticket: TicketRef): string {
-  return ticket.title?.trim() || TICKET_CHIP_TEXT.fallbackLabel(ticket.id);
-}
 
 interface ComposerAttachButtonsProps {
   teamId?: string | null;
@@ -90,7 +84,8 @@ export function ComposerChips({
       {selectedTickets.length > 0 && (
         <div className="mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
           {selectedTickets.map((ticket) => {
-            const label = ticketChipLabel(ticket);
+            // The title, or the short ref (#91234) when it's unknown, e.g. a deleted ticket.
+            const label = timerLabel('huddle', ticket.id, ticket.title);
             return (
               /* Badge has no amber/indigo variant, so the tint rides on className. */
               <Badge

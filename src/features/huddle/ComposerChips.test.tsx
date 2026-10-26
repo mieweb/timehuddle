@@ -38,13 +38,13 @@ describe('ComposerChips — ticket chips', () => {
     expect(onTicketRemove).toHaveBeenCalledWith('abc123');
   });
 
-  it('falls back to the id when the title is unknown', () => {
+  it('falls back to the short ref when the title is unknown', () => {
     renderChips([
-      { id: 'gone1', title: null },
-      { id: 'gone2', title: '  ' },
+      { id: '65f1c2a9e4b0d3f7a8c91234', title: null },
+      { id: '65f1c2a9e4b0d3f7a8c95678', title: '  ' },
     ]);
 
-    expect(screen.getByText('Ticket #gone1')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Remove ticket Ticket #gone2' })).toBeTruthy();
+    expect(screen.getByText('#91234')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove ticket #95678' })).toBeTruthy();
   });
 });
