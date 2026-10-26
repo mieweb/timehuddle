@@ -49,14 +49,7 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
-import {
-  ASSIGNED_FILTERS,
-  STARTER_LIMIT,
-  assignedToMe,
-  isApproximate,
-  starterText,
-  useAssignedNotice,
-} from './assignedStarter';
+import { STARTER_LIMIT, starterText, useAssignedNotice } from './assignedStarter';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -563,11 +556,14 @@ export const TicketsPage: React.FC = () => {
       ),
     [shownTickets],
   );
+  // A suggestion reads as running only when the ticket running is its carrier
+  // in the selected team: that is the ticket its Stop acts on (#736).
   const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
   const runningRedmineIssueId =
     runningTicket?.source === 'redmine'
       ? Number(runningTicket.id)
-      : runningLinked?.sourceId === 'redmine'
+      : runningLinked?.sourceId === 'redmine' &&
+          carrierByIssueId.get(runningLinked.id)?.key === runningTicket?.key
         ? Number(runningLinked.id)
         : null;
 
@@ -832,15 +828,18 @@ export const TicketsPage: React.FC = () => {
   }, [addToBoard, ticketsView]);
 
   // ── First fill of an empty board ──
-  // The assigned issues not on the board yet: what the button adds from, and
-  // what the notice counts afterwards.
-  const assignedIssues = useMemo(() => assignedToMe(allTickets, meKeys), [allTickets, meKeys]);
-  const assignedOffBoard = useMemo(
-    () => assignedIssues.filter((t) => !isOnBoard(t, boardKeys)),
-    [assignedIssues, boardKeys],
-  );
   const assignedNotice = useAssignedNotice(userId);
-  const showAssignedNotice = assignedNotice.show;
+  const { show: showAssignedNotice, dismiss: dismissAssignedNotice } = assignedNotice;
+  // How many assigned issues the last fill left off the board; null when not
+  // known, as after a reload (the notice itself is remembered, the count not).
+  const [assignedRemaining, setAssignedRemaining] = useState<number | null>(null);
+  // Issues a fill added this visit: their carriers may not have loaded yet, so
+  // the board's own issue ids can still miss them.
+  const assignedAddedRef = React.useRef(new Set<number>());
+  useEffect(() => {
+    setAssignedRemaining(null);
+    assignedAddedRef.current = new Set();
+  }, [userId]);
   const [gettingAssigned, setGettingAssigned] = useState(false);
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
@@ -849,34 +848,37 @@ export const TicketsPage: React.FC = () => {
   // it can bring back issues the table no longer lists (#736).
   const offerAssigned = boardKnown && boardKeys.size === 0 && redmineConnected === true;
 
+  /**
+   * Put the next few assigned issues on the board: the empty board's button and
+   * the notice's "Add more" both. Redmine is asked each time, so the count the
+   * notice shows is of what Redmine still has off the board.
+   */
   const handleGetAssigned = useCallback(async () => {
     setGettingAssigned(true);
     try {
       const { issueIds } = await redmineApi.issues.assignedIds();
-      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
-      const keys = issueIds
-        .map((id) => ticketKey('redmine', String(id)))
-        .filter((key) => !boardRedmineIssueIds.has(Number(ticketRefOf(key).ticketId)));
-      if (keys.length === 0) {
+      const added = assignedAddedRef.current;
+      const offBoard = issueIds.filter((id) => !boardRedmineIssueIds.has(id) && !added.has(id));
+      if (offBoard.length === 0) {
         toast.info(starterText.noneAssigned);
+        dismissAssignedNotice();
         return;
       }
-      const batch = keys.slice(0, STARTER_LIMIT);
-      if ((await addToBoard(batch)) && keys.length > batch.length) showAssignedNotice();
+      const batch = offBoard.slice(0, STARTER_LIMIT);
+      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
+      if (!(await addToBoard(batch.map((id) => ticketKey('redmine', String(id)))))) return;
+      for (const id of batch) added.add(id);
+      const remaining = offBoard.length - batch.length;
+      setAssignedRemaining(remaining);
+      if (remaining > 0) showAssignedNotice();
+      else dismissAssignedNotice();
     } catch {
       toast.error(starterText.fetchFailed);
     } finally {
       setGettingAssigned(false);
     }
-  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, toast]);
-
-  /** All Sources, narrowed to the user's assigned issues. */
-  const showAssignedInAllSources = useCallback(() => {
-    setSearchQuery('');
-    ticketsView.setFilters(ASSIGNED_FILTERS);
-    ticketsView.setShowClosed(false);
-    browseAllSources();
-  }, [setSearchQuery, ticketsView, browseAllSources]);
+  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, dismissAssignedNotice, toast]);
+  const nextAssignedCount = Math.min(assignedRemaining ?? STARTER_LIMIT, STARTER_LIMIT);
 
   const handleRemoveFromBoard = useCallback(() => {
     // A ticket can be on the board through the issue it is linked to; taking
@@ -1011,17 +1013,15 @@ export const TicketsPage: React.FC = () => {
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <>
-                  {/* Counted against the board, so not until the board is known. */}
-                  {boardKnown && assignedNotice.open && assignedOffBoard.length > 0 && (
+                  {boardKnown && assignedNotice.open && (
                     <div
                       role="status"
                       className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
                     >
                       <Text size="xs" variant="muted">
-                        {starterText.moreAssigned(
-                          assignedOffBoard.length,
-                          isApproximate(assignedIssues),
-                        )}
+                        {assignedRemaining === null
+                          ? starterText.moreAssignedUncounted
+                          : starterText.moreAssigned(assignedRemaining)}
                       </Text>
                       {/* The link stays with the sentence; Dismiss goes to the far end. */}
                       <ButtonGroup split className="board-assigned-notice-actions flex-1">
@@ -1029,10 +1029,12 @@ export const TicketsPage: React.FC = () => {
                           variant="link"
                           size="sm"
                           className="h-auto p-0 text-xs"
-                          onClick={showAssignedInAllSources}
-                          aria-label={starterText.showThemLabel}
+                          isLoading={gettingAssigned}
+                          loadingText={starterText.getting}
+                          onClick={() => void handleGetAssigned()}
+                          aria-label={starterText.addMoreLabel(nextAssignedCount)}
                         >
-                          {starterText.showThem}
+                          {starterText.addMore(nextAssignedCount)}
                         </Button>
                         <Button
                           variant="ghost"
