@@ -1,8 +1,8 @@
 /**
  * AttachmentsPanel — the videos on a ticket, a Redmine issue or a clock
  * session. **Pulse** records one on a phone and **Upload** sends a file from
- * this device; either way the server converts it and attaches it here when it
- * lands. A link goes in the description (or the session's post), not here:
+ * this device; either way the server converts it when it can and attaches it
+ * here when it lands. A link goes in the description (or the session's post), not here:
  * links attached before that rule are still listed, and can be removed.
  *
  * Usage:
