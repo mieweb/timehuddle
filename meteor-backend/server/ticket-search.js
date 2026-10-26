@@ -44,7 +44,8 @@ export async function redminePrefixesFor(userId, baseUrl) {
 
 Meteor.methods({
   /**
-   * The live tickets `query` names by ID, newest first, at most 25, without
+   * The live tickets `query` names by ID or ID prefix (`TH-`, `TH-1`), an
+   * exact match first and then newest first, at most 25, without
    * descriptions. Words, `@name` and links name none: `{ tickets: [] }`.
    */
   async 'tickets.findByRef'({ query } = {}) {
@@ -55,17 +56,28 @@ Meteor.methods({
     const ref = parseTicketRef(query);
     if (!ref) return { tickets: [] };
 
-    const selector = ticketRefSelector(ref, {
+    const scope = {
       ...(await callerTicketIds(userId)),
       redmineHost: hostOf(optionalRedmineBaseUrl()),
+    };
+    const find = (selector) =>
+      selector
+        ? Tickets.find(selector, {
+            sort: { createdAt: -1 },
+            limit: MAX_REF_RESULTS,
+            fields: { description: 0 },
+          }).fetchAsync()
+        : [];
+    // The exact match first, then the rest of the prefix: `TH-2` before `TH-20`.
+    const [exact, started] = await Promise.all([
+      ref.name === null ? [] : find(ticketRefSelector(ref, scope, { exact: true })),
+      find(ticketRefSelector(ref, scope)),
+    ]);
+    const seen = new Set();
+    const tickets = [...exact, ...started].filter((doc) => {
+      const id = doc._id.toHexString();
+      return !seen.has(id) && seen.add(id);
     });
-    if (!selector) return { tickets: [] };
-
-    const docs = await Tickets.find(selector, {
-      sort: { createdAt: -1 },
-      limit: MAX_REF_RESULTS,
-      fields: { description: 0 },
-    }).fetchAsync();
-    return { tickets: docs.map(toPublicTicket) };
+    return { tickets: tickets.slice(0, MAX_REF_RESULTS).map(toPublicTicket) };
   },
 });

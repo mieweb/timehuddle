@@ -99,6 +99,10 @@ describe('parseRedmineQuery', () => {
     expect(parseRedmineQuery('rm0-233', BASE, ['RM0'])).toEqual({ kind: 'id', value: 233 });
   });
 
+  it('asks nothing for the prefix alone', () => {
+    expect(parseRedmineQuery('RM0-', BASE, ['RM0'])).toEqual({ kind: 'id', value: null });
+  });
+
   it('leaves a prefix that names something else as words', () => {
     expect(parseRedmineQuery('THX-12', BASE, ['RM0'])).toEqual({ kind: 'text', value: 'THX-12' });
     expect(parseRedmineQuery('RM0-233', BASE)).toEqual({ kind: 'text', value: 'RM0-233' });

@@ -26,12 +26,12 @@ let teams: { id: string; orgId: string | null }[];
 const ids: Record<string, string> = {};
 
 /** The titles of the tickets `query` finds, sorted. */
-async function find(query: string) {
+async function find(query: string, { exact = false } = {}) {
   const ref = parseTicketRef(query);
   if (!ref) return null;
   const db = await getDb();
   const idsByOrg = await ticketIdsFor(db, teams.map((team) => team.orgId).filter(Boolean) as string[]);
-  const selector = ticketRefSelector(ref, { teams, idsByOrg, redmineHost: REDMINE_HOST });
+  const selector = ticketRefSelector(ref, { teams, idsByOrg, redmineHost: REDMINE_HOST }, { exact });
   if (!selector) return [];
   const docs = await db
     .collection('tickets')
@@ -68,6 +68,10 @@ beforeAll(async () => {
   await ticket(a2, 'github-fork', { number: 10, github: 'https://github.com/someone/TimeHuddle/pull/223' });
   await ticket(a1, 'redmine-link', { number: 8, github: `https://${REDMINE_HOST}/issues/233#note-2` });
   await ticket(a1, 'number-223', { number: 223 });
+  await ticket(b1, 'dashed-repo', {
+    number: 11,
+    github: 'https://github.com/mieweb/pulse-vault/issues/41',
+  });
   await ticket(a1, 'deleted', { number: 12, status: 'deleted' });
   await ticket(outside, 'not-my-team', { number: 12 });
 });
@@ -82,17 +86,20 @@ afterAll(async () => {
 
 describe('parseTicketRef', () => {
   it('reads a bare number, with or without the hash', () => {
-    expect(parseTicketRef('223')).toEqual({ name: null, number: 223 });
-    expect(parseTicketRef(' #223 ')).toEqual({ name: null, number: 223 });
+    expect(parseTicketRef('223')).toEqual({ name: null, digits: '223' });
+    expect(parseTicketRef(' #223 ')).toEqual({ name: null, digits: '223' });
   });
 
-  it('reads a prefix or a repo name before the number', () => {
-    expect(parseTicketRef('THX-12')).toEqual({ name: 'THX', number: 12 });
-    expect(parseTicketRef('my.repo_x-223')).toEqual({ name: 'my.repo_x', number: 223 });
+  it('reads a prefix or a repo name, and the start of a number or none of it', () => {
+    expect(parseTicketRef('THX-12')).toEqual({ name: 'THX', digits: '12' });
+    expect(parseTicketRef('THX-')).toEqual({ name: 'THX', digits: '' });
+    expect(parseTicketRef('my.repo_x-2')).toEqual({ name: 'my.repo_x', digits: '2' });
+    expect(parseTicketRef('pulse-vault-41')).toEqual({ name: 'pulse-vault', digits: '41' });
+    expect(parseTicketRef('pulse-vault-')).toEqual({ name: 'pulse-vault', digits: '' });
   });
 
   it('reads anything else as no ID', () => {
-    for (const raw of ['', 'fix login', '@alex', 'THX-', 'THX-0', '0', 'https://x.test/1', null]) {
+    for (const raw of ['', 'fix login', '@alex', 'THX', 'pulse-vault', '0', 'https://x.test/1', null]) {
       expect(parseTicketRef(raw as never)).toBeNull();
     }
   });
@@ -100,27 +107,52 @@ describe('parseTicketRef', () => {
 
 describe('ticketRefSelector', () => {
   it("finds a ticket by its org's prefix and number, in any of the caller's teams", async () => {
-    expect(await find('THX-12')).toEqual(['numbered']);
-    expect(await find('thx-12')).toEqual(['numbered']);
+    expect(await find('THX-12', { exact: true })).toEqual(['numbered']);
+    expect(await find('thx-12', { exact: true })).toEqual(['numbered']);
+  });
+
+  it('searches a name and a dash by prefix', async () => {
+    expect(await find('THX-')).toEqual([
+      'carrier',
+      'carrier-with-host',
+      'github-fork',
+      'number-223',
+      'numbered',
+      'other-server',
+      'redmine-link',
+    ]);
+    expect(await find('THX-1')).toEqual(['github-fork', 'numbered']);
+    expect(await find('THX-2')).toEqual(['number-223']);
   });
 
   it('uses the default prefix for an org that set none', async () => {
-    expect(await find('TH-7')).toEqual(['github']);
-    expect(await find('TH-12')).toEqual([]);
+    expect(await find('TH-7', { exact: true })).toEqual(['github']);
+    expect(await find('TH-')).toEqual(['dashed-repo', 'github']);
+    expect(await find('TH-12', { exact: true })).toEqual([]);
   });
 
   it("finds every ticket carrying, or linking to, an issue on the org's named server", async () => {
-    expect(await find('RM0-233')).toEqual(['carrier', 'carrier-with-host', 'redmine-link']);
+    expect(await find('RM0-233', { exact: true })).toEqual([
+      'carrier',
+      'carrier-with-host',
+      'redmine-link',
+    ]);
+    expect(await find('RM0-')).toEqual(['carrier', 'carrier-with-host', 'redmine-link']);
+    expect(await find('RM0-23')).toEqual(['carrier', 'carrier-with-host', 'redmine-link']);
+    expect(await find('RM0-23', { exact: true })).toEqual([]);
   });
 
   it('finds tickets linked to a GitHub issue or PR by repo name, in any owner, any case', async () => {
-    expect(await find('timehuddle-223')).toEqual(['github', 'github-fork']);
-    expect(await find('TimeHuddle-22')).toEqual([]);
+    expect(await find('timehuddle-223', { exact: true })).toEqual(['github', 'github-fork']);
+    expect(await find('TimeHuddle-22', { exact: true })).toEqual([]);
+    expect(await find('TimeHuddle-')).toEqual(['github', 'github-fork']);
+    expect(await find('pulse-vault-4')).toEqual(['dashed-repo']);
   });
 
-  it('finds every ticket where a bare number appears', async () => {
+  it('finds every ticket where a bare number appears, whole', async () => {
     expect(await find('223')).toEqual(['github', 'github-fork', 'number-223']);
     expect(await find('#233')).toEqual(['carrier', 'carrier-with-host', 'other-server', 'redmine-link']);
+    expect(await find('22')).toEqual([]);
   });
 
   it('leaves out deleted tickets and teams the caller is not in', async () => {
@@ -129,5 +161,6 @@ describe('ticketRefSelector', () => {
 
   it('finds nothing for a prefix nobody uses', async () => {
     expect(await find('ZZZ-12')).toEqual([]);
+    expect(await find('ZZZ-')).toEqual([]);
   });
 });

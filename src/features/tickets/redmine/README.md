@@ -33,7 +33,11 @@ it are in [`docs/redmine-design.md`](../../../../docs/redmine-design.md).
 
 Above the Redmine issues, a **Tickets** group lists the tickets a typed ID
 names in any of the user's teams (#736c): `THX-12`, `RM0-233`,
-`timehuddle-223`, or a bare `223` wherever it appears. The table filter
+`timehuddle-223`, or a bare `223` wherever it appears. A name and a dash search
+by prefix: `TH-` lists TH tickets, `pulse-2` those whose number starts with 2.
+Each ticket leads with the ID the table shows it by, the outside one when it has
+one (`RMX-150`), with its own (`TH-22`) under it; Redmine issues read `RMX-219`
+when the org names that server. The table filter
 (`matchesSearch` in [`../ticketFilters.ts`](../ticketFilters.ts)) reads
 `@person` and `#ref` too, for the rows already on screen. The dropdown moves out
 of this folder when every source is searched as one (#734 step 8).

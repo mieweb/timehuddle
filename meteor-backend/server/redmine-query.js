@@ -31,7 +31,7 @@ export const MAX_SEARCH_RESULTS = 25;
 
 const ISSUE_NUMBER = /^#?([1-9]\d*)$/;
 const ASSIGNEE = /^@(.+)$/;
-const PREFIXED_NUMBER = /^([A-Za-z][A-Za-z0-9]*)-([1-9]\d*)$/;
+const PREFIXED_NUMBER = /^([A-Za-z][A-Za-z0-9]*)-(\d*)$/;
 
 /**
  * Read a raw query into `{ kind, value }`.
@@ -48,13 +48,13 @@ export function parseRedmineQuery(raw, baseUrl = null, prefixes = []) {
   if (/^https?:\/\//i.test(query)) return { kind: 'url', value: issueIdFromUrl(query, baseUrl) };
 
   const prefixed = query.match(PREFIXED_NUMBER);
-  const digits =
-    prefixed && prefixes.includes(prefixed[1].toUpperCase())
-      ? prefixed[2]
-      : query.match(ISSUE_NUMBER)?.[1];
+  const ownPrefix = prefixed && prefixes.includes(prefixed[1].toUpperCase());
+  // `RM0-` alone names no issue yet: nothing to ask, but not a title search either.
+  if (ownPrefix && !prefixed[2]) return { kind: 'id', value: null };
+  const digits = ownPrefix ? prefixed[2] : query.match(ISSUE_NUMBER)?.[1];
   if (digits) {
     const id = Number(digits);
-    return { kind: 'id', value: Number.isSafeInteger(id) ? id : null };
+    return { kind: 'id', value: Number.isSafeInteger(id) && id > 0 ? id : null };
   }
 
   if (query.length < MIN_QUERY_LENGTH) {

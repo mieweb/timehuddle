@@ -45,6 +45,20 @@ export function outsideIdOf(
   return named && number ? `${named.prefix}-${number}` : null;
 }
 
+/**
+ * The outside ID of the Redmine issue a ticket carries, e.g. `RMX-150`, or null
+ * when its server has no prefix. A link with no host is on `redmineHost`, the
+ * connected Redmine.
+ */
+export function carriedRefOf(
+  linked: { id: string; host?: string } | null,
+  prefixes: readonly SourcePrefix[],
+  redmineHost: string | null,
+): string | null {
+  const host = linked?.host ?? redmineHost;
+  return linked && host ? outsideIdOf(`https://${host}/issues/${linked.id}`, prefixes) : null;
+}
+
 /** The number at the end of a ref, `233` in `PM-233` or `#233`, or null. */
 export function refNumber(ref: string): string | null {
   return ref.match(/(\d+)$/)?.[1] ?? null;

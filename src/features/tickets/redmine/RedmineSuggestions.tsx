@@ -31,12 +31,19 @@ import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions 
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { RedmineIssue, RedmineRelevantIssue, Team, Ticket } from '../../../lib/api';
+import type {
+  RedmineIssue,
+  RedmineRelevantIssue,
+  SourcePrefix,
+  Team,
+  Ticket,
+} from '../../../lib/api';
 import { useTeam } from '../../../lib/TeamContext';
 import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { huddleTicketRef } from '../sources/huddleSource';
+import { carriedRefOf, outsideIdOf } from '../ticketIds';
 import { ticketDetailPath } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
 
@@ -62,6 +69,8 @@ interface RedmineSuggestionsProps {
   onQueryChange: (query: string) => void;
   /** The connected Redmine's base URL; a pasted link matches locally only on it. */
   baseUrl: string | null;
+  /** What the selected org calls its servers, as the table uses: an issue reads `RMX-219`. */
+  sourcePrefixes?: readonly SourcePrefix[];
   /** Redmine issue ids already in the table that is showing, left out of "More from Redmine". */
   tableIssueIds: ReadonlySet<number>;
   /** The Redmine issue a timer is running on, if any. */
@@ -76,6 +85,8 @@ interface RedmineSuggestionsProps {
   onToggleBoard: (issue: RedmineIssue) => Promise<unknown>;
   inputClassName?: string;
 }
+
+const NO_PREFIXES: readonly SourcePrefix[] = [];
 
 type Row =
   | { kind: 'ticket'; ticket: Ticket }
@@ -131,6 +142,7 @@ export function RedmineSuggestions({
   query,
   onQueryChange,
   baseUrl,
+  sourcePrefixes = NO_PREFIXES,
   tableIssueIds,
   runningIssueId,
   onToggleTimer,
@@ -158,18 +170,41 @@ export function RedmineSuggestions({
 
   const trimmed = query.trim();
 
+  const teamById = useMemo(() => new Map(allTeams.map((team) => [team.id, team])), [allTeams]);
+  const redmineHost = hostOfUrl(baseUrl);
+  const redminePrefixes = useMemo(
+    () => sourcePrefixes.filter((entry) => entry.host === redmineHost).map((e) => e.prefix),
+    [sourcePrefixes, redmineHost],
+  );
+  const issueRef = useCallback(
+    (id: number) => (baseUrl && outsideIdOf(`${baseUrl}/issues/${id}`, sourcePrefixes)) || `#${id}`,
+    [baseUrl, sourcePrefixes],
+  );
+
+  // An issue the current team already carries is listed once, as its ticket.
+  const carriedHere = useMemo(
+    () =>
+      new Set(
+        foundTickets
+          .filter((ticket) => ticket.teamId === selectedTeamId && ticket.linkedIssue)
+          .map((ticket) => Number(ticket.linkedIssue!.id)),
+      ),
+    [foundTickets, selectedTeamId],
+  );
+
   const matching = useMemo(
-    () => filterSuggestions(suggestions.issues, trimmed, baseUrl),
-    [suggestions.issues, trimmed, baseUrl],
+    () =>
+      filterSuggestions(suggestions.issues, trimmed, baseUrl, redminePrefixes).filter(
+        (issue) => !carriedHere.has(issue.id),
+      ),
+    [suggestions.issues, trimmed, baseUrl, redminePrefixes, carriedHere],
   );
 
   const moreResults = useMemo(() => {
     if (search.status !== 'ready' || search.query !== trimmed) return [];
-    const shown = new Set([...tableIssueIds, ...matching.map((issue) => issue.id)]);
+    const shown = new Set([...tableIssueIds, ...carriedHere, ...matching.map((issue) => issue.id)]);
     return newSearchResults(search.issues, shown);
-  }, [search, trimmed, tableIssueIds, matching]);
-
-  const teamById = useMemo(() => new Map(allTeams.map((team) => [team.id, team])), [allTeams]);
+  }, [search, trimmed, tableIssueIds, carriedHere, matching]);
 
   const rows = useMemo<Row[]>(() => {
     const visible = showAll ? matching : matching.slice(0, SUGGESTION_LIMIT);
@@ -436,10 +471,12 @@ export function RedmineSuggestions({
                           ticket={row.ticket}
                           team={teamById.get(row.ticket.teamId)}
                           showTeam={row.ticket.teamId !== selectedTeamId}
+                          redmineHost={redmineHost}
                         />
                       ) : row.kind === 'issue' ? (
                         <IssueRow
                           issue={row.issue}
+                          issueRef={issueRef(row.issue.id)}
                           reason={
                             row.section === 'suggested'
                               ? reasonLabel(row.issue, { runningIssueId })
@@ -566,31 +603,53 @@ const keepFocus = (event: React.MouseEvent) => {
   event.stopPropagation();
 };
 
+/** The bare hostname of a base URL, or null. */
+function hostOfUrl(url: string | null): string | null {
+  try {
+    return url ? new URL(url).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The ID column, shared by ticket and issue rows so titles line up. */
+const ID_CLASS = 'redmine-suggestion-id w-20 shrink-0 break-all tabular-nums';
+
 /**
- * A ticket a typed ID named: its own ID and title, and its team when that is
+ * A ticket a typed ID named. It leads with the ID it is shown by in the table,
+ * the outside one when it has one (`RMX-150`, `pulse-223`), with its own
+ * (`TH-12`) under it, and the title beside them; its team shows when that is
  * not the current one. No actions: choosing it opens the ticket. The empty
- * first column keeps the ID in line with the issue rows' timer buttons.
+ * first column keeps the IDs in line with the issue rows' timer buttons.
  */
 function FoundTicketRow({
   ticket,
   team,
   showTeam,
+  redmineHost,
 }: {
   ticket: Ticket;
   team: Team | undefined;
   showTeam: boolean;
+  redmineHost: string | null;
 }) {
+  const prefixes = team?.sourcePrefixes ?? [];
+  const own = huddleTicketRef(ticket, team?.ticketPrefix);
+  const outside =
+    carriedRefOf(ticket.linkedIssue, prefixes, redmineHost) ?? outsideIdOf(ticket.github, prefixes);
   return (
     <>
       <span aria-hidden="true" className="redmine-suggestion-spacer h-7 w-7 shrink-0" />
-      <Text
-        as="span"
-        size="xs"
-        variant="muted"
-        className="redmine-suggestion-id min-w-12 shrink-0 tabular-nums"
-      >
-        {huddleTicketRef(ticket, team?.ticketPrefix)}
-      </Text>
+      <span className={`${ID_CLASS} flex flex-col self-start pt-0.5`}>
+        <Text as="span" size="xs" className="redmine-suggestion-primary-id font-semibold">
+          {outside ?? own}
+        </Text>
+        {outside && (
+          <Text as="span" size="xs" variant="muted" className="redmine-suggestion-own-id">
+            {own}
+          </Text>
+        )}
+      </span>
       <span className="redmine-suggestion-body min-w-0 flex-1">
         <span className="redmine-suggestion-title block break-words">{ticket.title}</span>
         {showTeam && team && (
@@ -605,6 +664,8 @@ function FoundTicketRow({
 
 interface IssueRowProps {
   issue: RedmineIssue;
+  /** What the issue is shown as: `RMX-219` when its server has a prefix, else `#219`. */
+  issueRef: string;
   reason: string | null;
   running: boolean;
   /** A timer start or stop is in flight, on this row or another. */
@@ -623,7 +684,7 @@ interface IssueRowProps {
 }
 
 /**
- * One suggestion. Only `#id` and the title always show; the rest is placed by
+ * One suggestion. Only its ID and the title always show; the rest is placed by
  * priority so a row stays readable at 320 px:
  * - project: second line, `sm` and up
  * - reason chip: under the title, ahead of the project
@@ -637,6 +698,7 @@ interface IssueRowProps {
  */
 function IssueRow({
   issue,
+  issueRef,
   reason,
   running,
   timerBusy,
@@ -649,15 +711,15 @@ function IssueRow({
   onToggleBoard,
   onHide,
 }: IssueRowProps) {
-  const label = `#${issue.id}`;
+  const label = issueRef;
   // Starting a timer puts the issue on My Board, so off the board the button's
   // tooltip says it will.
   const addsToBoard = boardKnown && !onBoard && !running;
   const timerName = running
-    ? text.stopTimer(issue.id)
+    ? text.stopTimer(label)
     : addsToBoard
       ? timerText.addAndStartLabel(label)
-      : text.startTimer(issue.id);
+      : text.startTimer(label);
   return (
     <>
       <TimerToggleButton
@@ -676,13 +738,8 @@ function IssueRow({
         }}
       />
 
-      <Text
-        as="span"
-        size="xs"
-        variant="muted"
-        className="redmine-suggestion-id w-12 shrink-0 tabular-nums"
-      >
-        #{issue.id}
+      <Text as="span" size="xs" variant="muted" className={ID_CLASS}>
+        {label}
       </Text>
 
       <span className="redmine-suggestion-body min-w-0 flex-1">
@@ -723,13 +780,13 @@ function IssueRow({
           }}
         />
         {onHide && (
-          <Tooltip content={text.hide(issue.id)}>
+          <Tooltip content={text.hide(label)}>
             <Button
               variant="ghost"
               size="icon"
               className={`h-7 w-7 [&_[data-slot=button-label]]:flex ${ON_ACTIVE_ROW_CLASS}`}
               tabIndex={-1}
-              aria-label={text.hide(issue.id)}
+              aria-label={text.hide(label)}
               onMouseDown={keepFocus}
               onClick={(event) => {
                 keepFocus(event);

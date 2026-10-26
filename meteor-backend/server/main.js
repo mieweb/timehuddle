@@ -1072,7 +1072,7 @@ Meteor.startup(async () => {
 
   Wormhole.expose('tickets.findByRef', {
     description:
-      "The tickets an ID names in any of the caller's teams: THX-12, RM0-233, timehuddle-223, or a bare 223 wherever it appears. Newest first, at most 25. Returns { tickets }",
+      "The tickets an ID names in any of the caller's teams: THX-12, RM0-233, timehuddle-223, or a bare 223 wherever it appears. A name and a dash search by prefix: TH- or TH-1. Exact match first, then newest, at most 25. Returns { tickets }",
     inputSchema: {
       type: 'object',
       properties: {

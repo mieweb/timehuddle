@@ -33,6 +33,9 @@ test.describe('Find a ticket by ID', () => {
     await expect(option).toContainText(ref!);
     await input.fill(ref!.split('-')[1]);
     await expect(option).toBeVisible();
+    // A name and a dash list by prefix; the newest ticket comes first.
+    await input.fill(`${ref!.split('-')[0]}-`);
+    await expect(option).toBeVisible();
 
     await input.press('ArrowDown');
     await input.press('Enter');
