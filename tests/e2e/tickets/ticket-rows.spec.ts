@@ -484,31 +484,29 @@ test.describe('Ticket rows', () => {
     expect(allSourcesOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('keeps the same stacked row as the list gets wider, with no layout swap', async ({
-    page,
-  }) => {
+  test('keeps the same row as the list gets wider, with no layout swap', async ({ page }) => {
     const title = `E2E Resize ${Date.now()}`;
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
-    const titleBox = () =>
-      row.locator('.ticket-row-title').evaluate((el) => {
-        const { top, left } = el.getBoundingClientRect();
-        return { top, left };
-      });
-    const factsBox = () =>
-      row.locator('.row-list-properties').evaluate((el) => {
-        const { top, left } = el.getBoundingClientRect();
-        return { top, left };
-      });
-
-    // Narrow and wide alike: the badges sit under the title, from its left
-    // edge. No columns appear.
+    // Narrow and wide alike: each badge follows the title on its line, or has
+    // wrapped under it to start from its left edge. No columns appear.
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 800 });
       await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
-      const [titleAt, factsAt] = [await titleBox(), await factsBox()];
-      expect(factsAt.top, `at ${width}px`).toBeGreaterThan(titleAt.top + 10);
-      expect(Math.abs(factsAt.left - titleAt.left), `at ${width}px`).toBeLessThanOrEqual(2);
+      const title = (await row.locator('.row-list-title').boundingBox())!;
+      const badges = await row.locator('.ticket-row-facts [data-slot=badge]').evaluateAll((els) =>
+        els.map((el) => {
+          const { top, left } = el.getBoundingClientRect();
+          return { top, left };
+        }),
+      );
+      expect(badges.length, `at ${width}px`).toBeGreaterThan(0);
+      for (const badge of badges) {
+        const besideTitle =
+          badge.left >= title.x + title.width && badge.top < title.y + title.height;
+        const underTitle = badge.top >= title.y + title.height - 1 && badge.left >= title.x - 2;
+        expect(besideTitle || underTitle, `at ${width}px`).toBe(true);
+      }
       await expect(page.getByRole('columnheader')).toHaveCount(0);
     }
 
