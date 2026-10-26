@@ -14,7 +14,8 @@ export const timehuddle = defineSource({
   fields: {
     title: { path: 'title', edit: true },
     body: { path: 'description', format: 'markdown', edit: true },
-    status: { path: 'status', edit: true, closedWhen: { equals: 'closed' } },
+    // Reviewed is closed too, as the Open/Closed tabs have it (huddleSource.ts).
+    status: { path: 'status', edit: true, closedWhen: { in: ['closed', 'reviewed'] } },
     priority: { path: 'priority', edit: true },
     assignees: { path: 'assignedTo', edit: true },
     reporter: { path: 'createdBy' },

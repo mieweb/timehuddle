@@ -114,8 +114,8 @@ export interface FieldSpec {
   /** Read by a hook instead of a path. */
   from?: Hook;
   format?: BodyFormat;
-  /** For `status`: how it reads as closed, by an equal value or a hook. */
-  closedWhen?: { equals: string } | Hook;
+  /** For `status`: how it reads as closed, by an equal value, any of several, or a hook. */
+  closedWhen?: { equals: string } | { in: string[] } | Hook;
   /** The most values a source takes (Redmine has one assignee). */
   max?: number;
   /** Whether TimeHuddle may write it back; `'allowed'` is only the moves the source allows. */

@@ -64,12 +64,13 @@ function assertData(kind, value, where) {
   }
 }
 
-function deepFreeze(value) {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const inner of Object.values(value)) deepFreeze(inner);
-  }
-  return value;
+// Children first, and through a parent that is frozen already: a caller may
+// hand in `Object.freeze({ title: { path } })`, whose `title` is still open.
+function deepFreeze(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const inner of Object.values(value)) deepFreeze(inner, seen);
+  return Object.freeze(value);
 }
 
 /**

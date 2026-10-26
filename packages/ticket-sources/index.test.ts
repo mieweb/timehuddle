@@ -25,6 +25,10 @@ describe('the three definitions', () => {
     expect(Object.isFrozen(redmine.fields.status)).toBe(true);
   });
 
+  it('reads a reviewed TimeHuddle ticket as closed, as the Open/Closed tabs do', () => {
+    expect(SOURCES.timehuddle.fields.status?.closedWhen).toEqual({ in: ['closed', 'reviewed'] });
+  });
+
   it('name what plain data cannot say as hooks', () => {
     expect(isHook(redmine.fields.conversation?.from)).toBe(true);
     expect(redmine.can.sendTime).toEqual({ hook: 'redmineSendTime' });
@@ -79,6 +83,14 @@ describe('defineSource', () => {
     expect(() =>
       defineSource({ ...minimal, id: { show: '{prefix}-{key}', color: 'red' } }),
     ).toThrow(/id.color is not allowed; an ID is plain text/);
+  });
+
+  it('freezes what sits under a part that was frozen already', () => {
+    const source = defineSource({
+      ...minimal,
+      fields: Object.freeze({ title: { path: 'title' } }),
+    });
+    expect(Object.isFrozen(source.fields.title)).toBe(true);
   });
 
   it('refuses a hook with no name', () => {
