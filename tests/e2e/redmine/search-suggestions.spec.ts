@@ -5,6 +5,10 @@
  * issues — "Suggested for you" on focus, "More from Redmine" from a server search.
  * Redmine is stubbed at the wormhole boundary (`fixtures/redmine.ts`), so these
  * assert what the UI does with a given answer, not how the server ranks.
+ *
+ * Since #736 a Redmine issue is never a table row: timing it or putting it on
+ * My Board acts on the TimeHuddle ticket carrying it (`tickets.carryIssue`,
+ * stubbed too, as the test backend has no Redmine to create one from).
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -86,8 +90,8 @@ test.describe('Redmine search suggestions', () => {
     expect(rm.calls('issues.relevant').some((c) => c.includeDismissed === true)).toBe(true);
   });
 
-  test('typing narrows the suggestions and still filters the table', async ({ page }) => {
-    const { tickets, input, menu, option } = await openTickets(page);
+  test('typing narrows the suggestions, and keeps what was typed', async ({ page }) => {
+    const { input, menu, option } = await openTickets(page);
 
     await input.fill('alpha');
 
@@ -96,20 +100,6 @@ test.describe('Redmine search suggestions', () => {
     await input.press('Escape');
     await expect(menu).toBeHidden();
     await expect(input).toHaveValue('alpha');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
-  });
-
-  test('the table lists only assigned issues; the rest are suggestions', async ({ page }) => {
-    const { tickets, input, option } = await openTickets(page);
-
-    await tickets.filterBySource('Redmine');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
-    await expect(tickets.rowByTitle('Zulu export timeout')).toHaveCount(0);
-    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
-
-    await input.click();
-    await expect(option(/Zulu export timeout/)).toBeVisible();
-    await expect(option(/Kilo billing report/)).toBeVisible();
   });
 
   test('adds new issues from a server search under "More from Redmine"', async ({ page }) => {
@@ -124,41 +114,9 @@ test.describe('Redmine search suggestions', () => {
 
     await expect(menu.getByText('More from Redmine')).toBeVisible();
     await expect(option(/Alpha printer queue/)).toBeVisible();
-    // #15 is already in the table and the suggestions, so it is not offered twice.
+    // #15 is already in the suggestions, so it is not offered twice.
     await expect(option(/Alpha intake validation/)).toHaveCount(1);
     expect(rm.calls('issues.search').at(-1)).toEqual({ query: 'alpha' });
-  });
-
-  test('on My Board, a search still finds an issue that is only in All Sources', async ({
-    page,
-  }) => {
-    // #40 is assigned, so it is in the All Sources table, but the user hid it
-    // from their suggestions and it is not on their board.
-    const hidden = suggestion(40, 'Hidden export job');
-    await stubRedmine(page, {
-      status: connectedStatus(),
-      'issues.relevant': (params: { includeDismissed?: boolean }) =>
-        relevant(params.includeDismissed ? [...SUGGESTED, hidden] : SUGGESTED),
-      'issues.search': searchResult('text', [redmineIssue({ id: 40, subject: hidden.subject })]),
-    });
-    const tickets = new TicketsPage(page);
-    // Not `tickets.goto()`, which switches to All Sources: this is about the default view.
-    await page.goto('/app/tickets');
-    await tickets.heading.waitFor({ state: 'visible' });
-    const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
-    const found = menu.getByRole('option', { name: /Hidden export job/ });
-
-    // The board does not have it, so the search has to.
-    await tickets.searchInput.fill('hidden export');
-    await expect(tickets.rowByTitle('Hidden export job')).toHaveCount(0);
-    await expect(found).toBeVisible();
-
-    // In All Sources it is a row in the table, so it is not offered a second time.
-    await tickets.switchToTab('tickets');
-    await expect(tickets.rowByTitle('Hidden export job')).toBeVisible();
-    await tickets.searchInput.click();
-    await expect(menu).toBeVisible();
-    await expect(found).toHaveCount(0);
   });
 
   test('finds an issue by number straight away', async ({ page }) => {
@@ -196,7 +154,7 @@ test.describe('Redmine search suggestions', () => {
   });
 
   test('hides a suggestion with the x, and Undo brings it back', async ({ page }) => {
-    const { rm, tickets, input, menu, option } = await openTickets(page);
+    const { rm, input, menu, option } = await openTickets(page);
 
     await input.click();
     const row = option(/Alpha intake validation/);
@@ -211,10 +169,6 @@ test.describe('Redmine search suggestions', () => {
     await expect.poll(() => rm.calls('prefs.set').at(-1)).toEqual({ issueId: 15, state: null });
     await input.click();
     await expect(option(/Alpha intake validation/)).toBeVisible();
-
-    // Hiding a suggestion never touched the table.
-    await tickets.search('Alpha intake');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
   });
 
   test('Delete hides the highlighted suggestion from the keyboard', async ({ page }) => {

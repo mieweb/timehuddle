@@ -9,10 +9,10 @@
  *   - `redmine.issues.relevant` — merge a handful of filtered signals into the
  *     list shown on focus,
  *   - `redmine.issues.search`   — one bounded query for what the user typed,
- *   - `redmine.prefs.set` / `redmine.prefs.listDismissed` — TimeHuddle's own pins
- *     and dismissals, which Redmine has no field for,
- *   - `redmine.issues.removeFromTable` — take issues out of the user's Tickets
- *     table and My Board (bulk Delete), leaving Redmine untouched.
+ *   - `redmine.prefs.set` / `redmine.prefs.listDismissed` — TimeHuddle's own
+ *     dismissals, which Redmine has no field for,
+ *   - `redmine.issues.assignedIds` — the issues assigned to the caller, for the
+ *     first fill of an empty My Board.
  *
  * Every call runs under the caller's own personal API key, so Redmine's own
  * visibility rules decide what comes back and there is no admin key to leak.
@@ -42,14 +42,11 @@ import {
 import { toAssignableUsers, toIssue } from './redmine-issues';
 import {
   DISMISSED,
-  PINNED,
   dismissedIssueIds,
   ensureRedmineIssuePrefIndexes,
   readIssuePrefs,
-  removeIssuesFromTable,
   setIssuePref,
 } from './redmine-prefs';
-import { removeBoardEntries } from './my-board';
 import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
 import { MyBoard, Teams, Tickets, Timers, WorkItems, isValidId } from './collections';
@@ -237,9 +234,6 @@ async function linkedRedmineIssueIds(userId, account) {
   return [...new Set(ids.map(Number))];
 }
 
-/** How many issues one bulk Delete may take out of the table (the client sends in chunks). */
-export const MAX_REMOVE_PER_CALL = 100;
-
 /**
  * `issueId` as a number, or a `bad-request`. Coerced rather than merely checked:
  * the id is stored and matched against numeric ids, so `"42"` arriving over REST
@@ -372,7 +366,8 @@ Meteor.methods({
   },
 
   /**
-   * Pin, dismiss or clear one Redmine issue for the caller.
+   * Dismiss or clear one Redmine issue for the caller. Pins are gone (#736): a
+   * Redmine issue the caller works on is carried by a ticket instead.
    *
    * `state: null` clears it — Undo in the dropdown and Restore in Settings are
    * the same call. A dismissal affects only this user's suggestions: nothing here
@@ -382,8 +377,8 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     enforceLimit(prefsLimiter, userId);
     const id = requireIssueId(issueId);
-    if (state !== PINNED && state !== DISMISSED && state !== null) {
-      throw new Meteor.Error('bad-request', 'state must be "pinned", "dismissed" or null.');
+    if (state !== DISMISSED && state !== null) {
+      throw new Meteor.Error('bad-request', 'state must be "dismissed" or null.');
     }
 
     // Only a dismissal needs to know how the issue stood at the time.
@@ -392,18 +387,7 @@ Meteor.methods({
         ? await isAssignedToCaller(await requireRedmineAccount(userId), id, true)
         : true;
 
-    try {
-      await setIssuePref(userId, id, state, { assignedToMe });
-    } catch (err) {
-      if (err?.name === 'TooManyPinsError') {
-        // A pin only exists to put the issue in the Tickets table. One assigned
-        // to the caller (their groups included) is there already, so at the cap
-        // it needs no pin, and the timer path goes on to add it to My Board.
-        if (await isAssignedToCaller(requireRedmineAccount(userId), id, false)) return { ok: true };
-        throw new Meteor.Error('too-many-pins', err.message);
-      }
-      throw err;
-    }
+    await setIssuePref(userId, id, state, { assignedToMe });
     return { ok: true };
   },
 
@@ -441,32 +425,6 @@ Meteor.methods({
       issueIds: page.issues.map((issue) => issue.id).filter(isRedmineIssueId),
       nextOffset: page.issues.length > 0 && end < page.totalCount ? end : null,
     };
-  },
-
-  /**
-   * Take issues out of the caller's Tickets table and off their My Board — the
-   * bulk Delete on the Tickets page. Nothing is sent to Redmine: the issues, and
-   * everyone else's view of them, are untouched.
-   *
-   * An issue assigned to the caller stays out while it stays assigned to them;
-   * starting a timer on it brings it back (see redmine-prefs-core.js, rules 8–11).
-   */
-  async 'redmine.issues.removeFromTable'({ issueIds } = {}) {
-    const { userId } = await requireIdentity(this);
-    enforceLimit(prefsLimiter, userId);
-    if (!Array.isArray(issueIds) || issueIds.length === 0 || issueIds.length > MAX_REMOVE_PER_CALL) {
-      throw new Meteor.Error('bad-request', `Between 1 and ${MAX_REMOVE_PER_CALL} issue ids are required.`);
-    }
-    const ids = [...new Set(issueIds.map(requireIssueId))];
-
-    // Two writes, not one transaction; both are idempotent, so a retry after a
-    // failure between them finishes the job rather than doubling it.
-    await removeIssuesFromTable(userId, ids);
-    await removeBoardEntries(
-      userId,
-      ids.map((id) => ({ sourceId: REDMINE, ticketId: String(id) })),
-    );
-    return { removedCount: ids.length };
   },
 
   /**

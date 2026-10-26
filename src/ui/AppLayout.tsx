@@ -84,9 +84,9 @@ const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'See
 const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
 const loadTicketsPage = () => import('../features/tickets/TicketsPage');
 const TicketsPage = lazyNamed(loadTicketsPage, 'TicketsPage');
-const RedmineIssueDetailPage = lazyNamed(
-  () => import('../features/tickets/detail/RedmineIssueDetailPage'),
-  'RedmineIssueDetailPage',
+const RedmineIssueRedirect = lazyNamed(
+  () => import('../features/tickets/detail/RedmineIssueRedirect'),
+  'RedmineIssueRedirect',
 );
 const TicketDetailPage = lazyNamed(
   () => import('../features/tickets/detail/TicketDetailPage'),
@@ -342,8 +342,8 @@ const AppLayoutContent: React.FC = () => {
       : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
-  // A Redmine issue lives under its own prefix; Huddle ticket ids are 24-char
-  // hex, so the two can never collide.
+  // A Redmine issue's old address, which now redirects to its ticket (#736).
+  // Huddle ticket ids are 24-char hex, so the two can never collide.
   const redmineIssueMatch = !profileSegment
     ? /^\/app\/tickets\/redmine\/(\d+)$/.exec(pathname)
     : null;
@@ -556,7 +556,7 @@ const AppLayoutContent: React.FC = () => {
                           ) : ticketDetailId ? (
                             <TicketDetailPage ticketId={ticketDetailId} />
                           ) : redmineIssueId ? (
-                            <RedmineIssueDetailPage issueId={redmineIssueId} />
+                            <RedmineIssueRedirect issueId={redmineIssueId} />
                           ) : pathNotFound ? (
                             <NoAccessState kind="not-found" resource="page" />
                           ) : (

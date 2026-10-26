@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, myBoardApi, redmineApi, ticketApi, timerApi } from '../../lib/api';
+import { ApiError, myBoardApi, ticketApi, timerApi } from '../../lib/api';
 
 import { NoTeamError } from './carryIssue';
 import { startTicketTimer, timerErrorMessage, toastTimerOutcome } from './startTicketTimer';
@@ -10,14 +10,12 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return {
     ApiError: actual.ApiError,
     timerApi: { createEntry: vi.fn() },
-    redmineApi: { prefs: { set: vi.fn() } },
     myBoardApi: { addMany: vi.fn() },
     ticketApi: { carryIssue: vi.fn() },
   };
 });
 
 const createEntry = vi.mocked(timerApi.createEntry);
-const setPref = vi.mocked(redmineApi.prefs.set);
 const addMany = vi.mocked(myBoardApi.addMany);
 const carryIssue = vi.mocked(ticketApi.carryIssue);
 
@@ -28,7 +26,6 @@ const UPDATE = { postId: 'p1', teamId: 't1' };
 beforeEach(() => {
   vi.resetAllMocks();
   createEntry.mockResolvedValue({ entry: {}, session: { id: 's1' }, update: UPDATE } as never);
-  setPref.mockResolvedValue({ ok: true });
   addMany.mockResolvedValue({ addedCount: 1 });
   carryIssue.mockResolvedValue({ ticket: { id: 'carrier1' }, created: true } as never);
 });
@@ -38,7 +35,6 @@ const TEAM = 'team1';
 describe('startTicketTimer: a Redmine issue is timed as the ticket carrying it (#736)', () => {
   it('times the carrying ticket, and puts that on My Board', async () => {
     const { outcome } = await startTicketTimer(issue, {
-      inTable: false,
       onBoard: true,
       teamId: TEAM,
     });
@@ -46,42 +42,33 @@ describe('startTicketTimer: a Redmine issue is timed as the ticket carrying it (
     expect(createEntry).toHaveBeenCalledWith(
       expect.objectContaining({ ticketId: 'carrier1', source: 'huddle', startNow: true }),
     );
-    // A ticket is in the table already: nothing to pin.
-    expect(setPref).not.toHaveBeenCalled();
     // The issue was on the board, not necessarily its carrier.
     expect(addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'carrier1' }]);
     expect(outcome).toBe('started-and-added');
   });
 
   it('starts nothing without a team to put the ticket in', async () => {
-    await expect(
-      startTicketTimer(issue, { inTable: true, onBoard: true, teamId: null }),
-    ).rejects.toBeInstanceOf(NoTeamError);
+    await expect(startTicketTimer(issue, { onBoard: true, teamId: null })).rejects.toBeInstanceOf(
+      NoTeamError,
+    );
     expect(createEntry).not.toHaveBeenCalled();
   });
 
   it('starts nothing when the issue cannot be carried', async () => {
     carryIssue.mockRejectedValue(new ApiError('gone', 404, 'issue-unavailable'));
-    await expect(
-      startTicketTimer(issue, { inTable: true, onBoard: true, teamId: TEAM }),
-    ).rejects.toThrow('gone');
+    await expect(startTicketTimer(issue, { onBoard: true, teamId: TEAM })).rejects.toThrow('gone');
     expect(createEntry).not.toHaveBeenCalled();
   });
 
   it('never carries a Huddle ticket', async () => {
-    await startTicketTimer(huddleTicket, { inTable: true, onBoard: true, teamId: TEAM });
+    await startTicketTimer(huddleTicket, { onBoard: true, teamId: TEAM });
     expect(carryIssue).not.toHaveBeenCalled();
   });
 });
 
-describe('startTicketTimer: an issue on another Redmine server stays a bare issue', () => {
-  beforeEach(() => {
-    carryIssue.mockRejectedValue(new ApiError('other server', 400, 'custom-instance'));
-  });
-
-  it('pins an issue the table does not have, then adds it to My Board', async () => {
-    const { outcome, update } = await startTicketTimer(issue, {
-      inTable: false,
+describe('startTicketTimer', () => {
+  it('starts the timer and adds the ticket to My Board', async () => {
+    const { outcome, update } = await startTicketTimer(huddleTicket, {
       onBoard: false,
       teamId: TEAM,
     });
@@ -89,76 +76,40 @@ describe('startTicketTimer: an issue on another Redmine server stays a bare issu
     // The update the start posted to Huddle comes back with the outcome.
     expect(update).toEqual(UPDATE);
     expect(createEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ ticketId: '1234', source: 'redmine', startNow: true }),
+      expect.objectContaining({ ticketId: 'abc', source: 'huddle', startNow: true }),
     );
-    expect(setPref).toHaveBeenCalledWith(1234, 'pinned');
-    expect(addMany).toHaveBeenCalledWith([{ sourceId: 'redmine', ticketId: '1234' }]);
+    expect(addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'abc' }]);
   });
 
-  it('only starts the timer when the issue is in the table and on My Board', async () => {
-    const { outcome } = await startTicketTimer(issue, {
-      inTable: true,
-      onBoard: true,
-      teamId: TEAM,
-    });
+  it('only starts the timer when the ticket is on My Board', async () => {
+    const { outcome } = await startTicketTimer(huddleTicket, { onBoard: true, teamId: TEAM });
     expect(outcome).toBe('started-on-board');
-    expect(setPref).not.toHaveBeenCalled();
     expect(addMany).not.toHaveBeenCalled();
-  });
-
-  it('never pins a Huddle ticket', async () => {
-    await startTicketTimer(huddleTicket, { inTable: false, onBoard: false, teamId: TEAM });
-    expect(setPref).not.toHaveBeenCalled();
-  });
-
-  it('keeps the issue off My Board at the pin cap', async () => {
-    setPref.mockRejectedValue(new ApiError('cap', 400, 'too-many-pins'));
-    const { outcome } = await startTicketTimer(issue, {
-      inTable: false,
-      onBoard: false,
-      teamId: TEAM,
-    });
-    expect(outcome).toBe('started-pin-limit');
-    expect(addMany).not.toHaveBeenCalled();
-  });
-
-  it('still adds to My Board when a pin fails for another reason', async () => {
-    setPref.mockRejectedValue(new ApiError('down', 503, 'unreachable'));
-    expect(
-      (await startTicketTimer(issue, { inTable: false, onBoard: false, teamId: TEAM })).outcome,
-    ).toBe('started-and-added');
   });
 
   it('reports a plain start when My Board refuses the add', async () => {
     addMany.mockRejectedValue(new Error('nope'));
-    expect(
-      (await startTicketTimer(issue, { inTable: true, onBoard: false, teamId: TEAM })).outcome,
-    ).toBe('started');
+    expect((await startTicketTimer(huddleTicket, { onBoard: false, teamId: TEAM })).outcome).toBe(
+      'started',
+    );
   });
 
-  it('fails without pinning when no session opened', async () => {
+  it('fails when no session opened', async () => {
     createEntry.mockResolvedValue({ entry: {}, session: null } as never);
-    expect(
-      (await startTicketTimer(issue, { inTable: false, onBoard: false, teamId: TEAM })).outcome,
-    ).toBe('failed');
-    expect(setPref).not.toHaveBeenCalled();
+    expect((await startTicketTimer(huddleTicket, { onBoard: false, teamId: TEAM })).outcome).toBe(
+      'failed',
+    );
+    expect(addMany).not.toHaveBeenCalled();
   });
 
   it('passes on a discard of the update of the ticket it takes over from', async () => {
-    await startTicketTimer(issue, {
-      inTable: true,
-      onBoard: true,
-      teamId: TEAM,
-      discardSessionId: 's0',
-    });
+    await startTicketTimer(huddleTicket, { onBoard: true, teamId: TEAM, discardSessionId: 's0' });
     expect(createEntry).toHaveBeenCalledWith(expect.objectContaining({ discardSessionId: 's0' }));
   });
 
   it('throws when the timer itself is refused', async () => {
     createEntry.mockRejectedValue(new ApiError('shift', 400, 'no-active-shift'));
-    await expect(
-      startTicketTimer(issue, { inTable: true, onBoard: true, teamId: TEAM }),
-    ).rejects.toThrow();
+    await expect(startTicketTimer(huddleTicket, { onBoard: true, teamId: TEAM })).rejects.toThrow();
   });
 });
 
@@ -206,12 +157,6 @@ describe('toastTimerOutcome', () => {
     withPost.action.onClick();
     expect(viewPost).toHaveBeenCalled();
     expect(toast.success.mock.calls[1][1].action).toBeUndefined();
-  });
-
-  it('warns at the pin cap', () => {
-    const toast = makeToast();
-    toastTimerOutcome(toast as never, 'started-pin-limit', '#1234');
-    expect(toast.warning).toHaveBeenCalled();
   });
 
   it('confirms a stop', () => {

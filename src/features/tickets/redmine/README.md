@@ -9,7 +9,7 @@ New Ticket dialog or from a ticket's "Linked issue" section (`../link/`).
 
 | File                        | Role                                                                                                        |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `RedmineIssueEditModal.tsx` | Row ⋮ → "Edit Ticket" / "Change Status" on a Redmine row: status, priority, assignee, description           |
+| `RedmineIssueEditModal.tsx` | "Change Status" on a ticket carrying a Redmine issue: status, priority, assignee, description in Redmine    |
 | `redmineForm.ts`            | Pure helpers for Redmine forms: `Select` options, id parsing, ticket pre-fill, error and read-back messages |
 
 **How writes work.** Every call runs on the server under the user's own
