@@ -645,13 +645,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
+    // The initial snapshot can land across several notifications; a partial one (teammates only)
+    // would clear the REST-hydrated event and lose its break details, so wait for ready.
+    let snapshotReady = false;
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      if (snapshotReady) applyLiveDocs();
+    });
     // Only refetch if we have a valid token — avoids 500 errors when
     // the subscription ready fires before auth is fully established
     const recoverClock = () => {
       if (localStorage.getItem('meteor_resume_token')) void refetchClock();
     };
     const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
+      snapshotReady = true;
       applyLiveDocs();
       // The initial fetch usually started moments ago; asking again returns the same event.
       // It can't restore a cross-team clock or break details if it failed, so retry then.

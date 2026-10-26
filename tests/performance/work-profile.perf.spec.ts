@@ -16,7 +16,8 @@ definePageFlowTests({
 definePageFlowTests({
   name: 'profile',
   path: `/app/profile/${PROFILE}`,
-  dataCalls: [],
+  // The username renders before the feed's own media request finishes.
+  dataCalls: [/\/api\/media_listForUser/],
   ready: (page) => page.locator('main').getByText(`@${PROFILE}`),
   budgetMs: 2500,
 });
@@ -32,7 +33,7 @@ definePageFlowTests({
 definePageFlowTests({
   name: 'profile-teammate',
   path: `/app/profile/${TEAMMATE}`,
-  dataCalls: [/\/api\/users_getByUsername/],
+  dataCalls: [/\/api\/users_getByUsername/, /\/api\/media_listForUser/],
   ready: (page) => page.locator('main').getByText(`@${TEAMMATE}`),
   budgetMs: 2500,
 });

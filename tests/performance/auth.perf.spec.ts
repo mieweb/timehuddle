@@ -39,7 +39,8 @@ async function measurePageLoad(
   url: string,
   heading: (p: Page) => ReturnType<Page['getByRole']>,
 ) {
-  await page.goto(url);
+  // Don't wait for `load`: the form can be usable before the last resources finish.
+  await page.goto(url, { waitUntil: 'commit' });
   await heading(page).waitFor();
   await page.getByRole('textbox', { name: 'Email address' }).waitFor();
   const formReady = await sinceNavigationStart(page);

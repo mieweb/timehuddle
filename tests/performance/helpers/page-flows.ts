@@ -29,10 +29,17 @@ export interface PageFlowConfig {
   budgetMs: number;
 }
 
-async function signIn(page: Page) {
+async function fillCredentials(page: Page) {
   await page.getByRole('textbox', { name: 'Email address' }).fill(PERF_USER.email);
   await page.getByRole('textbox', { name: 'Password' }).fill(PERF_USER.password);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+}
+
+const submitSignIn = (page: Page) =>
+  page.getByRole('button', { name: 'Sign in', exact: true }).click();
+
+async function signIn(page: Page) {
+  await fillCredentials(page);
+  await submitSignIn(page);
 }
 
 async function sample(runs: number, run: () => Promise<Sample>): Promise<Sample[]> {
@@ -80,8 +87,10 @@ export function definePageFlowTests({ name, path, dataCalls, ready, budgetMs }: 
         const mark = await sinceNavigationStart(page);
         api.reset();
         const data = dataResponses(page, dataCalls);
+        // Time from the Sign in click, not from Playwright typing the credentials.
+        await fillCredentials(page);
         const start = Date.now();
-        await signIn(page);
+        await submitSignIn(page);
         await dataOnScreen(page, data, ready(page));
         const signInToReady = Date.now() - start;
 

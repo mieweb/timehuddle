@@ -13,7 +13,8 @@ set +a
 (
   cd /app
   while true; do
-    npx serve -s /app/dist-new -l tcp:0.0.0.0:3001
+    # `|| true`: the subshell inherits set -e, which would end the loop on a crash.
+    npx serve -s /app/dist-new -l tcp:0.0.0.0:3001 || true
     echo "[perf] new frontend exited, restarting..."
     sleep 2
   done
