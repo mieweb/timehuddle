@@ -24,6 +24,7 @@ import {
 } from './ticket-refs';
 import { findRedmineAccount } from './redmine-account';
 import { onDefaultRedmine } from './redmine-client';
+import { unsentRedmineFor } from './redmine';
 import { pinIssueIfUnset } from './redmine-prefs';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
@@ -495,9 +496,9 @@ Meteor.methods({
 
     const tickets = await Tickets.find(
       { teamId },
-      { fields: { title: 1 } }
+      { fields: { title: 1, priority: 1 } }
     ).fetchAsync();
-    const ticketMap = new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+    const ticketMap = new Map(tickets.map((t) => [t._id.toHexString(), t]));
     const ticketIds = [...ticketMap.keys()];
     if (!ticketIds.length) return { timers: [] };
 
@@ -542,7 +543,8 @@ Meteor.methods({
           userName: profile?.displayName || nameMap.get(timer.userId) || 'Unknown',
           userImage: profile?.avatar ?? imageMap.get(timer.userId) ?? null,
           ticketId: workItem?.ticketId ?? '',
-          ticketTitle: workItem ? (ticketMap.get(workItem.ticketId) ?? '') : '',
+          ticketTitle: workItem ? (ticketMap.get(workItem.ticketId)?.title ?? '') : '',
+          ticketPriority: workItem ? (ticketMap.get(workItem.ticketId)?.priority ?? null) : null,
           startTime: timer.startTime,
         };
       }),
@@ -645,6 +647,8 @@ Meteor.methods({
 
     let session = null;
     let update = null;
+    // What the session this start closed left to send to Redmine (#688).
+    let unsentRedmine = null;
     if (startNow) {
       if (isPreviousDate(date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
       const clockEventId = await requireActiveShift(userId);
@@ -662,6 +666,7 @@ Meteor.methods({
       const started = await Timers.findOneAsync(sessionId);
       session = toPublicSession(started);
       update = await announceStart(userId, started, previous, discardSessionId);
+      unsentRedmine = await unsentRedmineFor(userId, previous);
       pinTimedRedmineIssue(userId, ticketSource, ticketId);
     }
 
@@ -670,7 +675,7 @@ Meteor.methods({
       notifyTimesheetAdmins(userId, ticketId, date, 'added').catch(() => {});
     }
 
-    return { entry: toPublicEntry(entry, display), session, update };
+    return { entry: toPublicEntry(entry, display), session, update, unsentRedmine };
   },
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
@@ -702,13 +707,15 @@ Meteor.methods({
       session: toPublicSession(session),
       closedSessionId: previous?._id.toHexString() ?? null,
       update,
+      unsentRedmine: await unsentRedmineFor(userId, previous),
     };
   },
 
   /**
    * Stop a running timer session, and say so in Huddle. `discardUpdate` is for
    * a stint its owner chose not to keep: the session's own "Started" update is
-   * removed instead, and nothing is posted.
+   * removed instead, and nothing is posted. `unsentRedmine` is what the session
+   * left to send to Redmine, if anything (see `unsentRedmineFor`).
    */
   async 'timers.stopSession'({ sessionId, now = Date.now(), discardUpdate = false } = {}) {
     const identity = await requireIdentity(this);
@@ -729,7 +736,11 @@ Meteor.methods({
     let update = null;
     if (discardUpdate === true) await discardTimerUpdate(userId, session);
     else update = await postTimerUpdate(TimerUpdate.STOPPED, session);
-    return { session: toPublicSession(updated), update };
+    return {
+      session: toPublicSession(updated),
+      update,
+      unsentRedmine: await unsentRedmineFor(userId, updated),
+    };
   },
 
   /** Update a WorkItem's note, duration, and/or ticket. */

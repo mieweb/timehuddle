@@ -29,7 +29,7 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   clockApi,
@@ -50,8 +50,8 @@ import {
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
-import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
+import { useTicketSelection } from '../huddle/useTicketSelection';
 import {
   appendImageMarkdown,
   isInlineImage,
@@ -78,6 +78,14 @@ import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
+
+// The rich editor is most of this page's code and only shows while a plan or
+// wrap-up is required, so it loads on demand.
+const MarkdownEditor = lazy(() =>
+  import('../huddle/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })),
+);
+
+const RECENT_SESSIONS_SHOWN = 8;
 
 /** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
 const MAIN_ACTION_PILL =
@@ -127,7 +135,12 @@ export const ClockPage: React.FC = () => {
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
+  const {
+    ticketIds: selectedTicketIds,
+    setTicketIds: setSelectedTicketIds,
+    addTicket,
+    removeTicket,
+  } = useTicketSelection();
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   // Completed fraction (0–1) of an attachment upload in flight, or null when
   // none is — same single-bar treatment as the Huddle composer, aggregated
@@ -191,14 +204,10 @@ export const ClockPage: React.FC = () => {
     let cancelled = false;
     setRecentSessionsLoading(true);
     clockApi
-      .getEvents()
+      .getRecentSessions(recentSessionsTeamId, RECENT_SESSIONS_SHOWN)
       .then((events) => {
         if (cancelled) return;
-        const completed = events
-          .filter((e) => e.teamId === recentSessionsTeamId && e.endTime != null)
-          .sort((a, b) => b.startTime - a.startTime)
-          .slice(0, 8);
-        setRecentSessions(completed);
+        setRecentSessions(events);
       })
       .catch(() => {
         if (!cancelled) setRecentSessions([]);
@@ -227,7 +236,7 @@ export const ClockPage: React.FC = () => {
   // still takes over for realtime once it arrives.
   const [sessionPostFetch, setSessionPostFetch] = useState<Pick<
     HuddlePost,
-    'id' | 'content'
+    'id' | 'content' | 'tickets'
   > | null>(null);
   // Whether the wrap-up seed lookup has settled (resolved or failed). The
   // editor must not mount before this: RichEditor reads `value` on mount only,
@@ -241,6 +250,15 @@ export const ClockPage: React.FC = () => {
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
   const editorMounted = composerMode !== 'wrapup' || seedSettled;
+  // Shown while the plan seed settles and while the editor's code downloads.
+  const composerLoading = (
+    <div
+      className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
+      data-testid="composer-seed-loading"
+    >
+      <Spinner size="sm" label="Loading your plan…" />
+    </div>
+  );
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
@@ -384,9 +402,24 @@ export const ClockPage: React.FC = () => {
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
     setAttachments([]);
-    setSelectedTicketId(undefined);
+    setSelectedTicketIds([]);
     setMentions([]);
-  }, [composerMode]);
+  }, [composerMode, setSelectedTicketIds]);
+
+  // The wrap-up starts with the tickets the plan linked at clock-in, so
+  // clocking out keeps them unless removed here. Declared after the reset
+  // above so a same-commit mode switch can't clear the seed.
+  const sessionPlan = composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch) : null;
+  const ticketsSeededForRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Leaving wrap-up clears the selection (above), so the same plan must
+    // reseed when the composer reopens — else its wrap-up would send `[]`.
+    if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
+    if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
+    ticketsSeededForRef.current = sessionPlan.id;
+    const planTicketIds = (sessionPlan.tickets ?? []).map((t) => t.id);
+    setSelectedTicketIds((prev) => [...new Set([...planTicketIds, ...prev])]);
+  }, [composerMode, sessionPlan, setSelectedTicketIds]);
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
@@ -398,7 +431,7 @@ export const ClockPage: React.FC = () => {
       const created = await huddleApi.createPost({
         teamId: gateTeamId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        ticketId: selectedTicketId,
+        ticketIds: selectedTicketIds,
         attachments: attachments.map(toPostAttachment),
         postDate: toDateString(new Date()),
       });
@@ -452,7 +485,12 @@ export const ClockPage: React.FC = () => {
           {
             wrapUp: true,
             attachments: postAttachments.length ? postAttachments : undefined,
-            ticketId: selectedTicketId,
+            // The list replaces the plan's, so send it only once it was seeded
+            // from the plan — otherwise just what was picked, if anything.
+            ticketIds:
+              ticketsSeededForRef.current === effectivePostId || selectedTicketIds.length
+                ? selectedTicketIds
+                : undefined,
           },
         );
       } else {
@@ -467,7 +505,7 @@ export const ClockPage: React.FC = () => {
           postDate: toDateString(new Date()),
           clockEventId: activeClockEvent.id,
           wrapUp: true,
-          ticketId: selectedTicketId,
+          ticketIds: selectedTicketIds,
           attachments: postAttachments,
         });
       }
@@ -696,30 +734,27 @@ export const ClockPage: React.FC = () => {
                 Mounting earlier gives RichEditor an empty `value` it will never
                 replace, which silently drops the plan text on wrap-up. */}
             {!editorMounted ? (
-              <div
-                className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
-                data-testid="composer-seed-loading"
-              >
-                <Spinner size="sm" label="Loading your plan…" />
-              </div>
+              composerLoading
             ) : (
-              <MarkdownEditor
-                key={`${composerMode}-${editorKey}`}
-                // `text`, not `seedText`: RichEditor reloads when `value` differs
-                // from its own last output, which is how a pasted image shows inline.
-                value={text}
-                onChange={setText}
-                onSubmit={() =>
-                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
-                }
-                onFiles={uploadDroppedMedia}
-              />
+              <Suspense fallback={composerLoading}>
+                <MarkdownEditor
+                  key={`${composerMode}-${editorKey}`}
+                  // `text`, not `seedText`: RichEditor reloads when `value` differs
+                  // from its own last output, which is how a pasted image shows inline.
+                  value={text}
+                  onChange={setText}
+                  onSubmit={() =>
+                    void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
+                  }
+                  onFiles={uploadDroppedMedia}
+                />
+              </Suspense>
             )}
 
             {/* ── Ticket / mention / attachment chips ── */}
             <ComposerChips
-              selectedTicketId={selectedTicketId}
-              onTicketRemove={() => setSelectedTicketId(undefined)}
+              selectedTicketIds={selectedTicketIds}
+              onTicketRemove={removeTicket}
               mentions={mentions}
               onMentionRemove={handleMentionRemove}
               attachments={attachments}
@@ -731,8 +766,8 @@ export const ClockPage: React.FC = () => {
               <ComposerAttachButtons
                 teamId={gateTeamId}
                 onAttachmentAdd={handleAttachmentAdd}
-                selectedTicketId={selectedTicketId}
-                onTicketSelect={setSelectedTicketId}
+                selectedTicketIds={selectedTicketIds}
+                onTicketSelect={addTicket}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
                 onError={setComposerError}

@@ -8,10 +8,11 @@ import type { Ticket } from './types';
 interface TicketPickerProps {
   teamId: string;
   onSelect: (ticketId: string) => void;
-  selectedId?: string;
+  /** Tickets already attached — marked in the list and not pickable again. */
+  selectedIds?: string[];
 }
 
-export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps) {
+export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
@@ -115,44 +116,54 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
               No tickets found
             </div>
           ) : (
-            filteredTickets.map((ticket) => (
-              <button
-                key={ticket.id}
-                type="button"
-                role="menuitem"
-                onClick={() => handleSelect(ticket.id)}
-                className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500 ${
-                  selectedId === ticket.id
-                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                    : 'text-gray-700 dark:text-neutral-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg
-                    className="w-3.5 h-3.5 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                    />
-                  </svg>
-                  <span className="flex-1 truncate min-w-0">{ticket.title}</span>
-                  {ticket.status && (
-                    <Badge
-                      size="sm"
-                      className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600 dark:bg-blue-900/50 dark:text-blue-300"
+            filteredTickets.map((ticket) => {
+              const attached = selectedIds.includes(ticket.id);
+              return (
+                <button
+                  key={ticket.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleSelect(ticket.id)}
+                  disabled={attached}
+                  aria-disabled={attached}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500 ${
+                    attached
+                      ? 'cursor-default bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-700 dark:text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
                     >
-                      {ticket.status}
-                    </Badge>
-                  )}
-                </div>
-              </button>
-            ))
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                      />
+                    </svg>
+                    <span className="flex-1 truncate min-w-0">{ticket.title}</span>
+                    {ticket.status && (
+                      <Badge
+                        size="sm"
+                        className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600 dark:bg-blue-900/50 dark:text-blue-300"
+                      >
+                        {ticket.status}
+                      </Badge>
+                    )}
+                    {attached && (
+                      <span className="shrink-0 text-[10px] text-indigo-500 dark:text-indigo-400">
+                        Attached
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </AnchoredMenu>

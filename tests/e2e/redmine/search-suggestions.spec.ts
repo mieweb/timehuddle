@@ -266,24 +266,35 @@ test.describe('Redmine search suggestions', () => {
 
   test('keeps rows readable at 320 px wide', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 700 });
-    const { input, option } = await openTickets(page, {
+    const { input, menu, option } = await openTickets(page, {
       'issues.relevant': relevant([
         suggestion(
           15,
           'A very long Redmine issue title that would never fit in one line at this width',
         ),
+        suggestion(23, 'Zulu'),
       ]),
     });
 
     await input.click();
     const row = option(/A very long Redmine issue title/);
     await expect(row).toBeVisible();
+    const title = row.getByText(/A very long Redmine issue title/);
+    const shortTitle = option(/Zulu/).getByText('Zulu');
 
+    // The title wraps to show all of its text: taller than a one-line title,
+    // and nothing of it cut off.
+    const titleBox = (await title.boundingBox())!;
+    const oneLine = (await shortTitle.boundingBox())!.height;
+    expect(titleBox.height).toBeGreaterThan(oneLine * 1.5);
+    expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+    // It stays inside the row, and the row inside the dropdown and the screen.
     const rowBox = (await row.boundingBox())!;
-    const titleBox = (await row.getByText(/A very long Redmine issue title/).boundingBox())!;
-    // The title truncates inside the row, and keeps most of its width.
     expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
-    expect(titleBox.width).toBeGreaterThan(rowBox.width * 0.5);
+    expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(320);
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await menu.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 });
 
@@ -336,6 +347,43 @@ test.describe('Redmine suggestion timers', () => {
     expect(boardAdds).toHaveLength(0);
     expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
+  });
+
+  test('the timer icon shows on every row; My Board and hide wait for the hovered one (#672)', async ({
+    page,
+  }) => {
+    await stubTimerStart(page, { onBoard: ['23'] });
+    const { input, menu, option } = await openTickets(page);
+
+    await input.click();
+    await expect(menu.getByRole('option')).toHaveCount(3);
+    // Nothing is highlighted, and the pointer is on no row.
+    await page.mouse.move(0, 0);
+    await expect(menu.locator('[aria-selected="true"]')).toHaveCount(0);
+
+    // On or off My Board, the label differs; every row has the one button.
+    await expect(menu.getByLabel(/timer/i)).toHaveCount(3);
+    for (const subject of SUGGESTED.map((issue) => issue.subject)) {
+      await expect(option(new RegExp(subject)).getByLabel(/timer/i)).toBeVisible();
+    }
+    const row = option(/Zulu export timeout/);
+    const timer = row.getByLabel('Start a timer on #23');
+    const board = row.getByLabel('Remove #23 from My Board');
+    const hide = row.getByLabel('Hide #23 from suggestions');
+    await expect(board).toBeHidden();
+    await expect(hide).toBeHidden();
+    const timerBefore = await timer.boundingBox();
+    const titleBefore = await row.getByText('Zulu export timeout').boundingBox();
+
+    await row.hover();
+
+    await expect(board).toBeVisible();
+    await expect(hide).toBeVisible();
+    // Their space was kept, so showing them moves nothing.
+    expect(await timer.boundingBox()).toEqual(timerBefore);
+    expect(await row.getByText('Zulu export timeout').boundingBox()).toEqual(titleBefore);
+    // The other rows' stay hidden.
+    await expect(option(/Alpha intake validation/).getByLabel(/My Board$/)).toBeHidden();
   });
 
   test('the board button adds an issue to My Board without starting a timer (#672)', async ({

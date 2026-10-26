@@ -2,7 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchTeamMembers } from './api';
-import { useTeamMentions } from './useTeamMentions';
+import { detectMentions, useTeamMentions } from './useTeamMentions';
 
 vi.mock('./api', () => ({ fetchTeamMembers: vi.fn() }));
 
@@ -90,5 +90,11 @@ describe('useTeamMentions', () => {
     rerender({ teamId: 'team-2' });
     expect(result.current.options).toEqual([]);
     expect(result.current.detect('@Priya')).toEqual([]);
+  });
+});
+
+describe('detectMentions', () => {
+  it('resolves against an arbitrary roster, not just the hook’s own team', () => {
+    expect(detectMentions('ping @Bob please', roster)).toEqual(['u2']);
   });
 });

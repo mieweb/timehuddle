@@ -420,10 +420,6 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   }
 }
 
-// Library and profile listings skip post-embedded media: it belongs to the
-// post's team, not to everyone who may view the author's profile.
-const LIBRARY_ITEMS = { embedded: { $ne: true } };
-
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
   if (!docs.length) return;
@@ -431,6 +427,56 @@ export async function discardMedia(docs) {
   await rawDb()
     .collection('mediaitems')
     .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+}
+
+/**
+ * mediaIds referenced by `userId`'s own still-undelivered scheduled posts —
+ * the read-time mirror of `isAwaitingDelivery` (huddle-schedule-core.js),
+ * applied to an attachment rather than to the post it belongs to: a
+ * scheduled post's raw file must not be any more visible than the post
+ * itself. Images/documents reference the library row's own `_id`; a
+ * composer-staged video's `mediaId` is Pulse's `videoid` instead
+ * (src/features/huddle/api.ts uploadMedia) — the row doesn't exist under its
+ * own `_id` until the upload lands, so it's matched by `videoid` instead.
+ */
+async function pendingAttachmentMediaIds(userId) {
+  const posts = await rawDb()
+    .collection('huddlePosts')
+    .find({ userId, deliverAt: { $exists: true }, deliveredAt: null }, { projection: { attachments: 1 } })
+    .toArray();
+  const mediaIds = new Set();
+  for (const post of posts) {
+    for (const att of post.attachments ?? []) {
+      if (typeof att.mediaId === 'string' && att.mediaId) mediaIds.add(att.mediaId);
+    }
+  }
+  return mediaIds;
+}
+
+/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link pendingAttachmentMediaIds}). */
+function excludingMediaIds(mediaIds) {
+  if (!mediaIds.size) return {};
+  const objectIds = [...mediaIds].filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
+  const videoIds = [...mediaIds].filter((id) => !/^[a-f0-9]{24}$/i.test(id));
+  return {
+    ...(objectIds.length ? { _id: { $nin: objectIds } } : {}),
+    ...(videoIds.length ? { videoid: { $nin: videoIds } } : {}),
+  };
+}
+
+/**
+ * Library and profile listings skip post-embedded media (it belongs to the
+ * post's team, not to everyone who may view the author's profile) and any
+ * media still attached only to one of `userId`'s own still-undelivered
+ * scheduled posts — filtered at read time against `huddlePosts`, the same
+ * way the post itself is hidden, rather than a hold written onto the media
+ * document.
+ */
+async function libraryItemsFilter(userId) {
+  return {
+    embedded: { $ne: true },
+    ...excludingMediaIds(await pendingAttachmentMediaIds(userId)),
+  };
 }
 
 // ── Media upload (/api/media/upload) ──────────────────────────────────────────
@@ -569,7 +615,7 @@ Meteor.methods({
     const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId, ...LIBRARY_ITEMS })
+      .find({ userId, ...(await libraryItemsFilter(userId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -585,7 +631,7 @@ Meteor.methods({
     await requireProfileAccess(userId, targetUserId, 'Not a teammate');
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
-      .find({ userId: targetUserId, ...LIBRARY_ITEMS })
+      .find({ userId: targetUserId, ...(await libraryItemsFilter(targetUserId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
@@ -635,13 +681,4 @@ Meteor.methods({
     }
     return { ok: true };
   },
-});
-
-// ─── Publications ─────────────────────────────────────────────────────────────
-
-import { MediaItems } from './collections.js';
-
-Meteor.publish('media.liveForUser', async function () {
-  if (!this.userId) return this.ready();
-  return MediaItems.find({ userId: this.userId, ...LIBRARY_ITEMS });
 });
