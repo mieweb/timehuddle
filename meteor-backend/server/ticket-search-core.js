@@ -43,9 +43,10 @@ const MIN_TEXT_LENGTH = 3;
 const MAX_WORDS = 8;
 
 const BARE_NUMBER = /^#?([1-9]\d*)$/;
-// A prefix, or a GitHub repo name (which may hold dots, underscores and
-// dashes), a dash, and the start of a number, or none of it yet.
-const NAMED_REF = /^([A-Za-z0-9][A-Za-z0-9._-]*?)-(\d*)$/;
+// A prefix, or a GitHub repo name (which may hold, and start with, dots and
+// underscores, and hold dashes), a dash, and the start of a number, or none of
+// it yet.
+const NAMED_REF = /^([A-Za-z0-9._][A-Za-z0-9._-]*?)-(\d*)$/;
 
 /**
  * Read a raw query into `{ name, digits }`, `name` null for a bare number, or
@@ -63,7 +64,8 @@ export function parseTicketRef(raw) {
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const GITHUB_ISSUE_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pull)\/([1-9]\d*)\/?$/;
+// An issue or PR, or a page under one: `/pull/554/files`.
+const GITHUB_ISSUE_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pull)\/([1-9]\d*)(?:\/|$)/;
 const TRAILING_NUMBER = /\/([1-9]\d*)\/?$/;
 
 /** A pasted link as `{ github: { owner, repo, digits } }` or `{ host, digits }`, or null. */
@@ -158,16 +160,25 @@ const numberEndingPath = (pattern) => `/${pattern}/?(?:[?#].*)?$`;
 /** A link on any server whose path ends in the number. */
 const anyLinkTo = (pattern) => new RegExp(numberEndingPath(pattern));
 
-/** A link on `host` whose path ends in the number. */
+/**
+ * A link on `host` whose path ends in the number. `http` too: older links were
+ * stored before only `https` was accepted, and still show an outside ID.
+ */
 const linkOnHostTo = (host, pattern) =>
   new RegExp(
-    `^https://${escapeRegExp(host)}(?::\\d+)?(?:/[^?#]*)?${numberEndingPath(pattern)}`,
+    `^https?://${escapeRegExp(host)}(?::\\d+)?(?:/[^?#]*)?${numberEndingPath(pattern)}`,
     'i',
   );
 
-/** A GitHub issue or PR of a repo called `repo`, as `GITHUB_ISSUE_URL_RE` reads it. */
+/**
+ * A GitHub issue or PR of a repo called `repo`, or of any repo, as
+ * `GITHUB_ISSUE_URL_RE` reads it: a page under it (`/pull/554/files`) counts.
+ */
 const githubIssue = (repo, pattern) =>
-  new RegExp(`github\\.com/[^/?#]+/${escapeRegExp(repo)}/(?:issues|pull)/${pattern}(?!\\d)`, 'i');
+  new RegExp(
+    `github\\.com/[^/?#]+/${repo === null ? '[^/?#]+' : escapeRegExp(repo)}/(?:issues|pull)/${pattern}(?!\\d)`,
+    'i',
+  );
 
 /** A ticket's own number: whole when exact, else read as text and matched from the start. */
 function ownNumber(digits, exact) {
@@ -225,6 +236,7 @@ export function ticketRefSelector(
         { ...all, number: Number(digits) },
         { ...all, 'linkedIssue.id': digits },
         { ...all, github: anyLinkTo(digits) },
+        { ...all, github: githubIssue(null, digits) },
       );
     }
   } else {

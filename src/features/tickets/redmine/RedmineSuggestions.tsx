@@ -188,14 +188,22 @@ export function RedmineSuggestions({
   );
 
   // An issue the current team already carries is listed once, as its ticket.
+  // Only one on the connected Redmine: issue 233 elsewhere is another issue. A
+  // link with no host is on the deployment's own Redmine, which is the
+  // connected one unless the user linked another server.
   const carriedHere = useMemo(
     () =>
       new Set(
         foundTickets
-          .filter((ticket) => ticket.teamId === selectedTeamId && ticket.linkedIssue)
+          .filter(
+            (ticket) =>
+              ticket.teamId === selectedTeamId &&
+              ticket.linkedIssue &&
+              (ticket.linkedIssue.host ?? redmineHost) === redmineHost,
+          )
           .map((ticket) => Number(ticket.linkedIssue!.id)),
       ),
-    [foundTickets, selectedTeamId],
+    [foundTickets, selectedTeamId, redmineHost],
   );
 
   const matching = useMemo(

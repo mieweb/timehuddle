@@ -110,6 +110,11 @@ beforeAll(async () => {
     number: 11,
     github: 'https://github.com/mieweb/pulse-vault/issues/41',
   });
+  await ticket(a1, 'http-link', { number: 30, github: `http://${REDMINE_HOST}/issues/233` });
+  await ticket(b1, 'pr-subpage', {
+    number: 31,
+    github: 'https://github.com/mieweb/pulse/pull/554/files#diff',
+  });
   await ticket(a1, 'deleted', { number: 12, status: 'deleted' });
   await ticket(outside, 'not-my-team', { number: 12 });
 });
@@ -134,6 +139,7 @@ describe('parseTicketRef', () => {
     expect(parseTicketRef('my.repo_x-2')).toEqual({ name: 'my.repo_x', digits: '2' });
     expect(parseTicketRef('pulse-vault-41')).toEqual({ name: 'pulse-vault', digits: '41' });
     expect(parseTicketRef('pulse-vault-')).toEqual({ name: 'pulse-vault', digits: '' });
+    expect(parseTicketRef('.github-2')).toEqual({ name: '.github', digits: '2' });
   });
 
   it('reads anything else as no ID', () => {
@@ -163,6 +169,7 @@ describe('ticketRefSelector', () => {
       'carrier',
       'carrier-with-host',
       'github-fork',
+      'http-link',
       'number-223',
       'numbered',
       'other-server',
@@ -174,18 +181,16 @@ describe('ticketRefSelector', () => {
 
   it('uses the default prefix for an org that set none', async () => {
     expect(await find('TH-7', { exact: true })).toEqual(['github']);
-    expect(await find('TH-')).toEqual(['dashed-repo', 'github']);
+    expect(await find('TH-')).toEqual(['dashed-repo', 'github', 'pr-subpage']);
     expect(await find('TH-12', { exact: true })).toEqual([]);
   });
 
   it("finds every ticket carrying, or linking to, an issue on the org's named server", async () => {
-    expect(await find('RM0-233', { exact: true })).toEqual([
-      'carrier',
-      'carrier-with-host',
-      'redmine-link',
-    ]);
-    expect(await find('RM0-')).toEqual(['carrier', 'carrier-with-host', 'redmine-link']);
-    expect(await find('RM0-23')).toEqual(['carrier', 'carrier-with-host', 'redmine-link']);
+    // An `http` link from before only `https` was accepted counts too.
+    const onServer = ['carrier', 'carrier-with-host', 'http-link', 'redmine-link'];
+    expect(await find('RM0-233', { exact: true })).toEqual(onServer);
+    expect(await find('RM0-')).toEqual(onServer);
+    expect(await find('RM0-23')).toEqual(onServer);
     expect(await find('RM0-23', { exact: true })).toEqual([]);
   });
 
@@ -194,6 +199,8 @@ describe('ticketRefSelector', () => {
     expect(await find('TimeHuddle-22', { exact: true })).toEqual([]);
     expect(await find('TimeHuddle-')).toEqual(['github', 'github-fork']);
     expect(await find('pulse-vault-4')).toEqual(['dashed-repo']);
+    // A page under a PR still names it.
+    expect(await find('pulse-554', { exact: true })).toEqual(['pr-subpage']);
   });
 
   it('finds every ticket where a bare number appears, whole', async () => {
@@ -201,9 +208,11 @@ describe('ticketRefSelector', () => {
     expect(await find('#233')).toEqual([
       'carrier',
       'carrier-with-host',
+      'http-link',
       'other-server',
       'redmine-link',
     ]);
+    expect(await find('554')).toEqual(['pr-subpage']);
     expect(await find('22')).toEqual([]);
   });
 
@@ -223,6 +232,10 @@ describe('parseTicketQuery', () => {
     expect(parseTicketQuery('https://github.com/mieweb/pulse/issues/250')).toEqual({
       kind: 'url',
       link: { github: { owner: 'mieweb', repo: 'pulse', digits: '250' } },
+    });
+    expect(parseTicketQuery('https://github.com/mieweb/pulse/pull/554/files#diff')).toEqual({
+      kind: 'url',
+      link: { github: { owner: 'mieweb', repo: 'pulse', digits: '554' } },
     });
     expect(parseTicketQuery('https://redmine.test/issues/233#note-1')).toEqual({
       kind: 'url',
@@ -279,6 +292,7 @@ describe('the other selectors', () => {
     expect(await titles(ticketLinkSelector({ host: REDMINE_HOST, digits: '233' }, scope))).toEqual([
       'carrier',
       'carrier-with-host',
+      'http-link',
       'redmine-link',
     ]);
   });

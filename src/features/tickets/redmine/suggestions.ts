@@ -25,7 +25,7 @@ const MIN_SERVER_QUERY = 3;
 
 const ISSUE_NUMBER = /^#?(\d+)$/;
 /** A prefix or repo name, a dash, and the start of a number: `RMX-`, `pulse-2`. */
-const NAMED_REF = /^([A-Za-z0-9][A-Za-z0-9._-]*?)-(\d*)$/;
+const NAMED_REF = /^([A-Za-z0-9._][A-Za-z0-9._-]*?)-(\d*)$/;
 const ISSUE_URL_ID = /\/issues\/(\d+)\/?(?:[?#].*)?$/;
 
 const isLink = (query: string) => /^https?:\/\//i.test(query);

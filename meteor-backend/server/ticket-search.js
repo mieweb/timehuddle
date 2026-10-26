@@ -42,7 +42,8 @@ async function callerTeams(userId) {
     { fields: { _id: 1, orgId: 1, members: 1, admins: 1 } },
   ).fetchAsync();
   return docs.map((team) => ({
-    id: team._id.toHexString(),
+    // Legacy teams can have string ids, as `teams.js` allows.
+    id: typeof team._id === 'string' ? team._id : team._id.toHexString(),
     orgId: team.orgId ?? null,
     people: [...(team.members ?? []), ...(team.admins ?? [])],
   }));
