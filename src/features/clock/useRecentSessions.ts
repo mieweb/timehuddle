@@ -47,9 +47,9 @@ export function useRecentSessions(
           .sort((a, b) => b.startTime - a.startTime);
         setSessions(completed);
       })
-      .catch(() => {
-        if (!cancelled) setSessions([]);
-      })
+      // A failed refresh keeps the last good history rather than zeroing the
+      // totals; `teamSessions` below still hides it if it's another team's.
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setLoading(false);
       });

@@ -57,4 +57,23 @@ describe('useRecentSessions totals', () => {
     expect(result.current.todaySeconds).toBe(0);
     expect(result.current.sessions).toEqual([]);
   });
+
+  it('keeps the last loaded history when a refresh fails', async () => {
+    getEvents.mockResolvedValue([
+      event({ startTime: NOW - 60 * 60 * 1000, endTime: NOW - 30 * 60 * 1000, workSeconds: 1800 }),
+    ]);
+    const { result, rerender } = renderHook(
+      ({ active }) => useRecentSessions('team-a', active, NOW),
+      { initialProps: { active: null as ClockEvent | null } },
+    );
+    await waitFor(() => expect(result.current.todaySeconds).toBe(1800));
+
+    // Clocking in triggers a refresh; it fails, but the 30m already loaded stays.
+    getEvents.mockRejectedValue(new Error('network'));
+    rerender({ active: event({ id: 'running', startTime: NOW - 60_000 }) });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.sessions).toHaveLength(1);
+    expect(result.current.todaySeconds).toBe(1860);
+  });
 });
