@@ -68,6 +68,15 @@ describe('splitLinks', () => {
     ]);
   });
 
+  it('trims a long run of closing brackets in linear time', () => {
+    const text = `https://x.dev/a${')'.repeat(50_000)}`;
+    const started = performance.now();
+    const parts = splitLinks(text);
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(parts[0]).toEqual({ text: 'https://x.dev/a', href: 'https://x.dev/a' });
+    expect(parts[1].text).toHaveLength(50_000);
+  });
+
   it('links a scheme in any case', () => {
     expect(splitLinks('HTTPS://example.com/repro and Http://x.dev')).toEqual([
       { text: 'HTTPS://example.com/repro', href: 'HTTPS://example.com/repro' },
