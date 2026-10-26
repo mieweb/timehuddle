@@ -68,6 +68,13 @@ export const ticketTimerText = {
   errorCarryBusy: 'This issue is being added already. Try again in a moment.',
   errorStop: 'Could not stop the timer. Please try again.',
 
+  /** Why an old Redmine issue link couldn't open its ticket; see `RedmineIssueRedirect`. */
+  errorOpen: 'Could not open this issue. Please try again.',
+  errorOpenNotConnected: 'Connect your Redmine account in Settings to open this issue.',
+  errorOpenUnreachable: 'Could not reach Redmine to open this issue.',
+  errorOpenOtherServer:
+    "Your Redmine account is on a different server from this TimeHuddle's, so this issue can't open here.",
+
   /** On the Clock page while a start waits for the clock-in. */
   pendingStart: (label: string) => `The timer on ${label} starts when you clock in.`,
   cancelPendingStart: 'Cancel',

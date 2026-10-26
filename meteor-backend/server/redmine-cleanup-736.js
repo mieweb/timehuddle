@@ -23,10 +23,9 @@ const MARKER_ID = 'redmine-bare-rows-736';
  * (`redmineHost`, skipped when null). Idempotent. Returns what it changed.
  */
 export async function clearBareRedmineData(db, { redmineHost }) {
-  const [board, prefs, attachments, hosts] = await Promise.all([
+  const [board, { hidesKept, prefs }, attachments, hosts] = await Promise.all([
     db.collection('my_board').deleteMany({ sourceId: 'redmine' }),
-    // Dismissals stay: they still hide issues from the search suggestions.
-    db.collection('redmine_issue_prefs').deleteMany({ state: { $in: ['pinned', 'removed'] } }),
+    clearPinsAndRemovals(db.collection('redmine_issue_prefs')),
     db.collection('attachments').deleteMany({ 'attachedTo.kind': 'redmine' }),
     redmineHost
       ? db
@@ -39,10 +38,26 @@ export async function clearBareRedmineData(db, { redmineHost }) {
   ]);
   return {
     boardEntries: board.deletedCount,
-    prefs: prefs.deletedCount,
+    prefs,
+    hidesKept,
     attachments: attachments.deletedCount,
     linksGivenHost: hosts.modifiedCount,
   };
+}
+
+/**
+ * Delete the pins and removals. Dismissals stay, since they still hide issues
+ * from the search suggestions, and that includes the hide a pinned or removed
+ * row can carry in `dismissedAt`: such a row becomes a plain dismissal first,
+ * aged from when it was dismissed.
+ */
+async function clearPinsAndRemovals(prefs) {
+  const kept = await prefs.updateMany(
+    { state: { $in: ['pinned', 'removed'] }, dismissedAt: { $ne: null } },
+    [{ $set: { state: 'dismissed', updatedAt: '$dismissedAt' } }, { $unset: 'dismissedAt' }],
+  );
+  const cleared = await prefs.deleteMany({ state: { $in: ['pinned', 'removed'] } });
+  return { hidesKept: kept.modifiedCount, prefs: cleared.deletedCount };
 }
 
 /** Run the cleanup once across every server instance. */

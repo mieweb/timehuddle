@@ -51,13 +51,39 @@ describe('clearBareRedmineData (#736)', () => {
   it('clears bare-issue board entries, pins, removals and attachments', async () => {
     const cleared = await clearBareRedmineData(db, { redmineHost: HOST });
 
-    expect(cleared).toEqual({ boardEntries: 1, prefs: 2, attachments: 1, linksGivenHost: 1 });
+    expect(cleared).toEqual({
+      boardEntries: 1,
+      prefs: 2,
+      hidesKept: 0,
+      attachments: 1,
+      linksGivenHost: 1,
+    });
     expect(await db.collection('my_board').find({}, { projection: { _id: 0 } }).toArray()).toEqual([
       { userId: 'u1', sourceId: 'huddle', ticketId: 't1' },
     ]);
     // A dismissal still hides the issue from the search suggestions.
     expect(await db.collection('redmine_issue_prefs').distinct('state')).toEqual(['dismissed']);
     expect(await db.collection('attachments').distinct('attachedTo.kind')).toEqual(['ticket']);
+  });
+
+  it('keeps the hide a pinned or removed issue carries, aged from its dismissal', async () => {
+    const dismissedAt = new Date('2026-10-20T12:00:00Z');
+    await db.collection('redmine_issue_prefs').insertMany([
+      { userId: 'u1', issueId: 300, state: 'pinned', dismissedAt, assignedToMeAtDismissal: true },
+      { userId: 'u1', issueId: 301, state: 'removed', dismissedAt },
+    ]);
+
+    const cleared = await clearBareRedmineData(db, { redmineHost: HOST });
+
+    expect(cleared).toMatchObject({ prefs: 2, hidesKept: 2 });
+    const kept = await db
+      .collection('redmine_issue_prefs')
+      .find({ issueId: { $in: [300, 301] } }, { projection: { _id: 0, userId: 0 }, sort: { issueId: 1 } })
+      .toArray();
+    expect(kept).toEqual([
+      { issueId: 300, state: 'dismissed', updatedAt: dismissedAt, assignedToMeAtDismissal: true },
+      { issueId: 301, state: 'dismissed', updatedAt: dismissedAt },
+    ]);
   });
 
   it('gives old links the Redmine host, and leaves links that have one', async () => {
@@ -81,6 +107,7 @@ describe('clearBareRedmineData (#736)', () => {
     expect(await clearBareRedmineData(db, { redmineHost: HOST })).toEqual({
       boardEntries: 0,
       prefs: 0,
+      hidesKept: 0,
       attachments: 0,
       linksGivenHost: 0,
     });

@@ -9,14 +9,28 @@
 import { Alert, Spinner } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
+import { ApiError } from '../../../lib/api';
 import { useTeam } from '../../../lib/TeamContext';
 import { AppPage } from '../../../ui/AppPage';
 import { useRouter } from '../../../ui/router';
-import { carriedKey } from '../carryIssue';
-import { ticketKey, ticketRefOf } from '../sources';
-import { timerErrorMessage } from '../startTicketTimer';
+import { ticketTimerText as text } from '../../timers/ticketTimerStrings';
+import { boardText } from '../boardStrings';
+import { NoTeamError, carriedKey } from '../carryIssue';
+import { invalidateRedmineCache, ticketKey, ticketRefOf } from '../sources';
 
 import { BackToTicketsButton } from './BackToTicketsButton';
+
+/** Why carrying the issue failed, in words about opening it: no timer was asked for. */
+function openErrorMessage(err: unknown): string {
+  if (err instanceof NoTeamError) return boardText.noTeam;
+  const code = err instanceof ApiError ? err.code : undefined;
+  if (code === 'issue-unavailable') return text.errorIssueUnavailable;
+  if (code === 'carry-busy') return text.errorCarryBusy;
+  if (code === 'not-connected') return text.errorOpenNotConnected;
+  if (code === 'custom-instance') return text.errorOpenOtherServer;
+  if (code === 'unreachable' || code === 'invalid-key') return text.errorOpenUnreachable;
+  return text.errorOpen;
+}
 
 export const RedmineIssueRedirect: React.FC<{ issueId: number }> = ({ issueId }) => {
   const { selectedTeamId, teamsReady } = useTeam();
@@ -29,10 +43,14 @@ export const RedmineIssueRedirect: React.FC<{ issueId: number }> = ({ issueId })
     let cancelled = false;
     carriedKey(ticketKey('redmine', String(issueId)), selectedTeamId).then(
       (key) => {
+        // The ticket may be new: a Tickets table kept mounted behind this
+        // route, and the Redmine cache, would otherwise miss it.
+        invalidateRedmineCache();
+        window.dispatchEvent(new CustomEvent('tickets:refetch'));
         if (!cancelled) replace(`/app/tickets/${ticketRefOf(key).ticketId}`);
       },
       (err: unknown) => {
-        if (!cancelled) setError(timerErrorMessage(err));
+        if (!cancelled) setError(openErrorMessage(err));
       },
     );
     return () => {
