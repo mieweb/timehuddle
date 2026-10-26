@@ -15,6 +15,8 @@ export const boardText = {
   /** Beside the icon, where there is room for words. */
   addShort: 'Add to My Board',
   onBoardShort: 'On My Board',
+  /** In a ticket's menu, where the item names the action. */
+  remove: 'Remove from My Board',
 
   removed: (label: string) => `${label} removed from My Board`,
   undo: 'Undo',
