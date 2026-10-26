@@ -229,6 +229,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (request.kind === 'ticket') {
             ({ outcome, update, unsentRedmine } = await startTicketTimer(request.ticket, {
               ...request,
+              teamId: selectedTeamId,
               discardSessionId,
             }));
             // A pinned issue joins the Redmine rows, which are cached per session.
@@ -257,7 +258,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return outcome;
       });
     },
-    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend],
+    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend, selectedTeamId],
   );
 
   const start = useCallback(

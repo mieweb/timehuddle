@@ -11,7 +11,6 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 
-import { createPlanRequiredTeam } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { ClockPage } from '../pages/ClockPage';
 import {
@@ -22,10 +21,10 @@ import {
   type StubValue,
 } from '../fixtures/redmine';
 import {
-  jsonResult,
+  carrierIdOf,
   keepShortStintUpdates,
+  stubCarryIssue,
   stubMyBoard,
-  stubRunningTimer,
   stubTimerCreate,
 } from '../fixtures/timers';
 
@@ -358,37 +357,15 @@ test.describe('Redmine issue page timer', () => {
   });
 
   /**
-   * The test backend has no Redmine, so the timer and My Board calls are
-   * stubbed. `running` follows start and stop, so the page's own running-timer
-   * tracking drives the button, as it does for a real timer.
+   * The test backend has no Redmine, so carrying the issue, the timer start
+   * and My Board are stubbed. Either header button acts on the ticket carrying
+   * the issue in the selected team, then opens that ticket's page (#736).
    */
-  async function stubTimer(
-    page: Page,
-    { onBoard = false, startError }: { onBoard?: boolean; startError?: string } = {},
-  ) {
-    const stops: Record<string, unknown>[] = [];
-    let running = false;
-    const starts = await stubTimerCreate(page, {
-      startError,
-      onStart: () => {
-        running = true;
-      },
-    });
-    await page.route('**/api/timers_stopSession', async (route) => {
-      stops.push(route.request().postDataJSON());
-      running = false;
-      await route.fulfill(jsonResult({ session: { id: 's1' } }));
-    });
-    await stubRunningTimer(page, {
-      ticketId: String(ISSUE_ID),
-      title: 'Fix the intake form validation',
-      isRunning: () => running,
-    });
-    const { adds: boardAdds } = await stubMyBoard(
-      page,
-      onBoard ? [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] : [],
-    );
-    return { starts, stops, boardAdds };
+  async function stubTimer(page: Page, { startError }: { startError?: string } = {}) {
+    const carries = await stubCarryIssue(page);
+    const starts = await stubTimerCreate(page, { startError });
+    const { adds: boardAdds } = await stubMyBoard(page, []);
+    return { carries, starts, boardAdds };
   }
 
   // Off My Board the start button says it adds the issue first (#672).
@@ -398,109 +375,49 @@ test.describe('Redmine issue page timer', () => {
         `^(Start a timer on #${ISSUE_ID}|Add #${ISSUE_ID} to My Board and start timer)$`,
       ),
     });
-  const stopButton = (page: Page) =>
-    page.getByRole('button', { name: `Stop the timer on #${ISSUE_ID}` });
+  const carrierOnBoard = { refs: [{ sourceId: 'huddle', ticketId: carrierIdOf(ISSUE_ID) }] };
+  const carrierPage = new RegExp(`/app/tickets/${carrierIdOf(ISSUE_ID)}(\\?|$)`);
 
-  test('starts and stops a timer from the header', async ({ page }) => {
+  test('the timer button times the ticket carrying the issue, then opens it (#736)', async ({
+    page,
+  }) => {
     await clock.ensureClockedIn();
-    const { starts, stops } = await stubTimer(page, { onBoard: true });
+    const { carries, starts, boardAdds } = await stubTimer(page);
     const rm = await openIssue(page, { 'issues.get': detailResponse() });
-
-    await expect(startButton(page)).toHaveText('Start timer');
-    await startButton(page).click();
-
-    // Assigned to you and already on My Board: the timer just starts.
-    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
-    expect(starts[0]).toMatchObject({
-      ticketId: String(ISSUE_ID),
-      source: 'redmine',
-      startNow: true,
-    });
-    expect(rm.calls('prefs.set')).toHaveLength(0);
-    await expect(stopButton(page)).toHaveText('Stop timer');
-
-    await stopButton(page).click();
-
-    await expect(page.getByText(`Stopped #${ISSUE_ID}`)).toBeVisible();
-    expect(stops[0]).toMatchObject({ sessionId: 's1' });
-    await expect(startButton(page)).toBeVisible();
-  });
-
-  test('the header toggle puts the issue on My Board and takes it off (#672)', async ({ page }) => {
-    const { boardAdds } = await stubTimer(page);
-    const rm = await openIssue(page, { 'issues.get': detailResponse() });
-    const add = page.getByRole('button', { name: `Add #${ISSUE_ID} to My Board`, exact: true });
-    const remove = page.getByRole('button', { name: `Remove #${ISSUE_ID} from My Board` });
-
-    await expect(add).toHaveText('Add to My Board');
-    await add.click();
-
-    // Added only: no timer, and nothing to pin (the board alone lists it).
-    await expect(remove).toHaveText('On My Board');
-    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
-    expect(rm.calls('prefs.set')).toHaveLength(0);
-    await expect(startButton(page)).toHaveText('Start timer');
-
-    await remove.click();
-
-    await expect(page.getByText(`#${ISSUE_ID} removed from My Board`)).toBeVisible();
-    await expect(add).toBeVisible();
-  });
-
-  test('an issue not in your table is pinned and added to My Board', async ({ page }) => {
-    await clock.ensureClockedIn();
-    const { boardAdds } = await stubTimer(page);
-    const rm = await openIssue(page, {
-      'issues.get': detailResponse({ assignedTo: { id: 3, name: 'Priya Patel' } }),
-      'prefs.set': { ok: true },
-    });
 
     await expect(startButton(page)).toHaveText('Add & Start');
     await startButton(page).click();
 
     await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
-    expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
-    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: String(ISSUE_ID) }] });
-  });
-
-  test('an issue you already pinned is not pinned again', async ({ page }) => {
-    await clock.ensureClockedIn();
-    const { boardAdds } = await stubTimer(page);
-    const rm = await openIssue(page, {
-      'issues.get': {
-        ...detailResponse({ assignedTo: { id: 3, name: 'Priya Patel' } }),
-        pinned: true,
-      },
+    expect(carries).toEqual([{ teamId: expect.any(String), issueId: ISSUE_ID }]);
+    expect(starts[0]).toMatchObject({
+      ticketId: carrierIdOf(ISSUE_ID),
+      source: 'huddle',
+      startNow: true,
     });
-
-    await startButton(page).click();
-
-    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
+    expect(boardAdds[0]).toEqual(carrierOnBoard);
+    // A carried issue is never pinned: its ticket is in the team's table.
     expect(rm.calls('prefs.set')).toHaveLength(0);
-    expect(boardAdds).toHaveLength(1);
+    await expect(page).toHaveURL(carrierPage);
   });
 
-  test('at the pin limit the timer starts, and says it stayed off the table', async ({ page }) => {
-    await clock.ensureClockedIn();
-    const { boardAdds } = await stubTimer(page);
-    await openIssue(page, {
-      'issues.get': detailResponse({ assignedTo: null }),
-      'prefs.set': { error: 'too-many-pins', status: 500 },
-    });
-
-    await startButton(page).click();
-
-    await expect(page.getByText(/You've reached the 500-pin limit/)).toBeVisible();
-    expect(boardAdds).toHaveLength(0);
-  });
-
-  test('clocked out, the prompt clocks in and then starts the timer', async ({ page }) => {
-    await clock.ensureClockedOut();
+  test('the board button puts the carrying ticket on My Board, then opens it (#736)', async ({
+    page,
+  }) => {
     const { starts, boardAdds } = await stubTimer(page);
-    await openIssue(page, {
-      'issues.get': detailResponse({ assignedTo: null }),
-      'prefs.set': { ok: true },
-    });
+    await openIssue(page, { 'issues.get': detailResponse() });
+
+    await page.getByRole('button', { name: `Add #${ISSUE_ID} to My Board`, exact: true }).click();
+
+    await expect.poll(() => boardAdds).toEqual([carrierOnBoard]);
+    expect(starts).toHaveLength(0);
+    await expect(page).toHaveURL(carrierPage);
+  });
+
+  test('clocked out, the prompt clocks in and then times the carrying ticket', async ({ page }) => {
+    await clock.ensureClockedOut();
+    const { starts } = await stubTimer(page);
+    await openIssue(page, { 'issues.get': detailResponse({ assignedTo: null }) });
 
     await startButton(page).click();
     await expect(page.getByRole('heading', { name: 'Clock In Required' })).toBeVisible();
@@ -508,46 +425,7 @@ test.describe('Redmine issue page timer', () => {
     await page.getByRole('button', { name: 'Clock In Now' }).click();
 
     await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
-    expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
-    expect(boardAdds).toHaveLength(1);
-  });
-
-  test('plan required: plan on the Clock page, then the issue timer starts and you are back', async ({
-    page,
-  }) => {
-    test.slow();
-    await clock.ensureClockedOut();
-    await createPlanRequiredTeam(page);
-    const { starts, boardAdds } = await stubTimer(page);
-    const rm = await openIssue(page, {
-      'issues.get': detailResponse({ assignedTo: null }),
-      'prefs.set': { ok: true },
-    });
-
-    await startButton(page).click();
-    await expect(
-      page.getByText(/Your team asks for today's plan before you clock in/),
-    ).toBeVisible();
-    await page.getByRole('button', { name: "Write today's plan" }).click();
-
-    await expect(page).toHaveURL(/\/app\/clock(\?|$)/);
-    await expect(
-      page.getByText(`The timer on #${ISSUE_ID} starts when you clock in.`),
-    ).toBeVisible();
-    expect(starts).toHaveLength(0);
-    await clock.typePlan(`Plan before timing #${ISSUE_ID}`);
-    await clock.postPlanAndClockIn();
-
-    // Back on the issue page, timing it: pinned into the table and on My Board.
-    await expect(page).toHaveURL(new RegExp(`/app/tickets/redmine/${ISSUE_ID}$`), {
-      timeout: 15000,
-    });
-    await expect(page.getByText(`Started #${ISSUE_ID}`)).toBeVisible();
-    expect(starts[0]).toMatchObject({ ticketId: String(ISSUE_ID), source: 'redmine' });
-    expect(rm.calls('prefs.set')).toContainEqual({ issueId: ISSUE_ID, state: 'pinned' });
-    expect(boardAdds).toHaveLength(1);
-
-    await clock.ensureClockedOut();
+    expect(starts[0]).toMatchObject({ ticketId: carrierIdOf(ISSUE_ID), source: 'huddle' });
   });
 
   test('a refused start says why', async ({ page }) => {
@@ -558,6 +436,5 @@ test.describe('Redmine issue page timer', () => {
     await startButton(page).click();
 
     await expect(page.getByText('Clock in to start a ticket timer.')).toBeVisible();
-    await expect(startButton(page)).toBeVisible();
   });
 });

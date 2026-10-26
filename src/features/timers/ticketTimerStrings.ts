@@ -67,6 +67,8 @@ export const ticketTimerText = {
   errorNotConnected: 'Connect your Redmine account in Settings to time this issue.',
   errorUnreachable: 'Could not reach Redmine to start this timer.',
   errorStart: 'Could not start the timer. Please try again.',
+  errorIssueUnavailable: "That Redmine issue doesn't exist, or you don't have access to it.",
+  errorCarryBusy: 'This issue is being added already. Try again in a moment.',
   errorStop: 'Could not stop the timer. Please try again.',
 
   /** On the Clock page while a start waits for the clock-in. */

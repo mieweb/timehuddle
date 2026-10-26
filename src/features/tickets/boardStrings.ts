@@ -19,6 +19,12 @@ export const boardText = {
   remove: 'Remove from My Board',
 
   removed: (label: string) => `${label} removed from My Board`,
+  /** A Redmine issue becomes a ticket in the selected team when it's boarded or timed (#736). */
+  noTeam: 'Choose a team first. A Redmine issue becomes a ticket in your team.',
+  carryFailed: (count: number) =>
+    count === 1
+      ? "One Redmine issue couldn't be added to My Board. Try again in a moment."
+      : `${count} Redmine issues couldn't be added to My Board. Try again in a moment.`,
   undo: 'Undo',
   columnHeading: 'My Board and timer',
 };

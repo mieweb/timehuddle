@@ -1159,6 +1159,16 @@ export const ticketApi = {
       expectedIssueId,
     }).then(toTicket),
 
+  /**
+   * The team's ticket carrying Redmine issue `issueId`, created from the issue
+   * and linked when there is none (#736). `created` says which.
+   */
+  carryIssue: (teamId: string, issueId: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
+      teamId,
+      issueId: Number(issueId),
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
     wormholeCall<Record<string, unknown>>('tickets.unlink', {
@@ -2729,6 +2739,17 @@ export const redmineApi = {
      */
     removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
       wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
+
+    /**
+     * One page (100) of the open issues assigned to the caller in Redmine, most
+     * recently updated first, whatever they removed from their Tickets table
+     * (#736). `nextOffset` starts the next page; null at the end.
+     */
+    assignedIds: (offset = 0): Promise<{ issueIds: number[]; nextOffset: number | null }> =>
+      wormholeCall<{ issueIds: number[]; nextOffset: number | null }>(
+        'redmine.issues.assignedIds',
+        { offset },
+      ),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
