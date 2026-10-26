@@ -49,7 +49,12 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
-import { STARTER_LIMIT, starterText, useAssignedNotice } from './assignedStarter';
+import {
+  collectAssignedOffBoard,
+  STARTER_LIMIT,
+  starterText,
+  useAssignedNotice,
+} from './assignedStarter';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -743,19 +748,20 @@ export const TicketsPage: React.FC = () => {
   const boardActions = useBoardActions();
 
   /**
-   * Put rows on My Board. Resolves to whether they were added; a failure is
-   * toasted. A Redmine issue goes on as the ticket carrying it in the selected
-   * team (#736), so with no team selected the team dialog opens instead.
+   * Put rows on My Board. Resolves to what was added (see `BoardAdd`), or null;
+   * a failure is toasted. A Redmine issue goes on as the ticket carrying it in
+   * the selected team (#736), so with no team selected the team dialog opens
+   * instead.
    */
   const addToBoard = useCallback(
     async (keys: string[]) => {
       if (!selectedTeam && keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) {
         setShowNoTeamDialog(true);
-        return false;
+        return null;
       }
-      const added = await boardActions.add(keys);
-      if (added) setBoardKeys((prev) => new Set([...prev, ...added]));
-      return added !== null;
+      const result = await boardActions.add(keys);
+      if (result) setBoardKeys((prev) => new Set([...prev, ...result.added]));
+      return result;
     },
     [boardActions, setBoardKeys, selectedTeam],
   );
@@ -833,8 +839,9 @@ export const TicketsPage: React.FC = () => {
   // How many assigned issues the last fill left off the board; null when not
   // known, as after a reload (the notice itself is remembered, the count not).
   const [assignedRemaining, setAssignedRemaining] = useState<number | null>(null);
-  // Issues a fill added this visit: their carriers may not have loaded yet, so
-  // the board's own issue ids can still miss them.
+  // Issues a fill added whose carriers haven't shown up on the board yet. Each
+  // leaves once its ticket is on the board: from then on the board answers, so
+  // taking the ticket off makes the issue addable again.
   const assignedAddedRef = React.useRef(new Set<number>());
   useEffect(() => {
     setAssignedRemaining(null);
@@ -850,15 +857,19 @@ export const TicketsPage: React.FC = () => {
 
   /**
    * Put the next few assigned issues on the board: the empty board's button and
-   * the notice's "Add more" both. Redmine is asked each time, so the count the
-   * notice shows is of what Redmine still has off the board.
+   * the notice's "Add more" both. Redmine is asked each time, a page of 100 at
+   * a time, until there are enough off the board or the list ends, so the count
+   * the notice shows is of what Redmine still has off the board.
    */
   const handleGetAssigned = useCallback(async () => {
     setGettingAssigned(true);
     try {
-      const { issueIds } = await redmineApi.issues.assignedIds();
-      const added = assignedAddedRef.current;
-      const offBoard = issueIds.filter((id) => !boardRedmineIssueIds.has(id) && !added.has(id));
+      const pending = assignedAddedRef.current;
+      for (const id of pending) if (boardRedmineIssueIds.has(id)) pending.delete(id);
+      const { offBoard, nextOffset } = await collectAssignedOffBoard(
+        (offset) => redmineApi.issues.assignedIds(offset),
+        (id) => !boardRedmineIssueIds.has(id) && !pending.has(id),
+      );
       if (offBoard.length === 0) {
         toast.info(starterText.noneAssigned);
         dismissAssignedNotice();
@@ -866,11 +877,14 @@ export const TicketsPage: React.FC = () => {
       }
       const batch = offBoard.slice(0, STARTER_LIMIT);
       // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
-      if (!(await addToBoard(batch.map((id) => ticketKey('redmine', String(id)))))) return;
-      for (const id of batch) added.add(id);
-      const remaining = offBoard.length - batch.length;
-      setAssignedRemaining(remaining);
-      if (remaining > 0) showAssignedNotice();
+      const result = await addToBoard(batch.map((id) => ticketKey('redmine', String(id))));
+      if (!result) return;
+      // Only the ones that made it: a failed one stays to be added again.
+      for (const key of result.requested) pending.add(Number(ticketRefOf(key).ticketId));
+      const leftOver = offBoard.length - result.requested.length;
+      // An unread page may hold more, so the count is only known at the end.
+      setAssignedRemaining(nextOffset === null ? leftOver : null);
+      if (leftOver > 0 || nextOffset !== null) showAssignedNotice();
       else dismissAssignedNotice();
     } catch {
       toast.error(starterText.fetchFailed);

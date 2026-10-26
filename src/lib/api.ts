@@ -2725,11 +2725,15 @@ export const redmineApi = {
       wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
 
     /**
-     * The open issues assigned to the caller in Redmine, most recently updated
-     * first, whatever they removed from their Tickets table (#736).
+     * One page (100) of the open issues assigned to the caller in Redmine, most
+     * recently updated first, whatever they removed from their Tickets table
+     * (#736). `nextOffset` starts the next page; null at the end.
      */
-    assignedIds: (): Promise<{ issueIds: number[] }> =>
-      wormholeCall<{ issueIds: number[] }>('redmine.issues.assignedIds', {}),
+    assignedIds: (offset = 0): Promise<{ issueIds: number[]; nextOffset: number | null }> =>
+      wormholeCall<{ issueIds: number[]; nextOffset: number | null }>(
+        'redmine.issues.assignedIds',
+        { offset },
+      ),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (

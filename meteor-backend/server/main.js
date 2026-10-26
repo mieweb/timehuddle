@@ -1172,8 +1172,11 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.issues.assignedIds', {
     description:
-      "The ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table",
-    inputSchema: { type: 'object', properties: {} },
+      "One page (100) of the ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table. Returns { issueIds, nextOffset }, nextOffset null at the end",
+    inputSchema: {
+      type: 'object',
+      properties: { offset: { type: 'integer', minimum: 0, description: 'Where the page starts' } },
+    },
   });
 
   Wormhole.expose('redmine.issues.removeFromTable', {

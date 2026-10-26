@@ -120,7 +120,7 @@ async function openEmptyBoard(page: Page, count: number): Promise<BoardRef[]> {
     // The issues the seeded tickets carry, as Redmine reads them: each one's
     // live status and assignee comes from here (#736).
     'issues.relevant': relevantList([], { linkedIssues: issues }),
-    'issues.assignedIds': { issueIds: ids },
+    'issues.assignedIds': { issueIds: ids, nextOffset: null },
   });
   await page.goto('/app/tickets');
   await selectTeamById(page, teamId);
