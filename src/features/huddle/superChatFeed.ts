@@ -113,9 +113,29 @@ function formatDayLabel(dateKey: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+/** A post's tickets that still exist (a deleted one comes back with no title). */
+function existingTickets(post: HuddlePost): { id: string; title: string }[] {
+  return (post.tickets ?? []).flatMap((t) => (t.title ? [{ id: t.id, title: t.title }] : []));
+}
+
 /** Titles of a post's tickets that still exist. */
 function ticketTitles(post: HuddlePost): string[] {
-  return (post.tickets ?? []).flatMap((t) => (t.title ? [t.title] : []));
+  return existingTickets(post).map((t) => t.title);
+}
+
+/** In-app path of a ticket's page (see src/ui/ROUTING.md). */
+export function ticketPath(ticketId: string): string {
+  return `/app/tickets/${encodeURIComponent(ticketId)}`;
+}
+
+/** Escape text so markdown punctuation in it (`[`, `*`, …) shows as typed. */
+function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_[\]<>]/g, '\\$&');
+}
+
+/** "🎫 [Onboarding checklist](/app/tickets/…)" — the inbox opens it in the app. */
+function ticketLinkMarkdown(ticket: { id: string; title: string }): string {
+  return `🎫 [${escapeMarkdown(ticket.title)}](${ticketPath(ticket.id)})`;
 }
 
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
@@ -242,7 +262,7 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
   return new Set([...bySession.values()].map((p) => p.id));
 }
 
-/** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 Onboarding checklist". */
+/** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 [Onboarding checklist](/app/tickets/…)". */
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
@@ -252,8 +272,8 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
-  for (const title of ticketTitles(post)) {
-    parts.push(`🎫 ${title}`);
+  for (const ticket of existingTickets(post)) {
+    parts.push(ticketLinkMarkdown(ticket));
   }
   if (teamName) {
     parts.push(teamName);

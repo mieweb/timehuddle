@@ -5,8 +5,9 @@
  * on a phone, and says where the video went. See {@link usePulseUpload}.
  *
  * `PulseButton` owns its upload. A host that needs the link or the status
- * itself calls `usePulseUpload` and renders `PulseChip` and
- * {@link PulseUploadModal} from it.
+ * itself, or shows the buttons in more than one place, calls `usePulseUpload`
+ * and renders `PulseControls` (or `PulseChip` and {@link PulseUploadModal})
+ * from it.
  */
 import { faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -200,16 +201,27 @@ interface PulseButtonProps {
   compact?: boolean;
 }
 
-export const PulseButton: React.FC<PulseButtonProps> = ({
-  destination,
+export const PulseButton: React.FC<PulseButtonProps> = ({ destination, onSettled, ...rest }) => {
+  const pulse = usePulseUpload(destination, { onSettled });
+  return <PulseControls pulse={pulse} {...rest} />;
+};
+
+type PulseControlsProps = Omit<PulseButtonProps, 'destination' | 'onSettled'> & {
+  pulse: PulseUpload;
+};
+
+/**
+ * PulseButton's buttons and QR window for a `pulse` the host holds itself, so
+ * they can move around the layout (and remount) without losing an upload.
+ */
+export const PulseControls: React.FC<PulseControlsProps> = ({
+  pulse,
   ariaLabel,
-  onSettled,
   disabled,
   allowFile,
   card,
   compact,
 }) => {
-  const pulse = usePulseUpload(destination, { onSettled });
   return (
     <div
       className={cn(
