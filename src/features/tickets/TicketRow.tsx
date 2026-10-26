@@ -3,8 +3,8 @@
  *
  * Renders a `UnifiedTicket` without caring which source it came from, as a
  * `RowListItem`, the same at every width: a line of where the ticket sits
- * (project, reference, last updated), its title, and under the title its
- * badges (assignees, status, priority, source, linked issue).
+ * (project, reference, last updated), then its title with its badges beside it
+ * (assignees, status, priority, source, linked issue), wrapping as it narrows.
  *
  * An open ticket leads with its timer button; a closed one has its purple mark
  * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
@@ -80,7 +80,7 @@ export interface TicketRowProps {
  * most of what tells one ticket from another and a phone has no hover tooltip.
  */
 const TITLE_CLASS =
-  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
+  'ticket-row-title h-auto max-w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
 
 /** Assignee names a row shows before it counts the rest. */
 const SHOWN_ASSIGNEES = 3;

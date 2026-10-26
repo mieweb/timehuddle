@@ -1,7 +1,7 @@
 /**
  * The ticket list's one row layout (#668): at every width each ticket is the
- * same row — where it sits, its title in full, then its badges under the title
- * — and nothing scrolls sideways. Sorting and filtering are pills in the list
+ * same row — where it sits, then its title in full with its badges beside it,
+ * wrapping under it as the row narrows — and nothing scrolls sideways. Sorting and filtering are pills in the list
  * header, which fold into a pane behind a chevron when they do not fit.
  */
 import { test, expect } from '@playwright/test';
@@ -51,17 +51,11 @@ test.describe('Ticket rows', () => {
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
 
-    // Where the ticket sits, then its title, then who has it and its state.
+    // Where the ticket sits, then its title with who has it and its state beside it.
     await expect(row.locator('.ticket-row-meta')).toContainText('#');
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
     await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
-    const lines = await row
-      .locator('.row-list-meta, .row-list-title, .row-list-properties')
-      .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toBeLessThan(lines[1]);
-    expect(lines[1]).toBeLessThan(lines[2]);
 
     const menu = row.getByRole('button', { name: 'Ticket options' });
     await expect(menu).toBeVisible();
@@ -71,6 +65,16 @@ test.describe('Ticket rows', () => {
 
     // There are no columns at all.
     await expect(page.getByRole('columnheader')).toHaveCount(0);
+
+    // With room, the first badge sits on the title's line, right after it.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const metaBox = await row.locator('.row-list-meta').boundingBox();
+    const titleBox = await row.locator('.row-list-title').boundingBox();
+    const badgeBox = await row.locator('.ticket-row-facts [data-slot=badge]').first().boundingBox();
+    expect(metaBox!.y).toBeLessThan(titleBox!.y);
+    expect(badgeBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
+    expect(badgeBox!.y).toBeLessThan(titleBox!.y + titleBox!.height);
+    expect(badgeBox!.y + badgeBox!.height).toBeGreaterThan(titleBox!.y);
   });
 
   test('shows checkboxes only while selecting, and drops the selection after', async () => {
