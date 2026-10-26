@@ -242,6 +242,13 @@ export const ClockPage: React.FC = () => {
   // The plan this page just posted to clock in. The wrap-up that follows
   // starts from it straight away, rather than showing a spinner while the
   // lookup above fetches the same post back.
+  // The draft that plan was posted from (exactly as the editor last reported
+  // it) and the plan text as posted. Clock-in leaves the draft untouched in
+  // the editor and the wrap-up opens on it; changing it here instead would
+  // start a reload in the plan editor, which — when clock-in isn't confirmed
+  // and that editor stays — can land after the draft is cleared and put the
+  // posted plan back, ready to post twice.
+  const handedOverRef = useRef<{ draft: string; plan: string } | null>(null);
   const [postedPlan, setPostedPlan] = useState<Pick<
     HuddlePost,
     'id' | 'content' | 'tickets'
@@ -251,10 +258,19 @@ export const ClockPage: React.FC = () => {
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
   // Only good for the shift it clocked in: dropped once clocked out (a failed
-  // clock-in included), so a later shift never starts from it.
+  // clock-in included), so a later shift never starts from it. The plan text
+  // handed over for the wrap-up goes with it: if clock-in posted the plan but
+  // the page still reads clocked out (its clock read failed), that text would
+  // sit in an active plan composer, and submitting it again would post the
+  // plan twice and restart the shift.
   useEffect(() => {
-    if (!isClockedIn && !submittingMode) setPostedPlan(null);
-  }, [isClockedIn, submittingMode]);
+    if (isClockedIn || submittingMode || !postedPlan) return;
+    const handedOver = handedOverRef.current;
+    setText((current) => (current === handedOver?.draft ? '' : current));
+    handedOverRef.current = null;
+    seededTokenRef.current = null;
+    setPostedPlan(null);
+  }, [isClockedIn, submittingMode, postedPlan]);
   // A composer being submitted keeps its editor: once clock-out lands, the
   // lookup above resets for a session that has just ended.
   const editorMounted =
@@ -472,6 +488,7 @@ export const ClockPage: React.FC = () => {
     setSubmittingMode('plan');
     setPostError(null);
     let planPosted = false;
+    const draft = text;
     try {
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
       const created = await huddleApi.createPost({
@@ -486,6 +503,7 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      handedOverRef.current = { draft, plan: trimmed };
       setPostedPlan({
         id: planPostId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
@@ -495,10 +513,9 @@ export const ClockPage: React.FC = () => {
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
       // The editor keeps showing the plan while it posts, and the wrap-up
-      // that replaces it opens on the same text — handed over here, already
-      // seeded, so it neither blanks in between nor remounts to load it.
+      // that replaces it opens on that same draft. Marked as seeded so it
+      // doesn't remount to load the posted copy of the same text.
       seededTokenRef.current = `wrapup:${trimmed}`;
-      setText(trimmed);
     } catch (e) {
       // Once the plan is posted, clear it even if clocking in failed, so a
       // retry can't post it twice.
@@ -538,7 +555,12 @@ export const ClockPage: React.FC = () => {
           postedPlan?.content.text ??
           ''
         ).trim();
-        const editorNeverSawPlan = planText !== '' && !shownSeedRef.current.includes(planText);
+        // The draft handed over at clock-in is the plan, even where the
+        // editor's copy differs from the posted one (image alt text).
+        const editorNeverSawPlan =
+          planText !== '' &&
+          handedOverRef.current?.plan !== planText &&
+          !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
 

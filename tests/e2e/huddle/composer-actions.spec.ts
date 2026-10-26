@@ -84,6 +84,27 @@ test.describe('Huddle composer — individual actions', () => {
     await expect(composerEditor(page)).toContainText('A fresh wrap-up');
   });
 
+  test('a plan posted while the clock read fails is not left ready to post again', async ({
+    page,
+  }) => {
+    // Clock-in succeeds but the read after it fails, so the page still shows
+    // the plan composer. The plan it just posted must not sit there, enabled:
+    // submitting it again would post it twice and restart the shift.
+    const planText = `Posted once ${Date.now()}`;
+    await composerEditor(page).fill(planText);
+    await page.route('**/api/clock_activeForUser*', (route) => route.abort());
+    await postButton(page).click();
+    // The button is briefly disabled while posting too, so check the text first.
+    await expect(composerEditor(page)).not.toContainText(planText, { timeout: 30000 });
+    await expect(postButton(page)).toBeDisabled();
+
+    await page.unroute('**/api/clock_activeForUser*');
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'What did you work on?' })).toBeVisible({
+      timeout: 30000,
+    });
+  });
+
   test('posts text only', async ({ page }) => {
     const postText = `Text only ${Date.now()}`;
     await composerEditor(page).fill(postText);

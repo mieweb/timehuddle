@@ -2,8 +2,8 @@
  * Fetches this user's completed sessions for a team and derives the
  * Today/Last-7-days totals shown beside the Clock page's timer.
  *
- * Re-fetches whenever clocked-in state flips so a just-finished session shows
- * up immediately. `nowMs` is the caller's own live clock (e.g. TeamContext's
+ * Re-fetches whenever the active shift changes (clocking in or out, or one
+ * shift replaced by another) so a just-finished session shows up immediately. `nowMs` is the caller's own live clock (e.g. TeamContext's
  * `currentTime`) — passed in rather than read internally so the totals keep
  * rolling forward (midnight, the 7-day window) on a page left open, not just
  * whenever `sessions` happens to change.
@@ -39,9 +39,10 @@ export function useRecentSessions(
   activeClockEvent: ClockEvent | null | undefined,
   nowMs: number,
 ) {
-  const isClockedIn = !!activeClockEvent;
+  const activeShiftId = activeClockEvent?.id ?? null;
   const [sessions, setSessions] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [finishedShift, setFinishedShift] = useState<FinishedShift | null>(null);
 
   useEffect(() => {
     if (!teamId) {
@@ -54,7 +55,13 @@ export function useRecentSessions(
     clockApi
       .getRecentSessions(teamId, RECENT_SESSIONS_FETCHED)
       .then((events) => {
-        if (!cancelled) setSessions(events);
+        if (cancelled) return;
+        setSessions(events);
+        // Its own record has loaded, so the copy is done; dropped here rather
+        // than merely skipped, or a session deleted later would come back.
+        setFinishedShift((shift) =>
+          shift && events.some((event) => event.id === shift.id) ? null : shift,
+        );
       })
       // A failed refresh keeps the last good history rather than zeroing the
       // totals; `teamSessions` below still hides it if it's another team's.
@@ -65,24 +72,25 @@ export function useRecentSessions(
     return () => {
       cancelled = true;
     };
-  }, [teamId, isClockedIn]);
+    // Keyed on the shift's id rather than just clocked-in/out, so a shift
+    // replaced straight by another one also reloads the one that ended.
+  }, [teamId, activeShiftId]);
 
-  // The running shift as of the latest tick, so that when it ends its worked
-  // time carries on in the totals until its completed record arrives.
+  // The running shift as of the latest tick, so that when it ends — or is
+  // replaced by another — its worked time carries on in the totals until its
+  // completed record arrives.
   const lastActiveRef = useRef<FinishedShift | null>(null);
-  const [finishedShift, setFinishedShift] = useState<FinishedShift | null>(null);
   useEffect(() => {
-    if (activeClockEvent) {
-      lastActiveRef.current = {
-        id: activeClockEvent.id,
-        teamId: activeClockEvent.teamId,
-        startTime: activeClockEvent.startTime,
-        seconds: getActiveClockSeconds(activeClockEvent, nowMs),
-      };
-      return;
-    }
-    if (lastActiveRef.current) setFinishedShift(lastActiveRef.current);
-    lastActiveRef.current = null;
+    const previous = lastActiveRef.current;
+    if (previous && previous.id !== activeClockEvent?.id) setFinishedShift(previous);
+    lastActiveRef.current = activeClockEvent
+      ? {
+          id: activeClockEvent.id,
+          teamId: activeClockEvent.teamId,
+          startTime: activeClockEvent.startTime,
+          seconds: getActiveClockSeconds(activeClockEvent, nowMs),
+        }
+      : null;
   }, [activeClockEvent, nowMs]);
 
   // Until a team switch's fetch lands, `sessions` still holds the previous
