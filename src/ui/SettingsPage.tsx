@@ -836,11 +836,24 @@ const RedmineConnection: React.FC = () => {
     );
   }
 
+  // No server to link to: a key could only be refused, so say why up front.
+  if (!status?.defaultBaseUrl && !showUrlField) {
+    return (
+      <div className="redmine-not-configured px-5 py-4">
+        <Text variant="muted" size="xs" role="status">
+          This TimeHuddle has no Redmine server set up yet. Whoever runs it sets one with{' '}
+          <code className="text-xs">REDMINE_BASE_URL</code>.
+        </Text>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <Text variant="muted" size="xs">
         Paste your personal Redmine API key (found on your Redmine account page under{' '}
-        <code className="text-xs">My account</code>) to link your account.
+        <code className="text-xs">My account</code>) to link your account
+        {status?.defaultBaseUrl && !showUrlField ? ` on ${status.defaultBaseUrl}` : ''}.
       </Text>
       <div className="flex gap-2">
         <Input
