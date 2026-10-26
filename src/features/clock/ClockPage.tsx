@@ -612,7 +612,10 @@ export const ClockPage: React.FC = () => {
                   </Text>
                 </div>
               </div>
-              <div className="clock-pulse-action flex shrink-0 flex-col items-stretch gap-1 @2xl:items-end">
+              {/* Side by side, capped: a long error or follow-up note wraps
+                  under the button instead of widening this column into the
+                  words beside it. */}
+              <div className="clock-pulse-action flex shrink-0 flex-col items-stretch gap-1 @2xl:max-w-72 @2xl:items-end @2xl:text-end">
                 <PulseChip
                   pulse={clockPulse}
                   ariaLabel={clockPulseLabel}
