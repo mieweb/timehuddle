@@ -26,6 +26,7 @@ _build
 # Playwright
 /test-results/
 /playwright-report/
+/blob-report/
 .playwright-mcp/
 tests/performance/results/
 
