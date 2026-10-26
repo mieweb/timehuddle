@@ -103,4 +103,23 @@ describe('useRecentSessions totals', () => {
     await waitFor(() => expect(result.current.sessions).toHaveLength(1));
     expect(result.current.todaySeconds).toBe(3 * 3600);
   });
+
+  it('counts a shift once when it comes back after briefly reading as ended', async () => {
+    // A failed clock read clears the active shift for a moment (TeamContext's
+    // refetchClock), then the next read returns the same, still-open shift.
+    getRecentSessions.mockResolvedValue([]);
+    const running = event({ id: 'shift', startTime: NOW - 3 * 60 * 60 * 1000 });
+    const { result, rerender } = renderHook(
+      ({ active }) => useRecentSessions('team-a', active, NOW),
+      { initialProps: { active: running as ClockEvent | null } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    rerender({ active: null });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ active: running });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.todaySeconds).toBe(3 * 3600);
+  });
 });

@@ -457,6 +457,13 @@ export const ClockPage: React.FC = () => {
 
   const showEditor =
     composerExpanded || !!text.trim() || selectedTickets.length > 0 || attachments.length > 0;
+  // Editing pins it open: a seeded wrap-up shows only because it has content,
+  // so clearing that content to start over would otherwise collapse the
+  // editor mid-typing. It stays open until the composer resets.
+  const handleEditorChange = (value: string) => {
+    setText(value);
+    setComposerExpanded(true);
+  };
 
   async function postPlanAndClockIn() {
     const trimmed = composerText();
@@ -805,7 +812,7 @@ export const ClockPage: React.FC = () => {
                       // `text`, not `seedText`: RichEditor reloads when `value` differs
                       // from its own last output, which is how a pasted image shows inline.
                       value={text}
-                      onChange={setText}
+                      onChange={handleEditorChange}
                       onSubmit={() =>
                         void (composerMode === 'plan'
                           ? postPlanAndClockIn()

@@ -67,6 +67,23 @@ test.describe('Huddle composer — individual actions', () => {
     await clockOut(page);
   });
 
+  test('a seeded wrap-up stays open when its text is cleared', async ({ page }) => {
+    // The wrap-up opens expanded because it holds the plan. Deleting all of
+    // it to start over must not collapse it back to the one-line stand-in.
+    const planText = `Plan to replace ${Date.now()}`;
+    await composerEditor(page).fill(planText);
+    await submitPost(page);
+    await expect(composerEditor(page)).toContainText(planText);
+
+    await composerEditor(page).click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('A fresh wrap-up');
+
+    await expect(page.getByRole('textbox', { name: 'Write a wrap-up' })).toHaveCount(0);
+    await expect(composerEditor(page)).toContainText('A fresh wrap-up');
+  });
+
   test('posts text only', async ({ page }) => {
     const postText = `Text only ${Date.now()}`;
     await composerEditor(page).fill(postText);

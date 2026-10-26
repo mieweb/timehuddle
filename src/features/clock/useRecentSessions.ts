@@ -111,9 +111,12 @@ export function useRecentSessions(
       seconds: getActiveClockSeconds(activeClockEvent, nowMs),
     });
   }
+  // Not when it's running again: a failed clock read clears the active shift
+  // for a moment, and the next read brings the same one back, live.
   if (
     finishedShift &&
     finishedShift.teamId === teamId &&
+    finishedShift.id !== activeClockEvent?.id &&
     !teamSessions.some((session) => session.id === finishedShift.id)
   ) {
     extraShifts.push(finishedShift);
