@@ -60,7 +60,7 @@ import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
-import { ChangeRequestWalkthrough } from './ChangeRequestWalkthrough';
+import { ChangeRequestWalkthrough, ChangeRequestWalkthroughHost } from './ChangeRequestWalkthrough';
 import { TimesheetRow } from './TimesheetRow';
 import {
   emptyJustification,
@@ -867,7 +867,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                 <TableBody>
                   {filteredSessions.map((s) => {
                     const request = requestByTarget.get(s.id);
-                    return (
+                    const row = (pendingAction?: React.ReactNode) => (
                       <TimesheetRow
                         key={s.id}
                         session={s}
@@ -880,12 +880,21 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                             : undefined
                         }
                         changeNote={request?.responseNote ?? undefined}
-                        pendingAction={
-                          request?.status === 'pending' ? (
-                            <ChangeRequestWalkthrough request={request} onAdded={loadMyRequests} />
-                          ) : undefined
-                        }
+                        pendingAction={pendingAction}
                       />
+                    );
+                    // The row moves the walkthrough between breakpoints; its
+                    // upload lives here, above both places.
+                    return request?.status === 'pending' ? (
+                      <ChangeRequestWalkthroughHost
+                        key={s.id}
+                        request={request}
+                        onAdded={loadMyRequests}
+                      >
+                        {(walkthrough) => row(walkthrough ?? undefined)}
+                      </ChangeRequestWalkthroughHost>
+                    ) : (
+                      row()
                     );
                   })}
                 </TableBody>

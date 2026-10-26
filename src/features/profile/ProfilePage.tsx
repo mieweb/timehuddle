@@ -332,7 +332,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
             {profile?.bio && (
               <p className="mt-2 max-w-prose whitespace-pre-line text-sm text-neutral-300 [overflow-wrap:anywhere]">
-                <LinkifiedText text={profile.bio} />
+                <LinkifiedText text={profile.bio} inverse />
               </p>
             )}
 

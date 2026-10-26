@@ -943,13 +943,9 @@ export const WorkPage: React.FC = () => {
                             </Text>
                           </button>
                           {de.entry.note?.trim() && (
-                            // Two lines rather than one truncated: a link in
-                            // the note stays visible and clickable.
-                            <Text
-                              size="xs"
-                              variant="muted"
-                              className="line-clamp-2 [overflow-wrap:anywhere]"
-                            >
+                            // In full, not cut off: a link in it stays
+                            // visible and clickable.
+                            <Text size="xs" variant="muted" className="[overflow-wrap:anywhere]">
                               <LinkifiedText text={de.entry.note.trim()} />
                             </Text>
                           )}
