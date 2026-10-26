@@ -3,7 +3,7 @@
  *
  * One test per composer action (photo, doc, mention, ticket) plus a combined
  * post carrying all of them at once, because the actions share state in the
- * composer (attachments, mentions, selectedTicketId) and regressions have
+ * composer (attachments, mentions, selectedTicketIds) and regressions have
  * historically shown up only when several are set together.
  *
  * Driven through the Clock tab's plan composer — the same MarkdownEditor and
@@ -154,6 +154,47 @@ test.describe('Huddle composer — individual actions', () => {
 
     await clockOut(page);
     await deleteTicket(page, ticketTitle);
+  });
+
+  test('posts with several tickets attached, each once', async ({ page }) => {
+    const titles = [`First Ticket ${Date.now()}`, `Second Ticket ${Date.now()}`];
+    for (const title of titles) await createTicket(page, title);
+    await openComposer(page);
+
+    const postText = `Multi-ticket post ${Date.now()}`;
+    await composerEditor(page).fill(postText);
+    for (const title of titles) await attachTicket(page, title);
+    await expect(page.getByRole('button', { name: /^Remove ticket #/ })).toHaveCount(2);
+
+    // A ticket already attached is marked in the picker and can't be added again.
+    await page.getByRole('button', { name: 'Ticket', exact: true }).click();
+    await page.getByPlaceholder('Search tickets...').fill(titles[0]);
+    await expect(
+      page.getByTestId('ticket-picker-menu').getByRole('menuitem').filter({ hasText: titles[0] }),
+    ).toBeDisabled();
+    await page.keyboard.press('Escape');
+
+    await submitPost(page);
+
+    // The wrap-up starts with the plan's tickets; dropping one keeps the other.
+    const chips = page.getByRole('button', { name: /^Remove ticket #/ });
+    await expect(chips).toHaveCount(2);
+    const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
+    expect(stored?.ticketIds).toHaveLength(2);
+    await chips.first().click();
+    await page.getByRole('button', { name: 'Post wrap-up and clock out' }).click();
+    await expect(page.getByRole('button', { name: /plan and clock in/ })).toBeVisible({
+      timeout: 30000,
+    });
+    const wrapped = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
+    expect(wrapped?.ticketIds).toEqual([stored!.ticketIds![1]]);
+
+    const post = await openPostInInbox(page, postText);
+    await expect(post).toContainText(titles[1]);
+    await expect(post).not.toContainText(titles[0]);
+
+    await clockOut(page);
+    for (const title of titles) await deleteTicket(page, title);
   });
 });
 

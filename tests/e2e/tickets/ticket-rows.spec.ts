@@ -1,7 +1,7 @@
 /**
  * The ticket list's one row layout (#668): at every width each ticket is the
- * same row — where it sits, its title in full, then its badges under the title
- * — and nothing scrolls sideways. Sorting and filtering are pills in the list
+ * same row — where it sits, then its title in full with its badges beside it,
+ * wrapping under it as the row narrows — and nothing scrolls sideways. Sorting and filtering are pills in the list
  * header, which fold into a pane behind a chevron when they do not fit.
  */
 import { test, expect } from '@playwright/test';
@@ -51,16 +51,10 @@ test.describe('Ticket rows', () => {
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
 
-    // Where the ticket sits, then its title, then who has it and its state.
+    // Where the ticket sits, then its title with who has it and its state beside it.
     await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
-    const lines = await row
-      .locator('.row-list-meta, .row-list-title, .row-list-properties')
-      .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toBeLessThan(lines[1]);
-    expect(lines[1]).toBeLessThan(lines[2]);
 
     const menu = row.getByRole('button', { name: 'Ticket options' });
     await expect(menu).toBeVisible();
@@ -70,6 +64,16 @@ test.describe('Ticket rows', () => {
 
     // There are no columns at all.
     await expect(page.getByRole('columnheader')).toHaveCount(0);
+
+    // With room, the first badge sits on the title's line, right after it.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const metaBox = await row.locator('.row-list-meta').boundingBox();
+    const titleBox = await row.locator('.row-list-title').boundingBox();
+    const badgeBox = await row.locator('.ticket-row-facts [data-slot=badge]').first().boundingBox();
+    expect(metaBox!.y).toBeLessThan(titleBox!.y);
+    expect(badgeBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
+    expect(badgeBox!.y).toBeLessThan(titleBox!.y + titleBox!.height);
+    expect(badgeBox!.y + badgeBox!.height).toBeGreaterThan(titleBox!.y);
   });
 
   test('shows checkboxes only while selecting, and drops the selection after', async () => {
@@ -388,6 +392,17 @@ test.describe('Ticket rows', () => {
     await expect(page.getByRole('menuitemcheckbox').first()).toBeFocused();
   });
 
+  test("an assignee's badge opens their profile, not the ticket", async ({ page }) => {
+    const title = `E2E Assignee Profile ${Date.now()}`;
+    await tickets.createTicket(title);
+
+    await tickets
+      .rowByTitle(title)
+      .getByRole('button', { name: `View ${TEST_USERS.owner1.name}'s profile` })
+      .click();
+    await expect(page).toHaveURL(/\/app\/profile\//);
+  });
+
   test('keeps the whole menu reachable on a short screen', async ({ page }) => {
     await tickets.createTicket(`E2E Phone Short ${Date.now()}`);
     await page.setViewportSize({ width: 390, height: 520 });
@@ -468,31 +483,29 @@ test.describe('Ticket rows', () => {
     expect(allSourcesOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('keeps the same stacked row as the list gets wider, with no layout swap', async ({
-    page,
-  }) => {
+  test('keeps the same row as the list gets wider, with no layout swap', async ({ page }) => {
     const title = `E2E Resize ${Date.now()}`;
     await tickets.createTicket(title);
     const row = tickets.rowByTitle(title);
-    const titleBox = () =>
-      row.locator('.ticket-row-title').evaluate((el) => {
-        const { top, left } = el.getBoundingClientRect();
-        return { top, left };
-      });
-    const factsBox = () =>
-      row.locator('.row-list-properties').evaluate((el) => {
-        const { top, left } = el.getBoundingClientRect();
-        return { top, left };
-      });
-
-    // Narrow and wide alike: the badges sit under the title, from its left
-    // edge. No columns appear.
+    // Narrow and wide alike: each badge follows the title on its line, or has
+    // wrapped under it to start from its left edge. No columns appear.
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 800 });
       await expect(row.locator('.ticket-row-facts')).toContainText('open');
-      const [titleAt, factsAt] = [await titleBox(), await factsBox()];
-      expect(factsAt.top, `at ${width}px`).toBeGreaterThan(titleAt.top + 10);
-      expect(Math.abs(factsAt.left - titleAt.left), `at ${width}px`).toBeLessThanOrEqual(2);
+      const title = (await row.locator('.row-list-title').boundingBox())!;
+      const badges = await row.locator('.ticket-row-facts [data-slot=badge]').evaluateAll((els) =>
+        els.map((el) => {
+          const { top, left } = el.getBoundingClientRect();
+          return { top, left };
+        }),
+      );
+      expect(badges.length, `at ${width}px`).toBeGreaterThan(0);
+      for (const badge of badges) {
+        const besideTitle =
+          badge.left >= title.x + title.width && badge.top < title.y + title.height;
+        const underTitle = badge.top >= title.y + title.height - 1 && badge.left >= title.x - 2;
+        expect(besideTitle || underTitle, `at ${width}px`).toBe(true);
+      }
       await expect(page.getByRole('columnheader')).toHaveCount(0);
     }
 
@@ -506,5 +519,25 @@ test.describe('Ticket rows', () => {
       expect(open!.x - header!.x, `at ${width}px`).toBeLessThan(80);
       expect(open!.y - header!.y, `at ${width}px`).toBeLessThan(20);
     }
+  });
+});
+
+test.describe('Ticket rows on a touchscreen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: PHONE });
+
+  test('a menu with a search box starts on its first choice, not the keyboard', async ({
+    page,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+
+    await tickets.showAllControls();
+    await tickets.filterControl('Assignees').tap();
+    await expect(page.getByRole('searchbox', { name: 'Search people' })).not.toBeFocused();
+    // Its sort choices come first, then the people.
+    await expect(
+      page.getByRole('menu').locator('[role="menuitem"], [role="menuitemcheckbox"]').first(),
+    ).toBeFocused();
   });
 });

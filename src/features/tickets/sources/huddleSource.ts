@@ -10,7 +10,13 @@ import { ticketApi, type Ticket } from '../../../lib/api';
 import { isWebUrl } from '../link/ticketLinkForm';
 import { outsideIdOf } from '../ticketIds';
 
-import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
+import {
+  ticketKey,
+  type SourceCapabilities,
+  type TicketSource,
+  type TicketSourceContext,
+  type UnifiedTicket,
+} from './types';
 
 /** Huddle statuses that mean "no longer open". Mirrors the Open/Closed tabs. */
 const CLOSED_STATUSES = new Set(['closed', 'reviewed']);
@@ -39,6 +45,14 @@ const CAPABILITIES: SourceCapabilities = {
   openExternal: false,
 };
 
+const assigneesOf = (ids: string[], ctx: TicketSourceContext) =>
+  ids.map((id) => ({ id, name: ctx.resolveMemberName(id) ?? id }));
+
+const creatorOf = (id: string, ctx: TicketSourceContext) => ({
+  id,
+  name: ctx.resolveMemberName(id) ?? `user-${id.slice(-4)}`,
+});
+
 export const huddleSource: TicketSource<Ticket> = {
   id: 'huddle',
   label: 'TimeHuddle',
@@ -47,7 +61,10 @@ export const huddleSource: TicketSource<Ticket> = {
   isAvailable: (ctx) => ctx.teams.length > 0,
 
   fetch: async (ctx) => {
-    const results = await Promise.all(ctx.teams.map((team) => ticketApi.getTickets(team.id)));
+    const results = await Promise.all(
+      // The table never shows descriptions; the edit form fetches the full ticket.
+      ctx.teams.map((team) => ticketApi.getTickets(team.id, { brief: true })),
+    );
     // A ticket can come back from more than one team request; keep the first.
     const seen = new Set<string>();
     const merged: Ticket[] = [];
@@ -60,6 +77,15 @@ export const huddleSource: TicketSource<Ticket> = {
     }
     return merged;
   },
+
+  relabel: (item, ctx) => ({
+    ...item,
+    assignees: assigneesOf(
+      item.assignees.map((a) => a.id),
+      ctx,
+    ),
+    createdBy: item.createdBy && creatorOf(item.createdBy.id, ctx),
+  }),
 
   toUnified: (ticket, ctx): UnifiedTicket => {
     const status = ticket.status || 'open';
@@ -75,14 +101,8 @@ export const huddleSource: TicketSource<Ticket> = {
       priority: ticket.priority
         ? { native: ticket.priority, rank: PRIORITY_RANK[ticket.priority] ?? 0 }
         : null,
-      assignees: (ticket.assignedTo ?? []).map((id) => ({
-        id,
-        name: ctx.resolveMemberName(id) ?? id,
-      })),
-      createdBy: {
-        id: ticket.createdBy,
-        name: ctx.resolveMemberName(ticket.createdBy) ?? `user-${ticket.createdBy.slice(-4)}`,
-      },
+      assignees: assigneesOf(ticket.assignedTo ?? [], ctx),
+      createdBy: creatorOf(ticket.createdBy, ctx),
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
       externalUrl: null,

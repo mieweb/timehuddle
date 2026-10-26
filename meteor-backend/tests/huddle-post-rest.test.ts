@@ -638,3 +638,100 @@ describe('huddle.getPosts window', () => {
     expect(outsider.error).toMatch(/team member/i);
   });
 });
+
+/** #723: a post links a list of tickets, not just one. */
+describe('huddle post tickets', () => {
+  let ticketA: string;
+  let ticketB: string;
+  let foreignTicket: string;
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const ticket = (title: string, ticketTeamId: string) => ({
+      _id: new ObjectId(),
+      teamId: ticketTeamId,
+      title,
+      createdBy: authorUserId,
+      createdAt: new Date(),
+    });
+    const docs = [
+      ticket('Ticket A', teamId),
+      ticket('Ticket B', teamId),
+      ticket('Other team ticket', new ObjectId().toHexString()),
+    ];
+    await db.collection('tickets').insertMany(docs);
+    [ticketA, ticketB, foreignTicket] = docs.map((d) => d._id.toHexString());
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db
+      .collection('tickets')
+      .deleteMany({ _id: { $in: [ticketA, ticketB, foreignTicket].map((id) => new ObjectId(id)) } });
+  });
+
+  async function createWithTickets(extra: Record<string, unknown>) {
+    return wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId, content: { text: `Tickets ${Date.now()}`, mentions: [] }, postDate: todayString(), ...extra },
+      authorJwt,
+    );
+  }
+
+  async function storedTicketIds(postId: string) {
+    const db = await getDb();
+    return (await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) }))!.ticketIds;
+  }
+
+  it('stores several tickets once each and returns each with its title', async () => {
+    const res = await createWithTickets({ ticketIds: [ticketA, ticketB, ticketA] });
+    expect(res.ok).toBe(true);
+    expect(await storedTicketIds(res.result.id)).toEqual([ticketA, ticketB]);
+
+    const byTicket = await wormhole<{ posts: Array<{ id: string; tickets: unknown }> }>(
+      'huddle.getPostsByTicket',
+      { ticketId: ticketB },
+      authorJwt,
+    );
+    const post = byTicket.result.posts.find((p) => p.id === res.result.id);
+    expect(post?.tickets).toEqual([
+      { id: ticketA, title: 'Ticket A' },
+      { id: ticketB, title: 'Ticket B' },
+    ]);
+  });
+
+  it('still takes an older client’s single ticketId', async () => {
+    const res = await createWithTickets({ ticketId: ticketA });
+    expect(res.ok).toBe(true);
+    expect(await storedTicketIds(res.result.id)).toEqual([ticketA]);
+  });
+
+  it('rejects the post if any ticket is missing or in another team', async () => {
+    const missing = await createWithTickets({ ticketIds: [ticketA, new ObjectId().toHexString()] });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toMatch(/not found/i);
+
+    const foreign = await createWithTickets({ ticketIds: [ticketA, foreignTicket] });
+    expect(foreign.ok).toBe(false);
+    expect(foreign.error).toMatch(/does not belong/i);
+  });
+
+  it('keeps the tickets when an update omits them, and clears them with []', async () => {
+    const created = await createWithTickets({ ticketIds: [ticketA, ticketB] });
+    const update = (extra: Record<string, unknown>) =>
+      wormhole(
+        'huddle.updatePost',
+        { postId: created.result.id, content: { text: 'Edited', mentions: [] }, ...extra },
+        authorJwt,
+      );
+
+    expect((await update({})).ok).toBe(true);
+    expect(await storedTicketIds(created.result.id)).toEqual([ticketA, ticketB]);
+
+    expect((await update({ ticketIds: [ticketB] })).ok).toBe(true);
+    expect(await storedTicketIds(created.result.id)).toEqual([ticketB]);
+
+    expect((await update({ ticketIds: [] })).ok).toBe(true);
+    expect(await storedTicketIds(created.result.id)).toEqual([]);
+  });
+});

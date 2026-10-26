@@ -21,6 +21,7 @@ import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
+import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
 import './ticket-carry';
@@ -107,7 +108,10 @@ Meteor.startup(() => {
 const _rawCorsOrigins = process.env.CORS_ORIGINS || '';
 const CORS_ALLOW_ALL = _rawCorsOrigins === '*';
 const ALLOWED_ORIGINS = _rawCorsOrigins
-  ? _rawCorsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+  ? _rawCorsOrigins
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
   : [];
 
 // Hardcoded preview base domain — all MIEWeb Proxmox previews live here.
@@ -128,12 +132,16 @@ const NATIVE_APP_ORIGINS = new Set([
 // Optionally derive an additional base domain from ROOT_URL
 const _rootUrl = process.env.ROOT_URL || '';
 const _rootHostname = (() => {
-  try { return new URL(_rootUrl).hostname; } catch { return ''; }
+  try {
+    return new URL(_rootUrl).hostname;
+  } catch {
+    return '';
+  }
 })();
 // Use all suffix components (e.g. os.mieweb.org) not just the last 2
 // to avoid accidentally allowing all of mieweb.org
 const _baseDomain = _rootHostname.includes('.')
-  ? _rootHostname.split('.').slice(-3).join('.')  // last 3 parts: os.mieweb.org
+  ? _rootHostname.split('.').slice(-3).join('.') // last 3 parts: os.mieweb.org
   : '';
 
 // RFC1918 private-LAN hostnames — dev live-reload serves the WebView from
@@ -172,11 +180,18 @@ function isOriginAllowed(origin) {
     }
     // Dev only: allow any private-LAN origin (see isPrivateLanHost above).
     if (!Meteor.isProduction && isPrivateLanHost(h)) return true;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
-console.log('[cors] CORS_ORIGINS:', _rawCorsOrigins || '(not set)', '| ROOT_URL base domain:', _baseDomain || '(none)');
+console.log(
+  '[cors] CORS_ORIGINS:',
+  _rawCorsOrigins || '(not set)',
+  '| ROOT_URL base domain:',
+  _baseDomain || '(none)',
+);
 
 // Relax Node's HTTP timeouts for slow mobile video uploads. PulseCam streams
 // the whole video in a single TUS PATCH; Node's defaults kill it:
@@ -190,11 +205,13 @@ console.log('[cors] CORS_ORIGINS:', _rawCorsOrigins || '(not set)', '| ROOT_URL 
 // protects against slowloris-style abuse while bodies may stream for hours.
 Meteor.startup(() => {
   const server = WebApp.httpServer;
-  server.requestTimeout = 0;            // no overall per-request deadline (bodies may stream slowly)
-  server.headersTimeout = 60 * 1000;    // 60s to receive request headers
-  server.keepAliveTimeout = 75 * 1000;  // longer than typical proxy idle timeouts (60s)
-  server.setTimeout(0);                 // disable per-socket inactivity teardown
-  console.log('[http] timeouts tuned: requestTimeout=0 headersTimeout=60s keepAliveTimeout=75s socketTimeout=0');
+  server.requestTimeout = 0; // no overall per-request deadline (bodies may stream slowly)
+  server.headersTimeout = 60 * 1000; // 60s to receive request headers
+  server.keepAliveTimeout = 75 * 1000; // longer than typical proxy idle timeouts (60s)
+  server.setTimeout(0); // disable per-socket inactivity teardown
+  console.log(
+    '[http] timeouts tuned: requestTimeout=0 headersTimeout=60s keepAliveTimeout=75s socketTimeout=0',
+  );
 });
 
 // Normalize x-forwarded-proto — the upstream proxy chain (external LB +
@@ -208,7 +225,7 @@ WebApp.rawConnectHandlers.use((req, _res, next) => {
   const proto = req.headers['x-forwarded-proto'];
   if (proto) {
     const first = String(proto).split(',')[0].trim().toLowerCase();
-    req.headers['x-forwarded-proto'] = (first === 'http' || first === 'https') ? first : 'https';
+    req.headers['x-forwarded-proto'] = first === 'http' || first === 'https' ? first : 'https';
   }
   next();
 });
@@ -302,10 +319,9 @@ const proxyWhoamiHandler = async (req, res) => {
       const identity = await resolveToken(bearerToken);
       if (identity) {
         const uid = String(identity.userId);
-        const userDoc = await db.collection('users').findOne(
-          { _id: uid },
-          { projection: { emails: 1, profile: 1 } }
-        );
+        const userDoc = await db
+          .collection('users')
+          .findOne({ _id: uid }, { projection: { emails: 1, profile: 1 } });
         email = userDoc?.emails?.[0]?.address ?? identity.userId;
         name = userDoc?.profile?.name ?? identity.name ?? email;
       }
@@ -368,8 +384,9 @@ function sendNativeAuthRedirect(res, token, resumeToken, extraParams = {}) {
 // OAuth `state` round-trips through the third-party IdP unmodified, so it's
 // the only place to smuggle context (native flag + pending team/org join
 // links) through the redirect-away-and-back flow. Encoded as base64url JSON.
-function encodeOAuthState({ isNative, join, invite, orgInvite } = {}) {
+function encodeOAuthState({ isNative, join, invite, orgInvite, link } = {}) {
   const payload = { n: !!isNative, r: Random.secret() };
+  if (link) payload.l = link;
   if (join) payload.j = join;
   if (invite) payload.i = invite;
   if (orgInvite) payload.o = orgInvite;
@@ -384,10 +401,17 @@ function decodeOAuthState(state) {
       join: payload.j || null,
       invite: payload.i || null,
       orgInvite: payload.o || null,
+      link: payload.l || null,
     };
   } catch {
     // Legacy format (plain 'native_' prefix) — no join/invite context available.
-    return { isNative: state?.startsWith('native_') ?? false, join: null, invite: null, orgInvite: null };
+    return {
+      isNative: state?.startsWith('native_') ?? false,
+      join: null,
+      invite: null,
+      orgInvite: null,
+      link: null,
+    };
   }
 }
 
@@ -399,7 +423,10 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
   // Only handle exact /auth/github route, not /auth/github/callback.
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
-  if (pathname !== '/' && pathname !== '') { next(); return; }
+  if (pathname !== '/' && pathname !== '') {
+    next();
+    return;
+  }
   const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
   const isNative = reqParams.get('native') === '1';
   const credentialToken = encodeOAuthState({
@@ -407,13 +434,15 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     join: reqParams.get('join'),
     invite: reqParams.get('invite'),
     orgInvite: reqParams.get('org_invite'),
+    // Settings → Connect GitHub: a single-use token naming the signed-in user (#725).
+    link: reqParams.get('link'),
   });
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
-  
+
   console.log('[github-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[github-oauth] Client ID:', process.env.GITHUB_CLIENT_ID);
   console.log('[github-oauth] Callback URL:', callbackUrl);
-  
+
   const githubAuthUrl =
     'https://github.com/login/oauth/authorize' +
     `?client_id=${process.env.GITHUB_CLIENT_ID}` +
@@ -421,43 +450,36 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     `&scope=user:email` +
     `&state=${credentialToken}`;
   
-  console.log('[github-oauth] Full auth URL:', githubAuthUrl);
-  
   res.writeHead(302, { Location: githubAuthUrl });
   res.end();
 });
 
 WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
-  const { code, state } = Object.fromEntries(
-    new URL(req.url, process.env.ROOT_URL).searchParams
-  );
-  
+  const { code, state } = Object.fromEntries(new URL(req.url, process.env.ROOT_URL).searchParams);
+
   if (!code) {
     res.writeHead(400);
     res.end('Missing code');
     return;
   }
-  
+
   try {
     // Exchange code for token
-    const tokenRes = await fetch(
-      'https://github.com/login/oauth/access_token',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          client_id: process.env.GITHUB_CLIENT_ID,
-          client_secret: process.env.GITHUB_CLIENT_SECRET,
-          code,
-        }),
-      }
-    );
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+      }),
+    });
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
-    
+
     // Get user info from GitHub
     const userRes = await fetch('https://api.github.com/user', {
       headers: {
@@ -466,7 +488,14 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       },
     });
     const githubUser = await userRes.json();
-    
+    // Both the link and sign-in branches key on the GitHub id; an error body
+    // without one must not reach a `services.github.id` lookup.
+    if (!userRes.ok || !Number.isInteger(githubUser?.id)) {
+      res.writeHead(502);
+      res.end('GitHub profile unavailable');
+      return;
+    }
+
     // Get user email
     const emailRes = await fetch('https://api.github.com/user/emails', {
       headers: {
@@ -477,31 +506,46 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
     const emails = await emailRes.json();
     const primaryEmail =
       emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
-    
-    if (!primaryEmail) {
+
+    const frontendUrl =
+      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    const { isNative, join, invite, orgInvite, link } = decodeOAuthState(state);
+
+    // Settings → Connect GitHub: stage the link, then return to Settings,
+    // which confirms it as the signed-in user (see github-link.js).
+    if (link) {
+      const { result, code } = await stageGithubLink(link, githubUser);
+      const params = code ? { github_confirm: code } : { github: result };
+      res.writeHead(302, {
+        Location: `${frontendUrl}/app/settings?${new URLSearchParams(params)}`,
+      });
+      res.end();
+      return;
+    }
+
+    // A linked GitHub account wins over the email match.
+    const linkedUserId = await findUserIdByGithubId(githubUser.id);
+    if (!linkedUserId && !primaryEmail) {
       res.writeHead(400);
       res.end('No email found');
       return;
     }
-    
+
     // Find or create user in Meteor
-    const userId = await findOrCreateUser(
-      primaryEmail,
-      githubUser.name || githubUser.login
-    );
+    const userId =
+      linkedUserId ??
+      (await findOrCreateUser(primaryEmail, githubUser.name || githubUser.login));
     
     // Create Meteor login token for this user
     const stampedToken = Accounts._generateStampedLoginToken();
     await Accounts._insertLoginToken(userId, stampedToken);
-    
+
     // Sign a short-lived JWT for the frontend
     const { SignJWT } = await import('jose');
-    
+
     // Use PROXY_JWT_SECRET for OAuth JWT signing
-    const secret = new TextEncoder().encode(
-      process.env.PROXY_JWT_SECRET || 'fallback-secret'
-    );
-    
+    const secret = new TextEncoder().encode(process.env.PROXY_JWT_SECRET || 'fallback-secret');
+
     const token = await new SignJWT({
       sub: userId,
       email: primaryEmail,
@@ -513,9 +557,8 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       .setIssuedAt()
       .setExpirationTime('5m')
       .sign(secret);
-    
+
     // Redirect back — native apps get a deep link, browsers get the frontend URL
-    const { isNative, join, invite, orgInvite } = decodeOAuthState(state);
     if (isNative) {
       sendNativeAuthRedirect(res, token, stampedToken.token, {
         join,
@@ -523,8 +566,6 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
         org_invite: orgInvite,
       });
     } else {
-      const frontendUrl =
-        process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
       const redirectParams = new URLSearchParams({
         meteor_token: token,
         meteor_resume: stampedToken.token,
@@ -552,7 +593,10 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
   // Only handle exact /auth/google route, not /auth/google/callback.
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
-  if (pathname !== '/' && pathname !== '') { next(); return; }
+  if (pathname !== '/' && pathname !== '') {
+    next();
+    return;
+  }
   const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
   const isNative = reqParams.get('native') === '1';
   const state = encodeOAuthState({
@@ -561,146 +605,126 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
     invite: reqParams.get('invite'),
     orgInvite: reqParams.get('org_invite'),
   });
-  const callbackUrl = 
-    `${process.env.ROOT_URL}/auth/google/callback`
-  
+  const callbackUrl = `${process.env.ROOT_URL}/auth/google/callback`;
+
   console.log('[google-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[google-oauth] Client ID:', process.env.GOOGLE_CLIENT_ID);
   console.log('[google-oauth] Callback URL:', callbackUrl);
-  
-  const googleAuthUrl = 
+
+  const googleAuthUrl =
     'https://accounts.google.com/o/oauth2/v2/auth' +
     `?client_id=${process.env.GOOGLE_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&response_type=code` +
     `&scope=openid%20email%20profile` +
-    `&state=${state}`
-  
-  console.log('[google-oauth] Redirecting to:', googleAuthUrl);
-  
-  res.writeHead(302, { Location: googleAuthUrl })
-  res.end()
-})
+    `&state=${state}`;
 
-WebApp.connectHandlers.use('/auth/google/callback',
-  async (req, res) => {
-    const callbackParams = Object.fromEntries(
-      new URL(req.url, process.env.ROOT_URL).searchParams
-    )
-    const { code } = callbackParams
-    const { isNative, join, invite, orgInvite } = decodeOAuthState(callbackParams.state)
-    
-    if (!code) {
-      res.writeHead(400)
-      res.end('Missing code')
-      return
-    }
-    
-    try {
-      const callbackUrl = 
-        `${process.env.ROOT_URL}/auth/google/callback`
-      
-      // Exchange code for token
-      const tokenRes = await fetch(
-        'https://oauth2.googleapis.com/token',
-        {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({
-            client_id: process.env.GOOGLE_CLIENT_ID,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET,
-            code,
-            grant_type: 'authorization_code',
-            redirect_uri: callbackUrl
-          })
-        }
-      )
-      const tokenData = await tokenRes.json()
-      const accessToken = tokenData.access_token
-      
-      // Get user info from Google
-      const userRes = await fetch(
-        'https://www.googleapis.com/oauth2/v2/userinfo',
-        {
-          headers: { 
-            Authorization: `Bearer ${accessToken}`
-          }
-        }
-      )
-      const googleUser = await userRes.json()
-      
-      const email = googleUser.email
-      if (!email) {
-        res.writeHead(400)
-        res.end('No email found')
-        return
-      }
-      
-      const name = googleUser.name || email
-      
-      // Find or create user in Meteor
-      const userId = await findOrCreateUser(email, name)
-      
-      // Create Meteor login token
-      const stampedToken = 
-        Accounts._generateStampedLoginToken()
-      await Accounts._insertLoginToken(
-        userId, stampedToken
-      )
-      
-      // Sign a short-lived JWT for the frontend
-      const { SignJWT } = await import('jose');
-      
-      // Use PROXY_JWT_SECRET for OAuth JWT signing
-      const secret = new TextEncoder().encode(
-        process.env.PROXY_JWT_SECRET || 'fallback-secret'
-      );
-      
-      const token = await new SignJWT({
-        sub: userId,
-        email: email,
-        name: name,
-        provider: 'google',
-        meteorToken: stampedToken.token,
-      })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .setExpirationTime('5m')
-        .sign(secret);
-      
-      // Redirect back — native apps get a deep link, browsers get the frontend URL
-      if (isNative) {
-        sendNativeAuthRedirect(res, token, stampedToken.token, {
-          join,
-          invite,
-          org_invite: orgInvite,
-        })
-      } else {
-        const frontendUrl =
-          process.env.CORS_ORIGINS?.split(',')[0] || 
-          'http://localhost:3000'
-        const redirectParams = new URLSearchParams({
-          meteor_token: token,
-          meteor_resume: stampedToken.token,
-        })
-        if (join) redirectParams.set('join', join)
-        if (invite) redirectParams.set('invite', invite)
-        if (orgInvite) redirectParams.set('org_invite', orgInvite)
-        res.writeHead(302, {
-          Location: `${frontendUrl}/app/dashboard?${redirectParams.toString()}`
-        })
-        res.end()
-      }
-      
-    } catch (err) {
-      console.error('[google-oauth] error:', err)
-      res.writeHead(500)
-      res.end('OAuth error')
-    }
+  console.log('[google-oauth] Redirecting to:', googleAuthUrl);
+
+  res.writeHead(302, { Location: googleAuthUrl });
+  res.end();
+});
+
+WebApp.connectHandlers.use('/auth/google/callback', async (req, res) => {
+  const callbackParams = Object.fromEntries(new URL(req.url, process.env.ROOT_URL).searchParams);
+  const { code } = callbackParams;
+  const { isNative, join, invite, orgInvite } = decodeOAuthState(callbackParams.state);
+
+  if (!code) {
+    res.writeHead(400);
+    res.end('Missing code');
+    return;
   }
-)
+
+  try {
+    const callbackUrl = `${process.env.ROOT_URL}/auth/google/callback`;
+
+    // Exchange code for token
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: callbackUrl,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+
+    // Get user info from Google
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    const googleUser = await userRes.json();
+
+    const email = googleUser.email;
+    if (!email) {
+      res.writeHead(400);
+      res.end('No email found');
+      return;
+    }
+
+    const name = googleUser.name || email;
+
+    // Find or create user in Meteor
+    const userId = await findOrCreateUser(email, name);
+
+    // Create Meteor login token
+    const stampedToken = Accounts._generateStampedLoginToken();
+    await Accounts._insertLoginToken(userId, stampedToken);
+
+    // Sign a short-lived JWT for the frontend
+    const { SignJWT } = await import('jose');
+
+    // Use PROXY_JWT_SECRET for OAuth JWT signing
+    const secret = new TextEncoder().encode(process.env.PROXY_JWT_SECRET || 'fallback-secret');
+
+    const token = await new SignJWT({
+      sub: userId,
+      email: email,
+      name: name,
+      provider: 'google',
+      meteorToken: stampedToken.token,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(secret);
+
+    // Redirect back — native apps get a deep link, browsers get the frontend URL
+    if (isNative) {
+      sendNativeAuthRedirect(res, token, stampedToken.token, {
+        join,
+        invite,
+        org_invite: orgInvite,
+      });
+    } else {
+      const frontendUrl = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+      const redirectParams = new URLSearchParams({
+        meteor_token: token,
+        meteor_resume: stampedToken.token,
+      });
+      if (join) redirectParams.set('join', join);
+      if (invite) redirectParams.set('invite', invite);
+      if (orgInvite) redirectParams.set('org_invite', orgInvite);
+      res.writeHead(302, {
+        Location: `${frontendUrl}/app/dashboard?${redirectParams.toString()}`,
+      });
+      res.end();
+    }
+  } catch (err) {
+    console.error('[google-oauth] error:', err);
+    res.writeHead(500);
+    res.end('OAuth error');
+  }
+});
 
 // ============================================================================
 // Apple OAuth Endpoints
@@ -710,7 +734,10 @@ WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
   // Only handle exact /auth/apple route, not /auth/apple/callback.
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
-  if (pathname !== '/' && pathname !== '') { next(); return; }
+  if (pathname !== '/' && pathname !== '') {
+    next();
+    return;
+  }
   const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
   const isNative = reqParams.get('native') === '1';
   const state = encodeOAuthState({
@@ -719,135 +746,124 @@ WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
     invite: reqParams.get('invite'),
     orgInvite: reqParams.get('org_invite'),
   });
-  const callbackUrl = 
-    `${process.env.ROOT_URL}/auth/apple/callback`
-  
-  const appleAuthUrl = 
+  const callbackUrl = `${process.env.ROOT_URL}/auth/apple/callback`;
+
+  const appleAuthUrl =
     'https://appleid.apple.com/auth/authorize' +
     `?client_id=${process.env.APPLE_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&response_type=code%20id_token` +
     `&scope=name%20email` +
     `&response_mode=form_post` +
-    `&state=${state}`
-  
-  res.writeHead(302, { Location: appleAuthUrl })
-  res.end()
-})
+    `&state=${state}`;
 
-WebApp.connectHandlers.use('/auth/apple/callback',
-  async (req, res) => {
-    try {
-      // Apple sends POST with form data
-      let body = ''
-      req.on('data', chunk => { body += chunk })
-      await new Promise(resolve => req.on('end', resolve))
-      
-      const params = new URLSearchParams(body)
-      const code = params.get('code')
-      const idToken = params.get('id_token')
-      const userParam = params.get('user')
-      const { isNative, join, invite, orgInvite } = decodeOAuthState(params.get('state'))
-      
-      if (!code && !idToken) {
-        res.writeHead(400)
-        res.end('Missing code or id_token')
-        return
+  res.writeHead(302, { Location: appleAuthUrl });
+  res.end();
+});
+
+WebApp.connectHandlers.use('/auth/apple/callback', async (req, res) => {
+  try {
+    // Apple sends POST with form data
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    await new Promise((resolve) => req.on('end', resolve));
+
+    const params = new URLSearchParams(body);
+    const code = params.get('code');
+    const idToken = params.get('id_token');
+    const userParam = params.get('user');
+    const { isNative, join, invite, orgInvite } = decodeOAuthState(params.get('state'));
+
+    if (!code && !idToken) {
+      res.writeHead(400);
+      res.end('Missing code or id_token');
+      return;
+    }
+
+    // Parse user info from id_token (JWT)
+    // Apple sends user name only on FIRST login
+    let email = null;
+    let name = null;
+
+    if (idToken) {
+      // Decode JWT payload (we trust Apple here,
+      // full verification optional for now)
+      const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+      email = payload.email;
+    }
+
+    // First login: Apple sends user name
+    if (userParam) {
+      try {
+        const userData = JSON.parse(userParam);
+        const firstName = userData.name?.firstName || '';
+        const lastName = userData.name?.lastName || '';
+        name = `${firstName} ${lastName}`.trim() || email;
+      } catch {
+        name = email;
       }
-      
-      // Parse user info from id_token (JWT)
-      // Apple sends user name only on FIRST login
-      let email = null
-      let name = null
-      
-      if (idToken) {
-        // Decode JWT payload (we trust Apple here,
-        // full verification optional for now)
-        const payload = JSON.parse(
-          Buffer.from(
-            idToken.split('.')[1], 'base64'
-          ).toString()
-        )
-        email = payload.email
-      }
-      
-      // First login: Apple sends user name
-      if (userParam) {
-        try {
-          const userData = JSON.parse(userParam)
-          const firstName = userData.name?.firstName || ''
-          const lastName = userData.name?.lastName || ''
-          name = `${firstName} ${lastName}`.trim() || email
-        } catch {
-          name = email
-        }
-      }
-      
-      if (!email) {
-        res.writeHead(400)
-        res.end('No email found from Apple')
-        return
-      }
-      
-      name = name || email
-      
-      // Find or create user in Meteor
-      const userId = await findOrCreateUser(email, name)
-      
-      // Create Meteor login token
-      const stampedToken = 
-        Accounts._generateStampedLoginToken()
-      await Accounts._insertLoginToken(
-        userId, stampedToken
-      )
-      
-      // Sign a short-lived JWT for the frontend
-      const { SignJWT } = await import('jose');
-      
-      // Use PROXY_JWT_SECRET for OAuth JWT signing
-      const secret = new TextEncoder().encode(
-        process.env.PROXY_JWT_SECRET || 'fallback-secret'
-      );
-      
-      const token = await new SignJWT({
-        sub: userId,
-        email: email,
-        name: name,
-        provider: 'apple',
-        meteorToken: stampedToken.token,
-      })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .setExpirationTime('5m')
-        .sign(secret);
-      
-      // Redirect back — native apps get a deep link, browsers get the frontend URL.
-      if (isNative) {
-        sendNativeAuthRedirect(res, token, stampedToken.token, {
-          join,
-          invite,
-          org_invite: orgInvite,
-        });
-      } else {
-        const frontendUrl =
-          process.env.CORS_ORIGINS?.split(',')[0] || 
-          'http://localhost:3000'
-        
-        const redirectParams = new URLSearchParams({
-          meteor_token: token,
-          meteor_resume: stampedToken.token,
-        })
-        if (join) redirectParams.set('join', join)
-        if (invite) redirectParams.set('invite', invite)
-        if (orgInvite) redirectParams.set('org_invite', orgInvite)
-        
-        const redirectUrl = `${frontendUrl}/app/dashboard?${redirectParams.toString()}`
-        
-        // Use HTML redirect since Apple uses POST
-        res.writeHead(200, { 
-          'Content-Type': 'text/html' 
-        })
-        res.end(`
+    }
+
+    if (!email) {
+      res.writeHead(400);
+      res.end('No email found from Apple');
+      return;
+    }
+
+    name = name || email;
+
+    // Find or create user in Meteor
+    const userId = await findOrCreateUser(email, name);
+
+    // Create Meteor login token
+    const stampedToken = Accounts._generateStampedLoginToken();
+    await Accounts._insertLoginToken(userId, stampedToken);
+
+    // Sign a short-lived JWT for the frontend
+    const { SignJWT } = await import('jose');
+
+    // Use PROXY_JWT_SECRET for OAuth JWT signing
+    const secret = new TextEncoder().encode(process.env.PROXY_JWT_SECRET || 'fallback-secret');
+
+    const token = await new SignJWT({
+      sub: userId,
+      email: email,
+      name: name,
+      provider: 'apple',
+      meteorToken: stampedToken.token,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(secret);
+
+    // Redirect back — native apps get a deep link, browsers get the frontend URL.
+    if (isNative) {
+      sendNativeAuthRedirect(res, token, stampedToken.token, {
+        join,
+        invite,
+        org_invite: orgInvite,
+      });
+    } else {
+      const frontendUrl = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+
+      const redirectParams = new URLSearchParams({
+        meteor_token: token,
+        meteor_resume: stampedToken.token,
+      });
+      if (join) redirectParams.set('join', join);
+      if (invite) redirectParams.set('invite', invite);
+      if (orgInvite) redirectParams.set('org_invite', orgInvite);
+
+      const redirectUrl = `${frontendUrl}/app/dashboard?${redirectParams.toString()}`;
+
+      // Use HTML redirect since Apple uses POST
+      res.writeHead(200, {
+        'Content-Type': 'text/html',
+      });
+      res.end(`
           <html>
             <body>
               <script>
@@ -859,28 +875,28 @@ WebApp.connectHandlers.use('/auth/apple/callback',
               </noscript>
             </body>
           </html>
-        `)
-      }
-      
-    } catch (err) {
-      console.error('[apple-oauth] error:', err)
-      res.writeHead(500)
-      res.end('OAuth error')
+        `);
     }
+  } catch (err) {
+    console.error('[apple-oauth] error:', err);
+    res.writeHead(500);
+    res.end('OAuth error');
   }
-)
+});
 
 // Build MAIL_URL from SMTP_* env vars so Meteor's `email` package (used by
 // Accounts.sendResetPasswordEmail) can send. Runs at module load.
 if (!process.env.MAIL_URL && process.env.SMTP_HOST) {
   process.env.MAIL_URL = buildMailUrl(process.env);
-  console.log('[email] MAIL_URL configured: ' + process.env.MAIL_URL.replace(/\/\/[^@]+@/, '//***@'));
+  console.log(
+    '[email] MAIL_URL configured: ' + process.env.MAIL_URL.replace(/\/\/[^@]+@/, '//***@'),
+  );
 }
 if (!process.env.ROOT_URL) {
   process.env.ROOT_URL = process.env.APP_URL || 'http://localhost:3000';
 }
 
-Meteor.startup(async() => {
+Meteor.startup(async () => {
   // Configure GitHub OAuth service
   await ServiceConfiguration.configurations.upsertAsync(
     { service: 'github' },
@@ -890,9 +906,9 @@ Meteor.startup(async() => {
         secret: process.env.GITHUB_CLIENT_SECRET,
         loginStyle: 'redirect',
       },
-    }
+    },
   );
-  
+
   // Configure Google OAuth service
   await ServiceConfiguration.configurations.upsertAsync(
     { service: 'google' },
@@ -900,22 +916,22 @@ Meteor.startup(async() => {
       $set: {
         clientId: process.env.GOOGLE_CLIENT_ID,
         secret: process.env.GOOGLE_CLIENT_SECRET,
-        loginStyle: 'redirect'
-      }
-    }
+        loginStyle: 'redirect',
+      },
+    },
   );
-  
+
   // Configure Apple OAuth service
   await ServiceConfiguration.configurations.upsertAsync(
     { service: 'apple' },
     {
       $set: {
         clientId: process.env.APPLE_CLIENT_ID,
-        loginStyle: 'redirect'
-      }
-    }
+        loginStyle: 'redirect',
+      },
+    },
   );
-  
+
   Wormhole.init({
     mode: 'opt-in',
     path: '/mcp',
@@ -931,8 +947,25 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         teamId: { type: 'string', description: 'Team id (24-char hex)' },
+        brief: { type: 'boolean', description: 'Leave out ticket descriptions' },
+        assignedTo: { type: 'string', description: 'Only tickets assigned to this user id' },
+        activeOnly: { type: 'boolean', description: 'Leave out closed and reviewed tickets' },
       },
       required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('tickets.dashboardSummary', {
+    description:
+      'Ticket counts for the dashboard (open, unassigned, closed today, high priority), team-wide and for the caller',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string', description: 'Team id (24-char hex)' },
+        since: { type: 'number', description: 'Start of "today" in ms epoch (caller timezone)' },
+        until: { type: 'number', description: 'End of "today" in ms epoch (caller timezone)' },
+      },
+      required: ['teamId', 'since', 'until'],
     },
   });
 
@@ -946,7 +979,8 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('tickets.create', {
-    description: 'Create a ticket in a team (assigned to the creator unless assignedToUserIds is given)',
+    description:
+      'Create a ticket in a team (assigned to the creator unless assignedToUserIds is given)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1005,7 +1039,8 @@ Meteor.startup(async() => {
         issueId: { type: 'integer', description: 'The Redmine issue number to link to' },
         expectedIssueId: {
           type: ['string', 'null'],
-          description: 'The linked issue number the caller last saw, or null for none; a mismatch is refused as stale-link',
+          description:
+            'The linked issue number the caller last saw, or null for none; a mismatch is refused as stale-link',
         },
       },
       required: ['ticketId', 'issueId'],
@@ -1033,7 +1068,8 @@ Meteor.startup(async() => {
         ticketId: { type: 'string' },
         expectedIssueId: {
           type: 'string',
-          description: 'The linked issue number the caller last saw; a mismatch is refused as stale-link',
+          description:
+            'The linked issue number the caller last saw; a mismatch is refused as stale-link',
         },
       },
       required: ['ticketId', 'expectedIssueId'],
@@ -1099,6 +1135,32 @@ Meteor.startup(async() => {
 
   // ── Redmine ──────────────────────────────────────────────────────────────
 
+  // ── GitHub account link ──────────────────────────────────────────────────
+
+  Wormhole.expose('github.status', {
+    description: "The caller's linked GitHub account, if any",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('github.linkToken', {
+    description: 'A single-use token to start linking a GitHub account via /auth/github?link=',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('github.confirmLink', {
+    description: 'Finish linking the GitHub account the OAuth callback staged, as the user who started it',
+    inputSchema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+    },
+  });
+
+  Wormhole.expose('github.disconnect', {
+    description: "Unlink the caller's GitHub account",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   Wormhole.expose('redmine.connect', {
     description: "Link the caller's personal Redmine account by validating an API key",
     inputSchema: {
@@ -1126,7 +1188,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('redmine.issues.relevant', {
     description:
-      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running), plus the issues their tickets are linked to (linkedIssues)",
+      'The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, on My Board, timer running), plus the issues their tickets are linked to (linkedIssues)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1146,7 +1208,8 @@ Meteor.startup(async() => {
       properties: {
         query: {
           type: 'string',
-          description: "What the user typed: '1234', '#1234', a Redmine issue URL, '@name', or words",
+          description:
+            "What the user typed: '1234', '#1234', a Redmine issue URL, '@name', or words",
         },
       },
       required: ['query'],
@@ -1197,7 +1260,8 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('redmine.prefs.listDismissed', {
-    description: 'Redmine issues the caller has hidden from their suggestions, for the Restore list',
+    description:
+      'Redmine issues the caller has hidden from their suggestions, for the Restore list',
     inputSchema: { type: 'object', properties: {} },
   });
 
@@ -1216,7 +1280,8 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('redmine.issues.get', {
-    description: 'One Redmine issue with its description, allowed status changes and Redmine history',
+    description:
+      'One Redmine issue with its description, allowed status changes and Redmine history',
     inputSchema: {
       type: 'object',
       properties: { issueId: { type: 'integer' } },
@@ -1313,7 +1378,8 @@ Meteor.startup(async() => {
       properties: {
         entries: {
           type: 'array',
-          description: 'Ticket-days to send. Hours are recomputed server-side, never taken from here.',
+          description:
+            'Ticket-days to send. Hours are recomputed server-side, never taken from here.',
           items: {
             type: 'object',
             properties: {
@@ -1433,8 +1499,16 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('clock.events', {
-    description: 'All clock events for the caller (their own history)',
-    inputSchema: { type: 'object', properties: {} },
+    description:
+      'Clock events for the caller, newest first; optionally only one team, only completed ones, at most `limit`',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string', description: 'Only this team' },
+        completed: { type: 'boolean', description: 'Only finished sessions' },
+        limit: { type: 'number', description: 'At most this many (1-100)' },
+      },
+    },
   });
 
   Wormhole.expose('clock.timesheet', {
@@ -1459,8 +1533,14 @@ Meteor.startup(async() => {
         startTime: { type: 'number' },
         endTime: { type: ['number', 'null'] },
         breaks: { type: 'array', items: { type: 'object' } },
-        description: { type: 'string', description: 'Justification, required on teams with admins' },
-        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
+        description: {
+          type: 'string',
+          description: 'Justification, required on teams with admins',
+        },
+        videoUrl: {
+          type: 'string',
+          description: 'Supporting video, required on teams with admins',
+        },
       },
       required: ['clockEventId'],
     },
@@ -1472,7 +1552,10 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         clockEventId: { type: 'string' },
-        description: { type: 'string', description: 'Justification, required on teams with admins' },
+        description: {
+          type: 'string',
+          description: 'Justification, required on teams with admins',
+        },
         videoUrl: { type: 'string', description: 'Optional supporting video' },
       },
       required: ['clockEventId'],
@@ -1487,8 +1570,14 @@ Meteor.startup(async() => {
         teamId: { type: 'string' },
         startTime: { type: 'number' },
         endTime: { type: 'number' },
-        description: { type: 'string', description: 'Justification, required on teams with admins' },
-        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
+        description: {
+          type: 'string',
+          description: 'Justification, required on teams with admins',
+        },
+        videoUrl: {
+          type: 'string',
+          description: 'Supporting video, required on teams with admins',
+        },
       },
       required: ['teamId', 'startTime', 'endTime'],
     },
@@ -1582,7 +1671,6 @@ Meteor.startup(async() => {
     },
   });
 
-
   Wormhole.expose('tickets.shareWithTimeharbor', {
     description: 'Flag or unflag a ticket for TimeHarbor import',
     inputSchema: {
@@ -1632,7 +1720,7 @@ Meteor.startup(async() => {
 
   Wormhole.expose('huddle.getPosts', {
     description:
-      "Published huddle posts for a team, newest first, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
+      'Published huddle posts for a team, newest first, from `since` (default: last 30 days). `hasMore` is true when older posts exist.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1640,7 +1728,8 @@ Meteor.startup(async() => {
         since: { type: 'string', description: 'ISO date string' },
         withPosts: {
           type: 'boolean',
-          description: 'false returns only `hasMore` (posts: []), for a client on the live subscription',
+          description:
+            'false returns only `hasMore` (posts: []), for a client on the live subscription',
         },
       },
       required: ['teamId'],
@@ -1690,6 +1779,8 @@ Meteor.startup(async() => {
       properties: {
         teamId: { type: 'string' },
         content: huddlePostContentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket, read as `ticketIds: [ticketId]`.
         ticketId: { type: 'string' },
         attachments: huddlePostAttachmentSchema,
         postDate: { type: 'string' },
@@ -1751,6 +1842,8 @@ Meteor.startup(async() => {
         content: huddlePostContentSchema,
         wrapUp: { type: 'boolean' },
         attachments: huddlePostAttachmentSchema,
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        // Deprecated: an older client's single ticket; `null` clears them.
         ticketId: { type: ['string', 'null'] },
       },
       required: ['postId', 'content'],
@@ -1764,15 +1857,26 @@ Meteor.startup(async() => {
   // ─── Timers ────────────────────────────────────────────────────────────────
   Wormhole.expose('timers.getDay', {
     description: 'List WorkItems with timers for a local calendar day',
-    inputSchema: { type: 'object', properties: { date: { type: 'string' }, tz: { type: 'string' } }, required: ['date'] },
+    inputSchema: {
+      type: 'object',
+      properties: { date: { type: 'string' }, tz: { type: 'string' } },
+      required: ['date'],
+    },
   });
   Wormhole.expose('timers.getToday', {
     description: 'List WorkItems for today (local time). Admin can pass userId.',
-    inputSchema: { type: 'object', properties: { tz: { type: 'string' }, userId: { type: 'string' } } },
+    inputSchema: {
+      type: 'object',
+      properties: { tz: { type: 'string' }, userId: { type: 'string' } },
+    },
   });
   Wormhole.expose('timers.getWeek', {
     description: 'Get per-day totals for a 7-day week',
-    inputSchema: { type: 'object', properties: { date: { type: 'string' }, tz: { type: 'string' } }, required: ['date'] },
+    inputSchema: {
+      type: 'object',
+      properties: { date: { type: 'string' }, tz: { type: 'string' } },
+      required: ['date'],
+    },
   });
   Wormhole.expose('timers.getRunning', {
     description: 'Get the current user running timer or null',
@@ -1780,7 +1884,11 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.getTeamRunning', {
     description: 'Get all running timers for members of a team',
-    inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
   });
   Wormhole.expose('timers.getTicketSessions', {
     description: "The caller's own timer sessions on one ticket, newest first",
@@ -1795,40 +1903,103 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.getTicketTotal', {
     description: "Get the caller's own total seconds for a ticket across all closed sessions",
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, source: { type: 'string', enum: ['huddle', 'redmine'] } }, required: ['ticketId'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        source: { type: 'string', enum: ['huddle', 'redmine'] },
+      },
+      required: ['ticketId'],
+    },
   });
   Wormhole.expose('timers.createEntry', {
     description: 'Create a WorkItem for a ticket on a given date',
-    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' }, discardSessionId: { type: 'string' } }, required: ['ticketId', 'date'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        date: { type: 'string' },
+        note: { type: 'string' },
+        startNow: { type: 'boolean' },
+        notifyAdmins: { type: 'boolean' },
+        discardSessionId: { type: 'string' },
+      },
+      required: ['ticketId', 'date'],
+    },
   });
   Wormhole.expose('timers.startSession', {
     description: 'Start a timer for a WorkItem',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' }, discardSessionId: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entryId: { type: 'string' },
+        now: { type: 'number' },
+        tz: { type: 'string' },
+        discardSessionId: { type: 'string' },
+      },
+      required: ['entryId'],
+    },
   });
   Wormhole.expose('timers.stopSession', {
     description: 'Stop a running timer session',
-    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, now: { type: 'number' }, discardUpdate: { type: 'boolean' } }, required: ['sessionId'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        now: { type: 'number' },
+        discardUpdate: { type: 'boolean' },
+      },
+      required: ['sessionId'],
+    },
   });
   Wormhole.expose('timers.updateEntry', {
     description: 'Update a WorkItem note, duration, and/or ticket',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, note: { type: 'string' }, durationSeconds: { type: 'number' }, ticketId: { type: 'string' }, description: { type: 'string' }, videoUrl: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entryId: { type: 'string' },
+        note: { type: 'string' },
+        durationSeconds: { type: 'number' },
+        ticketId: { type: 'string' },
+        description: { type: 'string' },
+        videoUrl: { type: 'string' },
+      },
+      required: ['entryId'],
+    },
   });
   Wormhole.expose('timers.deleteEntry', {
     description: 'Delete a WorkItem and all its timers',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' }, description: { type: 'string' }, videoUrl: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entryId: { type: 'string' },
+        notifyAdmins: { type: 'boolean' },
+        description: { type: 'string' },
+        videoUrl: { type: 'string' },
+      },
+      required: ['entryId'],
+    },
   });
   Wormhole.expose('timers.copyPrevious', {
     description: 'Copy entries from the most recent previous day into toDate',
-    inputSchema: { type: 'object', properties: { toDate: { type: 'string' } }, required: ['toDate'] },
+    inputSchema: {
+      type: 'object',
+      properties: { toDate: { type: 'string' } },
+      required: ['toDate'],
+    },
   });
 
   Wormhole.expose('timers.getUserWorkSummary', {
     description: 'Get tickets worked on by user in last 48 hours',
-    inputSchema: { type: 'object', properties: { userId: { type: 'string' } }, required: ['userId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { userId: { type: 'string' } },
+      required: ['userId'],
+    },
   });
 
   Wormhole.expose('activity.log', {
-    description: 'Get the current user\'s activity log (cursor-paginated)',
+    description: "Get the current user's activity log (cursor-paginated)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1866,7 +2037,7 @@ Meteor.startup(async() => {
   // ── Notifications ────────────────────────────────────────────────────────────
 
   Wormhole.expose('notifications.getInbox', {
-    description: 'Get the current user\'s notification inbox',
+    description: "Get the current user's notification inbox",
     inputSchema: { type: 'object', properties: {} },
   });
 
@@ -1914,7 +2085,11 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         notificationId: { type: 'string', description: 'Notification ID' },
-        action: { type: 'string', enum: ['join', 'ignore'], description: 'Join the team or ignore the invite' },
+        action: {
+          type: 'string',
+          enum: ['join', 'ignore'],
+          description: 'Join the team or ignore the invite',
+        },
       },
       required: ['notificationId', 'action'],
     },
@@ -2084,7 +2259,7 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('teams.setRole', {
-    description: 'Set a member\'s role to admin or member (admin only)',
+    description: "Set a member's role to admin or member (admin only)",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2163,17 +2338,29 @@ Meteor.startup(async() => {
 
   Wormhole.expose('users.get', {
     description: 'Get public profile by user ID',
-    inputSchema: { type: 'object', properties: { userId: { type: 'string' } }, required: ['userId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { userId: { type: 'string' } },
+      required: ['userId'],
+    },
   });
 
   Wormhole.expose('users.getByUsername', {
     description: 'Get public profile by username',
-    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+    inputSchema: {
+      type: 'object',
+      properties: { username: { type: 'string' } },
+      required: ['username'],
+    },
   });
 
   Wormhole.expose('users.batchGet', {
     description: 'Batch public profile lookup by ID array (cap 200)',
-    inputSchema: { type: 'object', properties: { ids: { type: 'array', items: { type: 'string' } } }, required: ['ids'] },
+    inputSchema: {
+      type: 'object',
+      properties: { ids: { type: 'array', items: { type: 'string' } } },
+      required: ['ids'],
+    },
   });
 
   Wormhole.expose('users.updateProfile', {
@@ -2191,17 +2378,29 @@ Meteor.startup(async() => {
 
   Wormhole.expose('users.checkUsername', {
     description: 'Check username availability',
-    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+    inputSchema: {
+      type: 'object',
+      properties: { username: { type: 'string' } },
+      required: ['username'],
+    },
   });
 
   Wormhole.expose('users.claimUsername', {
     description: 'Claim a canonical username (one-time, immutable)',
-    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+    inputSchema: {
+      type: 'object',
+      properties: { username: { type: 'string' } },
+      required: ['username'],
+    },
   });
 
   Wormhole.expose('users.markReleaseNotesSeen', {
     description: 'Record the newest release note this user has read',
-    inputSchema: { type: 'object', properties: { version: { type: 'string' } }, required: ['version'] },
+    inputSchema: {
+      type: 'object',
+      properties: { version: { type: 'string' } },
+      required: ['version'],
+    },
   });
 
   // ── Organizations ─────────────────────────────────────────────────────────
@@ -2246,7 +2445,8 @@ Meteor.startup(async() => {
       properties: {
         orgId: {
           type: 'string',
-          description: 'Limit to one organization; omit to report across all the caller administers',
+          description:
+            'Limit to one organization; omit to report across all the caller administers',
         },
         periodDays: { type: 'number', enum: [1, 7, 14, 30], description: 'Days the counts cover' },
         timezone: { type: 'string', description: 'IANA timezone the day buckets are cut on' },
@@ -2269,26 +2469,105 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
-  Wormhole.expose('enterprise.installStatus', { description: 'Check enterprise installation status', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('enterprise.installStatus', {
+    description: 'Check enterprise installation status',
+    inputSchema: { type: 'object', properties: {} },
+  });
 
   // ── Personal Access Tokens ────────────────────────────────────────────────
 
-  Wormhole.expose('tokens.list', { description: 'List personal access tokens', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('tokens.create', { description: 'Create a personal access token', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } });
-  Wormhole.expose('tokens.revoke', { description: 'Revoke a personal access token', inputSchema: { type: 'object', properties: { tokenId: { type: 'string' } }, required: ['tokenId'] } });
+  Wormhole.expose('tokens.list', {
+    description: 'List personal access tokens',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('tokens.create', {
+    description: 'Create a personal access token',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  });
+  Wormhole.expose('tokens.revoke', {
+    description: 'Revoke a personal access token',
+    inputSchema: {
+      type: 'object',
+      properties: { tokenId: { type: 'string' } },
+      required: ['tokenId'],
+    },
+  });
 
   // ── Attachments ────────────────────────────────────────────────────────────
 
-  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket', 'redmine'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
-  Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, thumbnail: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
-  Wormhole.expose('attachments.remove', { description: 'Delete attachment (owner only)', inputSchema: { type: 'object', properties: { attachmentId: { type: 'string' } }, required: ['attachmentId'] } });
+  Wormhole.expose('attachments.list', {
+    description: 'List attachments for an entity',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['clock', 'ticket', 'redmine'] },
+        id: { type: 'string' },
+      },
+      required: ['kind', 'id'],
+    },
+  });
+  Wormhole.expose('attachments.add', {
+    description: 'Add attachment to an entity',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        type: { type: 'string', enum: ['video', 'image', 'link'] },
+        title: { type: 'string' },
+        thumbnail: { type: 'string' },
+        attachedTo: {
+          type: 'object',
+          properties: { kind: { type: 'string' }, id: { type: 'string' } },
+          required: ['kind', 'id'],
+        },
+      },
+      required: ['url', 'type', 'attachedTo'],
+    },
+  });
+  Wormhole.expose('attachments.remove', {
+    description: 'Delete attachment (owner only)',
+    inputSchema: {
+      type: 'object',
+      properties: { attachmentId: { type: 'string' } },
+      required: ['attachmentId'],
+    },
+  });
 
   // ── Media CRUD ────────────────────────────────────────────────────────────
 
-  Wormhole.expose('media.list', { description: 'List media library items', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } });
-  Wormhole.expose('media.listForUser', { description: 'List media for a user profile', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, limit: { type: 'integer' } }, required: ['userId'] } });
-  Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
-  Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
+  Wormhole.expose('media.list', {
+    description: 'List media library items',
+    inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } },
+  });
+  Wormhole.expose('media.listForUser', {
+    description: 'List media for a user profile',
+    inputSchema: {
+      type: 'object',
+      properties: { userId: { type: 'string' }, limit: { type: 'integer' } },
+      required: ['userId'],
+    },
+  });
+  Wormhole.expose('media.update', {
+    description: 'Update media metadata (owner)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mediaId: { type: 'string' },
+        title: { type: 'string' },
+        caption: { type: 'string' },
+        altText: { type: 'string' },
+      },
+      required: ['mediaId'],
+    },
+  });
+  Wormhole.expose('media.remove', {
+    description: 'Delete media item + files (owner)',
+    inputSchema: {
+      type: 'object',
+      properties: { mediaId: { type: 'string' } },
+      required: ['mediaId'],
+    },
+  });
 
   // ── PulseVault ────────────────────────────────────────────────────────────
 
@@ -2304,13 +2583,21 @@ Meteor.startup(async() => {
             kind: { type: 'string', enum: PULSE_DESTINATION_KINDS },
             id: {
               type: 'string',
-              description: 'The ticket, Redmine issue, clock session or timesheet change request id, for those kinds',
+              description:
+                'The ticket, Redmine issue, clock session or timesheet change request id, for those kinds',
             },
-            teamId: { type: 'string', description: 'The team to post to, for huddle and clock-plan' },
-            clockEventId: { type: 'string', description: 'The session to wrap up, for clock-wrapup' },
+            teamId: {
+              type: 'string',
+              description: 'The team to post to, for huddle and clock-plan',
+            },
+            clockEventId: {
+              type: 'string',
+              description: 'The session to wrap up, for clock-wrapup',
+            },
             postDate: {
               type: 'string',
-              description: "The poster's calendar date (YYYY-MM-DD), for clock-plan and clock-wrapup",
+              description:
+                "The poster's calendar date (YYYY-MM-DD), for clock-plan and clock-wrapup",
             },
           },
           required: ['kind'],
@@ -2356,7 +2643,12 @@ Meteor.startup(async() => {
     inputSchema: {
       type: 'object',
       properties: {
-        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 50)' },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          description: 'Max results (default 50)',
+        },
       },
     },
     outputSchema: {

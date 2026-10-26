@@ -1,10 +1,10 @@
 /**
  * RowList — a list of rows that lays itself out by the width it is given.
  *
- * One layout at every width, mobile first. A row is a line of detail, the
- * title under it, and the row's properties under that, with controls at either
- * end. The three stack the same way on a phone and on a wide monitor; a narrow
- * row only wraps each onto more lines. Nothing is hidden for lack of space and
+ * One layout at every width, mobile first. A row is a line of detail, then
+ * the title with the row's properties beside it, with controls at either end.
+ * They sit the same way on a phone and on a wide monitor; a narrow row only
+ * wraps them onto more lines. Nothing is hidden for lack of space and
  * nothing scrolls sideways.
  *
  * None of that is a breakpoint. The spacing is in container units, so it
@@ -38,7 +38,7 @@ export interface RowListItemProps extends Omit<React.HTMLAttributes<HTMLDivEleme
   title: React.ReactNode;
   /** A secondary line above the title: where the item sits, its reference. */
   meta?: React.ReactNode;
-  /** Under the title, from its left edge: badges and the like. */
+  /** Beside the title, wrapping under it when the row is narrow: badges and the like. */
   properties?: React.ReactNode;
   /** Controls at the end of the row's first line, e.g. an options menu. */
   actions?: React.ReactNode;
@@ -101,12 +101,13 @@ export const RowListItem: React.FC<RowListItemProps> = ({
             {meta}
           </div>
         )}
-        <div className="row-list-title text-sm leading-snug break-words">{title}</div>
-        {properties && (
-          <div className="row-list-properties flex min-w-0 flex-wrap items-center gap-1.5 pt-2 pb-1">
-            {properties}
-          </div>
-        )}
+        {/* The properties follow the title on its line, and drop under it a
+            piece at a time as the row narrows; a title too long for one line
+            takes the whole width and they start on the next. */}
+        <div className="row-list-title-line flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 pb-1">
+          <div className="row-list-title min-w-0 text-sm leading-snug break-words">{title}</div>
+          {properties && <div className="row-list-properties contents">{properties}</div>}
+        </div>
       </div>
       {actions && (
         <div className="row-list-actions flex h-8 shrink-0 items-center" data-row-list-control>
