@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import { videoApi } from '../../lib/api';
 
-import { isVideoFile, MAX_VIDEO_BYTES, uploadErrorMessage, videoFileProblem } from './videoFile';
+import {
+  filingProblem,
+  isVideoFile,
+  MAX_VIDEO_BYTES,
+  uploadErrorMessage,
+  videoFileProblem,
+} from './videoFile';
 
 const file = (name: string, type: string, size = 1024) => {
   const f = new File(['x'], name, { type });
@@ -48,6 +54,29 @@ describe('uploadErrorMessage', () => {
     const hint = "The upload didn't finish. Check your connection and try again.";
     expect(uploadErrorMessage(tusError(500, 'Internal error'))).toBe(hint);
     expect(uploadErrorMessage(new Error('network'))).toBe(hint);
+  });
+});
+
+describe('filingProblem', () => {
+  it('lets a video through only once it is filed', () => {
+    expect(filingProblem({ state: 'done' })).toBeNull();
+    expect(filingProblem({ state: 'done', note: 'Added to this ticket' })).toBeNull();
+  });
+
+  it("refuses one that may still be converting, or whose status can't be read", () => {
+    expect(filingProblem({ state: 'timeout' })).toBe(
+      "The video is taking longer than usual to get ready, so it wasn't added. Try again in a few minutes.",
+    );
+    expect(filingProblem({ state: 'forbidden' })).toBe(
+      'This upload expired before the video was ready. Try again.',
+    );
+  });
+
+  it("gives the server's reason when it kept the video back", () => {
+    expect(filingProblem({ state: 'kept', reason: 'That ticket was deleted.' })).toBe(
+      'That ticket was deleted.',
+    );
+    expect(filingProblem({ state: 'kept' })).toBe("That video couldn't be added.");
   });
 });
 

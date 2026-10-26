@@ -35,6 +35,20 @@ describe('splitLinks', () => {
     expect(splitLinks(url)).toEqual([{ text: url, href: url }]);
   });
 
+  it("leaves the sentence's bracket out when the URL has its own", () => {
+    const url = 'https://en.wikipedia.org/wiki/Foo_(bar)';
+    expect(splitLinks(`(${url})`)).toEqual([
+      { text: '(' },
+      { text: url, href: url },
+      { text: ')' },
+    ]);
+    expect(splitLinks(`(see ${url}).`)).toEqual([
+      { text: '(see ' },
+      { text: url, href: url },
+      { text: ').' },
+    ]);
+  });
+
   it('only links http and https, so a javascript: URL stays text', () => {
     expect(splitLinks('javascript:alert(1)')).toEqual([{ text: 'javascript:alert(1)' }]);
   });

@@ -28,7 +28,7 @@ const ASSIGNED_LIST_CAP = 100;
 export const ASSIGNED_FILTERS: TicketFilters = {
   ...EMPTY_FILTERS,
   sources: ['redmine'],
-  assignee: ME,
+  assignees: [ME],
 };
 
 /**

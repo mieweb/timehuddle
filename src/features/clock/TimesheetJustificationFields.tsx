@@ -149,8 +149,10 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
           </Button>
         )}
         {/* Pulse needs the request to exist (its video goes straight to it),
-            so it's offered on the pending change, beside "Pending approval". */}
-        {!value.videoUrl && (
+            so it's offered on the pending change, beside "Pending approval".
+            Not when a video is required: the request can't be sent without
+            one, so there is no "afterwards" to record it in. */}
+        {!value.videoUrl && !videoRequired && (
           <Text variant="muted" size="xs">
             Or record it with Pulse once you&apos;ve sent this.
           </Text>
