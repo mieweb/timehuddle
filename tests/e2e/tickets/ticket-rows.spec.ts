@@ -52,9 +52,8 @@ test.describe('Ticket rows', () => {
     const row = tickets.rowByTitle(title);
 
     // Where the ticket sits, then its title with who has it and its state beside it.
-    await expect(row.locator('.ticket-row-meta')).toContainText('#');
+    await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
-    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
 
     const menu = row.getByRole('button', { name: 'Ticket options' });
@@ -492,7 +491,7 @@ test.describe('Ticket rows', () => {
     // wrapped under it to start from its left edge. No columns appear.
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 800 });
-      await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+      await expect(row.locator('.ticket-row-facts')).toContainText('open');
       const title = (await row.locator('.row-list-title').boundingBox())!;
       const badges = await row.locator('.ticket-row-facts [data-slot=badge]').evaluateAll((els) =>
         els.map((el) => {

@@ -73,20 +73,37 @@ test.describe('Unified ticket table', () => {
     const row = tickets.rowByTitle(title);
 
     await expect(page.getByRole('columnheader')).toHaveCount(0);
-    await expect(row.locator('.ticket-row-meta')).toContainText('#');
-    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+    await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
+    // The ID says where a ticket comes from, so there is no source badge (#689).
+    await expect(row.locator('.ticket-row-facts')).not.toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
 
     // Every property has its own control in the header: the sort itself for one
     // only sorted by, a menu for one that can be filtered.
     await tickets.showAllControls();
-    for (const field of ['Title', 'Issue #', 'Updated']) {
+    for (const field of ['Title', 'Updated']) {
       await expect(tickets.sortControl(field)).toBeVisible();
     }
-    for (const field of ['Assignees', 'Project', 'Source', 'Status', 'Priority']) {
+    for (const field of ['Assignees', 'Project', 'Source', 'Status', 'Priority', 'Issue #']) {
       await expect(tickets.filterControl(field)).toBeVisible();
     }
+  });
+
+  test('leads with the outside ID, and shows the TimeHuddle ID on request (#689)', async ({
+    page,
+  }) => {
+    const title = `E2E Outside ID ${Date.now()}`;
+    // A repo that does not exist, so no title is fetched over the one typed.
+    await tickets.createTicket(title, 'https://github.com/mieweb/e2e-fixture/issues/717');
+    const ref = tickets.rowByTitle(title).locator('.ticket-row-meta');
+    await expect(ref).toContainText('e2e-fixture-717');
+    await expect(ref).not.toContainText(/TH-\d+/);
+
+    await tickets.openFilter('Issue #');
+    await page.getByRole('menuitemcheckbox', { name: 'Show TimeHuddle IDs' }).click();
+    await page.keyboard.press('Escape');
+    await expect(ref).toContainText(/e2e-fixture-717\s*TH-\d+/);
   });
 
   test('tags every row with its source', async ({ page }) => {
@@ -176,7 +193,7 @@ test.describe('Unified ticket table', () => {
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
 
     // A plain property — not the title — opens the ticket.
-    await row.getByText('TimeHuddle', { exact: true }).click();
+    await row.locator('.ticket-row-facts').getByText('open', { exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
       timeout: 20000,
     });
