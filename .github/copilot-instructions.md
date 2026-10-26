@@ -240,7 +240,7 @@ Every backend feature must follow a strict three-layer separation:
 
 ### Performance Considerations
 
-- **Lazy load features**: Use `React.lazy` and `Suspense` for route-level code splitting
+- **Lazy load features**: Every page is a route-level `React.lazy` chunk (`src/ui/AppLayout.tsx`). Heavy libraries that only some screens need (rich-text editor, charts, data grid) load behind `React.lazy` too — the rules, and the lint rule that enforces them, are in [`.github/instructions/performance.instructions.md`](instructions/performance.instructions.md)
 - **Avoid unnecessary re-renders**: Prefer `useMemo` and `useCallback` only where measurable impact exists — don't pre-optimize
 - **Bundle size**: Avoid importing entire libraries; prefer named imports
 - **Backend queries**: Return only the fields the client needs; avoid over-fetching from the API

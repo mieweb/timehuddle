@@ -28,6 +28,13 @@
   backend is untouched.
 - `yjs-collab-editing.spec.ts` — the e2e test for that live co-editing. It already drove the
   removed card view (`Switch to card view`, `Post actions`), so it could not pass on `main` either.
+- `MarkdownContent.tsx` — the post-body renderer `PostCard` and `HuddleComments` import as
+  `../MarkdownContent`: `react-markdown` plus syntax highlighting, KaTeX math and **Mermaid
+  diagrams**. Archived 2026-10-23, when a lint rule started refusing static imports of `mermaid`
+  in `src/`. It had no importer left after the card view went (dd7f9f38), so it was already
+  out of every bundle. Ticket details and release notes use the lighter `src/ui/MarkdownContent.tsx`,
+  which has no Mermaid. If a feature needs diagrams again, load this behind `React.lazy` — see
+  `.github/instructions/performance.instructions.md`.
 
 ## Why They're Archived, Not Deleted
 

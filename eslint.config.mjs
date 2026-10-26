@@ -115,6 +115,64 @@ export default [
   },
   {
     /**
+     * Heavy libraries reach the browser only when they render.
+     *
+     * Each library below is imported in exactly one wrapper component, and the
+     * wrapper is loaded with `React.lazy(() => import(...))` — a dynamic import
+     * this rule doesn't see, so it is the one way through. A static import of
+     * either puts the library in the importing page's startup download, as the
+     * Clock page's editor did until PR #691. Type-only imports ship no code and
+     * are allowed. See .github/instructions/performance.instructions.md.
+     */
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'mermaid',
+                'mermaid/*',
+                '@kerebron/*',
+                '@mieweb/ychart',
+                '@mieweb/ychart/*',
+                '@mieweb/ui/ag-grid',
+                '@mieweb/ui/datavis',
+                '@mieweb/ui/deck',
+                '@mieweb/ui/esheet',
+                '@mieweb/ui/globe',
+                '@mieweb/ui/kerebron',
+                '@mieweb/ui/maps',
+                '@mieweb/ui/org-chart',
+              ],
+              allowTypeImports: true,
+              message:
+                'Heavy library: import it only in its wrapper component, and load the wrapper with React.lazy. See .github/instructions/performance.instructions.md.',
+            },
+            {
+              group: ['**/MarkdownEditor', '**/OrganizationChart', '**/UsageGrid'],
+              allowTypeImports: true,
+              message:
+                'Heavy component: load it with React.lazy(() => import(...)) so its library downloads only when it renders. See .github/instructions/performance.instructions.md.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The wrappers: the only files that import a heavy library directly.
+    files: [
+      'src/features/huddle/MarkdownEditor.tsx',
+      'src/features/org/OrganizationChart.tsx',
+      'src/features/usage/UsageGrid.tsx',
+    ],
+    rules: { '@typescript-eslint/no-restricted-imports': 'off' },
+  },
+  {
+    /**
      * Grandfathered and genuinely-exempt files.
      *
      * Most entries are controls @mieweb/ui cannot express today rather than

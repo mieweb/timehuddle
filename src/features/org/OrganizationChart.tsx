@@ -26,6 +26,13 @@ type YChartInstance = {
   orgChart?: OrgChartInstance;
 };
 
+// `import '@mieweb/ychart'` registers its editor on `window` rather than exporting it.
+declare global {
+  interface Window {
+    YChartEditor: new () => YChartInstance;
+  }
+}
+
 interface OrganizationChartMember {
   id: string;
   name: string;
