@@ -473,6 +473,54 @@ describe('postsToConversations', () => {
     });
   });
 
+  describe('ticket links', () => {
+    const tickets = [
+      { id: 'tkt-1', title: 'Onboarding checklist' },
+      { id: 'tkt-gone', title: null },
+      { id: 'tkt-2', title: 'Fix [beta] *login*' },
+    ];
+
+    it('links each existing ticket to its page and skips deleted ones', () => {
+      for (const threadBy of ['session', 'day', 'person', 'ticket'] as const) {
+        const [conversation] = postsToConversations(
+          [makePost({ id: 'p1', tickets })],
+          threadBy,
+          VIEWER_MEMBER,
+          NOW,
+        );
+        const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
+        expect(text).toContain('🎫 [Onboarding checklist](/app/tickets/tkt-1)');
+        expect(text).toContain('🎫 [Fix \\[beta\\] \\*login\\*](/app/tickets/tkt-2)');
+        expect(text).not.toContain('tkt-gone');
+      }
+    });
+
+    it('keeps the rest of the label as plain text', () => {
+      const post = makePost({ id: 'p1', clockEventId: 'evt-1', tickets: tickets.slice(0, 1) });
+      const [conversation] = postsToConversations(
+        [post],
+        'session',
+        VIEWER_MEMBER,
+        NOW,
+        () => 'Dev Team',
+      );
+      const text = conversation.thread.find((m) => m.id === 'p1')?.text;
+      expect(text).toBe(
+        `${post.content.text}\n\n*Plan · 🎫 [Onboarding checklist](/app/tickets/tkt-1) · Dev Team*`,
+      );
+    });
+
+    it('never saves the link into the post on an inline edit', () => {
+      const post = makePost({ id: 'p1', tickets });
+      const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
+      const shown = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
+      const edited = shown.replace(post.content.text, 'Checklist UI is shipped.');
+      expect(stripInboxDecorations(edited, shown, post.content.text)).toBe(
+        'Checklist UI is shipped.',
+      );
+    });
+  });
+
   describe('ticket threads', () => {
     it('never include clock in/out messages, even when posts carry session data', () => {
       const posts = [

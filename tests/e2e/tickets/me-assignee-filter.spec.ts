@@ -106,10 +106,13 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     const tickets = await openTickets(page);
     await createHuddleTicket(page, `Filter option ${Date.now()}`);
 
-    await tickets.filterTrigger('Assignees').click();
-
-    await expect(page.getByRole('menuitem', { name: 'Me', exact: true })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Unassigned', exact: true })).toBeVisible();
+    await tickets.openFilter('Assignees');
+    const menu = page.getByRole('menu');
+    // Assignees takes several values at once, so its choices are checkbox items.
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Me', exact: true })).toBeVisible();
+    await expect(
+      menu.getByRole('menuitemcheckbox', { name: 'Unassigned', exact: true }),
+    ).toBeVisible();
   });
 
   test('narrows to the signed-in user’s own tickets', async ({ page }) => {
@@ -137,7 +140,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
     await expectRows(page, tickets, title, 1);
 
-    await tickets.clearFiltersButton.click();
+    await tickets.clearFilters();
     await setAssignees(page, tickets, title, [OTHER.name]);
     await tickets.filterBy('Assignees', 'Me');
 
@@ -218,7 +221,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
     await expectRows(page, tickets, theirs, 0);
 
-    await tickets.clearFiltersButton.click();
+    await tickets.clearFilters();
 
     await expectRows(page, tickets, theirs, 1);
   });

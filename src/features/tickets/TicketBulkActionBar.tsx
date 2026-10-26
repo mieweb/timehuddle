@@ -1,5 +1,5 @@
 /**
- * TicketBulkActionBar — shown above a `TicketTable` once at least one row is
+ * TicketBulkActionBar — shown above a `TicketList` once at least one row is
  * selected. Delete removes Huddle tickets for good and takes Redmine issues
  * out of TimeHuddle only (never out of Redmine); Archive and Close Issues are static
  * placeholders (no backend/model support yet, always disabled) reserved for
