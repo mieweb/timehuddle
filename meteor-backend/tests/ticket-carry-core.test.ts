@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import {
   CARRY_LOCK_STALE_MS,
+  CARRY_WAIT_MS,
   carriedTitle,
   carryLockId,
   findOrCarry,
@@ -138,6 +139,21 @@ describe('withCarryLock', () => {
     ]);
     expect(results.sort()).toEqual(['created', 'found']);
     expect(carriers).toBe(1);
+  });
+
+  it('outwaits a carry stuck on a slow Redmine read', async () => {
+    const locks = fakeLocks();
+    locks.rows.set('team1:482', { _id: 'team1:482', takenAt: new Date() });
+    // The holder's Redmine read times out after 8 seconds, then it lets go.
+    let waited = 0;
+    const wait = async (ms: number) => {
+      waited += ms;
+      if (waited >= 8000) locks.rows.delete('team1:482');
+    };
+    await expect(withCarryLock(locks, 'team1:482', async () => 'found', { wait })).resolves.toBe(
+      'found',
+    );
+    expect(waited).toBeLessThanOrEqual(CARRY_WAIT_MS);
   });
 
   it('takes over a lock left behind by a crash', async () => {
