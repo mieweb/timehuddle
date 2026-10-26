@@ -67,6 +67,15 @@ describe('RecentSessionsPanel', () => {
     expect(screen.getByText('Loading sessions…')).toBeTruthy();
   });
 
+  it('keeps the table on screen while a refresh loads', () => {
+    const start = new Date();
+    start.setHours(9, 0, 0, 0);
+    const sessions = [session({ startTime: start.getTime(), endTime: start.getTime() + HOUR })];
+    render(<RecentSessionsPanel sessions={sessions} loading onViewAll={vi.fn()} />);
+    expect(screen.queryByText('Loading sessions…')).toBeNull();
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+  });
+
   it('shows an empty state with no sessions', () => {
     render(<RecentSessionsPanel sessions={[]} loading={false} onViewAll={vi.fn()} />);
     expect(screen.getByText('No sessions in the last 7 days.')).toBeTruthy();

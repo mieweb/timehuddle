@@ -59,7 +59,9 @@ export const RecentSessionsPanel: React.FC<RecentSessionsPanelProps> = ({
           {clockText.viewAll}
         </Button>
       </div>
-      {loading ? (
+      {/* Only before anything has loaded: a refresh (every clock in and out)
+          keeps the table on screen rather than swapping it for a spinner. */}
+      {loading && sessions.length === 0 ? (
         <Spinner size="sm" label={clockText.loadingSessions} />
       ) : groups.length === 0 ? (
         <Text variant="muted" size="sm">

@@ -55,7 +55,7 @@ import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerS
 import { PulseChip } from '../pulse-upload/PulseButton';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload';
-import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText } from './clockStrings';
+import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
 import { useRecentSessions } from './useRecentSessions';
@@ -214,13 +214,14 @@ export const ClockPage: React.FC = () => {
     last7DaysSeconds,
   } = useRecentSessions(recentSessionsTeamId, activeClockEvent, currentTime);
 
-  const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
-    ? planMissing
-      ? 'plan'
-      : null
-    : wrapUpMissing
-      ? 'wrapup'
-      : null;
+  // The composer being submitted stays on screen until its post and clock
+  // action have both finished. Otherwise the gate flips first — a posted
+  // wrap-up already satisfies it — and the plain Clock out button flashes in,
+  // spinning, for the moment clock-out takes.
+  const [submittingMode, setSubmittingMode] = useState<ComposerMode | null>(null);
+  const composerMode: ComposerMode | null =
+    submittingMode ??
+    (!isClockedIn ? (planMissing ? 'plan' : null) : wrapUpMissing ? 'wrapup' : null);
 
   // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
   // Its initial subscription sync is slow over a mobile/LAN connection, so the
@@ -238,11 +239,26 @@ export const ClockPage: React.FC = () => {
   // left the wrap-up composer blank, and submitting it overwrote the plan post
   // with wrap-up-only text — silent loss of what the user wrote at clock-in.
   const [seedSettled, setSeedSettled] = useState(false);
+  // The plan this page just posted to clock in. The wrap-up that follows
+  // starts from it straight away, rather than showing a spinner while the
+  // lookup above fetches the same post back.
+  const [postedPlan, setPostedPlan] = useState<Pick<
+    HuddlePost,
+    'id' | 'content' | 'tickets'
+  > | null>(null);
   // What the editor was actually mounted with. The wrap-up submit overwrites
   // the plan post, so if the editor never received the plan text we must not
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
-  const editorMounted = composerMode !== 'wrapup' || seedSettled;
+  // Only good for the shift it clocked in: dropped once clocked out (a failed
+  // clock-in included), so a later shift never starts from it.
+  useEffect(() => {
+    if (!isClockedIn && !submittingMode) setPostedPlan(null);
+  }, [isClockedIn, submittingMode]);
+  // A composer being submitted keeps its editor: once clock-out lands, the
+  // lookup above resets for a session that has just ended.
+  const editorMounted =
+    composerMode !== 'wrapup' || seedSettled || !!postedPlan || !!submittingMode;
   // Shown while the plan seed settles and while the editor's code downloads.
   const composerLoading = (
     <div
@@ -292,7 +308,10 @@ export const ClockPage: React.FC = () => {
   // clock-in instead of a blank box. The plan composer starts empty.
   const seedText =
     composerMode === 'wrapup'
-      ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
+      ? (sessionPost?.content.text ??
+        sessionPostFetch?.content.text ??
+        postedPlan?.content.text ??
+        '')
       : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
@@ -309,15 +328,18 @@ export const ClockPage: React.FC = () => {
   // Apply the seed once it becomes available (the session post loads async),
   // unless the user has already started typing. Remount the uncontrolled editor
   // via `editorKey` so it picks up the seeded value.
+  // Not while submitting: posting the wrap-up rewrites the session's post,
+  // and clocking out drops it, so the seed changes twice mid-submit — each a
+  // remount that blanked the editor and could tear it down mid-setup.
   const seededTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!composerMode || !seedText) return;
+    if (!composerMode || !seedText || submittingMode) return;
     const token = `${composerMode}:${seedText}`;
     if (seededTokenRef.current === token) return;
     seededTokenRef.current = token;
     setText((current) => (current.trim() ? current : seedText));
     setEditorKey((k) => k + 1);
-  }, [composerMode, seedText]);
+  }, [composerMode, seedText, submittingMode]);
 
   // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
   // (clocks you out) — the server does both when the upload lands. Owned here,
@@ -416,7 +438,8 @@ export const ClockPage: React.FC = () => {
   // The wrap-up starts with the tickets the plan linked at clock-in, so
   // clocking out keeps them unless removed here. Declared after the reset
   // above so a same-commit mode switch can't clear the seed.
-  const sessionPlan = composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch) : null;
+  const sessionPlan =
+    composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch ?? postedPlan) : null;
   const ticketsSeededForRef = useRef<string | null>(null);
   useEffect(() => {
     // Leaving wrap-up clears the selection (above), so the same plan must
@@ -439,7 +462,9 @@ export const ClockPage: React.FC = () => {
     const trimmed = composerText();
     if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
+    setSubmittingMode('plan');
     setPostError(null);
+    let planPosted = false;
     try {
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
       const created = await huddleApi.createPost({
@@ -450,17 +475,31 @@ export const ClockPage: React.FC = () => {
         postDate: toDateString(new Date()),
       });
       const planPostId = created.id;
+      planPosted = true;
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      setPostedPlan({
+        id: planPostId,
+        content: { text: trimmed, mentions: mentionUserIds ?? [] },
+        tickets: selectedTickets,
+      });
       draftGenRef.current += 1;
-      setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
+      // The editor keeps showing the plan while it posts, and the wrap-up
+      // that replaces it opens on the same text — handed over here, already
+      // seeded, so it neither blanks in between nor remounts to load it.
+      seededTokenRef.current = `wrapup:${trimmed}`;
+      setText(trimmed);
     } catch (e) {
+      // Once the plan is posted, clear it even if clocking in failed, so a
+      // retry can't post it twice.
+      if (planPosted) setText('');
       setPostError(e instanceof Error ? e.message : clockText.postFailed);
     } finally {
       setPosting(false);
+      setSubmittingMode(null);
     }
   }
 
@@ -468,6 +507,7 @@ export const ClockPage: React.FC = () => {
     const trimmed = composerText();
     if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
+    setSubmittingMode('wrapup');
     setPostError(null);
     try {
       // Use sessionPost from DDP if available, otherwise fall back to the
@@ -485,7 +525,12 @@ export const ClockPage: React.FC = () => {
         // Only merge when the editor demonstrably never showed the plan —
         // `shownSeedRef` is what it actually mounted with — so text the user
         // deliberately edited or deleted is left exactly as they left it.
-        const planText = (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '').trim();
+        const planText = (
+          sessionPost?.content.text ??
+          sessionPostFetch?.content.text ??
+          postedPlan?.content.text ??
+          ''
+        ).trim();
         const editorNeverSawPlan = planText !== '' && !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
@@ -524,13 +569,15 @@ export const ClockPage: React.FC = () => {
         });
       }
       draftGenRef.current += 1;
-      setText('');
       cachedPlanPostIdRef.current = null;
       await clockOut();
+      // Cleared only now, so the editor doesn't blank while clock-out runs.
+      setText('');
     } catch (e) {
       setPostError(e instanceof Error ? e.message : clockText.postFailed);
     } finally {
       setPosting(false);
+      setSubmittingMode(null);
     }
   }
 
