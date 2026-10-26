@@ -21,6 +21,17 @@ packages/
 3. Run `npm install` from the repo root to register the new workspace.
 4. Import it in the frontend or backend with `import { ... } from '@timehuddle/my-util'`.
 
+## Packages
+
+| Package          | What                                               | Used by                             |
+| ---------------- | -------------------------------------------------- | ----------------------------------- |
+| `ota-version`    | OTA bundle version comparison                      | Front end and backend               |
+| `ticket-sources` | The ticket record and the per-source config (#734) | Front end; backend from #734 step 3 |
+| `youtube`        | YouTube link detection and titles                  | Front end                           |
+
+A package the backend imports is plain JS with an `index.d.ts`, like
+`ota-version`: Meteor loads it without a build step.
+
 ## Purpose
 
 Shared utilities, services, and types that belong to neither the frontend nor the backend exclusively should live here to avoid duplication and cross-boundary violations.
