@@ -87,14 +87,10 @@ export interface TimecoreUser {
   }>;
 }
 
-export interface AuthAccount {
-  id: string;
-  accountId: string;
-  providerId: string;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
-  scopes: string[];
+/** The caller's linked GitHub account (`github.status`). */
+export interface GitHubLinkStatus {
+  connected: boolean;
+  username: string | null;
 }
 
 export interface PublicUser {
@@ -339,33 +335,6 @@ export const authApi = {
     }
     const data = (await res.json()) as { url: string };
     return data.url;
-  },
-
-  /** Initiate linking a social provider to the currently authenticated user. */
-  linkSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
-    const data = await request<{ url: string }>('/api/auth/link-social', {
-      method: 'POST',
-      body: JSON.stringify({ provider, callbackURL }),
-    });
-    return data.url;
-  },
-
-  /** Remove a linked auth provider from the current account. */
-  unlinkAccount: async (providerId: string): Promise<void> => {
-    await request('/api/auth/unlink-account', {
-      method: 'POST',
-      body: JSON.stringify({ providerId }),
-    });
-  },
-
-  /** List auth providers linked to the current account. */
-  listAccounts: async (): Promise<AuthAccount[]> => {
-    try {
-      return await request<AuthAccount[]>('/api/auth/list-accounts');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) return [];
-      throw err;
-    }
   },
 
   /** Sign out — clears better-auth session cookie and stored token. */
@@ -1109,11 +1078,35 @@ function toTicket(raw: Record<string, unknown>): Ticket {
   };
 }
 
+export interface TicketDashboardSummary {
+  open: number;
+  unassignedOpen: number;
+  closedToday: number;
+  highPriorityOpen: number;
+  myOpen: number;
+  myClosedToday: number;
+  myHighPriorityOpen: number;
+}
+
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
-      tickets.map(toTicket),
-    ),
+  /**
+   * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
+   * one person's tickets that are not closed, reviewed or deleted.
+   */
+  getTickets: (
+    teamId: string,
+    options: { brief?: boolean; assignedTo?: string; activeOnly?: boolean } = {},
+  ) =>
+    wormholeCall<Array<Record<string, unknown>>>('tickets.list', {
+      teamId,
+      ...(options.brief ? { brief: true } : {}),
+      ...(options.assignedTo ? { assignedTo: options.assignedTo } : {}),
+      ...(options.activeOnly ? { activeOnly: true } : {}),
+    }).then((tickets) => tickets.map(toTicket)),
+
+  /** Dashboard counts, computed server-side. `since`/`until` bound "today" (ms epoch). */
+  getDashboardSummary: (teamId: string, since: number, until: number) =>
+    wormholeCall<TicketDashboardSummary>('tickets.dashboardSummary', { teamId, since, until }),
 
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
@@ -1219,8 +1212,8 @@ export interface HuddlePost {
     text: string;
     mentions: string[];
   };
-  ticketId?: string;
-  ticketTitle?: string;
+  /** Linked tickets; `title` is null when the ticket no longer exists. */
+  tickets?: { id: string; title: string | null }[];
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
@@ -1318,7 +1311,7 @@ export const huddleApi = {
   createPost: (params: {
     teamId: string;
     content: { text: string; mentions: string[] };
-    ticketId?: string;
+    ticketIds?: string[];
     attachments?: HuddlePostAttachment[];
     postDate?: string;
     clockEventId?: string;
@@ -1336,14 +1329,14 @@ export const huddleApi = {
     wormholeCall<{ id: string }>('huddle.reschedulePost', { postId, ...schedule }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
-   * Pass attachments/ticketId to edit them (omit to leave untouched). */
+   * Pass attachments/ticketIds to edit them (omit to leave untouched; `[]` clears tickets). */
   updatePost: (
     postId: string,
     content: { text: string; mentions: string[] },
     options?: {
       wrapUp?: boolean;
       attachments?: HuddlePostAttachment[];
-      ticketId?: string | null;
+      ticketIds?: string[];
     },
   ) => wormholeCall<{ id: string }>('huddle.updatePost', { postId, content, ...options }),
 
@@ -1695,8 +1688,9 @@ export const clockApi = {
   /** Get the current user's active clock event (any team), or null. */
   getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
 
-  /** Get all clock events for the current user. */
-  getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
+  /** The caller's latest completed sessions on a team, newest first. */
+  getRecentSessions: (teamId: string, limit: number) =>
+    wormholeCall<ClockEvent[]>('clock.events', { teamId, completed: true, limit }),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
   getTimesheet: (userId: string, startMs: number, endMs: number) =>
@@ -1764,6 +1758,7 @@ export interface TeamRunningTimer {
   userImage: string | null;
   ticketId: string;
   ticketTitle: string;
+  ticketPriority: string | null;
   startTime: number;
 }
 
@@ -2681,6 +2676,27 @@ export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
   confirmed: boolean;
 }
 
+export const githubApi = {
+  status: (): Promise<GitHubLinkStatus> => wormholeCall<GitHubLinkStatus>('github.status', {}),
+
+  /**
+   * Where to send the browser to link a GitHub account to the caller. The
+   * backend runs the OAuth round trip and returns to `/app/settings`, with
+   * `?github_confirm=` for `confirmLink` or `?github=` saying why it refused.
+   */
+  linkUrl: async (): Promise<string> => {
+    const { token } = await wormholeCall<{ token: string }>('github.linkToken', {});
+    return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ link: token })}`;
+  },
+
+  /** Finish the link the OAuth callback staged, as the user who started it. */
+  confirmLink: (code: string): Promise<{ result: string; status: GitHubLinkStatus }> =>
+    wormholeCall<{ result: string; status: GitHubLinkStatus }>('github.confirmLink', { code }),
+
+  disconnect: (): Promise<GitHubLinkStatus> =>
+    wormholeCall<GitHubLinkStatus>('github.disconnect', {}),
+};
+
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
@@ -2717,11 +2733,15 @@ export const redmineApi = {
       wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
     /**
-     * The open issues assigned to the caller in Redmine, most recently updated
-     * first, whatever they removed from their Tickets table (#736).
+     * One page (100) of the open issues assigned to the caller in Redmine, most
+     * recently updated first, whatever they removed from their Tickets table
+     * (#736). `nextOffset` starts the next page; null at the end.
      */
-    assignedIds: (): Promise<{ issueIds: number[] }> =>
-      wormholeCall<{ issueIds: number[] }>('redmine.issues.assignedIds', {}),
+    assignedIds: (offset = 0): Promise<{ issueIds: number[]; nextOffset: number | null }> =>
+      wormholeCall<{ issueIds: number[]; nextOffset: number | null }>(
+        'redmine.issues.assignedIds',
+        { offset },
+      ),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (

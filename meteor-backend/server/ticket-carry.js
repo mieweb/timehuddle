@@ -13,10 +13,11 @@ import { Tickets, rawDb } from './collections';
 import { requireTeamMembership } from './permissions';
 import { createRateLimiter } from './rate-limit';
 import { enforceRedmineLimit } from './redmine';
+import { findRedmineAccount } from './redmine-account';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { carriedTitle, carryLockId, findOrCarry, withCarryLock } from './ticket-carry-core';
 import { redmineLinkFor } from './ticket-link-core';
-import { announceLinkChange, readLinkableIssue } from './ticket-links';
+import { announceLinkChange, assertOnDefaultRedmine, readLinkableIssue } from './ticket-links';
 import { hostOf } from './ticket-ids';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 import { insertTicket, toPublicTicket } from './tickets';
@@ -56,6 +57,11 @@ Meteor.methods({
       throw new Meteor.Error('validation-error', 'issueId must be a Redmine issue number');
     }
     const id = String(issueId);
+    // Checked before the lookup: an issue number from another Redmine server
+    // would otherwise land on this server's unrelated ticket with the same
+    // number. A caller with no account can still reach an existing carrier.
+    const account = await findRedmineAccount(userId);
+    if (account) assertOnDefaultRedmine(account);
 
     let result;
     try {
@@ -71,7 +77,10 @@ Meteor.methods({
             return readLinkableIssue(userId, id);
           },
           // Inserted already linked, in one write: a failure after it leaves a
-          // ticket the next carry finds, never an unlinked one beside it.
+          // ticket the next carry finds, never an unlinked one beside it. Not
+          // put on My Board here: the action that carried it does that through
+          // the capacity-checked `myBoard.addMany`, so a refused add leaves
+          // nothing behind that the user wasn't told about.
           createCarrier: async (issue) => {
             const doc = await insertTicket(
               userId,
@@ -81,6 +90,7 @@ Meteor.methods({
                 assignedTo: [userId],
                 linkedIssue: redmineLinkFor(id, hostOf(optionalRedmineBaseUrl())),
               },
+              { addToBoard: false },
             );
             await announceLinkChange(userId, doc, null, id);
             return toPublicTicket(doc);

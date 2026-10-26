@@ -3,8 +3,8 @@
  *
  * Renders a `UnifiedTicket` without caring which source it came from, as a
  * `RowListItem`, the same at every width: a line of where the ticket sits
- * (project, reference, last updated), its title, and under the title its
- * badges (assignees, status, priority, source, linked issue).
+ * (project, reference, last updated), then its title with its badges beside it
+ * (assignees, status, priority, source, linked issue), wrapping as it narrows.
  *
  * An open ticket leads with its timer button; a closed one has its purple mark
  * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
@@ -81,7 +81,7 @@ export interface TicketRowProps {
  * most of what tells one ticket from another and a phone has no hover tooltip.
  */
 const TITLE_CLASS =
-  'ticket-row-title h-auto w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
+  'ticket-row-title h-auto max-w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
 
 /** Assignee names a row shows before it counts the rest. */
 const SHOWN_ASSIGNEES = 3;
@@ -91,6 +91,7 @@ const text = {
   startTimer: (title: string) => `Start timer for ${title}`,
   stopTimer: (title: string) => `Stop timer for ${title}`,
   moreAssignees: (names: string[]) => `and ${names.join(', ')}`,
+  viewProfile: (name: string) => `View ${name}'s profile`,
   updated: (date: string) => `Updated ${date}`,
   options: 'Ticket options',
   sharedWithTimeharbor: 'Shared with TimeHarbor',
@@ -219,12 +220,29 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   const properties = (
     <span className="ticket-row-facts contents [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:py-0">
       {/* Names, not avatars: initials alone say less, and there is no hover on a phone. */}
-      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => (
-        <Badge key={assignee.id} variant="secondary" size="sm" className="max-w-[11rem]">
-          <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{assignee.name}</span>
-        </Badge>
-      ))}
+      {assignees.slice(0, SHOWN_ASSIGNEES).map((assignee) => {
+        const badge = (
+          <Badge variant="secondary" size="sm" className="max-w-[11rem]">
+            <CircleUser className="me-1 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{assignee.name}</span>
+          </Badge>
+        );
+        // Only a Huddle assignee's id is a TimeHuddle user with a profile. A
+        // button, so the row's own click leaves it be.
+        return ticket.sourceId === 'huddle' ? (
+          <Button
+            key={assignee.id}
+            variant="ghost"
+            className="ticket-row-assignee h-auto min-w-0 rounded-full p-0 hover:bg-transparent hover:opacity-80 dark:hover:bg-transparent"
+            onClick={() => navigate(`/app/profile/${assignee.id}`)}
+            aria-label={text.viewProfile(assignee.name)}
+          >
+            {badge}
+          </Button>
+        ) : (
+          <React.Fragment key={assignee.id}>{badge}</React.Fragment>
+        );
+      })}
       {extraAssignees.length > 0 && (
         <Tooltip content={extraAssignees.join(', ')}>
           <Badge variant="secondary" size="sm">

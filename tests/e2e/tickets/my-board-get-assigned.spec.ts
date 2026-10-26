@@ -3,7 +3,7 @@
  *
  * The first fill of a board: one press asks Redmine for the user's assigned
  * issues and adds up to ten of them, each as the TimeHuddle ticket carrying it,
- * and a notice points at All Sources for the rest.
+ * and a notice offers to add the rest, ten at a time.
  *
  * Redmine is stubbed (see `fixtures/redmine.ts`). So is the board, held in
  * memory here: the button only exists on an empty board, and the seed user's
@@ -16,7 +16,6 @@ import { MongoClient, ObjectId } from 'mongodb';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectTeamById } from '../fixtures/team';
-import { TicketsPage } from '../pages/TicketsPage';
 import { connectedStatus, redmineIssue, relevantList, stubRedmine } from '../fixtures/redmine';
 
 const MONGO_URL =
@@ -121,7 +120,7 @@ async function openEmptyBoard(page: Page, count: number): Promise<BoardRef[]> {
     // The issues the seeded tickets carry, as Redmine reads them: each one's
     // live status and assignee comes from here (#736).
     'issues.relevant': relevantList([], { linkedIssues: issues }),
-    'issues.assignedIds': { issueIds: ids },
+    'issues.assignedIds': { issueIds: ids, nextOffset: null },
   });
   await page.goto('/app/tickets');
   await selectTeamById(page, teamId);
@@ -140,7 +139,7 @@ test.describe('My Board — get issues assigned to me', () => {
     await loginAs(page, TEST_USERS.owner1);
   });
 
-  test('adds the first ten as tickets and points at All Sources for the rest', async ({ page }) => {
+  test('adds the first ten as tickets, then the rest from the notice', async ({ page }) => {
     const board = await openEmptyBoard(page, 12);
 
     await getAssigned(page).click();
@@ -152,24 +151,43 @@ test.describe('My Board — get issues assigned to me', () => {
     );
     await expect(ticketRows(page)).toHaveCount(10);
     await expect(getAssigned(page)).toHaveCount(0);
-    await expect(page.getByText('2 more issues assigned to you are in All Sources.')).toBeVisible();
+    await expect(page.getByText('2 more issues assigned to you in Redmine.')).toBeVisible();
 
-    // The link opens All Sources narrowed to the user's assigned issues.
-    await page.getByRole('button', { name: 'Show issues assigned to me in All Sources' }).click();
-    await expect(new TicketsPage(page).ticketsTab).toBeChecked();
+    // Redmine is asked again; the ten already on the board are skipped.
+    await page
+      .getByRole('button', { name: 'Add 2 more issues assigned to you to My Board' })
+      .click();
+    await expect.poll(() => board.length).toBe(12);
+    expect(board.slice(10)).toEqual(
+      ISSUE_IDS.slice(10).map((id) => ({ sourceId: 'huddle', ticketId: carrierOf.get(id) })),
+    );
     await expect(ticketRows(page)).toHaveCount(12);
+    await expect(page.getByText(/assigned to you in Redmine/)).toHaveCount(0);
   });
 
-  test('the notice survives a reload, and stays dismissed once dismissed', async ({ page }) => {
+  test('the notice survives a reload, without its count', async ({ page }) => {
+    const board = await openEmptyBoard(page, 12);
+    await getAssigned(page).click();
+
+    await expect(page.getByText('2 more issues assigned to you in Redmine.')).toBeVisible();
+    await page.reload();
+    await expect(ticketRows(page)).toHaveCount(10);
+    await expect(page.getByText('More issues may be assigned to you in Redmine.')).toBeVisible();
+
+    // Still adds only what is off the board, now known from the board alone.
+    await page
+      .getByRole('button', { name: 'Add 10 more issues assigned to you to My Board' })
+      .click();
+    await expect.poll(() => board.length).toBe(12);
+    await expect(page.getByText(/assigned to you in Redmine/)).toHaveCount(0);
+  });
+
+  test('stays dismissed once dismissed', async ({ page }) => {
     await openEmptyBoard(page, 12);
     await getAssigned(page).click();
 
-    const notice = page.getByText(/more issues assigned to you/);
+    const notice = page.getByText(/assigned to you in Redmine/);
     await expect(notice).toBeVisible();
-    await page.reload();
-    await expect(ticketRows(page)).toHaveCount(10);
-    await expect(notice).toBeVisible();
-
     await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
     await expect(notice).toHaveCount(0);
     await page.reload();

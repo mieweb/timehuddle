@@ -29,7 +29,7 @@ import { createRateLimiter } from './rate-limit';
 import {
   getIssue,
   isIssueAssignedToMe,
-  listAssignedIssues,
+  listAssignedIssuePage,
   listIssuesAssignedTo,
   listIssuesByIds,
   listProjectMemberships,
@@ -101,8 +101,11 @@ const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
  * so an unmetered loop here is an unmetered loop against Redmine.
  */
 const prefsLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
-// "Get issues assigned to me" is pressed by hand, on an empty board.
-const assignedLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
+// "Get issues assigned to me" is pressed by hand, on an empty board; each press
+// may read a few pages.
+const assignedLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+/** How far into someone's assigned issues "Add more" reads (pages of 100). */
+const MAX_ASSIGNED_OFFSET = 1000;
 
 Meteor.startup(async () => {
   try {
@@ -396,18 +399,32 @@ Meteor.methods({
    * Tickets table or hid from suggestions: pressing the button asks for exactly
    * this. Each issue then goes on the board as a ticket, never as a bare row, so
    * a removal still stands for the table itself.
+   *
+   * One page of 100 from `offset`; `nextOffset` is where the next one starts,
+   * or null at the end, so "Add more" can go past the first hundred.
    */
-  async 'redmine.issues.assignedIds'() {
+  async 'redmine.issues.assignedIds'({ offset = 0 } = {}) {
     const { userId } = await requireIdentity(this);
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_ASSIGNED_OFFSET) {
+      throw new Meteor.Error(
+        'bad-request',
+        `offset must be a whole number from 0 to ${MAX_ASSIGNED_OFFSET}.`,
+      );
+    }
     enforceLimit(assignedLimiter, userId);
     const account = await requireRedmineAccount(userId);
-    let issues;
+    let page;
     try {
-      issues = await listAssignedIssues(account);
+      page = await listAssignedIssuePage(account, { offset });
     } catch (err) {
       throw toRedmineMeteorError(err);
     }
-    return { issueIds: issues.map((issue) => issue.id).filter(isRedmineIssueId) };
+    // Where the next page starts, or null when this one reaches the end.
+    const end = offset + page.issues.length;
+    return {
+      issueIds: page.issues.map((issue) => issue.id).filter(isRedmineIssueId),
+      nextOffset: page.issues.length > 0 && end < page.totalCount ? end : null,
+    };
   },
 
   /**

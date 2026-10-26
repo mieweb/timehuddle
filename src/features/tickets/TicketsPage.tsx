@@ -50,10 +50,8 @@ import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
 import {
-  ASSIGNED_FILTERS,
+  collectAssignedOffBoard,
   STARTER_LIMIT,
-  assignedToMe,
-  isApproximate,
   starterText,
   useAssignedNotice,
 } from './assignedStarter';
@@ -122,7 +120,7 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
 ];
 
 /**
- * Both views stay mounted, so each keeps its filters, sort, page and selection
+ * Both views stay mounted once shown, so each keeps its filters, sort, page and selection
  * while the other is showing; the one not showing is only hidden.
  */
 const viewPanelClass = (showing: boolean) =>
@@ -151,20 +149,43 @@ export const TicketsPage: React.FC = () => {
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerLoadingKey } = useTicketStart();
 
+  // Stable key derived from sorted team IDs — effects below only rerun when the
+  // actual set of teams changes, not on every new array reference.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
+  // Rosters are reactive through TeamContext, so members are refetched when any
+  // team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => `${t.id}:${[...t.members, ...t.admins].sort().join(',')}`)
+        .sort()
+        .join('|'),
+    [teams],
+  );
+
   // Fetch members for all teams
   useEffect(() => {
-    if (!teams.length) return;
+    if (!rosterKey) return;
     void Promise.all(
-      teams.map(async (t) => {
+      rosterKey.split('|').map(async (entry) => {
+        const teamId = entry.slice(0, entry.indexOf(':'));
         try {
-          const members = await teamApi.getMembers(t.id);
-          return [t.id, members] as [string, TeamMember[]];
+          const members = await teamApi.getMembers(teamId);
+          return [teamId, members] as [string, TeamMember[]];
         } catch {
-          return [t.id, []] as [string, TeamMember[]];
+          return [teamId, []] as [string, TeamMember[]];
         }
       }),
     ).then((entries) => setMembersByTeam(new Map(entries)));
-  }, [teams]);
+  }, [rosterKey]);
 
   // Flat deduplicated member list across all teams
   const allMembers = useMemo(() => {
@@ -230,17 +251,6 @@ export const TicketsPage: React.FC = () => {
   // Redmine issues are edited in their own dialog, under the user's personal
   // Redmine key. A new one is created with a ticket, in the New Ticket dialog.
   const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
-
-  // Stable key derived from sorted team IDs — the subscription only reconnects
-  // when the actual set of teams changes, not on every new array reference.
-  const teamIdsKey = useMemo(
-    () =>
-      teams
-        .map((t: Team) => t.id)
-        .sort()
-        .join(','),
-    [teams],
-  );
 
   // Links already covered by a Redmine fetch, read by the live feed below.
   const seenLinkKeys = React.useRef(new Set<string>());
@@ -324,6 +334,10 @@ export const TicketsPage: React.FC = () => {
   // My Board vs All Sources — same URL, local state only. My Board is where the
   // day's work is; All Sources is where more of it is looked up.
   const [activeView, setActiveView] = useState<TicketsView>('my-board');
+  // The All Sources list is a few hundred rows; render it from the first visit on,
+  // not while the page is opening on My Board.
+  const [allSourcesOpened, setAllSourcesOpened] = useState(false);
+  if (activeView === 'tickets' && !allSourcesOpened) setAllSourcesOpened(true);
   // Rows carry no checkbox until Select asks for them, at every width.
   const [selecting, setSelecting] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement>(null);
@@ -528,11 +542,14 @@ export const TicketsPage: React.FC = () => {
       ),
     [shownTickets],
   );
+  // A suggestion reads as running only when the ticket running is its carrier
+  // in the selected team: that is the ticket its Stop acts on (#736).
   const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
   const runningRedmineIssueId =
     runningTicket?.source === 'redmine'
       ? Number(runningTicket.id)
-      : runningLinked?.sourceId === 'redmine'
+      : runningLinked?.sourceId === 'redmine' &&
+          carrierByIssueId.get(runningLinked.id)?.key === runningTicket?.key
         ? Number(runningLinked.id)
         : null;
 
@@ -696,19 +713,20 @@ export const TicketsPage: React.FC = () => {
   const boardActions = useBoardActions();
 
   /**
-   * Put rows on My Board. Resolves to whether they were added; a failure is
-   * toasted. A Redmine issue goes on as the ticket carrying it in the selected
-   * team (#736), so with no team selected the team dialog opens instead.
+   * Put rows on My Board. Resolves to what was added (see `BoardAdd`), or null;
+   * a failure is toasted. A Redmine issue goes on as the ticket carrying it in
+   * the selected team (#736), so with no team selected the team dialog opens
+   * instead.
    */
   const addToBoard = useCallback(
     async (keys: string[]) => {
       if (!selectedTeam && keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) {
         setShowNoTeamDialog(true);
-        return false;
+        return null;
       }
-      const added = await boardActions.add(keys);
-      if (added) setBoardKeys((prev) => new Set([...prev, ...added]));
-      return added !== null;
+      const result = await boardActions.add(keys);
+      if (result) setBoardKeys((prev) => new Set([...prev, ...result.added]));
+      return result;
     },
     [boardActions, setBoardKeys, selectedTeam],
   );
@@ -781,15 +799,19 @@ export const TicketsPage: React.FC = () => {
   }, [addToBoard, ticketsView]);
 
   // ── First fill of an empty board ──
-  // The assigned issues not on the board yet: what the button adds from, and
-  // what the notice counts afterwards.
-  const assignedIssues = useMemo(() => assignedToMe(allTickets, meKeys), [allTickets, meKeys]);
-  const assignedOffBoard = useMemo(
-    () => assignedIssues.filter((t) => !isOnBoard(t, boardKeys)),
-    [assignedIssues, boardKeys],
-  );
   const assignedNotice = useAssignedNotice(userId);
-  const showAssignedNotice = assignedNotice.show;
+  const { show: showAssignedNotice, dismiss: dismissAssignedNotice } = assignedNotice;
+  // How many assigned issues the last fill left off the board; null when not
+  // known, as after a reload (the notice itself is remembered, the count not).
+  const [assignedRemaining, setAssignedRemaining] = useState<number | null>(null);
+  // Issues a fill added whose carriers haven't shown up on the board yet. Each
+  // leaves once its ticket is on the board: from then on the board answers, so
+  // taking the ticket off makes the issue addable again.
+  const assignedAddedRef = React.useRef(new Set<number>());
+  useEffect(() => {
+    setAssignedRemaining(null);
+    assignedAddedRef.current = new Set();
+  }, [userId]);
   const [gettingAssigned, setGettingAssigned] = useState(false);
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
@@ -798,34 +820,44 @@ export const TicketsPage: React.FC = () => {
   // it can bring back issues the table no longer lists (#736).
   const offerAssigned = boardKnown && boardKeys.size === 0 && redmineConnected === true;
 
+  /**
+   * Put the next few assigned issues on the board: the empty board's button and
+   * the notice's "Add more" both. Redmine is asked each time, a page of 100 at
+   * a time, until there are enough off the board or the list ends, so the count
+   * the notice shows is of what Redmine still has off the board.
+   */
   const handleGetAssigned = useCallback(async () => {
     setGettingAssigned(true);
     try {
-      const { issueIds } = await redmineApi.issues.assignedIds();
-      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
-      const keys = issueIds
-        .map((id) => ticketKey('redmine', String(id)))
-        .filter((key) => !boardRedmineIssueIds.has(Number(ticketRefOf(key).ticketId)));
-      if (keys.length === 0) {
+      const pending = assignedAddedRef.current;
+      for (const id of pending) if (boardRedmineIssueIds.has(id)) pending.delete(id);
+      const { offBoard, nextOffset } = await collectAssignedOffBoard(
+        (offset) => redmineApi.issues.assignedIds(offset),
+        (id) => !boardRedmineIssueIds.has(id) && !pending.has(id),
+      );
+      if (offBoard.length === 0) {
         toast.info(starterText.noneAssigned);
+        dismissAssignedNotice();
         return;
       }
-      const batch = keys.slice(0, STARTER_LIMIT);
-      if ((await addToBoard(batch)) && keys.length > batch.length) showAssignedNotice();
+      const batch = offBoard.slice(0, STARTER_LIMIT);
+      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
+      const result = await addToBoard(batch.map((id) => ticketKey('redmine', String(id))));
+      if (!result) return;
+      // Only the ones that made it: a failed one stays to be added again.
+      for (const key of result.requested) pending.add(Number(ticketRefOf(key).ticketId));
+      const leftOver = offBoard.length - result.requested.length;
+      // An unread page may hold more, so the count is only known at the end.
+      setAssignedRemaining(nextOffset === null ? leftOver : null);
+      if (leftOver > 0 || nextOffset !== null) showAssignedNotice();
+      else dismissAssignedNotice();
     } catch {
       toast.error(starterText.fetchFailed);
     } finally {
       setGettingAssigned(false);
     }
-  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, toast]);
-
-  /** All Sources, narrowed to the user's assigned issues. */
-  const showAssignedInAllSources = useCallback(() => {
-    setSearchQuery('');
-    ticketsView.setFilters(ASSIGNED_FILTERS);
-    ticketsView.setShowClosed(false);
-    browseAllSources();
-  }, [setSearchQuery, ticketsView, browseAllSources]);
+  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, dismissAssignedNotice, toast]);
+  const nextAssignedCount = Math.min(assignedRemaining ?? STARTER_LIMIT, STARTER_LIMIT);
 
   const handleRemoveFromBoard = useCallback(() => {
     // A ticket can be on the board through the issue it is linked to; taking
@@ -928,25 +960,27 @@ export const TicketsPage: React.FC = () => {
           </div>
 
           {/* ── All Sources tab ── */}
-          <section
-            aria-label={viewText.allSources}
-            className={viewPanelClass(activeView === 'tickets')}
-          >
-            <TicketListPanel
-              {...sharedListProps}
-              view={ticketsView}
-              loading={ticketsLoading}
-              canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
-              onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
-              primaryLabel="Move to My Board"
-              onPrimaryAction={handleMoveToBoard}
-              emptyText={{
-                open: 'No open tickets',
-                closed: 'No closed tickets',
-                hint: 'Create one to get started.',
-              }}
-            />
-          </section>
+          {allSourcesOpened && (
+            <section
+              aria-label={viewText.allSources}
+              className={viewPanelClass(activeView === 'tickets')}
+            >
+              <TicketListPanel
+                {...sharedListProps}
+                view={ticketsView}
+                loading={ticketsLoading}
+                canDeleteSelected={canDeleteSelection(ticketsView.selectedKeys)}
+                onBulkDelete={() => handleBulkDeleteRequest(ticketsView.selectedKeys)}
+                primaryLabel="Move to My Board"
+                onPrimaryAction={handleMoveToBoard}
+                emptyText={{
+                  open: 'No open tickets',
+                  closed: 'No closed tickets',
+                  hint: 'Create one to get started.',
+                }}
+              />
+            </section>
+          )}
 
           {/* ── My Board tab ── */}
           <section
@@ -960,17 +994,15 @@ export const TicketsPage: React.FC = () => {
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <>
-                  {/* Counted against the board, so not until the board is known. */}
-                  {boardKnown && assignedNotice.open && assignedOffBoard.length > 0 && (
+                  {boardKnown && assignedNotice.open && (
                     <div
                       role="status"
                       className="board-assigned-notice flex flex-wrap items-center gap-x-2 gap-y-1"
                     >
                       <Text size="xs" variant="muted">
-                        {starterText.moreAssigned(
-                          assignedOffBoard.length,
-                          isApproximate(assignedIssues),
-                        )}
+                        {assignedRemaining === null
+                          ? starterText.moreAssignedUncounted
+                          : starterText.moreAssigned(assignedRemaining)}
                       </Text>
                       {/* The link stays with the sentence; Dismiss goes to the far end. */}
                       <ButtonGroup split className="board-assigned-notice-actions flex-1">
@@ -978,10 +1010,12 @@ export const TicketsPage: React.FC = () => {
                           variant="link"
                           size="sm"
                           className="h-auto p-0 text-xs"
-                          onClick={showAssignedInAllSources}
-                          aria-label={starterText.showThemLabel}
+                          isLoading={gettingAssigned}
+                          loadingText={starterText.getting}
+                          onClick={() => void handleGetAssigned()}
+                          aria-label={starterText.addMoreLabel(nextAssignedCount)}
                         >
-                          {starterText.showThem}
+                          {starterText.addMore(nextAssignedCount)}
                         </Button>
                         <Button
                           variant="ghost"

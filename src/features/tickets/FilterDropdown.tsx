@@ -69,6 +69,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
+  // Whether the trigger was pressed with a key (a click with no pointer).
+  const openedByKeyRef = React.useRef(false);
   const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({});
 
   // Close when another dropdown in the group becomes active
@@ -182,9 +184,13 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   // order, so focus is moved into it when it opens.
   React.useEffect(() => {
     if (!open) return;
-    // A menu with a search box starts there (`data-menu-autofocus`).
+    // A menu with a search box starts there (`data-menu-autofocus`), but only
+    // where typing is likely: with a mouse or trackpad, or opened from the
+    // keyboard. On a touchscreen, focusing it would raise the on-screen
+    // keyboard over a menu most people open to tap a choice.
+    const typing = openedByKeyRef.current || window.matchMedia('(pointer: fine)').matches;
     const first =
-      menuRef.current?.querySelector<HTMLElement>('[data-menu-autofocus]') ??
+      (typing && menuRef.current?.querySelector<HTMLElement>('[data-menu-autofocus]')) ||
       menuItems(menuRef.current)[0];
     first?.focus();
   }, [open]);
@@ -252,7 +258,10 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         ref={triggerRef}
         variant="ghost"
         type="button"
-        onClick={() => handleOpenChange(!open)}
+        onClick={(e) => {
+          openedByKeyRef.current = e.detail === 0;
+          handleOpenChange(!open);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={triggerAriaLabel}

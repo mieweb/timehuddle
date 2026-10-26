@@ -168,7 +168,7 @@ const DISCONNECTED: Record<string, unknown> = {
   'issues.relevant': { connected: false, baseUrl: null, issues: [], partial: false },
   'issues.search': { connected: false, baseUrl: null, kind: 'text', issues: [] },
   'issues.removeFromTable': { removedCount: 0 },
-  'issues.assignedIds': { issueIds: [] },
+  'issues.assignedIds': { issueIds: [], nextOffset: null },
   'prefs.set': { ok: true },
   'prefs.listDismissed': { connected: false, baseUrl: null, issues: [] },
   'issues.get': {

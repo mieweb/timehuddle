@@ -149,20 +149,28 @@ async function notifyLinkChange(actorId, ticket, change, teamUserIds) {
 }
 
 /**
- * Read Redmine issue `issueId` with the caller's own key, for a ticket to be
- * linked to it. Refused unless the caller has connected Redmine on the
- * deployment's own server, and the issue exists for them. Returns the issue.
+ * Refuse a Redmine account on any server but the deployment's own. A link is
+ * shared by the team and names an issue by number alone, so it can only mean
+ * an issue on the deployment's own Redmine: the same number on another server
+ * is a different issue.
  */
-export async function readLinkableIssue(userId, issueId) {
-  const account = await requireRedmineAccount(userId);
-  // A link is shared by the team and names an issue by number alone, so it
-  // can only mean an issue on the deployment's own Redmine.
+export function assertOnDefaultRedmine(account) {
   if (!onDefaultRedmine(account)) {
     throw new Meteor.Error(
       'custom-instance',
       'Tickets can only be linked to issues on the Redmine server this TimeHuddle uses.',
     );
   }
+}
+
+/**
+ * Read Redmine issue `issueId` with the caller's own key, for a ticket to be
+ * linked to it. Refused unless the caller has connected Redmine on the
+ * deployment's own server, and the issue exists for them. Returns the issue.
+ */
+export async function readLinkableIssue(userId, issueId) {
+  const account = await requireRedmineAccount(userId);
+  assertOnDefaultRedmine(account);
   let issue;
   try {
     issue = await getIssue(account, Number(issueId));

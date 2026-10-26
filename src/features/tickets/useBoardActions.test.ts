@@ -67,7 +67,10 @@ describe('useBoardActions', () => {
   it('adds tickets by key and tells the app to look again', async () => {
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['huddle:a'])).resolves.toEqual(['huddle:a']);
+    await expect(result.current.add(['huddle:a'])).resolves.toEqual({
+      requested: ['huddle:a'],
+      added: ['huddle:a'],
+    });
 
     expect(api.addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'a' }]);
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -77,10 +80,10 @@ describe('useBoardActions', () => {
   it('puts a Redmine issue on as the ticket carrying it in the selected team (#736)', async () => {
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['redmine:482', 'huddle:a'])).resolves.toEqual([
-      'huddle:carrier-482',
-      'huddle:a',
-    ]);
+    await expect(result.current.add(['redmine:482', 'huddle:a'])).resolves.toEqual({
+      requested: ['redmine:482', 'huddle:a'],
+      added: ['huddle:carrier-482', 'huddle:a'],
+    });
 
     expect(carry.carriedKey).toHaveBeenCalledWith('redmine:482', 'team1');
     expect(api.addMany).toHaveBeenCalledWith([
@@ -106,9 +109,11 @@ describe('useBoardActions', () => {
     });
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['redmine:9', 'redmine:482'])).resolves.toEqual([
-      'huddle:carrier-482',
-    ]);
+    // Says which of the requested issues made it, so a caller can count them.
+    await expect(result.current.add(['redmine:9', 'redmine:482'])).resolves.toEqual({
+      requested: ['redmine:482'],
+      added: ['huddle:carrier-482'],
+    });
 
     expect(toast.error).toHaveBeenCalledWith(boardText.carryFailed(1));
   });

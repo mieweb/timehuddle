@@ -1,9 +1,10 @@
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { authApi, sessionToken, type AuthAccount } from '../lib/api';
+import { githubApi, type GitHubLinkStatus } from '../lib/api';
+import { useQueryParams } from './router';
 
 interface RowProps {
   label: string;
@@ -18,7 +19,7 @@ const Row: React.FC<RowProps> = ({ label, hint, children }) => (
         {label}
       </Text>
       {hint && (
-        <Text variant="muted" size="xs" className="mt-0.5">
+        <Text variant="muted" size="xs" className="mt-0.5" aria-live="polite">
           {hint}
         </Text>
       )}
@@ -27,34 +28,73 @@ const Row: React.FC<RowProps> = ({ label, hint, children }) => (
   </div>
 );
 
+/**
+ * The outcome of Connect GitHub: what `/auth/github?link=` reports back in
+ * `?github=` when it refuses, or what `github.confirmLink` returns.
+ */
+const LINK_RESULT_MESSAGES: Record<string, string> = {
+  connected: 'GitHub connected. You can now sign in with GitHub.',
+  taken: 'That GitHub account is already connected to another TimeHuddle user.',
+  expired: 'The GitHub connection timed out. Please try again.',
+};
+
+/** Only the declared results — `?github=__proto__` must not reach the page. */
+function linkMessage(result: string | null): string | undefined {
+  return result && Object.hasOwn(LINK_RESULT_MESSAGES, result)
+    ? LINK_RESULT_MESSAGES[result]
+    : undefined;
+}
+
 export const GitHubConnectionRow: React.FC = () => {
-  const [accounts, setAccounts] = useState<AuthAccount[]>([]);
+  const [status, setStatus] = useState<GitHubLinkStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const { params, setParams } = useQueryParams();
+  const linkResult = params.get('github');
+  // Set by the OAuth callback when GitHub came back fine: the link is staged
+  // and this signed-in user has to confirm it (see github-link.js for why).
+  const confirmCode = params.get('github_confirm');
+  // Both are read once — the effect below removes them from the URL.
+  const [message, setMessage] = useState(() => linkMessage(linkResult));
+  const [codeToConfirm] = useState(confirmCode);
+  const confirmStarted = useRef(false);
+
+  useEffect(() => {
+    // Shown once — a reload shouldn't repeat it.
+    if (linkResult || confirmCode) setParams({ github: null, github_confirm: null });
+  }, [linkResult, confirmCode, setParams]);
 
   const refresh = useCallback(async () => {
     try {
-      // Skip if no Fastify session — Meteor users don't have linked Better Auth accounts
-      if (!sessionToken.get()) return;
-      const list = await authApi.listAccounts();
-      setAccounts(list);
+      setStatus(await githubApi.status());
     } catch {
-      // ignore — user may not have any linked accounts
+      // leave the row in its "not connected" state
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const githubAccount = accounts.find((a) => a.providerId === 'github');
-  const hasPasswordLogin = accounts.some((a) => a.providerId === 'credential');
-  const canDisconnect = hasPasswordLogin;
+    if (!codeToConfirm) {
+      void refresh();
+      return;
+    }
+    // The code is single-use, and StrictMode runs effects twice.
+    if (confirmStarted.current) return;
+    confirmStarted.current = true;
+    githubApi
+      .confirmLink(codeToConfirm)
+      .then(({ result, status: confirmed }) => {
+        setStatus(confirmed);
+        setMessage(linkMessage(result));
+      })
+      .catch(() => {
+        setMessage(linkMessage('expired'));
+        void refresh();
+      });
+  }, [codeToConfirm, refresh]);
 
   const handleConnect = async () => {
     setBusy(true);
     try {
-      const url = await authApi.linkSocial('github', `${window.location.origin}/app/settings`);
-      window.location.href = url;
+      window.location.href = await githubApi.linkUrl();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to connect GitHub.');
       setBusy(false);
@@ -62,12 +102,12 @@ export const GitHubConnectionRow: React.FC = () => {
   };
 
   const handleDisconnect = async () => {
-    if (!githubAccount) return;
     if (!window.confirm('Disconnect your GitHub account?')) return;
     setBusy(true);
     try {
-      await authApi.unlinkAccount(githubAccount.providerId);
-      await refresh();
+      setStatus(await githubApi.disconnect());
+      // A "connected" result from this visit no longer describes the row.
+      setMessage(undefined);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to disconnect GitHub.');
     } finally {
@@ -75,24 +115,25 @@ export const GitHubConnectionRow: React.FC = () => {
     }
   };
 
+  const connected = status?.connected ?? false;
+
   return (
     <Row
       label="GitHub"
       hint={
-        githubAccount
-          ? canDisconnect
-            ? 'Your GitHub account is connected'
-            : 'Your GitHub account is connected — set a password before disconnecting'
-          : 'Connect GitHub to sign in with your GitHub account'
+        message ??
+        (connected
+          ? `Connected as @${status?.username}`
+          : 'Connect GitHub to sign in with your GitHub account')
       }
     >
-      {githubAccount ? (
+      {connected ? (
         <Button
           variant="outline"
           size="sm"
           leftIcon={<FontAwesomeIcon icon={faGithub} className="text-xs" />}
           onClick={() => void handleDisconnect()}
-          disabled={busy || !canDisconnect}
+          disabled={busy}
           isLoading={busy}
         >
           Disconnect

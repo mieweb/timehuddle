@@ -29,12 +29,19 @@ function announce(keys: string[]): void {
   window.dispatchEvent(new CustomEvent('tickets:refetch'));
 }
 
+/**
+ * What an add put on the board: `requested` are the keys asked for that made
+ * it, and `added` the board keys they went on as, in the same order (a Redmine
+ * issue goes on as the ticket carrying it).
+ */
+export interface BoardAdd {
+  requested: string[];
+  added: string[];
+}
+
 export interface BoardActions {
-  /**
-   * Resolves to the keys put on the board, which name the carrying ticket for
-   * a Redmine issue, or null when nothing was added. A failure is toasted.
-   */
-  add: (keys: string[]) => Promise<string[] | null>;
+  /** Resolves to what was added, or null when nothing was. A failure is toasted. */
+  add: (keys: string[]) => Promise<BoardAdd | null>;
   /**
    * Resolves to whether the tickets were removed; a failure is toasted. With
    * `undoLabel` (the ticket's name) the removal is confirmed in a toast that
@@ -48,12 +55,13 @@ export function useBoardActions(): BoardActions {
   const { selectedTeamId } = useTeam();
 
   const add = useCallback(
-    async (keys: string[]): Promise<string[] | null> => {
+    async (keys: string[]): Promise<BoardAdd | null> => {
       const settled = await Promise.allSettled(keys.map((key) => carriedKey(key, selectedTeamId)));
       if (settled.some((r) => r.status === 'rejected' && r.reason instanceof NoTeamError)) {
         toast.error(boardText.noTeam);
         return null;
       }
+      const requested = keys.filter((_, i) => settled[i].status === 'fulfilled');
       const carried = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
       // An issue that couldn't be carried is left out; the rest still go on.
       if (carried.length < keys.length)
@@ -63,7 +71,7 @@ export function useBoardActions(): BoardActions {
         () => {
           // The original keys: a carried issue's linked row is stale too.
           announce(keys);
-          return carried;
+          return { requested, added: carried };
         },
         // A full board is refused with the server's own explanation.
         (err: unknown) => {
