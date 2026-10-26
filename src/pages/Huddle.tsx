@@ -51,6 +51,7 @@ import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
+import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth';
 import { detectMentions, useTeamMentions } from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
@@ -234,6 +235,7 @@ export default function Huddle() {
     [setParams],
   );
   const { user } = useSession();
+  const [sidebarWidth, setSidebarWidth] = useStoredSidebarWidth(user?.id);
   const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime, teamsReady } =
     useTeam();
 
@@ -1095,6 +1097,10 @@ export default function Huddle() {
                     virtualized
                     // On a phone, open straight into the conversation (Today) rather than the list.
                     defaultMobileView="chat"
+                    // Drag the divider to widen the list; the width survives a reload.
+                    resizableSidebar
+                    sidebarWidth={sidebarWidth}
+                    onSidebarWidthChange={setSidebarWidth}
                     listFooter={
                       // The starter stands in for an empty feed, but an empty window can still have history behind it — or a failed fetch that never said.
                       activePosts.length > 0 ||
