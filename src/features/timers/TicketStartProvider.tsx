@@ -11,6 +11,9 @@
  *   the update the start posted to Huddle (#681).
  * - Leaving a ticket after under two minutes (a switch, or a stop) first asks
  *   whether to keep that ticket's update in Huddle or discard it.
+ * - Leaving a Redmine issue with time to send then asks for a comment and sends
+ *   it (`RedmineSendPrompt`, #688). That comes after the stop or the switch and
+ *   never holds it up.
  * - Clocked out: one "Clock In Required" prompt, owned here. **Clock In Now**
  *   clocks in, then starts the timer.
  * - Clocked out on a plan-required team: the prompt sends the user to the Clock
@@ -34,7 +37,7 @@ import {
 } from '@mieweb/ui';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { timerApi, type TimerUpdateRef } from '../../lib/api';
+import { timerApi, type TimerUpdateRef, type UnsentRedmineTime } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
@@ -49,6 +52,7 @@ import {
   type TimerTicket,
 } from '../tickets/startTicketTimer';
 
+import { RedmineSendPrompt } from './RedmineSendPrompt';
 import { ticketTimerText as text, timerLabel } from './ticketTimerStrings';
 
 /** What to start. `label` names the ticket in messages; see `timerLabel`. */
@@ -111,6 +115,9 @@ interface ShortStintQuestion {
 
 const isShortStint = (running: RunningTicket) => Date.now() - running.startTime < SHORT_STINT_MS;
 
+const sameTicketDay = (a: UnsentRedmineTime, b: UnsentRedmineTime) =>
+  a.ticketId === b.ticketId && a.date === b.date;
+
 function refreshTimerViews() {
   window.dispatchEvent(new CustomEvent('tickets:refetch'));
   window.dispatchEvent(new CustomEvent('work:refetch'));
@@ -148,6 +155,20 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [promptError, setPromptError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTicketStart | null>(null);
   const [stintQuestion, setStintQuestion] = useState<ShortStintQuestion | null>(null);
+  // Redmine time waiting for its comment prompt, one prompt at a time. A second
+  // ticket left while the first prompt is open waits behind it.
+  const [sendQueue, setSendQueue] = useState<UnsentRedmineTime[]>([]);
+
+  /** Ask for a comment on what a closed session left to send to Redmine, if anything. */
+  const offerRedmineSend = useCallback((unsent: UnsentRedmineTime | null | undefined) => {
+    if (!unsent) return;
+    // The same issue-day again carries its newer total; it is still one prompt.
+    setSendQueue((queue) =>
+      queue.some((waiting) => sameTicketDay(waiting, unsent))
+        ? queue.map((waiting) => (sameTicketDay(waiting, unsent) ? unsent : waiting))
+        : [...queue, unsent],
+    );
+  }, []);
 
   // Read inside the callbacks below without re-creating them on every change.
   const runningRef = useRef<RunningTicket | null>(runningTicket);
@@ -203,9 +224,10 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
       return exclusive(key, async () => {
         let outcome: TicketTimerOutcome;
         let update: TimerUpdateRef | null | undefined;
+        let unsentRedmine: UnsentRedmineTime | null | undefined;
         try {
           if (request.kind === 'ticket') {
-            ({ outcome, update } = await startTicketTimer(request.ticket, {
+            ({ outcome, update, unsentRedmine } = await startTicketTimer(request.ticket, {
               ...request,
               discardSessionId,
             }));
@@ -218,6 +240,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
               discardSessionId,
             );
             update = started?.update;
+            unsentRedmine = started?.unsentRedmine;
             outcome = 'started';
           }
         } catch (err) {
@@ -230,10 +253,11 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
         toastTimerOutcome(toast, outcome, request.label, viewPostAction(update));
         refreshTimerViews();
+        offerRedmineSend(unsentRedmine);
         return outcome;
       });
     },
-    [toast, exclusive, askShortStint, viewPostAction],
+    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend],
   );
 
   const start = useCallback(
@@ -259,19 +283,20 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
 
       return exclusive(ticketKey, async () => {
-        let update: TimerUpdateRef | null | undefined;
+        let stopped: Awaited<ReturnType<typeof timerApi.stopSession>> | undefined;
         try {
-          update = (await timerApi.stopSession(sessionId, Date.now(), discardUpdate))?.update;
+          stopped = await timerApi.stopSession(sessionId, Date.now(), discardUpdate);
         } catch {
           toast.error(text.errorStop);
           return 'failed';
         }
-        toastTimerOutcome(toast, 'stopped', label, viewPostAction(update));
+        toastTimerOutcome(toast, 'stopped', label, viewPostAction(stopped?.update));
         refreshTimerViews();
+        offerRedmineSend(stopped?.unsentRedmine);
         return 'stopped';
       });
     },
-    [toast, exclusive, askShortStint, viewPostAction],
+    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend],
   );
 
   const closePrompt = () => {
@@ -404,6 +429,14 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           </ButtonGroup>
         </ModalFooter>
       </Modal>
+
+      {sendQueue[0] && (
+        <RedmineSendPrompt
+          key={`${sendQueue[0].ticketId}|${sendQueue[0].date}`}
+          time={sendQueue[0]}
+          onDone={() => setSendQueue((queue) => queue.slice(1))}
+        />
+      )}
     </TicketStartContext.Provider>
   );
 };

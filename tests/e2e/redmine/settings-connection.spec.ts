@@ -1,6 +1,5 @@
 /**
- * Settings → Redmine: linking an account, choosing the default activity, and
- * unlinking (plan area h).
+ * Settings → Redmine: linking an account and unlinking (plan area h).
  *
  * Redmine is stubbed at the wormhole boundary — see `fixtures/redmine.ts` for
  * why, and for what that deliberately does not prove. In particular, stubbing
@@ -13,7 +12,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import {
   BASE_URL,
-  activityList,
   connectedStatus,
   stubRedmine,
   type RedmineStub,
@@ -22,16 +20,6 @@ import {
 
 const apiKeyInput = (page: Page) => page.getByLabel('Redmine API key');
 const connectButton = (page: Page) => page.getByRole('button', { name: 'Connect', exact: true });
-
-/**
- * The default-activity Select.
- *
- * Named "Default activity", not the `aria-label="Default Redmine activity"` the
- * component also sets: `@mieweb/ui`'s Select lets its `label` prop win over an
- * explicit `aria-label`, so the aria-label never reaches the accessibility
- * tree. Same trap as the org members table's role selects.
- */
-const activitySelect = (page: Page) => page.getByRole('combobox', { name: 'Default activity' });
 
 async function openSettings(
   page: Page,
@@ -64,10 +52,6 @@ test.describe('Settings — Redmine connection', () => {
         connected = true;
         return connectedStatus({ login: 'priya.patel', redmineName: 'Priya Patel' });
       },
-      'activities.list': () =>
-        connected
-          ? activityList()
-          : { connected: false, activities: [], selectedId: null, selectedReason: 'none' },
     });
 
     await apiKeyInput(page).fill('a-personal-api-key');
@@ -83,7 +67,6 @@ test.describe('Settings — Redmine connection', () => {
     await openSettings(page, {
       status: { connected: false },
       connect: connectedStatus(),
-      'activities.list': activityList(),
     });
 
     await apiKeyInput(page).fill('a-personal-api-key');
@@ -98,7 +81,6 @@ test.describe('Settings — Redmine connection', () => {
     const rm = await openSettings(page, {
       status: { connected: false },
       connect: connectedStatus(),
-      'activities.list': activityList(),
     });
 
     await apiKeyInput(page).fill('typed-then-entered');
@@ -122,48 +104,10 @@ test.describe('Settings — Redmine connection', () => {
     await expect(apiKeyInput(page)).toBeVisible();
   });
 
-  test('chooses a default activity and tells the server which', async ({ page }) => {
-    const rm = await openSettings(page, {
-      status: connectedStatus(),
-      'activities.list': activityList({ selectedId: 9, selectedReason: 'is_default' }),
-      'activities.setDefault': activityList({ selectedId: 10, selectedReason: 'chosen' }),
-    });
-
-    await activitySelect(page).click();
-    await page.getByRole('option', { name: 'QA', exact: true }).click();
-
-    await expect(activitySelect(page)).toHaveText('QA', { timeout: 15000 });
-    expect(rm.calls('activities.setDefault')[0]).toEqual({ activityId: 10 });
-  });
-
-  test('says so when the instance has no activities at all', async ({ page }) => {
-    await openSettings(page, {
-      status: connectedStatus(),
-      'activities.list': activityList({ activities: [], selectedId: null, selectedReason: 'none' }),
-    });
-
-    await expect(page.getByRole('alert')).toContainText('no time-entry activities configured');
-    await expect(activitySelect(page)).toHaveCount(0);
-  });
-
-  test('renders the connection even when the activities fetch fails', async ({ page }) => {
-    // The two are deliberately settled separately (SettingsPage.tsx:727) so a
-    // failing activities call cannot blank the more important connection card.
-    await openSettings(page, {
-      status: connectedStatus({ login: 'priya.patel' }),
-      'activities.list': { status: 500, reason: 'Redmine is unreachable' },
-    });
-
-    await expect(page.getByText('Connected', { exact: true })).toBeVisible();
-    await expect(page.getByText('@priya.patel', { exact: false })).toBeVisible();
-    await expect(page.getByRole('alert')).toContainText('Redmine is unreachable');
-  });
-
   test('unlinks, and the key form comes back', async ({ page }) => {
     let connected = true;
     const rm = await openSettings(page, {
       status: () => (connected ? connectedStatus() : { connected: false }),
-      'activities.list': activityList(),
       disconnect: () => {
         connected = false;
         return { connected: false };
@@ -196,7 +140,6 @@ test.describe('Settings — Redmine connection', () => {
       const rm = await openSettings(page, {
         status: unlinkedWithCustomUrl,
         connect: connectedStatus(),
-        'activities.list': activityList(),
       });
 
       await expect(baseUrlInput(page)).toHaveValue(BASE_URL);
@@ -232,7 +175,6 @@ test.describe('Settings — Redmine connection', () => {
       const rm = await openSettings(page, {
         status: unlinkedWithCustomUrl,
         connect: connectedStatus(),
-        'activities.list': activityList(),
       });
 
       await expect(baseUrlInput(page)).toBeDisabled();

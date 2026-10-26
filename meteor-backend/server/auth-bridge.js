@@ -386,20 +386,12 @@ Accounts.onLogin(async (info) => {
       return;
     }
 
-    // Add user to default org as member
-    const { ObjectId } = await import('mongodb');
-    const now = new Date();
     const orgIdString = typeof defaultOrg._id === 'string' ? defaultOrg._id : String(defaultOrg._id);
-    await db.collection('org_members').insertOne({
-      _id: new ObjectId(),
-      orgId: orgIdString,
-      userId,
-      role: 'member',
-      auto: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-    
+    const { autoJoinOrgUnlessRemoved } = await import('./org-helpers');
+    if (!(await autoJoinOrgUnlessRemoved(orgIdString, userId))) {
+      console.log('[auth-bridge] user was removed from the default org, skipping auto-join');
+      return;
+    }
     console.log(`[auth-bridge] auto-joined user ${userId} to org ${defaultOrg.name}`);
   } catch (err) {
     console.error('[auth-bridge] auto-join error:', err.message);

@@ -42,14 +42,17 @@ Your sessions show up on the Work page, nested under the right shift in the Dash
 
 ### 6. Send your time to Redmine
 
-On the Clock page, once you're clocked out with no timer running, press **Send work entries to Redmine**. You get a summary first: one row per issue per day, the hours, and which Redmine activity each will be logged under (overridable per row). Nothing is sent until you confirm.
+**When a timer ends.** Stop a timer on a Redmine issue, or start another ticket, and TimeHuddle offers to send that issue's unsent time for the day straight away. You can add a sentence about the work, which becomes the entry's comment in Redmine, or send it without one. This works while you're still clocked in, and the next timer is already running while you answer. The activity is chosen for you from the ones the issue's project allows; you can pick another of them, and the list filters as you type. **Send** (or Cmd/Ctrl+Enter) sends it; **Later** (or Esc) sends nothing, and the time waits for the Clock page.
+
+**From the Clock page.** Anything not sent that way (a prompt you closed, an entry Redmine refused, a timer that ended because you clocked out or took a break) is on the Clock page. Once you're clocked out with no timer running, press **Send work entries to Redmine**. You get a summary first: one card per issue per day, with the hours, which Redmine activity it will be logged under (changeable per entry), and room for a comment about the work. Press the hours to read them as Redmine stores them. Nothing is sent until you confirm.
 
 After each entry is created, TimeHuddle reads it back from Redmine to confirm the hours were stored as sent.
 
 - Entries are **created, never edited or deleted** — logged time is permanent, and correcting it is an administrative act in Redmine.
 - **Unsent time from earlier days is included**, so forgetting to send on Monday doesn't lose Monday.
 - Time you track on a day after sending it is offered again on its own, and goes to Redmine as a further entry.
-- If Redmine refuses an entry, the dialog says why in Redmine's own words. **Never send** drops a row you don't want in Redmine; the time stays in TimeHuddle.
+- **Billable.** Where Redmine requires a Billable value on time entries, TimeHuddle copies it from the newest entry that has one: on the same issue, else in the same project, else your own. Each card shows the value it will be sent with. Where no entry has one (or Redmine has no such field) nothing extra is sent.
+- If Redmine refuses an entry, you're told why in Redmine's own words, and the time stays unsent. **Never send** drops a row you don't want in Redmine; the time stays in TimeHuddle.
 - Time logged in Redmine by hand is never changed or double-counted.
 
 ### 7. Create and update Redmine issues
