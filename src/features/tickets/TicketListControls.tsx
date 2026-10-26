@@ -185,7 +185,7 @@ const TicketFilterItems: React.FC<{ filter: TicketFieldFilter }> = ({ filter }) 
   return (
     <>
       {filter.searchPlaceholder && (
-        // Typing here must not close the menu, and focus starts here: see
+        // Typing here must not close the menu, and focus may start here: see
         // `FilterDropdown`.
         <div className="ticket-filter-search px-1 pb-1" data-menu-keep-open>
           <Input
