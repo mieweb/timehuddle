@@ -22,7 +22,9 @@ import { hostOf } from './ticket-ids';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 import { insertTicket, toPublicTicket } from './tickets';
 
-const carryLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+// Each "Add more" on the board notice can carry 10 new issues, so this leaves
+// room for several presses a minute.
+const carryLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
 
 /**
  * The oldest live ticket in `teamId` linked to Redmine issue `issueId`, or null.
