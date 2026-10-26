@@ -60,7 +60,7 @@ import {
   reasonLabel,
 } from './suggestions';
 import { invalidateSuggestionsCache, useRedmineSuggestions } from './useRedmineSuggestions';
-import { useTicketRefSearch } from './useTicketRefSearch';
+import { useTicketSearch } from './useTicketSearch';
 
 interface RedmineSuggestionsProps {
   userId: string | null;
@@ -71,8 +71,6 @@ interface RedmineSuggestionsProps {
   baseUrl: string | null;
   /** What the selected org calls its servers, as the table uses: an issue reads `RMX-219`. */
   sourcePrefixes?: readonly SourcePrefix[];
-  /** Redmine issue ids already in the table that is showing, left out of "More from Redmine". */
-  tableIssueIds: ReadonlySet<number>;
   /** The Redmine issue a timer is running on, if any. */
   runningIssueId: number | null;
   /** Start a timer on the issue, or stop it when it is the running one. */
@@ -147,7 +145,6 @@ export function RedmineSuggestions({
   onQueryChange,
   baseUrl,
   sourcePrefixes = NO_PREFIXES,
-  tableIssueIds,
   runningIssueId,
   onToggleTimer,
   runningTicketKey,
@@ -162,7 +159,8 @@ export function RedmineSuggestions({
   const { allTeams, selectedTeamId } = useTeam();
   const { suggestions, search, loadSuggestions, retrySuggestions, retrySearch, dismiss } =
     useRedmineSuggestions(userId, query);
-  const foundTickets = useTicketRefSearch(userId, query);
+  const ticketSearch = useTicketSearch(userId, query);
+  const foundTickets = ticketSearch.tickets;
   const [showAll, setShowAll] = useState(false);
   // The row whose timer start or stop is in flight, by `rowKey`. The ref is the
   // guard (a double-click lands before the state does); the state drives the
@@ -210,9 +208,9 @@ export function RedmineSuggestions({
 
   const moreResults = useMemo(() => {
     if (search.status !== 'ready' || search.query !== trimmed) return [];
-    const shown = new Set([...tableIssueIds, ...carriedHere, ...matching.map((issue) => issue.id)]);
+    const shown = new Set([...carriedHere, ...matching.map((issue) => issue.id)]);
     return newSearchResults(search.issues, shown);
-  }, [search, trimmed, tableIssueIds, carriedHere, matching]);
+  }, [search, trimmed, carriedHere, matching]);
 
   const rows = useMemo<Row[]>(() => {
     const visible = showAll ? matching : matching.slice(0, SUGGESTION_LIMIT);
@@ -391,14 +389,21 @@ export function RedmineSuggestions({
       return text.loadingSuggestions;
     if (search.status === 'loading' && !moreResults.length) return text.searching;
     if (suggestions.status === 'error' || search.status === 'error') return text.unreachable;
+    // Nothing anywhere: said once both searches have answered, or once the
+    // ticket search has when there is no Redmine to ask.
+    const redmineAnswered =
+      (search.status === 'ready' && search.query === trimmed) ||
+      suggestions.status === 'not-connected';
     if (
-      search.status === 'ready' &&
-      search.query === trimmed &&
+      trimmed &&
+      ticketSearch.settled &&
+      redmineAnswered &&
       !foundTickets.length &&
       !matching.length &&
       !moreResults.length
     ) {
-      return emptySearchMessage(search.kind, trimmed);
+      const kind = search.status === 'ready' ? search.kind : (ticketSearch.kind ?? 'text');
+      return emptySearchMessage(kind, trimmed);
     }
     if (!trimmed && suggestions.status === 'ready' && !suggestions.issues.length)
       return text.noSuggestions;

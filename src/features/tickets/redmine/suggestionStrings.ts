@@ -53,7 +53,7 @@ export const suggestionText = {
   emptyByUrl: "That link isn't an issue on your Redmine.",
   emptyByAssignee: (name: string) =>
     `No single person matches “@${name}”. Type more of their name — names work, logins don't.`,
-  emptyByText: (text: string) => `No open Redmine issues with “${text}” in the title.`,
+  emptyByText: (text: string) => `No tickets or open Redmine issues with “${text}” in the title.`,
 
   hidden: (id: number) => `Hidden #${id}`,
   undo: 'Undo',

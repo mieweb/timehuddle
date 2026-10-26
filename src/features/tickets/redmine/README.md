@@ -31,22 +31,22 @@ dropdown of Redmine issues: **Suggested for you** on focus, narrowed as the
 user types, then **More from Redmine** from a server search. The rules behind
 it are in [`docs/redmine-design.md`](../../../../docs/redmine-design.md).
 
-Above the Redmine issues, a **Tickets** group lists the tickets a typed ID
-names in any of the user's teams (#736c): `THX-12`, `RM0-233`,
-`timehuddle-223`, or a bare `223` wherever it appears. A name and a dash search
-by prefix: `TH-` lists TH tickets, `pulse-2` those whose number starts with 2.
-Each ticket leads with the ID the table shows it by, the outside one when it has
-one (`RMX-150`), with its own (`TH-22`) under it; Redmine issues read `RMX-219`
-when the org names that server. The table filter
-(`matchesSearch` in [`../ticketFilters.ts`](../ticketFilters.ts)) reads
-`@person` and `#ref` too, for the rows already on screen. The dropdown moves out
-of this folder when every source is searched as one (#734 step 8).
+The dropdown is the one place the search bar's results show: it does not
+filter the table (#736c). Above the Redmine issues, a **Tickets** group lists
+the tickets the text names in any of the user's teams (`tickets.search`): an
+ID (`THX-12`, `RM0-233`, `timehuddle-223`, a bare `223` wherever it appears),
+an ID prefix (`TH-`, `pulse-2`: a name and a dash), `@name`, a pasted issue
+link, or words in the title. Each ticket leads with the ID the table shows it
+by, the outside one when it has one (`RMX-150`), with its own (`TH-22`) under
+it, and has a timer button like an issue row; Redmine issues read `RMX-219`
+when the org names that server. The dropdown moves out of this folder when
+every source is searched as one (#734 step 8).
 
 | File                           | Role                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `RedmineSuggestions.tsx`       | The search input and its dropdown: downshift's `useCombobox` around `@mieweb/ui` `Input`, rows, shortcuts  |
 | `useRedmineSuggestions.ts`     | Data: the suggestion list (cached per user), debounced search that ignores stale answers, dismiss and undo |
-| `useTicketRefSearch.ts`        | Data: the tickets a typed ID names (`tickets.findByRef`), asked beside the Redmine search                  |
+| `useTicketSearch.ts`           | Data: the tickets the text names (`tickets.search`), asked beside the Redmine search                       |
 | `suggestions.ts`               | Pure rules: local filtering, when to search the server, empty-result wording, the reason chip              |
 | `suggestionStrings.ts`         | Every user-facing string, in one place for translation                                                     |
 | `RedmineHiddenSuggestions.tsx` | **Settings → Redmine → Hidden suggestions**: the dismissed issues, with Restore                            |

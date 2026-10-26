@@ -1,9 +1,16 @@
 /**
- * Finding tickets by an ID someone typed (#736c).
+ * Finding tickets from the Tickets search bar (#736c).
  *
- * Every row is a ticket since #736, but a ticket goes by several IDs, and the
- * Tickets table only filters the rows already on screen. These rules turn what
- * was typed into a Mongo selector over the caller's teams:
+ * The search bar's dropdown is the one place its results show: the table is
+ * not filtered by it. `parseTicketQuery` reads what was typed as one of:
+ *
+ *   - an ID, or the start of one after its prefix (below)
+ *   - `@name` — tickets assigned to that teammate
+ *   - a pasted link — tickets carrying, or linking to, that issue
+ *   - words — tickets with every one of them in the title
+ *
+ * Every row is a ticket since #736, but a ticket goes by several IDs. These
+ * rules turn an ID into a Mongo selector over the caller's teams:
  *
  *   - `THX-12` — tickets numbered 12 in an org whose prefix is THX
  *   - `RM0-233` — tickets carrying issue 233 on the server an org named RM0,
@@ -27,6 +34,14 @@ import { DEFAULT_TICKET_IDS } from './ticket-ids';
 /** How many tickets one lookup may return. */
 export const MAX_REF_RESULTS = 25;
 
+/**
+ * Shortest `@name` or words worth asking about, as for Redmine
+ * (`MIN_QUERY_LENGTH` in redmine-query.js): two letters match half of anything.
+ */
+const MIN_TEXT_LENGTH = 3;
+/** Words beyond this many add nothing but cost. */
+const MAX_WORDS = 8;
+
 const BARE_NUMBER = /^#?([1-9]\d*)$/;
 // A prefix, or a GitHub repo name (which may hold dots, underscores and
 // dashes), a dash, and the start of a number, or none of it yet.
@@ -47,6 +62,88 @@ export function parseTicketRef(raw) {
 }
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const GITHUB_ISSUE_PATH = /^\/([^/]+)\/([^/]+)\/(?:issues|pull)\/([1-9]\d*)\/?$/;
+const TRAILING_NUMBER = /\/([1-9]\d*)\/?$/;
+
+/** A pasted link as `{ github: { owner, repo, digits } }` or `{ host, digits }`, or null. */
+function parseLink(text) {
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host === 'github.com' || host === 'www.github.com') {
+    const [, owner, repo, digits] = url.pathname.match(GITHUB_ISSUE_PATH) ?? [];
+    return digits ? { github: { owner, repo, digits } } : null;
+  }
+  const digits = url.pathname.match(TRAILING_NUMBER)?.[1];
+  return digits ? { host, digits } : null;
+}
+
+/**
+ * Read a raw query into what to look for, or null when it is not worth asking:
+ *
+ *   - `{ kind: 'url', link }` — a pasted issue link (see `parseLink`)
+ *   - `{ kind: 'assignee', name }` — `@name`
+ *   - `{ kind: 'id', ref }` — an ID or ID prefix (see `parseTicketRef`)
+ *   - `{ kind: 'text', words }` — anything else, lowercase and deduplicated
+ */
+export function parseTicketQuery(raw) {
+  const query = typeof raw === 'string' ? raw.trim() : '';
+  if (/^https?:\/\//i.test(query)) {
+    const link = parseLink(query);
+    return link ? { kind: 'url', link } : null;
+  }
+  if (query.startsWith('@')) {
+    const name = query.slice(1).trim();
+    return query.length >= MIN_TEXT_LENGTH && name ? { kind: 'assignee', name } : null;
+  }
+  const ref = parseTicketRef(query);
+  if (ref) return { kind: 'id', ref };
+  if (query.length < MIN_TEXT_LENGTH) return null;
+  const words = [...new Set(query.toLowerCase().split(/\s+/))].slice(0, MAX_WORDS);
+  return { kind: 'text', words };
+}
+
+const live = (teams) => ({
+  status: { $ne: 'deleted' },
+  teamId: { $in: teams.map((team) => team.id) },
+});
+
+/** Tickets in `teams` with every word in their title, in any case. Null with no teams. */
+export function ticketTextSelector(words, teams) {
+  if (!teams.length) return null;
+  return {
+    ...live(teams),
+    $and: words.map((word) => ({ title: new RegExp(escapeRegExp(word), 'i') })),
+  };
+}
+
+/** Tickets in `teams` assigned to any of `userIds`. Null with nobody to look for. */
+export function ticketAssigneeSelector(userIds, teams) {
+  if (!teams.length || !userIds.length) return null;
+  return { ...live(teams), assignedTo: { $in: userIds } };
+}
+
+/** Tickets in `teams` carrying, or linking to, the issue a pasted link names. */
+export function ticketLinkSelector(link, { teams, redmineHost }) {
+  if (!teams.length) return null;
+  if (link.github) {
+    const { owner, repo, digits } = link.github;
+    const issue = `github\\.com/${escapeRegExp(owner)}/${escapeRegExp(repo)}/(?:issues|pull)/${digits}(?!\\d)`;
+    return { ...live(teams), github: new RegExp(issue, 'i') };
+  }
+  return {
+    ...live(teams),
+    $or: [
+      carriedOn(link.host, link.digits, redmineHost),
+      { github: linkOnHostTo(link.host, link.digits) },
+    ],
+  };
+}
 
 /**
  * The digits a number may be, as a regex source: exactly `digits`, or any

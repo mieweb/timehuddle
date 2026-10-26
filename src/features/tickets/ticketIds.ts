@@ -59,11 +59,6 @@ export function carriedRefOf(
   return linked && host ? outsideIdOf(`https://${host}/issues/${linked.id}`, prefixes) : null;
 }
 
-/** The number at the end of a ref, `233` in `PM-233` or `#233`, or null. */
-export function refNumber(ref: string): string | null {
-  return ref.match(/(\d+)$/)?.[1] ?? null;
-}
-
 /**
  * The outside ID a ticket goes by, when it has a named one: the issue it is
  * linked to (`RM0-214`), or the link it carries (`timehuddle-717`). Null for a

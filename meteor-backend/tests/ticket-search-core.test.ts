@@ -5,11 +5,22 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getDb, closeDb, ObjectId } from './helpers';
 import { ticketIdsFor } from '../server/ticket-ids';
-import { parseTicketRef, ticketRefSelector } from '../server/ticket-search-core';
+import {
+  parseTicketQuery,
+  parseTicketRef,
+  ticketAssigneeSelector,
+  ticketLinkSelector,
+  ticketRefSelector,
+  ticketTextSelector,
+} from '../server/ticket-search-core';
 
 const tag = `ref736c-${Date.now()}`;
 const REDMINE_HOST = 'redmine.test';
-const created = { organizations: [] as ObjectId[], teams: [] as ObjectId[], tickets: [] as ObjectId[] };
+const created = {
+  organizations: [] as ObjectId[],
+  teams: [] as ObjectId[],
+  tickets: [] as ObjectId[],
+};
 
 async function insert(collection: keyof typeof created, fields: Record<string, unknown>) {
   const db = await getDb();
@@ -25,13 +36,31 @@ const ticket = (teamId: string, name: string, fields: Record<string, unknown> = 
 let teams: { id: string; orgId: string | null }[];
 const ids: Record<string, string> = {};
 
+/** The titles of the tickets `selector` finds among this file's, sorted. */
+async function titles(selector: Record<string, unknown> | null) {
+  if (!selector) return [];
+  const db = await getDb();
+  const docs = await db
+    .collection('tickets')
+    .find({ $and: [selector, { _id: { $in: created.tickets } }] })
+    .toArray();
+  return docs.map((doc) => String(doc.title).slice(tag.length + 1)).sort();
+}
+
 /** The titles of the tickets `query` finds, sorted. */
 async function find(query: string, { exact = false } = {}) {
   const ref = parseTicketRef(query);
   if (!ref) return null;
   const db = await getDb();
-  const idsByOrg = await ticketIdsFor(db, teams.map((team) => team.orgId).filter(Boolean) as string[]);
-  const selector = ticketRefSelector(ref, { teams, idsByOrg, redmineHost: REDMINE_HOST }, { exact });
+  const idsByOrg = await ticketIdsFor(
+    db,
+    teams.map((team) => team.orgId).filter(Boolean) as string[],
+  );
+  const selector = ticketRefSelector(
+    ref,
+    { teams, idsByOrg, redmineHost: REDMINE_HOST },
+    { exact },
+  );
   if (!selector) return [];
   const docs = await db
     .collection('tickets')
@@ -54,7 +83,7 @@ beforeAll(async () => {
   const outside = await insert('teams', { orgId: thx, name: `${tag}-outside` });
   teams = [a1, a2, b1].map((id, i) => ({ id, orgId: i < 2 ? thx : plain }));
 
-  ids.numbered = await ticket(a1, 'numbered', { number: 12 });
+  ids.numbered = await ticket(a1, 'numbered', { number: 12, assignedTo: ['ada-id'] });
   await ticket(a2, 'carrier', { number: 5, linkedIssue: { source: 'redmine', id: '233' } });
   await ticket(a1, 'carrier-with-host', {
     number: 6,
@@ -64,9 +93,18 @@ beforeAll(async () => {
     number: 9,
     linkedIssue: { source: 'redmine', id: '233', host: 'elsewhere.test' },
   });
-  await ticket(b1, 'github', { number: 7, github: 'https://github.com/mieweb/timehuddle/issues/223' });
-  await ticket(a2, 'github-fork', { number: 10, github: 'https://github.com/someone/TimeHuddle/pull/223' });
-  await ticket(a1, 'redmine-link', { number: 8, github: `https://${REDMINE_HOST}/issues/233#note-2` });
+  await ticket(b1, 'github', {
+    number: 7,
+    github: 'https://github.com/mieweb/timehuddle/issues/223',
+  });
+  await ticket(a2, 'github-fork', {
+    number: 10,
+    github: 'https://github.com/someone/TimeHuddle/pull/223',
+  });
+  await ticket(a1, 'redmine-link', {
+    number: 8,
+    github: `https://${REDMINE_HOST}/issues/233#note-2`,
+  });
   await ticket(a1, 'number-223', { number: 223 });
   await ticket(b1, 'dashed-repo', {
     number: 11,
@@ -99,7 +137,16 @@ describe('parseTicketRef', () => {
   });
 
   it('reads anything else as no ID', () => {
-    for (const raw of ['', 'fix login', '@alex', 'THX', 'pulse-vault', '0', 'https://x.test/1', null]) {
+    for (const raw of [
+      '',
+      'fix login',
+      '@alex',
+      'THX',
+      'pulse-vault',
+      '0',
+      'https://x.test/1',
+      null,
+    ]) {
       expect(parseTicketRef(raw as never)).toBeNull();
     }
   });
@@ -151,7 +198,12 @@ describe('ticketRefSelector', () => {
 
   it('finds every ticket where a bare number appears, whole', async () => {
     expect(await find('223')).toEqual(['github', 'github-fork', 'number-223']);
-    expect(await find('#233')).toEqual(['carrier', 'carrier-with-host', 'other-server', 'redmine-link']);
+    expect(await find('#233')).toEqual([
+      'carrier',
+      'carrier-with-host',
+      'other-server',
+      'redmine-link',
+    ]);
     expect(await find('22')).toEqual([]);
   });
 
@@ -162,5 +214,72 @@ describe('ticketRefSelector', () => {
   it('finds nothing for a prefix nobody uses', async () => {
     expect(await find('ZZZ-12')).toEqual([]);
     expect(await find('ZZZ-')).toEqual([]);
+  });
+});
+
+describe('parseTicketQuery', () => {
+  it('reads an ID, a link, @name, or words', () => {
+    expect(parseTicketQuery('TH-')).toEqual({ kind: 'id', ref: { name: 'TH', digits: '' } });
+    expect(parseTicketQuery('https://github.com/mieweb/pulse/issues/250')).toEqual({
+      kind: 'url',
+      link: { github: { owner: 'mieweb', repo: 'pulse', digits: '250' } },
+    });
+    expect(parseTicketQuery('https://redmine.test/issues/233#note-1')).toEqual({
+      kind: 'url',
+      link: { host: 'redmine.test', digits: '233' },
+    });
+    expect(parseTicketQuery('@ada')).toEqual({ kind: 'assignee', name: 'ada' });
+    expect(parseTicketQuery('  Pulse  Integration pulse ')).toEqual({
+      kind: 'text',
+      words: ['pulse', 'integration'],
+    });
+  });
+
+  it('asks nothing for what is too short or not an issue link', () => {
+    for (const raw of [
+      '',
+      'ab',
+      '@a',
+      '@',
+      'https://github.com/mieweb/pulse',
+      'https://x.test/about',
+    ]) {
+      expect(parseTicketQuery(raw)).toBeNull();
+    }
+  });
+});
+
+describe('the other selectors', () => {
+  it('finds tickets with every word in the title, in any case', async () => {
+    expect(await titles(ticketTextSelector(['CARRIER'], teams))).toEqual([
+      'carrier',
+      'carrier-with-host',
+    ]);
+    expect(await titles(ticketTextSelector(['carrier', 'host'], teams))).toEqual([
+      'carrier-with-host',
+    ]);
+    expect(await titles(ticketTextSelector(['carrier'], []))).toEqual([]);
+  });
+
+  it('finds tickets assigned to the people named', async () => {
+    expect(await titles(ticketAssigneeSelector(['ada-id'], teams))).toEqual(['numbered']);
+    expect(ticketAssigneeSelector([], teams)).toBeNull();
+  });
+
+  it('finds the tickets a pasted link names', async () => {
+    const scope = { teams, redmineHost: REDMINE_HOST };
+    expect(
+      await titles(
+        ticketLinkSelector(
+          { github: { owner: 'mieweb', repo: 'timehuddle', digits: '223' } },
+          scope,
+        ),
+      ),
+    ).toEqual(['github']);
+    expect(await titles(ticketLinkSelector({ host: REDMINE_HOST, digits: '233' }, scope))).toEqual([
+      'carrier',
+      'carrier-with-host',
+      'redmine-link',
+    ]);
   });
 });

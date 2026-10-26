@@ -205,7 +205,6 @@ test.describe('Creating a ticket tracked in Redmine', () => {
       timeout: 15000,
     });
     await expect(page.getByText(/You may not create issues there\./)).toBeVisible();
-    await tickets.search(title);
     await expect(tickets.rowByTitle(title)).toHaveCount(1);
   });
 
