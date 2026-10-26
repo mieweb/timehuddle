@@ -25,6 +25,8 @@ import { useSyncExternalStore } from 'react';
 
 import { redmineApi, type RedmineIssue, type RedmineRelevanceReason } from '../../../lib/api';
 
+import { outsideIdOf } from '../ticketIds';
+
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
 /**
@@ -130,35 +132,39 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     return raws;
   },
 
-  toUnified: ({ issue, baseUrl, linkOnly }): UnifiedTicket => ({
-    key: ticketKey('redmine', issue.id),
-    sourceId: 'redmine',
-    id: String(issue.id),
-    ref: `#${issue.id}`,
-    title: issue.subject,
-    container: issue.project ? { id: String(issue.project.id), name: issue.project.name } : null,
-    status: {
-      native: issue.status?.name ?? 'Unknown',
-      isClosed: issue.status?.isClosed ?? false,
-    },
-    priority: issue.priority
-      ? {
-          native: issue.priority.name,
-          rank: PRIORITY_RANK[issue.priority.name.toLowerCase()] ?? 0,
-        }
-      : null,
-    assignees: issue.assignedTo
-      ? [{ id: String(issue.assignedTo.id), name: issue.assignedTo.name }]
-      : [],
-    // Redmine returns an author, but the list DTO does not carry it yet.
-    createdBy: null,
-    createdAt: issue.createdAt,
-    updatedAt: issue.updatedAt,
-    externalUrl: baseUrl ? `${baseUrl}/issues/${issue.id}` : null,
-    externalRef: null,
-    sharedWithTimeharbor: false,
-    linked: null,
-    ...(linkOnly ? { linkOnly } : {}),
-    capabilities: CAPABILITIES,
-  }),
+  toUnified: ({ issue, baseUrl, linkOnly }, ctx): UnifiedTicket => {
+    const externalUrl = baseUrl ? `${baseUrl}/issues/${issue.id}` : null;
+    return {
+      key: ticketKey('redmine', issue.id),
+      sourceId: 'redmine',
+      id: String(issue.id),
+      // `PM-233` once the org has named this server, `#233` until then.
+      ref: outsideIdOf(externalUrl, ctx.sourcePrefixes ?? []) ?? `#${issue.id}`,
+      title: issue.subject,
+      container: issue.project ? { id: String(issue.project.id), name: issue.project.name } : null,
+      status: {
+        native: issue.status?.name ?? 'Unknown',
+        isClosed: issue.status?.isClosed ?? false,
+      },
+      priority: issue.priority
+        ? {
+            native: issue.priority.name,
+            rank: PRIORITY_RANK[issue.priority.name.toLowerCase()] ?? 0,
+          }
+        : null,
+      assignees: issue.assignedTo
+        ? [{ id: String(issue.assignedTo.id), name: issue.assignedTo.name }]
+        : [],
+      // Redmine returns an author, but the list DTO does not carry it yet.
+      createdBy: null,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
+      externalUrl,
+      externalRef: null,
+      sharedWithTimeharbor: false,
+      linked: null,
+      ...(linkOnly ? { linkOnly } : {}),
+      capabilities: CAPABILITIES,
+    };
+  },
 };

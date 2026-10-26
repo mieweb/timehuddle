@@ -144,7 +144,13 @@ const viewPanelClass = (showing: boolean) =>
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeam, selectedTeamId, teamsReady, selectedOrgId, organizations } =
+    useTeam();
+  // Named servers are the selected org's. A team carries its org's live; a viewer
+  // in no team of the org still sees Redmine rows, so the org list backs it up.
+  const sourcePrefixes =
+    teams.find((t) => t.orgId === selectedOrgId)?.sourcePrefixes ??
+    organizations.find((org) => org.id === selectedOrgId)?.sourcePrefixes;
   const { navigate, pathname } = useRouter();
   const toast = useToast();
 
@@ -226,11 +232,12 @@ export const TicketsPage: React.FC = () => {
   const sourceCtx = useMemo(
     () => ({
       userId,
-      teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
+      teams: teams.map((t: Team) => ({ id: t.id, name: t.name, ticketPrefix: t.ticketPrefix })),
+      sourcePrefixes,
       resolveMemberName: getAssigneeName,
       membersKey: allMembers.map((m) => `${m.id}:${m.name || m.email}`).join('|'),
     }),
-    [userId, teams, getAssigneeName, allMembers],
+    [userId, teams, sourcePrefixes, getAssigneeName, allMembers],
   );
 
   const {

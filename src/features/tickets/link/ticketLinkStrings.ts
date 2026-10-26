@@ -25,8 +25,6 @@ export const ticketLinkText = {
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
-  linkedTo: (ref: string) => `Linked to Redmine ${ref}`,
-  linkedToWithStatus: (ref: string, status: string) => `Linked to Redmine ${ref} · ${status}`,
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
