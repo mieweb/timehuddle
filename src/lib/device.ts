@@ -46,10 +46,14 @@ export function isMobileBrowser(): boolean {
  * opens the App Store, and a Universal Link / App Link (Pulse's pairing link)
  * opens the app that claims it — WKWebView's `window.open` can do neither. In a
  * browser it opens in a new tab.
+ *
+ * `signal`: the caller may move on while the launcher loads (another ticket);
+ * once it's aborted, nothing opens.
  */
-export async function openExternalUrl(url: string): Promise<void> {
+export async function openExternalUrl(url: string, signal?: AbortSignal): Promise<void> {
   if (isNativeApp()) {
     const { AppLauncher } = await import('@capacitor/app-launcher');
+    if (signal?.aborted) return;
     await AppLauncher.openUrl({ url });
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');

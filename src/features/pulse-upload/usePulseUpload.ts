@@ -67,18 +67,24 @@ interface Options {
    * closes, or at once in the TimeHuddle app (no window).
    */
   onSettled?: (status: PulseUploadStatus) => void;
+  /**
+   * Changes whenever a link prepared earlier would now be refused (a clock-in
+   * plan reserved before a shift that has since started): the prepared link is
+   * dropped and a new one prepared. A link already handed out is untouched.
+   */
+  prepareKey?: string;
 }
 
 type LiveLink = PulseLink & { destinationKey: string; fromFile: boolean };
 type Reservation = { videoid: string; uploadToken: string };
-type Prepared = { destinationKey: string; reservation: Reservation; at: number };
+type Prepared = { key: string; reservation: Reservation; at: number };
 
 const isSettled = (status: PulseUploadStatus | null) =>
   status?.state === 'done' || status?.state === 'kept';
 
 export function usePulseUpload(
   destination: PulseDestination,
-  { onSettled }: Options = {},
+  { onSettled, prepareKey = '' }: Options = {},
 ): PulseUpload {
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
@@ -88,10 +94,14 @@ export function usePulseUpload(
   const latestKey = useRef(destinationKey);
   latestKey.current = destinationKey;
   const mounted = useRef(true);
+  // Cancels an app launch still on its way (the launcher loads first), so it
+  // can't open Pulse for a screen that has since changed.
+  const launch = useRef<AbortController | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      launch.current?.abort();
     };
   }, []);
 
@@ -111,13 +121,14 @@ export function usePulseUpload(
   const onPhoneBrowser = isMobileBrowser();
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [prepareRound, setPrepareRound] = useState(0);
+  const preparedKey = `${destinationKey}|${prepareKey}`;
   useEffect(() => {
     if (!onPhoneBrowser) return;
     let cancelled = false;
     videoApi
       .reserve(JSON.parse(destinationKey) as PulseDestination)
       .then((reservation) => {
-        if (!cancelled) setPrepared({ destinationKey, reservation, at: Date.now() });
+        if (!cancelled) setPrepared({ key: preparedKey, reservation, at: Date.now() });
       })
       .catch(() => {
         // The tap reserves again, and says what went wrong.
@@ -127,15 +138,16 @@ export function usePulseUpload(
       cancelled = true;
       clearTimeout(refresh);
     };
-  }, [onPhoneBrowser, destinationKey, prepareRound]);
+  }, [onPhoneBrowser, destinationKey, preparedKey, prepareRound]);
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket), this hook starts afresh; the earlier link
   // still delivers where it was meant to.
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
-    // Whatever went wrong was for the destination before this one.
+    // Whatever went wrong, or was opening, was for the destination before this one.
     setError(null);
+    launch.current?.abort();
   }, [destinationKey]);
   useEffect(() => {
     if (!link || link.destinationKey === destinationKey) return;
@@ -208,8 +220,12 @@ export function usePulseUpload(
   //   waiting on the server (no link was ready yet), with an "Open Pulse" link.
   const openLink = useCallback(
     async ({ url }: PulseLink, inTap: boolean) => {
-      if (isNativeApp()) await openExternalUrl(url);
-      else if (onPhoneBrowser && inTap) window.location.assign(url);
+      if (isNativeApp()) {
+        launch.current?.abort();
+        const controller = new AbortController();
+        launch.current = controller;
+        await openExternalUrl(url, controller.signal);
+      } else if (onPhoneBrowser && inTap) window.location.assign(url);
       else setModalOpen(true);
     },
     [onPhoneBrowser],
@@ -264,16 +280,19 @@ export function usePulseUpload(
     // One link, one upload: while the last link is still waiting, open it
     // again (a re-scan resumes it) rather than mint a second that could also land.
     if (current && status?.state === 'waiting') {
+      setError(null);
       await openLink(current, true);
       return;
     }
     // A phone with a link ready: opened before anything is awaited, so still
     // within the tap. The next video gets a fresh one.
     const ready =
-      prepared?.destinationKey === destinationKey && Date.now() - prepared.at < PREPARED_FRESH_MS
+      prepared?.key === preparedKey && Date.now() - prepared.at < PREPARED_FRESH_MS
         ? prepared
         : null;
     if (ready) {
+      // Started after all: whatever went wrong before (a file too large) is over.
+      setError(null);
       setPrepared(null);
       setPrepareRound((n) => n + 1);
       await openLink(adopt(ready.reservation, false), true);
@@ -281,7 +300,7 @@ export function usePulseUpload(
     }
     const next = await reserve(false);
     if (next) await openLink(next, false);
-  }, [current, status?.state, prepared, destinationKey, adopt, reserve, openLink]);
+  }, [current, status?.state, prepared, preparedKey, adopt, reserve, openLink]);
 
   const upload = useCallback(
     async (file: File) => {

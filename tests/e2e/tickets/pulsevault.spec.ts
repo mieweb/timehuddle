@@ -124,12 +124,19 @@ test.describe('PulseVault — API contract', () => {
   });
 
   test("GET /pulse/open forwards an older link to Pulse's https pairing link", async ({
+    page,
     request,
   }) => {
     // A QR from an app bundle that hasn't updated yet still points here.
+    await loginAs(page, TEST_USERS.owner1);
+    const { videoid, uploadToken } = await reserveLibraryUpload(
+      request,
+      await getSessionToken(page),
+    );
     const backend = process.env.API_TARGET ?? 'http://localhost:3101';
+    const server = `${backend}/pulsevault`;
     const res = await request.get(
-      `${backend}/pulse/open?v=1&artifactId=abc&server=${encodeURIComponent('https://th.example/pulsevault')}&token=tok&extra=dropped`,
+      `${backend}/pulse/open?v=1&artifactId=${videoid}&server=${encodeURIComponent(server)}&token=${uploadToken}&extra=dropped`,
       { maxRedirects: 0 },
     );
     expect(res.status()).toBe(302);
@@ -139,7 +146,34 @@ test.describe('PulseVault — API contract', () => {
     expect(location.search).toBe('');
     const params = new URLSearchParams(location.hash.slice(1));
     expect([...params.keys()]).toEqual(['v', 'artifactId', 'server', 'token']);
-    expect(params.get('server')).toBe('https://th.example/pulsevault');
+    expect(params.get('server')).toBe(server);
+  });
+
+  test('GET /pulse/open forwards only uploads to this PulseVault, with a real token', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    const { videoid, uploadToken } = await reserveLibraryUpload(
+      request,
+      await getSessionToken(page),
+    );
+    const backend = process.env.API_TARGET ?? 'http://localhost:3101';
+    const open = (server: string, token: string) =>
+      request.get(
+        `${backend}/pulse/open?v=1&artifactId=${videoid}&server=${encodeURIComponent(server)}&token=${token}`,
+        { maxRedirects: 0 },
+      );
+
+    // Someone else's server, even with a real token: refused, not forwarded.
+    const foreign = await open('https://attacker.example/pulsevault', uploadToken);
+    expect(foreign.status()).toBe(400);
+    expect(foreign.headers()['location']).toBeUndefined();
+
+    // Our server, a made-up token: refused.
+    const madeUp = await open(`${backend}/pulsevault`, 'not-a-real-token');
+    expect(madeUp.status()).toBe(403);
+    expect(madeUp.headers()['location']).toBeUndefined();
   });
 
   test('POST /api/pulsevault_reserve requires auth', async ({ request }) => {
@@ -397,8 +431,10 @@ test.describe('PulseVault — Ticket video upload', () => {
     try {
       await loginAs(page, TEST_USERS.owner1);
       await page.goto('/app/tickets');
-      await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
+      // Waiting before the click: opening the ticket mounts the Pulse button,
+      // which prepares its link at once, and a fast reply could beat a later waiter.
       const prepared = page.waitForResponse((r) => r.url().includes('/api/pulsevault_reserve'));
+      await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
       await page.waitForURL(/\/app\/tickets\/[0-9a-f]{24}/);
       await prepared;
 

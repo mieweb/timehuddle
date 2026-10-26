@@ -58,10 +58,12 @@ function lookupCapabilitySecret(kid) {
 }
 
 /**
- * Verify a PulseVault capability token. On a `create` it also holds the upload
- * to the shape of a pulse.
+ * Verify a PulseVault capability token. Exported so the legacy `/pulse/open`
+ * redirect can refuse a made-up token before handing Pulse an upload session
+ * (see pulse-link.js). On a `create` it also holds the upload to the shape of
+ * a pulse.
  */
-const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, {
+export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, {
   issuer: ISSUER,
 });
 
