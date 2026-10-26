@@ -61,6 +61,7 @@ import {
   fromLocalDateTimeInputValue,
   getDateRange,
   getLocalDateKey,
+  getSessionWorkSeconds,
   PRESETS,
   sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
@@ -95,19 +96,6 @@ interface Props {
    */
   memberId: string | null;
   onMemberChange: (memberId: string) => void;
-}
-
-function getSessionWorkSeconds(session: ClockEvent, now: number): number {
-  if (session.endTime === null) {
-    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
-    const accumulated = Math.max(0, session.accumulatedTime ?? 0);
-    if (session.isPaused) return accumulated;
-    return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
-  }
-
-  const accumulated = Math.max(0, session.accumulatedTime ?? 0);
-  if (accumulated > 0) return accumulated;
-  return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

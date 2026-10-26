@@ -67,6 +67,19 @@ async function applyCustomRange(page: Page, start: string, end: string): Promise
   await expect(page.getByRole('button', { name: 'Apply' })).toBeVisible();
 }
 
+/**
+ * The two Jan 15 (America/New_York) sessions as one local day: two session
+ * items, both dated Jan 15 and neither Jan 16 (the year shows only outside the
+ * current one, so it isn't matched), and a Working Days total of exactly 1.
+ */
+async function expectOneLocalDay(page: Page): Promise<void> {
+  const dates = page.locator('.session-row .session-top');
+  await expect(dates).toHaveCount(2, { timeout: 15000 });
+  for (const date of await dates.all()) await expect(date).toContainText('Jan 15');
+  await expect(page.locator('.session-row').filter({ hasText: 'Jan 16' })).toHaveCount(0);
+  await expect(page.getByText('Working Days').locator('..')).toHaveText(/^Working Days\s*1$/);
+}
+
 test.describe('Timesheet calculation fixes', () => {
   test('Break Hours clamps a dangling break to the session end, not the live clock', async ({
     page,
@@ -212,9 +225,8 @@ test.describe('Timesheet calculation fixes', () => {
 
         await applyCustomRange(page, '2026-01-14', '2026-01-17');
 
-        // Both rows should read "Jan 15, 2026" — never "Jan 16, 2026".
-        await expect(page.getByText('Jan 16, 2026')).not.toBeVisible();
-        await expect(timesheetPage.workingDays).toContainText('1');
+        // Both sessions read Jan 15 — never Jan 16 — and make one working day.
+        await expectOneLocalDay(page);
 
         // ── Admin's view of the same member: same 1-day grouping ──
         // Uses the app's documented deep-link support
@@ -261,13 +273,8 @@ test.describe('Timesheet calculation fixes', () => {
           await applyCustomRange(adminPage, '2026-01-14', '2026-01-17');
 
           // Before the fix, these two sessions (UTC dates Jan 15 and Jan 16)
-          // would have been split into two separate day-groups ("2 days · 2
-          // sessions") instead of being recognized as one Eastern calendar
-          // day ("1 day · 2 sessions").
-          await expect(
-            adminPage.getByRole('heading', { name: '1 day · 2 sessions' }),
-          ).toBeVisible();
-          await expect(adminPage.getByText('Jan 16, 2026')).not.toBeVisible();
+          // were counted as two days instead of one Eastern calendar day.
+          await expectOneLocalDay(adminPage);
         } finally {
           await adminContext.close();
         }

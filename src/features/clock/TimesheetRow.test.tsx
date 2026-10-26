@@ -191,6 +191,38 @@ describe('TimesheetRow', () => {
     expect(onEdit).toHaveBeenCalledWith(session);
   });
 
+  it('still shows, and can edit, a session that ended the moment it started', () => {
+    const at = new Date('2026-05-19T10:00:00').getTime();
+    const session: ClockEvent = {
+      id: 'session-empty',
+      userId: 'u1',
+      teamId: 'team-1',
+      startTime: at,
+      endTime: at,
+      accumulatedTime: 0,
+      workSeconds: 0,
+      breaks: [],
+    };
+    const onEdit = vi.fn();
+
+    render(
+      <ul>
+        <TimesheetRow
+          session={session}
+          teams={[{ id: 'team-1', name: 'Mobile test' }]}
+          onEdit={onEdit}
+        />
+      </ul>,
+    );
+
+    const item = sessionItem();
+    expect(item.textContent).toContain('May 19');
+    expect(item.querySelector('.clock-range')?.textContent).toBe('10:00 AM → 10:00 AM');
+    expect(item.textContent).toContain('Completed');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit session' }));
+    expect(onEdit).toHaveBeenCalledWith(session);
+  });
+
   it('marks a clock out on the next day "+1 day"', () => {
     render(
       <ul>

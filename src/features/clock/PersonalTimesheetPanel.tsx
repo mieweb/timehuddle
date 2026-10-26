@@ -202,6 +202,9 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
     return map;
   }, [myRequests]);
+  // The Videos window also takes the walkthrough for that session's pending change.
+  const videosRequest = videosSession ? requestByTarget.get(videosSession.id) : undefined;
+  const videosWalkthrough = videosRequest?.status === 'pending' ? videosRequest : null;
 
   // A queued addition has no entry yet, so there is no row for `requestByTarget`
   // to hang a status off. Without listing them the modal just closes and the
@@ -1059,12 +1062,31 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           )}
         </ModalHeader>
         <ModalBody>
+          {videosWalkthrough && (
+            // The walkthrough goes to the change request, which is what the
+            // approver reviews; the session's own videos below don't.
+            <section
+              className="pending-change-walkthrough mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+              aria-labelledby="pending-change-walkthrough-title"
+            >
+              <Text id="pending-change-walkthrough-title" size="sm" weight="medium">
+                Walkthrough for your pending change
+              </Text>
+              <Text variant="muted" size="xs" className="mt-0.5">
+                Your approver sees it with the change.
+              </Text>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <ChangeRequestWalkthrough request={videosWalkthrough} onAdded={loadMyRequests} />
+              </div>
+            </section>
+          )}
           {videosSession && (
             <AttachmentsPanel
               kind="clock"
               entityId={videosSession.id}
               currentUserId={user?.id}
-              showHeading={false}
+              // Named apart from the walkthrough above it, when there is one.
+              showHeading={videosWalkthrough !== null}
             />
           )}
         </ModalBody>

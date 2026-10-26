@@ -21,12 +21,11 @@ import { ClockPage } from '../pages/ClockPage';
 
 const sessionRows = (page: Page) => page.getByRole('button', { name: 'Edit session' });
 
-/** Rows still running: the Clock Out column renders an em dash until clock-out. */
+/** Sessions still running: their clock range reads "… → now" until clock-out. */
 const openSessionRows = (page: Page) =>
   page
-    .locator('tbody tr')
-    .filter({ has: sessionRows(page) })
-    .filter({ hasText: '—' });
+    .locator('.session-row')
+    .filter({ has: page.locator('.clock-range', { hasText: /→\s*now$/ }) });
 
 async function openTimesheet(page: Page): Promise<void> {
   await page.goto('/app/timesheet');

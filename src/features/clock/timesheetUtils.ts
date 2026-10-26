@@ -4,6 +4,7 @@
  */
 
 import type { ClockEvent } from '../../lib/api';
+import { getActiveClockSeconds } from '../../lib/timeUtils';
 
 export type Preset = 'today' | 'yesterday' | 'lastWeek' | 'week' | '14d' | 'custom';
 
@@ -90,15 +91,24 @@ export function roundDurationSecondsForDisplay(totalSeconds: number | null): num
 /**
  * A session's work time as the server counts it: short (rest) breaks are
  * paid, meal breaks aren't. Used for Total Hours and a split session's total.
+ *
+ * A closed session's `workSeconds` is the server's word, zero included (a
+ * session that was all meal break). An open one's is only a snapshot from the
+ * fetch, so it ticks on from its start less the meal breaks already taken,
+ * the way the clock does (getActiveClockSeconds).
  */
 export function getSessionWorkSeconds(session: ClockEvent, now: number): number {
+  const fromServer =
+    typeof session.workSeconds === 'number' || typeof session.deductedBreakSeconds === 'number';
   if (session.endTime === null) {
-    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
+    if (fromServer) return getActiveClockSeconds(session, now);
+    // Older records: no break accounting, only what accumulated before a pause.
     const accumulated = Math.max(0, session.accumulatedTime ?? 0);
     if (session.isPaused) return accumulated;
     return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
   }
 
+  if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
   const accumulated = Math.max(0, session.accumulatedTime ?? 0);
   if (accumulated > 0) return accumulated;
   return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));

@@ -259,8 +259,15 @@ export const TimesheetRow: React.FC<Props> = ({
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   // Oldest first: a session's parts read as the day went.
   const parts = splitAtMidnight(buildTimelineRows(session, Date.now())).reverse();
-  const first = parts[0];
-  const last = parts[parts.length - 1];
+  // A session that ended the moment it started has no parts: it still shows
+  // (and can be edited), from its own times.
+  const start = parts[0]?.start ?? session.startTime;
+  const end = parts.length ? parts[parts.length - 1].end : session.endTime;
+  const lastStatus = parts.length
+    ? parts[parts.length - 1].status
+    : session.endTime === null
+      ? 'Active'
+      : 'Completed';
   const breaks = parts.filter((p) => p.kind === 'break');
   const breakSeconds = breaks.reduce((sum, p) => sum + (p.durationSeconds ?? 0), 0);
   const breakCount = (session.breaks ?? []).length || breaks.length;
@@ -269,7 +276,7 @@ export const TimesheetRow: React.FC<Props> = ({
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const breaksId = `session-breaks-${session.id}`;
   const ticketListId = `shift-tickets-${session.id}`;
-  const multiDay = localDayKey(first.start) !== localDayKey(last.end ?? Date.now());
+  const multiDay = localDayKey(start) !== localDayKey(end ?? Date.now());
   const breaksLabel = `${breakCount} ${breakCount === 1 ? 'break' : 'breaks'}`;
 
   return (
@@ -277,7 +284,7 @@ export const TimesheetRow: React.FC<Props> = ({
       {/* Top line, as tall as the icon buttons so all of it is centred with them. */}
       <div className="session-top flex min-h-10 items-center gap-2">
         <Text as="span" size="sm" weight="semibold" truncate className="min-w-0 flex-1">
-          {formatWeekdayDate(new Date(first.start))}
+          {formatWeekdayDate(new Date(start))}
         </Text>
         <Text as="span" size="sm" className="shrink-0 whitespace-nowrap font-mono">
           {durationText(getSessionWorkSeconds(session, Date.now()))}
@@ -306,14 +313,14 @@ export const TimesheetRow: React.FC<Props> = ({
       </div>
 
       <div className="session-times flex flex-wrap items-center gap-x-2">
-        <ClockRange start={first.start} end={last.end} />
+        <ClockRange start={start} end={end} />
         <Text as="span" size="sm" variant="muted">
           · {teamName}
         </Text>
       </div>
 
       <div className="session-meta mt-2 flex flex-wrap items-center gap-1.5">
-        <SessionStatus status={last.status} changeStatus={changeStatus} />
+        <SessionStatus status={lastStatus} changeStatus={changeStatus} />
         {breakCount > 0 && (
           <DisclosureChip
             icon={faMugHot}

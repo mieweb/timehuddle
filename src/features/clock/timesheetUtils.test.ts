@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { formatDuration } from '../../lib/timeUtils';
-import { roundDurationSecondsForDisplay, sumRoundedDurationsForDisplay } from './timesheetUtils';
+import type { ClockEvent } from '../../lib/api';
+import {
+  getSessionWorkSeconds,
+  roundDurationSecondsForDisplay,
+  sumRoundedDurationsForDisplay,
+} from './timesheetUtils';
 
 function hms(hours: number, minutes = 0, seconds = 0): number {
   return hours * 3600 + minutes * 60 + seconds;
@@ -40,5 +45,38 @@ describe('sumRoundedDurationsForDisplay', () => {
     );
     expect(sumRoundedDurationsForDisplay(durations)).toBe(expected);
     expect(formatDuration(expected)).toBe('8h 6m');
+  });
+});
+
+describe('getSessionWorkSeconds', () => {
+  const START = Date.UTC(2026, 9, 26, 9, 0, 0);
+  const session = (fields: Partial<ClockEvent>): ClockEvent =>
+    ({ id: 's', startTime: START, endTime: null, accumulatedTime: 0, ...fields }) as ClockEvent;
+
+  it("takes a closed session's work time from the server, zero included", () => {
+    const end = START + hms(1) * 1000;
+    expect(getSessionWorkSeconds(session({ endTime: end, workSeconds: hms(0, 45) }), end)).toBe(
+      hms(0, 45),
+    );
+    // All of it a meal break: no work, not the whole hour.
+    expect(
+      getSessionWorkSeconds(session({ endTime: end, workSeconds: 0, accumulatedTime: 0 }), end),
+    ).toBe(0);
+  });
+
+  it('keeps an open session ticking past its fetched snapshot, less meal breaks', () => {
+    const open = session({ workSeconds: hms(1), deductedBreakSeconds: hms(0, 30) });
+    expect(getSessionWorkSeconds(open, START + hms(2) * 1000)).toBe(hms(1, 30));
+    expect(getSessionWorkSeconds(open, START + hms(3) * 1000)).toBe(hms(2, 30));
+  });
+
+  it('holds an open session on break at its snapshot', () => {
+    const onBreak = session({ isPaused: true, workSeconds: hms(1, 10) });
+    expect(getSessionWorkSeconds(onBreak, START + hms(5) * 1000)).toBe(hms(1, 10));
+  });
+
+  it('falls back to the span for an older closed record with nothing recorded', () => {
+    const end = START + hms(2) * 1000;
+    expect(getSessionWorkSeconds(session({ endTime: end }), end)).toBe(hms(2));
   });
 });
