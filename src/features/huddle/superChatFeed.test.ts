@@ -94,8 +94,8 @@ describe('postsToConversations', () => {
 
     it('groups by ticket, bucketing posts with no ticket under "none"', () => {
       const posts = [
-        makePost({ id: 'p1', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' }),
-        makePost({ id: 'p2', ticketId: 'tkt-1', ticketTitle: 'Onboarding checklist' }),
+        makePost({ id: 'p1', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] }),
+        makePost({ id: 'p2', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] }),
         makePost({ id: 'p3' }),
       ];
       const conversations = postsToConversations(posts, 'ticket', VIEWER_MEMBER, NOW);
@@ -402,6 +402,53 @@ describe('postsToConversations', () => {
     });
   });
 
+  describe('scheduled posts', () => {
+    const OCT_1_0900 = localMs(2026, 10, 1, 9, 0);
+    const scheduled = (overrides: Partial<HuddlePost> = {}) =>
+      makePost({
+        id: 'p-sched',
+        deliverAt: new Date(OCT_1_0900).toISOString(),
+        ...overrides,
+      });
+    const messageOf = (post: HuddlePost) =>
+      postsToConversations([post], 'person', VIEWER_MEMBER, NOW)[0].thread.find(
+        (m) => m.id === post.id,
+      )!;
+
+    it('places a waiting post at its send time and says only you see it', () => {
+      const message = messageOf(scheduled());
+      expect(message.scheduledFor).toBe(new Date(OCT_1_0900).toISOString());
+      expect(message.text).toContain('Only you can see this until it is sent');
+      expect(message.time).toBe(new Date(OCT_1_0900).toISOString());
+    });
+
+    it('clears the schedule once delivered, keeping the post where it was sent', () => {
+      const deliveredAt = new Date(SEP_29_1032).toISOString();
+      const message = messageOf(scheduled({ deliveredAt }));
+      expect(message.scheduledFor).toBeUndefined();
+      expect(message.text).toBe('Checklist UI is done.');
+      expect(message.time).toBe(deliveredAt);
+    });
+
+    it('strips the note off an inline edit', () => {
+      const post = scheduled();
+      const shown = messageOf(post).text!;
+      const edited = shown.replace(post.content.text, 'Updated plan.');
+      expect(stripInboxDecorations(edited, shown, post.content.text)).toBe('Updated plan.');
+    });
+
+    it('groups a post sent early under the day it actually appeared, not its original schedule', () => {
+      const post = makePost({
+        id: 'p-early',
+        postDate: '2026-09-30', // originally scheduled for tomorrow
+        deliverAt: new Date(SEP_29_0858).toISOString(),
+        deliveredAt: new Date(SEP_29_1032).toISOString(), // sent early, today
+      });
+      const conversations = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
+      expect(conversations.map((c) => c.id)).toEqual(['day:2026-09-29']);
+    });
+  });
+
   describe('posts without a session or ticket', () => {
     it('labels a session-view thread of off-the-clock posts, title and first line', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];
@@ -431,8 +478,7 @@ describe('postsToConversations', () => {
       const posts = [
         makePost({
           id: 'p1',
-          ticketId: 'tkt-1',
-          ticketTitle: 'Onboarding checklist',
+          tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }],
           clockEventId: 'evt-1',
           session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
         }),
@@ -496,8 +542,7 @@ describe('searchConversations', () => {
     makePost({
       id: 'p1',
       content: { text: 'Shipped the onboarding checklist', mentions: [] },
-      ticketId: 't-1',
-      ticketTitle: 'Onboarding checklist',
+      tickets: [{ id: 't-1', title: 'Onboarding checklist' }],
       clockEventId: 'evt-1',
       session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
       wrapUpAt: new Date(SEP_29_1032).toISOString(),

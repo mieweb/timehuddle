@@ -8,8 +8,9 @@
  * Two rules shape every decision here:
  *   - What is sent is **permanent**. Huddle never edits or deletes a Redmine
  *     entry, so the dialog is the last moment anything can be corrected.
- *     That is why the activity is shown and overridable, and why the
- *     confirmation states the consequence in words.
+ *     That is why the activity is shown and overridable, why each row takes
+ *     a comment about the work, and why the confirmation states the
+ *     consequence in words.
  *   - The push is **manual**. Huddle holds the time until the user says so,
  *     which is what makes "is the day finished?" answerable at all.
  *
@@ -17,8 +18,6 @@
  * nothing goes to Redmine, the time stays in TimeHuddle, and the row stops
  * being offered. Only time tracked on that day later comes back.
  */
-import { faTrash } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
@@ -27,6 +26,7 @@ import {
   ButtonGroup,
   Card,
   CardContent,
+  Input,
   Modal,
   ModalBody,
   ModalClose,
@@ -34,78 +34,41 @@ import {
   ModalHeader,
   ModalTitle,
   Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   redmineApi,
-  type RedmineActivity,
   type RedmineTimeEntryPreview,
   type RedmineTimeEntryPushOutcome,
   type RedmineTimeEntryRow,
 } from '../../lib/api';
 
+import { RedmineEntryCard, RedmineEntryField } from './RedmineEntryCard';
+import {
+  BLOCKED_TEXT,
+  REDMINE_COMMENT_MAX_LENGTH,
+  REDMINE_TIME_SENT_EVENT,
+  asClock,
+  entryCardText,
+  failureText,
+  hoursLabel,
+} from './redminePushStrings';
+
 /** Stable row identity; mirrors the server's `{ticketId, date}` grain. */
 const rowKey = (row: { ticketId: string; date: string }) => `${row.ticketId}@${row.date}`;
 
-/** Plain-English reasons, so a blocked row explains itself instead of just being disabled. */
-const BLOCKED_TEXT: Record<string, string> = {
-  'too-short': 'Under a minute — Redmine rejects a zero-hour entry',
-  'issue-unavailable': 'Issue could not be loaded from Redmine',
-  'no-activity': 'No activity could be resolved',
-};
-
-const FAILURE_TEXT: Record<string, string> = {
-  'no-log-time-permission': 'Your Redmine role is missing “Log spent time”',
-  'rejected-by-redmine': 'Redmine rejected the entry',
-  unreachable: 'Could not reach Redmine',
-  'hours-mismatch': 'Redmine stored different hours than we sent',
-  'no-entry-id': 'Redmine did not return an entry id',
-  unconfirmed: 'Sent, but Redmine did not let us confirm it',
-  'push-interrupted': 'Not sent: another push took over. Try again',
-  'already-synced-or-gone': 'Already sent, or no longer eligible',
-  'invalid-activity': 'That activity no longer exists in Redmine',
-};
-
-/**
- * Redmine messages whose wording hides the fix, keyed by their English text.
- * "Issue is invalid" is what Redmine answers when the issue is fine but you may
- * not log time on it: it drops an issue the key cannot see, or one in a project
- * where your role lacks "Log spent time" or time tracking is switched off.
- */
-const REDMINE_MESSAGE_HINTS: Record<string, string> = {
-  'Issue is invalid':
-    "Redmine won't take time on this issue from you: its project may have time tracking switched off, or your role there may be missing “Log spent time”.",
-};
-
-/** Why a row failed: Redmine's own words when it gave any, else our summary. */
-function failureText(outcome: RedmineTimeEntryPushOutcome): string {
-  if (outcome.detail?.length) {
-    return outcome.detail
-      .map((message) => REDMINE_MESSAGE_HINTS[message] ?? `Redmine: ${message}`)
-      .join(' ');
-  }
-  return FAILURE_TEXT[outcome.reason ?? ''] ?? outcome.reason ?? 'Not sent';
-}
-
-/** `0.51` → `0:31`, so hours read the way the rest of the app shows time. */
-function asClock(hours: number): string {
-  const totalMinutes = Math.round(hours * 60);
-  return `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, '0')}`;
-}
-
 export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClockedIn }) => {
   const [preview, setPreview] = useState<RedmineTimeEntryPreview | null>(null);
-  const [activities, setActivities] = useState<RedmineActivity[]>([]);
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  // Each row's comment about the work. A row without one is sent as logged by TimeHuddle.
+  const [comments, setComments] = useState<Record<string, string>>({});
+  // Hours read as time worked (0:09) or as Redmine stores them (0.15 h); a
+  // press on any row's hours switches every figure in the dialog.
+  const [decimalHours, setDecimalHours] = useState(false);
+  const hoursText = (hours: number) => hoursLabel(hours, decimalHours);
   const [pushing, setPushing] = useState(false);
   const [results, setResults] = useState<RedmineTimeEntryPushOutcome[] | null>(null);
   // The rows as they were when sent. The preview is reloaded after a push and
@@ -115,18 +78,13 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   // The row waiting for "Never send" to be confirmed, and one being discarded.
   const [confirmDiscard, setConfirmDiscard] = useState<RedmineTimeEntryRow | null>(null);
   const [discarding, setDiscarding] = useState(false);
-  // The trash button that asked, so "Keep it" can hand focus back to it.
+  // The Never send button that asked, so "Keep it" can hand focus back to it.
   const discardTrigger = useRef<HTMLElement | null>(null);
   const discardPromptId = useId();
 
   const load = useCallback(async () => {
     try {
-      const [next, activityList] = await Promise.all([
-        redmineApi.timeEntries.preview(),
-        redmineApi.activities.list(),
-      ]);
-      setPreview(next);
-      setActivities(activityList.activities);
+      setPreview(await redmineApi.timeEntries.preview());
       setError(null);
     } catch {
       // An unlinked or unreachable Redmine is the normal case on this page, not
@@ -139,6 +97,14 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   useEffect(() => {
     void load();
   }, [load, isClockedIn]);
+
+  // So does time sent as a ticket timer ends (#688): what it sent is no longer
+  // unsent, and what it could not send is now waiting here.
+  useEffect(() => {
+    const reload = () => void load();
+    window.addEventListener(REDMINE_TIME_SENT_EVENT, reload);
+    return () => window.removeEventListener(REDMINE_TIME_SENT_EVENT, reload);
+  }, [load]);
 
   const rows = useMemo(() => preview?.rows ?? [], [preview]);
   const sendable = useMemo(() => rows.filter((row) => row.blockedReason === null), [rows]);
@@ -154,11 +120,6 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   );
   const totalHours = useMemo(() => sendable.reduce((sum, row) => sum + row.hours, 0), [sendable]);
 
-  const activityOptions = useMemo(
-    () => activities.map((a) => ({ value: String(a.id), label: a.name })),
-    [activities],
-  );
-
   const resultByKey = useMemo(
     () => new Map((results ?? []).map((r) => [`${r.ticketId}@${r.date}`, r])),
     [results],
@@ -173,6 +134,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           ticketId: row.ticketId,
           date: row.date,
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
+          comment: comments[rowKey(row)]?.trim() || undefined,
+          billable: row.billable,
         })),
       );
       setResults(outcome);
@@ -210,6 +173,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     setOpen(false);
     setResults(null);
     setOverrides({});
+    setComments({});
     setError(null);
     setConfirmDiscard(null);
   };
@@ -256,7 +220,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
         </div>
       </CardContent>
 
-      <Modal open={open} onOpenChange={(next) => (next ? setOpen(true) : closeModal())}>
+      <Modal open={open} onOpenChange={(next) => (next ? setOpen(true) : closeModal())} size="lg">
         <ModalHeader>
           <ModalTitle>{results ? 'Sent to Redmine' : 'Send work entries to Redmine'}</ModalTitle>
           <ModalClose />
@@ -266,111 +230,135 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           {!results && (
             <Text variant="muted" size="xs" className="mb-3 block">
               These become permanent Redmine time entries. They cannot be edited or deleted from
-              TimeHuddle afterwards, so check the hours and activity now.
+              TimeHuddle afterwards, so check the hours and activity now, and add a comment about
+              the work if you want one.
             </Text>
           )}
 
-          <Table aria-label="Time entries to send to Redmine">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Issue</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Hours</TableHead>
-                <TableHead>Activity</TableHead>
-                {results && <TableHead>Result</TableHead>}
-                <TableHead>
-                  <span className="sr-only">Actions</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableRows.map((row) => {
-                const key = rowKey(row);
-                const outcome = resultByKey.get(key);
-                return (
-                  <TableRow key={key}>
-                    <TableCell>
-                      <Text size="xs" weight="medium">
-                        #{row.ticketId}
-                      </Text>
+          {/* One card per entry, its facts stacked: the issue in full, then the
+              activity, the comment and the way out. Columns squeezed all of
+              them at this width. */}
+          <ul
+            aria-label="Time entries to send to Redmine"
+            className="redmine-push-entries flex flex-col gap-2"
+          >
+            {tableRows.map((row) => {
+              const key = rowKey(row);
+              const outcome = resultByKey.get(key);
+              return (
+                <li key={key} className="redmine-push-entry">
+                  <RedmineEntryCard
+                    ticketId={row.ticketId}
+                    subject={row.subject ?? 'Unavailable'}
+                    date={row.date}
+                    hours={row.hours}
+                    decimalHours={decimalHours}
+                    onToggleHours={() => setDecimalHours((on) => !on)}
+                    billable={row.billable}
+                  >
+                    {row.alreadySentSeconds > 0 && (
                       <Text variant="muted" size="xs">
-                        {row.subject ?? 'Unavailable'}
+                        new time only · {hoursText(row.alreadySentSeconds / 3600)} already sent
                       </Text>
-                    </TableCell>
-                    <TableCell>
-                      <Text size="xs">{row.date}</Text>
-                    </TableCell>
-                    <TableCell>
-                      <Text size="xs">
-                        {asClock(row.hours)}{' '}
-                        <Text as="span" variant="muted" size="xs">
-                          ({row.hours.toFixed(2)}h)
+                    )}
+
+                    {row.blockedReason ? (
+                      <Badge variant="outline" className="self-start">
+                        {BLOCKED_TEXT[row.blockedReason]}
+                      </Badge>
+                    ) : results ? (
+                      <div className="redmine-push-entry-sent">
+                        {/* The activity it went under: the one picked, not the default. */}
+                        <Text size="xs">
+                          {row.activityOptions.find((a) => a.id === overrides[key])?.name ??
+                            row.activityName}
                         </Text>
-                      </Text>
-                      {row.alreadySentSeconds > 0 && (
-                        <Text variant="muted" size="xs">
-                          new time only · {asClock(row.alreadySentSeconds / 3600)} already sent
-                        </Text>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {row.blockedReason ? (
-                        <Badge variant="outline">{BLOCKED_TEXT[row.blockedReason]}</Badge>
-                      ) : results ? (
-                        <Text size="xs">{row.activityName}</Text>
-                      ) : (
-                        <Select
-                          label={`Activity for issue ${row.ticketId} on ${row.date}`}
-                          hideLabel
-                          size="sm"
-                          value={String(overrides[key] ?? row.activityId ?? '')}
-                          options={activityOptions}
-                          onValueChange={(v) =>
-                            setOverrides((prev) => ({ ...prev, [key]: Number(v) }))
-                          }
-                          aria-label={`Activity for issue ${row.ticketId} on ${row.date}`}
-                        />
-                      )}
-                    </TableCell>
-                    {results && (
-                      <TableCell>
-                        {!outcome ? (
-                          <Text variant="muted" size="xs">
-                            Not sent
-                          </Text>
-                        ) : outcome.ok ? (
-                          <Badge variant="success">Sent</Badge>
-                        ) : (
-                          // Text, not a badge: Redmine's reason can be a sentence.
-                          <Text size="xs" variant="destructive" className="redmine-push-failure">
-                            {failureText(outcome)}
+                        {comments[key]?.trim() && (
+                          <Text variant="muted" size="xs" className="redmine-push-comment-sent">
+                            {comments[key].trim()}
                           </Text>
                         )}
-                      </TableCell>
+                      </div>
+                    ) : (
+                      <>
+                        <RedmineEntryField label={entryCardText.activity}>
+                          <Select
+                            label={`Activity for issue ${row.ticketId} on ${row.date}`}
+                            hideLabel
+                            size="sm"
+                            value={String(overrides[key] ?? row.activityId ?? '')}
+                            // Only what this issue's project allows.
+                            options={row.activityOptions.map((a) => ({
+                              value: String(a.id),
+                              label: a.name,
+                            }))}
+                            onValueChange={(v) =>
+                              setOverrides((prev) => ({ ...prev, [key]: Number(v) }))
+                            }
+                            aria-label={`Activity for issue ${row.ticketId} on ${row.date}`}
+                            // A project may allow dozens of activities.
+                            searchable
+                            searchPlaceholder="Search activities"
+                            noResultsText="No activity matches"
+                            // The push has already read the activity it sends.
+                            disabled={pushing}
+                          />
+                        </RedmineEntryField>
+                        <RedmineEntryField label={entryCardText.comment}>
+                          <Input
+                            label={`Comment for issue ${row.ticketId} on ${row.date}`}
+                            hideLabel
+                            size="sm"
+                            placeholder={entryCardText.commentPlaceholder}
+                            maxLength={REDMINE_COMMENT_MAX_LENGTH}
+                            value={comments[key] ?? ''}
+                            onChange={(e) =>
+                              setComments((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                            disabled={pushing}
+                          />
+                        </RedmineEntryField>
+                      </>
                     )}
-                    <TableCell>
-                      {/* Anything not sent can be discarded; a sent row is permanent. */}
-                      {!outcome?.ok && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Never send #${row.ticketId} on ${row.date} to Redmine`}
-                          title="Never send this time to Redmine"
-                          disabled={pushing || discarding}
-                          onClick={(event) => {
-                            discardTrigger.current = event.currentTarget;
-                            setConfirmDiscard(row);
-                          }}
-                        >
-                          <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+
+                    {results &&
+                      (!outcome ? (
+                        <Text variant="muted" size="xs">
+                          Not sent
+                        </Text>
+                      ) : outcome.ok ? (
+                        <Badge variant="success" className="self-start">
+                          Sent
+                        </Badge>
+                      ) : (
+                        // Text, not a badge: Redmine's reason can be a sentence.
+                        <Text size="xs" variant="destructive" className="redmine-push-failure">
+                          {failureText(outcome)}
+                        </Text>
+                      ))}
+
+                    {/* Anything not sent can be discarded; a sent row is permanent. */}
+                    {!outcome?.ok && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="redmine-push-entry-discard self-end"
+                        aria-label={`Never send #${row.ticketId} on ${row.date} to Redmine`}
+                        title="Never send this time to Redmine"
+                        disabled={pushing || discarding}
+                        onClick={(event) => {
+                          discardTrigger.current = event.currentTarget;
+                          setConfirmDiscard(row);
+                        }}
+                      >
+                        Never send
+                      </Button>
+                    )}
+                  </RedmineEntryCard>
+                </li>
+              );
+            })}
+          </ul>
 
           {confirmDiscard && (
             <Alert
@@ -382,8 +370,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
               <AlertDescription>
                 <Text size="sm" id={discardPromptId}>
                   Never send #{confirmDiscard.ticketId} on {confirmDiscard.date} (
-                  {asClock(confirmDiscard.hours)}) to Redmine? The time stays in TimeHuddle; it just
-                  won&apos;t be offered here again.
+                  {hoursText(confirmDiscard.hours)}) to Redmine? The time stays in TimeHuddle; it
+                  just won&apos;t be offered here again.
                 </Text>
                 <ButtonGroup className="mt-2">
                   <Button
@@ -423,7 +411,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
               Done
             </Button>
           ) : (
-            <>
+            <ButtonGroup>
               <Button variant="outline" onClick={closeModal} disabled={pushing}>
                 Cancel
               </Button>
@@ -435,9 +423,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                 disabled={sendable.length === 0}
               >
                 Send {sendable.length} {sendable.length === 1 ? 'entry' : 'entries'} ·{' '}
-                {asClock(totalHours)}
+                {hoursText(totalHours)}
               </Button>
-            </>
+            </ButtonGroup>
           )}
         </ModalFooter>
       </Modal>

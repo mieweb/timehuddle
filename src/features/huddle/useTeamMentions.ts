@@ -28,6 +28,21 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Ids of `members` named in `text`, matching SuperChat's own rule; a first name two teammates share resolves to no one. */
+export function detectMentions(text: string, members: TeamMember[]): string[] {
+  const token = (member: TeamMember) => member.name.split(' ')[0].toLowerCase();
+  const tokenCounts = new Map<string, number>();
+  for (const member of members) {
+    tokenCounts.set(token(member), (tokenCounts.get(token(member)) ?? 0) + 1);
+  }
+  return members
+    .filter((member) => tokenCounts.get(token(member)) === 1)
+    .filter((member) =>
+      new RegExp(`(?<![\\w@])${escapeRegExp(`@${token(member)}`)}(?![\\w])`, 'i').test(text),
+    )
+    .map((member) => member.id);
+}
+
 export function useTeamMentions(teamId: string | null | undefined): TeamMentions {
   const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
 
@@ -53,24 +68,11 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
     [teamId, loaded],
   );
 
-  return useMemo(() => {
-    // Same token as SuperChat's: `@` plus the first word of the name.
-    const token = (member: TeamMember) => member.name.split(' ')[0].toLowerCase();
-    const tokenCounts = new Map<string, number>();
-    for (const member of members) {
-      tokenCounts.set(token(member), (tokenCounts.get(token(member)) ?? 0) + 1);
-    }
-    return {
+  return useMemo(
+    () => ({
       options: members.map((member) => ({ id: member.id, label: member.name })),
-      detect: (text: string) =>
-        members
-          // A first name two teammates share can't say which one was picked,
-          // and tagging both would notify someone who wasn't mentioned (gap 4.13).
-          .filter((member) => tokenCounts.get(token(member)) === 1)
-          .filter((member) =>
-            new RegExp(`(?<![\\w@])${escapeRegExp(`@${token(member)}`)}(?![\\w])`, 'i').test(text),
-          )
-          .map((member) => member.id),
-    };
-  }, [members]);
+      detect: (text: string) => detectMentions(text, members),
+    }),
+    [members],
+  );
 }

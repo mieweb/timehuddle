@@ -79,10 +79,6 @@ async function ddpCall<T = unknown>(method: string, params: unknown[]): Promise<
   });
 }
 
-async function clearMailpit(): Promise<void> {
-  await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: 'DELETE' });
-}
-
 async function waitForResetEmail(email: string, timeoutMs = 15_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -107,13 +103,12 @@ async function waitForResetEmail(email: string, timeoutMs = 15_000): Promise<str
 
 test.describe('Password Reset', () => {
   test('user can request reset, set new password via email link, and sign in', async ({ page }) => {
-    // ── Setup: fresh user, clean inbox ──────────────────────────────────────
+    // ── Setup: fresh user ────────────────────────────────────────────
     const stamp = Date.now();
     const email = `pw-reset-${stamp}@example.com`;
     const initialPassword = 'InitPass123!';
     const newPassword = 'ResetNewPass123!';
 
-    await clearMailpit();
     await ddpCall<{ userId: string }>('accounts.createUser', [
       { email, password: initialPassword, name: `Reset Test ${stamp}` },
     ]);
@@ -159,7 +154,6 @@ test.describe('Password Reset', () => {
     const initialPassword = 'InitPass123!';
     const newPassword = 'BrandNewPass123!';
 
-    await clearMailpit();
     await ddpCall('accounts.createUser', [
       { email, password: initialPassword, name: `Old Pass Test ${stamp}` },
     ]);
