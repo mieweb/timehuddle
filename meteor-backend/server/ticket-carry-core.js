@@ -17,9 +17,14 @@
  */
 export const CARRY_LOCK_STALE_MS = 30 * 1000;
 
-/** How often, and how long, a caller waits for someone else's carry of the same issue. */
+/**
+ * How long a caller waits for someone else's carry of the same issue: longer
+ * than that carry's Redmine read (8 seconds) plus its find and insert, so a
+ * double click on a slow Redmine gets the ticket, not "being added already".
+ */
+export const CARRY_WAIT_MS = 12 * 1000;
 const LOCK_RETRY_MS = 150;
-const LOCK_TRIES = 20;
+const LOCK_TRIES = Math.ceil(CARRY_WAIT_MS / LOCK_RETRY_MS);
 
 /** The lock row's id: one per team and issue. */
 export function carryLockId(teamId, issueId) {
