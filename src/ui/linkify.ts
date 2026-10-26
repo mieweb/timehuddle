@@ -17,15 +17,19 @@ export interface TextPart {
   href?: string;
 }
 
-const URL_RE = /https?:\/\/[^\s<>"]+/g;
+// Schemes are case-insensitive: `HTTPS://x.dev` is a link too.
+const URL_RE = /https?:\/\/[^\s<>"]+/gi;
 
 const count = (s: string, ch: string) => s.split(ch).length - 1;
+
+/** Each closing bracket a URL can end with, and the one that opens it. */
+const OPENER: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 
 /**
  * Punctuation that ends a sentence rather than the URL ("see https://x.dev.").
  * A closing bracket only counts when the URL hasn't opened one for it, so a
- * Wikipedia-style `…/Foo_(bar)` keeps its `)`, and `(…/Foo_(bar))` keeps only
- * the one it opened.
+ * Wikipedia-style `…/Foo_(bar)` or an IPv6 `http://[::1]` keeps its own, and
+ * `(…/Foo_(bar))` or `[https://x.dev]` loses only the sentence's.
  */
 function trimTrailing(url: string): string {
   let end = url.length;
@@ -34,7 +38,7 @@ function trimTrailing(url: string): string {
     const head = url.slice(0, end);
     if ('.,;:!?\'"'.includes(ch)) {
       end--;
-    } else if (ch === ')' && count(head, ')') > count(head, '(')) {
+    } else if (ch in OPENER && count(head, ch) > count(head, OPENER[ch])) {
       end--;
     } else {
       break;
