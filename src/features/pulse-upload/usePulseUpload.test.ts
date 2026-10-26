@@ -195,6 +195,29 @@ describe('usePulseUpload', () => {
 
       expect(result.current.link?.videoid).toBe(SECOND.videoid);
     });
+
+    it('never goes back to a link prepared before the key changed and changed back', async () => {
+      // '' → shift-1: its link fails; shift-1 → '': its link hasn't arrived.
+      reserve
+        .mockResolvedValueOnce(RESERVATION)
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(new Promise(() => {}) as never)
+        .mockResolvedValueOnce(SECOND);
+      const { result, rerender } = renderHook(
+        ({ prepareKey }) => usePulseUpload(TICKET_A, { prepareKey }),
+        { initialProps: { prepareKey: '' } },
+      );
+      await act(async () => {});
+      rerender({ prepareKey: 'shift-1' });
+      await act(async () => {});
+      rerender({ prepareKey: '' });
+      await act(async () => {});
+
+      await act(() => result.current.start());
+
+      // Not the pre-shift link: a fresh one, reserved at the tap.
+      expect(result.current.link?.videoid).toBe(SECOND.videoid);
+    });
   });
 
   it('in the app, cancels a launch still loading once the destination changes', async () => {

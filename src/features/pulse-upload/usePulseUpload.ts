@@ -122,6 +122,10 @@ export function usePulseUpload(
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [prepareRound, setPrepareRound] = useState(0);
   const preparedKey = `${destinationKey}|${prepareKey}`;
+  // Any change drops the link prepared before it, even one whose key comes
+  // back ('' → shift → ''): a link made before that shift would be refused,
+  // whether or not the one in between ever arrived.
+  useEffect(() => setPrepared(null), [preparedKey]);
   useEffect(() => {
     if (!onPhoneBrowser) return;
     let cancelled = false;
