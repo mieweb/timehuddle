@@ -689,6 +689,24 @@ describe('searchConversations', () => {
     expect(hits('after the card')).toBe(1);
   });
 
+  it('searches a post built to be slow to strip without stalling', () => {
+    const field = '"widget":"pulse_video",';
+    const slow = [
+      makePost({
+        id: 'p7',
+        content: {
+          // An unclosed card full of widget fields, and link openers with no target end.
+          text: `Slow\n\n\`\`\`genui\n{${field.repeat(20_000)}\n${'](x'.repeat(20_000)}`,
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(slow, 'session', VIEWER_MEMBER, NOW);
+    const started = performance.now();
+    expect(searchConversations(grouped, slow, 'slow')).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it('still matches inside other GenUI blocks, which show as code', () => {
     const withChart = [
       makePost({

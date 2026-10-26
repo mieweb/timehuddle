@@ -493,14 +493,46 @@ function normalizeForSearch(text: string): string {
 }
 
 const FENCE = '```';
+
+/** Whether a GenUI block's payload is a Pulse card (one the card would draw). */
+function isPulseCardPayload(payload: string): boolean {
+  try {
+    return (JSON.parse(payload) as { widget?: unknown })?.widget === PULSE_VIDEO_WIDGET;
+  } catch {
+    // Not JSON: it shows as code, so its text stays searchable.
+    return false;
+  }
+}
+
 /**
- * A `pulse_video` GenUI block, one line or pretty-printed. Fences are whole
- * lines, as in Markdown, so backticks inside the JSON (a title) don't end it.
+ * `text` without its `pulse_video` GenUI blocks, one line or pretty-printed.
+ * Fences are whole lines, as in Markdown, so backticks inside the JSON (a
+ * title) don't end one. One pass over the lines: each block is read once, and
+ * an unclosed fence ends the search (nothing after it can close either), so
+ * no hand-written post can make this slow.
  */
-const PULSE_CARD_BLOCK = new RegExp(
-  `(^|\\n)${FENCE}genui\\n(?:(?!\\n${FENCE})[\\s\\S])*?"widget"\\s*:\\s*"${PULSE_VIDEO_WIDGET}"(?:(?!\\n${FENCE})[\\s\\S])*\\n${FENCE}(?=\\n|$)`,
-  'g',
-);
+function withoutPulseCards(text: string): string {
+  const lines = text.split('\n');
+  const kept: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const close = lines[i] === `${FENCE}genui` ? lines.indexOf(FENCE, i + 1) : -1;
+    if (lines[i] === `${FENCE}genui` && close === -1) {
+      kept.push(...lines.slice(i));
+      break;
+    }
+    if (close !== -1) {
+      if (!isPulseCardPayload(lines.slice(i + 1, close).join('\n'))) {
+        kept.push(...lines.slice(i, close + 1));
+      }
+      i = close + 1;
+      continue;
+    }
+    kept.push(lines[i]);
+    i++;
+  }
+  return kept.join('\n');
+}
 
 /**
  * Text as a reader sees it: no markdown link targets and no Pulse card
@@ -508,7 +540,23 @@ const PULSE_CARD_BLOCK = new RegExp(
  * query. Other GenUI blocks show as code, so their text stays searchable.
  */
 function searchableText(text: string): string {
-  return text.replace(/\]\([^)]*\)/g, ']').replace(PULSE_CARD_BLOCK, '$1');
+  return withoutLinkTargets(withoutPulseCards(text));
+}
+
+/**
+ * `text` with each markdown link target dropped (`[name](url)` → `[name]`).
+ * One pass: once a `](` has no `)` after it, no later one can either.
+ */
+function withoutLinkTargets(text: string): string {
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf('](', from);
+    const close = open === -1 ? -1 : text.indexOf(')', open + 2);
+    if (close === -1) return out + text.slice(from);
+    out += text.slice(from, open + 1);
+    from = close + 1;
+  }
 }
 
 /** Everything a post can be found by: body, author, ticket, attachments, team

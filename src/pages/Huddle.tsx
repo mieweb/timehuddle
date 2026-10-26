@@ -112,8 +112,17 @@ const imagePlugin = {
   components: { ...baseImagePlugin.components, img: BackendImage },
 };
 
-/** Host widgets for fenced ```genui blocks: Pulse videos (see pulseVideoBlock.ts). */
-const genUIPlugin = createGenUIPlugin({ [PULSE_VIDEO_WIDGET]: pulseVideoWidget });
+/**
+ * Host widgets for fenced ```genui blocks: Pulse videos (see pulseVideoBlock.ts).
+ * Without a prototype: the plugin looks a post's `widget` up by name, and a
+ * plain object would answer `"toString"` or `"__proto__"` with something that
+ * isn't a widget, crashing the post for everyone who reads it.
+ */
+const genUIPlugin = createGenUIPlugin(
+  Object.assign(Object.create(null) as Parameters<typeof createGenUIPlugin>[0], {
+    [PULSE_VIDEO_WIDGET]: pulseVideoWidget,
+  }),
+);
 
 /** Reserves the check's slot on unselected items so every label lines up. */
 function SelectedCheck({ selected }: { selected: boolean }) {
