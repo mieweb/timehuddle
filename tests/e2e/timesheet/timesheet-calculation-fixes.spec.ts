@@ -143,6 +143,11 @@ test.describe('Timesheet calculation fixes', () => {
       // i.e. ~144h for a break dangling from 6 days ago.
       await expect(timesheetPage.breakHours).toContainText('3h');
       await expect(timesheetPage.breakHours).not.toContainText(/\d{2,}h/);
+
+      // The hour worked before the break still counts: a 3h meal break
+      // bounded by the session leaves 1h, where one running to now erased it.
+      await expect(timesheetPage.totalHours).toHaveText(/^Total Hours\s*1h 0m$/);
+      await expect(page.locator('.session-row .session-top')).toContainText('1h 0m');
     } finally {
       if (clockEventId) {
         await db.collection('clockbreaks').deleteMany({ clockEventId });

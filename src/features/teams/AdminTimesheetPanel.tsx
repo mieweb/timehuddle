@@ -160,7 +160,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   // panel needs the same justification the member-facing one collects, or every
   // save on a multi-admin team is rejected by the server.
   const { user } = useSession();
-  const { teams: fullTeams } = useTeam();
+  // currentTime ticks, so an open session's time and Total Hours move together.
+  const { teams: fullTeams, currentTime } = useTeam();
   const userId = user?.id ?? '';
   const editTeam = fullTeams.find((t) => t.id === activeSession?.teamId);
   const editNeedsApproval = timesheetApprovalRequired(editTeam, userId);
@@ -251,7 +252,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
 
   // Recompute summary from filtered sessions
   const filteredSummary = useMemo(() => {
-    const now = Date.now();
+    const now = currentTime;
     const completed = filteredSessions.filter((s) => s.endTime !== null);
     const rawWorkSeconds = filteredSessions.reduce(
       (sum, s) => sum + getSessionWorkSeconds(s, now),
@@ -272,7 +273,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         completed.length > 0 ? Math.floor(rawWorkSeconds / completed.length) : 0,
       workingDays,
     };
-  }, [filteredSessions]);
+  }, [filteredSessions, currentTime]);
 
   // ── Edit modal handlers ──
 

@@ -144,8 +144,8 @@ export async function applyClockUpdate(
   else if (typeof endTime === 'number') $set.endTime = endTime;
 
   if (effectiveEnd !== null) {
-    const now = Date.now();
-    const deductedSeconds = computeDeductedBreakSeconds(classifiedBreaks, now);
+    // A break left open runs to the shift's end, not to now (see computeWorkSeconds).
+    const deductedSeconds = computeDeductedBreakSeconds(classifiedBreaks, effectiveEnd);
     const spanSeconds = Math.max(0, Math.floor((effectiveEnd - effectiveStart) / 1000));
     $set.accumulatedTime = Math.max(0, spanSeconds - deductedSeconds);
   }
@@ -545,7 +545,7 @@ Meteor.methods({
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;
     const totalBreakSeconds = sessions.reduce(
-      (sum, s) => sum + computeTotalBreakSeconds(s.breaks, now),
+      (sum, s) => sum + computeTotalBreakSeconds(s.breaks, s.endTime ?? now),
       0
     );
     const uniqueDates = new Set(

@@ -36,11 +36,14 @@ export function computeDeductedBreakSeconds(breaks, now) {
 /**
  * Net work seconds for a shift: full span minus deducted (meal) break seconds.
  * Mirror of computeWorkSeconds in backend clock.service.ts.
+ *
+ * A break left open on a shift that has ended runs to the shift's end, not to
+ * now: otherwise it outgrows the shift and erases the work done before it.
  */
 export function computeWorkSeconds(event, breaks, now) {
   const shiftEnd = typeof event.endTime === 'number' ? event.endTime : now;
   const shiftSpan = Math.max(0, Math.floor((shiftEnd - event.startTime) / 1000));
-  return Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
+  return Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, shiftEnd));
 }
 
 /** Total break seconds across all breaks (display only). Mirror of clock.service.ts. */
@@ -175,9 +178,11 @@ export function toPublicClockEvent(event, breaks) {
 
   const isPaused = breaks.some((b) => b.endTime === null);
   const now = Date.now();
+  // An open break on an ended shift stops where the shift did (see computeWorkSeconds).
+  const until = endTime ?? now;
   const workSeconds = computeWorkSeconds({ startTime, endTime }, breaks, now);
-  const deductedBreakSeconds = computeDeductedBreakSeconds(breaks, now);
-  const totalBreakSeconds = computeTotalBreakSeconds(breaks, now);
+  const deductedBreakSeconds = computeDeductedBreakSeconds(breaks, until);
+  const totalBreakSeconds = computeTotalBreakSeconds(breaks, until);
 
   const publicBreaks = breaks.map((b) => ({
     startTime: b.startTime,
