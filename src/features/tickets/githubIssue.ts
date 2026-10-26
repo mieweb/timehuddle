@@ -4,15 +4,13 @@
  * Provides shared logic for detecting GitHub URLs, fetching issue metadata,
  * and creating tickets from GitHub issues.
  */
-import { ticketApi } from '../../lib/api';
+import { github, matchIssueUrl } from '@timehuddle/ticket-sources';
 
-/** Regex to match GitHub issue or PR URLs. */
-export const GITHUB_ISSUE_URL_RE = /github\.com\/([^/?#]+)\/([^/?#]+)\/(issues|pull)\/(\d+)/;
+import { ticketApi } from '../../lib/api';
 
 export interface GitHubUrlParts {
   owner: string;
   repo: string;
-  type: 'issues' | 'pull';
   number: string;
 }
 
@@ -22,21 +20,23 @@ export interface GitHubIssue {
 }
 
 /**
- * Parse a GitHub issue or PR URL into its component parts.
- * Returns null if the URL doesn't match the expected pattern.
+ * Parse a GitHub issue or PR URL into its component parts, by the GitHub
+ * definition in `@timehuddle/ticket-sources` (#734). A pasted address without
+ * `https://` still counts. Returns null if the URL isn't a GitHub issue or PR.
  */
 export function parseGithubIssueUrl(url: string): GitHubUrlParts | null {
-  const match = url.match(GITHUB_ISSUE_URL_RE);
-  if (!match) return null;
-  const [, owner, repo, type, number] = match;
-  return { owner, repo, type: type as 'issues' | 'pull', number };
+  const text = url.trim();
+  const ref = matchIssueUrl(github, /^https?:\/\//i.test(text) ? text : `https://${text}`);
+  if (!ref?.container) return null;
+  const [owner, repo] = ref.container.split('/');
+  return { owner, repo, number: ref.key };
 }
 
 /**
  * Check if a string is a valid GitHub issue/PR URL.
  */
 export function isGithubIssueUrl(url: string): boolean {
-  return GITHUB_ISSUE_URL_RE.test(url);
+  return parseGithubIssueUrl(url) !== null;
 }
 
 /**
