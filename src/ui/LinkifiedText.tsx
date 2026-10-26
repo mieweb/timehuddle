@@ -10,9 +10,13 @@
  */
 import React from 'react';
 
-import { linkClassName, splitLinks } from './linkify';
+import { inverseLinkClassName, linkClassName, splitLinks } from './linkify';
 
-export const LinkifiedText: React.FC<{ text: string }> = ({ text }) => (
+export const LinkifiedText: React.FC<{
+  text: string;
+  /** On a surface that is dark in either theme, so links keep their contrast. */
+  inverse?: boolean;
+}> = ({ text, inverse = false }) => (
   <>
     {splitLinks(text).map((part, i) =>
       part.href ? (
@@ -21,7 +25,7 @@ export const LinkifiedText: React.FC<{ text: string }> = ({ text }) => (
           href={part.href}
           target="_blank"
           rel="noopener noreferrer"
-          className={linkClassName}
+          className={inverse ? inverseLinkClassName : linkClassName}
         >
           {part.text}
         </a>

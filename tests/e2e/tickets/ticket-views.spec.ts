@@ -43,12 +43,12 @@ test.describe('Tickets page views', () => {
     // A new ticket is on its creator's board, so the board is filtered by the bar.
     await tickets.search(title);
     await expect(tickets.rowByTitle(title)).toBeVisible();
-    await expect(tickets.activePanel.locator('tr[data-ticket-id]')).toHaveCount(1);
+    await expect(tickets.activePanel.locator('[data-ticket-id]')).toHaveCount(1);
 
     await tickets.switchToTab('tickets');
     await expect(tickets.searchInput).toHaveValue(title);
     await expect(tickets.rowByTitle(title)).toBeVisible();
-    await expect(tickets.activePanel.locator('tr[data-ticket-id]')).toHaveCount(1);
+    await expect(tickets.activePanel.locator('[data-ticket-id]')).toHaveCount(1);
 
     await tickets.search('');
     await tickets.switchToTab('my-board');
