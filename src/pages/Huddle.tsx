@@ -235,7 +235,7 @@ export default function Huddle() {
     [setParams],
   );
   const { user } = useSession();
-  const [sidebarWidth, setSidebarWidth] = useStoredSidebarWidth();
+  const [sidebarWidth, setSidebarWidth] = useStoredSidebarWidth(user?.id);
   const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime, teamsReady } =
     useTeam();
 
