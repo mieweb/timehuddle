@@ -7,9 +7,20 @@
 /** A PulseVault artifact id: a UUID (the only shape PulseVault accepts). */
 export const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The artifact id in a `/pulsevault/artifacts/<id>` URL or path, if any. */
+/**
+ * The artifact id when a URL or path *is* a `/pulsevault/artifacts/<id>` route,
+ * else null. Only the path counts: an external video whose query string
+ * mentions such a route (`…/demo.mp4?source=/pulsevault/artifacts/<id>`) stays
+ * the external video.
+ */
 export function pulseArtifactId(url: string | undefined | null): string | null {
-  const id = String(url ?? '').match(/\/pulsevault\/artifacts\/([^/?#]+)/)?.[1] ?? null;
+  let pathname: string;
+  try {
+    pathname = new URL(String(url ?? ''), 'http://relative.invalid').pathname;
+  } catch {
+    return null;
+  }
+  const id = pathname.match(/^\/pulsevault\/artifacts\/([^/]+)\/?$/)?.[1] ?? null;
   return id && ARTIFACT_ID.test(id) ? id : null;
 }
 

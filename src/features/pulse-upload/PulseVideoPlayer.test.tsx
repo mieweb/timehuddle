@@ -70,4 +70,20 @@ describe('PulseVideoPlayer poster', () => {
     expect(probes).toHaveLength(POSTER_RETRY_MS.length);
     expect(placeholder(container)).not.toBeNull();
   });
+
+  it('starts afresh when the host swaps in another video', async () => {
+    const OTHER = '1c8f8d2f-6b40-4d2e-8f3b-7a2e3d4c5b6a';
+    const { container, rerender } = render(<PulseVideoPlayer video={VIDEO} />);
+    // The first video has no thumbnail, however long it's looked for.
+    fireEvent.error(poster(container)!);
+    for (const delay of POSTER_RETRY_MS) {
+      await act(() => vi.advanceTimersByTimeAsync(delay));
+      act(() => probes[probes.length - 1].onerror?.());
+    }
+    expect(placeholder(container)).not.toBeNull();
+
+    rerender(<PulseVideoPlayer video={OTHER} />);
+
+    expect(poster(container)?.getAttribute('src')).toBe(`/pulsevault/artifacts/${OTHER}/poster`);
+  });
 });

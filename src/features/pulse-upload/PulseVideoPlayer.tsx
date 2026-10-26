@@ -81,7 +81,16 @@ interface PulseVideoPlayerProps {
   title?: string;
 }
 
-export function PulseVideoPlayer({ video, title }: PulseVideoPlayerProps) {
+/**
+ * Keyed by the video: a host that swaps the video under it (the approvals
+ * window moving to the next request) gets a fresh card — a Play button, and
+ * its own looks for the poster — not the last video's state.
+ */
+export function PulseVideoPlayer(props: PulseVideoPlayerProps) {
+  return <PulseVideoCard key={props.video} {...props} />;
+}
+
+function PulseVideoCard({ video, title }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
   // No poster (yet), or it failed to load: the same plain box with the ▶.
   const poster = usePoster(video);
