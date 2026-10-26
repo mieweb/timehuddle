@@ -859,6 +859,17 @@ export const TicketsPage: React.FC = () => {
   // leaves once its ticket is on the board: from then on the board answers, so
   // taking the ticket off makes the issue addable again.
   const assignedAddedRef = React.useRef(new Set<number>());
+  const boardIssueIdsRef = React.useRef(boardRedmineIssueIds);
+  const pruneAssignedAdded = useCallback(() => {
+    const pending = assignedAddedRef.current;
+    for (const id of pending) if (boardIssueIdsRef.current.has(id)) pending.delete(id);
+  }, []);
+  // On every change of the board, so an issue added then taken off before the
+  // next fill isn't still held back by it.
+  useEffect(() => {
+    boardIssueIdsRef.current = boardRedmineIssueIds;
+    pruneAssignedAdded();
+  }, [boardRedmineIssueIds, pruneAssignedAdded]);
   useEffect(() => {
     setAssignedRemaining(null);
     assignedAddedRef.current = new Set();
@@ -881,7 +892,6 @@ export const TicketsPage: React.FC = () => {
     setGettingAssigned(true);
     try {
       const pending = assignedAddedRef.current;
-      for (const id of pending) if (boardRedmineIssueIds.has(id)) pending.delete(id);
       const { offBoard, nextOffset } = await collectAssignedOffBoard(
         (offset) => redmineApi.issues.assignedIds(offset),
         (id) => !boardRedmineIssueIds.has(id) && !pending.has(id),
@@ -897,6 +907,8 @@ export const TicketsPage: React.FC = () => {
       if (!result) return;
       // Only the ones that made it: a failed one stays to be added again.
       for (const key of result.requested) pending.add(Number(ticketRefOf(key).ticketId));
+      // The board may have caught up while they were being added.
+      pruneAssignedAdded();
       const leftOver = offBoard.length - result.requested.length;
       // An unread page may hold more, so the count is only known at the end.
       setAssignedRemaining(nextOffset === null ? leftOver : null);
@@ -907,7 +919,14 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setGettingAssigned(false);
     }
-  }, [boardRedmineIssueIds, addToBoard, showAssignedNotice, dismissAssignedNotice, toast]);
+  }, [
+    boardRedmineIssueIds,
+    addToBoard,
+    pruneAssignedAdded,
+    showAssignedNotice,
+    dismissAssignedNotice,
+    toast,
+  ]);
   const nextAssignedCount = Math.min(assignedRemaining ?? STARTER_LIMIT, STARTER_LIMIT);
 
   const handleRemoveFromBoard = useCallback(() => {
