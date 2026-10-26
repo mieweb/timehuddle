@@ -111,8 +111,16 @@ async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTi
  * what every new ticket gets: a place on its creator's My Board, a
  * `ticket.created` activity and a notice to its assignees. `fields` are
  * already validated. Returns the stored document.
+ *
+ * `addToBoard: false` leaves My Board alone, for a caller that puts the ticket
+ * there itself through the capacity-checked `myBoard.addMany`.
  */
-export async function insertTicket(userId, { teamId, orgId }, fields) {
+export async function insertTicket(
+  userId,
+  { teamId, orgId },
+  fields,
+  { addToBoard = true } = {},
+) {
   const _id = await Tickets.insertAsync({
     teamId,
     number: await nextTicketNumber(rawDb(), orgId),
@@ -126,9 +134,11 @@ export async function insertTicket(userId, { teamId, orgId }, fields) {
   const ticketId = doc._id.toHexString();
   // A new ticket starts on its creator's My Board. Best-effort: a full board,
   // or a failed write, must not fail the create.
-  await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId }).catch((err) =>
-    console.error('[ticket] add to My Board failed:', err),
-  );
+  if (addToBoard) {
+    await addBoardEntryIfRoom(userId, { sourceId: HUDDLE, ticketId }).catch((err) =>
+      console.error('[ticket] add to My Board failed:', err),
+    );
+  }
   await emitTicketActivity(userId, teamId, 'ticket.created', {
     ticketId,
     ticketTitle: doc.title,

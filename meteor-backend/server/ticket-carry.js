@@ -77,7 +77,10 @@ Meteor.methods({
             return readLinkableIssue(userId, id);
           },
           // Inserted already linked, in one write: a failure after it leaves a
-          // ticket the next carry finds, never an unlinked one beside it.
+          // ticket the next carry finds, never an unlinked one beside it. Not
+          // put on My Board here: the action that carried it does that through
+          // the capacity-checked `myBoard.addMany`, so a refused add leaves
+          // nothing behind that the user wasn't told about.
           createCarrier: async (issue) => {
             const doc = await insertTicket(
               userId,
@@ -87,6 +90,7 @@ Meteor.methods({
                 assignedTo: [userId],
                 linkedIssue: redmineLinkFor(id, hostOf(optionalRedmineBaseUrl())),
               },
+              { addToBoard: false },
             );
             await announceLinkChange(userId, doc, null, id);
             return toPublicTicket(doc);
