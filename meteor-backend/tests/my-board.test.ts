@@ -70,16 +70,17 @@ afterAll(async () => {
 });
 
 describe('myBoard.addMany', () => {
-  it('adds a Huddle ticket the caller can see, once', async () => {
+  it('adds a Huddle ticket the caller can see and a Redmine issue, once each', async () => {
     const refs = [
       { sourceId: 'huddle', ticketId: ownTicketId },
-      { sourceId: 'huddle', ticketId: ownTicketId },
+      { sourceId: 'redmine', ticketId: '42' },
+      { sourceId: 'redmine', ticketId: '42' },
     ];
     const res = await add(refs);
     expect(res.ok).toBe(true);
-    expect(res.result.addedCount).toBe(1);
+    expect(res.result.addedCount).toBe(2);
     expect(await add(refs)).toMatchObject({ ok: true });
-    expect(await boardKeys()).toEqual([`huddle:${ownTicketId}`]);
+    expect(await boardKeys()).toEqual([`huddle:${ownTicketId}`, 'redmine:42'].sort());
   });
 
   it('skips a Huddle ticket in a team the caller is not in', async () => {
@@ -92,9 +93,8 @@ describe('myBoard.addMany', () => {
   it.each([
     ['an unknown source', [{ sourceId: 'jira', ticketId: '42' }]],
     ['a Huddle id that is not an ObjectId', [{ sourceId: 'huddle', ticketId: 'nope' }]],
-    // A Redmine issue goes on as the ticket carrying it (#736).
-    ['a bare Redmine issue', [{ sourceId: 'redmine', ticketId: '42' }]],
-    ['more refs than a board holds', Array.from({ length: 501 }, () => ({ sourceId: 'huddle', ticketId: ownTicketId }))],
+    ['a Redmine id that is not a positive integer', [{ sourceId: 'redmine', ticketId: '-1' }]],
+    ['more refs than a board holds', Array.from({ length: 501 }, (_, i) => ({ sourceId: 'redmine', ticketId: String(i + 1) }))],
   ])('refuses %s', async (_label, refs) => {
     const before = await boardKeys();
     expect((await add(refs)).ok).toBe(false);
@@ -102,22 +102,9 @@ describe('myBoard.addMany', () => {
   });
 
   it('refuses an add that would take the board past its limit', async () => {
-    const db = await getDb();
-    await db.collection('my_board').deleteMany({ userId });
-    await db.collection('my_board').insertMany(
-      Array.from({ length: 500 }, (_, i) => ({
-        userId,
-        sourceId: 'huddle',
-        ticketId: new ObjectId().toHexString(),
-        addedAt: new Date(i),
-      })),
-    );
-    try {
-      const res = await add([{ sourceId: 'huddle', ticketId: ownTicketId }]);
-      expect(res.ok).toBe(false);
-      expect(res.error).toMatch(/at most 500/i);
-    } finally {
-      await db.collection('my_board').deleteMany({ userId });
-    }
+    const refs = Array.from({ length: 500 }, (_, i) => ({ sourceId: 'redmine', ticketId: String(i + 1000) }));
+    const before = await boardKeys();
+    expect((await add(refs)).ok).toBe(false);
+    expect(await boardKeys()).toEqual(before);
   });
 });

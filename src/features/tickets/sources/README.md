@@ -2,11 +2,10 @@
 
 Everything the unified ticket list at `/app/tickets` can draw from.
 
-Every row is a TimeHuddle ticket (#736). A ticket can carry a Redmine issue, and
-the Redmine source supplies that issue's live status and assignee, read with the
-viewer's own key; it has no rows of its own. Each source is normalized to a
-single `UnifiedTicket` shape here, so the list, filter bar, and row component
-never learn where a ticket came from.
+Tickets come from more than one system — TimeHuddle's own `Ticket` collection and
+a connected Redmine instance today. Rather than give each one its own page, every
+source is normalized to a single `UnifiedTicket` shape here, so the list, filter
+bar, and row component never learn where a ticket came from.
 
 ## Files
 

@@ -85,6 +85,7 @@ const redmineStart: TicketStartRequest = {
   kind: 'ticket',
   ticket: { sourceId: 'redmine', id: '15' },
   label: '#15',
+  inTable: true,
   onBoard: false,
 };
 

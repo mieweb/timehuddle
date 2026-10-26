@@ -245,4 +245,22 @@ test.describe('Creating a ticket tracked in Redmine', () => {
     await chooseProject(page, 'Intake');
     await expect(createButton(page)).toBeEnabled();
   });
+
+  test('opens the edit dialog for an existing issue from its row', async ({ page }) => {
+    const { tickets } = await openTickets(page, {
+      ...linked,
+      'issues.get': { baseUrl: BASE_URL, issue: issueDetail(), journals: [] },
+    });
+
+    await tickets.search('Fix the intake form validation');
+    await tickets
+      .rowByTitle('Fix the intake form validation')
+      .getByRole('button', { name: 'Ticket options' })
+      .click();
+    await page.getByRole('menuitem', { name: 'Edit Ticket' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Edit Redmine issue #15' })).toBeVisible({
+      timeout: 15000,
+    });
+  });
 });

@@ -16,7 +16,7 @@ import { Mongo } from 'meteor/mongo';
 import { DUPLICATE_KEY_ERROR_CODE, MyBoard, Tickets, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { bustUserCaches } from './redmine-cache';
-import { HUDDLE, refKey, teamsOpenTo } from './ticket-refs';
+import { HUDDLE, REDMINE, isRedmineIssueId, refKey, teamsOpenTo } from './ticket-refs';
 
 /**
  * The most tickets one board holds, and so the most one call may name. Every
@@ -52,11 +52,9 @@ function validateRefs(refs) {
   }
 }
 
-/**
- * Whether a ref names a ticket that can go on the board. Only TimeHuddle
- * tickets do: a Redmine issue goes on as the ticket carrying it (#736).
- */
-const isTicketRef = ({ sourceId, ticketId }) => sourceId === HUDDLE && isValidId(ticketId);
+/** Whether a ref names a known source and an id that source could have issued. */
+const isTicketRef = ({ sourceId, ticketId }) =>
+  (sourceId === HUDDLE && isValidId(ticketId)) || (sourceId === REDMINE && isRedmineIssueId(ticketId));
 
 /**
  * The distinct refs of an add request. Stricter than `validateRefs`, which
@@ -177,13 +175,14 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const wanted = addableRefs(refs);
 
-    // A ticket the caller cannot see is skipped, not refused: one stale row in
-    // a selection should not stop the rest.
+    // A Huddle ticket the caller cannot see is skipped, not refused: one stale
+    // row in a selection should not stop the rest. A Redmine issue is not
+    // checked here — it is only ever read through the caller's own key.
     const hidden = await unavailableHuddleTicketIds(
       userId,
-      wanted.map((ref) => ref.ticketId),
+      wanted.filter((ref) => ref.sourceId === HUDDLE).map((ref) => ref.ticketId),
     );
-    const allowed = wanted.filter((ref) => !hidden.has(ref.ticketId));
+    const allowed = wanted.filter((ref) => ref.sourceId !== HUDDLE || !hidden.has(ref.ticketId));
 
     const existing = await MyBoard.find(
       { userId },

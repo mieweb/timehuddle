@@ -1,8 +1,10 @@
 /**
  * Attachments — wormhole REST integration tests.
  *
- * A Redmine issue takes no attachments of its own since #736: work on one is
- * carried by a TimeHuddle ticket, and attachments go on that.
+ * A Redmine issue's attachments are stored in TimeHuddle under kind `redmine`,
+ * gated on the caller's own Redmine key seeing the issue. The fixture user has
+ * no linked Redmine account, so every `redmine` call must stop at that check;
+ * a Huddle ticket keeps working as before.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createUserAndGetJwt, wormhole, getDb, closeDb, purgeUser } from './helpers';
@@ -29,14 +31,14 @@ afterAll(async () => {
   await closeDb();
 });
 
-describe('attachments on a Redmine issue (wormhole, #736)', () => {
-  it('lists none: Redmine is not an attachment kind', async () => {
+describe('attachments on a Redmine issue (wormhole)', () => {
+  it('refuses to list them without a linked Redmine account', async () => {
     const res = await wormhole('attachments.list', { kind: 'redmine', id: ISSUE_ID }, jwt);
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/Invalid kind/i);
+    expect(res.error).toMatch(/Redmine/i);
   });
 
-  it('adds none, and stores nothing', async () => {
+  it('refuses to add one without a linked Redmine account, and stores nothing', async () => {
     const res = await wormhole(
       'attachments.add',
       {
@@ -47,30 +49,36 @@ describe('attachments on a Redmine issue (wormhole, #736)', () => {
       jwt,
     );
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/Invalid attachedTo.kind/i);
+    expect(res.error).toMatch(/Redmine/i);
 
     const db = await getDb();
     const stored = await db.collection('attachments').findOne({ 'attachedTo.id': ISSUE_ID });
     expect(stored).toBeNull();
   });
 
-  it('reserves no Pulse upload for one', async () => {
+  it('refuses to reserve a Pulse upload for the issue', async () => {
     const res = await wormhole(
       'pulsevault.reserve',
       { destination: { kind: 'redmine', id: ISSUE_ID } },
       jwt,
     );
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/Unknown Pulse destination/i);
+    expect(res.error).toMatch(/Redmine/i);
   });
 
-  it('rejects a numeric id, which list would never match', async () => {
+  it('rejects a numeric issue id, which list would never match', async () => {
     const res = await wormhole(
       'attachments.add',
-      { url: 'https://example.com/spec', type: 'link', attachedTo: { kind: 'ticket', id: 424242 } },
+      { url: 'https://example.com/spec', type: 'link', attachedTo: { kind: 'redmine', id: 424242 } },
       jwt,
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/attachedTo is required/i);
+  });
+
+  it('rejects an id that is not a Redmine issue id', async () => {
+    const res = await wormhole('attachments.list', { kind: 'redmine', id: 'abc' }, jwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not found/i);
   });
 });

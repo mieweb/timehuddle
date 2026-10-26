@@ -147,6 +147,41 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await expectRows(page, tickets, title, 0);
   });
 
+  test('matches Redmine issues assigned to the linked account too', async ({ page }) => {
+    await stubRedmine(page, {
+      status: connectedStatus({ redmineUserId: 8 }),
+      'issues.relevant': {
+        connected: true,
+        baseUrl: BASE_URL,
+        issues: [
+          // Not named "Me": the filter menu already has a "Me" sentinel entry,
+          // and an assignee by that name would collide with it.
+          redmineIssue({
+            id: 15,
+            subject: 'Mine in Redmine',
+            assignedTo: { id: 8, name: 'Linked Redmine User' },
+          }),
+          redmineIssue({
+            id: 23,
+            subject: 'Someone else in Redmine',
+            assignedTo: { id: 42, name: 'Other Person' },
+          }),
+        ],
+      },
+    });
+    const tickets = await openTickets(page);
+
+    const mine = `Mine huddle ${Date.now()}`;
+    await createHuddleTicket(page, mine);
+
+    await tickets.filterBy('Assignees', 'Me');
+
+    // Both namespaces at once — the whole point of the sentinel.
+    await expectRows(page, tickets, 'Mine in Redmine', 1);
+    await expectRows(page, tickets, mine, 1);
+    await expectRows(page, tickets, 'Someone else in Redmine', 0);
+  });
+
   test('a Huddle id never matches a Redmine account with the same number', async ({ page }) => {
     // The ids are unrelated integers in different spaces; without the
     // `source:id` namespacing, a Redmine assignee could match a Huddle user

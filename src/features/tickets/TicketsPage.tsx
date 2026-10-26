@@ -72,6 +72,7 @@ import {
   redmineSource,
   ticketKey,
   ticketRefOf,
+  useUnavailableRedmineBoardIds,
   useUnifiedTickets,
   type UnifiedTicket,
 } from './sources';
@@ -93,6 +94,18 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Completed' },
   { value: 'reviewed', label: 'Reviewed' },
 ];
+
+/** The most Redmine ids `redmine.issues.removeFromTable` takes per call. */
+const REDMINE_REMOVE_CHUNK = 100;
+
+/** `items` in slices of at most `size`. */
+function chunk<T>(items: T[], size: number): T[][] {
+  const slices: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    slices.push(items.slice(start, start + size));
+  }
+  return slices;
+}
 
 /** The two views' names and the empty board's pointer to the other one. */
 const viewText = {
@@ -379,16 +392,25 @@ export const TicketsPage: React.FC = () => {
 
   /**
    * Board entries with no ticket behind them. A board row is identity-only, so
-   * it outlives the ticket it points at, which may have been deleted. Only
-   * entries the server confirmed gone are offered for removal — never one that
-   * merely failed to load.
+   * it outlives the ticket it points at: a Redmine issue is unreachable while
+   * the account is unlinked, or deleted, and a Huddle ticket may have been
+   * deleted. Only entries the server confirmed gone are offered for removal —
+   * never one that merely failed to load.
    */
+  const unavailableRedmineIds = useUnavailableRedmineBoardIds(userId);
   const [removeUnavailableFailed, setRemoveUnavailableFailed] = useState(false);
   const unresolvedBoard = useMemo(() => {
     const linkedKeys = new Set(allTickets.map(linkedIssueKey));
     const missing = [...boardKeys].filter((key) => !ticketByKey.has(key) && !linkedKeys.has(key));
     if (ticketsLoading || missing.length === 0) return null;
-    const removableKeys = missing.filter((key) => unavailableHuddleKeys.has(key));
+    const redmineCount = missing.filter((key) => key.startsWith('redmine:')).length;
+    if (redmineCount > 0 && redmineConnected === false) {
+      return { message: removalText.connectRedmine(redmineCount), removableKeys: [] };
+    }
+    const goneRedmine = new Set(unavailableRedmineIds.map((id) => `redmine:${id}`));
+    const removableKeys = missing.filter(
+      (key) => goneRedmine.has(key) || unavailableHuddleKeys.has(key),
+    );
     return {
       message:
         removableKeys.length > 0
@@ -396,7 +418,15 @@ export const TicketsPage: React.FC = () => {
           : removalText.boardNotLoaded(missing.length),
       removableKeys,
     };
-  }, [boardKeys, allTickets, ticketByKey, ticketsLoading, unavailableHuddleKeys]);
+  }, [
+    boardKeys,
+    allTickets,
+    ticketByKey,
+    ticketsLoading,
+    redmineConnected,
+    unavailableRedmineIds,
+    unavailableHuddleKeys,
+  ]);
   const unresolvedBoardNotice = unresolvedBoard?.message ?? null;
 
   // Filter/sort/paginate/select — one independent pipeline per tab.
@@ -448,7 +478,11 @@ export const TicketsPage: React.FC = () => {
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
-  const [deleteRequest, setDeleteRequest] = useState<{ huddleIds: string[] } | null>(null);
+  // Huddle tickets are deleted outright; Redmine issues only leave TimeHuddle.
+  const [deleteRequest, setDeleteRequest] = useState<{
+    huddleIds: string[];
+    redmineIds: number[];
+  } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Edit modal state (creator only)
@@ -498,6 +532,7 @@ export const TicketsPage: React.FC = () => {
         label,
         // An issue on the board is a table row for that alone, even before the
         // refetch that lists it: nothing to pin.
+        inTable: ticketByKey.has(ticket.key) || isOnBoard(ticket, boardKeys),
         onBoard: isOnBoard(ticket, boardKeys),
       });
     },
@@ -548,6 +583,10 @@ export const TicketsPage: React.FC = () => {
   // edit form needs (description, assignees) when the modal actually opens.
   const openEditModal = useCallback(async (unified: UnifiedTicket) => {
     if (!unified.capabilities.edit) return;
+    if (unified.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(unified.id));
+      return;
+    }
     const ticket = await ticketApi.getTicket(unified.id);
     setEditTicket(ticket);
     setEditTitle(ticket.title);
@@ -589,6 +628,10 @@ export const TicketsPage: React.FC = () => {
   // A Redmine status change goes through the edit dialog: its choices are the
   // transitions Redmine's workflow allows, not Huddle's fixed status list.
   const handleChangeStatusRequest = useCallback((t: UnifiedTicket) => {
+    if (t.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(t.id));
+      return;
+    }
     // A linked ticket shows its Redmine issue's status, so that is the status
     // to change. A viewer who cannot read the issue changes the ticket's own.
     if (t.linked?.status) {
@@ -617,6 +660,7 @@ export const TicketsPage: React.FC = () => {
     setDeleteError(null);
     setDeleteRequest({
       huddleIds: tickets.filter((t) => t.sourceId === 'huddle').map((t) => t.id),
+      redmineIds: tickets.filter((t) => t.sourceId === 'redmine').map((t) => Number(t.id)),
     });
   }, []);
 
@@ -624,10 +668,11 @@ export const TicketsPage: React.FC = () => {
 
   const handleDelete = useCallback(async () => {
     if (!deleteRequest) return;
-    const { huddleIds } = deleteRequest;
+    const { huddleIds, redmineIds } = deleteRequest;
     setDeleteLoading(true);
     setDeleteError(null);
-    // A deleted ticket leaves its board entries behind.
+    // A deleted Huddle ticket leaves its board entries behind; the server drops
+    // the Redmine ones along with the removal.
     const huddleBoardRefs = huddleIds
       .filter((id) => boardKeys.has(`huddle:${id}`))
       .map((id) => ({ sourceId: 'huddle', ticketId: id }));
@@ -635,12 +680,16 @@ export const TicketsPage: React.FC = () => {
     try {
       const results = await Promise.allSettled([
         ...huddleIds.map((id) => ticketApi.deleteTicket(id)),
+        ...chunk(redmineIds, REDMINE_REMOVE_CHUNK).map((ids) =>
+          redmineApi.issues.removeFromTable(ids),
+        ),
         ...(huddleBoardRefs.length ? [myBoardApi.removeMany(huddleBoardRefs)] : []),
       ]);
       failed = results.some((r) => r.status === 'rejected');
     } finally {
       setDeleteLoading(false);
     }
+    if (redmineIds.length) invalidateRedmineCache();
     void refetch();
     loadBoard();
     ticketsView.clearSelection();
@@ -671,13 +720,15 @@ export const TicketsPage: React.FC = () => {
   );
 
   // The bulk Delete button is disabled unless every currently selected
-  // ticket (on whichever tab) is eligible.
+  // ticket (on whichever tab) is eligible. A Redmine issue always is: deleting
+  // it only takes it out of TimeHuddle.
   const canDeleteSelection = useCallback(
     (selectedKeys: Set<string>) =>
       selectedKeys.size > 0 &&
       [...selectedKeys].every((key) => {
         const ticket = ticketByKey.get(key);
-        return !!ticket && canDelete(ticket);
+        if (!ticket) return false;
+        return ticket.sourceId === 'redmine' || canDelete(ticket);
       }),
     [ticketByKey, canDelete],
   );
@@ -1179,10 +1230,19 @@ export const TicketsPage: React.FC = () => {
           size="sm"
         >
           <ModalHeader>
-            <ModalTitle>{removalText.deleteTitle(deleteRequest?.huddleIds.length ?? 0)}</ModalTitle>
+            <ModalTitle>
+              {removalText.deleteTitle(
+                (deleteRequest?.huddleIds.length ?? 0) + (deleteRequest?.redmineIds.length ?? 0),
+              )}
+            </ModalTitle>
             <ModalClose />
           </ModalHeader>
           <ModalBody className="space-y-2">
+            {!!deleteRequest?.redmineIds.length && (
+              <Text variant="muted" size="sm">
+                {removalText.redmineRemoved(deleteRequest.redmineIds.length)}
+              </Text>
+            )}
             {!!deleteRequest?.huddleIds.length && (
               <Text variant="muted" size="sm">
                 {removalText.huddleDeleted(deleteRequest.huddleIds.length)}
