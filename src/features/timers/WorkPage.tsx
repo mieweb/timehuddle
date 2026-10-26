@@ -949,20 +949,6 @@ export const WorkPage: React.FC = () => {
                             {title}
                           </Text>
                         </button>
-                        {de.entry.source === 'redmine' && (
-                          <Badge variant="outline" size="sm" className="shrink-0">
-                            Redmine
-                          </Badge>
-                        )}
-                        {isRunning && (
-                          <Badge variant="success" size="sm" className="shrink-0">
-                            <FontAwesomeIcon
-                              icon={faSpinner}
-                              className="mr-1 animate-spin text-[10px]"
-                            />
-                            Running
-                          </Badge>
-                        )}
                         <Text
                           size="sm"
                           variant={total > 0 ? 'default' : 'muted'}
@@ -986,6 +972,26 @@ export const WorkPage: React.FC = () => {
                           <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                         </Button>
                       </div>
+                      {/* Under the title, not beside it: on a phone, badges
+                          next to the duration and menu left the title no room. */}
+                      {(de.entry.source === 'redmine' || isRunning) && (
+                        <div className="work-item-badges flex flex-wrap items-center gap-1.5 pb-1">
+                          {de.entry.source === 'redmine' && (
+                            <Badge variant="outline" size="sm">
+                              Redmine
+                            </Badge>
+                          )}
+                          {isRunning && (
+                            <Badge variant="success" size="sm">
+                              <FontAwesomeIcon
+                                icon={faSpinner}
+                                className="mr-1 animate-spin text-[10px]"
+                              />
+                              Running
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                       {de.entry.note?.trim() && (
                         // In full, not cut off: a link in it stays clickable.
                         <Text

@@ -50,6 +50,12 @@ interface Props {
   changeStatus?: 'pending' | 'rejected';
   /** The reviewer's reason, shown on a declined change. */
   changeNote?: string;
+  /**
+   * The pending change's walkthrough (Pulse and Upload), before "Pending
+   * approval". Mounted with the row, which keeps one layout at every width,
+   * so an upload under way isn't lost to a resize or a closed window.
+   */
+  pendingAction?: React.ReactNode;
 }
 
 type TimelineRow = {
@@ -255,6 +261,7 @@ export const TimesheetRow: React.FC<Props> = ({
   onVideos,
   changeStatus,
   changeNote,
+  pendingAction,
 }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   // Oldest first: a session's parts read as the day went.
@@ -314,12 +321,15 @@ export const TimesheetRow: React.FC<Props> = ({
 
       <div className="session-times flex flex-wrap items-center gap-x-2">
         <ClockRange start={start} end={end} />
-        <Text as="span" size="sm" variant="muted">
+        {/* Shrinks and breaks anywhere: a long unbroken team name wraps within
+            the session instead of making the list scroll sideways. */}
+        <Text as="span" size="sm" variant="muted" className="min-w-0 [overflow-wrap:anywhere]">
           · {teamName}
         </Text>
       </div>
 
       <div className="session-meta mt-2 flex flex-wrap items-center gap-1.5">
+        {changeStatus === 'pending' && pendingAction}
         <SessionStatus status={lastStatus} changeStatus={changeStatus} />
         {breakCount > 0 && (
           <DisclosureChip
@@ -441,7 +451,6 @@ const SessionStatus: React.FC<{
   changeStatus?: Props['changeStatus'];
 }> = ({ status, changeStatus }) => {
   if (changeStatus === 'pending') {
-    // Pulse and Upload live behind the session's Videos button.
     return (
       <Badge
         variant="warning"
