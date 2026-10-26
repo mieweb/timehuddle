@@ -49,6 +49,33 @@ describe('splitLinks', () => {
     ]);
   });
 
+  it('drops an unmatched square or curly bracket, but keeps balanced ones', () => {
+    expect(splitLinks('Recording [https://example.com/repro]')).toEqual([
+      { text: 'Recording [' },
+      { text: 'https://example.com/repro', href: 'https://example.com/repro' },
+      { text: ']' },
+    ]);
+    expect(splitLinks('{https://example.com}')).toEqual([
+      { text: '{' },
+      { text: 'https://example.com', href: 'https://example.com' },
+      { text: '}' },
+    ]);
+    const ipv6 = 'http://[::1]:8080/a[1]';
+    expect(splitLinks(`see ${ipv6}.`)).toEqual([
+      { text: 'see ' },
+      { text: ipv6, href: ipv6 },
+      { text: '.' },
+    ]);
+  });
+
+  it('links a scheme in any case', () => {
+    expect(splitLinks('HTTPS://example.com/repro and Http://x.dev')).toEqual([
+      { text: 'HTTPS://example.com/repro', href: 'HTTPS://example.com/repro' },
+      { text: ' and ' },
+      { text: 'Http://x.dev', href: 'Http://x.dev' },
+    ]);
+  });
+
   it('only links http and https, so a javascript: URL stays text', () => {
     expect(splitLinks('javascript:alert(1)')).toEqual([{ text: 'javascript:alert(1)' }]);
   });
