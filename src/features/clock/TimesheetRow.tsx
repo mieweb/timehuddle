@@ -398,7 +398,7 @@ export const TimesheetRow: React.FC<Props> = ({
                   {/* Capped at the visible width of the card (the screen less
                       its padding, and less the sidebar from md up) so it wraps
                       there instead of running past the edge. */}
-                  <div className="sticky left-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
+                  <div className="sticky start-0 flex w-fit max-w-[calc(100vw-3.5rem)] flex-wrap items-center gap-2 md:max-w-[calc(100vw-18.5rem)]">
                     <Badge
                       variant="warning"
                       size="sm"
