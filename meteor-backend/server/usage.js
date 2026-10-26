@@ -127,6 +127,19 @@ async function bucketsForSource(source, memberIds, windowStart, timezone) {
   }));
 }
 
+// Each source is read as `userField in members, timeField since the window start`.
+Meteor.startup(async () => {
+  for (const source of FEATURE_SOURCES) {
+    try {
+      await rawDb()
+        .collection(source.collection)
+        .createIndex({ [source.userField]: 1, [source.timeField]: -1 });
+    } catch (error) {
+      console.error(`[usage] failed to create ${source.collection} index:`, error);
+    }
+  }
+});
+
 Meteor.methods({
   /**
    * Usage rows for the members of the organizations the caller administers.
