@@ -107,6 +107,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 2.3 | One avatar for what the thread is about (a person, or the day/ticket/milestone icon)                                                          | ⚠️ Shows up to 6 participant avatars, and system participants (the time clock) appear as a "C" avatar | P2       |
 | 2.4 | Full title with no cut-off ("Aisha Khan's session · Tue, Sep 29")                                                                             | ⚠️ One plain-text title that gets truncated                                                           | P2       |
 | 2.5 | Close button                                                                                                                                  | ✅ Through `onConversationClosed`                                                                     | —        |
+| 2.6 | Title links to what the thread is about (the ticket page in Ticket threads, #737)                                                             | ❌ The title is a plain string; no `titleHref` or render slot                                         | P3       |
 
 ### 3. Messages
 
@@ -129,6 +130,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 3.15 | Inline edit stays available when the message box is hidden or read-only                                     | ❌ `readOnly` also turns off Edit                                                                                                | P2       |
 | 3.16 | Edit opens the host's own editor (e.g. TimeHuddle's rich editor)                                            | ❌ Edit always opens SuperChat's plain textarea; no `onEditRequest`-style hook                                                   | P3       |
 | 3.17 | Long URLs and wide images wrap inside the bubble                                                            | ❌ They push the bubble past the thread; Huddle caps it with CSS                                                                 | P2       |
+| 3.18 | Links in messages show a focus ring, and the host can name them ("Open ticket: …", #737)                    | ❌ The default link has no `focus-visible` style and no way to set `aria-label`                                                  | P2       |
 
 ### 4. Message Box (Composer)
 
