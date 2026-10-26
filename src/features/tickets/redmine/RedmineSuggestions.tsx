@@ -44,7 +44,7 @@ import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { huddleTicketRef } from '../sources/huddleSource';
 import { carriedRefOf, outsideIdOf } from '../ticketIds';
-import { ticketDetailPath } from '../sources/types';
+import { ticketDetailPath, ticketKey } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
 
 import { ticketTimerText as timerText } from '../../timers/ticketTimerStrings';
@@ -77,6 +77,10 @@ interface RedmineSuggestionsProps {
   runningIssueId: number | null;
   /** Start a timer on the issue, or stop it when it is the running one. */
   onToggleTimer: (issue: RedmineIssue) => Promise<TicketTimerOutcome>;
+  /** The key of the ticket a timer is running on, e.g. `huddle:<id>`, if any. */
+  runningTicketKey: string | null;
+  /** Start a timer on a ticket a typed ID found, or stop it when it is the running one. */
+  onToggleTicketTimer: (ticket: Ticket) => Promise<TicketTimerOutcome>;
   /** Redmine issue ids on My Board. Off it, starting a timer adds the issue first. */
   boardIssueIds: ReadonlySet<number>;
   /** The board has been read, so `boardIssueIds` is a fact — see `useMyBoardKeys`. */
@@ -146,6 +150,8 @@ export function RedmineSuggestions({
   tableIssueIds,
   runningIssueId,
   onToggleTimer,
+  runningTicketKey,
+  onToggleTicketTimer,
   boardIssueIds,
   boardKnown,
   onToggleBoard,
@@ -158,15 +164,17 @@ export function RedmineSuggestions({
     useRedmineSuggestions(userId, query);
   const foundTickets = useTicketRefSearch(userId, query);
   const [showAll, setShowAll] = useState(false);
-  // The issue whose timer start or stop is in flight. The ref is the guard (a
-  // double-click lands before the state does); the state drives the spinner.
-  const [timerIssueId, setTimerIssueId] = useState<number | null>(null);
+  // The row whose timer start or stop is in flight, by `rowKey`. The ref is the
+  // guard (a double-click lands before the state does); the state drives the
+  // spinner.
+  const [timerRowKey, setTimerRowKey] = useState<string | null>(null);
   const timerBusy = useRef(false);
   // The same for a row being put on or taken off My Board.
   const [boardIssueId, setBoardIssueId] = useState<number | null>(null);
   const boardBusy = useRef(false);
   const shortcutsId = useId();
   const searchShortcutsId = useId();
+  const ticketShortcutsId = useId();
 
   const trimmed = query.trim();
 
@@ -229,19 +237,19 @@ export function RedmineSuggestions({
     search.status,
   ]);
 
-  const toggleTimer = useCallback(
-    async (issue: RedmineIssue) => {
+  const runTimer = useCallback(
+    async (row: Row, toggle: () => Promise<TicketTimerOutcome>) => {
       if (timerBusy.current) return;
       timerBusy.current = true;
-      setTimerIssueId(issue.id);
+      setTimerRowKey(rowKey(row));
       let outcome: TicketTimerOutcome;
       try {
         // The toast is the parent's (`TicketStartProvider`); a start waiting on a
         // clock-in reports 'clock-in', and its chip follows the live timer.
-        outcome = await onToggleTimer(issue);
+        outcome = await toggle();
       } finally {
         timerBusy.current = false;
-        setTimerIssueId(null);
+        setTimerRowKey(null);
       }
       if (outcome === 'failed' || outcome === 'cancelled' || outcome === 'clock-in') return;
       // The chip already follows the live timer (`runningIssueId`); refetching
@@ -249,7 +257,17 @@ export function RedmineSuggestions({
       invalidateSuggestionsCache();
       void loadSuggestions({ force: true });
     },
-    [onToggleTimer, loadSuggestions],
+    [loadSuggestions],
+  );
+
+  const toggleTimer = useCallback(
+    (row: Extract<Row, { kind: 'issue' }>) => runTimer(row, () => onToggleTimer(row.issue)),
+    [runTimer, onToggleTimer],
+  );
+
+  const toggleTicketTimer = useCallback(
+    (row: Extract<Row, { kind: 'ticket' }>) => runTimer(row, () => onToggleTicketTimer(row.ticket)),
+    [runTimer, onToggleTicketTimer],
   );
 
   const toggleBoard = useCallback(
@@ -341,13 +359,19 @@ export function RedmineSuggestions({
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const row = isOpen && highlightedIndex >= 0 ? rows[highlightedIndex] : undefined;
-    if (row?.kind !== 'issue') return;
     const stopDownshift = () => {
       event.preventDefault();
       (
         event.nativeEvent as KeyboardEvent & { preventDownshiftDefault?: boolean }
       ).preventDownshiftDefault = true;
     };
+    if (row?.kind === 'ticket' && event.key === 'Enter' && event.shiftKey) {
+      stopDownshift();
+      closeMenu();
+      void toggleTicketTimer(row);
+      return;
+    }
+    if (row?.kind !== 'issue') return;
     if (event.key === 'Delete' && row.section === 'suggested') {
       stopDownshift();
       void hide(row.issue);
@@ -358,7 +382,7 @@ export function RedmineSuggestions({
     } else if (event.key === 'Enter' && event.shiftKey) {
       stopDownshift();
       closeMenu();
-      void toggleTimer(row.issue);
+      void toggleTimer(row);
     }
   };
 
@@ -464,7 +488,9 @@ export function RedmineSuggestions({
                             'aria-describedby':
                               row.section === 'suggested' ? shortcutsId : searchShortcutsId,
                           }
-                        : {})}
+                        : row.kind === 'ticket'
+                          ? { 'aria-describedby': ticketShortcutsId }
+                          : {})}
                     >
                       {row.kind === 'ticket' ? (
                         <FoundTicketRow
@@ -472,6 +498,13 @@ export function RedmineSuggestions({
                           team={teamById.get(row.ticket.teamId)}
                           showTeam={row.ticket.teamId !== selectedTeamId}
                           redmineHost={redmineHost}
+                          running={runningTicketKey === ticketKey('huddle', row.ticket.id)}
+                          timerBusy={timerRowKey !== null}
+                          timerLoading={timerRowKey === rowKey(row)}
+                          onToggleTimer={() => {
+                            closeMenu();
+                            void toggleTicketTimer(row);
+                          }}
                         />
                       ) : row.kind === 'issue' ? (
                         <IssueRow
@@ -483,8 +516,8 @@ export function RedmineSuggestions({
                               : null
                           }
                           running={row.issue.id === runningIssueId}
-                          timerBusy={timerIssueId !== null}
-                          timerLoading={timerIssueId === row.issue.id}
+                          timerBusy={timerRowKey !== null}
+                          timerLoading={timerRowKey === rowKey(row)}
                           onBoard={boardIssueIds.has(row.issue.id)}
                           boardKnown={boardKnown}
                           boardBusy={boardIssueId !== null}
@@ -494,7 +527,7 @@ export function RedmineSuggestions({
                             // Like Shift+Enter: close first, so nothing is left
                             // open behind a clock-in prompt.
                             closeMenu();
-                            void toggleTimer(row.issue);
+                            void toggleTimer(row);
                           }}
                           onHide={
                             row.section === 'suggested' ? () => void hide(row.issue) : undefined
@@ -548,6 +581,9 @@ export function RedmineSuggestions({
       </span>
       <span id={searchShortcutsId} className="sr-only">
         {text.searchRowShortcuts}
+      </span>
+      <span id={ticketShortcutsId} className="sr-only">
+        {text.ticketRowShortcuts}
       </span>
     </div>
   );
@@ -619,27 +655,52 @@ const ID_CLASS = 'redmine-suggestion-id w-20 shrink-0 break-all tabular-nums';
  * A ticket a typed ID named. It leads with the ID it is shown by in the table,
  * the outside one when it has one (`RMX-150`, `pulse-223`), with its own
  * (`TH-12`) under it, and the title beside them; its team shows when that is
- * not the current one. No actions: choosing it opens the ticket. The empty
- * first column keeps the IDs in line with the issue rows' timer buttons.
+ * not the current one. Choosing it opens the ticket; its timer button, like
+ * an issue row's, starts or stops a timer on it (Shift+Enter from the keyboard).
  */
 function FoundTicketRow({
   ticket,
   team,
   showTeam,
   redmineHost,
+  running,
+  timerBusy,
+  timerLoading,
+  onToggleTimer,
 }: {
   ticket: Ticket;
   team: Team | undefined;
   showTeam: boolean;
   redmineHost: string | null;
+  running: boolean;
+  /** A timer start or stop is in flight, on this row or another. */
+  timerBusy: boolean;
+  /** …and it is this row's. */
+  timerLoading: boolean;
+  onToggleTimer: () => void;
 }) {
   const prefixes = team?.sourcePrefixes ?? [];
   const own = huddleTicketRef(ticket, team?.ticketPrefix);
   const outside =
     carriedRefOf(ticket.linkedIssue, prefixes, redmineHost) ?? outsideIdOf(ticket.github, prefixes);
+  const timerName = running ? text.stopTimer(outside ?? own) : text.startTimer(outside ?? own);
   return (
     <>
-      <span aria-hidden="true" className="redmine-suggestion-spacer h-7 w-7 shrink-0" />
+      <TimerToggleButton
+        isRunning={running}
+        isLoading={timerLoading}
+        disabled={timerBusy}
+        className="h-7 w-7 shrink-0"
+        tabIndex={-1}
+        aria-hidden
+        title={timerName}
+        ariaLabel={timerName}
+        onMouseDown={keepFocus}
+        onClick={(event) => {
+          keepFocus(event);
+          onToggleTimer();
+        }}
+      />
       <span className={`${ID_CLASS} flex flex-col self-start pt-0.5`}>
         <Text as="span" size="xs" className="redmine-suggestion-primary-id font-semibold">
           {outside ?? own}

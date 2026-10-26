@@ -31,6 +31,8 @@ test.describe('Find a ticket by ID', () => {
     await input.fill(ref!.toLowerCase());
     await expect(menu.getByText('Tickets', { exact: true })).toBeVisible();
     await expect(option).toContainText(ref!);
+    // Like an issue row, a ticket row can start a timer.
+    await expect(option.locator(`[aria-label="Start a timer on ${ref}"]`)).toBeVisible();
     await input.fill(ref!.split('-')[1]);
     await expect(option).toBeVisible();
     // A name and a dash list by prefix; the newest ticket comes first.

@@ -526,6 +526,13 @@ export const TicketsPage: React.FC = () => {
     [handleToggleTimer, redmineBaseUrl, sourceCtx],
   );
 
+  // A ticket a typed ID found may not be loaded here (another team, or past
+  // the list), so it is shaped the same way and timed through the same path.
+  const handleFoundTicketTimer = useCallback(
+    (ticket: Ticket) => handleToggleTimer(huddleSource.toUnified(ticket, sourceCtx)),
+    [handleToggleTimer, sourceCtx],
+  );
+
   // Redmine issues already in the table that is showing — as a row, or as the
   // issue a ticket is linked to — so "More from Redmine" offers only new ones.
   // The view that is showing, not every ticket loaded: on My Board, an issue
@@ -972,6 +979,8 @@ export const TicketsPage: React.FC = () => {
               tableIssueIds={tableRedmineIssueIds}
               runningIssueId={runningRedmineIssueId}
               onToggleTimer={handleSuggestionTimer}
+              runningTicketKey={runningTicket?.key ?? null}
+              onToggleTicketTimer={handleFoundTicketTimer}
               boardIssueIds={boardRedmineIssueIds}
               boardKnown={boardKnown}
               onToggleBoard={handleSuggestionBoard}
