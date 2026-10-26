@@ -7,6 +7,7 @@
  * calls:
  *
  *   - `#1234` or `1234` — an issue number. One `GET /issues/{id}.json`.
+ *     So is `RM0-1234`, when RM0 is what the user's org calls this server.
  *   - a pasted Redmine link — the same, once the id is taken out of it.
  *   - `@alex` — whoever that is, and what is on their plate.
  *   - anything else — words, matched against issue **titles** only.
@@ -30,23 +31,29 @@ export const MAX_SEARCH_RESULTS = 25;
 
 const ISSUE_NUMBER = /^#?([1-9]\d*)$/;
 const ASSIGNEE = /^@(.+)$/;
+const PREFIXED_NUMBER = /^([A-Za-z][A-Za-z0-9]*)-([1-9]\d*)$/;
 
 /**
  * Read a raw query into `{ kind, value }`.
  *
  * @param {string|null} baseUrl  the instance their key belongs to, for link checking
+ * @param {string[]} prefixes  what the user's orgs call that instance, e.g. `['RM0']`
  * @returns {{kind: 'id'|'url'|'assignee'|'text', value: number|string|null}}
  */
-export function parseRedmineQuery(raw, baseUrl = null) {
+export function parseRedmineQuery(raw, baseUrl = null, prefixes = []) {
   const query = typeof raw === 'string' ? raw.trim() : '';
 
   // A link is checked first: it contains digits and spaces-free text that the
   // other rules would happily misread.
   if (/^https?:\/\//i.test(query)) return { kind: 'url', value: issueIdFromUrl(query, baseUrl) };
 
-  const numbered = query.match(ISSUE_NUMBER);
-  if (numbered) {
-    const id = Number(numbered[1]);
+  const prefixed = query.match(PREFIXED_NUMBER);
+  const digits =
+    prefixed && prefixes.includes(prefixed[1].toUpperCase())
+      ? prefixed[2]
+      : query.match(ISSUE_NUMBER)?.[1];
+  if (digits) {
+    const id = Number(digits);
     return { kind: 'id', value: Number.isSafeInteger(id) ? id : null };
   }
 

@@ -31,14 +31,18 @@ dropdown of Redmine issues: **Suggested for you** on focus, narrowed as the
 user types, then **More from Redmine** from a server search. The rules behind
 it are in [`docs/redmine-design.md`](../../../../docs/redmine-design.md).
 
-The dropdown is Redmine-only, but the `@person` and `#ref` prefixes are not:
-the table filter (`matchesSearch` in [`../ticketFilters.ts`](../ticketFilters.ts))
-reads them too, for rows from every source.
+Above the Redmine issues, a **Tickets** group lists the tickets a typed ID
+names in any of the user's teams (#736c): `THX-12`, `RM0-233`,
+`timehuddle-223`, or a bare `223` wherever it appears. The table filter
+(`matchesSearch` in [`../ticketFilters.ts`](../ticketFilters.ts)) reads
+`@person` and `#ref` too, for the rows already on screen. The dropdown moves out
+of this folder when every source is searched as one (#734 step 8).
 
 | File                           | Role                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `RedmineSuggestions.tsx`       | The search input and its dropdown: downshift's `useCombobox` around `@mieweb/ui` `Input`, rows, shortcuts  |
 | `useRedmineSuggestions.ts`     | Data: the suggestion list (cached per user), debounced search that ignores stale answers, dismiss and undo |
+| `useTicketRefSearch.ts`        | Data: the tickets a typed ID names (`tickets.findByRef`), asked beside the Redmine search                  |
 | `suggestions.ts`               | Pure rules: local filtering, when to search the server, empty-result wording, the reason chip              |
 | `suggestionStrings.ts`         | Every user-facing string, in one place for translation                                                     |
 | `RedmineHiddenSuggestions.tsx` | **Settings → Redmine → Hidden suggestions**: the dismissed issues, with Restore                            |

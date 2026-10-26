@@ -4,7 +4,8 @@
  * One input, two jobs: every keystroke still filters the Tickets table (the
  * parent owns `query`), and a dropdown offers Redmine issues — "Suggested for
  * you" on focus, narrowed as they type, then "More from Redmine" from a server
- * search.
+ * search. Above them, "Tickets" lists the tickets a typed ID names in any of
+ * the user's teams (#736c), current team first.
  *
  * Built on downshift's `useCombobox` rather than `@mieweb/ui`'s `Autocomplete`,
  * whose rows are `<button>`s (no room for the timer and hide actions) and whose
@@ -30,10 +31,12 @@ import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions 
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { RedmineIssue, RedmineRelevantIssue } from '../../../lib/api';
+import type { RedmineIssue, RedmineRelevantIssue, Team, Ticket } from '../../../lib/api';
+import { useTeam } from '../../../lib/TeamContext';
 import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
+import { huddleTicketRef } from '../sources/huddleSource';
 import { ticketDetailPath } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
 
@@ -50,6 +53,7 @@ import {
   reasonLabel,
 } from './suggestions';
 import { invalidateSuggestionsCache, useRedmineSuggestions } from './useRedmineSuggestions';
+import { useTicketRefSearch } from './useTicketRefSearch';
 
 interface RedmineSuggestionsProps {
   userId: string | null;
@@ -74,6 +78,7 @@ interface RedmineSuggestionsProps {
 }
 
 type Row =
+  | { kind: 'ticket'; ticket: Ticket }
   | { kind: 'issue'; section: 'suggested'; issue: RedmineRelevantIssue }
   | { kind: 'issue'; section: 'more'; issue: RedmineIssue }
   | { kind: 'show-all'; count: number }
@@ -81,7 +86,13 @@ type Row =
   | { kind: 'retry' };
 
 const rowKey = (row: Row | null): string =>
-  !row ? '' : row.kind === 'issue' ? `${row.section}:${row.issue.id}` : row.kind;
+  !row
+    ? ''
+    : row.kind === 'issue'
+      ? `${row.section}:${row.issue.id}`
+      : row.kind === 'ticket'
+        ? `ticket:${row.ticket.id}`
+        : row.kind;
 
 /** Keep the typed text and the menu's own state through every selection. */
 function stateReducer(
@@ -130,8 +141,10 @@ export function RedmineSuggestions({
 }: RedmineSuggestionsProps) {
   const { navigate } = useRouter();
   const toast = useToast();
+  const { allTeams, selectedTeamId } = useTeam();
   const { suggestions, search, loadSuggestions, retrySuggestions, retrySearch, dismiss } =
     useRedmineSuggestions(userId, query);
+  const foundTickets = useTicketRefSearch(userId, query);
   const [showAll, setShowAll] = useState(false);
   // The issue whose timer start or stop is in flight. The ref is the guard (a
   // double-click lands before the state does); the state drives the spinner.
@@ -156,15 +169,30 @@ export function RedmineSuggestions({
     return newSearchResults(search.issues, shown);
   }, [search, trimmed, tableIssueIds, matching]);
 
+  const teamById = useMemo(() => new Map(allTeams.map((team) => [team.id, team])), [allTeams]);
+
   const rows = useMemo<Row[]>(() => {
     const visible = showAll ? matching : matching.slice(0, SUGGESTION_LIMIT);
-    const list: Row[] = visible.map((issue) => ({ kind: 'issue', section: 'suggested', issue }));
+    // The current team's tickets first, each group in the server's order.
+    const list: Row[] = [
+      ...foundTickets.filter((ticket) => ticket.teamId === selectedTeamId),
+      ...foundTickets.filter((ticket) => ticket.teamId !== selectedTeamId),
+    ].map((ticket) => ({ kind: 'ticket', ticket }));
+    for (const issue of visible) list.push({ kind: 'issue', section: 'suggested', issue });
     if (matching.length > visible.length) list.push({ kind: 'show-all', count: matching.length });
     for (const issue of moreResults) list.push({ kind: 'issue', section: 'more', issue });
     if (suggestions.status === 'not-connected') list.push({ kind: 'connect' });
     if (suggestions.status === 'error' || search.status === 'error') list.push({ kind: 'retry' });
     return list;
-  }, [matching, moreResults, showAll, suggestions.status, search.status]);
+  }, [
+    foundTickets,
+    selectedTeamId,
+    matching,
+    moreResults,
+    showAll,
+    suggestions.status,
+    search.status,
+  ]);
 
   const toggleTimer = useCallback(
     async (issue: RedmineIssue) => {
@@ -229,7 +257,9 @@ export function RedmineSuggestions({
 
   const choose = useCallback(
     (row: Row) => {
-      if (row.kind === 'issue')
+      if (row.kind === 'ticket')
+        navigate(ticketDetailPath({ sourceId: 'huddle', id: row.ticket.id }));
+      else if (row.kind === 'issue')
         navigate(ticketDetailPath({ sourceId: 'redmine', id: String(row.issue.id) }));
       else if (row.kind === 'show-all') setShowAll(true);
       else if (row.kind === 'connect') navigate('/app/settings');
@@ -305,6 +335,7 @@ export function RedmineSuggestions({
     if (
       search.status === 'ready' &&
       search.query === trimmed &&
+      !foundTickets.length &&
       !matching.length &&
       !moreResults.length
     ) {
@@ -321,6 +352,7 @@ export function RedmineSuggestions({
   const loadingSuggested = suggestions.status === 'loading' && !suggestions.issues.length;
   const loadingMore = search.status === 'loading' && !moreResults.length;
 
+  const firstTicketIndex = rows.findIndex((row) => row.kind === 'ticket');
   const firstMoreIndex = rows.findIndex((row) => row.kind === 'issue' && row.section === 'more');
   const firstSuggestedIndex = rows.findIndex(
     (row) => row.kind === 'issue' && row.section === 'suggested',
@@ -380,6 +412,9 @@ export function RedmineSuggestions({
               {showPanel &&
                 rows.map((row, index) => (
                   <React.Fragment key={rowKey(row)}>
+                    {index === firstTicketIndex && (
+                      <SectionHeading>{text.ticketsHeading}</SectionHeading>
+                    )}
                     {index === firstSuggestedIndex && (
                       <SectionHeading>{text.suggestedHeading}</SectionHeading>
                     )}
@@ -396,7 +431,13 @@ export function RedmineSuggestions({
                           }
                         : {})}
                     >
-                      {row.kind === 'issue' ? (
+                      {row.kind === 'ticket' ? (
+                        <FoundTicketRow
+                          ticket={row.ticket}
+                          team={teamById.get(row.ticket.teamId)}
+                          showTeam={row.ticket.teamId !== selectedTeamId}
+                        />
+                      ) : row.kind === 'issue' ? (
                         <IssueRow
                           issue={row.issue}
                           reason={
@@ -524,6 +565,43 @@ const keepFocus = (event: React.MouseEvent) => {
   event.preventDefault();
   event.stopPropagation();
 };
+
+/**
+ * A ticket a typed ID named: its own ID and title, and its team when that is
+ * not the current one. No actions: choosing it opens the ticket. The empty
+ * first column keeps the ID in line with the issue rows' timer buttons.
+ */
+function FoundTicketRow({
+  ticket,
+  team,
+  showTeam,
+}: {
+  ticket: Ticket;
+  team: Team | undefined;
+  showTeam: boolean;
+}) {
+  return (
+    <>
+      <span aria-hidden="true" className="redmine-suggestion-spacer h-7 w-7 shrink-0" />
+      <Text
+        as="span"
+        size="xs"
+        variant="muted"
+        className="redmine-suggestion-id min-w-12 shrink-0 tabular-nums"
+      >
+        {huddleTicketRef(ticket, team?.ticketPrefix)}
+      </Text>
+      <span className="redmine-suggestion-body min-w-0 flex-1">
+        <span className="redmine-suggestion-title block break-words">{ticket.title}</span>
+        {showTeam && team && (
+          <Text as="span" size="xs" variant="muted" className="block truncate">
+            {text.inTeam(team.name)}
+          </Text>
+        )}
+      </span>
+    </>
+  );
+}
 
 interface IssueRowProps {
   issue: RedmineIssue;

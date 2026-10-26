@@ -122,6 +122,11 @@ describe('emptySearchMessage', () => {
     expect(emptySearchMessage('assignee', '@al')).toContain('@al');
     expect(emptySearchMessage('text', 'printer')).toContain('printer');
   });
+
+  it('names an issue the way it was typed, a bare number with its hash', () => {
+    expect(emptySearchMessage('id', '99')).toContain('No issue #99,');
+    expect(emptySearchMessage('id', 'RM0-99')).toContain('No issue RM0-99,');
+  });
 });
 
 describe('reasonLabel', () => {

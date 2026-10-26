@@ -25,6 +25,7 @@ import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
 import './ticket-carry';
+import './ticket-search';
 import './redmine-suggestions';
 import './redmine';
 import './redmine-issue-methods';
@@ -1066,6 +1067,18 @@ Meteor.startup(async () => {
         issueId: { type: 'integer', description: 'The Redmine issue number' },
       },
       required: ['teamId', 'issueId'],
+    },
+  });
+
+  Wormhole.expose('tickets.findByRef', {
+    description:
+      "The tickets an ID names in any of the caller's teams: THX-12, RM0-233, timehuddle-223, or a bare 223 wherever it appears. Newest first, at most 25. Returns { tickets }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What was typed into the Tickets search bar' },
+      },
+      required: ['query'],
     },
   });
 

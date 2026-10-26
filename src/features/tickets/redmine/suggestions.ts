@@ -110,7 +110,10 @@ export function emptySearchMessage(kind: RedmineSearchKind, raw: string): string
   const query = raw.trim();
   switch (kind) {
     case 'id':
-      return suggestionText.emptyById(query.replace(/^#/, ''));
+      // `RM0-233` as typed; a bare number reads as `#233`.
+      return suggestionText.emptyById(
+        ISSUE_NUMBER.test(query) ? `#${query.replace(/^#/, '')}` : query,
+      );
     case 'url':
       return suggestionText.emptyByUrl;
     case 'assignee':

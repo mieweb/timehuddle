@@ -13,6 +13,8 @@ export const suggestionText = {
   placeholder: 'Search, #number, @person, or paste a link',
   menuLabel: 'Redmine suggestions',
 
+  ticketsHeading: 'Tickets',
+  inTeam: (team: string) => `In ${team}`,
   suggestedHeading: 'Suggested for you',
   moreHeading: 'More from Redmine',
   showAll: (count: number) => `Show all ${count} suggestions`,
@@ -45,7 +47,7 @@ export const suggestionText = {
   connect: 'Connect Redmine to see your issues',
   noSuggestions: 'No suggestions right now. Type to search Redmine.',
 
-  emptyById: (id: string) => `No issue #${id}, or you can't see it.`,
+  emptyById: (ref: string) => `No issue ${ref}, or you can't see it.`,
   emptyByUrl: "That link isn't an issue on your Redmine.",
   emptyByAssignee: (name: string) =>
     `No single person matches “@${name}”. Type more of their name — names work, logins don't.`,

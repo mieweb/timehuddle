@@ -1169,6 +1169,16 @@ export const ticketApi = {
       issueId: Number(issueId),
     }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
 
+  /**
+   * The tickets an ID names, in any of the caller's teams (#736c): `THX-12`,
+   * `RM0-233`, `timehuddle-223`, or a bare `223` wherever it appears. Newest
+   * first, at most 25, without descriptions. Anything else finds none.
+   */
+  findByRef: (query: string) =>
+    wormholeCall<{ tickets: Array<Record<string, unknown>> }>('tickets.findByRef', {
+      query,
+    }).then(({ tickets }) => tickets.map(toTicket)),
+
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
     wormholeCall<Record<string, unknown>>('tickets.unlink', {
