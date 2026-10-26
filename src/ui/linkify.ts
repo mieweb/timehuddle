@@ -7,6 +7,10 @@
 export const linkClassName =
   'text-blue-600 underline [overflow-wrap:anywhere] hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300';
 
+/** The same on a surface that stays dark whatever the theme (the profile hero). */
+export const inverseLinkClassName =
+  'text-blue-400 underline [overflow-wrap:anywhere] hover:text-blue-300';
+
 export interface TextPart {
   text: string;
   /** Set when this part is a link. */
@@ -15,18 +19,22 @@ export interface TextPart {
 
 const URL_RE = /https?:\/\/[^\s<>"]+/g;
 
+const count = (s: string, ch: string) => s.split(ch).length - 1;
+
 /**
  * Punctuation that ends a sentence rather than the URL ("see https://x.dev.").
- * A closing bracket only counts when the URL doesn't open one itself, so a
- * Wikipedia-style `…/Foo_(bar)` keeps its `)`.
+ * A closing bracket only counts when the URL hasn't opened one for it, so a
+ * Wikipedia-style `…/Foo_(bar)` keeps its `)`, and `(…/Foo_(bar))` keeps only
+ * the one it opened.
  */
 function trimTrailing(url: string): string {
   let end = url.length;
   while (end > 0) {
     const ch = url[end - 1];
+    const head = url.slice(0, end);
     if ('.,;:!?\'"'.includes(ch)) {
       end--;
-    } else if (ch === ')' && !url.slice(0, end - 1).includes('(')) {
+    } else if (ch === ')' && count(head, ')') > count(head, '(')) {
       end--;
     } else {
       break;

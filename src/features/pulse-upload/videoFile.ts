@@ -69,10 +69,31 @@ export function uploadVideoFile(
   });
 }
 
+type FilingResult = Awaited<ReturnType<typeof videoApi.waitUntilFiled>>;
+
+/**
+ * Why a finished upload can't be attached; null once it's filed. Only `done`
+ * means the video is ready: after a timeout it may still be converting, and
+ * an expired token means we can no longer tell.
+ */
+export function filingProblem(filed: FilingResult): string | null {
+  switch (filed.state) {
+    case 'done':
+      return null;
+    case 'kept':
+      return filed.reason ?? "That video couldn't be added.";
+    case 'forbidden':
+      return 'This upload expired before the video was ready. Try again.';
+    case 'timeout':
+      return "The video is taking longer than usual to get ready, so it wasn't added. Try again in a few minutes.";
+  }
+}
+
 /**
  * Send `file` into the uploader's media library and wait until it has been
  * conformed and filed, for callers that attach the video themselves (a post,
- * a timesheet change). Returns the video id.
+ * a timesheet change). Returns the video id; rejects with a message to show
+ * unless the video is ready.
  */
 export async function uploadVideoToLibrary(
   file: File,
@@ -83,7 +104,7 @@ export async function uploadVideoToLibrary(
   const reservation = await videoApi.reserve({ kind: 'library' });
   await uploadVideoFile(file, reservation, onProgress);
   const filed = await videoApi.waitUntilFiled(reservation.videoid, reservation.uploadToken);
-  // A timeout still leaves a video that serves; only a refusal is a failure.
-  if (filed.state === 'kept') throw new Error(filed.reason ?? "That video couldn't be added.");
+  const notFiled = filingProblem(filed);
+  if (notFiled) throw new Error(notFiled);
   return reservation.videoid;
 }
