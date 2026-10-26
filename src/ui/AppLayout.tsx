@@ -82,7 +82,8 @@ const ReleaseNotesPage = lazyNamed(
 );
 const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'SeederPage');
 const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
-const TicketsPage = lazyNamed(() => import('../features/tickets/TicketsPage'), 'TicketsPage');
+const loadTicketsPage = () => import('../features/tickets/TicketsPage');
+const TicketsPage = lazyNamed(loadTicketsPage, 'TicketsPage');
 const RedmineIssueDetailPage = lazyNamed(
   () => import('../features/tickets/detail/RedmineIssueDetailPage'),
   'RedmineIssueDetailPage',
@@ -406,6 +407,16 @@ const AppLayoutContent: React.FC = () => {
   const [huddleVisited, setHuddleVisited] = useState(isHuddleRoute);
   if (isHuddleRoute && !huddleVisited) setHuddleVisited(true);
 
+  // Same for Tickets: mounting it starts a subscription to every ticket of every
+  // team plus a fetch per team, which no other page needs. Its code is fetched in
+  // idle time so the first visit doesn't wait on the download.
+  const [ticketsVisited, setTicketsVisited] = useState(isTicketsRoute);
+  if (isTicketsRoute && !ticketsVisited) setTicketsVisited(true);
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1));
+    idle(() => void loadTicketsPage());
+  }, []);
+
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -506,21 +517,23 @@ const AppLayoutContent: React.FC = () => {
                             tickets page renders its own heading, so the registry
                             title is always withheld from this instance to avoid
                             a duplicate h1. */}
-                        <PageTitleContext.Provider value={null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            {/* Own boundary: this always-mounted page loads in
-                                the background without blanking the visible one. */}
-                            <Suspense fallback={isTicketsRoute ? <PageLoading /> : null}>
-                              <TicketsPage />
-                            </Suspense>
-                          </div>
-                        </PageTitleContext.Provider>
+                        {ticketsVisited && (
+                          <PageTitleContext.Provider value={null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              {/* Own boundary: this kept-mounted page loads in
+                                  the background without blanking the visible one. */}
+                              <Suspense fallback={isTicketsRoute ? <PageLoading /> : null}>
+                                <TicketsPage />
+                              </Suspense>
+                            </div>
+                          </PageTitleContext.Provider>
+                        )}
                         {huddleVisited && (
                           <PageTitleContext.Provider value={isHuddleRoute ? pageTitle : null}>
                             <Activity mode={isHuddleRoute ? 'visible' : 'hidden'}>

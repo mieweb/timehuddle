@@ -73,6 +73,8 @@ class DdpClient {
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
   private listeners = new Map<string, Set<Listener>>();
+  private pendingNotify = new Set<string>();
+  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
   private authPromise: Promise<void> | null = null;
   /** Subscriptions to restore after a reconnect. */
@@ -312,6 +314,9 @@ class DdpClient {
     if (loginResult?.token) {
       localStorage.setItem('meteor_resume_token', loginResult.token);
     }
+    // This socket is now authenticated; skip the redundant resume-login round trip
+    // that ensureAuthed() would otherwise make on the next session fetch.
+    this.authPromise = Promise.resolve();
   }
 
   async signUpWithPassword(email: string, password: string, name: string): Promise<void> {
@@ -415,6 +420,12 @@ class DdpClient {
     createdAt: string | null;
     releaseNotesSeenVersion: string | null;
   } | null> {
+    // No stored session means nothing to restore: answer now instead of holding the
+    // login form behind the socket handshake, and warm the socket for the sign-in.
+    if (!localStorage.getItem('meteor_resume_token')) {
+      void this.ensureConnected().catch(() => {});
+      return null;
+    }
     try {
       // Use a timeout to prevent hanging
       const authedWithTimeout = Promise.race([
@@ -493,6 +504,8 @@ class DdpClient {
         break;
       }
       case 'ready':
+        // Listeners see the subscription's documents before its ready callback runs.
+        this.flushNotify();
         for (const subId of data.subs ?? []) {
           this.readySubs.add(subId);
           this.subReadyListeners.get(subId)?.();
@@ -510,8 +523,22 @@ class DdpClient {
     return store;
   }
 
+  /**
+   * Listeners run at most once per frame per collection: a subscription's initial
+   * `added` flood (hundreds of documents) would otherwise rebuild every listener's
+   * derived state once per document.
+   */
   private notify(collection: string): void {
-    for (const fn of this.listeners.get(collection) ?? []) fn();
+    this.pendingNotify.add(collection);
+    this.notifyTimer ??= setTimeout(() => this.flushNotify(), 16);
+  }
+
+  private flushNotify(): void {
+    if (this.notifyTimer) clearTimeout(this.notifyTimer);
+    this.notifyTimer = null;
+    const changed = [...this.pendingNotify];
+    this.pendingNotify.clear();
+    for (const name of changed) for (const fn of this.listeners.get(name) ?? []) fn();
   }
 
   public async call(method: string, ...params: unknown[]): Promise<unknown> {

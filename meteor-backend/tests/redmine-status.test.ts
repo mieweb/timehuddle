@@ -58,9 +58,4 @@ describe('redmine-status toStatus', () => {
   it('tolerates a missing server baseUrl', () => {
     expect(toStatus(link).baseUrl).toBeNull();
   });
-
-  it('reports the chosen time-entry activity, null until one is picked', () => {
-    expect(toStatus(link).defaultActivityId).toBeNull();
-    expect(toStatus({ ...link, defaultActivityId: 9 }).defaultActivityId).toBe(9);
-  });
 });

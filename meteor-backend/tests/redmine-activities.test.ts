@@ -9,13 +9,15 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  toActivityList,
-  pickDefaultActivity,
   activityForTracker,
+  pickDefaultActivity,
+  toActivityList,
+  toProjectActivities,
 } from '../server/redmine-activities';
 
 const DESIGN = { id: 8, name: 'Design', isDefault: false };
 const DEVELOPMENT = { id: 9, name: 'Development', isDefault: false };
+const QA = { id: 10, name: 'QA', isDefault: false };
 
 describe('toActivityList', () => {
   it('shapes the raw enumeration and preserves is_default', () => {
@@ -30,6 +32,17 @@ describe('toActivityList', () => {
     ]);
   });
 
+  it('leaves out an inactive activity, which Redmine would refuse', () => {
+    expect(
+      toActivityList([
+        { id: 8, name: 'Design', active: false },
+        { id: 9, name: 'Development', active: true },
+        // A project's list and older Redmine versions carry no flag.
+        { id: 10, name: 'QA' },
+      ]).map((a) => a.name),
+    ).toEqual(['Development', 'QA']);
+  });
+
   it('drops entries with no id and tolerates a non-array', () => {
     expect(toActivityList([{ name: 'Nameless' }, null])).toEqual([]);
     expect(toActivityList(undefined as never)).toEqual([]);
@@ -37,16 +50,15 @@ describe('toActivityList', () => {
 });
 
 describe('pickDefaultActivity', () => {
-  it('honours the user’s explicit choice', () => {
-    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], 8)).toEqual({
-      activity: DESIGN,
-      reason: 'chosen',
+  it('derives from the tracker first (D4)', () => {
+    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], 'Bug')).toEqual({
+      activity: DEVELOPMENT,
+      reason: 'tracker',
     });
   });
 
-  it('falls back when the chosen activity no longer exists on the instance', () => {
-    // An admin removed id 99 since the user picked it.
-    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], 99).reason).toBe('named');
+  it('ignores an unknown tracker and carries on down the chain', () => {
+    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], 'Epic').reason).toBe('named');
   });
 
   it("prefers the instance's own default over the Development convention", () => {
@@ -59,40 +71,45 @@ describe('pickDefaultActivity', () => {
   });
 
   it('falls back to one named Development, case-insensitively', () => {
-    expect(pickDefaultActivity([DESIGN, { ...DEVELOPMENT, name: 'development' }], null).reason).toBe(
-      'named',
-    );
+    const lower = { id: 9, name: 'development', isDefault: false };
+
+    expect(pickDefaultActivity([DESIGN, lower], null)).toEqual({ activity: lower, reason: 'named' });
   });
 
   it('falls back to the first activity when nothing else matches', () => {
-    expect(pickDefaultActivity([DESIGN, { id: 10, name: 'Support', isDefault: false }], null)).toEqual(
-      { activity: DESIGN, reason: 'first' },
-    );
+    expect(pickDefaultActivity([DESIGN, QA], null)).toEqual({ activity: DESIGN, reason: 'first' });
   });
 
-  it('reports none for an instance with no activities configured', () => {
-    expect(pickDefaultActivity([], null)).toEqual({ activity: null, reason: 'none' });
-    expect(pickDefaultActivity(undefined as never, 9)).toEqual({ activity: null, reason: 'none' });
+  it('chooses from a project’s reduced list, not the instance’s', () => {
+    // The project has Development switched off, so the tracker rule finds nothing.
+    expect(pickDefaultActivity([DESIGN, QA], 'Bug')).toEqual({ activity: DESIGN, reason: 'first' });
   });
 
-  it('derives from the tracker when the user has chosen nothing (D4)', () => {
-    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], null, 'Bug')).toEqual({
-      activity: DEVELOPMENT,
-      reason: 'tracker',
-    });
+  it('reports none for a project with no usable activity', () => {
+    expect(pickDefaultActivity([], 'Bug')).toEqual({ activity: null, reason: 'none' });
+  });
+});
+
+describe('toProjectActivities', () => {
+  it('shapes a project’s reduced list and carries is_default from the enumeration', () => {
+    const enumeration = [DESIGN, { ...DEVELOPMENT, isDefault: true }, QA];
+
+    expect(toProjectActivities([{ id: 9, name: 'Development' }], enumeration)).toEqual([
+      { id: 9, name: 'Development', isDefault: true },
+    ]);
   });
 
-  it("lets an explicit choice outrank the tracker's inference", () => {
-    // A designer who picked Design keeps it even on a Bug, which the degenerate
-    // tracker map would otherwise force to Development on every issue.
-    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], 8, 'Bug')).toEqual({
-      activity: DESIGN,
-      reason: 'chosen',
-    });
+  it('carries is_default to a project’s own copy of an activity, matched by name', () => {
+    const enumeration = [{ ...DEVELOPMENT, isDefault: true }];
+
+    expect(toProjectActivities([{ id: 57, name: 'Development' }], enumeration)).toEqual([
+      { id: 57, name: 'Development', isDefault: true },
+    ]);
   });
 
-  it('ignores an unknown tracker and carries on down the chain', () => {
-    expect(pickDefaultActivity([DESIGN, DEVELOPMENT], null, 'Epic').reason).toBe('named');
+  it('tells a project that did not say apart from one that allows none', () => {
+    expect(toProjectActivities(undefined as never, [DESIGN])).toBeNull();
+    expect(toProjectActivities([], [DESIGN])).toEqual([]);
   });
 });
 

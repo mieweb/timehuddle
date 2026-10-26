@@ -15,7 +15,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { ClockPage } from '../pages/ClockPage';
 import {
-  activityList,
   connectedStatus,
   delayed,
   preview,
@@ -29,18 +28,17 @@ import {
 
 const sendButton = (page: Page) =>
   page.getByRole('button', { name: 'Send work entries to Redmine' });
-const entriesTable = (page: Page) =>
-  page.getByRole('table', { name: 'Time entries to send to Redmine' });
+const entriesList = (page: Page) =>
+  page.getByRole('list', { name: 'Time entries to send to Redmine' });
 const confirmButton = (page: Page) => page.getByRole('button', { name: /^Send \d+ entr/ });
 const rowFor = (page: Page, ticketId: string) =>
-  entriesTable(page)
-    .locator('tbody tr')
+  entriesList(page)
+    .getByRole('listitem')
     .filter({ hasText: `#${ticketId}` });
 
 async function openClock(page: Page, overrides: Record<string, StubValue>): Promise<RedmineStub> {
   const rm = await stubRedmine(page, {
     status: connectedStatus(),
-    'activities.list': activityList(),
     ...overrides,
   });
   await page.goto('/app/clock');
@@ -92,8 +90,8 @@ test.describe('Redmine push results', () => {
 
     await sendAll(page);
 
-    await expect(entriesTable(page)).toBeVisible({ timeout: 15000 });
-    await expect(entriesTable(page).locator('tbody tr')).toHaveCount(2);
+    await expect(entriesList(page)).toBeVisible({ timeout: 15000 });
+    await expect(entriesList(page).getByRole('listitem')).toHaveCount(2);
   });
 
   test('a partial failure keeps the successful row synced and names the failure', async ({
@@ -125,7 +123,7 @@ test.describe('Redmine push results', () => {
     ['unconfirmed', 'Sent, but Redmine did not let us confirm it'],
     ['push-interrupted', 'Not sent: another push took over. Try again'],
     ['already-synced-or-gone', 'Already sent, or no longer eligible'],
-    ['invalid-activity', 'That activity no longer exists in Redmine'],
+    ['invalid-activity', 'This issue’s project does not allow that activity'],
   ] as const) {
     test(`explains "${reason}" in words`, async ({ page }) => {
       await openClock(page, {
@@ -191,7 +189,7 @@ test.describe('Redmine push results', () => {
       timeout: 15000,
     });
     await expect(page.getByRole('heading', { name: 'Sent to Redmine' })).toHaveCount(0);
-    await expect(entriesTable(page).locator('tbody tr')).toHaveCount(2);
+    await expect(entriesList(page).getByRole('listitem')).toHaveCount(2);
   });
 
   test('an aborted request is reported, not swallowed', async ({ page }) => {
@@ -203,7 +201,7 @@ test.describe('Redmine push results', () => {
     await sendAll(page);
 
     await expect(page.getByRole('heading', { name: 'Sent to Redmine' })).toHaveCount(0);
-    await expect(entriesTable(page)).toBeVisible();
+    await expect(entriesList(page)).toBeVisible();
   });
 
   test('closing after a push clears the results', async ({ page }) => {
@@ -226,7 +224,7 @@ test.describe('Redmine push results', () => {
     // Reopening offers the still-eligible row afresh, with no stale verdicts.
     await sendButton(page).click();
     await expect(page.getByRole('heading', { name: 'Send work entries to Redmine' })).toBeVisible();
-    await expect(entriesTable(page)).not.toContainText('Could not reach Redmine');
+    await expect(entriesList(page)).not.toContainText('Could not reach Redmine');
   });
 
   test("a rejection shows Redmine's own reason", async ({ page }) => {

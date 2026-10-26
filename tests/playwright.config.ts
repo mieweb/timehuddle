@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const e2ePort = process.env.E2E_PORT ?? '3003';
+// Which Meteor test instance this run's Vite proxy talks to — overridden by
+// tests/e2e-container-shard.sh, whose backend listens on 3100, not 3101.
+const apiTarget = process.env.API_TARGET ?? 'http://localhost:3101';
+// webServer's command string below sets VITE_TIMECORE_URL for the spawned
+// Vite dev server only — tests/e2e/fixtures/users.ts reads the same name
+// directly in the worker process for its login-failure health check, which
+// never sees that value and falls back to :3101. Setting it here, before
+// Playwright forks workers from this process, makes both see the same
+// target — :3101 in local dev, and the actual backend in CI.
+process.env.VITE_TIMECORE_URL ??= apiTarget;
 
 export default defineConfig({
   testDir: './e2e',
@@ -85,7 +95,7 @@ export default defineConfig({
   webServer: process.env.SKIP_WEBSERVER
     ? undefined
     : {
-        command: `API_TARGET=http://localhost:3101 VITE_TIMECORE_URL=http://localhost:3101 VITE_CACHE_DIR=node_modules/.vite-e2e npm run dev -- --port ${e2ePort} --strictPort`,
+        command: `API_TARGET=${apiTarget} VITE_TIMECORE_URL=${apiTarget} VITE_CACHE_DIR=node_modules/.vite-e2e npm run dev -- --port ${e2ePort} --strictPort`,
         url: `http://localhost:${e2ePort}`,
         timeout: 120000,
         reuseExistingServer: !process.env.CI,

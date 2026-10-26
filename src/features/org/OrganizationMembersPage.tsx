@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
@@ -107,6 +108,7 @@ export const OrganizationMembersPage: React.FC = () => {
   const [blockUserId, setBlockUserId] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
   const [blockingSaving, setBlockingSaving] = useState(false);
+  const [removeUserId, setRemoveUserId] = useState<string | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -143,12 +145,13 @@ export const OrganizationMembersPage: React.FC = () => {
         return;
       }
 
-      const result = await orgApi.listMembers(selectedOrgId);
+      // The picker options are optional; a search failure must not hide the member list.
+      const [result, searchableUsers] = await Promise.all([
+        orgApi.listMembers(selectedOrgId),
+        orgApi.searchUsers(selectedOrgId, '').catch(() => []),
+      ]);
       if (isStale()) return;
       setUsers(result);
-
-      const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
-      if (isStale()) return;
       setUserOptions(
         searchableUsers.map((u) => ({
           value: u.id,
@@ -180,11 +183,15 @@ export const OrganizationMembersPage: React.FC = () => {
 
     const ddp = getDdpClient();
 
-    // On any org_members change (role updates, add/remove members), refetch the list.
+    // The subscription's first batch is the members just loaded above; only
+    // changes after it (role updates, add/remove members) need a reload.
+    let ready = false;
     const offChange = ddp.onCollectionChange('org_members', () => {
-      void loadUsers();
+      if (ready) void loadUsers();
     });
-    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId]);
+    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId], () => {
+      ready = true;
+    });
 
     return () => {
       offChange();
@@ -307,26 +314,25 @@ export const OrganizationMembersPage: React.FC = () => {
     [loadUsers, selectedOrgId],
   );
 
-  const handleRemoveMember = useCallback(
-    async (targetUserId: string) => {
-      if (!selectedOrgId) return;
-      setSavingUserId(targetUserId);
-      setError(null);
-      try {
-        await orgApi.removeMember(selectedOrgId, targetUserId);
-        await loadUsers();
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError('Failed to remove member');
-        }
-      } finally {
-        setSavingUserId(null);
+  const handleConfirmRemove = useCallback(async () => {
+    if (!selectedOrgId || !removeUserId) return;
+    setSavingUserId(removeUserId);
+    setError(null);
+    try {
+      await orgApi.removeMember(selectedOrgId, removeUserId);
+      await loadUsers();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to remove member');
       }
-    },
-    [loadUsers, selectedOrgId],
-  );
+    } finally {
+      // Close either way: a refusal is reported in the page's error banner.
+      setRemoveUserId(null);
+      setSavingUserId(null);
+    }
+  }, [loadUsers, removeUserId, selectedOrgId]);
 
   const handleInviteMember = useCallback(async () => {
     if (!selectedOrgId || !inviteEmail.trim() || inviteLoading) return;
@@ -402,6 +408,9 @@ export const OrganizationMembersPage: React.FC = () => {
     ],
     [],
   );
+
+  const removing = removeUserId !== null && savingUserId === removeUserId;
+  const removeUserName = users.find((u) => u.id === removeUserId)?.name ?? 'This member';
 
   const visibleUsers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
@@ -671,8 +680,8 @@ export const OrganizationMembersPage: React.FC = () => {
                               <Button
                                 variant="danger"
                                 size="sm"
-                                onClick={() => void handleRemoveMember(orgUser.id)}
-                                disabled={isSaving || !canManage}
+                                onClick={() => setRemoveUserId(orgUser.id)}
+                                disabled={isSaving || !canManage || isCurrent}
                                 aria-label={`Remove ${orgUser.name} from organization`}
                               >
                                 Remove
@@ -692,8 +701,8 @@ export const OrganizationMembersPage: React.FC = () => {
                               <Button
                                 variant="danger"
                                 size="sm"
-                                onClick={() => void handleRemoveMember(orgUser.id)}
-                                disabled={isSaving || !canManage}
+                                onClick={() => setRemoveUserId(orgUser.id)}
+                                disabled={isSaving || !canManage || isCurrent}
                                 aria-label={`Remove ${orgUser.name} from organization`}
                               >
                                 Remove
@@ -748,6 +757,31 @@ export const OrganizationMembersPage: React.FC = () => {
           >
             {blockingSaving ? 'Blocking…' : 'Block Member'}
           </Button>
+        </ModalFooter>
+      </AppModal>
+
+      {/* Remove member confirmation */}
+      <AppModal
+        open={removeUserId !== null}
+        onOpenChange={(open) => !open && !removing && setRemoveUserId(null)}
+      >
+        <ModalHeader>Remove Member</ModalHeader>
+        <ModalBody>
+          <Text variant="muted" size="sm">
+            {removeUserName} will be removed from {organizationName ?? 'this organization'} and from
+            all of its teams except their Personal team, and will lose access to it. To bring them
+            back, add or invite them again.
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <ButtonGroup>
+            <Button variant="outline" onClick={() => setRemoveUserId(null)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={() => void handleConfirmRemove()} disabled={removing}>
+              {removing ? 'Removing…' : 'Remove Member'}
+            </Button>
+          </ButtonGroup>
         </ModalFooter>
       </AppModal>
 

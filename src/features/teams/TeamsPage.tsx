@@ -50,12 +50,17 @@ import {
   TableHeader,
   TableRow,
   Text,
-  Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, type TeamMember, type TeamInvitation, type TeamSettingKey } from '../../lib/api';
+import {
+  teamApi,
+  type Team,
+  type TeamMember,
+  type TeamInvitation,
+  type TeamSettingKey,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -63,12 +68,12 @@ import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { CreateTeamModal } from './CreateTeamModal';
 import { LinkifiedText } from '../../ui/LinkifiedText';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { TeamSettingRow } from '../settings/TeamSettingRow';
 import { SETTINGS_STRINGS } from '../settings/settingsCopy';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { getDdpClient } from '../../lib/ddp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +104,6 @@ export const TeamsPage: React.FC = () => {
     teams,
     pendingRequests,
     teamsReady,
-    selectedOrgId,
     selectedTeamId,
     setSelectedTeamId,
     isAdmin,
@@ -127,26 +131,16 @@ export const TeamsPage: React.FC = () => {
     }
   }, []);
 
+  // The roster is reactive through TeamContext (DDP), so members are fetched again
+  // only when this team's member/admin ids change, not on every team-document push.
+  const rosterKey = useMemo(() => {
+    const team = teams.find((t) => t.id === selectedTeamId);
+    return team ? [...team.members, ...team.admins].sort().join(',') : '';
+  }, [teams, selectedTeamId]);
+
   useEffect(() => {
     void fetchMembers(selectedTeamId);
-  }, [selectedTeamId, fetchMembers]);
-
-  // ── Real-time team updates (Meteor DDP, oplog-backed) ──
-  // Teams are already reactive via TeamContext, but we need to refetch members
-  // when the team document changes (members/admins arrays updated)
-  useEffect(() => {
-    if (!selectedTeamId) return;
-
-    const ddp = getDdpClient();
-
-    const offChange = ddp.onCollectionChange('teams', () => {
-      void fetchMembers(selectedTeamId);
-    });
-
-    return () => {
-      offChange();
-    };
-  }, [selectedTeamId, fetchMembers]);
+  }, [selectedTeamId, rosterKey, fetchMembers]);
 
   // Pull-to-refresh: refetch members + teams
   useRefresh(
@@ -181,7 +175,6 @@ export const TeamsPage: React.FC = () => {
   const onlineUsers = usePresence(memberIds);
 
   // Loading states for mutations
-  const [createLoading, setCreateLoading] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
   const [renameLoading, setRenameLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -227,7 +220,7 @@ export const TeamsPage: React.FC = () => {
   >(null);
 
   // Inline team-name draft used by the "Team Settings" modal's rename field
-  // (kept separate from `formValue`, which drives the create/join/invite forms).
+  // (kept separate from `formValue`, which drives the join/invite forms).
   const [teamNameDraft, setTeamNameDraft] = useState('');
   useEffect(() => {
     if (modal === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
@@ -236,7 +229,6 @@ export const TeamsPage: React.FC = () => {
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 
   const [formValue, setFormValue] = useState('');
-  const [createDescription, setCreateDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
   // `value` null resets the setting to the inherited one.
@@ -262,7 +254,6 @@ export const TeamsPage: React.FC = () => {
   const closeModal = () => {
     setModal(null);
     setFormValue('');
-    setCreateDescription('');
     setFormError(null);
   };
 
@@ -270,30 +261,9 @@ export const TeamsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  const handleCreate = useCallback(async () => {
-    if (!formValue.trim()) return;
-    if (!selectedOrgId) {
-      setFormError('Select an organization before creating a team.');
-      return;
-    }
-    setCreateLoading(true);
-    try {
-      const team = await teamApi.createTeam({
-        name: formValue.trim(),
-        description: createDescription.trim() || undefined,
-        orgId: selectedOrgId,
-      });
-      setSelectedTeamId(team.id, team);
-      setModal({ type: 'created', code: team.code });
-      setFormValue('');
-      setCreateDescription('');
-      refetchTeams();
-    } catch (e: any) {
-      setFormError(e.message || 'Failed to create team');
-    } finally {
-      setCreateLoading(false);
-    }
-  }, [formValue, createDescription, selectedOrgId, setSelectedTeamId, refetchTeams]);
+  const handleCreated = useCallback((team: Team) => {
+    setModal({ type: 'created', code: team.code });
+  }, []);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
@@ -769,46 +739,11 @@ export const TeamsPage: React.FC = () => {
 
       {/* ── Modals ── */}
 
-      <AppModal open={modal === 'create'} onOpenChange={(open) => !open && closeModal()} size="md">
-        <ModalHeader>
-          <ModalTitle>Create Team</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <div className="space-y-3">
-            <Input
-              label="Team name"
-              hideLabel
-              placeholder="Team name"
-              value={formValue}
-              onChange={(e) => setFormValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              error={formError ?? undefined}
-              autoFocus
-            />
-            <Textarea
-              aria-label="Team description"
-              placeholder="Team description (optional)"
-              value={createDescription}
-              onChange={(e) => setCreateDescription(e.target.value)}
-              rows={4}
-              maxLength={500}
-            />
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            variant="primary"
-            fullWidth
-            onClick={handleCreate}
-            isLoading={createLoading}
-            loadingText="Creating…"
-            disabled={!selectedOrgId}
-          >
-            Create
-          </Button>
-        </ModalFooter>
-      </AppModal>
+      <CreateTeamModal
+        open={modal === 'create'}
+        onOpenChange={(open) => !open && closeModal()}
+        onCreated={handleCreated}
+      />
 
       <AppModal open={modal === 'join'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
