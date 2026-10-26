@@ -62,7 +62,6 @@ export type TicketStartRequest =
       kind: 'ticket';
       ticket: TimerTicket;
       label: string;
-      inTable: boolean;
       onBoard: boolean;
     }
   /** An existing work entry on the Work page (`timers.startSession`). */
@@ -233,7 +232,8 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
               discardSessionId,
             }));
             // A pinned issue joins the Redmine rows, which are cached per session.
-            if (request.ticket.sourceId === 'redmine' && !request.inTable) invalidateRedmineCache();
+            // A carried issue's ticket is new to the Redmine list's linked issues.
+            if (request.ticket.sourceId === 'redmine') invalidateRedmineCache();
           } else {
             const started = await timerApi.startSession(
               request.entryId,

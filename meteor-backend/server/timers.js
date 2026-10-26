@@ -25,7 +25,6 @@ import {
 import { findRedmineAccount } from './redmine-account';
 import { onDefaultRedmine } from './redmine-client';
 import { unsentRedmineFor } from './redmine';
-import { pinIssueIfUnset } from './redmine-prefs';
 import { pushLedgerFor } from './redmine-time-sync';
 import { sessionIssuesAfterMove } from './ticket-link-core';
 import { redmineStampFor } from './timer-core';
@@ -33,23 +32,6 @@ import { discardTimerUpdate, postTimerUpdate } from './timer-updates';
 import { TimerUpdate, startAction } from './timer-updates-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
-
-/**
- * Pin a Redmine issue the user has just started timing.
- *
- * Starting a timer is the strongest statement anyone makes about an issue, and
- * the pin is what keeps it near the top of their suggestions afterwards — the
- * `running` signal lasts only as long as the timer does.
- *
- * Fire-and-forget: a pin is a convenience, and failing to record one must never
- * be the reason a timer did not start.
- */
-function pinTimedRedmineIssue(userId, source, ticketId) {
-  if (normalizeSource(source) !== REDMINE) return;
-  const issueId = Number(ticketId);
-  if (!Number.isSafeInteger(issueId) || issueId <= 0) return;
-  pinIssueIfUnset(userId, issueId).catch(() => {});
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -666,7 +648,6 @@ Meteor.methods({
       session = toPublicSession(started);
       update = await announceStart(userId, started, previous, discardSessionId);
       unsentRedmine = await unsentRedmineFor(userId, previous);
-      pinTimedRedmineIssue(userId, ticketSource, ticketId);
     }
 
     // Only notify admins if we actually created a new entry (not when reusing existing)
@@ -701,7 +682,6 @@ Meteor.methods({
     });
     const session = await Timers.findOneAsync(sessionId);
     const update = await announceStart(userId, session, previous, discardSessionId);
-    pinTimedRedmineIssue(userId, entry.source, entry.ticketId);
     return {
       session: toPublicSession(session),
       closedSessionId: previous?._id.toHexString() ?? null,

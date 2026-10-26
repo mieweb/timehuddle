@@ -4,7 +4,6 @@ import type { PulseDestination } from '../../lib/api';
 const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   library: 'Added to your media library',
   ticket: 'Added to this ticket',
-  redmine: 'Added to this issue',
   clock: 'Added to this session',
   huddle: 'Posted to Huddle',
   // Exactly the backend's notes (pulse-destinations.js): a note that says
@@ -22,7 +21,6 @@ export function landedLabel(destination: PulseDestination): string {
 const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   library: "It's added to your media library as soon as it uploads.",
   ticket: "It's added to this ticket as soon as it uploads.",
-  redmine: "It's added to this issue as soon as it uploads.",
   clock: "It's added to this session as soon as it uploads.",
   huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",
   'clock-plan': "It's posted as your plan, and you're clocked in, as soon as it uploads.",

@@ -11,18 +11,12 @@ const plural = (count: number, one: string, many: string) => (count === 1 ? one 
 
 export const removalText = {
   deleteTitle: (count: number) => (count === 1 ? 'Delete ticket?' : `Delete ${count} tickets?`),
-  /** Redmine issues leave TimeHuddle only; Redmine itself is never touched. */
-  redmineRemoved: (count: number) =>
-    `${count} Redmine ${plural(count, 'issue', 'issues')} will be removed from TimeHuddle, not from Redmine. ` +
-    `Start a timer on ${plural(count, 'it', 'one')} to bring it back.`,
   /** TimeHuddle is where a Huddle ticket lives, so deleting it is permanent. */
   huddleDeleted: (count: number) =>
     `${count} Huddle ${plural(count, 'ticket', 'tickets')} will be permanently deleted and removed from all clock events.`,
   deleteFailed: 'Some tickets could not be deleted. Please try again.',
   deleteDisabled: 'Only Huddle tickets you created can be deleted',
 
-  connectRedmine: (count: number) =>
-    `Connect your Redmine account in Settings to see ${count} Redmine ${plural(count, 'issue', 'issues')} on your board.`,
   boardUnavailable: (count: number) =>
     `${count} ${plural(count, 'ticket', 'tickets')} on your board ${plural(count, 'is', 'are')} no longer available.`,
   boardNotLoaded: (count: number) =>

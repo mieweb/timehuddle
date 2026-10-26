@@ -32,12 +32,10 @@ export const ASSIGNED_FILTERS: TicketFilters = {
 };
 
 /**
- * The user's open, assigned Redmine issues, in the order the tickets came in.
- * Redmine rows arrive ranked by the server (their own recent work first), so
- * the head of this list is what a starter board should hold.
+ * The tickets carrying the user's open, assigned Redmine issues, in the order
+ * the tickets came in. The notice after a first fill counts from these.
  *
- * An issue counts whether it is still a bare Redmine row or already carried by
- * a TimeHuddle ticket, whose row then stands in for it (#736). What decides is
+ * An issue shows as the TimeHuddle ticket carrying it (#736). What decides is
  * the issue's Redmine assignee, never the ticket's TimeHuddle one: that can be
  * someone with no Redmine account at all.
  */
@@ -45,11 +43,9 @@ export function assignedToMe(tickets: UnifiedTicket[], meKeys: readonly string[]
   const me = new Set(meKeys);
   const isMe = (redmineUserId: string | undefined) =>
     redmineUserId !== undefined && me.has(`redmine:${redmineUserId}`);
-  return tickets.filter((t) => {
-    if (t.status.isClosed) return false;
-    if (t.sourceId === 'redmine') return t.assignees.some((a) => isMe(a.id));
-    return t.linked?.sourceId === 'redmine' && isMe(t.linked.assignee?.id);
-  });
+  return tickets.filter(
+    (t) => !t.status.isClosed && t.linked?.sourceId === 'redmine' && isMe(t.linked.assignee?.id),
+  );
 }
 
 /** Whether a count taken from `assigned` may be short of the real one. */
