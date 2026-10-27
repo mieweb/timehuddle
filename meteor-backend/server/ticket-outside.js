@@ -107,13 +107,18 @@ Meteor.methods({
   /**
    * Write `edits` (record field → value: `title`, `body`, `status`,
    * `priority`, `assignees`) to the issue ticket `ticketId` carries, as the
-   * caller. Only fields the source's definition marks editable, and only
-   * while the issue's `dates.updated` is still `expectedUpdatedAt`; refused
-   * as `stale` otherwise. Returns `{ record, choices, mismatches }`:
-   * `mismatches` names what the source didn't store as sent.
+   * caller. Only fields the source's definition marks editable, only while
+   * the ticket still carries `expectedIssue` (`kind:server:key`, the issue
+   * the caller was looking at), and only while its `dates.updated` is still
+   * `expectedUpdatedAt`; refused as `stale-link` or `stale` otherwise.
+   * Returns `{ record, choices, mismatches }`: `mismatches` names what the
+   * source didn't store as sent.
    */
-  async 'tickets.writeOutside'({ ticketId, expectedUpdatedAt, edits } = {}) {
+  async 'tickets.writeOutside'({ ticketId, expectedIssue, expectedUpdatedAt, edits } = {}) {
     const { userId } = await requireIdentity(this);
+    if (typeof expectedIssue !== 'string' || !expectedIssue) {
+      throw new Meteor.Error('bad-request', 'expectedIssue is required.');
+    }
     if (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt) {
       throw new Meteor.Error('bad-request', 'expectedUpdatedAt is required.');
     }
@@ -121,6 +126,13 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'Nothing to change.');
     }
     const outside = await openOutside(userId, ticketId);
+    // Relinked since the caller read it: their edit was meant for another issue.
+    if (`${outside.kind}:${outside.ref.server}:${outside.ref.key}` !== expectedIssue) {
+      throw new Meteor.Error(
+        'stale-link',
+        "This ticket's linked issue changed since you opened it. Reload to see the latest version.",
+      );
+    }
     enforceRedmineLimit(writeLimiter, userId);
 
     let result;

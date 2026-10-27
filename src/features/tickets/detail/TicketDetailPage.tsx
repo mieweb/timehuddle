@@ -28,6 +28,7 @@ import {
   ApiError,
   activityApi,
   teamApi,
+  outsideIssueKey,
   ticketApi,
   timerApi,
   type ActivityLogItem,
@@ -106,11 +107,7 @@ function statusVariant(status: string): BadgeProps['variant'] {
 type DraftBase = { issue: string; updated: string } | null;
 
 function baseOf(issue: OutsideIssue): NonNullable<DraftBase> {
-  const ref = issue.record.ref;
-  return {
-    issue: `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`,
-    updated: issue.record.dates.updated ?? '',
-  };
+  return { issue: outsideIssueKey(issue), updated: issue.record.dates.updated ?? '' };
 }
 
 /** A source's name ("Redmine") by its kind, for the page's labels. */
@@ -344,8 +341,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     if (titleBase !== null) {
       // The issue's title is the ticket's: it is written to the source.
       setSaving(true);
-      if (await writeOutside({ title: titleDraft.trim() }, titleBase.updated))
-        setEditingTitle(false);
+      if (await writeOutside({ title: titleDraft.trim() }, titleBase)) setEditingTitle(false);
       setSaving(false);
       return;
     }
@@ -366,7 +362,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
    * Write to the carried issue in its source, saying when it was refused or
    * stored otherwise. Resolves to whether the source took it.
    */
-  const writeOutside = async (edits: Parameters<typeof outside.write>[0], basedOn?: string) => {
+  const writeOutside = async (
+    edits: Parameters<typeof outside.write>[0],
+    basedOn?: Parameters<typeof outside.write>[1],
+  ) => {
     if (!carried) return false;
     const source = sourceLabel(carried.kind);
     setActionError(null);
@@ -383,7 +382,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       }
       return true;
     } catch (err) {
-      setStale(err instanceof ApiError && err.code === 'stale');
+      setStale(err instanceof ApiError && (err.code === 'stale' || err.code === 'stale-link'));
       showFailure(err, outsideText.saveFailed(source));
       return false;
     }
@@ -395,7 +394,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     setActionError(null);
     if (descBase !== null) {
       // A refused write keeps the draft open, so nothing typed is lost.
-      if (await writeOutside({ body: descDraft }, descBase.updated)) setEditingDesc(false);
+      if (await writeOutside({ body: descDraft }, descBase)) setEditingDesc(false);
       setSaving(false);
       return;
     }

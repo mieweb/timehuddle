@@ -9,7 +9,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { ApiError, ticketApi, type OutsideEdits, type OutsideIssue } from '../../../lib/api';
+import {
+  ApiError,
+  outsideIssueKey,
+  ticketApi,
+  type OutsideEdits,
+  type OutsideIssue,
+} from '../../../lib/api';
 
 export type OutsideState =
   | { kind: 'none' }
@@ -29,8 +35,8 @@ function failedState(err: unknown): OutsideState {
 /**
  * `linkedKey` changes when the ticket's link does (`source:id`), and is null
  * for a ticket that carries nothing. `write` sends edits as of `basedOn`, the
- * record's `dates.updated` when the edit was opened (the one on screen when
- * omitted), and resolves to the fields the source stored differently; a
+ * issue and its `dates.updated` when the edit was opened (the one on screen
+ * when omitted), and resolves to the fields the source stored differently; a
  * refusal (`stale`, `no-permission`, …) is thrown as an `ApiError` for the page
  * to show.
  *
@@ -67,13 +73,16 @@ export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
   }, [linkedKey, reload]);
 
   const write = useCallback(
-    async (edits: OutsideEdits, basedOn?: string): Promise<string[]> => {
+    async (
+      edits: OutsideEdits,
+      basedOn?: { issue: string; updated: string },
+    ): Promise<string[]> => {
       if (state.kind !== 'loaded') return [];
       const { issue } = state;
       const request = ++latest.current;
       const result = await ticketApi.writeOutside(
         ticketId,
-        basedOn ?? issue.record.dates.updated ?? '',
+        basedOn ?? { issue: outsideIssueKey(issue), updated: issue.record.dates.updated ?? '' },
         edits,
       );
       if (request === latest.current) {

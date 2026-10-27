@@ -1102,6 +1102,12 @@ export interface OutsideIssue {
   me: string | null;
 }
 
+/** Which issue `issue` is, as `tickets.writeOutside` checks it: `kind:server:key`. */
+export function outsideIssueKey(issue: OutsideIssue): string {
+  const ref = issue.record.ref;
+  return `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`;
+}
+
 /** Edits to an outside issue, by record field; ids as the source gives them. */
 export type OutsideEdits = Partial<{
   title: string;
@@ -1221,14 +1227,21 @@ export const ticketApi = {
     wormholeCall<OutsideIssue>('tickets.outsideRecord', { ticketId: id }),
 
   /**
-   * Write edits to the carried issue as the caller. Refused with `stale` when
-   * it changed since `expectedUpdatedAt` (the record's `dates.updated`).
-   * `mismatches` names what the source stored differently.
+   * Write edits to the carried issue as the caller. `expected` is the issue
+   * they were looking at (`kind:server:key`, see `outsideIssueKey`) and its
+   * `dates.updated` then: refused with `stale-link` when the ticket now
+   * carries another issue, and `stale` when it changed. `mismatches` names
+   * what the source stored differently.
    */
-  writeOutside: (id: string, expectedUpdatedAt: string, edits: OutsideEdits) =>
+  writeOutside: (id: string, expected: { issue: string; updated: string }, edits: OutsideEdits) =>
     wormholeCall<Omit<OutsideIssue, 'kind' | 'me'> & { mismatches: string[] }>(
       'tickets.writeOutside',
-      { ticketId: id, expectedUpdatedAt, edits: { ...edits } },
+      {
+        ticketId: id,
+        expectedIssue: expected.issue,
+        expectedUpdatedAt: expected.updated,
+        edits: { ...edits },
+      },
     ),
 
   /** Who is timing the ticket right now. Cheap enough for a page to poll. */

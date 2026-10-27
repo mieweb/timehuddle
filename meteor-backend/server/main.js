@@ -1097,6 +1097,11 @@ Meteor.startup(async () => {
       type: 'object',
       properties: {
         ticketId: { type: 'string' },
+        expectedIssue: {
+          type: 'string',
+          description:
+            'The issue the caller read, as kind:server:key (the record\'s ref); a ticket now carrying another is refused as stale-link',
+        },
         expectedUpdatedAt: {
           type: 'string',
           description: "The record's dates.updated when the caller read it",
@@ -1107,7 +1112,7 @@ Meteor.startup(async () => {
             'Record field to new value: title, body (text), status, priority (ids), assignees (ids; empty unassigns)',
         },
       },
-      required: ['ticketId', 'expectedUpdatedAt', 'edits'],
+      required: ['ticketId', 'expectedIssue', 'expectedUpdatedAt', 'edits'],
     },
   });
 
