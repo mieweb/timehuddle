@@ -1277,7 +1277,8 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     account: <AccountSettings />,
-    organization: <OrganizationSettings />,
+    // Keyed by org, so a slow response for the previous one can't overwrite it.
+    organization: <OrganizationSettings key={selectedOrgId ?? 'none'} />,
   };
 
   return (
