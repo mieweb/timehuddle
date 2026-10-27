@@ -22,6 +22,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  ModalTitle,
   MoreHorizontalIcon,
   PlusIcon,
   SectionSpyNav,
@@ -32,10 +33,11 @@ import {
   UserMinusIcon,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, enterpriseApi } from '../../lib/api';
 import { getEnterpriseRole, type EnterpriseRole } from '../../lib/organizationAccess';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
@@ -370,7 +372,9 @@ const AdminsCard: React.FC<{
       </CardContent>
 
       <AppModal open={removeId !== null} onOpenChange={(o) => !o && !removing && setRemoveId(null)}>
-        <ModalHeader>{A.removeTitle}</ModalHeader>
+        <ModalHeader>
+          <ModalTitle>{A.removeTitle}</ModalTitle>
+        </ModalHeader>
         <ModalBody>
           <Text variant="muted" size="sm">
             {A.removeBody(removeName)}
@@ -463,8 +467,10 @@ const EnterpriseAdminView: React.FC<{ role: EnterpriseRole }> = ({ role }) => {
 /** Which enterprise and organizations you belong to, read-only. */
 const EnterpriseMemberView: React.FC = () => {
   const M = S.member;
-  const { organizations, selectedOrgId } = useTeam();
+  const { organizations, selectedOrgId, refetchOrganizations } = useTeam();
   const open = useOpenOrganization();
+  // The app-wide refresh reloads session, teams and clock, not organizations.
+  useRefresh(useCallback(async () => refetchOrganizations(), [refetchOrganizations]));
 
   const groups = useMemo(() => {
     const byEnterprise = new Map<string, { name: string | null; orgs: Organization[] }>();
