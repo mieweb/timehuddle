@@ -46,18 +46,18 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 
 ## Params by Page
 
-| Page                            | Params                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------- |
-| Teams `/app/teams/:teamId`      | the team is in the path; `/app/teams` redirects to the selected team                        |
-| Tickets `/app/tickets`          | none yet — its search, filters and tab are component state (see #618 follow-up)             |
-| Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                                           |
-| Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                                       |
-| Huddle                          | `view=me` (Personal), `conversation`, `q`; `post` resolves to the `conversation` holding it |
-| Work                            | `date=YYYY-MM-DD` (today when absent)                                                       |
-| Profile                         | `tab` (Feed when absent)                                                                    |
-| People `/app/organization`      | `tab=members\|invitations\|chart` (admins; Members when absent), `q`, `role`                |
-| Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                               |
-| Settings                        | `section`; `github=taken\|expired`, `github_confirm=<code>` (Connect GitHub, read once)     |
+| Page                            | Params                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| Teams `/app/teams/:teamId`      | the team is in the path; `tab=requests\|invitations\|settings` (admins; Members when absent) |
+| Tickets `/app/tickets`          | none yet — its search, filters and tab are component state (see #618 follow-up)              |
+| Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                                            |
+| Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                                        |
+| Huddle                          | `view=me` (Personal), `conversation`, `q`; `post` resolves to the `conversation` holding it  |
+| Work                            | `date=YYYY-MM-DD` (today when absent)                                                        |
+| Profile                         | `tab` (Feed when absent)                                                                     |
+| People `/app/organization`      | `tab=members\|invitations\|chart` (admins; Members when absent), `q`, `role`                 |
+| Org Usage                       | `period`, `usageOrg` — not `org`, which is the app-wide scope                                |
+| Settings                        | `section`; `github=taken\|expired`, `github_confirm=<code>` (Connect GitHub, read once)      |
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 

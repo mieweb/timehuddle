@@ -105,7 +105,7 @@ test.describe('Logout Navigation', () => {
 
     // Open People, then its Members tab (owners and admins only)
     await page.getByRole('button', { name: /^People$/i }).click();
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Members', exact: true }).click();
     await expect(page).toHaveURL(/\/app\/organization/);
 
     // Logout

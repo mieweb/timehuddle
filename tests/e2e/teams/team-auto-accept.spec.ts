@@ -3,7 +3,7 @@
  *
  * Covers the "Auto-accept join requests" toggle in Team Settings:
  *
- *   1. A team admin flips the toggle in the Team Settings modal and the
+ *   1. A team admin flips the toggle in the team's Settings tab and the
  *      setting persists (`settings.autoAcceptJoins`).
  *   2. Auto-accept OFF (default): joining with the team code creates a
  *      pending request awaiting admin approval — the user is NOT added.
@@ -91,17 +91,17 @@ test.describe('Team Auto-Accept Join Requests', () => {
     await mongoClient?.close();
   });
 
-  test('admin can toggle auto-accept in Team Settings and it persists', async ({ page }) => {
+  test('admin can toggle auto-accept in the Settings tab and it persists', async ({ page }) => {
     await loginAs(page, admin);
     await openTeamsPage(page);
     await selectTeam(page, TEAM_NAME);
     await expect(page.getByText(TEAM_CODE)).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole('button', { name: 'Team Settings' }).click();
-    const dialog = page.getByRole('dialog').filter({ hasText: 'Team Settings' });
-    await expect(dialog).toBeVisible();
+    await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+    const panel = page.locator('.team-settings-panel');
+    await expect(panel).toBeVisible();
 
-    const toggle = dialog.getByRole('switch', { name: 'Toggle auto-accepting join requests' });
+    const toggle = panel.getByRole('switch', { name: 'Toggle auto-accepting join requests' });
     await expect(toggle).toBeVisible();
     await expect(toggle).not.toBeChecked();
 
