@@ -78,7 +78,7 @@ test.describe('Logout Navigation', () => {
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to organization page
-    await page.getByRole('button', { name: /^Organization$/i }).click();
+    await page.getByRole('button', { name: /^People$/i }).click();
     await page.waitForTimeout(1000);
 
     // Verify we're on organization page
@@ -104,7 +104,7 @@ test.describe('Logout Navigation', () => {
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
     // Navigate to org members page
-    await page.getByRole('button', { name: /^Organization$/i }).click();
+    await page.getByRole('button', { name: /^People$/i }).click();
     await page.waitForTimeout(500);
 
     // Click members link in the navigation or page
