@@ -126,6 +126,10 @@ test.describe('Linking a ticket to a Redmine issue', () => {
   test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
     await openNewTicket(page, `Unlink ${Date.now()}`, ISSUE.subject);
+    // A carried ticket's assignee is Redmine's, shown as Redmine has it.
+    const assignee = page.locator('.ticket-sidebar-field-assignee');
+    await expect(assignee).toContainText('Assignee in Redmine');
+    await expect(assignee).toContainText('Test User');
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
     await expect(card(page)).toContainText('Unlink this issue?');

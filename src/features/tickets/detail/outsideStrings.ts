@@ -7,6 +7,8 @@ export const outsideText = {
   statusLabel: (source: string) => `Status in ${source}`,
   priorityLabel: (source: string) => `Priority in ${source}`,
   noPriority: 'None',
+  assigneeLabel: (source: string) => `Assignee in ${source}`,
+  noAssignee: 'Unassigned',
   descriptionFrom: (source: string) => `From ${source}`,
   saveFailed: (source: string) => `Could not save the change to ${source}.`,
   notStored: (source: string) =>

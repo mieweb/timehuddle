@@ -836,47 +836,65 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 )}
               </div>
 
-              {/* Assignee */}
+              {/* Assignee: the source's for a carried ticket, shown as it has it.
+                  Changing it from here is a follow-up (#757). */}
               <div className="ticket-sidebar-field-assignee">
-                <label
-                  htmlFor="ticket-assignee"
-                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
-                >
-                  Assignee
-                </label>
-                <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
-                  {assigneeOptions.map((option) => {
-                    const isUnassigned = option.value === '';
-                    const currentAssignees = ticket.assignedTo ?? [];
-                    const isChecked = isUnassigned
-                      ? currentAssignees.length === 0
-                      : currentAssignees.includes(option.value);
+                {carried ? (
+                  <>
+                    <Text
+                      size="sm"
+                      className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                    >
+                      {outsideText.assigneeLabel(source ?? '')}
+                    </Text>
+                    <Text size="sm" className="text-neutral-700 dark:text-neutral-300">
+                      {carried.record.assignees.map((person) => person.name).join(', ') ||
+                        outsideText.noAssignee}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <label
+                      htmlFor="ticket-assignee"
+                      className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                    >
+                      Assignee
+                    </label>
+                    <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
+                      {assigneeOptions.map((option) => {
+                        const isUnassigned = option.value === '';
+                        const currentAssignees = ticket.assignedTo ?? [];
+                        const isChecked = isUnassigned
+                          ? currentAssignees.length === 0
+                          : currentAssignees.includes(option.value);
 
-                    return (
-                      <Checkbox
-                        key={option.value}
-                        size="sm"
-                        label={option.label}
-                        checked={isChecked}
-                        disabled={locked}
-                        onChange={(e) => {
-                          if (isUnassigned) {
-                            // When "Unassigned" is checked, clear all assignees.
-                            // Unchecking it manually is a no-op.
-                            if (e.target.checked) {
-                              void handleAssigneesChange([]);
-                            }
-                          } else {
-                            const newAssignees = e.target.checked
-                              ? [...currentAssignees, option.value]
-                              : currentAssignees.filter((id) => id !== option.value);
-                            void handleAssigneesChange(newAssignees);
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
+                        return (
+                          <Checkbox
+                            key={option.value}
+                            size="sm"
+                            label={option.label}
+                            checked={isChecked}
+                            disabled={locked}
+                            onChange={(e) => {
+                              if (isUnassigned) {
+                                // When "Unassigned" is checked, clear all assignees.
+                                // Unchecking it manually is a no-op.
+                                if (e.target.checked) {
+                                  void handleAssigneesChange([]);
+                                }
+                              } else {
+                                const newAssignees = e.target.checked
+                                  ? [...currentAssignees, option.value]
+                                  : currentAssignees.filter((id) => id !== option.value);
+                                void handleAssigneesChange(newAssignees);
+                              }
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Created by */}
