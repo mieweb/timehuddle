@@ -648,6 +648,7 @@ export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
     reviewedAt: (doc.reviewedAt as string | undefined) ?? null,
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,
+    number: typeof doc.number === 'number' ? doc.number : undefined,
     sharedWithTimeharbor: doc.sharedWithTimeharbor as boolean | undefined,
     linkedIssue: toLinkedIssue(doc.linkedIssue),
   };
@@ -665,6 +666,10 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
     admins: Array.isArray(doc.admins) ? doc.admins.map(String) : [],
     code: String(doc.code ?? ''),
     isPersonal: Boolean(doc.isPersonal),
+    ticketPrefix: String(doc.ticketPrefix ?? ''),
+    sourcePrefixes: Array.isArray(doc.sourcePrefixes)
+      ? (doc.sourcePrefixes as import('./api').SourcePrefix[])
+      : [],
     settings: doc.settings as import('./api').Team['settings'],
     resolvedSettings: doc.resolvedSettings as import('./api').Team['resolvedSettings'],
     createdAt: String(doc.createdAt ?? ''),

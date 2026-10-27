@@ -55,11 +55,20 @@ export interface TicketFieldFilter {
   searchPlaceholder?: string;
 }
 
-/** A ticket property the list can sort by, filter by, or both. */
+/** A view option under a property, on or off, such as showing TimeHuddle IDs. */
+export interface TicketFieldToggle {
+  label: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+}
+
+/** A ticket property the list can sort by, filter by, or both, and how it is shown. */
 export interface TicketField {
   label: string;
   sortField?: SortField;
   filter?: TicketFieldFilter;
+  /** Change only how rows look, so they never count as a filter. */
+  toggles?: readonly TicketFieldToggle[];
 }
 
 export interface TicketListControlsProps {
@@ -87,6 +96,8 @@ const text = {
     `Sorted by ${label}, ${direction === 'asc' ? 'ascending' : 'descending'}. Press to reverse`,
   selected: '(selected)',
   noMatches: 'No matches',
+  optionsFor: (label: string) => `Options for ${label}`,
+  showFor: (label: string) => `Show with ${label}`,
   filterBy: (label: string, selected: string | null) =>
     selected ? `Filter by ${label}: ${selected}` : `Filter by ${label}`,
   /** After a pill's label when more than one choice is on. */
@@ -243,7 +254,8 @@ const FieldPill: React.FC<FieldPillProps> = ({
   onOpenMenuChange,
   boundaryRef,
 }) => {
-  const { filter, sortField, label } = field;
+  const { filter, sortField, label, toggles } = field;
+  const hasToggles = !!toggles?.length;
   const selected = filter ? selectedFilterLabel(filter) : null;
   const sorted = sortField !== undefined && sort.field === sortField;
   const SortArrow = sort.direction === 'asc' ? ArrowUp : ArrowDown;
@@ -251,7 +263,7 @@ const FieldPill: React.FC<FieldPillProps> = ({
 
   // Nothing to choose but the order, so there is no menu to open: the pill is
   // the sort itself.
-  if (!filter && sortField) {
+  if (!filter && !hasToggles && sortField) {
     return (
       // The pill is drawn by the span, as a menu pill's is by its trigger: the
       // button gives up its own size and padding.
@@ -273,8 +285,8 @@ const FieldPill: React.FC<FieldPillProps> = ({
       </Button>
     );
   }
-  if (!filter) return null;
-  const name = text.filterBy(label, selected);
+  if (!filter && !hasToggles) return null;
+  const name = filter ? text.filterBy(label, selected) : text.optionsFor(label);
 
   return (
     <FilterDropdown
@@ -290,7 +302,7 @@ const FieldPill: React.FC<FieldPillProps> = ({
           title={selected ? `${label}: ${selected}` : undefined}
         >
           {label}
-          {filter.values.length > 1 && (
+          {filter && filter.values.length > 1 && (
             <span className="ticket-list-pill-count tabular-nums opacity-80" aria-hidden="true">
               {text.chosen(filter.values.length)}
             </span>
@@ -325,10 +337,26 @@ const FieldPill: React.FC<FieldPillProps> = ({
           </DropdownItem>
         </div>
       )}
-      {sortField && <DropdownSeparator />}
-      <div role="group" aria-label={text.filterBy(label, selected)}>
-        <TicketFilterItems filter={filter} />
-      </div>
+      {sortField && (filter || hasToggles) && <DropdownSeparator />}
+      {filter && (
+        <div role="group" aria-label={text.filterBy(label, selected)}>
+          <TicketFilterItems filter={filter} />
+        </div>
+      )}
+      {filter && hasToggles && <DropdownSeparator />}
+      {toggles && hasToggles && (
+        <div role="group" aria-label={text.showFor(label)}>
+          {toggles.map((toggle) => (
+            <FilterChoice
+              key={toggle.label}
+              label={toggle.label}
+              selected={toggle.on}
+              onSelect={() => toggle.onChange(!toggle.on)}
+              toggles
+            />
+          ))}
+        </div>
+      )}
     </FilterDropdown>
   );
 };

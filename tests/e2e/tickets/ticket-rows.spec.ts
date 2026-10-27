@@ -52,9 +52,8 @@ test.describe('Ticket rows', () => {
     const row = tickets.rowByTitle(title);
 
     // Where the ticket sits, then its title with who has it and its state beside it.
-    await expect(row.locator('.ticket-row-meta')).toContainText('#');
+    await expect(row.locator('.ticket-row-meta')).toContainText(/TH-\d+/);
     await expect(row.locator('.ticket-row-facts')).toContainText(TEST_USERS.owner1.name);
-    await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
     await expect(row.locator('.ticket-row-facts')).toContainText('open');
 
     const menu = row.getByRole('button', { name: 'Ticket options' });
@@ -238,9 +237,10 @@ test.describe('Ticket rows', () => {
     await page.setViewportSize({ width: 390, height: 600 });
     const stamp = Date.now();
     for (const n of [1, 2, 3, 4]) await tickets.createTicket(`E2E Menu Scroll ${stamp} ${n}`);
-    await tickets.search(`E2E Menu Scroll ${stamp}`);
-
-    await tickets.activePanel.getByRole('button', { name: 'Ticket options' }).first().click();
+    await tickets
+      .rowByTitle(`E2E Menu Scroll ${stamp} 4`)
+      .getByRole('button', { name: 'Ticket options' })
+      .click();
     await expect(page.getByRole('menu')).toBeVisible();
 
     // Kept open, it would ride along over the header as the rows move under it.
@@ -492,7 +492,7 @@ test.describe('Ticket rows', () => {
     // wrapped under it to start from its left edge. No columns appear.
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 800 });
-      await expect(row.locator('.ticket-row-facts')).toContainText('TimeHuddle');
+      await expect(row.locator('.ticket-row-facts')).toContainText('open');
       const title = (await row.locator('.row-list-title').boundingBox())!;
       const badges = await row.locator('.ticket-row-facts [data-slot=badge]').evaluateAll((els) =>
         els.map((el) => {

@@ -608,6 +608,12 @@ export const usageApi = {
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
+/** A server an org has named, so an issue on `host` shows as `PM-233` (#689). */
+export interface SourcePrefix {
+  host: string;
+  prefix: string;
+}
+
 export const orgApi = {
   checkSlugAvailability: (slug: string, excludeId?: string) =>
     wormholeCall<{ available: boolean }>('orgs.checkSlug', {
@@ -624,6 +630,7 @@ export const orgApi = {
         slug: string;
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
+        sourcePrefixes?: SourcePrefix[];
       }>;
     }>('orgs.list', {}).then((r) => r.organizations),
 
@@ -667,10 +674,28 @@ export const orgApi = {
         name: string;
         slug: string;
         allowAutoJoin: boolean;
+        ticketPrefix: string;
+        sourcePrefixes: SourcePrefix[];
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
+        /** An org owner by membership; only they may change ticket IDs. */
+        canEditTicketIds: boolean;
       } & SettingsEditView;
     }>('orgs.get', { orgId: id }).then((r) => r.organization),
+
+  /** Sets the prefix every ticket in the org is shown with. Org owners only. */
+  setTicketPrefix: (id: string, ticketPrefix: string) =>
+    wormholeCall<{ ticketPrefix: string }>('orgs.setTicketPrefix', {
+      orgId: id,
+      ticketPrefix,
+    }).then((r) => r.ticketPrefix),
+
+  /** Names the servers outside issues live on, replacing the list. Org owners only. */
+  setSourcePrefixes: (id: string, sourcePrefixes: SourcePrefix[]) =>
+    wormholeCall<{ sourcePrefixes: SourcePrefix[] }>('orgs.setSourcePrefixes', {
+      orgId: id,
+      sourcePrefixes,
+    }).then((r) => r.sourcePrefixes),
 
   /** Sets or resets default values and locks; `allowAutoJoin` alone is the old call. */
   updateSettings: (id: string, patch: { settings?: SettingsPatch; locks?: SettingsPatch }) =>
@@ -1002,6 +1027,8 @@ export interface Ticket {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  /** The ticket's number in its organization, shown as `TH-12`. Missing until numbered. */
+  number?: number;
   sharedWithTimeharbor?: boolean;
   /** The external issue this ticket is linked to, or null. */
   linkedIssue: LinkedIssue | null;
@@ -1045,6 +1072,7 @@ function toTicket(raw: Record<string, unknown>): Ticket {
     reviewedAt: (raw.reviewedAt as string | undefined) ?? null,
     createdAt: String(raw.createdAt),
     updatedAt: (raw.updatedAt as string | undefined) ?? null,
+    number: typeof raw.number === 'number' ? raw.number : undefined,
     sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
     linkedIssue: toLinkedIssue(raw.linkedIssue),
   };
@@ -1059,6 +1087,9 @@ export interface TicketDashboardSummary {
   myClosedToday: number;
   myHighPriorityOpen: number;
 }
+
+/** How `tickets.search` read a query. */
+export type TicketSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
 export const ticketApi = {
   /**
@@ -1130,6 +1161,29 @@ export const ticketApi = {
       issueId,
       expectedIssueId,
     }).then(toTicket),
+
+  /**
+   * The team's ticket carrying Redmine issue `issueId`, created from the issue
+   * and linked when there is none (#736). `created` says which.
+   */
+  carryIssue: (teamId: string, issueId: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
+      teamId,
+      issueId: Number(issueId),
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+
+  /**
+   * The tickets a search-bar query names, in any of the caller's teams
+   * (#736c): an ID or ID prefix (`THX-12`, `TH-`, `RM0-233`, `pulse-2`, a bare
+   * `223`), `@name`, a pasted issue link, or words in the title. Newest first
+   * (an exact ID first of all), at most 25, without descriptions. `kind` is how
+   * the query was read, null when it was not worth asking.
+   */
+  search: (query: string) =>
+    wormholeCall<{ kind: TicketSearchKind | null; tickets: Array<Record<string, unknown>> }>(
+      'tickets.search',
+      { query },
+    ).then(({ kind, tickets }) => ({ kind, tickets: tickets.map(toTicket) })),
 
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
@@ -1361,6 +1415,10 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
+  /** The prefix the team's tickets are shown with, from its organization: `TH` in `TH-12`. */
+  ticketPrefix: string;
+  /** The servers the team's organization has named, for outside IDs like `RM0-214`. */
+  sourcePrefixes: SourcePrefix[];
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
   settings: Record<TeamSettingKey, boolean>;
   resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;
@@ -1831,8 +1889,8 @@ export const myBoardApi = {
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
-export type AttachmentKind = 'clock' | 'ticket' | 'redmine';
-/** The kinds a ticket page attaches to: a Huddle ticket or a Redmine issue. */
+export type AttachmentKind = 'clock' | 'ticket';
+/** The kind a ticket page attaches to. */
 export type TicketAttachmentKind = Exclude<AttachmentKind, 'clock'>;
 export type AttachmentType = 'video' | 'image' | 'link';
 
@@ -2390,7 +2448,7 @@ export type RedmineRelevanceReason =
 export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
 /** What TimeHuddle may remember about a Redmine issue. `null` lifts a hide; a pin stays. */
-export type RedmineIssuePrefState = 'pinned' | 'dismissed' | null;
+export type RedmineIssuePrefState = 'dismissed' | null;
 
 /** Why a previewed ticket-day cannot be sent, or null when it can. */
 export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
@@ -2694,12 +2752,15 @@ export const redmineApi = {
       wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
     /**
-     * Take issues out of the caller's Tickets table and off their My Board.
-     * Nothing changes in Redmine. Starting a timer on one brings it back.
-     * At most 100 ids per call.
+     * One page (100) of the open issues assigned to the caller in Redmine, most
+     * recently updated first, whatever they removed from their Tickets table
+     * (#736). `nextOffset` starts the next page; null at the end.
      */
-    removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
-      wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
+    assignedIds: (offset = 0): Promise<{ issueIds: number[]; nextOffset: number | null }> =>
+      wormholeCall<{ issueIds: number[]; nextOffset: number | null }>(
+        'redmine.issues.assignedIds',
+        { offset },
+      ),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
@@ -2744,7 +2805,7 @@ export const redmineApi = {
 
   prefs: {
     /**
-     * Pin, hide or clear one Redmine issue for the caller.
+     * Hide or clear one Redmine issue for the caller.
      *
      * Hiding affects that user's **suggestions only**: it changes nothing in
      * Redmine, nothing for other users, and nothing in search results or the
@@ -2752,10 +2813,8 @@ export const redmineApi = {
      * early if the issue becomes assigned to the user, so there is nothing for
      * the client to schedule. `null` is both Undo and Restore.
      *
-     * Two refusals beyond the usual Redmine ones: `too-many-pins` when the caller
-     * is at the per-user pin cap (they unpin something, or keep the suggestion),
-     * and `too-many-requests` when they are ahead of the rate limit, where the
-     * next attempt goes through.
+     * One refusal beyond the usual Redmine ones: `too-many-requests` when they
+     * are ahead of the rate limit, where the next attempt goes through.
      */
     set: (issueId: number, state: RedmineIssuePrefState): Promise<{ ok: true }> =>
       wormholeCall<{ ok: true }>('redmine.prefs.set', { issueId, state }),

@@ -209,7 +209,7 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Type wrap-up
     const wrapUpText = `Finished documentation, started code review, will continue tomorrow`;
-    await clockPage.typeWrapUp(wrapUpText);
+    await clockPage.typeWrapUp(wrapUpText, planText);
 
     // Post wrap-up and clock out
     await clockPage.postWrapUpAndClockOut();
@@ -310,7 +310,7 @@ test.describe('Plan-First Clock Flow', () => {
     await clockPage.postPlanAndClockIn();
 
     // Add wrap-up
-    await clockPage.typeWrapUp(wrapUpText);
+    await clockPage.typeWrapUp(wrapUpText, planText);
     await clockPage.postWrapUpAndClockOut();
 
     // Navigate to huddle

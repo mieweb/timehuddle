@@ -1,4 +1,4 @@
-import { type Page, type Locator } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
@@ -14,25 +14,49 @@ export class ClockPage extends BasePage {
   readonly postPlanAndClockInButton: Locator;
   readonly postWrapUpAndClockOutButton: Locator;
   readonly openHuddleLink: Locator;
+  // The composer starts collapsed to a single-line stand-in until focused —
+  // see `composerExpanded` in ClockPage.tsx. Focusing either swaps in the
+  // real rich-text editor (`.ProseMirror`).
+  readonly collapsedPlanInput: Locator;
+  readonly collapsedWrapUpInput: Locator;
 
   constructor(page: Page) {
     super(page);
     this.heading = this.page.getByRole('heading', { level: 1, name: /Clock/i });
-    // Exact — otherwise these substring-match the composer's "Post plan and
-    // clock in" / "Post wrap-up and clock out" buttons.
+    // Exact — otherwise these substring-match the composer's "Clock in with
+    // a plan" / "Clock out with a wrap-up" buttons.
     this.clockInButton = this.page.getByRole('button', { name: 'Clock in', exact: true });
     this.clockOutButton = this.page.getByRole('button', { name: 'Clock out', exact: true });
     this.banner = this.page.locator('.clock-status');
-    this.planGateMessage = this.page.getByText(/Plan before you clock in/i);
+    this.planGateMessage = this.page.getByRole('heading', { name: 'What are you working on?' });
     this.proseMirror = this.page.locator('.ProseMirror').first();
+    // Same accessible name whether the composer is collapsed (clicking just
+    // expands it) or expanded (clicking submits) — only one is ever mounted.
     this.postPlanAndClockInButton = this.page.getByRole('button', {
-      name: /Post plan and clock in/i,
+      name: /Clock in with a plan/i,
     });
     this.postWrapUpAndClockOutButton = this.page.getByRole('button', {
-      name: /Post wrap-up and clock out/i,
+      name: /Clock out with a wrap-up/i,
     });
-    // Rendered as a button that routes client-side, not an anchor.
-    this.openHuddleLink = this.page.getByRole('button', { name: /Open huddle/i });
+    // Rendered as a button that routes client-side, not an anchor — scoped to
+    // the composer card, since the sidebar also has a "Huddle" nav button.
+    this.openHuddleLink = this.page
+      .locator('.clock-plan-composer')
+      .getByRole('button', { name: 'Huddle' });
+    this.collapsedPlanInput = this.page.getByRole('textbox', { name: 'Write a plan' });
+    this.collapsedWrapUpInput = this.page.getByRole('textbox', { name: 'Write a wrap-up' });
+  }
+
+  /**
+   * Clicking the collapsed single-line stand-in swaps in the real editor. A
+   * composer that already holds something (a wrap-up seeded with its plan)
+   * opens expanded instead, so this waits for whichever of the two appears
+   * rather than trusting an instant `isVisible()`, which would read false
+   * during the moment right after navigation before React paints.
+   */
+  private async expandComposer(collapsedInput: Locator) {
+    await collapsedInput.or(this.proseMirror).first().waitFor({ state: 'visible', timeout: 10000 });
+    if (await collapsedInput.isVisible()) await collapsedInput.click();
   }
 
   async goto() {
@@ -66,6 +90,7 @@ export class ClockPage extends BasePage {
    * Type a plan in the editor
    */
   async typePlan(planText: string) {
+    await this.expandComposer(this.collapsedPlanInput);
     await this.proseMirror.waitFor({ state: 'visible', timeout: 10000 });
     await this.proseMirror.click({ position: { x: 10, y: 10 } });
     // Select any existing content so typing replaces it (ControlOrMeta keeps
@@ -85,10 +110,16 @@ export class ClockPage extends BasePage {
   }
 
   /**
-   * Type a wrap-up in the editor
+   * Type a wrap-up in the editor. `planText` is the session's plan, which the
+   * wrap-up opens seeded with.
    */
-  async typeWrapUp(wrapUpText: string) {
+  async typeWrapUp(wrapUpText: string, planText?: string) {
+    await this.expandComposer(this.collapsedWrapUpInput);
     await this.proseMirror.waitFor({ state: 'visible', timeout: 10000 });
+    // The element can be visible a tick before RichEditor finishes hydrating
+    // the seeded plan text into it — reading innerText right away occasionally
+    // raced an empty document, losing the plan when merged below.
+    if (planText) await expect(this.proseMirror).toContainText(planText, { timeout: 10000 });
     // Rebuild the content deterministically to avoid occasional selection races
     // that can replace the plan text with only the wrap-up.
     const existingText = (await this.proseMirror.innerText()).trim();

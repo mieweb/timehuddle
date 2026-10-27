@@ -1,9 +1,10 @@
 /**
- * Redmine rows in the unified ticket table (plan area g).
+ * The Redmine source in the unified ticket table (plan area g).
  *
- * `tickets/unified-table.spec.ts` covers the same table with *no* Redmine
- * account linked — the degraded path most users see. This file is its
- * counterpart: what the table does once a source actually contributes rows.
+ * Since #736 a Redmine issue is never a row of its own: the source only feeds
+ * the live status and assignee of tickets that carry an issue. What is left to
+ * check here is how the table copes with the source itself — what it asks for,
+ * and what it shows when the source fails or isn't connected.
  *
  * Redmine is stubbed at the wormhole boundary (see `fixtures/redmine.ts`).
  * Huddle rows are real, created through the UI against the test backend, so
@@ -35,21 +36,9 @@ async function openTable(page: Page, overrides: Record<string, StubValue>) {
   return { rm, tickets };
 }
 
-test.describe('Unified table with Redmine rows', () => {
+test.describe('Unified table with the Redmine source', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
-  });
-
-  test('renders Redmine issues as rows, keyed by source and id', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
-
-    // Isolated to Redmine first: the table paginates at roughly a screenful,
-    // and Huddle rows left behind by earlier specs would push these off it.
-    await tickets.filterBySource('Redmine');
-
-    await expect(tickets.rowsFromSource('redmine')).toHaveCount(2);
-    await expect(tickets.activePanel.locator('[data-ticket-key="redmine:15"]')).toHaveCount(1);
-    await expect(tickets.rowByTitle('Alpha intake validation')).toHaveCount(1);
   });
 
   test('asks for the relevant list, keeping the issues the user hid from suggestions', async ({
@@ -63,57 +52,6 @@ test.describe('Unified table with Redmine rows', () => {
 
     await expect.poll(() => rm.callCount('issues.relevant')).toBeGreaterThan(0);
     expect(rm.calls('issues.relevant')[0]).toEqual({ includeDismissed: true });
-  });
-
-  test('offers "Open in Redmine" on a Redmine row', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
-
-    await tickets.search('Alpha intake validation');
-    await tickets
-      .rowByTitle('Alpha intake validation')
-      .getByRole('button', { name: 'Ticket options' })
-      .click();
-
-    await expect(page.getByText('Open in Redmine', { exact: true })).toBeVisible();
-  });
-
-  test('offers no timer on a Redmine row — timers live on My Board (M3 D1)', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
-
-    await tickets.search('Alpha intake validation');
-    await tickets
-      .rowByTitle('Alpha intake validation')
-      .getByRole('button', { name: 'Ticket options' })
-      .click();
-
-    await expect(page.getByText(/start timer|stop timer/i)).toHaveCount(0);
-  });
-
-  test('the Source filter isolates each source', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
-    await tickets.createTicket(`Huddle row ${Date.now()}`);
-
-    await tickets.filterBySource('Redmine');
-    await expect(tickets.rowsFromSource('huddle')).toHaveCount(0);
-    expect(await tickets.rowsFromSource('redmine').count()).toBeGreaterThan(0);
-
-    await tickets.clearFilters();
-    await tickets.filterBySource('TimeHuddle');
-    await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
-    expect(await tickets.rowsFromSource('huddle').count()).toBeGreaterThan(0);
-  });
-
-  test('sorting orders both sources together, not source by source', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
-    // Sorts between the two Redmine subjects, so a per-source sort is visible.
-    await tickets.createTicket('Mike huddle ticket');
-
-    await tickets.sortBy('Title');
-
-    const titles = await tickets.activePanel.locator('[data-ticket-id]').allInnerTexts();
-    const ordered = titles.join(' | ');
-    expect(ordered.indexOf('Alpha intake')).toBeLessThan(ordered.indexOf('Mike huddle'));
-    expect(ordered.indexOf('Mike huddle')).toBeLessThan(ordered.indexOf('Zulu export'));
   });
 
   test('one source failing leaves the other rendered, with an error banner', async ({ page }) => {

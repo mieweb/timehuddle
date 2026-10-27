@@ -64,7 +64,6 @@ async function openNewTicket(page: Page, title: string): Promise<void> {
   const tickets = new TicketsPage(page);
   await tickets.goto();
   await tickets.createTicket(title);
-  await tickets.search(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
@@ -140,7 +139,6 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await tickets.goto();
     const title = `GitHub link ${Date.now()}`;
     await tickets.createTicket(title, url);
-    await tickets.search(title);
     await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
 

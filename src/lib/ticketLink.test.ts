@@ -10,6 +10,16 @@ describe('toLinkedIssue', () => {
     });
   });
 
+  it('keeps the server a link names, and leaves it out for an older link', () => {
+    expect(toLinkedIssue({ source: 'redmine', id: '482', host: 'redmine0.os.mieweb.org' })).toEqual(
+      { source: 'redmine', id: '482', host: 'redmine0.os.mieweb.org' },
+    );
+    expect(toLinkedIssue({ source: 'redmine', id: '482', host: '' })).toEqual({
+      source: 'redmine',
+      id: '482',
+    });
+  });
+
   it('is null for an unlinked ticket', () => {
     expect(toLinkedIssue(undefined)).toBeNull();
     expect(toLinkedIssue(null)).toBeNull();

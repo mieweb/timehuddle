@@ -157,17 +157,20 @@ function methodFor(route: string): string {
   return route.replace(/^redmine_/, '').replace(/_/g, '.');
 }
 
+/** The deployment's Redmine in every stub. */
+export const BASE_URL = 'https://redmine.example.test';
+
 /**
  * Valid "not connected" answers. A spec that forgets to stub something gets a
  * coherent disconnected app rather than a live call or a hang.
  */
 const DISCONNECTED: Record<string, unknown> = {
-  status: { connected: false },
-  connect: { connected: false },
-  disconnect: { connected: false },
+  status: unlinkedStatus(),
+  connect: unlinkedStatus(),
+  disconnect: unlinkedStatus(),
   'issues.relevant': { connected: false, baseUrl: null, issues: [], partial: false },
   'issues.search': { connected: false, baseUrl: null, kind: 'text', issues: [] },
-  'issues.removeFromTable': { removedCount: 0 },
+  'issues.assignedIds': { issueIds: [], nextOffset: null },
   'prefs.set': { ok: true },
   'prefs.listDismissed': { connected: false, baseUrl: null, issues: [] },
   'issues.get': {
@@ -296,7 +299,14 @@ export async function stubRedmine(
 // default. A spec should read as the scenario it describes, not as a wall of
 // payload.
 
-export const BASE_URL = 'https://redmine.example.test';
+/**
+ * Not linked, on a deployment whose Redmine is `BASE_URL`. Without a
+ * `defaultBaseUrl` (or `customUrlAllowed`) Settings has no server to link to
+ * and shows that instead of the key form.
+ */
+export function unlinkedStatus(overrides: Partial<RedmineStatusShape> = {}): RedmineStatusShape {
+  return { connected: false, defaultBaseUrl: BASE_URL, ...overrides };
+}
 
 export function connectedStatus(
   overrides: Partial<RedmineStatusShape> & { login?: string } = {},

@@ -143,8 +143,10 @@ describe('redmine (wormhole)', () => {
 
   it('rejects a preference with a bad issue id or state', async () => {
     for (const params of [
-      { issueId: 0, state: 'pinned' },
+      { issueId: 0, state: 'dismissed' },
       { issueId: -1, state: 'dismissed' },
+      // Pins are gone (#736): a Redmine issue someone works on is carried by a ticket.
+      { issueId: 12, state: 'pinned' },
       { issueId: 12, state: 'snoozed' },
     ]) {
       const res = await wormhole('redmine.prefs.set', params, jwtB);

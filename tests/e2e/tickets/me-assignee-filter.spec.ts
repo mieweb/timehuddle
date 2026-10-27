@@ -55,9 +55,6 @@ async function setAssignees(
   title: string,
   names: string[],
 ): Promise<void> {
-  // Narrowed by search: the shared seed team paginates once the suite has run
-  // a while, and the row would otherwise be on a page this lookup cannot see.
-  await tickets.search(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Edit Ticket' }).click();
   const modal = page.getByRole('dialog');
@@ -74,26 +71,16 @@ async function setAssignees(
 
   await modal.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(modal).toBeHidden({ timeout: 15000 });
-  await tickets.clearSearch();
 }
 
-/**
- * Asserts how many rows a title matches, narrowing the table with search first.
- *
- * Search, not a bare row lookup: this spec runs on the shared seed team, which
- * accumulates tickets from every earlier spec in the suite, so the table
- * paginates and the row under test can sit on page 2. That made the
- * assertions pass alone and fail in a full run.
- */
+/** Asserts how many rows a title matches. */
 async function expectRows(
   page: Page,
   tickets: TicketsPage,
   title: string,
   count: number,
 ): Promise<void> {
-  await tickets.search(title);
   await expect(tickets.rowByTitle(title)).toHaveCount(count);
-  await tickets.clearSearch();
 }
 
 test.describe('Tickets — the "Me" assignee filter', () => {
@@ -145,41 +132,6 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
 
     await expectRows(page, tickets, title, 0);
-  });
-
-  test('matches Redmine issues assigned to the linked account too', async ({ page }) => {
-    await stubRedmine(page, {
-      status: connectedStatus({ redmineUserId: 8 }),
-      'issues.relevant': {
-        connected: true,
-        baseUrl: BASE_URL,
-        issues: [
-          // Not named "Me": the filter menu already has a "Me" sentinel entry,
-          // and an assignee by that name would collide with it.
-          redmineIssue({
-            id: 15,
-            subject: 'Mine in Redmine',
-            assignedTo: { id: 8, name: 'Linked Redmine User' },
-          }),
-          redmineIssue({
-            id: 23,
-            subject: 'Someone else in Redmine',
-            assignedTo: { id: 42, name: 'Other Person' },
-          }),
-        ],
-      },
-    });
-    const tickets = await openTickets(page);
-
-    const mine = `Mine huddle ${Date.now()}`;
-    await createHuddleTicket(page, mine);
-
-    await tickets.filterBy('Assignees', 'Me');
-
-    // Both namespaces at once — the whole point of the sentinel.
-    await expectRows(page, tickets, 'Mine in Redmine', 1);
-    await expectRows(page, tickets, mine, 1);
-    await expectRows(page, tickets, 'Someone else in Redmine', 0);
   });
 
   test('a Huddle id never matches a Redmine account with the same number', async ({ page }) => {

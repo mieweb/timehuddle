@@ -111,7 +111,9 @@ export const TIMESHEET_SCROLLS_QUERY = '(max-width: 1023px)';
 /**
  * The Actions column of a session table: pinned to the card's right edge while
  * the table scrolls sideways, so a row's Videos and Edit buttons are always in
- * view. Header and cells use it alike so the column stays aligned.
+ * view. Header and cells use it alike so the column stays aligned. Pinned to
+ * the trailing edge (`end-0`), with its shadow cast toward the rows, in either
+ * reading direction.
  */
 export const STICKY_ACTIONS_CELL =
-  'max-lg:sticky max-lg:right-0 max-lg:z-[1] max-lg:bg-card max-lg:shadow-[-6px_0_6px_-6px_rgb(0_0_0/0.25)]';
+  'max-lg:sticky max-lg:end-0 max-lg:z-[1] max-lg:bg-card max-lg:shadow-[-6px_0_6px_-6px_rgb(0_0_0/0.25)] rtl:max-lg:shadow-[6px_0_6px_-6px_rgb(0_0_0/0.25)]';

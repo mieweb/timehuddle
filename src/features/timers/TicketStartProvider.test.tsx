@@ -85,7 +85,6 @@ const redmineStart: TicketStartRequest = {
   kind: 'ticket',
   ticket: { sourceId: 'redmine', id: '15' },
   label: '#15',
-  inTable: true,
   onBoard: false,
 };
 
@@ -122,7 +121,7 @@ describe('TicketStartProvider', () => {
     expect(outcome).toBe('started-and-added');
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
-      { ...redmineStart, discardSessionId: undefined },
+      { ...redmineStart, teamId: 'team1', discardSessionId: undefined },
     );
     expect(toast.success).toHaveBeenCalledWith('Started #15', expect.anything());
   });
@@ -173,7 +172,7 @@ describe('TicketStartProvider', () => {
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
       // By id: the session the question was about.
-      { ...redmineStart, discardSessionId: 's0' },
+      { ...redmineStart, teamId: 'team1', discardSessionId: 's0' },
     );
   });
 
@@ -192,7 +191,7 @@ describe('TicketStartProvider', () => {
     });
     expect(mockStart).toHaveBeenCalledWith(
       { sourceId: 'redmine', id: '15' },
-      { ...redmineStart, discardSessionId: undefined },
+      { ...redmineStart, teamId: 'team1', discardSessionId: undefined },
     );
 
     mockStart.mockClear();
