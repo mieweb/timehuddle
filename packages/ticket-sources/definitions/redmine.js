@@ -18,14 +18,32 @@ export const redmine = defineSource({
     match: /\/issues\/(?<key>\d+)\/?$/,
     show: '{prefix}-{key}',
   },
-  api: { issue: '/issues/{key}.json', paging: 'offset' },
+  api: {
+    // With the moves the member may make, the history and the files, in one read.
+    issue: '/issues/{key}.json?include=allowed_statuses,journals,attachments',
+    item: 'issue',
+    paging: 'offset',
+  },
   fields: {
     title: { path: 'subject', edit: true },
     body: { path: 'description', format: 'textile', edit: true },
     // Redmine's status names are the instance's own; whether one is closed
-    // comes from the instance's status list.
-    status: { path: 'status.name', edit: 'allowed', closedWhen: hook('redmineIsClosed') },
-    priority: { path: 'priority.name', edit: true },
+    // comes from the instance's status list. The moves the member may make are
+    // on the issue itself, read with their key.
+    status: {
+      path: 'status',
+      name: 'name',
+      allowed: 'allowed_statuses',
+      edit: 'allowed',
+      closedWhen: hook('redmineIsClosed'),
+    },
+    // Redmine's default priorities; an instance's own names rank 0.
+    priority: {
+      path: 'priority',
+      name: 'name',
+      ranks: { low: 1, normal: 2, high: 3, urgent: 4, immediate: 5 },
+      edit: true,
+    },
     assignees: { path: 'assigned_to', name: 'name', max: 1, edit: true },
     reporter: { path: 'author', name: 'name' },
     // Redmine has no labels of its own: its tracker and category stand in.
@@ -46,5 +64,10 @@ export const redmine = defineSource({
     },
     extra: { path: 'custom_fields', name: 'name', value: 'value' },
   },
-  can: { search: true, suggest: true, sendTime: hook('redmineSendTime') },
+  can: {
+    search: true,
+    suggest: true,
+    write: hook('redmineWrite'),
+    sendTime: hook('redmineSendTime'),
+  },
 });

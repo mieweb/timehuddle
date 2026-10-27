@@ -23,11 +23,11 @@ packages/
 
 ## Packages
 
-| Package          | What                                               | Used by                             |
-| ---------------- | -------------------------------------------------- | ----------------------------------- |
-| `ota-version`    | OTA bundle version comparison                      | Front end and backend               |
-| `ticket-sources` | The ticket record and the per-source config (#734) | Front end; backend from #734 step 3 |
-| `youtube`        | YouTube link detection and titles                  | Front end                           |
+| Package          | What                                               | Used by               |
+| ---------------- | -------------------------------------------------- | --------------------- |
+| `ota-version`    | OTA bundle version comparison                      | Front end and backend |
+| `ticket-sources` | The ticket record and the per-source config (#734) | Front end and backend |
+| `youtube`        | YouTube link detection and titles                  | Front end             |
 
 A package the backend imports is plain JS with an `index.d.ts`, like
 `ota-version`: Meteor loads it without a build step.

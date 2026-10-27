@@ -7,6 +7,7 @@
     "build:prod:highmem": "TOOL_NODE_FLAGS=\"--max-old-space-size=12288\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor build --directory prod-build --server-only --architecture os.linux.x86_64 --allow-incompatible-update",
     "test": "meteor test --once --driver-package meteortesting:mocha",
     "test:integration": "vitest run --config vitest.config.ts",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
@@ -18,6 +19,7 @@
     "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
     "@timehuddle/ota-version": "file:../packages/ota-version",
+    "@timehuddle/ticket-sources": "file:../packages/ticket-sources",
     "agenda": "^6.2.5",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",

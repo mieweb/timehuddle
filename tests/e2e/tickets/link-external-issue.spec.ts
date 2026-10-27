@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   BASE_URL,
   connectedStatus,
-  issueDetail,
+  outsideIssue,
   redmineIssue,
   relevantList,
   stubRedmine,
@@ -59,14 +59,18 @@ async function withFakeLink(page: Page, initial: string | null = null) {
   return { link, unlink };
 }
 
-/** Creates a ticket through the UI and opens its page. */
-async function openNewTicket(page: Page, title: string): Promise<void> {
+/**
+ * Creates a ticket through the UI and opens its page. A ticket that carries an
+ * issue is headed by the issue's title once it is read (#757), so `heading`
+ * is what to wait for.
+ */
+async function openNewTicket(page: Page, title: string, heading = title): Promise<void> {
   const tickets = new TicketsPage(page);
   await tickets.goto();
   await tickets.createTicket(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+  await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible({
     timeout: 20000,
   });
 }
@@ -78,8 +82,9 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       status: connectedStatus(),
       'issues.relevant': relevantList([]),
       'issues.search': { connected: true, baseUrl: BASE_URL, kind: 'id', issues: [ISSUE] },
-      'issues.get': { baseUrl: BASE_URL, issue: issueDetail(ISSUE), journals: [] },
     });
+    // The linked issue as the page reads it, through the driver engine (#757).
+    await stubTicketCall(page, 'tickets.outsideRecord', () => outsideIssue(ISSUE));
   });
 
   test('links an existing issue by number, after previewing it', async ({ page }) => {
@@ -120,7 +125,11 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
   test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
-    await openNewTicket(page, `Unlink ${Date.now()}`);
+    await openNewTicket(page, `Unlink ${Date.now()}`, ISSUE.subject);
+    // A carried ticket's assignee is Redmine's, shown as Redmine has it.
+    const assignee = page.locator('.ticket-sidebar-field-assignee');
+    await expect(assignee).toContainText('Assignee in Redmine');
+    await expect(assignee).toContainText('Test User');
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
     await expect(card(page)).toContainText('Unlink this issue?');
@@ -195,7 +204,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: { unlinkedSeconds: 0, unsentSeconds: 8100, sentSeconds: 5400 },
       othersWithTime: 2,
     }));
-    await openNewTicket(page, `Unlink warnings ${Date.now()}`);
+    await openNewTicket(page, `Unlink warnings ${Date.now()}`, ISSUE.subject);
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
 
@@ -217,11 +226,26 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: NO_TIME,
       othersWithTime: 1,
     }));
-    await openNewTicket(page, `Locked ${Date.now()}`);
+    await openNewTicket(page, `Locked ${Date.now()}`, ISSUE.subject);
 
     await expect(page.getByText(message)).toBeVisible();
     await expect(card(page).getByRole('button', { name: 'Change' })).toBeDisabled();
     await expect(card(page).getByRole('button', { name: 'Unlink' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
+    // The title is the issue's, written to Redmine (#757): a timer doesn't lock it.
+    await expect(page.getByRole('button', { name: 'Edit title' })).toBeVisible();
+  });
+
+  test("locks a plain ticket's own title while someone is timing it", async ({ page }) => {
+    await withFakeLink(page);
+    await stubTicketCall(page, 'tickets.lockStatus', () => ({
+      lock: { holders: [{ userId: 'u2', name: 'Ticket Member' }], message: 'Timing' },
+      myTime: NO_TIME,
+      othersWithTime: 1,
+    }));
+    await openNewTicket(page, `Locked plain ${Date.now()}`);
+
+    await expect(page.getByText('Timing')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Edit title' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
   });

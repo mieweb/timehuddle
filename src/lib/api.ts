@@ -6,6 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
+import type { RecordStatus, TicketRecord } from '@timehuddle/ticket-sources';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
@@ -1091,6 +1092,31 @@ export interface TicketDashboardSummary {
 /** How `tickets.search` read a query. */
 export type TicketSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
+/** The outside issue a ticket carries, read through the driver engine (#757). */
+export interface OutsideIssue {
+  kind: string;
+  record: TicketRecord;
+  /** The statuses the caller may move it to, current first. */
+  choices: { status: RecordStatus[] };
+  /** The caller's id in the source, to tell their own activity apart. */
+  me: string | null;
+}
+
+/** Which issue `issue` is, as `tickets.writeOutside` checks it: `kind:server:key`. */
+export function outsideIssueKey(issue: OutsideIssue): string {
+  const ref = issue.record.ref;
+  return `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`;
+}
+
+/** Edits to an outside issue, by record field; ids as the source gives them. */
+export type OutsideEdits = Partial<{
+  title: string;
+  body: string;
+  status: string;
+  priority: string;
+  assignees: string[];
+}>;
+
 export const ticketApi = {
   /**
    * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
@@ -1191,6 +1217,32 @@ export const ticketApi = {
       ticketId: id,
       expectedIssueId,
     }).then(toTicket),
+
+  /**
+   * The outside issue the ticket carries, read with the caller's own key
+   * (#757). Fails with `not-connected`, `other-server` / `custom-instance`, or
+   * `gone` when they can't read it.
+   */
+  outsideIssue: (id: string) =>
+    wormholeCall<OutsideIssue>('tickets.outsideRecord', { ticketId: id }),
+
+  /**
+   * Write edits to the carried issue as the caller. `expected` is the issue
+   * they were looking at (`kind:server:key`, see `outsideIssueKey`) and its
+   * `dates.updated` then: refused with `stale-link` when the ticket now
+   * carries another issue, and `stale` when it changed. `mismatches` names
+   * what the source stored differently.
+   */
+  writeOutside: (id: string, expected: { issue: string; updated: string }, edits: OutsideEdits) =>
+    wormholeCall<Omit<OutsideIssue, 'kind' | 'me'> & { mismatches: string[] }>(
+      'tickets.writeOutside',
+      {
+        ticketId: id,
+        expectedIssue: expected.issue,
+        expectedUpdatedAt: expected.updated,
+        edits: { ...edits },
+      },
+    ),
 
   /** Who is timing the ticket right now. Cheap enough for a page to poll. */
   lockStatus: (id: string) =>

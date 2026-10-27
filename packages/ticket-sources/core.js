@@ -115,6 +115,9 @@ export function defineSource(definition) {
     if (spec.format !== undefined && !BODY_FORMATS.includes(spec.format)) {
       fail(kind, `fields.${name}.format must be one of ${BODY_FORMATS}`);
     }
+    if (spec.ranks !== undefined && !Object.values(spec.ranks).every(Number.isFinite)) {
+      fail(kind, `fields.${name}.ranks must map names to numbers`);
+    }
   }
   for (const [name, value] of Object.entries(can)) {
     if (typeof value !== 'boolean' && !isHook(value))
