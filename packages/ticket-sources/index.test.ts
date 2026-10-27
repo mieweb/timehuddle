@@ -25,6 +25,11 @@ describe('the three definitions', () => {
     expect(Object.isFrozen(redmine.fields.status)).toBe(true);
   });
 
+  it("read Redmine's attachments, which come with the issue", () => {
+    expect(RECORD_FIELDS).toContain('attachments');
+    expect(redmine.fields.attachments).toMatchObject({ path: 'attachments', name: 'filename' });
+  });
+
   it('reads a reviewed TimeHuddle ticket as closed, as the Open/Closed tabs do', () => {
     expect(SOURCES.timehuddle.fields.status?.closedWhen).toEqual({ in: ['closed', 'reviewed'] });
   });

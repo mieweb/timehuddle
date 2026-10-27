@@ -36,6 +36,14 @@ export const redmine = defineSource({
     dates: { created: 'created_on', updated: 'updated_on', due: 'due_date' },
     // Journals hold comments and field changes in one list.
     conversation: { from: hook('redmineJournals') },
+    attachments: {
+      path: 'attachments',
+      name: 'filename',
+      url: 'content_url',
+      size: 'filesize',
+      author: 'author',
+      at: 'created_on',
+    },
     extra: { path: 'custom_fields', name: 'name', value: 'value' },
   },
   can: { search: true, suggest: true, sendTime: hook('redmineSendTime') },

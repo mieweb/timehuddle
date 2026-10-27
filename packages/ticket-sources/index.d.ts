@@ -64,6 +64,17 @@ export type ConversationEntry =
     }
   | { kind: 'time'; id: string; author: RecordPerson | null; at: string; seconds: number };
 
+/** A file attached to the issue in its source. `url` opens it there, under the viewer's own access. */
+export interface RecordAttachment {
+  id: string;
+  name: string;
+  url: string | null;
+  /** In bytes. */
+  size?: number;
+  author: RecordPerson | null;
+  at: string | null;
+}
+
 export interface RecordRelation {
   kind: string;
   target: IssueRef | { url: string };
@@ -84,6 +95,7 @@ export interface TicketRecord {
   milestone: (RecordNamed & { due?: string }) | null;
   dates: { created: string | null; updated: string | null; due?: string; closed?: string };
   conversation: ConversationEntry[];
+  attachments: RecordAttachment[];
   relations: RecordRelation[];
   /** A source's custom fields, shown as they are. */
   extra: { label: string; value: string }[];
@@ -125,9 +137,13 @@ export interface FieldSpec {
   updated?: string;
   due?: string;
   closed?: string;
-  /** For `conversation` read from a path: where an entry's author and text are. */
+  /** For `conversation` or `attachments` read from a path: where an entry's author and text are. */
   author?: string;
   text?: string;
+  /** For `attachments`: where a file's address, size and time are. */
+  url?: string;
+  size?: string;
+  at?: string;
 }
 
 export interface SourceDefinition {

@@ -30,6 +30,7 @@ export const RECORD_FIELDS = Object.freeze([
   'milestone',
   'dates',
   'conversation',
+  'attachments',
   'relations',
   'extra',
 ]);
