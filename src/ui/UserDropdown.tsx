@@ -79,9 +79,6 @@ export const UserDropdown: React.FC = () => {
             aria-label="Account menu"
           >
             <UserAvatar name={displayName} size="sm" src={user?.image} />
-            <Text size="sm" weight="medium" className="hidden max-w-32 truncate md:block">
-              {truncated}
-            </Text>
           </button>
         }
         placement="bottom-end"
