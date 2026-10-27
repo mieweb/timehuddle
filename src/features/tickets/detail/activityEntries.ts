@@ -137,7 +137,9 @@ export function fromConversation(
     }
     const key = `${entry.author?.id ?? ''}@${entry.at}`;
     const group = together.get(key) ?? { id: entry.id, at: entry.at, actorName, mine, changes: [] };
-    if (entry.kind === 'comment') group.note = entry.text.text;
+    // Two comments in the same second both stay.
+    if (entry.kind === 'comment')
+      group.note = group.note ? `${group.note}\n\n${entry.text.text}` : entry.text.text;
     else group.changes.push(describeChange(entry));
     together.set(key, group);
   }

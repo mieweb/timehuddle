@@ -12,4 +12,6 @@ export const outsideText = {
   notStored: (source: string) =>
     `${source} didn't store every change as sent. Reload to see what it kept.`,
   reload: 'Reload',
+  draftMoved:
+    "This ticket's linked issue changed or can't be read right now, so your edit wasn't saved. Copy your text, then reload the page.",
 };

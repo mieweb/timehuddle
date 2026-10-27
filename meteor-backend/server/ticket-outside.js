@@ -43,14 +43,19 @@ async function openOutside(userId, ticketId) {
 /**
  * Keep the ticket's saved title the issue's (#757): the Tickets list, My Board
  * and search show the saved one, so it follows the source whenever someone who
- * can read the issue does. Matched on the title just read, so a rename that
- * lands meanwhile isn't overwritten.
+ * can read the issue does. Matched on the title and link just read, so a
+ * rename or a relink that lands meanwhile isn't overwritten.
  */
 async function followTitle(ticket, record) {
   const title = record.title.trim();
   if (!title || title === ticket.title) return;
   await Tickets.updateAsync(
-    { _id: ticket._id, title: ticket.title },
+    {
+      _id: ticket._id,
+      title: ticket.title,
+      'linkedIssue.source': ticket.linkedIssue.source,
+      'linkedIssue.id': ticket.linkedIssue.id,
+    },
     { $set: { title, updatedAt: new Date() } },
   );
 }

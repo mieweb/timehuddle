@@ -182,19 +182,23 @@ export async function statusChoices(definition, raw, { hooks = {}, ctx = {} } = 
   return [current, ...moves.filter((status) => status.id !== current.id)];
 }
 
+/** The source's answer for issue `ref`, or null when it is missing or hidden. */
+async function readRaw(definition, ref, request) {
+  if (!definition.api.issue) throw new Error(`Source "${definition.kind}" names no issue address`);
+  const answer = await request(fillTemplate(definition.api.issue, ref));
+  return (definition.api.item ? readPath(answer, definition.api.item) : answer) ?? null;
+}
+
 /**
  * Read issue `ref` through `definition`. `request(path)` asks the source with
  * the member's own key and resolves to its answer, or null when the issue is
  * missing or hidden from them. Returns `{ raw, record, choices }`, or null.
- */
-/**
+ *
  * @param {{ definition: object, ref: object, request: (path: string) => Promise<any>,
  *   hooks?: object, ctx?: object, url?: string | null }} args
  */
 export async function fetchRecord({ definition, ref, request, hooks = {}, ctx = {}, url = null }) {
-  if (!definition.api.issue) throw new Error(`Source "${definition.kind}" names no issue address`);
-  const answer = await request(fillTemplate(definition.api.issue, ref));
-  const raw = definition.api.item ? readPath(answer, definition.api.item) : answer;
+  const raw = await readRaw(definition, ref, request);
   if (!raw) return null;
   const options = { hooks, ctx, ref, url };
   return {
@@ -234,7 +238,8 @@ export async function writeRecord({
   const write = definition.can.write;
   if (!isHook(write)) throw new EngineError('bad-request', `${definition.label} is read-only.`);
 
-  const load = async () => (await fetchRecord({ definition, ref, request, hooks, ctx, url }))?.raw;
+  // Only the answer: the record, conversation and all, is built once, at the end.
+  const load = () => readRaw(definition, ref, request);
   const current = await load();
   if (!current) throw new EngineError('gone', 'This issue no longer exists, or you can no longer see it.');
   const updated = toIso(readPath(current, definition.fields.dates?.updated));

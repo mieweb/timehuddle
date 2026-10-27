@@ -49,7 +49,7 @@ import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
-import { huddleTicketRef, ticketKey } from '../sources';
+import { huddleTicketRef, invalidateRedmineCache, ticketKey } from '../sources';
 
 import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
@@ -142,6 +142,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [titleDraft, setTitleDraft] = useState('');
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
+  // What an open title or description edit was started against: the carried
+  // issue's version (its `dates.updated`), or the ticket itself (null). It is
+  // saved there and only there, checked against that version.
+  const [titleBase, setTitleBase] = useState<string | null>(null);
+  const [descBase, setDescBase] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // The carried issue changed in its source since it was read: offer a reload.
@@ -284,17 +289,34 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     }
   };
 
+  /**
+   * The version an edit opened now is checked against: the carried issue's,
+   * or null for the ticket itself.
+   */
+  const draftBaseNow = () => (carried ? (carried.record.dates.updated ?? '') : null);
+
+  /**
+   * Whether an edit opened against `base` can still be saved there. When the
+   * link changed, or the issue can't be read right now, the draft stays open
+   * and the viewer is told, rather than saving it to the other place.
+   */
+  const draftStillFits = (base: string | null) => {
+    if ((base !== null) === Boolean(carried)) return true;
+    setActionError(outsideText.draftMoved);
+    return false;
+  };
+
   const saveTitle = async () => {
-    if (!ticket) return;
+    if (!ticket || !draftStillFits(titleBase)) return;
     const current = carried ? carried.record.title : ticket.title;
     if (!titleDraft.trim() || titleDraft.trim() === current) {
       setEditingTitle(false);
       return;
     }
-    if (carried) {
+    if (titleBase !== null) {
       // The issue's title is the ticket's: it is written to the source.
       setSaving(true);
-      if (await writeOutside({ title: titleDraft.trim() })) setEditingTitle(false);
+      if (await writeOutside({ title: titleDraft.trim() }, titleBase)) setEditingTitle(false);
       setSaving(false);
       return;
     }
@@ -315,14 +337,21 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
    * Write to the carried issue in its source, saying when it was refused or
    * stored otherwise. Resolves to whether the source took it.
    */
-  const writeOutside = async (edits: Parameters<typeof outside.write>[0]) => {
+  const writeOutside = async (edits: Parameters<typeof outside.write>[0], basedOn?: string) => {
     if (!carried) return false;
     const source = sourceLabel(carried.kind);
     setActionError(null);
     setStale(false);
     try {
-      const mismatches = await outside.write(edits);
-      if (mismatches.length) setActionError(outsideText.notStored(source));
+      const mismatches = await outside.write(edits, basedOn);
+      // The Tickets list keeps Redmine rows cached for the session.
+      invalidateRedmineCache();
+      window.dispatchEvent(new CustomEvent('tickets:refetch'));
+      if (mismatches.length) {
+        // Not taken as sent: an open draft stays open, to correct or retry.
+        setActionError(outsideText.notStored(source));
+        return false;
+      }
       return true;
     } catch (err) {
       setStale(err instanceof ApiError && err.code === 'stale');
@@ -332,12 +361,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   };
 
   const saveDescription = async () => {
-    if (!ticket) return;
+    if (!ticket || !draftStillFits(descBase)) return;
     setSaving(true);
     setActionError(null);
-    if (carried) {
+    if (descBase !== null) {
       // A refused write keeps the draft open, so nothing typed is lost.
-      if (await writeOutside({ body: descDraft })) setEditingDesc(false);
+      if (await writeOutside({ body: descDraft }, descBase)) setEditingDesc(false);
       setSaving(false);
       return;
     }
@@ -457,7 +486,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const source = carried ? sourceLabel(carried.kind) : null;
   const title = carried ? carried.record.title : ticket.title;
   const description = carried ? (carried.record.body?.text ?? '') : (ticket.description ?? '');
-  const canEditText = carried ? true : canEdit && !locked;
+  // Not until the carried issue is read or has failed: where an edit goes
+  // depends on it.
+  const canEditText =
+    outside.state.kind === 'loading' ? false : carried ? true : canEdit && !locked;
 
   return (
     <AppPage>
@@ -519,6 +551,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   aria-label="Edit title"
                   onClick={() => {
                     setTitleDraft(title);
+                    setTitleBase(draftBaseNow());
                     setEditingTitle(true);
                   }}
                 >
@@ -646,6 +679,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     aria-label="Edit description"
                     onClick={() => {
                       setDescDraft(description);
+                      setDescBase(draftBaseNow());
                       setEditingDesc(true);
                     }}
                   >

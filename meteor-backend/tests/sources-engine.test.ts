@@ -185,6 +185,20 @@ describe('writeRecord', () => {
     expect(result.mismatches).toEqual([]);
   });
 
+  it('builds the record, conversation and all, once per write', async () => {
+    const { request, hooks: all } = setup();
+    const redmineJournals = vi.fn(() => []);
+    await writeRecord({
+      definition: redmine,
+      ref,
+      request,
+      hooks: { ...all, redmineJournals },
+      expectedUpdatedAt,
+      edits: { status: '5' },
+    });
+    expect(redmineJournals).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a field the definition does not mark editable, before any request', async () => {
     const { request, write, hooks: all } = setup();
     const attempt = writeRecord({

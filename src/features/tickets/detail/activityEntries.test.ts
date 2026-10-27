@@ -151,6 +151,26 @@ describe('fromConversation (#757)', () => {
     expect(time?.detail).toMatch(/^Development — Paired on the fix, for /);
   });
 
+  it('keeps both comments one person left in the same second', () => {
+    const twice: ConversationEntry[] = [
+      {
+        kind: 'comment',
+        id: 'journal:8:note',
+        author: sam,
+        at,
+        text: { text: 'One', format: 'textile' },
+      },
+      {
+        kind: 'comment',
+        id: 'journal:9:note',
+        author: sam,
+        at,
+        text: { text: 'Two', format: 'textile' },
+      },
+    ];
+    expect(fromConversation(twice, { source: 'Redmine' })[0].detail).toBe('One\n\nTwo');
+  });
+
   it("marks the viewer's own entries", () => {
     expect(
       fromConversation(conversation, { me: '42', source: 'Redmine' }).map((e) => e.mine),

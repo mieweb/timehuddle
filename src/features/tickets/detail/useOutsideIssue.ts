@@ -7,7 +7,7 @@
  * the source, or can't see the issue, gets a state saying why, and the page
  * shows the ticket as TimeHuddle has it.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, ticketApi, type OutsideEdits, type OutsideIssue } from '../../../lib/api';
 
@@ -28,28 +28,37 @@ function failedState(err: unknown): OutsideState {
 
 /**
  * `linkedKey` changes when the ticket's link does (`source:id`), and is null
- * for a ticket that carries nothing. `write` sends edits as of the record the
- * viewer is looking at, and resolves to the fields the source stored
- * differently; a refusal (`stale`, `no-permission`, …) is thrown as an
- * `ApiError` for the page to show.
+ * for a ticket that carries nothing. `write` sends edits as of `basedOn`, the
+ * record's `dates.updated` when the edit was opened (the one on screen when
+ * omitted), and resolves to the fields the source stored differently; a
+ * refusal (`stale`, `no-permission`, …) is thrown as an `ApiError` for the page
+ * to show.
+ *
+ * Only the newest request may change what is shown: an answer that arrives
+ * after another read or a write, or after the page moved to another ticket or
+ * link, is dropped.
  */
 export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
   const [state, setState] = useState<OutsideState>({ kind: linkedKey ? 'loading' : 'none' });
+  const latest = useRef(0);
 
   /** Read the issue again; resolves to whether that worked, for `useBackgroundRefresh`. */
   const reload = useCallback(async () => {
     if (!linkedKey) return true;
+    const request = ++latest.current;
     try {
-      setState({ kind: 'loaded', issue: await ticketApi.outsideIssue(ticketId) });
+      const issue = await ticketApi.outsideIssue(ticketId);
+      if (request === latest.current) setState({ kind: 'loaded', issue });
       return true;
     } catch (err) {
-      setState(failedState(err));
+      if (request === latest.current) setState(failedState(err));
       return false;
     }
   }, [ticketId, linkedKey]);
 
   useEffect(() => {
     if (!linkedKey) {
+      latest.current += 1;
       setState({ kind: 'none' });
       return;
     }
@@ -58,18 +67,21 @@ export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
   }, [linkedKey, reload]);
 
   const write = useCallback(
-    async (edits: OutsideEdits): Promise<string[]> => {
+    async (edits: OutsideEdits, basedOn?: string): Promise<string[]> => {
       if (state.kind !== 'loaded') return [];
       const { issue } = state;
+      const request = ++latest.current;
       const result = await ticketApi.writeOutside(
         ticketId,
-        issue.record.dates.updated ?? '',
+        basedOn ?? issue.record.dates.updated ?? '',
         edits,
       );
-      setState({
-        kind: 'loaded',
-        issue: { ...issue, record: result.record, choices: result.choices },
-      });
+      if (request === latest.current) {
+        setState({
+          kind: 'loaded',
+          issue: { ...issue, record: result.record, choices: result.choices },
+        });
+      }
       return result.mismatches;
     },
     [state, ticketId],
