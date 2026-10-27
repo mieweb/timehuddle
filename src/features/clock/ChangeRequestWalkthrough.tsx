@@ -6,7 +6,7 @@
  * to its destination when it lands, and the request doesn't exist until it's
  * submitted. Once it lands the approver sees it in Timesheet Approvals.
  */
-import { Badge, Text } from '@mieweb/ui';
+import { Badge } from '@mieweb/ui';
 import React from 'react';
 
 import type { TimesheetChangeRequest } from '../../lib/api';
@@ -67,15 +67,14 @@ const WalkthroughUpload: React.FC<{
       },
     },
   );
-  // Named like the form's "Walkthrough" field, so both read as the same thing.
+  // Pulse and Upload, before "Pending approval" (icons only on a phone).
+  // `contents`: they join the host's own row, so they line up with the badge
+  // on one line, wrapping where there's no room.
   return (
     <>
       {children(
-        <div className="change-request-walkthrough flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Text as="span" size="xs" variant="muted">
-            Walkthrough
-          </Text>
-          <PulseControls pulse={pulse} ariaLabel="Add a walkthrough with Pulse" allowFile />
+        <div className="change-request-walkthrough contents">
+          <PulseControls pulse={pulse} ariaLabel="Add a walkthrough with Pulse" allowFile compact />
         </div>,
       )}
     </>
