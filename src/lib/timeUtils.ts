@@ -16,16 +16,16 @@ export function formatTimer(totalSeconds: number): string {
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
 }
 
-/** Format a Date to "9:05 AM" style */
-export function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+/** Format a Date to "9:05 AM" style (in US English unless a `locale` is given) */
+export function formatTime(date: Date, locale = 'en-US'): string {
+  return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-/** Format a Date to "Jan 15" or "Jan 15, 2024" */
-export function formatDate(date: Date, includeYear = false): string {
+/** Format a Date to "Jan 15" or "Jan 15, 2024" (in US English unless a `locale` is given) */
+export function formatDate(date: Date, includeYear = false, locale = 'en-US'): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   if (includeYear) opts.year = 'numeric';
-  return date.toLocaleDateString('en-US', opts);
+  return date.toLocaleDateString(locale, opts);
 }
 
 /** Get start of day for a date */
