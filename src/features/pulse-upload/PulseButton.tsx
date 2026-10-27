@@ -28,8 +28,8 @@ interface PulseChipProps {
   ariaLabel: string;
   /**
    * Where Pulse is the page's main way in (the Clock page), a primary button
-   * with this label and no logo: the card around it carries the Pulse logo.
-   * Otherwise it's a "Pulse" chip like the ones beside it.
+   * with the Pulse logo and this label. Otherwise it's a "Pulse" chip like the
+   * ones beside it.
    */
   main?: { label: string; className: string };
   disabled?: boolean;
@@ -99,6 +99,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Button
       type="button"
       variant="primary"
+      leftIcon={<PulseLogo inverse className="h-5" />}
       className={cn('pulse-button', main.className)}
       {...shared}
     >
