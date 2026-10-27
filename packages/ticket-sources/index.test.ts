@@ -37,6 +37,7 @@ describe('the three definitions', () => {
   it('name what plain data cannot say as hooks', () => {
     expect(isHook(redmine.fields.conversation?.from)).toBe(true);
     expect(redmine.can.sendTime).toEqual({ hook: 'redmineSendTime' });
+    expect(redmine.can.write).toEqual({ hook: 'redmineWrite' });
   });
 });
 
@@ -80,6 +81,11 @@ describe('defineSource', () => {
       /format must be/,
     ],
     ['a global ID match', { ...minimal, id: { ...minimal.id, match: /x/g } }, /g or y flag/],
+    [
+      'a priority rank that is not a number',
+      { ...minimal, fields: { priority: { path: 'p', ranks: { low: 'one' } } } },
+      /ranks must map names to numbers/,
+    ],
     ['a sticky ID match', { ...minimal, id: { ...minimal.id, match: /x/y } }, /g or y flag/],
   ])('refuses %s', (_, definition, message) => {
     // Invalid on purpose: what the types would refuse, a JS caller can still pass.

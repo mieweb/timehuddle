@@ -66,8 +66,8 @@ export function validateCreateInput(input = {}) {
  * The Redmine payload for an edit, containing **only** the fields that differ
  * from `original` (the issue detail DTO the form was opened with).
  *
- * `edits` may carry `statusId`, `priorityId`, `assigneeId` (`null` unassigns)
- * and `description`; absent keys are left alone. A status the caller may not
+ * `edits` may carry `statusId`, `priorityId`, `assigneeId` (`null` unassigns),
+ * `subject` and `description`; absent keys are left alone. A status the caller may not
  * move to is refused here rather than sent — `allowedStatuses` is what Redmine
  * reported for this user and this issue.
  *
@@ -102,6 +102,15 @@ export function buildUpdatePayload(original, edits = {}) {
     }
   }
 
+  if ('subject' in edits) {
+    const subject = typeof edits.subject === 'string' ? edits.subject.trim() : '';
+    if (!subject) return { error: 'A subject is required.' };
+    if (subject.length > MAX_SUBJECT_LENGTH) {
+      return { error: `The subject must be ${MAX_SUBJECT_LENGTH} characters or fewer.` };
+    }
+    if (subject !== original.subject) fields.subject = subject;
+  }
+
   if ('description' in edits) {
     if (typeof edits.description !== 'string') return { error: 'The description must be text.' };
     const description = normalizeText(edits.description);
@@ -109,6 +118,24 @@ export function buildUpdatePayload(original, edits = {}) {
   }
 
   return { fields };
+}
+
+/**
+ * A ticket record's edits (#734 step 3) in `buildUpdatePayload`'s names. Record
+ * ids are strings; Redmine's are numbers, so one that isn't a number stays
+ * invalid and is refused there. No assignee means unassigned.
+ */
+export function fromRecordEdits(edits = {}) {
+  const id = (value) => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
+  const out = {};
+  if ('title' in edits) out.subject = edits.title;
+  if ('body' in edits) out.description = edits.body;
+  if ('status' in edits) out.statusId = id(edits.status);
+  if ('priority' in edits) out.priorityId = id(edits.priority);
+  if ('assignees' in edits) {
+    out.assigneeId = Array.isArray(edits.assignees) && edits.assignees.length ? id(edits.assignees[0]) : null;
+  }
+  return out;
 }
 
 /**

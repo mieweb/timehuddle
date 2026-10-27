@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_SUBJECT_LENGTH,
   buildUpdatePayload,
+  fromRecordEdits,
   readBackMismatches,
   validateCreateInput,
   writeFailureReason,
@@ -119,6 +120,31 @@ describe('buildUpdatePayload', () => {
   it('rejects malformed edits', () => {
     expect(buildUpdatePayload(original, { priorityId: 'high' }).error).toBeTruthy();
     expect(buildUpdatePayload(original, { description: 42 }).error).toBeTruthy();
+  });
+
+  it('renames an issue, trimmed, only when the subject changed (#734 step 3)', () => {
+    expect(buildUpdatePayload(original, { subject: '  New name ' })).toEqual({
+      fields: { subject: 'New name' },
+    });
+    expect(buildUpdatePayload(original, { subject: original.subject })).toEqual({ fields: {} });
+    expect(buildUpdatePayload(original, { subject: '  ' }).error).toMatch(/subject is required/);
+    expect(
+      buildUpdatePayload(original, { subject: 'x'.repeat(MAX_SUBJECT_LENGTH + 1) }).error,
+    ).toMatch(/255/);
+  });
+});
+
+describe('fromRecordEdits (#734 step 3)', () => {
+  it("names a ticket record's edits as buildUpdatePayload does", () => {
+    expect(
+      fromRecordEdits({ title: 'T', body: 'B', status: '5', priority: '3', assignees: ['8'] }),
+    ).toEqual({ subject: 'T', description: 'B', statusId: 5, priorityId: 3, assigneeId: 8 });
+  });
+
+  it('unassigns on no assignee, and passes on an id that is not a number to be refused', () => {
+    expect(fromRecordEdits({ assignees: [] })).toEqual({ assigneeId: null });
+    const edits = fromRecordEdits({ priority: 'high' });
+    expect(buildUpdatePayload(original, edits).error).toBeTruthy();
   });
 });
 

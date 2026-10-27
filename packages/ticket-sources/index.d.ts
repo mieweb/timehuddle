@@ -19,12 +19,15 @@ export interface RecordNamed {
  * source can answer, and decides Open / Closed.
  */
 export interface RecordStatus {
+  /** The source's own id for it, when it has one: what a write sends. */
+  id?: string;
   native: string;
   isClosed: boolean;
 }
 
 /** `rank` makes priorities comparable across sources: higher is more urgent, 0 is none. */
 export interface RecordPriority {
+  id?: string;
   native: string;
   rank: number;
 }
@@ -62,7 +65,16 @@ export type ConversationEntry =
       from?: string;
       to?: string;
     }
-  | { kind: 'time'; id: string; author: RecordPerson | null; at: string; seconds: number };
+  | {
+      kind: 'time';
+      id: string;
+      author: RecordPerson | null;
+      at: string;
+      seconds: number;
+      /** The day the time was for, `YYYY-MM-DD`, and its comment. */
+      on?: string;
+      text?: RecordText;
+    };
 
 /** A file attached to the issue in its source. `url` opens it there, under the viewer's own access. */
 export interface RecordAttachment {
@@ -132,6 +144,10 @@ export interface FieldSpec {
   max?: number;
   /** Whether TimeHuddle may write it back; `'allowed'` is only the moves the source allows. */
   edit?: boolean | 'allowed';
+  /** For `status` with `edit: 'allowed'`: where the moves the member may make are listed. */
+  allowed?: string;
+  /** For `priority`: rank by lowercased name; a name not listed ranks 0. */
+  ranks?: Record<string, number>;
   /** For `dates`: where each date is. */
   created?: string;
   updated?: string;
@@ -168,7 +184,10 @@ export interface SourceDefinition {
   };
   api: {
     base?: string;
+    /** One issue's address: `{key}` and `{container}` are filled in. */
     issue?: string;
+    /** Where the issue is in that answer (`issue` for Redmine); the whole answer when absent. */
+    item?: string;
     paging?: 'offset' | 'link-header';
   };
   fields: Partial<Record<RecordField, FieldSpec>>;
