@@ -1,10 +1,10 @@
 /**
  * The Tickets page search bar, with Redmine suggestions under it.
  *
- * One input, two jobs: every keystroke still filters the Tickets table (the
- * parent owns `query`), and a dropdown offers Redmine issues — "Suggested for
- * you" on focus, narrowed as they type, then "More from Redmine" from a server
- * search. Above them, "Tickets" lists the tickets a typed ID names in any of
+ * The parent owns `query`, but the Tickets table no longer filters on it: all
+ * results live in the dropdown. It offers Redmine issues — "Suggested for you"
+ * on focus, narrowed as they type, then "More from Redmine" from a server
+ * search. Above them, "Tickets" lists the tickets the query finds in any of
  * the user's teams (#736c), current team first.
  *
  * Built on downshift's `useCombobox` rather than `@mieweb/ui`'s `Autocomplete`,
