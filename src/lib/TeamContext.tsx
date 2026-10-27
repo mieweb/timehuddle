@@ -116,6 +116,8 @@ export interface TeamContextValue {
   organizations: Array<{
     id: string;
     enterpriseId: string | null;
+    /** Absent until `orgs.list` answers (the session seed doesn't carry it). */
+    enterpriseName?: string | null;
     name: string;
     slug: string;
     allowAutoJoin: boolean;

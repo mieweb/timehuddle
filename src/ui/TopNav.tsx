@@ -6,6 +6,7 @@
  * scrolls sideways rather than wrapping.
  */
 import {
+  BriefcaseIcon,
   Button,
   ClipboardListIcon,
   ClockIcon,
@@ -39,6 +40,7 @@ const NAV: NavItem[][] = [
   [
     { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
     { icon: PersonIcon, label: 'People', href: '/app/organization' },
+    { icon: BriefcaseIcon, label: 'Enterprise', href: '/app/enterprise' },
   ],
   [{ icon: SettingsIcon, label: 'Settings', href: '/app/settings' }],
 ];

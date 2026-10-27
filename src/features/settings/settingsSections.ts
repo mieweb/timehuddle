@@ -1,6 +1,7 @@
 // The Settings page's sections and their copy, in one place until the app has i18n.
 import {
   BellIcon,
+  BriefcaseIcon,
   BuildingIcon,
   HistoryIcon,
   KeyIcon,
@@ -19,7 +20,8 @@ export type SettingsSectionId =
   | 'integrations'
   | 'activity'
   | 'account'
-  | 'organization';
+  | 'organization'
+  | 'enterprise';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -82,6 +84,12 @@ export const ADMIN_SECTIONS: readonly SettingsSection[] = [
     description: 'The defaults its teams inherit, and its ticket ID prefixes.',
     icon: BuildingIcon,
   },
+  {
+    id: 'enterprise',
+    label: 'Enterprise',
+    description: 'Its name, and the defaults its organizations and teams inherit.',
+    icon: BriefcaseIcon,
+  },
 ];
 
 export interface SettingsGroup {
@@ -89,13 +97,16 @@ export interface SettingsGroup {
   sections: readonly SettingsSection[];
 }
 
-/** The nav's groups for this viewer: Personal always, Administration for org admins. */
-export function settingsGroups(isOrgAdmin: boolean): SettingsGroup[] {
+/** The nav's groups for this viewer: Personal always, Administration for what they manage. */
+export function settingsGroups(manages: {
+  organization: boolean;
+  enterprise: boolean;
+}): SettingsGroup[] {
   const groups: SettingsGroup[] = [
     { label: SETTINGS_PAGE_STRINGS.personal, sections: PERSONAL_SECTIONS },
   ];
-  if (isOrgAdmin)
-    groups.push({ label: SETTINGS_PAGE_STRINGS.administration, sections: ADMIN_SECTIONS });
+  const admin = ADMIN_SECTIONS.filter((section) => manages[section.id as keyof typeof manages]);
+  if (admin.length) groups.push({ label: SETTINGS_PAGE_STRINGS.administration, sections: admin });
   return groups;
 }
 

@@ -352,12 +352,23 @@ Meteor.methods({
       .sort({ name: 1 })
       .toArray();
 
+    // Every member may see which enterprise their organization belongs to, so
+    // the name comes along here; enterprises.list only covers owners and admins.
+    const enterpriseIds = [...new Set(organizations.map((org) => org.enterpriseId).filter(isValidId))];
+    const enterpriseNames = new Map(
+      (
+        await db.collection('enterprises')
+          .find({ _id: { $in: enterpriseIds.map((id) => new ObjectId(id)) } }, { projection: { name: 1 } })
+          .toArray()
+      ).map((e) => [e._id.toHexString(), e.name]),
+    );
+
     const summaries = await Promise.all(
       organizations.map(async (org) => {
         const membership = await getOrgMembership(org._id.toHexString(), userId);
-        if (membership) return toOrgSummary(org, membership.role);
-        const entRole = await getEnterpriseRoleForOrg(userId, org);
-        return toOrgSummary(org, entRole ?? 'member');
+        const role = membership?.role ?? (await getEnterpriseRoleForOrg(userId, org)) ?? 'member';
+        const summary = await toOrgSummary(org, role);
+        return { ...summary, enterpriseName: enterpriseNames.get(org.enterpriseId) ?? null };
       }),
     );
     return { organizations: summaries.sort((a, b) => a.name.localeCompare(b.name)) };

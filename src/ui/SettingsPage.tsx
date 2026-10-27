@@ -58,7 +58,8 @@ import {
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
-import { canManageSelectedOrganization } from '../lib/organizationAccess';
+import { canManageSelectedOrganization, getEnterpriseRole } from '../lib/organizationAccess';
+import { EnterpriseSettings } from '../features/enterprise/EnterpriseSettings';
 import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
@@ -1195,8 +1196,11 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
 export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
-  const { organizations, selectedOrgId } = useTeam();
-  const groups = settingsGroups(canManageSelectedOrganization(organizations, selectedOrgId));
+  const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
+  const groups = settingsGroups({
+    organization: canManageSelectedOrganization(organizations, selectedOrgId),
+    enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
+  });
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
@@ -1250,6 +1254,7 @@ export const SettingsPage: React.FC = () => {
     ),
     account: <AccountSettings />,
     organization: <OrganizationSettings />,
+    enterprise: <EnterpriseSettings />,
   };
 
   return (

@@ -1,788 +1,533 @@
+/**
+ * EnterprisePage — `/app/enterprise`, "Enterprise" in the nav, for everyone.
+ *
+ * Owners and admins of the selected enterprise see its organizations, a
+ * read-only summary of the defaults it sets (edited in Settings → Enterprise),
+ * and its owners and admins. Everyone else sees which enterprise and
+ * organizations they belong to.
+ */
 import {
+  Alert,
+  Avatar,
+  Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  Input,
+  Dropdown,
+  DropdownItem,
+  LockIcon,
   ModalBody,
   ModalFooter,
   ModalHeader,
+  MoreHorizontalIcon,
+  PlusIcon,
+  SectionSpyNav,
   Select,
+  SettingsIcon,
   Spinner,
-  Switch,
   Text,
+  UserMinusIcon,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { ApiError, enterpriseApi, orgApi, type SettingsPatch } from '../../lib/api';
+import { ApiError, enterpriseApi } from '../../lib/api';
+import { getEnterpriseRole, type EnterpriseRole } from '../../lib/organizationAccess';
 import { useTeam } from '../../lib/TeamContext';
-import { getEnterpriseRole } from '../../lib/organizationAccess';
+import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
-import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
+import { settingsPath } from '../settings/settingsSections';
+import { ENTERPRISE_DEFAULT_ROWS } from './EnterpriseSettings';
+import { ENTERPRISE_STRINGS } from './enterpriseStrings';
+import { OrganizationDialog } from './OrganizationDialog';
+import { useEnterpriseDetail, type EnterpriseDetail } from './useEnterpriseDetail';
 
-type EnterpriseDetail = Awaited<ReturnType<typeof enterpriseApi.get>>;
+const S = ENTERPRISE_STRINGS;
+const ROLE_OPTIONS = (['owner', 'admin'] as const).map((role) => ({
+  value: role,
+  label: S.roles[role],
+}));
 
-const DEFAULT_ROWS: DefaultSettingRow[] = [
-  {
-    key: 'requirePlanForClock',
-    title: 'Require a plan for every clock-in/out',
-    description: 'Organizations and teams without their own choice follow this.',
-    lockable: true,
-  },
-  {
-    key: 'autoAcceptJoins',
-    title: 'Auto-accept join requests',
-    description: 'Anyone joining a team with its code is added without admin approval.',
-    lockable: true,
-  },
-  {
-    key: 'allowAutoJoin',
-    title: 'Auto-join the organization',
-    description: 'People who join a team are added to its organization too.',
-    lockable: true,
-  },
-];
+type Organization = ReturnType<typeof useTeam>['organizations'][number];
 
-const DEFAULTS_STRINGS = {
-  title: 'Defaults',
-  description:
-    'Defaults for every organization and team in this enterprise. They can override a default unless it is locked.',
-  failedToSave: 'Failed to update settings',
-} as const;
-
-const roleOptions = [
-  { value: 'owner', label: 'Owner' },
-  { value: 'admin', label: 'Admin' },
-];
-
-function slugify(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-')
-    .slice(0, 64);
+/** Opens an organization's People page, making it the selected one first. */
+function useOpenOrganization() {
+  const { setSelectedOrgId } = useTeam();
+  const { navigate } = useRouter();
+  return (org: Organization, tab?: 'members') => {
+    setSelectedOrgId(org.id);
+    navigate(tab ? `/app/organization?tab=${tab}` : '/app/organization');
+  };
 }
 
-export const EnterprisePage: React.FC = () => {
-  const {
-    enterprises,
-    organizations,
-    selectedEnterpriseId,
-    setSelectedEnterpriseId,
-    refetchEnterprises,
-    refetchOrganizations,
-    refreshTeamSettings,
-    setSelectedOrgId,
-  } = useTeam();
+// ─── Admin view ───────────────────────────────────────────────────────────────
+
+const OrganizationsCard: React.FC<{ enterprise: EnterpriseDetail }> = ({ enterprise }) => {
+  const { organizations, selectedOrgId } = useTeam();
+  const open = useOpenOrganization();
+  const [dialog, setDialog] = useState<{ organization?: Organization } | null>(null);
+  const orgs = organizations.filter((org) => org.enterpriseId === enterprise.id);
+  const autoJoin = enterprise.effectiveSettings.allowAutoJoin;
+
+  return (
+    <Card padding="none" id="organizations" className="enterprise-organizations scroll-mt-24">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <div>
+          <CardTitle>{S.organizations.title}</CardTitle>
+          <Text variant="muted" size="sm">
+            {S.organizations.description}
+          </Text>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<PlusIcon className="h-4 w-4" />}
+          onClick={() => setDialog({})}
+        >
+          {S.organizations.add}
+        </Button>
+      </CardHeader>
+      <CardContent className="divide-y divide-neutral-100 border-t border-neutral-100 p-0 dark:divide-neutral-800 dark:border-neutral-800">
+        {orgs.length === 0 && (
+          <Text variant="muted" size="sm" className="px-5 py-4">
+            {S.organizations.empty}
+          </Text>
+        )}
+        {orgs.map((org) => (
+          <div key={org.id} className="enterprise-org-row flex items-center gap-3 px-5 py-3">
+            <Avatar name={org.name} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Text size="sm" weight="medium">
+                  {org.name}
+                </Text>
+                {org.id === selectedOrgId && (
+                  <Badge variant="outline">{S.organizations.current}</Badge>
+                )}
+              </div>
+              <Text variant="muted" size="xs">
+                {org.slug}
+              </Text>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={S.organizations.editFor(org.name)}
+              onClick={() => setDialog({ organization: org })}
+            >
+              {S.organizations.edit}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={S.organizations.openFor(org.name)}
+              onClick={() => open(org, 'members')}
+              className="text-primary-600 dark:text-primary-400"
+            >
+              {S.organizations.open}
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+      {dialog && (
+        <OrganizationDialog
+          organization={dialog.organization}
+          defaultAutoJoin={autoJoin.value}
+          autoJoinLocked={autoJoin.locked}
+          onClose={() => setDialog(null)}
+        />
+      )}
+    </Card>
+  );
+};
+
+const DefaultsSummaryCard: React.FC<{ enterprise: EnterpriseDetail }> = ({ enterprise }) => {
   const { navigate } = useRouter();
-  const [loadedEnterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
-  const loadSeqRef = useRef(0);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const locked = ENTERPRISE_DEFAULT_ROWS.filter((row) => enterprise.settingsLocks[row.key]).length;
+  return (
+    <Card padding="none" id="defaults" className="enterprise-defaults scroll-mt-24">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <div>
+          <CardTitle>{S.defaults.title}</CardTitle>
+          <Text variant="muted" size="sm">
+            {S.defaults.description(locked, ENTERPRISE_DEFAULT_ROWS.length)}
+          </Text>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<SettingsIcon className="h-4 w-4" />}
+          onClick={() => navigate(settingsPath('enterprise'))}
+        >
+          {S.defaults.edit}
+        </Button>
+      </CardHeader>
+      <CardContent className="divide-y divide-neutral-100 border-t border-neutral-100 p-0 dark:divide-neutral-800 dark:border-neutral-800">
+        {ENTERPRISE_DEFAULT_ROWS.map((row) => {
+          const isLocked = enterprise.settingsLocks[row.key] === true;
+          const value = enterprise.effectiveSettings[row.key].value;
+          return (
+            <div
+              key={row.key}
+              className="enterprise-default-row flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3"
+            >
+              <Text size="sm" className="min-w-0 flex-1">
+                {row.title}
+              </Text>
+              <Badge variant={isLocked ? 'default' : 'outline'}>
+                {isLocked && <LockIcon className="h-3 w-3" aria-hidden="true" />}
+                {value ? S.defaults.on : S.defaults.off} ·{' '}
+                {isLocked ? S.defaults.locked : S.defaults.overridable}
+              </Badge>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+};
+
+const AdminsCard: React.FC<{
+  enterprise: EnterpriseDetail;
+  role: EnterpriseRole;
+  reload: () => Promise<void>;
+}> = ({ enterprise, role, reload }) => {
+  const A = S.admins;
+  const { user } = useSession();
+  const canEdit = role === 'owner';
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [enterpriseName, setEnterpriseName] = useState('');
-  const [memberUserId, setMemberUserId] = useState('');
-  const [memberRole, setMemberRole] = useState<'owner' | 'admin'>('admin');
-  const [memberSaving, setMemberSaving] = useState<Record<string, boolean>>({});
-  const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [createOrgOpen, setCreateOrgOpen] = useState(false);
-  const [orgName, setOrgName] = useState('');
-  const [orgSlug, setOrgSlug] = useState('');
-  const [orgSlugEdited, setOrgSlugEdited] = useState(false);
-  const [orgSlugStatus, setOrgSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>(
-    'idle',
-  );
-  const [orgAllowAutoJoin, setOrgAllowAutoJoin] = useState(true);
-  const [orgSaving, setOrgSaving] = useState(false);
-  const [orgError, setOrgError] = useState<string | null>(null);
-  const slugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Edit org modal ──────────────────────────────────────────────────────────
-  type OrgItem = (typeof organizations)[number];
-  const [editOrg, setEditOrg] = useState<OrgItem | null>(null);
-  const [editOrgName, setEditOrgName] = useState('');
-  const [editOrgSlug, setEditOrgSlug] = useState('');
-  const [editOrgSlugStatus, setEditOrgSlugStatus] = useState<
-    'idle' | 'checking' | 'available' | 'taken'
-  >('idle');
-  const [editOrgAllowAutoJoin, setEditOrgAllowAutoJoin] = useState(true);
-  const [editOrgSaving, setEditOrgSaving] = useState(false);
-  const [editOrgError, setEditOrgError] = useState<string | null>(null);
-  const editSlugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
-  // Never show or edit another enterprise's data while a newer selection loads.
-  const enterprise = loadedEnterprise?.id === selectedEnterpriseId ? loadedEnterprise : null;
-  const enterpriseAutoJoin = enterprise?.effectiveSettings.allowAutoJoin;
-  const autoJoinLocked = enterpriseAutoJoin?.locked === true;
-  const handleOpenCreateOrg = useCallback(() => {
-    setOrgAllowAutoJoin(enterpriseAutoJoin?.value ?? true);
-    setCreateOrgOpen(true);
-  }, [enterpriseAutoJoin?.value]);
-  const selectedOrganizations = useMemo(
-    () =>
-      selectedEnterpriseId
-        ? organizations.filter((organization) => organization.enterpriseId === selectedEnterpriseId)
-        : [],
-    [organizations, selectedEnterpriseId],
-  );
-
-  const loadEnterprise = useCallback(async () => {
-    const seq = ++loadSeqRef.current;
-    if (!selectedEnterpriseId) {
-      setEnterprise(null);
-      return;
-    }
-
-    // Validate that selectedEnterpriseId is a valid 24-character hex string (ObjectId format)
-    if (!/^[0-9a-f]{24}$/i.test(selectedEnterpriseId)) {
-      setError(null);
-      setEnterprise(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const detail = await enterpriseApi.get(selectedEnterpriseId);
-      if (seq !== loadSeqRef.current) return;
-      setEnterprise(detail);
-      setEnterpriseName(detail.name);
-    } catch (err) {
-      if (seq !== loadSeqRef.current) return;
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Failed to load enterprise details');
-      }
-    } finally {
-      if (seq === loadSeqRef.current) setLoading(false);
-    }
-  }, [selectedEnterpriseId]);
+  const [removeId, setRemoveId] = useState<string | null>(null);
+  const [addUserId, setAddUserId] = useState('');
+  const [addRole, setAddRole] = useState<EnterpriseRole>('admin');
+  const [options, setOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   useEffect(() => {
-    void loadEnterprise();
-  }, [loadEnterprise]);
-
-  useEffect(() => {
-    if (!selectedEnterpriseId || !selectedRole) return;
+    if (!canEdit) return;
     void enterpriseApi
-      .searchUsers(selectedEnterpriseId, '')
+      .searchUsers(enterprise.id, '')
       .then((users) =>
-        setUserOptions(
+        setOptions(
           users.map((u) => ({
             value: u.id,
             label: u.username ? `${u.name} (@${u.username})` : u.name,
           })),
         ),
       )
-      .catch(() => {
-        /* silently ignore */
-      });
-  }, [selectedEnterpriseId, selectedRole]);
+      .catch(() => setOptions([]));
+  }, [canEdit, enterprise.id]);
 
-  const handleSaveName = useCallback(async () => {
-    if (!selectedEnterpriseId) return;
-    const nextName = enterpriseName.trim();
-    if (!nextName) {
-      setError('Enterprise name is required');
-      return;
-    }
-
-    setSaving(true);
+  /** Runs one change for `userId`, then reloads; a refusal shows in the card. */
+  const run = async (userId: string, call: () => Promise<unknown>, fallback: string) => {
+    setSavingId(userId);
     setError(null);
     try {
-      const updated = await enterpriseApi.updateName(selectedEnterpriseId, nextName);
-      setEnterprise((prev) => (prev?.id === selectedEnterpriseId ? { ...prev, ...updated } : prev));
-      setEnterpriseName(updated.name);
-      refetchEnterprises();
+      await call();
+      await reload();
+      return true;
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Failed to update enterprise name');
-      }
+      setError(err instanceof ApiError ? err.message : fallback);
+      return false;
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
-  }, [enterpriseName, refetchEnterprises, selectedEnterpriseId]);
+  };
 
-  const handleSaveSettings = useCallback(
-    async (patch: { settings?: SettingsPatch; locks?: SettingsPatch }) => {
-      if (!selectedEnterpriseId) return;
-      setSavingSettings(true);
-      setSettingsError(null);
-      try {
-        const view = await enterpriseApi.updateSettings(selectedEnterpriseId, patch);
-        setEnterprise((prev) => (prev?.id === selectedEnterpriseId ? { ...prev, ...view } : prev));
-        refreshTeamSettings();
-        refetchOrganizations();
-      } catch (err) {
-        setSettingsError(err instanceof ApiError ? err.message : DEFAULTS_STRINGS.failedToSave);
-      } finally {
-        setSavingSettings(false);
-      }
-    },
-    [selectedEnterpriseId, refreshTeamSettings, refetchOrganizations],
-  );
-
-  const handleAssignRole = useCallback(async () => {
-    if (!selectedEnterpriseId || !memberUserId.trim()) return;
-
-    setSaving(true);
-    setError(null);
-    try {
-      await enterpriseApi.setMemberRole(selectedEnterpriseId, memberUserId.trim(), memberRole);
-      setMemberUserId('');
-      await loadEnterprise();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Failed to update enterprise member');
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [loadEnterprise, memberRole, memberUserId, selectedEnterpriseId]);
-
-  const handleCreateOrg = useCallback(async () => {
-    if (!selectedEnterpriseId) {
-      setOrgError('No enterprise selected. Please refresh or complete ownership first.');
-      return;
-    }
-    if (!orgName.trim()) return;
-    setOrgSaving(true);
-    setOrgError(null);
-    try {
-      const org = await orgApi.createOrganization({
-        enterpriseId: selectedEnterpriseId,
-        name: orgName.trim(),
-        slug: orgSlug.trim() || undefined,
-        allowAutoJoin: orgAllowAutoJoin,
-      });
-      refetchOrganizations();
-      setSelectedOrgId(org.id);
-      setCreateOrgOpen(false);
-      setOrgName('');
-      setOrgSlug('');
-      setOrgSlugEdited(false);
-      setOrgSlugStatus('idle');
-      setOrgAllowAutoJoin(true);
-    } catch (err) {
-      setOrgError(err instanceof ApiError ? err.message : 'Failed to create organization');
-    } finally {
-      setOrgSaving(false);
-    }
-  }, [
-    orgAllowAutoJoin,
-    orgName,
-    orgSlug,
-    refetchOrganizations,
-    selectedEnterpriseId,
-    setSelectedOrgId,
-  ]);
-
-  const handleOrgNameChange = useCallback(
-    (name: string) => {
-      setOrgName(name);
-      if (!orgSlugEdited) {
-        const derived = slugify(name);
-        setOrgSlug(derived);
-        if (slugCheckTimer.current) clearTimeout(slugCheckTimer.current);
-        if (!derived) {
-          setOrgSlugStatus('idle');
-          return;
-        }
-        setOrgSlugStatus('checking');
-        slugCheckTimer.current = setTimeout(() => {
-          void orgApi.checkSlugAvailability(derived).then((available) => {
-            setOrgSlugStatus(available ? 'available' : 'taken');
-          });
-        }, 400);
-      }
-    },
-    [orgSlugEdited],
-  );
-
-  const handleOrgSlugChange = useCallback((slug: string) => {
-    setOrgSlug(slug);
-    setOrgSlugEdited(true);
-    if (slugCheckTimer.current) clearTimeout(slugCheckTimer.current);
-    if (!slug.trim()) {
-      setOrgSlugStatus('idle');
-      return;
-    }
-    setOrgSlugStatus('checking');
-    slugCheckTimer.current = setTimeout(() => {
-      void orgApi.checkSlugAvailability(slug.trim()).then((available) => {
-        setOrgSlugStatus(available ? 'available' : 'taken');
-      });
-    }, 400);
-  }, []);
-
-  const handleOpenEditOrg = useCallback((org: OrgItem) => {
-    setEditOrg(org);
-    setEditOrgName(org.name);
-    setEditOrgSlug(org.slug);
-    setEditOrgSlugStatus('idle');
-    setEditOrgAllowAutoJoin(org.allowAutoJoin);
-    setEditOrgError(null);
-  }, []);
-
-  const handleOpenOrgMembers = useCallback(
-    (org: OrgItem) => {
-      setSelectedOrgId(org.id);
-      if (org.enterpriseId) {
-        setSelectedEnterpriseId(org.enterpriseId);
-      }
-      setEditOrg(null);
-      navigate('/app/organization?tab=members');
-    },
-    [navigate, setSelectedEnterpriseId, setSelectedOrgId],
-  );
-
-  const handleEditOrgSlugChange = useCallback(
-    (slug: string) => {
-      setEditOrgSlug(slug);
-      if (editSlugCheckTimer.current) clearTimeout(editSlugCheckTimer.current);
-      if (!slug.trim() || slug.trim() === editOrg?.slug) {
-        setEditOrgSlugStatus('idle');
-        return;
-      }
-      setEditOrgSlugStatus('checking');
-      editSlugCheckTimer.current = setTimeout(() => {
-        void orgApi.checkSlugAvailability(slug.trim(), editOrg?.id).then((available) => {
-          setEditOrgSlugStatus(available ? 'available' : 'taken');
-        });
-      }, 400);
-    },
-    [editOrg],
-  );
-
-  const handleSaveEditOrg = useCallback(async () => {
-    if (!editOrg) return;
-    setEditOrgSaving(true);
-    setEditOrgError(null);
-    try {
-      await orgApi.updateOrganization(editOrg.id, {
-        name: editOrgName.trim() || undefined,
-        slug: editOrgSlug.trim() !== editOrg.slug ? editOrgSlug.trim() : undefined,
-        allowAutoJoin: editOrgAllowAutoJoin,
-      });
-      refetchOrganizations();
-      setEditOrg(null);
-    } catch (err) {
-      setEditOrgError(err instanceof ApiError ? err.message : 'Failed to update organization');
-    } finally {
-      setEditOrgSaving(false);
-    }
-  }, [editOrg, editOrgAllowAutoJoin, editOrgName, editOrgSlug, refetchOrganizations]);
-
-  const handleChangeRole = useCallback(
-    async (userId: string, role: 'owner' | 'admin') => {
-      if (!selectedEnterpriseId) return;
-      setMemberSaving((prev) => ({ ...prev, [userId]: true }));
-      setError(null);
-      try {
-        await enterpriseApi.setMemberRole(selectedEnterpriseId, userId, role);
-        await loadEnterprise();
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to update role');
-      } finally {
-        setMemberSaving((prev) => ({ ...prev, [userId]: false }));
-      }
-    },
-    [loadEnterprise, selectedEnterpriseId],
-  );
-
-  const handleRemoveMember = useCallback(
-    async (userId: string) => {
-      if (!selectedEnterpriseId) return;
-      setMemberSaving((prev) => ({ ...prev, [userId]: true }));
-      setError(null);
-      try {
-        await enterpriseApi.removeMember(selectedEnterpriseId, userId);
-        await loadEnterprise();
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to remove member');
-      } finally {
-        setMemberSaving((prev) => ({ ...prev, [userId]: false }));
-      }
-    },
-    [loadEnterprise, selectedEnterpriseId],
-  );
+  const removing = removeId !== null && savingId === removeId;
+  const removeName = enterprise.members.find((m) => m.id === removeId)?.name ?? '';
 
   return (
-    <AppPage>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
-        <Card padding="lg" className="space-y-4">
-          <CardHeader>
-            <CardTitle>{enterprise?.name || 'Enterprise Admin'}</CardTitle>
-            <Text variant="muted" size="sm">
-              Manage the enterprise.
-            </Text>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {error && (
-              <Text
-                size="sm"
-                className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/30 dark:text-red-300"
-              >
-                {error}
-              </Text>
-            )}
-
-            {loading ? (
-              <div className="flex justify-center py-12">
-                <Spinner size="lg" label="Loading enterprise" />
-              </div>
-            ) : enterprise ? (
-              <div className="space-y-4">
-                <Card className="border border-neutral-200/70 dark:border-neutral-800">
-                  <CardHeader>
-                    <CardTitle>Name</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-end gap-1">
-                      <div className="flex-1">
-                        <Input
-                          value={enterpriseName}
-                          onChange={(e) => setEnterpriseName(e.target.value)}
-                          placeholder="Enterprise Name"
-                          disabled={!selectedRole || saving}
-                        />
-                      </div>
-                      <Button
-                        variant="primary"
-                        onClick={() => void handleSaveName()}
-                        disabled={
-                          !selectedRole ||
-                          saving ||
-                          !enterpriseName.trim() ||
-                          enterpriseName.trim() === enterprise.name
-                        }
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <DefaultsCard
-                  level="enterprise"
-                  title={DEFAULTS_STRINGS.title}
-                  description={DEFAULTS_STRINGS.description}
-                  rows={DEFAULT_ROWS}
-                  view={enterprise}
-                  names={{}}
-                  saving={savingSettings}
-                  error={settingsError}
-                  onSave={(patch) => void handleSaveSettings(patch)}
-                  className="border border-border"
-                />
-
-                <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">
-                  <CardHeader>
-                    <CardTitle>Members</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {(
-                      enterprise.members ?? [
-                        ...enterprise.owners.map((id) => ({
-                          id,
-                          name: id,
-                          username: null,
-                          role: 'owner' as const,
-                        })),
-                        ...enterprise.admins.map((id) => ({
-                          id,
-                          name: id,
-                          username: null,
-                          role: 'admin' as const,
-                        })),
-                      ]
-                    ).map((member) => (
-                      <div key={member.id} className="flex items-center gap-2">
-                        <Text size="sm" className="min-w-0 flex-1 truncate">
-                          {member.name}
-                          {member.username && (
-                            <span className="ml-1 text-xs text-neutral-400">
-                              @{member.username}
-                            </span>
-                          )}
-                        </Text>
-                        <Select
-                          value={member.role}
-                          onValueChange={(value) =>
-                            void handleChangeRole(member.id, value as 'owner' | 'admin')
-                          }
-                          options={roleOptions}
-                          disabled={selectedRole !== 'owner' || !!memberSaving[member.id]}
-                        />
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void handleRemoveMember(member.id)}
-                          disabled={selectedRole !== 'owner' || !!memberSaving[member.id]}
-                          aria-label={`Remove ${member.name}`}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ))}
-
-                    {selectedRole === 'owner' && (
-                      <div className="space-y-2 pt-2">
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1">
-                            <Select
-                              label="Add Member"
-                              placeholder="Search by name or username…"
-                              searchable
-                              searchPlaceholder="Type to search users…"
-                              noResultsText="No users found"
-                              value={memberUserId}
-                              onValueChange={(value) => setMemberUserId(value)}
-                              options={userOptions}
-                              disabled={saving}
-                            />
-                          </div>
-                          <Select
-                            value={memberRole}
-                            onValueChange={(value) => setMemberRole(value as 'owner' | 'admin')}
-                            options={roleOptions}
-                            disabled={saving}
-                          />
-                        </div>
-                        <Button
-                          variant="primary"
-                          fullWidth
-                          onClick={() => void handleAssignRole()}
-                          disabled={saving || !memberUserId.trim()}
-                        >
-                          Add
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              <Text variant="muted" size="sm">
-                No enterprise is available for your account yet.
-              </Text>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card padding="lg" className="space-y-4">
-            <CardHeader>
-              <CardTitle>Organizations</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {selectedOrganizations.length > 0 ? (
-                selectedOrganizations.map((org) => (
-                  <Button
-                    variant="outline"
-                    key={org.id}
-                    onClick={() => handleOpenEditOrg(org)}
-                    className="w-full justify-start rounded-lg px-3 py-2 text-left"
-                  >
-                    <div className="text-left">
-                      <Text size="sm" weight="medium">
-                        {org.name}
-                      </Text>
-                      <Text size="xs" variant="muted">
-                        {org.slug}
-                      </Text>
-                    </div>
-                  </Button>
-                ))
-              ) : (
-                <Text variant="muted" size="sm">
-                  No organizations yet.
+    <Card padding="none" id="admins" className="enterprise-admins scroll-mt-24">
+      <CardHeader className="px-5 py-4">
+        <CardTitle>{A.title}</CardTitle>
+        <Text variant="muted" size="sm">
+          {A.description}
+        </Text>
+      </CardHeader>
+      <CardContent className="divide-y divide-neutral-100 border-t border-neutral-100 p-0 dark:divide-neutral-800 dark:border-neutral-800">
+        {error && (
+          <div className="px-5 py-3">
+            <Alert variant="danger">{error}</Alert>
+          </div>
+        )}
+        {enterprise.members.map((member) => {
+          const isYou = member.id === user?.id;
+          return (
+            <div key={member.id} className="enterprise-admin-row flex items-center gap-3 px-5 py-3">
+              <Avatar name={member.name} size="sm" />
+              <div className="min-w-0 flex-1">
+                <Text size="sm" weight="medium" truncate>
+                  {member.name}{' '}
+                  {isYou && (
+                    <span className="font-normal text-neutral-500 dark:text-neutral-400">
+                      {A.you}
+                    </span>
+                  )}
                 </Text>
+                {member.username && (
+                  <Text variant="muted" size="xs">
+                    @{member.username}
+                  </Text>
+                )}
+              </div>
+              <Select
+                label={A.roleFor(member.name)}
+                hideLabel
+                size="sm"
+                value={member.role}
+                options={ROLE_OPTIONS}
+                disabled={!canEdit || savingId === member.id}
+                onValueChange={(value) =>
+                  void run(
+                    member.id,
+                    () =>
+                      enterpriseApi.setMemberRole(
+                        enterprise.id,
+                        member.id,
+                        value as EnterpriseRole,
+                      ),
+                    A.roleFailed,
+                  )
+                }
+                className="w-32"
+              />
+              {canEdit && (
+                <Dropdown
+                  placement="bottom-end"
+                  trigger={
+                    <Button variant="ghost" size="icon" aria-label={A.menuFor(member.name)}>
+                      <MoreHorizontalIcon className="h-4 w-4" />
+                    </Button>
+                  }
+                >
+                  <DropdownItem
+                    variant="danger"
+                    icon={<UserMinusIcon className="h-4 w-4" />}
+                    disabled={isYou}
+                    onClick={() => setRemoveId(member.id)}
+                  >
+                    {A.remove}
+                  </DropdownItem>
+                </Dropdown>
               )}
-              <Button variant="secondary" fullWidth onClick={handleOpenCreateOrg}>
-                Create Organization
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <AppModal open={createOrgOpen} onOpenChange={setCreateOrgOpen}>
-        <ModalHeader>Create Organization</ModalHeader>
-        <ModalBody className="space-y-4">
-          {orgError && (
-            <Text
-              size="sm"
-              className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/30 dark:text-red-300"
-            >
-              {orgError}
-            </Text>
-          )}
-          <Input
-            label="Name"
-            value={orgName}
-            onChange={(e) => handleOrgNameChange(e.target.value)}
-            placeholder="Design Systems"
-            disabled={orgSaving}
-          />
-          <div>
-            <Input
-              label="Slug"
-              value={orgSlug}
-              onChange={(e) => handleOrgSlugChange(e.target.value)}
-              placeholder="design-systems"
-              disabled={orgSaving}
-            />
-            {orgSlugStatus === 'checking' && (
-              <Text size="xs" variant="muted" className="mt-1">
-                Checking availability…
-              </Text>
-            )}
-            {orgSlugStatus === 'available' && (
-              <Text size="xs" className="mt-1 text-green-600 dark:text-green-400">
-                ✓ Slug is available
-              </Text>
-            )}
-            {orgSlugStatus === 'taken' && (
-              <Text size="xs" className="mt-1 text-red-600 dark:text-red-400">
-                ✗ Slug is already taken
-              </Text>
-            )}
-          </div>
-          <div className="flex items-center justify-between rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
-            <div>
-              <Text size="sm" weight="medium">
-                Allow Auto-Join
-              </Text>
-              <Text variant="muted" size="xs">
-                New team joins can automatically create org membership.
-              </Text>
             </div>
-            <Switch
-              checked={orgAllowAutoJoin}
-              onCheckedChange={setOrgAllowAutoJoin}
-              disabled={orgSaving || autoJoinLocked}
-              aria-label="Toggle organization auto-join"
+          );
+        })}
+        {canEdit && (
+          <form
+            aria-label={A.addLabel}
+            className="enterprise-admin-add flex flex-wrap items-end gap-2 bg-neutral-50 px-5 py-4 dark:bg-neutral-900/60"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(
+                addUserId,
+                () => enterpriseApi.setMemberRole(enterprise.id, addUserId, addRole),
+                A.addFailed,
+              ).then((ok) => ok && setAddUserId(''));
+            }}
+          >
+            <div className="min-w-60 flex-1">
+              <Select
+                label={A.addLabel}
+                hideLabel
+                placeholder={A.addPlaceholder}
+                searchable
+                searchPlaceholder={A.addSearch}
+                noResultsText={A.noUsers}
+                value={addUserId}
+                onValueChange={setAddUserId}
+                options={options}
+              />
+            </div>
+            <Select
+              label={A.addRole}
+              hideLabel
+              value={addRole}
+              onValueChange={(value) => setAddRole(value as EnterpriseRole)}
+              options={ROLE_OPTIONS}
+              className="w-32"
             />
-          </div>
+            <Button type="submit" disabled={!addUserId || savingId !== null}>
+              {A.add}
+            </Button>
+          </form>
+        )}
+      </CardContent>
+
+      <AppModal open={removeId !== null} onOpenChange={(o) => !o && !removing && setRemoveId(null)}>
+        <ModalHeader>{A.removeTitle}</ModalHeader>
+        <ModalBody>
+          <Text variant="muted" size="sm">
+            {A.removeBody(removeName)}
+          </Text>
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={() => setCreateOrgOpen(false)} disabled={orgSaving}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => void handleCreateOrg()}
-            disabled={orgSaving || !orgName.trim() || orgSlugStatus === 'taken'}
-          >
-            {orgSaving ? 'Creating…' : 'Create'}
-          </Button>
-        </ModalFooter>
-      </AppModal>
-
-      <AppModal
-        open={!!editOrg}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditOrg(null);
-          }
-        }}
-      >
-        <ModalHeader>Edit Organization</ModalHeader>
-        <ModalBody className="space-y-4">
-          {editOrgError && (
-            <Text
-              size="sm"
-              className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+          <ButtonGroup>
+            <Button variant="outline" onClick={() => setRemoveId(null)} disabled={removing}>
+              {A.cancel}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={removing}
+              onClick={() => {
+                if (!removeId) return;
+                void run(
+                  removeId,
+                  () => enterpriseApi.removeMember(enterprise.id, removeId),
+                  A.removeFailed,
+                ).then(() => setRemoveId(null));
+              }}
             >
-              {editOrgError}
-            </Text>
-          )}
-          <Input
-            label="Name"
-            value={editOrgName}
-            onChange={(e) => setEditOrgName(e.target.value)}
-            placeholder="Design Systems"
-            disabled={editOrgSaving}
-          />
-          <div>
-            <Input
-              label="Slug"
-              value={editOrgSlug}
-              onChange={(e) => handleEditOrgSlugChange(e.target.value)}
-              placeholder="design-systems"
-              disabled={editOrgSaving}
-            />
-            {editOrgSlugStatus === 'checking' && (
-              <Text size="xs" variant="muted" className="mt-1">
-                Checking availability…
-              </Text>
-            )}
-            {editOrgSlugStatus === 'available' && (
-              <Text size="xs" className="mt-1 text-green-600 dark:text-green-400">
-                ✓ Slug is available
-              </Text>
-            )}
-            {editOrgSlugStatus === 'taken' && (
-              <Text size="xs" className="mt-1 text-red-600 dark:text-red-400">
-                ✗ Slug is already taken
-              </Text>
-            )}
-          </div>
-          <div className="flex items-center justify-between rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
-            <div>
-              <Text size="sm" weight="medium">
-                Allow Auto-Join
-              </Text>
-              <Text variant="muted" size="xs">
-                New team joins can automatically create org membership.
-              </Text>
-            </div>
-            <Switch
-              checked={editOrgAllowAutoJoin}
-              onCheckedChange={setEditOrgAllowAutoJoin}
-              disabled={editOrgSaving || autoJoinLocked}
-              aria-label="Toggle organization auto-join"
-            />
-          </div>
-
-          {editOrg && (
-            <div className="rounded-xl border border-neutral-200/70 p-3 dark:border-neutral-800">
-              <Text size="sm" variant="muted" className="mb-2">
-                Add and manage organization members on the Members page.
-              </Text>
-              <Button variant="secondary" onClick={() => handleOpenOrgMembers(editOrg)}>
-                Open Members Page
-              </Button>
-            </div>
-          )}
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" onClick={() => setEditOrg(null)} disabled={editOrgSaving}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => void handleSaveEditOrg()}
-            disabled={editOrgSaving || !editOrgName.trim() || editOrgSlugStatus === 'taken'}
-          >
-            {editOrgSaving ? 'Saving…' : 'Save'}
-          </Button>
+              {removing ? A.removing : A.removeConfirm}
+            </Button>
+          </ButtonGroup>
         </ModalFooter>
       </AppModal>
+    </Card>
+  );
+};
+
+const EnterpriseAdminView: React.FC<{ role: EnterpriseRole }> = ({ role }) => {
+  const { navigate } = useRouter();
+  const { enterprise, loading, error, reload } = useEnterpriseDetail();
+
+  const sections = [
+    { id: 'organizations', label: S.page.sections.organizations },
+    { id: 'defaults', label: S.page.sections.defaults },
+    { id: 'admins', label: S.page.sections.admins },
+  ];
+
+  return (
+    <AppPage
+      titleActions={
+        <Button
+          variant="secondary"
+          leftIcon={<SettingsIcon className="h-4 w-4" />}
+          onClick={() => navigate(settingsPath('enterprise'))}
+          aria-label={S.page.settings}
+        >
+          <span className="max-md:hidden">{S.page.settings}</span>
+        </Button>
+      }
+    >
+      {error && <Alert variant="danger">{error}</Alert>}
+      {!enterprise ? (
+        loading || !error ? (
+          <div className="flex justify-center py-12">
+            <Spinner size="lg" label={S.page.loading} />
+          </div>
+        ) : null
+      ) : (
+        <>
+          <div className="enterprise-identity flex items-center gap-3">
+            <Avatar name={enterprise.name} size="lg" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Text as="h2" size="xl" weight="bold">
+                  {enterprise.name}
+                </Text>
+                <Badge>{S.roles[role]}</Badge>
+              </div>
+              <Text variant="muted" size="sm">
+                {S.page.description}
+              </Text>
+            </div>
+          </div>
+          <SectionSpyNav items={sections} label={S.page.sectionsLabel} />
+          <OrganizationsCard enterprise={enterprise} />
+          <DefaultsSummaryCard enterprise={enterprise} />
+          <AdminsCard enterprise={enterprise} role={role} reload={reload} />
+        </>
+      )}
     </AppPage>
   );
+};
+
+// ─── Member view ──────────────────────────────────────────────────────────────
+
+/** Which enterprise and organizations you belong to, read-only. */
+const EnterpriseMemberView: React.FC = () => {
+  const M = S.member;
+  const { organizations, selectedOrgId } = useTeam();
+  const open = useOpenOrganization();
+
+  const groups = useMemo(() => {
+    const byEnterprise = new Map<string, { name: string | null; orgs: Organization[] }>();
+    organizations.forEach((org) => {
+      const key = org.enterpriseId ?? '';
+      const group = byEnterprise.get(key) ?? { name: org.enterpriseName ?? null, orgs: [] };
+      group.orgs.push(org);
+      byEnterprise.set(key, group);
+    });
+    return [...byEnterprise.entries()];
+  }, [organizations]);
+
+  return (
+    <AppPage subtitle={M.description}>
+      {groups.length === 0 && (
+        <Text variant="muted" size="sm">
+          {M.none}
+        </Text>
+      )}
+      {groups.map(([key, group]) => (
+        <Card key={key || 'none'} padding="none" className="enterprise-membership">
+          <CardHeader className="flex flex-row items-center gap-3 px-5 py-4">
+            <Avatar name={group.name ?? M.noEnterprise} />
+            <CardTitle>{group.name ?? M.noEnterprise}</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-neutral-100 border-t border-neutral-100 p-0 dark:divide-neutral-800 dark:border-neutral-800">
+            <Text
+              size="xs"
+              weight="semibold"
+              variant="muted"
+              className="px-5 pt-3 uppercase tracking-widest"
+            >
+              {M.yourOrganizations}
+            </Text>
+            {group.orgs.map((org) => (
+              <div key={org.id} className="enterprise-member-org flex items-center gap-3 px-5 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Text size="sm" weight="medium">
+                      {org.name}
+                    </Text>
+                    {org.id === selectedOrgId && (
+                      <Badge variant="outline">{S.organizations.current}</Badge>
+                    )}
+                  </div>
+                  <Text variant="muted" size="xs">
+                    {M.yourRole(S.orgRoles[org.role ?? 'member'])}
+                  </Text>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={S.organizations.openFor(org.name)}
+                  onClick={() => open(org)}
+                  className="text-primary-600 dark:text-primary-400"
+                >
+                  {S.organizations.open}
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+      <Text variant="muted" size="xs">
+        {M.managedBy}
+      </Text>
+    </AppPage>
+  );
+};
+
+// ─── EnterprisePage ───────────────────────────────────────────────────────────
+
+export const EnterprisePage: React.FC = () => {
+  const { enterprises, selectedEnterpriseId } = useTeam();
+  const role = getEnterpriseRole(enterprises, selectedEnterpriseId);
+  return role ? <EnterpriseAdminView role={role} /> : <EnterpriseMemberView />;
 };
