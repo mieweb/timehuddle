@@ -72,7 +72,7 @@ test.describe('Huddle — direct video upload', () => {
     await composerEditor(page).fill(postText);
 
     await page.getByRole('button', { name: 'Video', exact: true }).click();
-    const videoInput = page.locator('input[type="file"][accept="video/*"]');
+    const videoInput = page.locator('input[type="file"][aria-label="Choose a video to attach"]');
     await videoInput.setInputFiles(TEST_MP4);
 
     // The attach bar shows the filename as a chip once uploadMedia() resolves.
