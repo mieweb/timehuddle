@@ -384,6 +384,12 @@ export const TeamsPage: React.FC = () => {
     }
   }, [tab, selectedTeamId, fetchInvitations]);
 
+  // Pull-to-refresh reloads members and TeamContext; the Invitations tab adds its list.
+  useRefresh(
+    useCallback(() => fetchInvitations(selectedTeamId), [fetchInvitations, selectedTeamId]),
+    tab === 'invitations',
+  );
+
   const handleRevokeInvitation = useCallback(
     async (invitationId: string) => {
       setRevokeLoadingId(invitationId);
