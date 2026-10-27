@@ -1200,8 +1200,10 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
 export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
-  const { organizations, selectedOrgId } = useTeam();
-  const groups = settingsGroups(canManageSelectedOrganization(organizations, selectedOrgId));
+  const { organizations, enterprises, selectedOrgId } = useTeam();
+  const groups = settingsGroups(
+    canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
+  );
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
