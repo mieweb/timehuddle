@@ -146,6 +146,13 @@ describe('fromRecordEdits (#734 step 3)', () => {
     const edits = fromRecordEdits({ priority: 'high' });
     expect(buildUpdatePayload(original, edits).error).toBeTruthy();
   });
+
+  it('refuses assignees that are not a list of at most one id, rather than unassigning', () => {
+    for (const assignees of ['8', {}, null, ['8', '9']]) {
+      const edits = fromRecordEdits({ assignees } as never);
+      expect(buildUpdatePayload(original, edits).error).toMatch(/assignee is not valid/);
+    }
+  });
 });
 
 describe('readBackMismatches', () => {

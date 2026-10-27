@@ -60,9 +60,9 @@ async function withFakeLink(page: Page, initial: string | null = null) {
 }
 
 /**
- * Creates a ticket through the UI and opens its page. A ticket that already
- * carries an issue is headed by the issue's title (#757), so a spec that links
- * it first passes that as `heading`.
+ * Creates a ticket through the UI and opens its page. A ticket that carries an
+ * issue is headed by the issue's title once it is read (#757), so `heading`
+ * is what to wait for.
  */
 async function openNewTicket(page: Page, title: string, heading = title): Promise<void> {
   const tickets = new TicketsPage(page);
@@ -227,6 +227,21 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(page.getByText(message)).toBeVisible();
     await expect(card(page).getByRole('button', { name: 'Change' })).toBeDisabled();
     await expect(card(page).getByRole('button', { name: 'Unlink' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
+    // The title is the issue's, written to Redmine (#757): a timer doesn't lock it.
+    await expect(page.getByRole('button', { name: 'Edit title' })).toBeVisible();
+  });
+
+  test("locks a plain ticket's own title while someone is timing it", async ({ page }) => {
+    await withFakeLink(page);
+    await stubTicketCall(page, 'tickets.lockStatus', () => ({
+      lock: { holders: [{ userId: 'u2', name: 'Ticket Member' }], message: 'Timing' },
+      myTime: NO_TIME,
+      othersWithTime: 1,
+    }));
+    await openNewTicket(page, `Locked plain ${Date.now()}`);
+
+    await expect(page.getByText('Timing')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Edit title' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
   });

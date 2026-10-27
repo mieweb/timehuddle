@@ -123,7 +123,8 @@ export function buildUpdatePayload(original, edits = {}) {
 /**
  * A ticket record's edits (#734 step 3) in `buildUpdatePayload`'s names. Record
  * ids are strings; Redmine's are numbers, so one that isn't a number stays
- * invalid and is refused there. No assignee means unassigned.
+ * invalid and is refused there. Redmine takes one assignee: an empty list
+ * unassigns, and anything but a list of at most one id is refused there too.
  */
 export function fromRecordEdits(edits = {}) {
   const id = (value) => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
@@ -133,7 +134,10 @@ export function fromRecordEdits(edits = {}) {
   if ('status' in edits) out.statusId = id(edits.status);
   if ('priority' in edits) out.priorityId = id(edits.priority);
   if ('assignees' in edits) {
-    out.assigneeId = Array.isArray(edits.assignees) && edits.assignees.length ? id(edits.assignees[0]) : null;
+    const list = edits.assignees;
+    // 0 is no Redmine id, so `buildUpdatePayload` refuses it.
+    if (!Array.isArray(list) || list.length > 1) out.assigneeId = 0;
+    else out.assigneeId = list.length ? id(list[0]) : null;
   }
   return out;
 }

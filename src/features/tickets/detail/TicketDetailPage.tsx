@@ -147,6 +147,9 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   // saved there and only there, checked against that version.
   const [titleBase, setTitleBase] = useState<string | null>(null);
   const [descBase, setDescBase] = useState<string | null>(null);
+  // Set by Reload after a stale refusal: once the fresh issue arrives, an open
+  // edit keeps its text and moves onto that version, so its next Save goes.
+  const [rebaseDrafts, setRebaseDrafts] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // The carried issue changed in its source since it was read: offer a reload.
@@ -176,6 +179,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   );
   const carried = outside.state.kind === 'loaded' ? outside.state.issue : null;
   const { reload: reloadOutside } = outside;
+  const carriedUpdated = carried ? (carried.record.dates.updated ?? '') : null;
+  useEffect(() => {
+    if (!rebaseDrafts || carriedUpdated === null) return;
+    setTitleBase((base) => (base === null ? base : carriedUpdated));
+    setDescBase((base) => (base === null ? base : carriedUpdated));
+    setRebaseDrafts(false);
+  }, [rebaseDrafts, carriedUpdated]);
   useEffect(() => {
     void loadLock();
     const onRefetch = () => {
@@ -637,7 +647,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 onClick={() => {
                   setStale(false);
                   setActionError(null);
-                  void outside.reload();
+                  void outside.reload().then((ok) => ok && setRebaseDrafts(true));
                 }}
               >
                 {outsideText.reload}
@@ -767,7 +777,9 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     options={STATUS_OPTIONS}
                     value={ticket.status}
                     onValueChange={(val: string) => void handleStatusChange(val)}
-                    disabled={locked}
+                    // Until the carried issue is read, a change here could
+                    // land on the ticket instead of the issue.
+                    disabled={locked || outside.state.kind === 'loading'}
                   />
                 )}
               </div>
@@ -800,7 +812,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                       options={PRIORITY_OPTIONS}
                       value={ticket.priority ?? 'none'}
                       onValueChange={(val: string) => void handlePriorityChange(val)}
-                      disabled={locked}
+                      disabled={locked || outside.state.kind === 'loading'}
                     />
                   </>
                 )}
