@@ -32,8 +32,8 @@ interface NavItem {
 const NAV: NavItem[][] = [
   [
     { icon: HomeIcon, label: 'Dashboard', href: '/app/dashboard' },
-    { icon: MessageIcon, label: 'Huddle', href: '/app/huddle' },
     { icon: ClockIcon, label: 'Clock', href: '/app/clock' },
+    { icon: MessageIcon, label: 'Huddle', href: '/app/huddle' },
     { icon: ClipboardListIcon, label: 'Tickets', href: '/app/tickets' },
     { icon: TimerIcon, label: 'Work', href: '/app/work' },
   ],
