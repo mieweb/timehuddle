@@ -11,6 +11,7 @@ import {
   CardTitle,
   Input,
   Text,
+  WebsiteInput,
 } from '@mieweb/ui';
 import { SOURCES } from '@timehuddle/ticket-sources';
 import React, { useEffect, useRef, useState } from 'react';
@@ -235,15 +236,14 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
                 {SOURCES[row.type].label}
               </Badge>
               <div className="org-ticket-server-host min-w-0 flex-1 basis-56">
-                <Input
+                <WebsiteInput
                   label={TICKET_IDS_STRINGS.serverLabel(index + 1)}
                   hideLabel
                   placeholder={TICKET_IDS_STRINGS.serverPlaceholder}
                   value={row.address}
-                  type="url"
                   autoComplete="off"
                   disabled={serversSave.saving}
-                  onChange={(event) => updateServer(row.key, 'address', event.target.value)}
+                  onChange={(address) => updateServer(row.key, 'address', address)}
                 />
               </div>
               <div className="org-ticket-server-prefix w-24">

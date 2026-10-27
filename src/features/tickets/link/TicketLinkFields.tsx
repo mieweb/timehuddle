@@ -7,7 +7,18 @@
  * so there is a single place, and a single look, for choosing a ticket's link.
  * It only collects the choice; `applyTicketLink` carries it out.
  */
-import { Alert, AlertDescription, Badge, Button, Input, Select, Spinner, Text } from '@mieweb/ui';
+import {
+  Alert,
+  AlertDescription,
+  Badge,
+  Button,
+  ButtonGroup,
+  Input,
+  Select,
+  Spinner,
+  Text,
+  WebsiteInput,
+} from '@mieweb/ui';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -176,41 +187,42 @@ export function TicketLinkFields({
           <AnimatePresence mode="wait" initial={false}>
             {value.kind === 'github' && (
               <motion.div key="github" className="ticket-link-github" {...panelMotion}>
-                <Input
+                <WebsiteInput
                   label={ticketLinkText.githubLabel}
-                  type="url"
                   placeholder={ticketLinkText.githubPlaceholder}
                   value={value.github}
                   disabled={disabled}
                   error={notAnIssue ? ticketLinkText.notAnIssue : undefined}
-                  onChange={(e) => onChange({ github: e.target.value })}
+                  onChange={(github) => onChange({ github })}
                 />
                 {redmineIssueLink && (
                   <div className="ticket-link-redmine-offer mt-2 space-y-2">
                     <Alert variant="info">
                       <AlertDescription>{ticketLinkText.redmineIssueLink}</AlertDescription>
                     </Alert>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled}
-                      onClick={() => {
-                        // A Find still in flight was for another query: retire it.
-                        searchSeq.current += 1;
-                        setSearching(false);
-                        setMessage(null);
-                        onChange({
-                          kind: 'redmine',
-                          redmineMode: 'existing',
-                          query: linkText,
-                          issue: null,
-                          github: '',
-                        });
-                      }}
-                    >
-                      {ticketLinkText.linkAsRedmine}
-                    </Button>
+                    <ButtonGroup>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => {
+                          // A Find still in flight was for another query: retire it.
+                          searchSeq.current += 1;
+                          setSearching(false);
+                          setMessage(null);
+                          onChange({
+                            kind: 'redmine',
+                            redmineMode: 'existing',
+                            query: linkText,
+                            issue: null,
+                            github: '',
+                          });
+                        }}
+                      >
+                        {ticketLinkText.linkAsRedmine}
+                      </Button>
+                    </ButtonGroup>
                   </div>
                 )}
               </motion.div>
