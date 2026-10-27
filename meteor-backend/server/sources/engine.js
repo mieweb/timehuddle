@@ -117,6 +117,23 @@ function toExtra(spec, raw) {
     .filter((field) => field.label && field.value);
 }
 
+function toAttachments(spec, raw) {
+  const list = readPath(raw, spec.path);
+  return (Array.isArray(list) ? list : [])
+    .filter((item) => item?.id != null)
+    .map((item) => {
+      const size = Number(readPath(item, spec.size));
+      return {
+        id: String(item.id),
+        name: nameOf(item, spec.name) ?? '',
+        url: nameOf(readPath(item, spec.url)) ?? null,
+        ...(Number.isFinite(size) && size >= 0 ? { size } : {}),
+        author: toNamed(readPath(item, spec.author)),
+        at: toIso(readPath(item, spec.at)),
+      };
+    });
+}
+
 function toDates(spec, raw) {
   const dates = {
     created: toIso(readPath(raw, spec.created)),
@@ -161,6 +178,7 @@ export async function toRecord(definition, raw, { hooks = {}, ctx = {}, ref = nu
     milestone: named(f.milestone),
     dates: f.dates ? toDates(f.dates, raw) : { created: null, updated: null },
     conversation: Array.isArray(conversation) ? conversation : [],
+    attachments: f.attachments ? toAttachments(f.attachments, raw) : [],
     relations: [],
     extra: f.extra ? toExtra(f.extra, raw) : [],
   };

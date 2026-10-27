@@ -32,6 +32,16 @@ const rawIssue = {
   created_on: '2026-10-01T09:00:00Z',
   updated_on: '2026-10-20T14:05:00Z',
   due_date: '2026-11-01',
+  attachments: [
+    {
+      id: 31,
+      filename: 'trace.log',
+      filesize: 2048,
+      content_url: 'https://redmine.example/attachments/download/31/trace.log',
+      author: { id: 5, name: 'Sam Reporter' },
+      created_on: '2026-10-02T08:00:00Z',
+    },
+  ],
   custom_fields: [
     { id: 9, name: 'Customer', value: 'Acme' },
     { id: 10, name: 'Empty', value: '' },
@@ -81,6 +91,16 @@ describe('toRecord', () => {
         due: '2026-11-01',
       },
       extra: [{ label: 'Customer', value: 'Acme' }],
+      attachments: [
+        {
+          id: '31',
+          name: 'trace.log',
+          url: 'https://redmine.example/attachments/download/31/trace.log',
+          size: 2048,
+          author: { id: '5', name: 'Sam Reporter' },
+          at: '2026-10-02T08:00:00.000Z',
+        },
+      ],
     });
   });
 
@@ -96,7 +116,13 @@ describe('toRecord', () => {
 
   it('reads an issue with nothing optional set', async () => {
     const record = await toRecord(redmine, { id: 1, subject: 'Bare' }, { hooks });
-    expect(record).toMatchObject({ body: null, priority: null, assignees: [], reporter: null });
+    expect(record).toMatchObject({
+      body: null,
+      priority: null,
+      assignees: [],
+      reporter: null,
+      attachments: [],
+    });
   });
 
   it("reads a GitHub issue by GitHub's, with no hook at all", async () => {
@@ -136,7 +162,9 @@ describe('fetchRecord', () => {
       hooks,
       url: 'https://redmine.example/issues/214',
     });
-    expect(request).toHaveBeenCalledWith('/issues/214.json?include=allowed_statuses,journals');
+    expect(request).toHaveBeenCalledWith(
+      '/issues/214.json?include=allowed_statuses,journals,attachments',
+    );
     expect(result?.record.ref).toEqual({ server: 'redmine.example', key: '214' });
     expect(result?.record.url).toBe('https://redmine.example/issues/214');
     expect(result?.choices.status).toHaveLength(2);

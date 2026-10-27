@@ -450,6 +450,7 @@ export function outsideIssue(issue: RedmineIssueShape = redmineIssue()) {
       milestone: null,
       dates: { created: issue.createdAt, updated: issue.updatedAt },
       conversation: [],
+      attachments: [],
       relations: [],
       extra: [],
     },

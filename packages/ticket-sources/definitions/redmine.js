@@ -19,8 +19,8 @@ export const redmine = defineSource({
     show: '{prefix}-{key}',
   },
   api: {
-    // With the moves the member may make and the history, in one read.
-    issue: '/issues/{key}.json?include=allowed_statuses,journals',
+    // With the moves the member may make, the history and the files, in one read.
+    issue: '/issues/{key}.json?include=allowed_statuses,journals,attachments',
     item: 'issue',
     paging: 'offset',
   },
