@@ -403,7 +403,8 @@ describe('orgs.setTicketPrefix', () => {
 });
 
 describe('orgs.setSourcePrefixes', () => {
-  type Entry = { host: string; prefix: string };
+  type Entry = { host: string; prefix: string; type?: string; baseUrl?: string };
+  const pm = { host: 'redmine.example.com', prefix: 'PM', type: 'redmine', baseUrl: 'https://redmine.example.com' };
   const setSources = (jwt: string, sourcePrefixes: unknown) =>
     wormhole<{ sourcePrefixes: Entry[] }>('orgs.setSourcePrefixes', { orgId, sourcePrefixes }, jwt);
 
@@ -417,9 +418,9 @@ describe('orgs.setSourcePrefixes', () => {
   it('lets an owner name servers, and orgs.get returns them', async () => {
     const res = await setSources(ownerJwt, [{ host: 'https://Redmine.Example.com/', prefix: 'pm' }]);
     expect(res.ok).toBe(true);
-    expect(res.result.sourcePrefixes).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+    expect(res.result.sourcePrefixes).toEqual([pm]);
     const org = await wormhole<{ organization: { sourcePrefixes: Entry[] } }>('orgs.get', { orgId }, ownerJwt);
-    expect(org.result.organization.sourcePrefixes).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+    expect(org.result.organization.sourcePrefixes).toEqual([pm]);
   });
 
   it('refuses an admin and a member', async () => {

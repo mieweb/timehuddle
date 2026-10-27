@@ -209,8 +209,8 @@ export class TicketsPage extends BasePage {
     await this.openCreateForm();
     await this.page.getByPlaceholder('Ticket title').fill(title);
     if (githubUrl) {
-      await this.page.getByRole('radio', { name: 'Link', exact: true }).check();
-      await this.page.getByLabel('Link to the issue').fill(githubUrl);
+      await this.page.getByRole('radio', { name: 'GitHub', exact: true }).check();
+      await this.page.getByLabel('GitHub issue or pull request').fill(githubUrl);
       // Wait for title fetch
       await this.page.waitForTimeout(1500);
     }

@@ -221,8 +221,21 @@ export declare const SOURCES: Readonly<{
   github: Readonly<SourceDefinition>;
 }>;
 
+/**
+ * A server an organization has registered (#734 step 5): where its issues
+ * live, what they're shown with, and which definition reads them. Entries
+ * saved before types existed have no `type` or `baseUrl`, and are Redmine.
+ */
+export interface SourceServer {
+  host: string;
+  prefix: string;
+  type?: 'redmine';
+  /** The server's address, with any path Redmine lives under. */
+  baseUrl?: string;
+}
+
 /** The outside ID for `url` (#689), e.g. `timehuddle-223` or `PM-233`, or null. */
 export declare function outsideIdOf(
   url: string | null | undefined,
-  prefixes: readonly { host: string; prefix: string }[],
+  prefixes: readonly SourceServer[],
 ): string | null;

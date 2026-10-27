@@ -133,10 +133,17 @@ describe('hostOf', () => {
 });
 
 describe('normalizeSourcePrefixes', () => {
-  it('stores bare hosts and uppercase prefixes', () => {
+  it('stores bare hosts, the address, and uppercase prefixes', () => {
     expect(
       normalizeSourcePrefixes([{ host: 'https://redmine.example.com/projects', prefix: 'pm' }], 'TH'),
-    ).toEqual([{ host: 'redmine.example.com', prefix: 'PM' }]);
+    ).toEqual([
+      {
+        host: 'redmine.example.com',
+        prefix: 'PM',
+        type: 'redmine',
+        baseUrl: 'https://redmine.example.com/projects',
+      },
+    ]);
   });
 
   it('refuses a repeated host, a repeated prefix, or the org ticket prefix', () => {
