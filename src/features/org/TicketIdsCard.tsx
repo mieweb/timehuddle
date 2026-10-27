@@ -206,10 +206,14 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
           </Text>
         </form>
 
+        {/* noValidate: `WebsiteInput` is `type="url"`, which would block a bare
+            host like `redmine.example.com` (how older servers are saved); the
+            backend validates and normalizes the address instead. */}
         <form
           className="org-ticket-servers-form space-y-3"
           aria-labelledby="org-ticket-servers-title"
           onSubmit={saveServers}
+          noValidate
         >
           <div className="org-ticket-servers-heading">
             <Text id="org-ticket-servers-title" size="sm" weight="medium">
