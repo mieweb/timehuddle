@@ -14,6 +14,7 @@ import {
   linkedTimeSummary,
   lockMessage,
   matchesExpectedLink,
+  redmineLinkFor,
   sessionIssuesAfterMove,
 } from '../server/ticket-link-core';
 
@@ -25,6 +26,20 @@ describe('linkedIssueIdOf', () => {
     expect(linkedIssueIdOf(linked)).toBe('482');
     expect(linkedIssueIdOf(unlinked)).toBeNull();
     expect(linkedIssueIdOf(null)).toBeNull();
+  });
+});
+
+describe('redmineLinkFor (#736)', () => {
+  it('names the server the issue is on', () => {
+    expect(redmineLinkFor('482', 'redmine0.os.mieweb.org')).toEqual({
+      source: 'redmine',
+      id: '482',
+      host: 'redmine0.os.mieweb.org',
+    });
+  });
+
+  it('leaves the host out when Redmine has no address', () => {
+    expect(redmineLinkFor('482', null)).toEqual({ source: 'redmine', id: '482' });
   });
 });
 
@@ -95,7 +110,11 @@ describe('linkNotificationBody', () => {
 
 describe('linkedTimeSummary', () => {
   const day = '2026-10-04';
-  const session = (durationSeconds: number, redmineIssueId?: string, endTime: number | null = 1) => ({
+  const session = (
+    durationSeconds: number,
+    redmineIssueId?: string,
+    endTime: number | null = 1,
+  ) => ({
     date: day,
     endTime,
     durationSeconds,
@@ -159,7 +178,10 @@ describe('sessionIssuesAfterMove', () => {
     }).map((row) => row.issueId);
 
   it('moves unsent sessions to the new ticket\u2019s issue', () => {
-    const sessions = [{ _id: 'a', redmineIssueId: '700', date: day, endTime: 2 }, { _id: 'b', date: day, endTime: 2 }];
+    const sessions = [
+      { _id: 'a', redmineIssueId: '700', date: day, endTime: 2 },
+      { _id: 'b', date: day, endTime: 2 },
+    ];
     expect(issuesOf({ sessions, nextIssueId: '900' })).toEqual(['900', '900']);
   });
 

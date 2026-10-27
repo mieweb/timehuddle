@@ -1159,6 +1159,16 @@ export const ticketApi = {
       expectedIssueId,
     }).then(toTicket),
 
+  /**
+   * The team's ticket carrying Redmine issue `issueId`, created from the issue
+   * and linked when there is none (#736). `created` says which.
+   */
+  carryIssue: (teamId: string, issueId: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
+      teamId,
+      issueId: Number(issueId),
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
     wormholeCall<Record<string, unknown>>('tickets.unlink', {
@@ -1863,8 +1873,8 @@ export const myBoardApi = {
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
-export type AttachmentKind = 'clock' | 'ticket' | 'redmine';
-/** The kinds a ticket page attaches to: a Huddle ticket or a Redmine issue. */
+export type AttachmentKind = 'clock' | 'ticket';
+/** The kind a ticket page attaches to. */
 export type TicketAttachmentKind = Exclude<AttachmentKind, 'clock'>;
 export type AttachmentType = 'video' | 'image' | 'link';
 
@@ -2422,7 +2432,7 @@ export type RedmineRelevanceReason =
 export type RedmineSearchKind = 'id' | 'url' | 'assignee' | 'text';
 
 /** What TimeHuddle may remember about a Redmine issue. `null` lifts a hide; a pin stays. */
-export type RedmineIssuePrefState = 'pinned' | 'dismissed' | null;
+export type RedmineIssuePrefState = 'dismissed' | null;
 
 /** Why a previewed ticket-day cannot be sent, or null when it can. */
 export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
@@ -2726,12 +2736,15 @@ export const redmineApi = {
       wormholeCall<RedmineSearchResult>('redmine.issues.search', { query }),
 
     /**
-     * Take issues out of the caller's Tickets table and off their My Board.
-     * Nothing changes in Redmine. Starting a timer on one brings it back.
-     * At most 100 ids per call.
+     * One page (100) of the open issues assigned to the caller in Redmine, most
+     * recently updated first, whatever they removed from their Tickets table
+     * (#736). `nextOffset` starts the next page; null at the end.
      */
-    removeFromTable: (issueIds: number[]): Promise<{ removedCount: number }> =>
-      wormholeCall<{ removedCount: number }>('redmine.issues.removeFromTable', { issueIds }),
+    assignedIds: (offset = 0): Promise<{ issueIds: number[]; nextOffset: number | null }> =>
+      wormholeCall<{ issueIds: number[]; nextOffset: number | null }>(
+        'redmine.issues.assignedIds',
+        { offset },
+      ),
 
     /** One issue with its description, allowed status changes and Redmine history. */
     get: (
@@ -2776,7 +2789,7 @@ export const redmineApi = {
 
   prefs: {
     /**
-     * Pin, hide or clear one Redmine issue for the caller.
+     * Hide or clear one Redmine issue for the caller.
      *
      * Hiding affects that user's **suggestions only**: it changes nothing in
      * Redmine, nothing for other users, and nothing in search results or the
@@ -2784,10 +2797,8 @@ export const redmineApi = {
      * early if the issue becomes assigned to the user, so there is nothing for
      * the client to schedule. `null` is both Undo and Restore.
      *
-     * Two refusals beyond the usual Redmine ones: `too-many-pins` when the caller
-     * is at the per-user pin cap (they unpin something, or keep the suggestion),
-     * and `too-many-requests` when they are ahead of the rate limit, where the
-     * next attempt goes through.
+     * One refusal beyond the usual Redmine ones: `too-many-requests` when they
+     * are ahead of the rate limit, where the next attempt goes through.
      */
     set: (issueId: number, state: RedmineIssuePrefState): Promise<{ ok: true }> =>
       wormholeCall<{ ok: true }>('redmine.prefs.set', { issueId, state }),

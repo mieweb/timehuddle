@@ -164,3 +164,35 @@ export async function stubRunningTimer(
     ),
   );
 }
+
+/** The id the stubbed carrying ticket of Redmine issue `issueId` has (#736): 24 hex digits. */
+export const carrierIdOf = (issueId: number | string) => `ca${String(issueId).padStart(22, '0')}`;
+
+/**
+ * Answer `tickets.carryIssue` without a Redmine to read the issue from: every
+ * issue is carried by a ticket whose id is `carrierIdOf(issueId)`. Returns the
+ * recorded requests, `{ teamId, issueId }`.
+ */
+export async function stubCarryIssue(page: Page) {
+  const carries: Body[] = [];
+  await page.route('**/api/tickets_carryIssue', async (route) => {
+    const body = route.request().postDataJSON();
+    carries.push(body);
+    await route.fulfill(
+      jsonResult({
+        ticket: {
+          id: carrierIdOf(body.issueId),
+          teamId: body.teamId,
+          title: `Redmine issue #${body.issueId}`,
+          status: 'open',
+          createdBy: 'u',
+          assignedTo: [],
+          github: '',
+          linkedIssue: { source: 'redmine', id: String(body.issueId) },
+        },
+        created: true,
+      }),
+    );
+  });
+  return carries;
+}

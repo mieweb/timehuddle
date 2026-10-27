@@ -24,9 +24,10 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
+import './ticket-carry';
+import './redmine-suggestions';
 import './redmine';
 import './redmine-issue-methods';
-import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -41,7 +42,9 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
-import { migrateTicketNumbers } from './ticket-ids';
+import { hostOf, migrateTicketNumbers } from './ticket-ids';
+import { migrateBareRedmineData } from './redmine-cleanup-736';
+import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
@@ -93,6 +96,13 @@ Meteor.startup(async () => {
 Meteor.startup(() => {
   migrateTicketNumbers(rawDb()).catch((error) =>
     console.error('[tickets] numbering existing tickets failed:', error),
+  );
+});
+
+// Not awaited either: until it runs, old bare-issue board entries just don't show.
+Meteor.startup(() => {
+  migrateBareRedmineData(rawDb(), { redmineHost: hostOf(optionalRedmineBaseUrl()) }).catch(
+    (error) => console.error('[redmine] clearing bare-issue data failed:', error),
   );
 });
 
@@ -1046,6 +1056,19 @@ Meteor.startup(async () => {
     },
   });
 
+  Wormhole.expose('tickets.carryIssue', {
+    description:
+      "The team's ticket carrying a Redmine issue, created from the issue and linked if there is none. Returns { ticket, created }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        issueId: { type: 'integer', description: 'The Redmine issue number' },
+      },
+      required: ['teamId', 'issueId'],
+    },
+  });
+
   Wormhole.expose('tickets.unlink', {
     description: "Remove a ticket's link to a Redmine issue. Nothing changes in Redmine",
     inputSchema: {
@@ -1204,35 +1227,27 @@ Meteor.startup(async () => {
 
   Wormhole.expose('redmine.prefs.set', {
     description:
-      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine). Refused with 'too-many-pins' past the per-user pin cap",
+      "Hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",
     inputSchema: {
       type: 'object',
       properties: {
         issueId: { type: 'integer' },
         state: {
           type: ['string', 'null'],
-          enum: ['pinned', 'dismissed', null],
-          description: 'null lifts a hide (Undo / Restore); a pin stays',
+          enum: ['dismissed', null],
+          description: 'null lifts a hide (Undo / Restore)',
         },
       },
       required: ['issueId', 'state'],
     },
   });
 
-  Wormhole.expose('redmine.issues.removeFromTable', {
+  Wormhole.expose('redmine.issues.assignedIds', {
     description:
-      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
+      "One page (100) of the ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table. Returns { issueIds, nextOffset }, nextOffset null at the end",
     inputSchema: {
       type: 'object',
-      properties: {
-        issueIds: {
-          type: 'array',
-          items: { type: 'integer' },
-          minItems: 1,
-          maxItems: MAX_REMOVE_PER_CALL,
-        },
-      },
-      required: ['issueIds'],
+      properties: { offset: { type: 'integer', minimum: 0, description: 'Where the page starts' } },
     },
   });
 

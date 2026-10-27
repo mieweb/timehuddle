@@ -1,10 +1,10 @@
 /**
  * The first fill of an empty My Board: "Get issues assigned to me".
  *
- * It adds a handful of the user's assigned Redmine issues, and when more
- * remain, a notice points at All Sources filtered to them. Both read the rows
- * the page already has, through the same filter: the link shows every assigned
- * issue, and the notice counts the ones among them not on the board yet.
+ * It asks Redmine for the user's open assigned issues (#736), whatever they
+ * removed from their Tickets table, and puts a handful on the board, each as
+ * the ticket carrying it. When more remain, a notice says how many and adds
+ * the next handful the same way, asking Redmine again each time.
  *
  * The notice is remembered in the browser, per user: it is a pointer for
  * someone setting up this board, not a fact about their account.
@@ -12,55 +12,58 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { BOARD_ASSIGNED_NOTICE_KEY } from '../../lib/constants';
-import { applyFilters, EMPTY_FILTERS, ME, type TicketFilters } from './ticketFilters';
-import type { UnifiedTicket } from './sources';
 
 /** How many issues one press puts on the board. */
 export const STARTER_LIMIT = 10;
 
 /**
- * The most assigned issues the server reads from Redmine (`ASSIGNED_ISSUES_LIMIT`).
- * A list this long may have been cut, so a count from it is a lower bound.
+ * How many pages of 100 one fill may read looking for issues not on the board
+ * yet: as far as the server goes (`MAX_ASSIGNED_OFFSET`, 1,000 issues).
  */
-const ASSIGNED_LIST_CAP = 100;
+export const ASSIGNED_PAGES_PER_FILL = 10;
 
-/** All Sources narrowed to the user's own Redmine issues. */
-export const ASSIGNED_FILTERS: TicketFilters = {
-  ...EMPTY_FILTERS,
-  sources: ['redmine'],
-  assignees: [ME],
-};
-
-/**
- * The user's open, assigned Redmine issues, in the order the tickets came in.
- * Redmine rows arrive ranked by the server (their own recent work first), so
- * the head of this list is what a starter board should hold.
- *
- * Redmine issues only: a TimeHuddle ticket linked to an issue is filtered as
- * Redmine work, but "Me" on it is the TimeHuddle assignee, and it can be there
- * for someone with no Redmine account at all.
- */
-export function assignedToMe(tickets: UnifiedTicket[], meKeys: readonly string[]): UnifiedTicket[] {
-  return applyFilters(tickets, ASSIGNED_FILTERS, '', meKeys).filter(
-    (t) => t.sourceId === 'redmine' && !t.status.isClosed,
-  );
+/** One page of `redmine.issues.assignedIds`. */
+export interface AssignedPage {
+  issueIds: number[];
+  nextOffset?: number | null;
 }
 
-/** Whether a count taken from `assigned` may be short of the real one. */
-export const isApproximate = (assigned: UnifiedTicket[]): boolean =>
-  assigned.length >= ASSIGNED_LIST_CAP;
+/**
+ * The assigned issues still to put on the board, read a page at a time until
+ * there are more than one batch's worth (so a leftover is known) or the list
+ * ends. `nextOffset` is where reading would carry on: null when the whole list
+ * was read, so the count of what's left is exact.
+ */
+export async function collectAssignedOffBoard(
+  fetchPage: (offset: number) => Promise<AssignedPage>,
+  isOffBoard: (issueId: number) => boolean,
+): Promise<{ offBoard: number[]; nextOffset: number | null }> {
+  const offBoard: number[] = [];
+  let offset: number | null = 0;
+  for (let pages = 0; offset !== null && pages < ASSIGNED_PAGES_PER_FILL; pages += 1) {
+    const page: AssignedPage = await fetchPage(offset);
+    offBoard.push(...page.issueIds.filter(isOffBoard));
+    // A server that doesn't page sends no `nextOffset`: its one page is the list.
+    offset = page.nextOffset ?? null;
+    if (offBoard.length > STARTER_LIMIT) break;
+  }
+  return { offBoard, nextOffset: offset };
+}
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 export const starterText = {
   getAssigned: 'Get issues assigned to me',
   getting: 'Adding issues…',
-  /** `approximate` when the list the count came from may have been cut. */
-  moreAssigned: (count: number, approximate: boolean) =>
-    `${count}${approximate ? '+' : ''} more ${plural(count, 'issue', 'issues')} assigned to you ` +
-    `${plural(count, 'is', 'are')} in All Sources.`,
-  showThem: 'Show them',
-  showThemLabel: 'Show issues assigned to me in All Sources',
+  noneAssigned: 'Nothing is assigned to you in Redmine right now.',
+  fetchFailed: "Couldn't get your issues from Redmine. Try again in a moment.",
+  moreAssigned: (count: number) =>
+    `${count} more ${plural(count, 'issue', 'issues')} assigned to you in Redmine.`,
+  /** After a reload, when the count from the last fill is gone. */
+  moreAssignedUncounted: 'More issues may be assigned to you in Redmine.',
+  addMore: (count: number) => `Add ${count} more`,
+  addMoreLabel: (count: number) =>
+    `Add ${count} more ${plural(count, 'issue', 'issues')} assigned to you to My Board`,
   dismiss: 'Dismiss',
 };
 
