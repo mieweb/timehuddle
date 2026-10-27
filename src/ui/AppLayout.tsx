@@ -2,15 +2,15 @@
  * AppLayout — Root shell for all authenticated app routes.
  *
  * Composes three primitives:
- *   • Sidebar     — collapsible, icon-only or full width, drawer on mobile
  *   • AppHeader   — sticky top bar with the org/team switcher and user menu
+ *   • TopNav      — the app's destinations, under the header (md+; phones use BottomNav)
  *   • <main>      — scrollable content area, led by <PageTitle />
  *
  * RouterProvider (./router) is the single source of truth for the URL so any
  * descendant — TeamContext included — can read the current route or navigate
  * without prop-drilling or an external router library.
  *
- * SidebarContext owns expand/collapse + mobile drawer state.
+ * SidebarContext owns the mobile drawer state.
  */
 import React, {
   Activity,
@@ -30,7 +30,6 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
-import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { AppToasts } from './AppToasts';
 import { useBrand } from '../lib/useBrand';
@@ -48,7 +47,7 @@ import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
 import { matchPath, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
-import { Sidebar } from './Sidebar';
+import { TopNav } from './TopNav';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 export type { RouterCtx } from './router';
@@ -166,17 +165,13 @@ function match(pathname: string): RouteConfig | null {
 // ─── Context ─────────────────────────────────────────────────────────────────
 
 export interface SidebarCtx {
-  isExpanded: boolean;
   isMobileOpen: boolean;
-  toggle: () => void;
   openMobile: () => void;
   closeMobile: () => void;
 }
 
 export const SidebarContext = createContext<SidebarCtx>({
-  isExpanded: true,
   isMobileOpen: false,
-  toggle: () => {},
   openMobile: () => {},
   closeMobile: () => {},
 });
@@ -420,20 +415,8 @@ const AppLayoutContent: React.FC = () => {
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  // ── Sidebar ──
-  const [isExpanded, setIsExpanded] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem(SIDEBAR_KEY) !== 'collapsed';
-  });
+  // ── Mobile drawer ──
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-
-  const toggle = useCallback(() => {
-    setIsExpanded((prev) => {
-      const next = !prev;
-      localStorage.setItem(SIDEBAR_KEY, next ? 'expanded' : 'collapsed');
-      return next;
-    });
-  }, []);
 
   const openMobile = useCallback(() => setIsMobileOpen(true), []);
   const closeMobile = useCallback(() => setIsMobileOpen(false), []);
@@ -460,9 +443,7 @@ const AppLayoutContent: React.FC = () => {
                 openFeedback: () => setFeedbackOpen(true),
               }}
             >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-              >
+              <SidebarContext.Provider value={{ isMobileOpen, openMobile, closeMobile }}>
                 <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
                   {/* Mobile backdrop */}
                   {isMobileOpen &&
@@ -504,12 +485,11 @@ const AppLayoutContent: React.FC = () => {
                       document.body,
                     )}
 
-                  <Sidebar />
-
                   {/* Content column */}
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
-                    <WhatsNewBanner placement="mobile" />
+                    <TopNav />
+                    <WhatsNewBanner />
                     <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and

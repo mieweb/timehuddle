@@ -157,7 +157,6 @@ export default [
       'src/ui/CommandPalette.tsx',
       'src/ui/LandingPage.tsx',
       'src/ui/OrgTeamSwitcher.tsx',
-      'src/ui/Sidebar.tsx',
       'src/ui/UserDropdown.tsx',
     ],
     rules: { 'no-restricted-syntax': 'off' },
