@@ -51,12 +51,11 @@ test.describe('Unified ticket table', () => {
   test('switches between open and closed tickets, with a count of each', async () => {
     const title = `E2E Open Closed ${Date.now()}`;
     await tickets.createTicket(title);
-    await tickets.search(title);
 
     await expect(tickets.openOption).toBeChecked();
-    // The counts are the showing view's, after its search.
-    await expect(tickets.openOption).toHaveAccessibleName('Open tickets, 1');
-    await expect(tickets.closedOption).toHaveAccessibleName('Closed tickets, 0');
+    // The counts are the showing view's.
+    await expect(tickets.openOption).toHaveAccessibleName(/^Open tickets, [1-9]\d*\+?$/);
+    await expect(tickets.closedOption).toHaveAccessibleName(/^Closed tickets, \d+\+?$/);
 
     await tickets.showClosedTickets();
     await expect(tickets.closedOption).toBeChecked();
@@ -182,7 +181,6 @@ test.describe('Unified ticket table', () => {
   test('opens a ticket from anywhere in its row, but not from its controls', async ({ page }) => {
     const title = `E2E Row Click ${Date.now()}`;
     await tickets.createTicket(title);
-    await tickets.search(title);
     const row = tickets.rowByTitle(title);
 
     // Selecting the row, and opening its menu, do their own job and stay put.
@@ -204,8 +202,9 @@ test.describe('Unified ticket table', () => {
     await page.setViewportSize({ width: 1280, height: 480 });
     const stamp = Date.now();
     for (const n of [1, 2, 3, 4]) await tickets.createTicket(`E2E Scroll ${stamp} ${n}`);
-    await tickets.search(`E2E Scroll ${stamp}`);
-    await expect(tickets.activePanel.locator('[data-ticket-id]')).toHaveCount(4);
+    await expect(
+      tickets.activePanel.locator('[data-ticket-id]').filter({ hasText: `E2E Scroll ${stamp}` }),
+    ).toHaveCount(4);
 
     const scroller = tickets.activePanel.locator('.row-list-scroll');
     const header = tickets.activePanel.locator('.row-list-header');
@@ -230,7 +229,6 @@ test.describe('Unified ticket table', () => {
     expect(after.areaTop).toBe(before.areaTop);
     expect(after.headerBottom).toBeLessThanOrEqual(after.areaTop);
     await expect(header).toBeVisible();
-    await expect(tickets.rowByTitle(`E2E Scroll ${stamp} 1`)).toBeInViewport();
 
     // Changing what is listed goes back to the first row.
     await tickets.sortBy('Title');

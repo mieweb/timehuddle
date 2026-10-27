@@ -65,10 +65,10 @@ export const TicketListPanel: React.FC<TicketListPanelProps> = ({
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
   const filtersActive = hasActiveFilters(view.filters);
-  const filtered = Boolean(view.searchQuery) || filtersActive;
+  const filtered = filtersActive;
   // What decides which rows are listed and in what order. When it changes the
   // list goes back to its first row.
-  const listKey = JSON.stringify([view.searchQuery, view.filters, view.sort, view.showClosed]);
+  const listKey = JSON.stringify([view.filters, view.sort, view.showClosed]);
 
   return (
     <>
@@ -101,7 +101,7 @@ export const TicketListPanel: React.FC<TicketListPanelProps> = ({
           {...listProps}
           tickets={view.sortedTickets}
           listKey={listKey}
-          optionSource={view.searchedTickets}
+          optionSource={view.tickets}
           loading={loading}
           sort={view.sort}
           onSortChange={view.onSortChange}

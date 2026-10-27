@@ -84,18 +84,17 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(2000);
     await expect(inTable(page, TICKET_TITLE_2)).toBeVisible({ timeout: 10000 });
 
-    // Search for the ticket
+    // Search for it by words in its title: it is listed in the dropdown (#736c)
     await page
       .getByRole('combobox', { name: 'Search tickets and Redmine issues' })
-      .fill(TICKET_TITLE_2.slice(0, 15));
-    await page.waitForTimeout(500);
-
-    // Ticket should still be visible
+      .fill(TICKET_TITLE_2.toLowerCase());
+    await expect(
+      page
+        .getByRole('listbox', { name: 'Redmine suggestions' })
+        .getByRole('option', { name: new RegExp(TICKET_TITLE_2) }),
+    ).toBeVisible();
+    // The table is not filtered by the search
     await expect(inTable(page, TICKET_TITLE_2)).toBeVisible();
-
-    // Clear search and verify all tickets show again
-    await page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }).clear();
-    await page.waitForTimeout(500);
   });
 
   test('should open edit ticket modal with all components', async ({ page }) => {

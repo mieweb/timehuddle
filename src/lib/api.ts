@@ -1088,6 +1088,9 @@ export interface TicketDashboardSummary {
   myHighPriorityOpen: number;
 }
 
+/** How `tickets.search` read a query. */
+export type TicketSearchKind = 'id' | 'url' | 'assignee' | 'text';
+
 export const ticketApi = {
   /**
    * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
@@ -1168,6 +1171,19 @@ export const ticketApi = {
       teamId,
       issueId: Number(issueId),
     }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+
+  /**
+   * The tickets a search-bar query names, in any of the caller's teams
+   * (#736c): an ID or ID prefix (`THX-12`, `TH-`, `RM0-233`, `pulse-2`, a bare
+   * `223`), `@name`, a pasted issue link, or words in the title. Newest first
+   * (an exact ID first of all), at most 25, without descriptions. `kind` is how
+   * the query was read, null when it was not worth asking.
+   */
+  search: (query: string) =>
+    wormholeCall<{ kind: TicketSearchKind | null; tickets: Array<Record<string, unknown>> }>(
+      'tickets.search',
+      { query },
+    ).then(({ kind, tickets }) => ({ kind, tickets: tickets.map(toTicket) })),
 
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
