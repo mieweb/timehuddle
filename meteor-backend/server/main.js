@@ -26,6 +26,7 @@ import './tickets';
 import './ticket-links';
 import './ticket-carry';
 import './ticket-search';
+import './ticket-outside';
 import './redmine-suggestions';
 import './redmine';
 import './redmine-issue-methods';
@@ -1076,6 +1077,37 @@ Meteor.startup(async () => {
         query: { type: 'string', description: 'What was typed into the Tickets search bar' },
       },
       required: ['query'],
+    },
+  });
+
+  Wormhole.expose('tickets.outsideRecord', {
+    description:
+      "The outside issue a ticket carries (a Redmine issue), read with the caller's own key and returned as a ticket record. Returns { kind, record, choices, me }",
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.writeOutside', {
+    description:
+      "Write edits to the outside issue a ticket carries, as the caller: only fields the source allows, refused as stale if the issue changed since expectedUpdatedAt. Returns { record, choices, mismatches }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        expectedUpdatedAt: {
+          type: 'string',
+          description: "The record's dates.updated when the caller read it",
+        },
+        edits: {
+          type: 'object',
+          description:
+            'Record field to new value: title, body (text), status, priority (ids), assignees (ids; empty unassigns)',
+        },
+      },
+      required: ['ticketId', 'expectedUpdatedAt', 'edits'],
     },
   });
 
