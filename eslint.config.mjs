@@ -148,7 +148,7 @@ export default [
       'src/features/profile/ProfilePage.tsx',
       'src/features/profile/UsernameBadge.tsx',
       'src/features/profile/WorkSummaryTags.tsx',
-      'src/features/seeder/SeederPage.tsx',
+      'src/features/seeder/Seeder.tsx',
       'src/features/teams/TeamsPage.tsx',
       'src/features/tickets/TicketsPage.tsx',
       'src/features/timers/TodayStatusCard.tsx',

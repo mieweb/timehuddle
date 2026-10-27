@@ -21,6 +21,7 @@ import {
   LogOutIcon,
   RefreshIcon,
   Select,
+  Spinner,
   Switch,
   Text,
   Textarea,
@@ -58,7 +59,11 @@ import {
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
-import { canManageSelectedOrganization, getEnterpriseRole } from '../lib/organizationAccess';
+import {
+  canManageSelectedOrganization,
+  getEnterpriseRole,
+  hasOrganizationAdminAccess,
+} from '../lib/organizationAccess';
 import { EnterpriseSettings } from '../features/enterprise/EnterpriseSettings';
 import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
@@ -73,6 +78,15 @@ import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 import { UserAvatar } from './UserAvatar';
 import { useQueryParam, useRouter } from './router';
+
+// Loaded when opened: Usage carries the data grid, and Seeder the YAML parser
+// and presets, which production never shows.
+const OrgUsage = React.lazy(() =>
+  import('../features/usage/OrgUsage').then((m) => ({ default: m.OrgUsage })),
+);
+const Seeder = React.lazy(() =>
+  import('../features/seeder/Seeder').then((m) => ({ default: m.Seeder })),
+);
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -1162,7 +1176,7 @@ const SettingsMenu: React.FC<{
           </Section>
         </div>
       ))}
-      {groups.length === 1 && <AdminNote />}
+      {!hasAdminGroup(groups) && <AdminNote />}
     </nav>
   );
 };
@@ -1177,6 +1191,9 @@ const NavGroupLabel: React.FC<{ label: string }> = ({ label }) => (
     {label}
   </Text>
 );
+
+const hasAdminGroup = (groups: SettingsGroup[]) =>
+  groups.some((group) => group.label === SETTINGS_PAGE_STRINGS.administration);
 
 /** Tells people without an Administration group where team and org settings went. */
 const AdminNote: React.FC = () => (
@@ -1197,10 +1214,14 @@ export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
   const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
-  const groups = settingsGroups({
-    organization: canManageSelectedOrganization(organizations, selectedOrgId),
-    enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
-  });
+  const groups = settingsGroups(
+    {
+      organization: canManageSelectedOrganization(organizations, selectedOrgId),
+      enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
+      usage: hasOrganizationAdminAccess(organizations),
+    },
+    import.meta.env.MODE !== 'production',
+  );
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
@@ -1255,6 +1276,8 @@ export const SettingsPage: React.FC = () => {
     account: <AccountSettings />,
     organization: <OrganizationSettings />,
     enterprise: <EnterpriseSettings />,
+    usage: <OrgUsage />,
+    seeder: <Seeder />,
   };
 
   return (
@@ -1295,7 +1318,7 @@ export const SettingsPage: React.FC = () => {
               </ul>
             </div>
           ))}
-          {groups.length === 1 && <AdminNote />}
+          {!hasAdminGroup(groups) && <AdminNote />}
         </nav>
 
         {section ? (
@@ -1320,7 +1343,15 @@ export const SettingsPage: React.FC = () => {
                 {section.description}
               </Text>
             </div>
-            {content[section.id]}
+            <React.Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <Spinner size="md" />
+                </div>
+              }
+            >
+              {content[section.id]}
+            </React.Suspense>
           </section>
         ) : (
           <SettingsMenu groups={groups} onOpen={setSectionParam} />
