@@ -36,12 +36,15 @@ function failedState(err: unknown): OutsideState {
 export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
   const [state, setState] = useState<OutsideState>({ kind: linkedKey ? 'loading' : 'none' });
 
+  /** Read the issue again; resolves to whether that worked, for `useBackgroundRefresh`. */
   const reload = useCallback(async () => {
-    if (!linkedKey) return;
+    if (!linkedKey) return true;
     try {
       setState({ kind: 'loaded', issue: await ticketApi.outsideIssue(ticketId) });
+      return true;
     } catch (err) {
       setState(failedState(err));
+      return false;
     }
   }, [ticketId, linkedKey]);
 

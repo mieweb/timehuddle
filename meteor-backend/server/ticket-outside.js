@@ -3,7 +3,8 @@
  * engine (#734 step 3), with the member's own key: the source's permissions
  * and workflow decide what they see and may change.
  *
- * Any member of the ticket's team may ask. Nothing read here is stored.
+ * Any member of the ticket's team may ask. Nothing read here is stored but the
+ * issue's title: the ticket's saved title follows it (`followTitle`).
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
@@ -36,7 +37,22 @@ async function openOutside(userId, ticketId) {
     throw new Meteor.Error('other-server', 'This issue is on a server your account is not on.');
   }
   const ref = { server: link.host ?? session.server, key: String(link.id) };
-  return { kind: link.source, driver, session, ref };
+  return { kind: link.source, ticket, driver, session, ref };
+}
+
+/**
+ * Keep the ticket's saved title the issue's (#757): the Tickets list, My Board
+ * and search show the saved one, so it follows the source whenever someone who
+ * can read the issue does. Matched on the title just read, so a rename that
+ * lands meanwhile isn't overwritten.
+ */
+async function followTitle(ticket, record) {
+  const title = record.title.trim();
+  if (!title || title === ticket.title) return;
+  await Tickets.updateAsync(
+    { _id: ticket._id, title: ticket.title },
+    { $set: { title, updatedAt: new Date() } },
+  );
 }
 
 function toMeteorError(err, driver) {
@@ -79,6 +95,7 @@ Meteor.methods({
     if (!result) {
       throw new Meteor.Error('gone', 'This issue no longer exists, or you can no longer see it.');
     }
+    await followTitle(outside.ticket, result.record);
     return { kind: outside.kind, record: result.record, choices: result.choices, me };
   },
 
@@ -101,10 +118,13 @@ Meteor.methods({
     const outside = await openOutside(userId, ticketId);
     enforceRedmineLimit(writeLimiter, userId);
 
+    let result;
     try {
-      return await writeRecord({ ...engineArgs(outside), expectedUpdatedAt, edits });
+      result = await writeRecord({ ...engineArgs(outside), expectedUpdatedAt, edits });
     } catch (err) {
       throw toMeteorError(err, outside.driver);
     }
+    await followTitle(outside.ticket, result.record);
+    return result;
   },
 });

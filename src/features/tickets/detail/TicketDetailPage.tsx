@@ -187,6 +187,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     return () => window.removeEventListener('tickets:refetch', onRefetch);
   }, [loadLock, reloadOutside, linkedIssueId, ticketId]);
   useBackgroundRefresh(loadLock);
+  // The carried issue changes in its source with nothing to tell us, so it is
+  // read again on return to the tab and every few minutes, but not while an
+  // edit is open: the edit is checked against the version it started from.
+  useBackgroundRefresh(reloadOutside, { paused: editingTitle || editingDesc });
 
   /** Show why a change was refused; a lock refusal also refreshes the banner. */
   const showFailure = (err: unknown, fallback: string) => {
@@ -281,8 +285,17 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   };
 
   const saveTitle = async () => {
-    if (!ticket || !titleDraft.trim() || titleDraft === ticket.title) {
+    if (!ticket) return;
+    const current = carried ? carried.record.title : ticket.title;
+    if (!titleDraft.trim() || titleDraft.trim() === current) {
       setEditingTitle(false);
+      return;
+    }
+    if (carried) {
+      // The issue's title is the ticket's: it is written to the source.
+      setSaving(true);
+      if (await writeOutside({ title: titleDraft.trim() })) setEditingTitle(false);
+      setSaving(false);
       return;
     }
     setSaving(true);
@@ -442,8 +455,9 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   // A carried issue's own fields come from its source, where the viewer's
   // role there decides what they may change; a timer on the ticket doesn't.
   const source = carried ? sourceLabel(carried.kind) : null;
+  const title = carried ? carried.record.title : ticket.title;
   const description = carried ? (carried.record.body?.text ?? '') : (ticket.description ?? '');
-  const canEditDescription = carried ? true : canEdit && !locked;
+  const canEditText = carried ? true : canEdit && !locked;
 
   return (
     <AppPage>
@@ -487,7 +501,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 aria-label="Cancel title edit"
                 onClick={() => {
                   setEditingTitle(false);
-                  setTitleDraft(ticket.title);
+                  setTitleDraft(title);
                 }}
               >
                 <FontAwesomeIcon icon={faXmark} />
@@ -496,14 +510,17 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           ) : (
             <div className="ticket-title-display flex items-center gap-2">
               <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-                {ticket.title}
+                {title}
               </h1>
-              {canEdit && !locked && (
+              {canEditText && (
                 <Button
                   variant="ghost"
                   size="icon"
                   aria-label="Edit title"
-                  onClick={() => setEditingTitle(true)}
+                  onClick={() => {
+                    setTitleDraft(title);
+                    setEditingTitle(true);
+                  }}
                 >
                   <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
                 </Button>
@@ -513,7 +530,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           <TicketQuickActions
             sourceId="huddle"
             id={ticket.id}
-            title={ticket.title}
+            title={title}
             linkedKey={
               ticket.linkedIssue
                 ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id)
@@ -622,7 +639,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     </Text>
                   )}
                 </div>
-                {canEditDescription && !editingDesc && (
+                {canEditText && !editingDesc && (
                   <Button
                     variant="ghost"
                     size="icon"
