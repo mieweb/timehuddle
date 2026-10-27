@@ -1,23 +1,14 @@
 /**
  * SettingsPage — User & application settings.
- * Sections:
- *   • Profile       — display name, bio, website, linked sign-in accounts, password reset
- *   • Appearance    — theme toggle
- *   • Account       — sign out
- *   • About         — stack versions
+ *
+ * A side nav of sections (a row of chips on a phone); `?section=` picks the
+ * one shown. The sections and their copy are in features/settings/settingsSections.ts.
  */
 import {
   faBell,
-  faBuilding,
-  faGear,
-  faInfo,
-  faKey,
-  faPalette,
-  faPlug,
   faRotateLeft,
   faRightFromBracket,
   faTrash,
-  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -27,13 +18,14 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  cn,
   Input,
   Select,
   Switch,
   Text,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -55,41 +47,43 @@ import {
   type RedmineStatus,
 } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
+import {
+  PERSONAL_SECTIONS,
+  SETTINGS_PAGE_STRINGS,
+  resolveSettingsSection,
+  type SettingsSectionId,
+} from '../features/settings/settingsSections';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
-import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { notifyRedmineChanged } from '../lib/useRedmineStatus';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
-import { useRouter } from './router';
+import { useQueryParam, useRouter } from './router';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
+/** One card in a section. Untitled when the section heading already says it all. */
 const Section: React.FC<{
-  icon: typeof faGear;
-  title: string;
+  title?: string;
   description?: string;
   children: React.ReactNode;
-}> = ({ icon, title, description, children }) => (
+}> = ({ title, description, children }) => (
   <Card padding="none">
-    <CardHeader className="flex flex-col gap-0 px-5 py-4">
-      <div className="flex flex-row items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-          <FontAwesomeIcon icon={icon} className="text-sm" />
-        </div>
+    {title && (
+      <CardHeader className="flex flex-col gap-0 px-5 py-4">
         <CardTitle className="text-sm">{title}</CardTitle>
-      </div>
-      {description && (
-        <Text variant="muted" size="xs" className="pl-11">
-          {description}
-        </Text>
-      )}
-    </CardHeader>
+        {description && (
+          <Text variant="muted" size="xs">
+            {description}
+          </Text>
+        )}
+      </CardHeader>
+    )}
     <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
       {children}
     </CardContent>
@@ -272,62 +266,66 @@ const PushNotificationsSettings: React.FC = () => {
   console.log('[PushSettings]', { isNative, supported, enabled, serverHasVapid });
 
   return (
-    <div className="space-y-3 px-5 py-4">
-      {serverHasVapid === false && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          Web Push is not configured on this server. Add VAPID keys to{' '}
-          <code className="text-xs">settings.json</code> (see{' '}
-          <code className="text-xs">settings.push.example.json</code>).
-        </div>
-      )}
-      {!supported ? (
-        <Text variant="muted" size="sm">
-          Push notifications are not supported on this platform.
-        </Text>
-      ) : enabled ? (
-        <>
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
-            Notifications are enabled. You will receive alerts when team members clock in or out.
+    <>
+      <div className="space-y-3 px-5 py-4">
+        {serverHasVapid === false && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            Web Push is not configured on this server. Add VAPID keys to{' '}
+            <code className="text-xs">settings.json</code> (see{' '}
+            <code className="text-xs">settings.push.example.json</code>).
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTestPush}
-              disabled={testLoading || disableLoading}
-              isLoading={testLoading}
-            >
-              Send test push
-            </Button>
+        )}
+        {!supported ? (
+          <Text variant="muted" size="sm">
+            Push notifications are not supported on this platform.
+          </Text>
+        ) : enabled ? (
+          <>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
+              Notifications are enabled. You will receive alerts when team members clock in or out.
+            </div>
             <Button
               variant="outline"
               size="sm"
               onClick={handleDisable}
-              disabled={testLoading || disableLoading}
+              disabled={disableLoading}
               isLoading={disableLoading}
             >
               Disable notifications
             </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-            Enable push notifications to get notified when your team members clock in or clock out.
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleEnable}
-            disabled={enableLoading || serverHasVapid === false}
-            isLoading={enableLoading}
-            leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
-          >
-            Enable notifications
-          </Button>
-        </>
-      )}
-    </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+              Enable push notifications to get notified when your team members clock in or clock
+              out.
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleEnable}
+              disabled={enableLoading || serverHasVapid === false}
+              isLoading={enableLoading}
+              leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
+            >
+              Enable notifications
+            </Button>
+          </>
+        )}
+      </div>
+      {/* Sends an in-app notification too, so it works before push is enabled. */}
+      <Row label="Send a test notification" hint="Check that alerts reach you.">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleTestPush}
+          disabled={testLoading}
+          isLoading={testLoading}
+        >
+          Send test notification
+        </Button>
+      </Row>
+    </>
   );
 };
 
@@ -912,19 +910,11 @@ const RedmineConnection: React.FC = () => {
   );
 };
 
-export const SettingsPage: React.FC = () => {
-  const { user, signOut, refetch } = useSession();
-  const { navigate } = useRouter();
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+// ─── Account and privacy ──────────────────────────────────────────────────────
 
-  useRefresh(
-    useCallback(async () => {
-      await refetch();
-      setRefreshTrigger((prev) => prev + 1);
-    }, [refetch]),
-  );
+const AccountSettings: React.FC = () => {
+  const { signOut } = useSession();
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // Change-password form state
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -980,71 +970,8 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <AppPage>
-      {/* Profile */}
-      <Section
-        icon={faUser}
-        title="Profile"
-        description="Your display name, bio, website, and reporting line."
-      >
-        <ProfileEditor refreshTrigger={refreshTrigger} />
-      </Section>
-
-      {/* Appearance */}
-      <Section
-        icon={faPalette}
-        title="Appearance"
-        description="Control how the application looks on this device."
-      >
-        <DarkModeRow />
-        <Row label="Brand theme" hint="Switch between brand themes">
-          <BrandSelector />
-        </Row>
-      </Section>
-
-      {/* Push notifications */}
-      <Section
-        icon={faBell}
-        title="Push notifications"
-        description="Browser alerts for team clock in/out (same as Time Harbor)."
-      >
-        <PushNotificationsSettings />
-      </Section>
-
-      {/* API Tokens */}
-      <Section
-        icon={faKey}
-        title="API Tokens"
-        description="Generate tokens to connect external services like TimeHarbor."
-      >
-        <ApiTokensManager />
-      </Section>
-
-      {/* Redmine */}
-      <Section
-        icon={faPlug}
-        title="Redmine"
-        description="Link your personal Redmine account with your API key."
-      >
-        <RedmineConnection />
-      </Section>
-
-      {canManageOrganization && (
-        <Section
-          icon={faBuilding}
-          title="Enterprise"
-          description="Admin tools for enterprise scope, organizations, and hierarchy."
-        >
-          <Row label="Workspace hierarchy" hint="Open enterprise tools and organization structure">
-            <Button variant="outline" size="sm" onClick={() => navigate('/app/enterprise')}>
-              Open
-            </Button>
-          </Row>
-        </Section>
-      )}
-
-      {/* Account */}
-      <Section icon={faGear} title="Account">
+    <>
+      <Section title="Sign-in">
         <GitHubConnectionRow />
         <Row label="Change password" hint="Update your password without needing email">
           <Button
@@ -1111,6 +1038,9 @@ export const SettingsPage: React.FC = () => {
             </Text>
           </div>
         )}
+      </Section>
+
+      <Section>
         <Row label="Sign out" hint="You will be returned to the login screen">
           <Button
             variant="danger"
@@ -1158,23 +1088,134 @@ export const SettingsPage: React.FC = () => {
           </Button>
         </Row>
       </Section>
+    </>
+  );
+};
 
-      {/* About */}
-      <Section icon={faInfo} title="About" description="Stack versions for this application.">
-        {(
-          [
-            ['Vite', '8'],
-            ['React', '19'],
-            ['Tailwind CSS', '4'],
-            ['TypeScript', '5.9'],
-            ['Node.js', '22'],
-          ] as const
-        ).map(([name, version]) => (
-          <Row key={name} label={name}>
-            <Badge variant="outline">{version}</Badge>
-          </Row>
-        ))}
+// ─── SettingsPage ─────────────────────────────────────────────────────────────
+
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
+
+export const SettingsPage: React.FC = () => {
+  const { refetch } = useSession();
+  const { navigate } = useRouter();
+  const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
+  const section = resolveSettingsSection(sectionParam);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const navListRef = useRef<HTMLUListElement>(null);
+
+  // On a phone the nav is a row that scrolls sideways; keep the open section's chip in view.
+  useEffect(() => {
+    navListRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [section.id]);
+
+  useRefresh(
+    useCallback(async () => {
+      await refetch();
+      setRefreshTrigger((prev) => prev + 1);
+    }, [refetch]),
+  );
+
+  const content: Record<SettingsSectionId, React.ReactNode> = {
+    profile: (
+      <Section>
+        <ProfileEditor refreshTrigger={refreshTrigger} />
       </Section>
+    ),
+    appearance: (
+      <Section title="Theme">
+        <DarkModeRow />
+        <Row label="Brand theme" hint="Switch between brand themes">
+          <BrandSelector />
+        </Row>
+      </Section>
+    ),
+    notifications: (
+      <Section
+        title="Push notifications"
+        description="Alerts on this device when a teammate clocks in or out."
+      >
+        <PushNotificationsSettings />
+      </Section>
+    ),
+    api: (
+      <Section>
+        <ApiTokensManager />
+      </Section>
+    ),
+    integrations: (
+      <Section title="Redmine" description="Link your personal Redmine account with your API key.">
+        <RedmineConnection />
+      </Section>
+    ),
+    account: <AccountSettings />,
+  };
+
+  return (
+    <AppPage width="wide">
+      {/* Phone: nav chips, then the section, then the version. Desktop: nav and version on the left. */}
+      <div className="settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8">
+        <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-nav min-w-0">
+          <Text
+            size="xs"
+            weight="semibold"
+            variant="muted"
+            className="settings-nav-group mb-1 hidden px-2.5 uppercase tracking-widest md:block"
+          >
+            {SETTINGS_PAGE_STRINGS.personal}
+          </Text>
+          <ul
+            ref={navListRef}
+            className="settings-nav-list flex gap-1 overflow-x-auto md:flex-col md:overflow-visible"
+          >
+            {PERSONAL_SECTIONS.map((item) => {
+              const current = item.id === section.id;
+              return (
+                <li key={item.id} className="shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-current={current ? 'page' : undefined}
+                    leftIcon={<FontAwesomeIcon icon={item.icon} className="w-4 text-xs" />}
+                    onClick={() => setSectionParam(item.id)}
+                    className={cn(
+                      'settings-nav-item w-full justify-start whitespace-nowrap max-md:min-h-11',
+                      current &&
+                        'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100',
+                    )}
+                  >
+                    {item.label}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <section
+          aria-labelledby="settings-section-title"
+          className="settings-panel min-w-0 space-y-4 md:row-span-2"
+        >
+          <div className="settings-panel-header">
+            <Text as="h2" id="settings-section-title" size="lg" weight="semibold">
+              {section.label}
+            </Text>
+            <Text variant="muted" size="sm">
+              {section.description}
+            </Text>
+          </div>
+          {content[section.id]}
+        </section>
+
+        <Text variant="muted" size="xs" className="settings-version px-2.5">
+          {SETTINGS_PAGE_STRINGS.version(APP_VERSION)} ·{' '}
+          <Button variant="link" size="sm" onClick={() => navigate('/app/release-notes')}>
+            {SETTINGS_PAGE_STRINGS.whatsNew}
+          </Button>
+        </Text>
+      </div>
     </AppPage>
   );
 };

@@ -27,7 +27,7 @@ async function openSettings(
   overrides: Record<string, StubValue>,
 ): Promise<RedmineStub> {
   const rm = await stubRedmine(page, overrides);
-  await page.goto('/app/settings');
+  await page.goto('/app/settings?section=integrations');
   await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
   return rm;
 }

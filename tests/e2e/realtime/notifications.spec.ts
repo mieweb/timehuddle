@@ -9,9 +9,10 @@
  * compared substring-matched element counts, an assertion that holds equally
  * well when nothing syncs at all.
  *
- * The sidebar's "Test push notification" button is the trigger: it is the one
- * control in the app that creates a notification for the signed-in user
- * on demand (`notifications.testPush`).
+ * Settings → Notifications' "Send test notification" button is the trigger: it
+ * is the one control in the app that creates a notification for the signed-in
+ * user on demand (`notifications.testPush`). The sending tab opens Settings for
+ * it, and only the observing tab stays on the notification list.
  */
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
@@ -22,7 +23,12 @@ const rows = (page: Page) => page.locator('ul[role="list"] > li');
 const unreadDots = (page: Page) => page.getByLabel('Unread');
 /** Exact, because a delivered notification's own row reads "Test Push …". */
 const testPushButton = (page: Page) =>
-  page.getByRole('button', { name: 'Test push notification', exact: true });
+  page.getByRole('button', { name: 'Send test notification', exact: true });
+
+async function openNotificationSettings(page: Page): Promise<void> {
+  await page.goto('/app/settings?section=notifications');
+  await expect(testPushButton(page)).toBeVisible({ timeout: 20000 });
+}
 
 async function openNotifications(page: Page): Promise<void> {
   await page.goto('/app/notifications');
@@ -42,7 +48,7 @@ test.describe('Real-time Notifications', () => {
     context = await browser.newContext();
     session1 = await context.newPage();
     await loginAs(session1, TEST_USERS.admin3);
-    await openNotifications(session1);
+    await openNotificationSettings(session1);
 
     session2 = await context.newPage();
     await openNotifications(session2);

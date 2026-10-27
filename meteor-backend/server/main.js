@@ -524,7 +524,10 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
     // which confirms it as the signed-in user (see github-link.js).
     if (link) {
       const { result, code } = await stageGithubLink(link, githubUser);
-      const params = code ? { github_confirm: code } : { github: result };
+      const params = {
+        section: 'account',
+        ...(code ? { github_confirm: code } : { github: result }),
+      };
       res.writeHead(302, {
         Location: `${frontendUrl}/app/settings?${new URLSearchParams(params)}`,
       });
