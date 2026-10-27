@@ -301,7 +301,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
                               @{member.username}
                             </Text>
                           )}
-                          {isCurrent && <Badge variant="secondary">{S.you}</Badge>}
+                          {isCurrent && <Badge variant="outline">{S.you}</Badge>}
                           {blockInfo && (
                             <Badge
                               variant="danger"
