@@ -28,7 +28,7 @@ import {
   TrashIcon,
   useMediaQuery,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -1119,14 +1119,17 @@ const AccountSettings: React.FC = () => {
 
 /** A full-width row that opens a section: icon or avatar, label over detail, chevron. */
 const OverviewRow: React.FC<{
+  /** The section this row opens; the page returns focus here when you come back. */
+  sectionId: SettingsSectionId;
   leading: React.ReactNode;
   label: string;
   detail: string;
   onOpen: () => void;
-}> = ({ leading, label, detail, onOpen }) => (
+}> = ({ sectionId, leading, label, detail, onOpen }) => (
   <Button
     variant="ghost"
     onClick={onOpen}
+    data-settings-section={sectionId}
     leftIcon={<span className="settings-overview-leading flex shrink-0">{leading}</span>}
     rightIcon={<ChevronRightIcon className="h-4 w-4 shrink-0 text-neutral-400" />}
     // The label slot truncates and hugs its text by default; here it fills the
@@ -1155,6 +1158,7 @@ const SettingsMenu: React.FC<{
           leading={<UserAvatar name={user?.name || user?.email || ''} src={user?.image} />}
           label={user?.name || user?.email || ''}
           detail={user?.email ?? ''}
+          sectionId="profile"
           onOpen={() => onOpen('profile')}
         />
       </Section>
@@ -1167,6 +1171,7 @@ const SettingsMenu: React.FC<{
               .map((item) => (
                 <OverviewRow
                   key={item.id}
+                  sectionId={item.id}
                   leading={<item.icon className="h-4 w-4" />}
                   label={item.label}
                   detail={item.description}
@@ -1229,6 +1234,29 @@ export const SettingsPage: React.FC = () => {
     resolveSettingsSection(sectionParam, groups) ?? (phone ? null : PERSONAL_SECTIONS[0]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // On a phone the menu and a section replace each other, so the focused
+  // button disappears either way. Move focus to the section's heading when it
+  // opens, and back to the row it came from on return (Back included). Never
+  // on the first render: opening the page should not move focus.
+  const lastOpenedRef = useRef<SettingsSectionId | null>(null);
+  const firstRenderRef = useRef(true);
+  useEffect(() => {
+    if (firstRenderRef.current) {
+      firstRenderRef.current = false;
+      lastOpenedRef.current = section?.id ?? null;
+      return;
+    }
+    if (!phone) return;
+    if (section) {
+      lastOpenedRef.current = section.id;
+      document.getElementById('settings-section-title')?.focus();
+    } else if (lastOpenedRef.current) {
+      document
+        .querySelector<HTMLElement>(`[data-settings-section="${lastOpenedRef.current}"]`)
+        ?.focus();
+    }
+  }, [phone, section?.id]);
+
   useRefresh(
     useCallback(async () => {
       await refetch();
@@ -1274,7 +1302,8 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     account: <AccountSettings />,
-    organization: <OrganizationSettings />,
+    // Keyed by org, so a slow response for the previous one can't overwrite it.
+    organization: <OrganizationSettings key={selectedOrgId ?? 'none'} />,
     enterprise: <EnterpriseSettings />,
     usage: <OrgUsage />,
     seeder: <Seeder />,
@@ -1336,7 +1365,14 @@ export const SettingsPage: React.FC = () => {
               {SETTINGS_PAGE_STRINGS.backToOverview}
             </Button>
             <div className="settings-panel-header">
-              <Text as="h2" id="settings-section-title" size="lg" weight="semibold">
+              <Text
+                as="h2"
+                id="settings-section-title"
+                tabIndex={-1}
+                size="lg"
+                weight="semibold"
+                className="focus:outline-none"
+              >
                 {section.label}
               </Text>
               <Text variant="muted" size="sm">

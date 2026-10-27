@@ -19,7 +19,7 @@ export function idOf(id) {
 }
 
 // Legacy teams and orgs can carry non-ObjectId string ids.
-function toDocId(id) {
+export function toDocId(id) {
   return /^[0-9a-f]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 

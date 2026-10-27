@@ -184,6 +184,7 @@ const ButtonLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 export const PeopleActions: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const S = PEOPLE_STRINGS.actions;
   const { navigate } = useRouter();
+  const { selectedOrgId } = useTeam();
   const [dialog, setDialog] = useState<'add' | 'invite' | null>(null);
   const close = () => setDialog(null);
 
@@ -192,7 +193,10 @@ export const PeopleActions: React.FC<{ onChanged: () => void }> = ({ onChanged }
       <Button
         variant="ghost"
         leftIcon={<SettingsIcon className="h-4 w-4" />}
-        onClick={() => navigate(settingsPath('organization'))}
+        // Carry the org, so Settings opens the one shown here, not the stored pick.
+        onClick={() =>
+          navigate(`${settingsPath('organization')}${selectedOrgId ? `&org=${selectedOrgId}` : ''}`)
+        }
         aria-label={S.organizationSettings}
       >
         <ButtonLabel>{S.organizationSettings}</ButtonLabel>

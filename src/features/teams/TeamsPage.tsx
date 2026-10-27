@@ -56,7 +56,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   teamApi,
@@ -164,10 +164,14 @@ export const TeamsPage: React.FC = () => {
   }, [teams, selectedTeamId]);
 
   // Count of pending join requests for the selected team (admin only)
-  const pendingRequestCount = useMemo(
-    () => (selectedTeamId ? pendingRequests.filter((r) => r.teamId === selectedTeamId).length : 0),
+  const teamRequestIds = useMemo(
+    () =>
+      selectedTeamId
+        ? pendingRequests.filter((r) => r.teamId === selectedTeamId).map((r) => r.id)
+        : [],
     [selectedTeamId, pendingRequests],
   );
+  const pendingRequestCount = teamRequestIds.length;
 
   // `isAdmin` (from TeamContext) already covers org owners, who get full
   // team-admin authority on every team in their org.
@@ -350,24 +354,32 @@ export const TeamsPage: React.FC = () => {
   }, [formValue, selectedTeamId, fetchMembers, inviteLoading]);
 
   // Fetch pending/sent invitations for the Team Settings modal
+  // Only the latest load may write: switching teams mid-request must not show
+  // the previous team's invitations, whose Revoke buttons would act on them.
+  const invitationsSeqRef = useRef(0);
+  const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const fetchInvitations = useCallback(async (teamId: string | null) => {
+    const seq = ++invitationsSeqRef.current;
+    const isLatest = () => seq === invitationsSeqRef.current;
     if (!teamId) {
       setInvitations([]);
       return;
     }
+    setInvitations([]);
     setInvitationsLoading(true);
     try {
       const data = await teamApi.getPendingInvitations(teamId);
-      setInvitations(data);
+      if (isLatest()) setInvitations(data);
     } catch {
-      setInvitations([]);
+      if (isLatest()) setInvitations([]);
     } finally {
-      setInvitationsLoading(false);
+      if (isLatest()) setInvitationsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (tab === 'invitations') {
+      setInvitationsError(null);
       void fetchInvitations(selectedTeamId);
     }
   }, [tab, selectedTeamId, fetchInvitations]);
@@ -375,11 +387,12 @@ export const TeamsPage: React.FC = () => {
   const handleRevokeInvitation = useCallback(
     async (invitationId: string) => {
       setRevokeLoadingId(invitationId);
+      setInvitationsError(null);
       try {
         await teamApi.revokeInvitation(invitationId);
         await fetchInvitations(selectedTeamId);
       } catch (e: any) {
-        setFormError(e.message || 'Failed to revoke invitation');
+        setInvitationsError(e.message || 'Failed to revoke invitation');
       } finally {
         setRevokeLoadingId(null);
       }
@@ -735,9 +748,19 @@ export const TeamsPage: React.FC = () => {
             {canManageTeamSettings && selectedTeamId && (
               <>
                 <TabsContent value="requests" className="team-requests-panel mt-4">
-                  <PendingJoinRequests teamId={selectedTeamId} />
+                  {/* Remounts when the team's pending requests change, since the list
+                      only fetches on mount; a refresh then shows the new request. */}
+                  <PendingJoinRequests
+                    key={`${selectedTeamId}:${teamRequestIds.join(',')}`}
+                    teamId={selectedTeamId}
+                  />
                 </TabsContent>
                 <TabsContent value="invitations" className="team-invitations-panel mt-4">
+                  {invitationsError && (
+                    <Text variant="destructive" size="xs" role="alert" className="mb-3">
+                      {invitationsError}
+                    </Text>
+                  )}
                   {invitationsLoading ? (
                     <div className="flex justify-center py-6">
                       <Spinner size="sm" label="Loading invitations…" />
