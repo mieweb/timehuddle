@@ -44,7 +44,7 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
-import { hostOf, migrateTicketNumbers } from './ticket-ids';
+import { hostOf, migrateServerTypes, migrateTicketNumbers } from './ticket-ids';
 import { migrateBareRedmineData } from './redmine-cleanup-736';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
@@ -98,6 +98,14 @@ Meteor.startup(async () => {
 Meteor.startup(() => {
   migrateTicketNumbers(rawDb()).catch((error) =>
     console.error('[tickets] numbering existing tickets failed:', error),
+  );
+});
+
+// Not awaited either: until it runs, a server named before types existed reads
+// as Redmine anyway (outsideIdOf's default).
+Meteor.startup(() => {
+  migrateServerTypes(rawDb(), { redmineBaseUrl: optionalRedmineBaseUrl() }).catch((error) =>
+    console.error('[orgs] giving servers a type failed:', error),
   );
 });
 

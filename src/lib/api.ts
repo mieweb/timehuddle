@@ -6,7 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
-import type { RecordStatus, TicketRecord } from '@timehuddle/ticket-sources';
+import type { RecordStatus, SourceServer, TicketRecord } from '@timehuddle/ticket-sources';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
@@ -609,11 +609,11 @@ export const usageApi = {
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
-/** A server an org has named, so an issue on `host` shows as `PM-233` (#689). */
-export interface SourcePrefix {
-  host: string;
-  prefix: string;
-}
+/**
+ * A server an org has registered, so an issue on `host` shows as `PM-233`
+ * (#689), read by its type's definition (#734 step 5).
+ */
+export type SourcePrefix = SourceServer;
 
 export const orgApi = {
   checkSlugAvailability: (slug: string, excludeId?: string) =>

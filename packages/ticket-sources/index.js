@@ -16,9 +16,9 @@ export const SOURCES = Object.freeze({ timehuddle, redmine, github });
 
 /**
  * The outside ID for `url` (#689): `<repo>-<number>` for a GitHub issue or
- * pull request, `<prefix>-<number>` for an address on a server the org has
- * named in `prefixes` (`{ host, prefix }[]`), or null.
+ * pull request, `<prefix>-<number>` for an issue on a server the org has
+ * registered in `prefixes` (`{ host, prefix, type }[]`), or null.
  */
 export function outsideIdOf(url, prefixes) {
-  return outsideIdOfWith(github, url, prefixes);
+  return outsideIdOfWith(SOURCES, url, prefixes);
 }

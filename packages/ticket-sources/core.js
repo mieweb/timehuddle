@@ -154,9 +154,6 @@ export function showId(definition, ref, prefix = '') {
   return definition.id.show.replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 }
 
-/** A number at the end of the path, before any query or fragment. */
-const TRAILING_NUMBER = /\/(\d+)\/?$/;
-
 function parseUrl(url) {
   if (typeof url !== 'string' || !url.trim()) return null;
   try {
@@ -170,23 +167,26 @@ function parseUrl(url) {
  * The outside ID for `url` (#689), or null when it isn't one we can name:
  *
  * - a GitHub issue or pull request is `<repo>-<number>`, with no setup;
- * - an address on a server the organization has named (`prefixes`, as
- *   `{ host, prefix }`) and ending in a number is `<prefix>-<number>`.
+ * - an issue on a server the organization has registered (`prefixes`, as
+ *   `{ host, prefix, type }`) is `<prefix>-<number>`, read by the definition
+ *   of the server's type (#734 step 5). A server registered before types
+ *   existed is Redmine.
  *
- * Named servers have no kind yet (that's the server registry, #734 step 5), so
- * any address on one that ends in a number counts.
+ * `sources` is every definition by kind (`SOURCES` in index.js).
  */
-export function outsideIdOfWith(github, url, prefixes) {
+export function outsideIdOfWith(sources, url, prefixes) {
   const parsed = parseUrl(url);
   if (!parsed) return null;
   const host = parsed.hostname.toLowerCase();
 
+  const { github } = sources;
   if (github.id.hosts.includes(host)) {
     const ref = matchIssueUrl(github, parsed.href);
     return ref ? showId(github, ref) : null;
   }
 
   const named = prefixes.find((entry) => entry.host === host);
-  const number = parsed.pathname.match(TRAILING_NUMBER)?.[1];
-  return named && number ? `${named.prefix}-${number}` : null;
+  const definition = named && sources[named.type ?? 'redmine'];
+  const ref = definition ? matchIssueUrl(definition, parsed.href) : null;
+  return ref ? showId(definition, ref, named.prefix) : null;
 }

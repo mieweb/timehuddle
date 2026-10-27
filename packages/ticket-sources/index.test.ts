@@ -172,6 +172,17 @@ describe('outsideIdOf', () => {
     expect(outsideIdOf('https://redmine.example.com/projects/web', prefixes)).toBeNull();
   });
 
+  it("reads a registered server's address by its type's definition (#734 step 5)", () => {
+    const servers = [
+      { host: 'redmine.example.com', prefix: 'PM', type: 'redmine' as const },
+      { host: 'example.org', prefix: 'EX', type: 'redmine' as const },
+    ];
+    expect(outsideIdOf('https://example.org/redmine/issues/41', servers)).toBe('EX-41');
+    // A number at the end isn't enough: it must be a Redmine issue.
+    expect(outsideIdOf('https://redmine.example.com/versions/12', servers)).toBeNull();
+    expect(outsideIdOf('https://redmine.example.com/projects/web/issues', servers)).toBeNull();
+  });
+
   it('does not name what is not an address', () => {
     expect(outsideIdOf('', prefixes)).toBeNull();
     expect(outsideIdOf(null, prefixes)).toBeNull();
