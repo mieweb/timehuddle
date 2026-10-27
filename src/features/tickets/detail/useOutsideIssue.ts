@@ -43,10 +43,21 @@ function failedState(err: unknown): OutsideState {
  * Only the newest request may change what is shown: an answer that arrives
  * after another read or a write, or after the page moved to another ticket or
  * link, is dropped.
+ *
+ * The server reads whatever the ticket carries now, so a teammate's relink can
+ * answer with another issue than `linkedKey`. That record is never shown: the
+ * state stays `loading` (nothing editable) and `onRelinked` asks the page to
+ * read the ticket again, whose new `linkedKey` reads the issue afresh.
  */
-export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
+export function useOutsideIssue(
+  ticketId: string,
+  linkedKey: string | null,
+  onRelinked: () => void,
+) {
   const [state, setState] = useState<OutsideState>({ kind: linkedKey ? 'loading' : 'none' });
   const latest = useRef(0);
+  const relinked = useRef(onRelinked);
+  relinked.current = onRelinked;
 
   /** Read the issue again; resolves to whether that worked, for `useBackgroundRefresh`. */
   const reload = useCallback(async () => {
@@ -54,7 +65,14 @@ export function useOutsideIssue(ticketId: string, linkedKey: string | null) {
     const request = ++latest.current;
     try {
       const issue = await ticketApi.outsideIssue(ticketId);
-      if (request === latest.current) setState({ kind: 'loaded', issue });
+      if (request !== latest.current) return true;
+      // `source:id`, as `ticketKey` builds `linkedKey`.
+      if (`${issue.kind}:${issue.record.ref?.key ?? ''}` !== linkedKey) {
+        setState({ kind: 'loading' });
+        relinked.current();
+        return false;
+      }
+      setState({ kind: 'loaded', issue });
       return true;
     } catch (err) {
       if (request === latest.current) setState(failedState(err));

@@ -180,11 +180,20 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     [ticketId],
   );
   const linkedIssueId = ticket?.linkedIssue?.id ?? null;
+  // Relinked by a teammate since the page read the ticket: read it again, so
+  // the page names the issue it now carries before showing that issue.
+  const reloadTicket = useCallback(() => {
+    ticketApi
+      .getTicket(ticketId)
+      .then(setTicket)
+      .catch(() => setActionError('Could not load this ticket. Check your connection.'));
+  }, [ticketId]);
   // The issue the ticket carries, read from its source: when there is one, its
   // status, priority, description and history are the source's.
   const outside = useOutsideIssue(
     ticketId,
     ticket?.linkedIssue ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id) : null,
+    reloadTicket,
   );
   const carried = outside.state.kind === 'loaded' ? outside.state.issue : null;
   const { reload: reloadOutside } = outside;
@@ -874,7 +883,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                             size="sm"
                             label={option.label}
                             checked={isChecked}
-                            disabled={locked}
+                            disabled={locked || outside.state.kind === 'loading'}
                             onChange={(e) => {
                               if (isUnassigned) {
                                 // When "Unassigned" is checked, clear all assignees.
