@@ -9,6 +9,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  ModalTitle,
   Switch,
   Text,
 } from '@mieweb/ui';
@@ -120,7 +121,9 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
 
   return (
     <AppModal open onOpenChange={(open) => !open && !saving && onClose()}>
-      <ModalHeader>{editing ? S.editTitle : S.createTitle}</ModalHeader>
+      <ModalHeader>
+        <ModalTitle>{editing ? S.editTitle : S.createTitle}</ModalTitle>
+      </ModalHeader>
       <ModalBody className="space-y-4">
         {error && <Alert variant="danger">{error}</Alert>}
         <Input

@@ -23,8 +23,8 @@ const ADMIN_TABS = ['members', 'invitations', 'chart'] as const;
 type AdminTab = (typeof ADMIN_TABS)[number];
 
 export const PeoplePage: React.FC = () => {
-  const { organizations, selectedOrgId } = useTeam();
-  const isAdmin = canManageSelectedOrganization(organizations, selectedOrgId);
+  const { organizations, enterprises, selectedOrgId } = useTeam();
+  const isAdmin = canManageSelectedOrganization(organizations, enterprises, selectedOrgId);
   const [tabParam, setTabParam] = useQueryParam('tab', { mode: 'push' });
   // Adding or inviting someone in the header reloads the panels.
   const [reloadKey, reload] = useReducer((n: number) => n + 1, 0);
@@ -44,7 +44,15 @@ export const PeoplePage: React.FC = () => {
   const T = PEOPLE_STRINGS.tabs;
 
   return (
-    <AppPage width="wide" fill titleActions={<PeopleActions onChanged={reload} />}>
+    <AppPage
+      width="wide"
+      fill
+      titleActions={
+        // Keyed by org: a Back/Forward org switch closes any open Add/Invite
+        // dialog, so it can't submit to the newly selected organization.
+        <PeopleActions key={selectedOrgId} onChanged={reload} />
+      }
+    >
       <Tabs
         value={tab}
         onValueChange={(value) => setTabParam(value === 'members' ? null : value)}

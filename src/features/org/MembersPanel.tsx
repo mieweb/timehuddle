@@ -18,6 +18,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  ModalTitle,
   MoreHorizontalIcon,
   Select,
   Spinner,
@@ -380,7 +381,8 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
                     >
                       <DropdownItem
                         icon={<UserIcon className="h-4 w-4" />}
-                        onClick={() => navigate(`/app/profile/${member.username || member.id}`)}
+                        // By id: a numeric or id-shaped username would be read as an id.
+                        onClick={() => navigate(`/app/profile/${member.id}`)}
                       >
                         {S.viewProfile}
                       </DropdownItem>
@@ -430,7 +432,9 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
       )}
 
       <AppModal open={blockUserId !== null} onOpenChange={(open) => !open && setBlockUserId(null)}>
-        <ModalHeader>{PEOPLE_STRINGS.block.title}</ModalHeader>
+        <ModalHeader>
+          <ModalTitle>{PEOPLE_STRINGS.block.title}</ModalTitle>
+        </ModalHeader>
         <ModalBody className="space-y-3">
           <Text variant="muted" size="sm">
             {PEOPLE_STRINGS.block.body}
@@ -458,7 +462,9 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
         open={removeUserId !== null}
         onOpenChange={(open) => !open && !removing && setRemoveUserId(null)}
       >
-        <ModalHeader>{PEOPLE_STRINGS.remove.title}</ModalHeader>
+        <ModalHeader>
+          <ModalTitle>{PEOPLE_STRINGS.remove.title}</ModalTitle>
+        </ModalHeader>
         <ModalBody>
           <Text variant="muted" size="sm">
             {PEOPLE_STRINGS.remove.body(
