@@ -19,7 +19,7 @@ export interface SettingsSection {
   icon: LucideIcon;
 }
 
-/** The Personal group, in nav order. The first is shown when the URL names none. */
+/** The Personal group, in nav order. */
 export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   { id: 'profile', label: 'Profile', description: 'How you appear to your teams.', icon: UserIcon },
   {
@@ -56,14 +56,17 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
 
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
+  overview: 'All settings',
+  overviewDescription: 'Everything you can change, in one place.',
+  backToOverview: 'Settings',
   personal: 'Personal',
   version: (version: string) => `Version ${version}`,
   whatsNew: 'What’s new',
 } as const;
 
-/** The section `?section=` names, or the first one for a missing or unknown value. */
-export function resolveSettingsSection(value: string | null): SettingsSection {
-  return PERSONAL_SECTIONS.find((section) => section.id === value) ?? PERSONAL_SECTIONS[0];
+/** The section `?section=` names, or null (the overview) for a missing or unknown value. */
+export function resolveSettingsSection(value: string | null): SettingsSection | null {
+  return PERSONAL_SECTIONS.find((section) => section.id === value) ?? null;
 }
 
 /** A link straight to one section of Settings. */

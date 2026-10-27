@@ -1,8 +1,10 @@
 /**
  * SettingsPage — User & application settings.
  *
- * A side nav of sections (a row of chips on a phone); `?section=` picks the
- * one shown. The sections and their copy are in features/settings/settingsSections.ts.
+ * `?section=` picks the section shown; without one it opens on an overview of
+ * every section. On desktop a side nav sits beside it. On a phone the overview
+ * is the menu, and an open section has a back button to it. The sections and
+ * their copy are in features/settings/settingsSections.ts.
  */
 import {
   Badge,
@@ -12,7 +14,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   cn,
+  GridIcon,
   Input,
   LogOutIcon,
   RefreshIcon,
@@ -22,7 +27,7 @@ import {
   Textarea,
   TrashIcon,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -48,6 +53,7 @@ import {
   PERSONAL_SECTIONS,
   SETTINGS_PAGE_STRINGS,
   resolveSettingsSection,
+  type SettingsSection,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
@@ -60,6 +66,7 @@ import { notifyRedmineChanged } from '../lib/useRedmineStatus';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
+import { UserAvatar } from './UserAvatar';
 import { useQueryParam, useRouter } from './router';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -1089,6 +1096,61 @@ const AccountSettings: React.FC = () => {
   );
 };
 
+// ─── Overview ─────────────────────────────────────────────────────────────────
+
+/** A full-width row that opens a section: icon or avatar, label over detail, chevron. */
+const OverviewRow: React.FC<{
+  leading: React.ReactNode;
+  label: string;
+  detail: string;
+  onOpen: () => void;
+}> = ({ leading, label, detail, onOpen }) => (
+  <Button
+    variant="ghost"
+    onClick={onOpen}
+    leftIcon={<span className="settings-overview-leading flex shrink-0">{leading}</span>}
+    rightIcon={<ChevronRightIcon className="h-4 w-4 shrink-0 text-neutral-400" />}
+    // The label slot truncates and hugs its text by default; here it fills the
+    // row, so the chevron sits at the end, and wraps a long detail line.
+    className="settings-overview-row h-auto min-h-13 w-full justify-start gap-3 rounded-none px-5 py-3 text-left [&>[data-slot=button-label]]:flex-1 [&>[data-slot=button-label]]:whitespace-normal"
+  >
+    <span className="settings-overview-text min-w-0 flex-1">
+      <span className="block text-sm font-medium">{label}</span>
+      <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+        {detail}
+      </span>
+    </span>
+  </Button>
+);
+
+/** Every section on one list, led by who you are. The phone's Settings menu. */
+const SettingsOverview: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = ({ onOpen }) => {
+  const { user } = useSession();
+  return (
+    <>
+      <Section>
+        <OverviewRow
+          leading={<UserAvatar name={user?.name || user?.email || ''} src={user?.image} />}
+          label={user?.name || user?.email || ''}
+          detail={user?.email ?? ''}
+          onOpen={() => onOpen('profile')}
+        />
+      </Section>
+      <Section title={SETTINGS_PAGE_STRINGS.personal}>
+        {PERSONAL_SECTIONS.map((item) => (
+          <OverviewRow
+            key={item.id}
+            leading={<item.icon className="h-4 w-4" />}
+            label={item.label}
+            detail={item.description}
+            onOpen={() => onOpen(item.id)}
+          />
+        ))}
+      </Section>
+    </>
+  );
+};
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
@@ -1099,14 +1161,6 @@ export const SettingsPage: React.FC = () => {
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
   const section = resolveSettingsSection(sectionParam);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const navListRef = useRef<HTMLUListElement>(null);
-
-  // On a phone the nav is a row that scrolls sideways; keep the open section's chip in view.
-  useEffect(() => {
-    navListRef.current
-      ?.querySelector('[aria-current="page"]')
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [section.id]);
 
   useRefresh(
     useCallback(async () => {
@@ -1150,44 +1204,47 @@ export const SettingsPage: React.FC = () => {
     account: <AccountSettings />,
   };
 
+  const navItem = (id: SettingsSectionId | null, label: string, icon: SettingsSection['icon']) => {
+    const current = id === (section?.id ?? null);
+    const Icon = icon;
+    return (
+      <li key={id ?? 'overview'}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-current={current ? 'page' : undefined}
+          leftIcon={<Icon className="h-4 w-4" />}
+          onClick={() => setSectionParam(id)}
+          className={cn(
+            'settings-nav-item w-full justify-start',
+            current && 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100',
+          )}
+        >
+          {label}
+        </Button>
+      </li>
+    );
+  };
+
   return (
     <AppPage width="wide">
-      {/* Phone: nav chips, then the section, then the version. Desktop: nav and version on the left. */}
+      {/* Desktop: side nav and version on the left, the section beside them.
+          Phone: the overview is the menu; an open section gets a back button. */}
       <div className="settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8">
-        <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-nav min-w-0">
+        <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-nav hidden md:block">
+          <ul className="settings-nav-list flex flex-col gap-1">
+            {navItem(null, SETTINGS_PAGE_STRINGS.overview, GridIcon)}
+          </ul>
           <Text
             size="xs"
             weight="semibold"
             variant="muted"
-            className="settings-nav-group mb-1 hidden px-2.5 uppercase tracking-widest md:block"
+            className="settings-nav-group mt-4 mb-1 px-2.5 uppercase tracking-widest"
           >
             {SETTINGS_PAGE_STRINGS.personal}
           </Text>
-          <ul
-            ref={navListRef}
-            className="settings-nav-list flex gap-1 overflow-x-auto md:flex-col md:overflow-visible"
-          >
-            {PERSONAL_SECTIONS.map((item) => {
-              const current = item.id === section.id;
-              return (
-                <li key={item.id} className="shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-current={current ? 'page' : undefined}
-                    leftIcon={<item.icon className="h-4 w-4" />}
-                    onClick={() => setSectionParam(item.id)}
-                    className={cn(
-                      'settings-nav-item w-full justify-start whitespace-nowrap max-md:min-h-11',
-                      current &&
-                        'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100',
-                    )}
-                  >
-                    {item.label}
-                  </Button>
-                </li>
-              );
-            })}
+          <ul className="settings-nav-list flex flex-col gap-1">
+            {PERSONAL_SECTIONS.map((item) => navItem(item.id, item.label, item.icon))}
           </ul>
         </nav>
 
@@ -1195,18 +1252,34 @@ export const SettingsPage: React.FC = () => {
           aria-labelledby="settings-section-title"
           className="settings-panel min-w-0 space-y-4 md:row-span-2"
         >
+          {section && (
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<ChevronLeftIcon className="h-4 w-4" />}
+              onClick={() => setSectionParam(null)}
+              className="settings-back -ml-2 min-h-11 md:hidden"
+            >
+              {SETTINGS_PAGE_STRINGS.backToOverview}
+            </Button>
+          )}
           <div className="settings-panel-header">
             <Text as="h2" id="settings-section-title" size="lg" weight="semibold">
-              {section.label}
+              {section?.label ?? SETTINGS_PAGE_STRINGS.overview}
             </Text>
             <Text variant="muted" size="sm">
-              {section.description}
+              {section?.description ?? SETTINGS_PAGE_STRINGS.overviewDescription}
             </Text>
           </div>
-          {content[section.id]}
+          {section ? content[section.id] : <SettingsOverview onOpen={setSectionParam} />}
         </section>
 
-        <Text variant="muted" size="xs" className="settings-version px-2.5">
+        {/* On a phone the version closes the menu, not every section. */}
+        <Text
+          variant="muted"
+          size="xs"
+          className={cn('settings-version px-2.5', section && 'max-md:hidden')}
+        >
           {SETTINGS_PAGE_STRINGS.version(APP_VERSION)} ·{' '}
           <Button variant="link" size="sm" onClick={() => navigate('/app/release-notes')}>
             {SETTINGS_PAGE_STRINGS.whatsNew}
