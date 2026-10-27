@@ -67,8 +67,10 @@ const LINK_CLASS =
   'ticket-linked-issue-link inline-flex max-w-full items-baseline gap-1.5 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400';
 
 /**
- * What a plain link is "from": GitHub for github.com, otherwise the site's host
- * name. The link may point at any tracker, so it is never assumed to be GitHub.
+ * What a link is "from": GitHub for github.com, otherwise the site's host name.
+ * Only GitHub issues can be saved now (#734 step 5); a link to anywhere else
+ * saved before that is moved into the description at startup, and named by its
+ * site until then.
  */
 function linkSourceName(url: string): string {
   const host = new URL(url.trim()).hostname.replace(/^www\./, '');
