@@ -151,7 +151,7 @@
     "react-refresh": "^0.17.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
-    "vite": "^8.2.2",
+    "vite": "^8.3.5",
     "vitest": "^4.1.11",
     "wait-on": "^9.0.5",
     "ws": "^8.21.0"
