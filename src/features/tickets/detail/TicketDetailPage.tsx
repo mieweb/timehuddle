@@ -22,6 +22,7 @@ import {
   Textarea,
   Input,
 } from '@mieweb/ui';
+import { SOURCES } from '@timehuddle/ticket-sources';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
@@ -50,11 +51,13 @@ import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
 import { huddleTicketRef, ticketKey } from '../sources';
 
-import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
+import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
+import { outsideText } from './outsideStrings';
 import { TicketActivityCard } from './TicketActivityCard';
 import { TicketAttachmentsCard } from './TicketAttachmentsCard';
 import { TicketQuickActions } from './TicketQuickActions';
+import { useOutsideIssue } from './useOutsideIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -98,6 +101,11 @@ function statusVariant(status: string): BadgeProps['variant'] {
   }
 }
 
+/** A source's name ("Redmine") by its kind, for the page's labels. */
+function sourceLabel(kind: string): string {
+  return (SOURCES as Record<string, { label: string } | undefined>)[kind]?.label ?? kind;
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -136,6 +144,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [descDraft, setDescDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The carried issue changed in its source since it was read: offer a reload.
+  const [stale, setStale] = useState(false);
 
   // Who is timing this ticket, if it is linked: while anyone is, the server
   // refuses changes to it. The timer may be a teammate's, which nothing pushes
@@ -153,10 +163,19 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     [ticketId],
   );
   const linkedIssueId = ticket?.linkedIssue?.id ?? null;
+  // The issue the ticket carries, read from its source: when there is one, its
+  // status, priority, description and history are the source's.
+  const outside = useOutsideIssue(
+    ticketId,
+    ticket?.linkedIssue ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id) : null,
+  );
+  const carried = outside.state.kind === 'loaded' ? outside.state.issue : null;
+  const { reload: reloadOutside } = outside;
   useEffect(() => {
     void loadLock();
     const onRefetch = () => {
       void loadLock();
+      void reloadOutside();
       // The session that just started or stopped belongs in the activity list.
       void timerApi
         .getTicketSessions(ticketId, 'huddle')
@@ -166,7 +185,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     // Fired when the viewer's own timer starts or stops.
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [loadLock, linkedIssueId, ticketId]);
+  }, [loadLock, reloadOutside, linkedIssueId, ticketId]);
   useBackgroundRefresh(loadLock);
 
   /** Show why a change was refused; a lock refusal also refreshes the banner. */
@@ -213,12 +232,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         setActivity(a.events);
         setSessions(s);
         void loadLock();
+        void reloadOutside();
       } catch {
         setError('Failed to refresh ticket.');
       } finally {
         setLoading(false);
       }
-    }, [ticketId, loadLock]),
+    }, [ticketId, loadLock, reloadOutside]),
   );
 
   // Load team members once we have the teamId
@@ -230,10 +250,21 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       .catch(() => setActionError('Failed to load team members. Assignee cannot be changed.'));
   }, [ticket?.teamId]);
 
-  // Huddle's activity log plus the viewer's own timer sessions, newest first.
+  // Huddle's activity log, the viewer's own timer sessions and the carried
+  // issue's history in its source, newest first.
   const activityEntries = useMemo(
-    () => mergeByTime(fromHuddleEvents(activity), fromSessions(sessions, 'You')),
-    [activity, sessions],
+    () =>
+      mergeByTime(
+        fromHuddleEvents(activity),
+        fromSessions(sessions, 'You'),
+        carried
+          ? fromConversation(carried.record.conversation, {
+              me: carried.me,
+              source: sourceLabel(carried.kind),
+            })
+          : [],
+      ),
+    [activity, sessions, carried],
   );
 
   // ── Handlers ──
@@ -267,13 +298,38 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     }
   };
 
+  /**
+   * Write to the carried issue in its source, saying when it was refused or
+   * stored otherwise. Resolves to whether the source took it.
+   */
+  const writeOutside = async (edits: Parameters<typeof outside.write>[0]) => {
+    if (!carried) return false;
+    const source = sourceLabel(carried.kind);
+    setActionError(null);
+    setStale(false);
+    try {
+      const mismatches = await outside.write(edits);
+      if (mismatches.length) setActionError(outsideText.notStored(source));
+      return true;
+    } catch (err) {
+      setStale(err instanceof ApiError && err.code === 'stale');
+      showFailure(err, outsideText.saveFailed(source));
+      return false;
+    }
+  };
+
   const saveDescription = async () => {
     if (!ticket) return;
     setSaving(true);
     setActionError(null);
+    if (carried) {
+      // A refused write keeps the draft open, so nothing typed is lost.
+      if (await writeOutside({ body: descDraft })) setEditingDesc(false);
+      setSaving(false);
+      return;
+    }
     try {
-      const updated = await ticketApi.updateTicket(ticket.id, { description: descDraft });
-      setTicket(updated);
+      setTicket(await ticketApi.updateTicket(ticket.id, { description: descDraft }));
     } catch (err) {
       showFailure(err, 'Failed to save the description.');
     } finally {
@@ -284,6 +340,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   const handleStatusChange = async (status: string) => {
     if (!ticket) return;
+    if (carried) {
+      await writeOutside({ status });
+      return;
+    }
     setActionError(null);
     try {
       const updated = await ticketApi.updateStatusPriority(ticket.id, { status });
@@ -378,6 +438,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     user?.id === ticket.createdBy ||
     members.some((m) => m.id === user?.id && (m as unknown as { role?: string }).role === 'admin');
   const locked = lock !== null;
+
+  // A carried issue's own fields come from its source, where the viewer's
+  // role there decides what they may change; a timer on the ticket doesn't.
+  const source = carried ? sourceLabel(carried.kind) : null;
+  const description = carried ? (carried.record.body?.text ?? '') : (ticket.description ?? '');
+  const canEditDescription = carried ? true : canEdit && !locked;
 
   return (
     <AppPage>
@@ -475,13 +541,28 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               {idCopied ? 'Ticket id copied' : ''}
             </span>
           </span>
-          <Badge variant={statusVariant(ticket.status)} size="sm">
-            {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
-          </Badge>
-          {ticket.priority && (
-            <Badge variant={priorityVariant(ticket.priority)} size="sm">
-              {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
-            </Badge>
+          {carried ? (
+            <>
+              <Badge variant={carried.record.status.isClosed ? 'default' : 'success'} size="sm">
+                {carried.record.status.native}
+              </Badge>
+              {carried.record.priority && (
+                <Badge variant="secondary" size="sm">
+                  {carried.record.priority.native}
+                </Badge>
+              )}
+            </>
+          ) : (
+            <>
+              <Badge variant={statusVariant(ticket.status)} size="sm">
+                {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
+              </Badge>
+              {ticket.priority && (
+                <Badge variant={priorityVariant(ticket.priority)} size="sm">
+                  {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                </Badge>
+              )}
+            </>
           )}
           <span className="text-xs text-neutral-400">
             Opened {formatDate(ticket.createdAt)} by {creatorName}
@@ -498,6 +579,20 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         {actionError && (
           <Alert variant="danger" role="alert">
             <AlertDescription>{actionError}</AlertDescription>
+            {stale && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  setStale(false);
+                  setActionError(null);
+                  void outside.reload();
+                }}
+              >
+                {outsideText.reload}
+              </Button>
+            )}
           </Alert>
         )}
       </div>
@@ -506,22 +601,34 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       <div className="ticket-detail-layout flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* ── Left column: body ── */}
         <div className="ticket-detail-body min-w-0 flex-1 space-y-3">
-          <LinkedIssueSection ticket={ticket} onChanged={setTicket} locked={locked} />
+          <LinkedIssueSection
+            ticket={ticket}
+            onChanged={setTicket}
+            locked={locked}
+            outside={outside.state}
+          />
 
           {/* Description */}
           <Card>
             <CardContent className="ticket-description-section">
               <div className="ticket-description-header flex items-center justify-between mb-2">
-                <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
-                  Description
-                </Text>
-                {canEdit && !locked && !editingDesc && (
+                <div className="ticket-description-title flex items-baseline gap-2">
+                  <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
+                    Description
+                  </Text>
+                  {source && (
+                    <Text size="xs" variant="muted">
+                      {outsideText.descriptionFrom(source)}
+                    </Text>
+                  )}
+                </div>
+                {canEditDescription && !editingDesc && (
                   <Button
                     variant="ghost"
                     size="icon"
                     aria-label="Edit description"
                     onClick={() => {
-                      setDescDraft(ticket.description ?? '');
+                      setDescDraft(description);
                       setEditingDesc(true);
                     }}
                   >
@@ -554,8 +661,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 </div>
               ) : (
                 <div className="ticket-description-body">
-                  {ticket.description ? (
-                    <MarkdownContent content={ticket.description} />
+                  {description ? (
+                    <MarkdownContent content={description} />
                   ) : (
                     <Text size="sm" className="italic text-neutral-400">
                       No description provided.
@@ -588,34 +695,64 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   htmlFor="ticket-status"
                   className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
                 >
-                  Status
+                  {source ? outsideText.statusLabel(source) : 'Status'}
                 </label>
-                <Select
-                  id="ticket-status"
-                  aria-label="Ticket status"
-                  options={STATUS_OPTIONS}
-                  value={ticket.status}
-                  onValueChange={(val: string) => void handleStatusChange(val)}
-                  disabled={locked}
-                />
+                {carried ? (
+                  <Select
+                    id="ticket-status"
+                    aria-label={outsideText.statusLabel(source ?? '')}
+                    options={carried.choices.status.map((status) => ({
+                      value: status.id ?? status.native,
+                      label: status.native,
+                    }))}
+                    value={carried.record.status.id ?? carried.record.status.native}
+                    onValueChange={(val: string) => void handleStatusChange(val)}
+                    disabled={carried.choices.status.length < 2}
+                  />
+                ) : (
+                  <Select
+                    id="ticket-status"
+                    aria-label="Ticket status"
+                    options={STATUS_OPTIONS}
+                    value={ticket.status}
+                    onValueChange={(val: string) => void handleStatusChange(val)}
+                    disabled={locked}
+                  />
+                )}
               </div>
 
               {/* Priority */}
               <div className="ticket-sidebar-field-priority">
-                <label
-                  htmlFor="ticket-priority"
-                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
-                >
-                  Priority
-                </label>
-                <Select
-                  id="ticket-priority"
-                  aria-label="Ticket priority"
-                  options={PRIORITY_OPTIONS}
-                  value={ticket.priority ?? 'none'}
-                  onValueChange={(val: string) => void handlePriorityChange(val)}
-                  disabled={locked}
-                />
+                {carried ? (
+                  <>
+                    <Text
+                      size="sm"
+                      className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                    >
+                      {outsideText.priorityLabel(source ?? '')}
+                    </Text>
+                    <Text size="sm" className="text-neutral-700 dark:text-neutral-300">
+                      {carried.record.priority?.native ?? outsideText.noPriority}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <label
+                      htmlFor="ticket-priority"
+                      className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                    >
+                      Priority
+                    </label>
+                    <Select
+                      id="ticket-priority"
+                      aria-label="Ticket priority"
+                      options={PRIORITY_OPTIONS}
+                      value={ticket.priority ?? 'none'}
+                      onValueChange={(val: string) => void handlePriorityChange(val)}
+                      disabled={locked}
+                    />
+                  </>
+                )}
               </div>
 
               {/* Assignee */}

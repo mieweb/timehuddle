@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   BASE_URL,
   connectedStatus,
-  issueDetail,
+  outsideIssue,
   redmineIssue,
   relevantList,
   stubRedmine,
@@ -78,8 +78,9 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       status: connectedStatus(),
       'issues.relevant': relevantList([]),
       'issues.search': { connected: true, baseUrl: BASE_URL, kind: 'id', issues: [ISSUE] },
-      'issues.get': { baseUrl: BASE_URL, issue: issueDetail(ISSUE), journals: [] },
     });
+    // The linked issue as the page reads it, through the driver engine (#757).
+    await stubTicketCall(page, 'tickets.outsideRecord', () => outsideIssue(ISSUE));
   });
 
   test('links an existing issue by number, after previewing it', async ({ page }) => {

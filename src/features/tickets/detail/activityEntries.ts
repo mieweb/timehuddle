@@ -2,16 +2,13 @@
  * Pure builders for a ticket page's Activity timeline.
  *
  * Each detail page gathers different kinds of history — Huddle's activity log,
- * the viewer's own timer sessions, Redmine's journals and time entries — and
+ * the viewer's own timer sessions, a carried issue's conversation — and
  * maps each into one `ActivityEntry` shape so `TicketActivityCard` renders them
  * as one timeline.
  */
-import type {
-  ActivityLogItem,
-  RedmineJournal,
-  RedmineTimeEntry,
-  TicketSession,
-} from '../../../lib/api';
+import type { ConversationEntry } from '@timehuddle/ticket-sources';
+
+import type { ActivityLogItem, TicketSession } from '../../../lib/api';
 import { formatDuration, formatTime } from '../../../lib/timeUtils';
 import { linkActivitySentence } from '../link/ticketLinkStrings';
 
@@ -82,37 +79,19 @@ export function fromSessions(sessions: TicketSession[], actorName: string): Acti
 }
 
 /** "status from New to Closed" / "assignee to Priya" / "description". */
-function describeChange({ field, from, to }: RedmineJournal['changes'][number]): string {
+function describeChange({
+  field,
+  from,
+  to,
+}: {
+  field: string;
+  from?: string;
+  to?: string;
+}): string {
   if (from && to) return `${field} from ${from} to ${to}`;
   if (to) return `${field} to ${to}`;
   if (from) return `${field} (cleared, was ${from})`;
   return field;
-}
-
-/**
- * An issue's Redmine history: field changes, comments, or both in one entry.
- * `me` is the viewer's Redmine user id, which marks their own entries.
- */
-export function fromJournals(
-  journals: RedmineJournal[],
-  me: number | null = null,
-): ActivityEntry[] {
-  return journals
-    .filter((journal) => journal.createdAt)
-    .map((journal) => {
-      const changed = journal.changes.length
-        ? `changed ${journal.changes.map(describeChange).join(', ')}`
-        : '';
-      return {
-        id: `journal:${journal.id}`,
-        at: journal.createdAt as string,
-        actorName: journal.user?.name ?? 'Someone',
-        text: changed || 'commented',
-        detail: journal.notes || undefined,
-        kind: changed ? 'event' : 'comment',
-        mine: me != null && journal.user?.id === me,
-      };
-    });
 }
 
 /** "Sep 28" for a `YYYY-MM-DD` day, read as a local date (no timezone shift). */
@@ -125,30 +104,55 @@ function formatDay(day: string): string {
 }
 
 /**
- * Time logged on the issue in Redmine: "logged 1h 30m in Redmine", with the
- * activity and the day it was for, then the comment. Placed on the timeline
- * when it was logged (the day it was for when Redmine gives no time).
+ * A carried issue's conversation (#757): its comments, field changes and the
+ * time logged on it in the source. Changes and a comment made together (same
+ * person, same moment) read as one entry, as the source shows them. `me` is
+ * the viewer's id in the source, which marks their own; `source` names it,
+ * for "logged 1h 30m in Redmine".
  */
-export function fromRedmineTimeEntries(
-  entries: RedmineTimeEntry[],
-  me: number | null = null,
+export function fromConversation(
+  conversation: ConversationEntry[],
+  { me = null, source }: { me?: string | null; source: string },
 ): ActivityEntry[] {
-  return entries
-    .filter((entry) => entry.createdAt || entry.spentOn)
-    .map((entry) => {
-      const about = [entry.activity?.name, entry.spentOn && `for ${formatDay(entry.spentOn)}`]
-        .filter(Boolean)
-        .join(', ');
-      return {
-        id: `time:${entry.id}`,
-        at: entry.createdAt ?? new Date(`${entry.spentOn}T12:00:00`).toISOString(),
-        actorName: entry.user?.name ?? 'Someone',
-        text: `logged ${formatDuration(Math.round(entry.hours * 3600))} in Redmine`,
-        detail: [about, entry.comments].filter(Boolean).join(' — ') || undefined,
+  const times: ActivityEntry[] = [];
+  const together = new Map<
+    string,
+    { id: string; at: string; actorName: string; mine: boolean; changes: string[]; note?: string }
+  >();
+  for (const entry of conversation) {
+    const actorName = entry.author?.name ?? 'Someone';
+    const mine = me != null && entry.author?.id === me;
+    if (entry.kind === 'time') {
+      const day = entry.on && `for ${formatDay(entry.on)}`;
+      times.push({
+        id: `outside:${entry.id}`,
+        at: entry.at,
+        actorName,
+        text: `logged ${formatDuration(entry.seconds)} in ${source}`,
+        detail: [entry.text?.text, day].filter(Boolean).join(', ') || undefined,
         kind: 'time',
-        mine: me != null && entry.user?.id === me,
-      };
-    });
+        mine,
+      });
+      continue;
+    }
+    const key = `${entry.author?.id ?? ''}@${entry.at}`;
+    const group = together.get(key) ?? { id: entry.id, at: entry.at, actorName, mine, changes: [] };
+    if (entry.kind === 'comment') group.note = entry.text.text;
+    else group.changes.push(describeChange(entry));
+    together.set(key, group);
+  }
+  const grouped = [...together.values()].map(
+    ({ id, at, actorName, mine, changes, note }): ActivityEntry => ({
+      id: `outside:${id}`,
+      at,
+      actorName,
+      text: changes.length ? `changed ${changes.join(', ')}` : 'commented',
+      detail: note || undefined,
+      kind: changes.length ? 'event' : 'comment',
+      mine,
+    }),
+  );
+  return [...grouped, ...times];
 }
 
 /** All entries, newest first. */

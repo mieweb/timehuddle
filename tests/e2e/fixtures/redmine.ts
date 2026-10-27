@@ -421,6 +421,44 @@ export function issueDetail(overrides: Partial<RedmineIssueShape> = {}): Redmine
 }
 
 /**
+ * What `tickets.outsideRecord` answers for a ticket carrying `issue` (#757):
+ * the issue as a ticket record, read through the driver engine.
+ */
+export function outsideIssue(issue: RedmineIssueShape = redmineIssue()) {
+  const named = (value?: RedmineNamedShape | null) =>
+    value ? { id: String(value.id), name: value.name } : null;
+  return {
+    kind: 'redmine',
+    record: {
+      ref: { server: new URL(BASE_URL).host, key: String(issue.id) },
+      url: `${BASE_URL}/issues/${issue.id}`,
+      title: issue.subject,
+      body: null,
+      status: {
+        id: String(issue.status?.id),
+        native: issue.status?.name ?? '',
+        isClosed: issue.status?.isClosed ?? false,
+      },
+      priority: issue.priority
+        ? { id: String(issue.priority.id), native: issue.priority.name, rank: 2 }
+        : null,
+      assignees: issue.assignedTo ? [named(issue.assignedTo)] : [],
+      reporter: null,
+      labels: [],
+      type: named(issue.tracker),
+      container: named(issue.project),
+      milestone: null,
+      dates: { created: issue.createdAt, updated: issue.updatedAt },
+      conversation: [],
+      relations: [],
+      extra: [],
+    },
+    choices: { status: [] },
+    me: '8',
+  };
+}
+
+/**
  * Holds a reply open for `ms` before returning `value`.
  *
  * The double-send test needs a deterministic in-flight window; racing real
