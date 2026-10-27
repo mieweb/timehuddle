@@ -61,3 +61,15 @@ export function hasOrganizationAdminAccess(
       DEFAULT_ORG_ADMIN_ROLES.includes(organization.role),
   );
 }
+
+/**
+ * Owner or admin of the selected organization — who sees Members, invitations
+ * and Organization settings. Display only; the server checks every action.
+ */
+export function canManageSelectedOrganization(
+  organizations: ReadonlyArray<{ id: string; role: OrganizationRole | 'member' | null }>,
+  selectedOrgId: string | null,
+): boolean {
+  const role = organizations.find((organization) => organization.id === selectedOrgId)?.role;
+  return role === 'owner' || role === 'admin';
+}

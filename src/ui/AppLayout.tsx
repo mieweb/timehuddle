@@ -92,10 +92,6 @@ const TicketDetailPage = lazyNamed(
   'TicketDetailPage',
 );
 const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
-const OrganizationMembersPage = lazyNamed(
-  () => import('../features/org/OrganizationMembersPage'),
-  'OrganizationMembersPage',
-);
 const OrgUsagePage = lazyNamed(() => import('../features/usage/OrgUsagePage'), 'OrgUsagePage');
 const Huddle = lazy(() => import('../pages/Huddle'));
 const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
@@ -103,10 +99,7 @@ const OrganizationOverviewPage = lazyNamed(
   () => import('../features/org/OrganizationOverviewPage'),
   'OrganizationOverviewPage',
 );
-const OrganizationPage = lazyNamed(
-  () => import('../features/org/OrganizationPage'),
-  'OrganizationPage',
-);
+const PeoplePage = lazyNamed(() => import('../features/org/PeoplePage'), 'PeoplePage');
 const EnterprisePage = lazyNamed(
   () => import('../features/enterprise/EnterprisePage'),
   'EnterprisePage',
@@ -136,7 +129,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
-  '/app/organization': { title: 'People', component: OrganizationPage },
+  '/app/organization': { title: 'People', component: PeoplePage },
   '/app/release-notes': { title: 'What’s New', component: ReleaseNotesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
   ...(import.meta.env.MODE !== 'production'
@@ -146,7 +139,6 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
   '/app/work': { title: 'Work', component: WorkPage },
 
-  '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
   '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 

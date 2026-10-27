@@ -84,7 +84,7 @@ async function restoreMemberRole(email: string): Promise<void> {
 }
 
 async function waitForMembersPageReady(page: Page): Promise<void> {
-  await page.goto('/app/org/members');
+  await page.goto('/app/organization?tab=members');
   const noOrg = page.getByText(/No organization is selected/i);
   if (await noOrg.isVisible({ timeout: 3000 }).catch(() => false)) {
     await expect(noOrg).toBeHidden({ timeout: 30000 });

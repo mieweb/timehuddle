@@ -344,7 +344,7 @@ export const EnterprisePage: React.FC = () => {
         setSelectedEnterpriseId(org.enterpriseId);
       }
       setEditOrg(null);
-      navigate('/app/org/members');
+      navigate('/app/organization?tab=members');
     },
     [navigate, setSelectedEnterpriseId, setSelectedOrgId],
   );

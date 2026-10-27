@@ -51,10 +51,14 @@ import {
 import { getDdpClient } from '../lib/ddp';
 import {
   PERSONAL_SECTIONS,
+  settingsGroups,
   SETTINGS_PAGE_STRINGS,
   resolveSettingsSection,
+  type SettingsGroup,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
+import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { canManageSelectedOrganization } from '../lib/organizationAccess';
 import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
@@ -1124,7 +1128,10 @@ const OverviewRow: React.FC<{
 );
 
 /** The phone's Settings menu: who you are (which opens Profile), then every other section. */
-const SettingsMenu: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = ({ onOpen }) => {
+const SettingsMenu: React.FC<{
+  groups: SettingsGroup[];
+  onOpen: (id: SettingsSectionId) => void;
+}> = ({ groups, onOpen }) => {
   const { user } = useSession();
   return (
     <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-menu space-y-4">
@@ -1136,32 +1143,48 @@ const SettingsMenu: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = ({ o
           onOpen={() => onOpen('profile')}
         />
       </Section>
-      <div className="settings-menu-group">
-        <NavGroupLabel />
-        <Section>
-          {PERSONAL_SECTIONS.filter((item) => item.id !== 'profile').map((item) => (
-            <OverviewRow
-              key={item.id}
-              leading={<item.icon className="h-4 w-4" />}
-              label={item.label}
-              detail={item.description}
-              onOpen={() => onOpen(item.id)}
-            />
-          ))}
-        </Section>
-      </div>
+      {groups.map((group) => (
+        <div key={group.label} className="settings-menu-group">
+          <NavGroupLabel label={group.label} />
+          <Section>
+            {group.sections
+              .filter((item) => item.id !== 'profile')
+              .map((item) => (
+                <OverviewRow
+                  key={item.id}
+                  leading={<item.icon className="h-4 w-4" />}
+                  label={item.label}
+                  detail={item.description}
+                  onOpen={() => onOpen(item.id)}
+                />
+              ))}
+          </Section>
+        </div>
+      ))}
+      {groups.length === 1 && <AdminNote />}
     </nav>
   );
 };
 
-const NavGroupLabel: React.FC = () => (
+const NavGroupLabel: React.FC<{ label: string }> = ({ label }) => (
   <Text
     size="xs"
     weight="semibold"
     variant="muted"
     className="settings-nav-group mb-1 px-2.5 uppercase tracking-widest"
   >
-    {SETTINGS_PAGE_STRINGS.personal}
+    {label}
+  </Text>
+);
+
+/** Tells people without an Administration group where team and org settings went. */
+const AdminNote: React.FC = () => (
+  <Text
+    variant="muted"
+    size="xs"
+    className="settings-admin-note rounded-lg border border-dashed border-neutral-300 p-3 dark:border-neutral-700"
+  >
+    {SETTINGS_PAGE_STRINGS.adminNote}
   </Text>
 );
 
@@ -1172,10 +1195,13 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
 export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
+  const { organizations, selectedOrgId } = useTeam();
+  const groups = settingsGroups(canManageSelectedOrganization(organizations, selectedOrgId));
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
-  const section = resolveSettingsSection(sectionParam) ?? (phone ? null : PERSONAL_SECTIONS[0]);
+  const section =
+    resolveSettingsSection(sectionParam, groups) ?? (phone ? null : PERSONAL_SECTIONS[0]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useRefresh(
@@ -1223,6 +1249,7 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     account: <AccountSettings />,
+    organization: <OrganizationSettings />,
   };
 
   return (
@@ -1230,32 +1257,40 @@ export const SettingsPage: React.FC = () => {
       {/* Desktop: side nav and version on the left, the section beside them.
           Phone: the menu, or one section with a back button to it. */}
       <div className="settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8">
-        <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-nav hidden md:block">
-          <NavGroupLabel />
-          <ul className="settings-nav-list flex flex-col gap-1">
-            {PERSONAL_SECTIONS.map((item) => {
-              const current = item.id === section?.id;
-              return (
-                <li key={item.id}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-current={current ? 'page' : undefined}
-                    leftIcon={<item.icon className="h-4 w-4" />}
-                    onClick={() => setSectionParam(item.id)}
-                    // The app nav's active look, so "you are here" reads the same everywhere.
-                    className={cn(
-                      'settings-nav-item w-full justify-start',
-                      current &&
-                        'bg-primary-50 text-primary-700 dark:bg-primary-950/60 dark:text-primary-400',
-                    )}
-                  >
-                    {item.label}
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
+        <nav
+          aria-label={SETTINGS_PAGE_STRINGS.navLabel}
+          className="settings-nav hidden space-y-4 md:block"
+        >
+          {groups.map((group) => (
+            <div key={group.label} className="settings-nav-group-block">
+              <NavGroupLabel label={group.label} />
+              <ul className="settings-nav-list flex flex-col gap-1">
+                {group.sections.map((item) => {
+                  const current = item.id === section?.id;
+                  return (
+                    <li key={item.id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-current={current ? 'page' : undefined}
+                        leftIcon={<item.icon className="h-4 w-4" />}
+                        onClick={() => setSectionParam(item.id)}
+                        // The app nav's active look, so "you are here" reads the same everywhere.
+                        className={cn(
+                          'settings-nav-item w-full justify-start',
+                          current &&
+                            'bg-primary-50 text-primary-700 dark:bg-primary-950/60 dark:text-primary-400',
+                        )}
+                      >
+                        {item.label}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+          {groups.length === 1 && <AdminNote />}
         </nav>
 
         {section ? (
@@ -1283,7 +1318,7 @@ export const SettingsPage: React.FC = () => {
             {content[section.id]}
           </section>
         ) : (
-          <SettingsMenu onOpen={setSectionParam} />
+          <SettingsMenu groups={groups} onOpen={setSectionParam} />
         )}
 
         {/* On a phone the version closes the menu, not every section. */}

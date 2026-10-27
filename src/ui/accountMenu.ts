@@ -89,7 +89,11 @@ export function buildAccountMenuSections(
               },
             ]
           : []),
-        { icon: UsersIcon, label: 'Members', onSelect: () => navigate('/app/org/members') },
+        {
+          icon: UsersIcon,
+          label: 'Members',
+          onSelect: () => navigate('/app/organization?tab=members'),
+        },
         ...(isOrganizationAdmin
           ? [{ icon: ChartIcon, label: 'Usage', onSelect: () => navigate('/app/org/usage') }]
           : []),

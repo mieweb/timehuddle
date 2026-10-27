@@ -37,13 +37,13 @@ test.describe('New User Auto-Join', () => {
     await expect(installerModal).not.toBeVisible();
 
     // Verify user can access org members page (auto-joined)
-    await page.goto('/app/org/members');
-    await expect(page.getByRole('heading', { name: /Members/i }).first()).toBeVisible({
+    await page.goto('/app/organization');
+    await expect(page.getByRole('heading', { name: 'People' }).first()).toBeVisible({
       timeout: 10000,
     });
 
-    // Verify user appears in the members list (unique name from signup)
-    await expect(page.getByText(new RegExp(`${uniqueName} User`, 'i'))).toBeVisible({
+    // Verify user appears in the org chart (unique name from signup)
+    await expect(page.getByText(new RegExp(`${uniqueName} User`, 'i')).first()).toBeVisible({
       timeout: 5000,
     });
   });

@@ -1,6 +1,7 @@
 // The Settings page's sections and their copy, in one place until the app has i18n.
 import {
   BellIcon,
+  BuildingIcon,
   HistoryIcon,
   KeyIcon,
   LinkIcon,
@@ -11,7 +12,14 @@ import {
 } from '@mieweb/ui';
 
 export type SettingsSectionId =
-  'profile' | 'appearance' | 'notifications' | 'api' | 'integrations' | 'activity' | 'account';
+  | 'profile'
+  | 'appearance'
+  | 'notifications'
+  | 'api'
+  | 'integrations'
+  | 'activity'
+  | 'account'
+  | 'organization';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -66,17 +74,47 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   },
 ];
 
+/** The Administration group, for people who manage that scope. */
+export const ADMIN_SECTIONS: readonly SettingsSection[] = [
+  {
+    id: 'organization',
+    label: 'Organization',
+    description: 'The defaults its teams inherit, and its ticket ID prefixes.',
+    icon: BuildingIcon,
+  },
+];
+
+export interface SettingsGroup {
+  label: string;
+  sections: readonly SettingsSection[];
+}
+
+/** The nav's groups for this viewer: Personal always, Administration for org admins. */
+export function settingsGroups(isOrgAdmin: boolean): SettingsGroup[] {
+  const groups: SettingsGroup[] = [
+    { label: SETTINGS_PAGE_STRINGS.personal, sections: PERSONAL_SECTIONS },
+  ];
+  if (isOrgAdmin)
+    groups.push({ label: SETTINGS_PAGE_STRINGS.administration, sections: ADMIN_SECTIONS });
+  return groups;
+}
+
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
   backToOverview: 'Settings',
   personal: 'Personal',
+  administration: 'Administration',
+  adminNote: 'Team and organization settings are managed by your admins.',
   version: (version: string) => `Version ${version}`,
   whatsNew: 'What’s new',
 } as const;
 
-/** The section `?section=` names, or null for a missing or unknown value. */
-export function resolveSettingsSection(value: string | null): SettingsSection | null {
-  return PERSONAL_SECTIONS.find((section) => section.id === value) ?? null;
+/** The section `?section=` names among those this viewer has, or null. */
+export function resolveSettingsSection(
+  value: string | null,
+  groups: SettingsGroup[],
+): SettingsSection | null {
+  return groups.flatMap((group) => group.sections).find((section) => section.id === value) ?? null;
 }
 
 /** A link straight to one section of Settings. */
