@@ -1203,7 +1203,7 @@ export const SettingsPage: React.FC = () => {
   const { navigate } = useRouter();
   const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
   const groups = settingsGroups({
-    organization: canManageSelectedOrganization(organizations, selectedOrgId),
+    organization: canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
     enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
   });
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
