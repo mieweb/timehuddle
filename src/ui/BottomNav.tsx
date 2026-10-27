@@ -35,6 +35,7 @@ import React, { useState } from 'react';
 import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu';
+import { settingsPath } from '../features/settings/settingsSections';
 import { isActivePath, useRouter } from './router';
 
 interface NavTab {
@@ -63,7 +64,7 @@ const MORE_ITEMS: MoreItem[] = [
   { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
   { icon: PersonIcon, label: 'People', href: '/app/organization' },
   { icon: BriefcaseIcon, label: 'Enterprise', href: '/app/enterprise' },
-  { icon: CircleUserIcon, label: 'Profile', href: '/app/settings' },
+  { icon: CircleUserIcon, label: 'Profile', href: settingsPath('profile') },
   { icon: SettingsIcon, label: 'Settings', href: '/app/settings' },
 ];
 
@@ -143,7 +144,7 @@ export const BottomNav: React.FC = () => {
   };
   const goToProfile = () => {
     closeMore();
-    navigate(user?.username ? `/app/profile/${user.username}` : '/app/settings');
+    navigate(user?.username ? `/app/profile/${user.username}` : settingsPath('profile'));
   };
 
   const activeSection = accountSections.find((section) => section.id === moreSection);

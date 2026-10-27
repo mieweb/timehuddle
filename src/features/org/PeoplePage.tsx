@@ -55,14 +55,17 @@ export const PeoplePage: React.FC = () => {
           <TabsTrigger value="invitations">{T.invitations}</TabsTrigger>
           <TabsTrigger value="chart">{T.chart}</TabsTrigger>
         </TabsList>
+        {/* Keyed by organization: switching orgs drops the old rows, dialogs and
+            in-flight responses, so nothing can act on one org from another's list.
+            The chart has no realtime feed, so an add or invite remounts it too. */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-y-auto pt-4">
-          <MembersPanel reloadKey={reloadKey} />
+          <MembersPanel key={selectedOrgId} reloadKey={reloadKey} />
         </TabsContent>
         <TabsContent value="invitations" className="min-h-0 flex-1 overflow-y-auto pt-4">
-          <InvitationsPanel reloadKey={reloadKey} />
+          <InvitationsPanel key={selectedOrgId} reloadKey={reloadKey} />
         </TabsContent>
         <TabsContent value="chart" className="min-h-0 flex-1 pt-4">
-          <OrgChartPanel />
+          <OrgChartPanel key={`${selectedOrgId}-${reloadKey}`} />
         </TabsContent>
       </Tabs>
     </AppPage>
