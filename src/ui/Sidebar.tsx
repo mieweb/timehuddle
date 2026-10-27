@@ -11,19 +11,19 @@
  * Labels fade in/out with AnimatePresence on the rail so they never clip during resize.
  */
 import {
-  faChevronLeft,
-  faChevronRight,
-  faClock,
-  faComments,
-  faGauge,
-  faGear,
-  faListCheck,
-  faSitemap,
-  faStopwatch,
-  faUsers,
-  faClockRotateLeft,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+  BuildingIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClipboardListIcon,
+  ClockIcon,
+  HistoryIcon,
+  HomeIcon,
+  MessageIcon,
+  SettingsIcon,
+  TimerIcon,
+  UsersIcon,
+  type LucideIcon,
+} from '@mieweb/ui';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
@@ -50,7 +50,7 @@ import { isActivePath, useRouter } from './router';
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 
 interface NavItem {
-  icon: typeof faGauge;
+  icon: LucideIcon;
   label: string;
   href: string;
   external?: boolean;
@@ -65,22 +65,22 @@ const NAV: NavSection[] = [
   {
     heading: 'Workspace',
     items: [
-      { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
-      { icon: faComments, label: 'Huddle', href: '/app/huddle' },
-      { icon: faClock, label: 'Clock', href: '/app/clock' },
-      { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
-      { icon: faStopwatch, label: 'Work', href: '/app/work' },
+      { icon: HomeIcon, label: 'Dashboard', href: '/app/dashboard' },
+      { icon: MessageIcon, label: 'Huddle', href: '/app/huddle' },
+      { icon: ClockIcon, label: 'Clock', href: '/app/clock' },
+      { icon: ClipboardListIcon, label: 'Tickets', href: '/app/tickets' },
+      { icon: TimerIcon, label: 'Work', href: '/app/work' },
     ],
   },
   {
     heading: 'Manage',
     items: [
-      { icon: faUsers, label: 'Teams', href: '/app/teams' },
-      { icon: faSitemap, label: 'Organization', href: '/app/organization' },
-      { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
+      { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
+      { icon: BuildingIcon, label: 'Organization', href: '/app/organization' },
+      { icon: HistoryIcon, label: 'Activity Log', href: '/app/activity' },
     ],
   },
-  { items: [{ icon: faGear, label: 'Settings', href: '/app/settings' }] },
+  { items: [{ icon: SettingsIcon, label: 'Settings', href: '/app/settings' }] },
 ];
 
 type SidebarContentVariant = 'rail' | 'drawer';
@@ -118,10 +118,10 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
       aria-current={active ? 'page' : undefined}
       title={!expanded ? item.label : undefined}
     >
-      <FontAwesomeIcon
-        icon={item.icon}
+      <item.icon
+        aria-hidden="true"
         className={[
-          'w-4 shrink-0 text-sm',
+          'h-4 w-4 shrink-0',
           active
             ? 'text-primary-600 dark:text-primary-400'
             : 'text-neutral-400 transition-colors group-hover:text-neutral-700 dark:group-hover:text-neutral-200',
@@ -260,10 +260,11 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
               isExpanded ? 'gap-3 px-2.5' : 'justify-center px-0',
             ].join(' ')}
           >
-            <FontAwesomeIcon
-              icon={isExpanded ? faChevronLeft : faChevronRight}
-              className="w-4 shrink-0 text-xs"
-            />
+            {isExpanded ? (
+              <ChevronLeftIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            ) : (
+              <ChevronRightIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            )}
             <AnimatePresence initial={false}>
               {isExpanded && (
                 <motion.span

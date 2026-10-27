@@ -5,14 +5,8 @@
  * one shown. The sections and their copy are in features/settings/settingsSections.ts.
  */
 import {
-  faBell,
-  faRotateLeft,
-  faRightFromBracket,
-  faTrash,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
   Badge,
+  BellIcon,
   Button,
   Card,
   CardContent,
@@ -20,10 +14,13 @@ import {
   CardTitle,
   cn,
   Input,
+  LogOutIcon,
+  RefreshIcon,
   Select,
   Switch,
   Text,
   Textarea,
+  TrashIcon,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -306,7 +303,7 @@ const PushNotificationsSettings: React.FC = () => {
               onClick={handleEnable}
               disabled={enableLoading || serverHasVapid === false}
               isLoading={enableLoading}
-              leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
+              leftIcon={<BellIcon className="h-3.5 w-3.5" />}
             >
               Enable notifications
             </Button>
@@ -977,7 +974,7 @@ const AccountSettings: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faRotateLeft} className="text-xs" />}
+            leftIcon={<RefreshIcon className="h-3.5 w-3.5" />}
             onClick={() => {
               setShowChangePassword((v) => !v);
               setPwMessage(null);
@@ -1045,7 +1042,7 @@ const AccountSettings: React.FC = () => {
           <Button
             variant="danger"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />}
+            leftIcon={<LogOutIcon className="h-3.5 w-3.5" />}
             onClick={() => void signOut()}
           >
             Sign out
@@ -1058,7 +1055,7 @@ const AccountSettings: React.FC = () => {
           <Button
             variant="danger"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faTrash} className="text-xs" />}
+            leftIcon={<TrashIcon className="h-3.5 w-3.5" />}
             disabled={deleteBusy}
             isLoading={deleteBusy}
             loadingText="Deleting…"
@@ -1178,7 +1175,7 @@ export const SettingsPage: React.FC = () => {
                     variant="ghost"
                     size="sm"
                     aria-current={current ? 'page' : undefined}
-                    leftIcon={<FontAwesomeIcon icon={item.icon} className="w-4 text-xs" />}
+                    leftIcon={<item.icon className="h-4 w-4" />}
                     onClick={() => setSectionParam(item.id)}
                     className={cn(
                       'settings-nav-item w-full justify-start whitespace-nowrap max-md:min-h-11',

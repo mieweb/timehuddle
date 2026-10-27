@@ -1,12 +1,13 @@
 // The Settings page's sections and their copy, in one place until the app has i18n.
 import {
-  faBell,
-  faKey,
-  faPalette,
-  faPlug,
-  faShieldHalved,
-  faUser,
-} from '@fortawesome/free-solid-svg-icons';
+  BellIcon,
+  KeyIcon,
+  LinkIcon,
+  PaletteIcon,
+  ShieldIcon,
+  UserIcon,
+  type LucideIcon,
+} from '@mieweb/ui';
 
 export type SettingsSectionId =
   'profile' | 'appearance' | 'notifications' | 'api' | 'integrations' | 'account';
@@ -15,41 +16,41 @@ export interface SettingsSection {
   id: SettingsSectionId;
   label: string;
   description: string;
-  icon: typeof faUser;
+  icon: LucideIcon;
 }
 
 /** The Personal group, in nav order. The first is shown when the URL names none. */
 export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
-  { id: 'profile', label: 'Profile', description: 'How you appear to your teams.', icon: faUser },
+  { id: 'profile', label: 'Profile', description: 'How you appear to your teams.', icon: UserIcon },
   {
     id: 'appearance',
     label: 'Appearance',
     description: 'Theme and brand for this device.',
-    icon: faPalette,
+    icon: PaletteIcon,
   },
   {
     id: 'notifications',
     label: 'Notifications',
     description: 'Choose what alerts you, and where.',
-    icon: faBell,
+    icon: BellIcon,
   },
   {
     id: 'api',
     label: 'API tokens',
     description: 'Personal tokens for TimeHarbor and other tools.',
-    icon: faKey,
+    icon: KeyIcon,
   },
   {
     id: 'integrations',
     label: 'Integrations',
     description: 'Connect the other tools you work in.',
-    icon: faPlug,
+    icon: LinkIcon,
   },
   {
     id: 'account',
     label: 'Account and privacy',
     description: 'Sign-in, sign-out and your account.',
-    icon: faShieldHalved,
+    icon: ShieldIcon,
   },
 ];
 
