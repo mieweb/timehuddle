@@ -74,6 +74,8 @@ describe('defineSource', () => {
       { ...minimal, fields: { body: { path: 'b', format: 'html' } } },
       /format must be/,
     ],
+    ['a global ID match', { ...minimal, id: { ...minimal.id, match: /x/g } }, /g or y flag/],
+    ['a sticky ID match', { ...minimal, id: { ...minimal.id, match: /x/y } }, /g or y flag/],
   ])('refuses %s', (_, definition, message) => {
     // Invalid on purpose: what the types would refuse, a JS caller can still pass.
     expect(() => defineSource(definition as never)).toThrow(message);

@@ -101,6 +101,8 @@ export function defineSource(definition) {
   }
   if (id.match !== undefined && !(id.match instanceof RegExp))
     fail(kind, 'id.match must be a RegExp');
+  // Frozen, a g or y regex can't move its lastIndex, so matching with it throws.
+  if (id.match?.global || id.match?.sticky) fail(kind, 'id.match must not use the g or y flag');
 
   for (const [name, spec] of Object.entries(fields)) {
     if (!RECORD_FIELDS.includes(name))
