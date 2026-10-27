@@ -15,6 +15,7 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, orgApi, type OrganizationInvitation } from '../../lib/api';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
 import { PEOPLE_STRINGS } from './peopleStrings';
 
@@ -60,6 +61,8 @@ export const InvitationsPanel: React.FC<{ reloadKey: number }> = ({ reloadKey })
   useEffect(() => {
     void load();
   }, [load, reloadKey]);
+
+  useRefresh(load);
 
   const revoke = async (invitationId: string) => {
     setRevokingId(invitationId);

@@ -77,6 +77,7 @@ export const PEOPLE_STRINGS = {
     confirm: 'Send Invite',
     confirming: 'Inviting…',
     sent: (email: string) => `A secure account setup link was sent to ${email}.`,
+    joined: (email: string) => `${email} already had an account and was added to the organization.`,
   },
   invitations: {
     columns: { email: 'Email', status: 'Status', sent: 'Sent', expires: 'Expires' },

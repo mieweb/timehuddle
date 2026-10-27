@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canManageSelectedOrganization,
   hasDefaultOrganizationAdminAccess,
   hasOrganizationAdminAccess,
 } from './organizationAccess';
@@ -50,5 +51,27 @@ describe('hasDefaultOrganizationAdminAccess', () => {
         organizationMembership: null,
       } as Parameters<typeof hasDefaultOrganizationAdminAccess>[0]),
     ).toBe(false);
+  });
+});
+
+describe('canManageSelectedOrganization', () => {
+  const orgs = [
+    { id: 'o1', enterpriseId: 'e1', role: 'member' as const },
+    { id: 'o2', enterpriseId: null, role: 'admin' as const },
+    { id: 'o3', enterpriseId: 'e2', role: 'member' as const },
+  ];
+
+  it("follows the selected organization's own role", () => {
+    expect(canManageSelectedOrganization(orgs, [], 'o2')).toBe(true);
+    expect(canManageSelectedOrganization(orgs, [], 'o1')).toBe(false);
+  });
+
+  it('lets an owner or admin of its enterprise manage it, even as a plain member', () => {
+    expect(canManageSelectedOrganization(orgs, [{ id: 'e1' }], 'o1')).toBe(true);
+    expect(canManageSelectedOrganization(orgs, [{ id: 'e1' }], 'o3')).toBe(false);
+  });
+
+  it('is false with no selected organization', () => {
+    expect(canManageSelectedOrganization(orgs, [{ id: 'e1' }], null)).toBe(false);
   });
 });

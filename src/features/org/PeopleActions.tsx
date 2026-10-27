@@ -11,6 +11,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  ModalTitle,
   Select,
   SettingsIcon,
   Text,
@@ -77,7 +78,9 @@ const AddExistingUserDialog: React.FC<{ onClose: () => void; onAdded: () => void
 
   return (
     <AppModal open onOpenChange={(open) => !open && !saving && onClose()}>
-      <ModalHeader>{S.title}</ModalHeader>
+      <ModalHeader>
+        <ModalTitle>{S.title}</ModalTitle>
+      </ModalHeader>
       <ModalBody className="space-y-3">
         {error && <Alert variant="danger">{error}</Alert>}
         <Select
@@ -130,8 +133,8 @@ const InviteDialog: React.FC<{ onClose: () => void; onInvited: () => void }> = (
     setStatus(null);
     try {
       const result = await orgApi.inviteMember(selectedOrgId, address);
-      // A pending invite is sent by email; anyone else was added straight away.
-      setStatus(result.status === 'pending' ? S.sent(address) : null);
+      // A pending invite is sent by email; an existing account is added straight away.
+      setStatus(result.status === 'pending' ? S.sent(address) : S.joined(address));
       setEmail('');
       onInvited();
     } catch (err) {
@@ -143,7 +146,9 @@ const InviteDialog: React.FC<{ onClose: () => void; onInvited: () => void }> = (
 
   return (
     <AppModal open onOpenChange={(open) => !open && !sending && onClose()}>
-      <ModalHeader>{S.title}</ModalHeader>
+      <ModalHeader>
+        <ModalTitle>{S.title}</ModalTitle>
+      </ModalHeader>
       <ModalBody className="space-y-3">
         <Text variant="muted" size="sm">
           {S.help}
