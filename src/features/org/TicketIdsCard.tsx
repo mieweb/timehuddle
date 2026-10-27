@@ -2,7 +2,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons';
 import {
   Alert,
-  Badge,
   Button,
   ButtonGroup,
   Card,
@@ -13,7 +12,6 @@ import {
   Text,
   WebsiteInput,
 } from '@mieweb/ui';
-import { SOURCES } from '@timehuddle/ticket-sources';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { ApiError, orgApi, type SourcePrefix } from '../../lib/api';
@@ -232,9 +230,6 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
           )}
           {servers.map((row, index) => (
             <div key={row.key} className="org-ticket-server-row flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" size="sm" className="org-ticket-server-type">
-                {SOURCES[row.type].label}
-              </Badge>
               <div className="org-ticket-server-host min-w-0 flex-1 basis-56">
                 <WebsiteInput
                   label={TICKET_IDS_STRINGS.serverLabel(index + 1)}
