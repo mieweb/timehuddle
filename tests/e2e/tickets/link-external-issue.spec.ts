@@ -59,14 +59,18 @@ async function withFakeLink(page: Page, initial: string | null = null) {
   return { link, unlink };
 }
 
-/** Creates a ticket through the UI and opens its page. */
-async function openNewTicket(page: Page, title: string): Promise<void> {
+/**
+ * Creates a ticket through the UI and opens its page. A ticket that already
+ * carries an issue is headed by the issue's title (#757), so a spec that links
+ * it first passes that as `heading`.
+ */
+async function openNewTicket(page: Page, title: string, heading = title): Promise<void> {
   const tickets = new TicketsPage(page);
   await tickets.goto();
   await tickets.createTicket(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+  await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible({
     timeout: 20000,
   });
 }
@@ -121,7 +125,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
   test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
-    await openNewTicket(page, `Unlink ${Date.now()}`);
+    await openNewTicket(page, `Unlink ${Date.now()}`, ISSUE.subject);
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
     await expect(card(page)).toContainText('Unlink this issue?');
@@ -196,7 +200,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: { unlinkedSeconds: 0, unsentSeconds: 8100, sentSeconds: 5400 },
       othersWithTime: 2,
     }));
-    await openNewTicket(page, `Unlink warnings ${Date.now()}`);
+    await openNewTicket(page, `Unlink warnings ${Date.now()}`, ISSUE.subject);
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
 
@@ -218,7 +222,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: NO_TIME,
       othersWithTime: 1,
     }));
-    await openNewTicket(page, `Locked ${Date.now()}`);
+    await openNewTicket(page, `Locked ${Date.now()}`, ISSUE.subject);
 
     await expect(page.getByText(message)).toBeVisible();
     await expect(card(page).getByRole('button', { name: 'Change' })).toBeDisabled();
