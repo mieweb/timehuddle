@@ -62,6 +62,9 @@ export function parseTicketRef(raw) {
   return { name: named[1], digits: named[2] };
 }
 
+/** The start of a GitHub link, as a regex source: the host itself, not a query that names it. */
+const GITHUB_ORIGIN = '^https?://(?:www\\.)?github\\.com(?::\\d+)?/';
+
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // An issue or PR, or a page under one: `/pull/554/files`.
@@ -135,7 +138,7 @@ export function ticketLinkSelector(link, { teams, redmineHost }) {
   if (!teams.length) return null;
   if (link.github) {
     const { owner, repo, digits } = link.github;
-    const issue = `github\\.com/${escapeRegExp(owner)}/${escapeRegExp(repo)}/(?:issues|pull)/${digits}(?!\\d)`;
+    const issue = `${GITHUB_ORIGIN}${escapeRegExp(owner)}/${escapeRegExp(repo)}/(?:issues|pull)/${digits}(?!\\d)`;
     return { ...live(teams), github: new RegExp(issue, 'i') };
   }
   return {
@@ -158,7 +161,7 @@ const numberPattern = (digits, exact) => (exact ? digits : `${digits}\\d${digits
 const numberEndingPath = (pattern) => `/${pattern}/?(?:[?#].*)?$`;
 
 /** A link on any server whose path ends in the number. */
-const anyLinkTo = (pattern) => new RegExp(numberEndingPath(pattern));
+const anyLinkTo = (pattern) => new RegExp(`^[^?#]*${numberEndingPath(pattern)}`);
 
 /**
  * A link on `host` whose path ends in the number. `http` too: older links were
@@ -176,7 +179,7 @@ const linkOnHostTo = (host, pattern) =>
  */
 const githubIssue = (repo, pattern) =>
   new RegExp(
-    `github\\.com/[^/?#]+/${repo === null ? '[^/?#]+' : escapeRegExp(repo)}/(?:issues|pull)/${pattern}(?!\\d)`,
+    `${GITHUB_ORIGIN}[^/?#]+/${repo === null ? '[^/?#]+' : escapeRegExp(repo)}/(?:issues|pull)/${pattern}(?!\\d)`,
     'i',
   );
 

@@ -50,7 +50,7 @@ export const suggestionText = {
 
   emptyById: (ref: string) => `No issue ${ref}, or you can't see it.`,
   emptyByRef: (ref: string) => `No tickets or issues match ${ref}.`,
-  emptyByUrl: "That link isn't an issue on your Redmine.",
+  emptyByUrl: 'No tickets or issues match that link.',
   emptyByAssignee: (name: string) =>
     `No single person matches “@${name}”. Type more of their name — names work, logins don't.`,
   emptyByText: (text: string) => `No tickets or open Redmine issues with “${text}” in the title.`,

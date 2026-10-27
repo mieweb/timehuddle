@@ -115,6 +115,13 @@ beforeAll(async () => {
     number: 31,
     github: 'https://github.com/mieweb/pulse/pull/554/files#diff',
   });
+  // Numbers outside the issue's own path: never a match for them.
+  await ticket(a2, 'back-url', {
+    github: `https://${REDMINE_HOST}/issues/150?back_url=/issues/233`,
+  });
+  await ticket(b1, 'not-github', {
+    github: 'https://notgithub.com/mieweb/timehuddle/issues/223',
+  });
   await ticket(a1, 'deleted', { number: 12, status: 'deleted' });
   await ticket(outside, 'not-my-team', { number: 12 });
 });
@@ -189,12 +196,14 @@ describe('ticketRefSelector', () => {
     // An `http` link from before only `https` was accepted counts too.
     const onServer = ['carrier', 'carrier-with-host', 'http-link', 'redmine-link'];
     expect(await find('RM0-233', { exact: true })).toEqual(onServer);
-    expect(await find('RM0-')).toEqual(onServer);
+    // Issue 150 on that server: in its prefix, and never found as 233 from its query.
+    expect(await find('RM0-')).toEqual(['back-url', ...onServer]);
     expect(await find('RM0-23')).toEqual(onServer);
     expect(await find('RM0-23', { exact: true })).toEqual([]);
   });
 
   it('finds tickets linked to a GitHub issue or PR by repo name, in any owner, any case', async () => {
+    // Not a link on another host that only looks like GitHub's.
     expect(await find('timehuddle-223', { exact: true })).toEqual(['github', 'github-fork']);
     expect(await find('TimeHuddle-22', { exact: true })).toEqual([]);
     expect(await find('TimeHuddle-')).toEqual(['github', 'github-fork']);
@@ -204,7 +213,8 @@ describe('ticketRefSelector', () => {
   });
 
   it('finds every ticket where a bare number appears, whole', async () => {
-    expect(await find('223')).toEqual(['github', 'github-fork', 'number-223']);
+    // Any link whose path ends in the number, on any host.
+    expect(await find('223')).toEqual(['github', 'github-fork', 'not-github', 'number-223']);
     expect(await find('#233')).toEqual([
       'carrier',
       'carrier-with-host',
