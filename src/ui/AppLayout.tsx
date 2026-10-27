@@ -90,7 +90,6 @@ const TicketDetailPage = lazyNamed(
   () => import('../features/tickets/detail/TicketDetailPage'),
   'TicketDetailPage',
 );
-const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
 const Huddle = lazy(() => import('../pages/Huddle'));
 const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
 const OrganizationOverviewPage = lazyNamed(
@@ -132,7 +131,6 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/settings': { title: 'Settings', component: SettingsPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/work': { title: 'Work', component: WorkPage },
 };
 
 /** Null when nothing matches — the caller shows not-found rather than a page

@@ -61,7 +61,12 @@ const NAV_ITEMS: NavSection[] = [
     heading: 'Workspace',
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard', keywords: ['home', 'overview'] },
-      { icon: faStopwatch, label: 'Work', href: '/app/work', keywords: ['timer', 'tracking'] },
+      {
+        icon: faStopwatch,
+        label: 'My Week',
+        href: '/app/tickets?view=week',
+        keywords: ['work', 'timer', 'tracking', 'timesheet'],
+      },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets', keywords: ['tasks', 'issues'] },
     ],
   },

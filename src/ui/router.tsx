@@ -54,6 +54,7 @@ const RETIRED_ROUTES: Record<string, string> = {
   '/app/org/members': '/app/organization?tab=members',
   '/app/org/usage': '/app/settings?section=usage',
   '/app/seeder': '/app/settings?section=seeder',
+  '/app/work': '/app/tickets?view=week',
 };
 
 /** Keys from `replacement` win; everything else the original link carried is kept. */
