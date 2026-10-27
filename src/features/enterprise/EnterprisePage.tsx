@@ -221,8 +221,14 @@ const AdminsCard: React.FC<{
       .catch(() => setOptions([]));
   }, [canEdit, enterprise.id]);
 
-  /** Runs one change for `userId`, then reloads; a refusal shows in the card. */
+  /**
+   * Runs one change for `userId`, then reloads; a refusal shows in the card.
+   * One at a time: the server rewrites the whole owners/admins list, so two
+   * overlapping changes could undo each other. Every control waits for this.
+   */
+  const busy = savingId !== null;
   const run = async (userId: string, call: () => Promise<unknown>, fallback: string) => {
+    if (busy) return false;
     setSavingId(userId);
     setError(null);
     try {
@@ -280,7 +286,7 @@ const AdminsCard: React.FC<{
                 size="sm"
                 value={member.role}
                 options={ROLE_OPTIONS}
-                disabled={!canEdit || savingId === member.id}
+                disabled={!canEdit || busy}
                 onValueChange={(value) =>
                   void run(
                     member.id,
@@ -299,7 +305,12 @@ const AdminsCard: React.FC<{
                 <Dropdown
                   placement="bottom-end"
                   trigger={
-                    <Button variant="ghost" size="icon" aria-label={A.menuFor(member.name)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={A.menuFor(member.name)}
+                      disabled={busy}
+                    >
                       <MoreHorizontalIcon className="h-4 w-4" />
                     </Button>
                   }
@@ -351,7 +362,7 @@ const AdminsCard: React.FC<{
               options={ROLE_OPTIONS}
               className="w-32"
             />
-            <Button type="submit" disabled={!addUserId || savingId !== null}>
+            <Button type="submit" disabled={!addUserId || busy}>
               {A.add}
             </Button>
           </form>
