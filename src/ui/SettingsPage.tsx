@@ -1221,7 +1221,7 @@ export const SettingsPage: React.FC = () => {
   const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
   const groups = settingsGroups(
     {
-      organization: canManageSelectedOrganization(organizations, selectedOrgId),
+      organization: canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
       enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
       usage: hasOrganizationAdminAccess(organizations),
     },
