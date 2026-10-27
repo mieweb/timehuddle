@@ -1,10 +1,10 @@
 /**
  * SettingsPage — User & application settings.
  *
- * `?section=` picks the section shown; without one it opens on an overview of
- * every section. On desktop a side nav sits beside it. On a phone the overview
- * is the menu, and an open section has a back button to it. The sections and
- * their copy are in features/settings/settingsSections.ts.
+ * `?section=` picks the section shown. On desktop a side nav sits beside it,
+ * and no section means Profile. On a phone no section means the menu, a list
+ * of every section, and an open section has a back button to it. The sections
+ * and their copy are in features/settings/settingsSections.ts.
  */
 import {
   Badge,
@@ -17,7 +17,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   cn,
-  GridIcon,
   Input,
   LogOutIcon,
   RefreshIcon,
@@ -26,6 +25,7 @@ import {
   Text,
   Textarea,
   TrashIcon,
+  useMediaQuery,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
@@ -53,7 +53,6 @@ import {
   PERSONAL_SECTIONS,
   SETTINGS_PAGE_STRINGS,
   resolveSettingsSection,
-  type SettingsSection,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
@@ -1123,11 +1122,11 @@ const OverviewRow: React.FC<{
   </Button>
 );
 
-/** Every section on one list, led by who you are. The phone's Settings menu. */
-const SettingsOverview: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = ({ onOpen }) => {
+/** The phone's Settings menu: who you are (which opens Profile), then every other section. */
+const SettingsMenu: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = ({ onOpen }) => {
   const { user } = useSession();
   return (
-    <>
+    <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-menu space-y-4">
       <Section>
         <OverviewRow
           leading={<UserAvatar name={user?.name || user?.email || ''} src={user?.image} />}
@@ -1136,20 +1135,34 @@ const SettingsOverview: React.FC<{ onOpen: (id: SettingsSectionId) => void }> = 
           onOpen={() => onOpen('profile')}
         />
       </Section>
-      <Section title={SETTINGS_PAGE_STRINGS.personal}>
-        {PERSONAL_SECTIONS.map((item) => (
-          <OverviewRow
-            key={item.id}
-            leading={<item.icon className="h-4 w-4" />}
-            label={item.label}
-            detail={item.description}
-            onOpen={() => onOpen(item.id)}
-          />
-        ))}
-      </Section>
-    </>
+      <div className="settings-menu-group">
+        <NavGroupLabel />
+        <Section>
+          {PERSONAL_SECTIONS.filter((item) => item.id !== 'profile').map((item) => (
+            <OverviewRow
+              key={item.id}
+              leading={<item.icon className="h-4 w-4" />}
+              label={item.label}
+              detail={item.description}
+              onOpen={() => onOpen(item.id)}
+            />
+          ))}
+        </Section>
+      </div>
+    </nav>
   );
 };
+
+const NavGroupLabel: React.FC = () => (
+  <Text
+    size="xs"
+    weight="semibold"
+    variant="muted"
+    className="settings-nav-group mb-1 px-2.5 uppercase tracking-widest"
+  >
+    {SETTINGS_PAGE_STRINGS.personal}
+  </Text>
+);
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
@@ -1159,7 +1172,9 @@ export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
   const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
-  const section = resolveSettingsSection(sectionParam);
+  const phone = useMediaQuery('(max-width: 767px)');
+  // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
+  const section = resolveSettingsSection(sectionParam) ?? (phone ? null : PERSONAL_SECTIONS[0]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useRefresh(
@@ -1204,55 +1219,44 @@ export const SettingsPage: React.FC = () => {
     account: <AccountSettings />,
   };
 
-  const navItem = (id: SettingsSectionId | null, label: string, icon: SettingsSection['icon']) => {
-    const current = id === (section?.id ?? null);
-    const Icon = icon;
-    return (
-      <li key={id ?? 'overview'}>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-current={current ? 'page' : undefined}
-          leftIcon={<Icon className="h-4 w-4" />}
-          onClick={() => setSectionParam(id)}
-          className={cn(
-            'settings-nav-item w-full justify-start',
-            current && 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100',
-          )}
-        >
-          {label}
-        </Button>
-      </li>
-    );
-  };
-
   return (
     <AppPage width="wide">
       {/* Desktop: side nav and version on the left, the section beside them.
-          Phone: the overview is the menu; an open section gets a back button. */}
+          Phone: the menu, or one section with a back button to it. */}
       <div className="settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8">
         <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-nav hidden md:block">
+          <NavGroupLabel />
           <ul className="settings-nav-list flex flex-col gap-1">
-            {navItem(null, SETTINGS_PAGE_STRINGS.overview, GridIcon)}
-          </ul>
-          <Text
-            size="xs"
-            weight="semibold"
-            variant="muted"
-            className="settings-nav-group mt-4 mb-1 px-2.5 uppercase tracking-widest"
-          >
-            {SETTINGS_PAGE_STRINGS.personal}
-          </Text>
-          <ul className="settings-nav-list flex flex-col gap-1">
-            {PERSONAL_SECTIONS.map((item) => navItem(item.id, item.label, item.icon))}
+            {PERSONAL_SECTIONS.map((item) => {
+              const current = item.id === section?.id;
+              return (
+                <li key={item.id}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-current={current ? 'page' : undefined}
+                    leftIcon={<item.icon className="h-4 w-4" />}
+                    onClick={() => setSectionParam(item.id)}
+                    // The app nav's active look, so "you are here" reads the same everywhere.
+                    className={cn(
+                      'settings-nav-item w-full justify-start',
+                      current &&
+                        'bg-primary-50 text-primary-700 dark:bg-primary-950/60 dark:text-primary-400',
+                    )}
+                  >
+                    {item.label}
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 
-        <section
-          aria-labelledby="settings-section-title"
-          className="settings-panel min-w-0 space-y-4 md:row-span-2"
-        >
-          {section && (
+        {section ? (
+          <section
+            aria-labelledby="settings-section-title"
+            className="settings-panel min-w-0 space-y-4 md:row-span-2"
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -1262,17 +1266,19 @@ export const SettingsPage: React.FC = () => {
             >
               {SETTINGS_PAGE_STRINGS.backToOverview}
             </Button>
-          )}
-          <div className="settings-panel-header">
-            <Text as="h2" id="settings-section-title" size="lg" weight="semibold">
-              {section?.label ?? SETTINGS_PAGE_STRINGS.overview}
-            </Text>
-            <Text variant="muted" size="sm">
-              {section?.description ?? SETTINGS_PAGE_STRINGS.overviewDescription}
-            </Text>
-          </div>
-          {section ? content[section.id] : <SettingsOverview onOpen={setSectionParam} />}
-        </section>
+            <div className="settings-panel-header">
+              <Text as="h2" id="settings-section-title" size="lg" weight="semibold">
+                {section.label}
+              </Text>
+              <Text variant="muted" size="sm">
+                {section.description}
+              </Text>
+            </div>
+            {content[section.id]}
+          </section>
+        ) : (
+          <SettingsMenu onOpen={setSectionParam} />
+        )}
 
         {/* On a phone the version closes the menu, not every section. */}
         <Text

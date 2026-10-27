@@ -21,50 +21,53 @@ export interface SettingsSection {
 
 /** The Personal group, in nav order. */
 export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
-  { id: 'profile', label: 'Profile', description: 'How you appear to your teams.', icon: UserIcon },
+  {
+    id: 'profile',
+    label: 'Profile',
+    description: 'Your name, bio and who you report to.',
+    icon: UserIcon,
+  },
   {
     id: 'appearance',
     label: 'Appearance',
-    description: 'Theme and brand for this device.',
+    description: 'Dark mode and brand theme on this device.',
     icon: PaletteIcon,
   },
   {
     id: 'notifications',
     label: 'Notifications',
-    description: 'Choose what alerts you, and where.',
+    description: 'Push alerts when teammates clock in or out.',
     icon: BellIcon,
   },
   {
     id: 'api',
     label: 'API tokens',
-    description: 'Personal tokens for TimeHarbor and other tools.',
+    description: 'Tokens for TimeHarbor and your own scripts.',
     icon: KeyIcon,
   },
   {
     id: 'integrations',
     label: 'Integrations',
-    description: 'Connect the other tools you work in.',
+    description: 'Your Redmine connection.',
     icon: LinkIcon,
   },
   {
     id: 'account',
     label: 'Account and privacy',
-    description: 'Sign-in, sign-out and your account.',
+    description: 'Sign-in, password and deleting your account.',
     icon: ShieldIcon,
   },
 ];
 
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
-  overview: 'All settings',
-  overviewDescription: 'Everything you can change, in one place.',
   backToOverview: 'Settings',
   personal: 'Personal',
   version: (version: string) => `Version ${version}`,
   whatsNew: 'What’s new',
 } as const;
 
-/** The section `?section=` names, or null (the overview) for a missing or unknown value. */
+/** The section `?section=` names, or null for a missing or unknown value. */
 export function resolveSettingsSection(value: string | null): SettingsSection | null {
   return PERSONAL_SECTIONS.find((section) => section.id === value) ?? null;
 }
