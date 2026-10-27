@@ -17,8 +17,8 @@ const activityList = (page: Page) => page.getByRole('list', { name: 'Activity lo
 const entries = (page: Page) => activityList(page).locator('li');
 
 async function openActivityLog(page: Page): Promise<void> {
-  await page.goto('/app/activity');
-  await expect(page.getByRole('heading', { level: 1, name: 'Activity Log' })).toBeVisible({
+  await page.goto('/app/settings?section=activity');
+  await expect(page.getByRole('heading', { level: 2, name: 'Activity log' })).toBeVisible({
     timeout: 20000,
   });
 }
@@ -28,13 +28,12 @@ test.describe('Activity Log', () => {
     await loginAs(page, TEST_USERS.owner1);
   });
 
-  test('renders the activity log page', async ({ page }) => {
-    await openActivityLog(page);
-
-    expect(page.url()).toContain('/app/activity');
-    await expect(
-      page.getByText('A chronological log of your activity in TimeHuddle.'),
-    ).toBeVisible();
+  test('the old /app/activity link opens it in Settings', async ({ page }) => {
+    await page.goto('/app/activity');
+    await expect(page).toHaveURL(/\/app\/settings\?section=activity/);
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity log' })).toBeVisible({
+      timeout: 20000,
+    });
   });
 
   test('records a completed shift', async ({ page }) => {

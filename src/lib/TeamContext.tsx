@@ -67,7 +67,6 @@ const TEAM_PAGE = '/app/teams/:teamId';
  * nothing to do with a team, and the recipient got a no-access page.
  */
 const TEAM_SCOPED_PATHS = new Set([
-  '/app/activity',
   '/app/clock',
   '/app/dashboard',
   '/app/huddle',

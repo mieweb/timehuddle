@@ -92,10 +92,6 @@ const TicketDetailPage = lazyNamed(
   'TicketDetailPage',
 );
 const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
-const ActivityLogPage = lazyNamed(
-  () => import('../features/activity/ActivityLogPage'),
-  'ActivityLogPage',
-);
 const OrganizationMembersPage = lazyNamed(
   () => import('../features/org/OrganizationMembersPage'),
   'OrganizationMembersPage',
@@ -134,14 +130,13 @@ interface RouteConfig {
 const ROUTES: Record<string, RouteConfig> = {
   '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
 
-  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
-  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/organization': { title: 'People', component: OrganizationPage },
   '/app/release-notes': { title: 'What’s New', component: ReleaseNotesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
   ...(import.meta.env.MODE !== 'production'

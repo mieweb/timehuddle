@@ -69,13 +69,13 @@ A signed-out visitor who opens an `/app/...` link signs in and comes back to it 
 
 Notification payloads and bookmarks already in the wild use these. They are read as aliases and normalised to the new name the next time the URL is written.
 
-| Legacy                                          | Now                                            |
-| ----------------------------------------------- | ---------------------------------------------- |
-| `?teamId=`                                      | `?team=`                                       |
-| `?postId=`                                      | `?post=`                                       |
-| `?memberId=`                                    | `?member=`                                     |
-| `?requestId=`                                   | `?request=`                                    |
-| `/app/timesheet`, `/app/messages`, `/app/media` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
+| Legacy                                                           | Now                                            |
+| ---------------------------------------------------------------- | ---------------------------------------------- |
+| `?teamId=`                                                       | `?team=`                                       |
+| `?postId=`                                                       | `?post=`                                       |
+| `?memberId=`                                                     | `?member=`                                     |
+| `?requestId=`                                                    | `?request=`                                    |
+| `/app/timesheet`, `/app/messages`, `/app/media`, `/app/activity` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
 
 ## Paths That Don't Resolve
 

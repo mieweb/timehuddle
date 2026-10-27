@@ -71,9 +71,9 @@ const NAV_ITEMS: NavSection[] = [
       { icon: faUsers, label: 'Teams', href: '/app/teams', keywords: ['members', 'groups'] },
       {
         icon: faSitemap,
-        label: 'Org Chart',
+        label: 'People',
         href: '/app/organization',
-        keywords: ['organization', 'hierarchy', 'chart', 'structure'],
+        keywords: ['organization', 'org chart', 'hierarchy', 'structure'],
       },
       {
         icon: faBell,
@@ -84,7 +84,7 @@ const NAV_ITEMS: NavSection[] = [
       {
         icon: faClockRotateLeft,
         label: 'Activity Log',
-        href: '/app/activity',
+        href: '/app/settings?section=activity',
         keywords: ['history', 'audit'],
       },
     ],

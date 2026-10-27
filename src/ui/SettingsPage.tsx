@@ -55,6 +55,7 @@ import {
   resolveSettingsSection,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
+import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
@@ -1214,6 +1215,11 @@ export const SettingsPage: React.FC = () => {
     integrations: (
       <Section title="Redmine" description="Link your personal Redmine account with your API key.">
         <RedmineConnection />
+      </Section>
+    ),
+    activity: (
+      <Section>
+        <ActivityLog />
       </Section>
     ),
     account: <AccountSettings />,

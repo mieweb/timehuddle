@@ -50,6 +50,7 @@ const RETIRED_ROUTES: Record<string, string> = {
   '/app/timesheet': '/app/dashboard?view=timesheet',
   '/app/messages': '/app/dashboard',
   '/app/media': '/app/dashboard',
+  '/app/activity': '/app/settings?section=activity',
 };
 
 /** Keys from `replacement` win; everything else the original link carried is kept. */

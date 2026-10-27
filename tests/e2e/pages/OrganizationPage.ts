@@ -28,7 +28,7 @@ export class OrganizationPage extends BasePage {
    * Navigate via sidebar
    */
   async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: /^Organization$/i }).click();
+    await this.page.getByRole('button', { name: /^People$/i }).click();
     await this.waitForLoad();
   }
 
@@ -78,7 +78,7 @@ export class OrganizationPage extends BasePage {
    * Check if organization section is visible in sidebar
    */
   async hasOrganizationInSidebar(): Promise<boolean> {
-    const orgButton = this.page.getByRole('button', { name: /^Organization$/i });
+    const orgButton = this.page.getByRole('button', { name: /^People$/i });
     return await orgButton.isVisible().catch(() => false);
   }
 

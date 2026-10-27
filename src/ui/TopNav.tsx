@@ -6,14 +6,13 @@
  * scrolls sideways rather than wrapping.
  */
 import {
-  BuildingIcon,
   Button,
   ClipboardListIcon,
   ClockIcon,
   cn,
-  HistoryIcon,
   HomeIcon,
   MessageIcon,
+  PersonIcon,
   SettingsIcon,
   TimerIcon,
   UsersIcon,
@@ -39,8 +38,7 @@ const NAV: NavItem[][] = [
   ],
   [
     { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
-    { icon: BuildingIcon, label: 'Organization', href: '/app/organization' },
-    { icon: HistoryIcon, label: 'Activity Log', href: '/app/activity' },
+    { icon: PersonIcon, label: 'People', href: '/app/organization' },
   ],
   [{ icon: SettingsIcon, label: 'Settings', href: '/app/settings' }],
 ];

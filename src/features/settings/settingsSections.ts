@@ -1,6 +1,7 @@
 // The Settings page's sections and their copy, in one place until the app has i18n.
 import {
   BellIcon,
+  HistoryIcon,
   KeyIcon,
   LinkIcon,
   PaletteIcon,
@@ -10,7 +11,7 @@ import {
 } from '@mieweb/ui';
 
 export type SettingsSectionId =
-  'profile' | 'appearance' | 'notifications' | 'api' | 'integrations' | 'account';
+  'profile' | 'appearance' | 'notifications' | 'api' | 'integrations' | 'activity' | 'account';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -50,6 +51,12 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
     label: 'Integrations',
     description: 'Your Redmine connection.',
     icon: LinkIcon,
+  },
+  {
+    id: 'activity',
+    label: 'Activity log',
+    description: 'Your clock-ins, tickets and other actions, newest first.',
+    icon: HistoryIcon,
   },
   {
     id: 'account',
