@@ -6,6 +6,7 @@
  * `redmineSendTime` has no implementation here yet: time is still sent by
  * `redmine.push` in redmine.js, and moves onto the engine in #734 step 6.
  */
+import { bustUserCaches } from '../redmine-cache';
 import { updateIssue } from '../redmine-client';
 import { loadJournals, loadTimeEntries, toWriteMeteorError } from '../redmine-issue-methods';
 import { toConversation, toIssueDetail } from '../redmine-issues';
@@ -33,7 +34,7 @@ export const redmineHooks = {
    * Today's issue write: only the fields that changed, a status only if the
    * member may move to it, then a read-back for what Redmine didn't store.
    */
-  async redmineWrite({ raw, edits }, { account, reload }) {
+  async redmineWrite({ raw, edits }, { userId, account, reload }) {
     const payload = buildUpdatePayload(toIssueDetail(raw), fromRecordEdits(edits));
     if (payload.error) throw new EngineError('bad-request', payload.error);
     if (Object.keys(payload.fields).length === 0) return { raw, mismatches: [] };
@@ -42,6 +43,9 @@ export const redmineHooks = {
     } catch (err) {
       throw toWriteMeteorError(err);
     }
+    // The Tickets list's issues are cached per user for a while: without this,
+    // its refetch could serve the issue as it was before the write.
+    bustUserCaches(userId);
     const fresh = await reload();
     if (!fresh) throw toWriteMeteorError({ status: 404 });
     return { raw: fresh, mismatches: readBackMismatches(payload.fields, toIssueDetail(fresh)) };

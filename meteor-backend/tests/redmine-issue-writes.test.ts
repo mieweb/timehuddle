@@ -148,7 +148,7 @@ describe('fromRecordEdits (#734 step 3)', () => {
   });
 
   it('refuses assignees that are not a list of at most one id, rather than unassigning', () => {
-    for (const assignees of ['8', {}, null, ['8', '9']]) {
+    for (const assignees of ['8', {}, null, ['8', '9'], [null], [''], ['x']]) {
       const edits = fromRecordEdits({ assignees } as never);
       expect(buildUpdatePayload(original, edits).error).toMatch(/assignee is not valid/);
     }

@@ -31,6 +31,7 @@ import {
   ticketApi,
   timerApi,
   type ActivityLogItem,
+  type OutsideIssue,
   type TeamMember,
   type Ticket,
   type TicketLinkStatus,
@@ -101,6 +102,17 @@ function statusVariant(status: string): BadgeProps['variant'] {
   }
 }
 
+/** Which carried issue an edit was opened on, and that issue's version then. */
+type DraftBase = { issue: string; updated: string } | null;
+
+function baseOf(issue: OutsideIssue): NonNullable<DraftBase> {
+  const ref = issue.record.ref;
+  return {
+    issue: `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`,
+    updated: issue.record.dates.updated ?? '',
+  };
+}
+
 /** A source's name ("Redmine") by its kind, for the page's labels. */
 function sourceLabel(kind: string): string {
   return (SOURCES as Record<string, { label: string } | undefined>)[kind]?.label ?? kind;
@@ -143,10 +155,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   // What an open title or description edit was started against: the carried
-  // issue's version (its `dates.updated`), or the ticket itself (null). It is
-  // saved there and only there, checked against that version.
-  const [titleBase, setTitleBase] = useState<string | null>(null);
-  const [descBase, setDescBase] = useState<string | null>(null);
+  // issue (which one, and its `dates.updated`), or the ticket itself (null).
+  // It is saved there and only there, checked against that version.
+  const [titleBase, setTitleBase] = useState<DraftBase>(null);
+  const [descBase, setDescBase] = useState<DraftBase>(null);
   // Set by Reload after a stale refusal: once the fresh issue arrives, an open
   // edit keeps its text and moves onto that version, so its next Save goes.
   const [rebaseDrafts, setRebaseDrafts] = useState(false);
@@ -179,13 +191,18 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   );
   const carried = outside.state.kind === 'loaded' ? outside.state.issue : null;
   const { reload: reloadOutside } = outside;
-  const carriedUpdated = carried ? (carried.record.dates.updated ?? '') : null;
+  const carriedBase = carried ? baseOf(carried) : null;
+  const carriedIssue = carriedBase?.issue ?? null;
+  const carriedUpdated = carriedBase?.updated ?? null;
   useEffect(() => {
-    if (!rebaseDrafts || carriedUpdated === null) return;
-    setTitleBase((base) => (base === null ? base : carriedUpdated));
-    setDescBase((base) => (base === null ? base : carriedUpdated));
+    if (!rebaseDrafts || carriedIssue === null || carriedUpdated === null) return;
+    // Only onto the same issue: a draft for another one stays refused.
+    const rebase = (base: DraftBase) =>
+      base?.issue === carriedIssue ? { issue: carriedIssue, updated: carriedUpdated } : base;
+    setTitleBase(rebase);
+    setDescBase(rebase);
     setRebaseDrafts(false);
-  }, [rebaseDrafts, carriedUpdated]);
+  }, [rebaseDrafts, carriedIssue, carriedUpdated]);
   useEffect(() => {
     void loadLock();
     const onRefetch = () => {
@@ -303,15 +320,16 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
    * The version an edit opened now is checked against: the carried issue's,
    * or null for the ticket itself.
    */
-  const draftBaseNow = () => (carried ? (carried.record.dates.updated ?? '') : null);
+  const draftBaseNow = (): DraftBase => (carried ? baseOf(carried) : null);
 
   /**
    * Whether an edit opened against `base` can still be saved there. When the
    * link changed, or the issue can't be read right now, the draft stays open
    * and the viewer is told, rather than saving it to the other place.
    */
-  const draftStillFits = (base: string | null) => {
-    if ((base !== null) === Boolean(carried)) return true;
+  const draftStillFits = (base: DraftBase) => {
+    const now = carried ? baseOf(carried) : null;
+    if (base === null ? now === null : base.issue === now?.issue) return true;
     setActionError(outsideText.draftMoved);
     return false;
   };
@@ -326,7 +344,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     if (titleBase !== null) {
       // The issue's title is the ticket's: it is written to the source.
       setSaving(true);
-      if (await writeOutside({ title: titleDraft.trim() }, titleBase)) setEditingTitle(false);
+      if (await writeOutside({ title: titleDraft.trim() }, titleBase.updated))
+        setEditingTitle(false);
       setSaving(false);
       return;
     }
@@ -376,7 +395,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     setActionError(null);
     if (descBase !== null) {
       // A refused write keeps the draft open, so nothing typed is lost.
-      if (await writeOutside({ body: descDraft }, descBase)) setEditingDesc(false);
+      if (await writeOutside({ body: descDraft }, descBase.updated)) setEditingDesc(false);
       setSaving(false);
       return;
     }

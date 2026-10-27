@@ -135,9 +135,11 @@ export function fromRecordEdits(edits = {}) {
   if ('priority' in edits) out.priorityId = id(edits.priority);
   if ('assignees' in edits) {
     const list = edits.assignees;
-    // 0 is no Redmine id, so `buildUpdatePayload` refuses it.
+    // 0 is no Redmine id, so `buildUpdatePayload` refuses it: a malformed list
+    // or id never reads as "unassign".
     if (!Array.isArray(list) || list.length > 1) out.assigneeId = 0;
-    else out.assigneeId = list.length ? id(list[0]) : null;
+    else if (list.length === 0) out.assigneeId = null;
+    else out.assigneeId = typeof list[0] === 'string' && /^\d+$/.test(list[0]) ? Number(list[0]) : 0;
   }
   return out;
 }
