@@ -100,8 +100,14 @@ describe('isLinkableUrl', () => {
 });
 
 describe('unlinkableLinkUpdate', () => {
-  it('leaves a GitHub issue link, and a ticket with no link, alone', () => {
+  it('leaves a link that names an issue, and a ticket with no link, alone', () => {
     expect(unlinkableLinkUpdate({ github: 'https://github.com/a/b/issues/1' })).toBeNull();
+    // Saved over http before the https rule: still an issue, still has its ID.
+    expect(unlinkableLinkUpdate({ github: 'http://github.com/a/b/pull/2' })).toBeNull();
+    const servers = [{ host: 'redmine0.example.com', prefix: 'RM0' }];
+    expect(
+      unlinkableLinkUpdate({ github: 'https://redmine0.example.com/issues/233' }, servers),
+    ).toBeNull();
     expect(unlinkableLinkUpdate({ github: '' })).toBeNull();
     expect(unlinkableLinkUpdate({})).toBeNull();
   });
@@ -112,6 +118,10 @@ describe('unlinkableLinkUpdate', () => {
     ).toEqual({ $set: { description: 'Steps:\n1. Open\n\nLink: https://docs.google.com/d/1', github: '' } });
     expect(unlinkableLinkUpdate({ github: 'https://github.com/a/b' })).toEqual({
       $set: { description: 'Link: https://github.com/a/b', github: '' },
+    });
+    // An issue on a server the org hasn't registered isn't one of its sources.
+    expect(unlinkableLinkUpdate({ github: 'https://other.example.com/issues/9' })).toEqual({
+      $set: { description: 'Link: https://other.example.com/issues/9', github: '' },
     });
   });
 });

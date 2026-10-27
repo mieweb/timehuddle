@@ -195,15 +195,19 @@ export function TicketLinkFields({
                       variant="outline"
                       size="sm"
                       disabled={disabled}
-                      onClick={() =>
+                      onClick={() => {
+                        // A Find still in flight was for another query: retire it.
+                        searchSeq.current += 1;
+                        setSearching(false);
+                        setMessage(null);
                         onChange({
                           kind: 'redmine',
                           redmineMode: 'existing',
                           query: linkText,
                           issue: null,
                           github: '',
-                        })
-                      }
+                        });
+                      }}
                     >
                       {ticketLinkText.linkAsRedmine}
                     </Button>

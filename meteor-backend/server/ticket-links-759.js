@@ -7,21 +7,33 @@
  * page. Those are moved into the ticket's description as `Link: <url>`, so
  * nothing someone saved is lost; it just stops being the ticket's link.
  *
+ * A saved link that already names an issue stays, so it keeps its ID and is
+ * still found by it: a GitHub issue or pull request, even one saved over http
+ * before the https rule, or an issue on one of the org's servers (`RM0-233`).
+ *
  * Takes `db` and has no Meteor imports, so it is testable on its own
  * (tests/ticket-servers.test.ts).
  */
+import { github, matchIssueUrl, outsideIdOf } from '@timehuddle/ticket-sources';
+import { ObjectId } from 'mongodb';
+
 import { runMigrationOnce } from './migration-claim';
-import { isLinkableUrl } from './ticket-link-core';
 
 const MARKER_ID = 'ticket-links-issue-only-759';
 
+/** Whether a saved `link` names an issue, on GitHub or on one of `servers`. */
+function namesAnIssue(link, servers) {
+  return matchIssueUrl(github, link) !== null || outsideIdOf(link, servers) !== null;
+}
+
 /**
  * The update that moves `ticket`'s link into its description, or null when its
- * link may stay. The description is Markdown, so the address stays clickable.
+ * link may stay. `servers` are the ticket's org's (`sourcePrefixes`). The
+ * description is Markdown, so the address stays clickable.
  */
-export function unlinkableLinkUpdate(ticket) {
+export function unlinkableLinkUpdate(ticket, servers = []) {
   const link = typeof ticket.github === 'string' ? ticket.github.trim() : '';
-  if (!link || isLinkableUrl(link)) return null;
+  if (!link || namesAnIssue(link, servers)) return null;
   const description = typeof ticket.description === 'string' ? ticket.description.trimEnd() : '';
   return {
     $set: {
@@ -37,12 +49,30 @@ export function unlinkableLinkUpdate(ticket) {
  * meanwhile is never overwritten. Returns how many moved.
  */
 export async function moveUnlinkableLinks(db) {
+  const serversByTeam = new Map();
+  const serversOf = async (teamId) => {
+    if (!serversByTeam.has(teamId)) {
+      const team = await db
+        .collection('teams')
+        .findOne({ _id: toDocId(teamId) }, { projection: { orgId: 1 } });
+      const org = team?.orgId
+        ? await db
+            .collection('organizations')
+            .findOne({ _id: toDocId(team.orgId) }, { projection: { sourcePrefixes: 1 } })
+        : null;
+      serversByTeam.set(teamId, org?.sourcePrefixes ?? []);
+    }
+    return serversByTeam.get(teamId);
+  };
   const tickets = db
     .collection('tickets')
-    .find({ github: { $nin: ['', null] } }, { projection: { github: 1, description: 1 } });
+    .find(
+      { github: { $nin: ['', null] } },
+      { projection: { github: 1, description: 1, teamId: 1 } },
+    );
   let moved = 0;
   for await (const ticket of tickets) {
-    const update = unlinkableLinkUpdate(ticket);
+    const update = unlinkableLinkUpdate(ticket, await serversOf(ticket.teamId));
     if (!update) continue;
     const { modifiedCount } = await db
       .collection('tickets')
@@ -53,6 +83,11 @@ export async function moveUnlinkableLinks(db) {
     moved += modifiedCount;
   }
   return moved;
+}
+
+// Legacy teams and orgs can carry non-ObjectId string ids.
+function toDocId(id) {
+  return typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 
 export function migrateUnlinkableLinks(db) {
