@@ -1,7 +1,7 @@
 /**
  * TimerToggleButton — Shared start/stop timer button.
  *
- * Reused across WorkPage, TicketsPage, the Redmine search suggestions and the
+ * Reused across WorkWeek, TicketsPage, the Redmine search suggestions and the
  * Redmine issue page for consistent timer controls.
  */
 import { Button, Tooltip } from '@mieweb/ui';

@@ -1,21 +1,21 @@
 /**
- * Account menu at phone width (issue #574)
+ * Account menu at phone width (issue #574, trimmed in #756)
  *
- * Below 768px — the normal view in the Capacitor app — the avatar menu used to
- * hide Admin and Help, and the bottom nav's More sheet that was meant to carry
- * them had no Usage entry and no Admin section for an org admin outside an
- * enterprise. owner1 is exactly that user: owner of the default organization,
- * member of no enterprise.
+ * Below 768px — the normal view in the Capacitor app — the avatar menu and the
+ * bottom nav's More sheet both carry the account menu. It is Help only now:
+ * Enterprise and People are in the main nav, and Usage and Seeder are
+ * sections of Settings.
  *
- * 1. Avatar menu lists Admin and Help items, and Usage navigates
- * 2. More sheet's Admin section lists Members and Usage, and Usage navigates
- * 3. A plain member sees Help but no Admin in either place
+ * 1. The avatar menu lists Help and no Admin or Developers items
+ * 2. The More sheet offers Help and no Admin section
+ * 3. An org owner reaches Usage through Settings, and the old link still works
  */
 import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const PHONE = { width: 390, height: 844 };
 const HELP_ITEMS = ['Report an Issue', 'Share Your Feedback', 'App Store'];
+const MOVED_ITEMS = ['Enterprise', 'Members', 'Usage', 'Seeder'];
 
 async function openAccountMenu(page: Page) {
   await page.getByRole('button', { name: 'Account menu' }).click();
@@ -36,44 +36,33 @@ test.describe('Account menu on a phone-width screen', () => {
     await page.setViewportSize(PHONE);
   });
 
-  test('avatar menu shows Admin and Help to an org owner', async ({ page }) => {
+  test('avatar menu shows Help only, even to an org owner', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await openAccountMenu(page);
 
-    for (const label of ['Members', 'Usage', ...HELP_ITEMS]) {
-      await expect(page.getByRole('menuitem', { name: label })).toBeVisible();
-    }
-
-    await page.getByRole('menuitem', { name: 'Usage' }).click();
-    await page.waitForURL(/\/app\/org\/usage(\?|$)/);
-  });
-
-  test('More sheet Admin section lists Members and Usage for an org owner', async ({ page }) => {
-    await loginAs(page, TEST_USERS.owner1);
-    const sheet = await openMoreSheet(page);
-
-    await sheet.getByRole('button', { name: 'Admin' }).click();
-    await expect(sheet.getByRole('heading', { name: 'Admin' })).toBeVisible();
-    await expect(sheet.getByRole('button', { name: 'Members' })).toBeVisible();
-
-    await sheet.getByRole('button', { name: 'Usage' }).click();
-    await page.waitForURL(/\/app\/org\/usage(\?|$)/);
-    await expect(sheet).toBeHidden();
-  });
-
-  test('a plain member sees Help but no Admin', async ({ page }) => {
-    await loginAs(page, TEST_USERS.member1);
-
-    await openAccountMenu(page);
     for (const label of HELP_ITEMS) {
       await expect(page.getByRole('menuitem', { name: label })).toBeVisible();
     }
-    await expect(page.getByRole('menuitem', { name: 'Members' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: 'Usage' })).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    for (const label of MOVED_ITEMS) {
+      await expect(page.getByRole('menuitem', { name: label, exact: true })).toHaveCount(0);
+    }
+  });
 
+  test('More sheet offers Help and no Admin section', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
     const sheet = await openMoreSheet(page);
+
     await expect(sheet.getByRole('button', { name: 'Help' })).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Admin' })).toHaveCount(0);
+    await expect(sheet.getByRole('button', { name: 'Developers' })).toHaveCount(0);
+  });
+
+  test('an org owner reaches Usage in Settings, and the old link goes there', async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    await page.goto('/app/org/usage');
+    await page.waitForURL(/\/app\/settings\?section=usage/);
+    await expect(page.getByRole('heading', { name: 'Usage', level: 2 })).toBeVisible({
+      timeout: 20000,
+    });
   });
 });

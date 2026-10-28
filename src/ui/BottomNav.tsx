@@ -4,7 +4,7 @@
  * Visible only on small screens (md:hidden).
  * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, More.
  * "More" opens a sheet with the remaining sidebar destinations (Teams,
- * People, Enterprise, Work, Profile, Settings) so every sidebar link
+ * People, Enterprise, Profile, Settings) so every sidebar link
  * stays reachable on mobile without a hamburger drawer. Notifications is not
  * among them — the header's bell icon is present at every width.
  * Active tab indicator is an animated bubble that glides between positions.
@@ -25,7 +25,6 @@ import {
   PersonIcon,
   SettingsIcon,
   StopIcon,
-  TimerIcon,
   UsersIcon,
   XIcon,
   type LucideIcon,
@@ -66,7 +65,6 @@ const MORE_ITEMS: MoreItem[] = [
   { icon: PersonIcon, label: 'People', href: '/app/organization' },
   { icon: BriefcaseIcon, label: 'Enterprise', href: '/app/enterprise' },
   { icon: CircleUserIcon, label: 'Profile', href: settingsPath('profile') },
-  { icon: TimerIcon, label: 'Work', href: '/app/work' },
   { icon: SettingsIcon, label: 'Settings', href: '/app/settings' },
 ];
 

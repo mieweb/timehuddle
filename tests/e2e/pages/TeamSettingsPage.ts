@@ -2,39 +2,39 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
- * TeamSettingsPage - Page object for team settings modal
+ * TeamSettingsPage - Page object for a team's Settings tab on the Teams page
  */
 export class TeamSettingsPage extends BasePage {
-  private readonly modal: Locator;
+  private readonly panel: Locator;
   private readonly requirePlanToggle: Locator;
   private readonly requirePlanSection: Locator;
-  private readonly closeButton: Locator;
+  private readonly membersTab: Locator;
 
   constructor(page: Page) {
     super(page);
-    this.modal = this.page.getByRole('dialog', { name: 'Team Settings' });
+    this.panel = this.page.locator('.team-settings-panel');
     // The switch has aria-label="Toggle requiring a plan for every clock-in and out"
     this.requirePlanToggle = this.page.getByRole('switch', {
       name: 'Toggle requiring a plan for every clock-in and out',
     });
     this.requirePlanSection = this.page.locator('.team-setting-plan-for-clock');
-    this.closeButton = this.modal.getByRole('button', { name: 'Close' }).first();
+    this.membersTab = this.page.getByRole('tab', { name: 'Members', exact: true });
   }
 
   /**
-   * Wait for the Team Settings modal to appear
+   * Wait for the Settings tab's panel to appear
    */
   async waitForModal(timeout = 10000) {
-    await this.modal.waitFor({ state: 'visible', timeout });
+    await this.panel.waitFor({ state: 'visible', timeout });
     // Also wait for the plan setting section to be visible
     await this.requirePlanSection.waitFor({ state: 'visible', timeout });
   }
 
   /**
-   * Check if the modal is visible
+   * Check if the Settings tab's panel is visible
    */
   async isVisible(): Promise<boolean> {
-    return await this.modal.isVisible().catch(() => false);
+    return await this.panel.isVisible().catch(() => false);
   }
 
   /**
@@ -74,11 +74,10 @@ export class TeamSettingsPage extends BasePage {
   }
 
   /**
-   * Close the settings modal
+   * Leave the Settings tab, back to Members
    */
   async close() {
-    await this.closeButton.click();
-    // Wait for modal to close
-    await this.modal.waitFor({ state: 'hidden', timeout: 5000 });
+    await this.membersTab.click();
+    await this.panel.waitFor({ state: 'hidden', timeout: 5000 });
   }
 }

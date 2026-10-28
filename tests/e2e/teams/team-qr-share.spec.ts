@@ -136,9 +136,8 @@ test.describe('Team QR Share & Join', () => {
     await loginAs(page, admin);
     await openTeamsPage(page);
 
-    // The main teams page exposes the share modal via the "Share team invite
-    // link" icon button next to the team code (the "Share team QR code"
-    // button lives inside the Team Settings modal, which isn't open here).
+    // The share modal opens from the "Share team invite link" icon button
+    // next to the team code, the one place it lives.
     await page.getByRole('button', { name: 'Share team invite link' }).click();
 
     const dialog = page.getByRole('dialog').filter({ hasText: 'Share Team' });
