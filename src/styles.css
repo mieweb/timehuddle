@@ -40,11 +40,10 @@ html[data-theme='dark'] {
   }
 }
 
-/* Fix native datetime-local (and date/time) pickers in dark mode — without this
-   the browser renders the calendar popup in light mode, making it invisible */
-[data-theme='dark'] input[type='datetime-local'],
-[data-theme='dark'] input[type='date'],
-[data-theme='dark'] input[type='time'] {
+/* Dark mode tells the browser too, so the controls it draws itself follow:
+   scrollbars (white tracks otherwise, wherever scroll bars always show) and
+   the date/time pickers' popups (light, and unreadable, otherwise). */
+html[data-theme='dark'] {
   color-scheme: dark;
 }
 
