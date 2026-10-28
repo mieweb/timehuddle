@@ -127,7 +127,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
     };
   }, [selectedOrgId, loadUsers]);
 
-  /** Optimistic update of one member, rolled back if the server refuses. */
+  /** Optimistic update of one member; if the server refuses, the roster is reloaded. */
   const saveMember = useCallback(
     async (
       targetUserId: string,
@@ -135,20 +135,20 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
       call: () => Promise<unknown>,
       fallback: string,
     ) => {
-      const previous = users;
       setUsers((prev) => prev.map((u) => (u.id === targetUserId ? { ...u, ...patch } : u)));
       setSavingUserId(targetUserId);
       setError(null);
       try {
         await call();
       } catch (err) {
-        setUsers(previous);
+        // Reload rather than restore a snapshot: other rows may have changed since.
+        void loadUsers();
         setError(errorText(err, fallback));
       } finally {
         setSavingUserId(null);
       }
     },
-    [users],
+    [loadUsers],
   );
 
   const handleConfirmBlock = useCallback(async () => {

@@ -127,7 +127,7 @@ export interface TeamContextValue {
   refetchTeams: () => void;
   refreshTeamSettings: () => void;
   refetchEnterprises: () => void;
-  refetchOrganizations: () => void;
+  refetchOrganizations: () => Promise<void>;
   selectedEnterpriseId: string | null;
   setSelectedEnterpriseId: (id: string) => void;
   selectedOrgId: string | null;
@@ -159,7 +159,7 @@ const TeamCtx = createContext<TeamContextValue>({
   refetchTeams: () => {},
   refreshTeamSettings: () => {},
   refetchEnterprises: () => {},
-  refetchOrganizations: () => {},
+  refetchOrganizations: async () => {},
   selectedEnterpriseId: null,
   setSelectedEnterpriseId: () => {},
   selectedOrgId: null,

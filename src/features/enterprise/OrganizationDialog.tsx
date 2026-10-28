@@ -62,17 +62,20 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Every edit advances this, so an answer for an older slug is ignored.
+  const slugSeq = useRef(0);
 
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
   const checkSlug = (next: string) => {
+    const seq = ++slugSeq.current;
     if (timer.current) clearTimeout(timer.current);
     if (!next.trim() || next.trim() === organization?.slug) return setSlugStatus('idle');
     setSlugStatus('checking');
     timer.current = setTimeout(() => {
-      void orgApi
-        .checkSlugAvailability(next.trim(), organization?.id)
-        .then((available) => setSlugStatus(available ? 'available' : 'taken'));
+      void orgApi.checkSlugAvailability(next.trim(), organization?.id).then((available) => {
+        if (seq === slugSeq.current) setSlugStatus(available ? 'available' : 'taken');
+      });
     }, 400);
   };
 
@@ -103,6 +106,7 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
           slug: slug.trim() !== organization.slug ? slug.trim() : undefined,
           allowAutoJoin: autoJoin,
         });
+        void refetchOrganizations();
       } else {
         if (!selectedEnterpriseId) throw new Error(S.noEnterprise);
         const created = await orgApi.createOrganization({
@@ -111,9 +115,10 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
           slug: slug.trim() || undefined,
           allowAutoJoin: autoJoin,
         });
+        // Select it once it is in the list, or TeamContext resets an unknown id.
+        await refetchOrganizations();
         setSelectedOrgId(created.id);
       }
-      refetchOrganizations();
       onClose();
     } catch (err) {
       const fallback = editing ? S.updateFailed : S.createFailed;
