@@ -331,7 +331,7 @@ describe('access revoked before delivery', () => {
 
     // Access revoked after scheduling, before delivery.
     await db
-      .collection('teams')
+      .collection<{ _id: ObjectId; members: string[]; admins: string[] }>('teams')
       .updateOne({ _id: soloTeam._id }, { $pull: { members: removedId, admins: removedId } });
 
     const sendNow = await wormhole('huddle.sendScheduledNow', { postId }, removedJwt);
