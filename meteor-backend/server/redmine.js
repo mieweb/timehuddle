@@ -38,9 +38,11 @@ import {
   optionalRedmineBaseUrl,
   redmineUrlRefusal,
 } from './redmine-client';
-import { encryptSecret, envKey } from './redmine-crypto';
+import { encryptSecret, envKey, hasKeysSecret, weakSecretNames } from './redmine-crypto';
 import {
   findRedmineAccount,
+  keyOwnerOf,
+  mainLinkOf,
   requireRedmineAccount,
   tooManyRedmineRequests,
 } from './redmine-account';
@@ -113,20 +115,40 @@ export function toRedmineMeteorError(err) {
 // first-time `redmine.connect` calls can't both insert (Mongo `_id` uniqueness
 // alone doesn't guard the `userId` upsert key). Mirrors the unique-index pattern
 // in org-helpers.js used for the same concurrent-upsert race.
+// Since #734 step 7 a member can also have a row per other registered server
+// (`host`, source-accounts.js), so the invariant is one row per member per
+// server; a main link has no `host` and indexes as null, still one per member.
+// The old one-row-per-member index is replaced; no row is touched.
 Meteor.startup(async () => {
   try {
-    await RedmineLinks.createIndexAsync({ userId: 1 }, { unique: true, name: 'unique_redmine_link_user' });
+    await RedmineLinks.createIndexAsync(
+      { userId: 1, host: 1 },
+      { unique: true, name: 'unique_redmine_link_user_host' },
+    );
+    await RedmineLinks.rawCollection()
+      .dropIndex('unique_redmine_link_user')
+      .catch((error) => {
+        if (error?.codeName !== 'IndexNotFound') throw error;
+      });
   } catch (error) {
-    console.error('[redmine] failed to create unique userId index:', error);
+    console.error('[redmine] failed to set up the unique { userId, host } index:', error);
   }
 });
 
 // Redmine is on when a base URL is set, and every personal key is encrypted with
-// REDMINE_ENCRYPTION_KEY. Without it the first connect fails with a 500, so refuse
-// to boot instead.
+// SOURCE_KEYS_SECRET (or REDMINE_ENCRYPTION_KEY). Without one the first connect
+// fails with a 500, so refuse to boot instead. A weak one only warns for now
+// (#734 step 7); refusing it waits until production's logs show no warning.
 Meteor.startup(() => {
-  if (optionalRedmineBaseUrl() && !process.env.REDMINE_ENCRYPTION_KEY) {
-    throw new Error('REDMINE_BASE_URL is set but REDMINE_ENCRYPTION_KEY is not.');
+  if (!optionalRedmineBaseUrl()) return;
+  if (!hasKeysSecret()) {
+    throw new Error('REDMINE_BASE_URL is set but SOURCE_KEYS_SECRET (or REDMINE_ENCRYPTION_KEY) is not.');
+  }
+  for (const name of weakSecretNames()) {
+    console.warn(
+      `[sources] ${name} is weak: use a random secret, e.g. \`openssl rand -base64 32\`. ` +
+        'A later release will refuse to start with it.',
+    );
   }
 });
 
@@ -210,7 +232,7 @@ async function acquirePushLock(userId) {
   const owner = randomUUID();
   const claimed = await RedmineLinks.updateAsync(
     {
-      userId,
+      ...mainLinkOf(userId),
       $or: [
         { pushingSince: null },
         { pushingSince: { $exists: false } },
@@ -229,7 +251,7 @@ async function acquirePushLock(userId) {
  */
 async function renewPushLock(userId, owner) {
   const renewed = await RedmineLinks.updateAsync(
-    { userId, pushLockOwner: owner },
+    { ...mainLinkOf(userId), pushLockOwner: owner },
     { $set: { pushingSince: new Date() } },
   );
   return renewed === 1;
@@ -237,7 +259,7 @@ async function renewPushLock(userId, owner) {
 
 function releasePushLock(userId, owner) {
   return RedmineLinks.updateAsync(
-    { userId, pushLockOwner: owner },
+    { ...mainLinkOf(userId), pushLockOwner: owner },
     { $set: { pushingSince: null, pushLockOwner: null } },
   );
 }
@@ -531,7 +553,7 @@ Meteor.methods({
     const key = apiKey.trim();
 
     const baseUrl = requestedBaseUrl(rawBaseUrl);
-    const existing = await RedmineLinks.findOneAsync({ userId });
+    const existing = await RedmineLinks.findOneAsync(mainLinkOf(userId));
 
     // Issue ids mean nothing across instances, so the instance may only change
     // between shifts. Compared against the default when unlinked, so
@@ -567,19 +589,20 @@ Meteor.methods({
       firstname: user.firstname ?? '',
       lastname: user.lastname ?? '',
       mail: user.mail ?? '',
-      apiKey: encryptSecret(key, envKey()),
+      apiKey: encryptSecret(key, envKey(), keyOwnerOf({ userId })),
       linkedAt: new Date(),
     };
+    // A new key clears a rejected one's mark.
     const update = customRedmineUrlAllowed()
-      ? { $set: { ...fields, baseUrl } }
-      : { $set: fields, $unset: { baseUrl: '' } };
+      ? { $set: { ...fields, baseUrl }, $unset: { rejectedAt: '' } }
+      : { $set: fields, $unset: { baseUrl: '', rejectedAt: '' } };
     try {
-      await RedmineLinks.upsertAsync({ userId }, update);
+      await RedmineLinks.upsertAsync(mainLinkOf(userId), update);
     } catch (err) {
       // Lost a concurrent first-insert race against the unique userId index;
       // the row now exists, so retry as a plain update.
       if (err?.code === DUPLICATE_KEY_ERROR_CODE) {
-        await RedmineLinks.updateAsync({ userId }, update);
+        await RedmineLinks.updateAsync(mainLinkOf(userId), update);
       } else {
         throw err;
       }
@@ -589,13 +612,13 @@ Meteor.methods({
     // activities, projects or members.
     bustUserCaches(userId);
 
-    return statusFor(await RedmineLinks.findOneAsync({ userId }));
+    return statusFor(await RedmineLinks.findOneAsync(mainLinkOf(userId)));
   },
 
-  /** Remove the caller's Redmine link. */
+  /** Remove the caller's main Redmine link. Accounts on other servers stay. */
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
-    await RedmineLinks.removeAsync({ userId });
+    await RedmineLinks.removeAsync(mainLinkOf(userId));
     // Pins and dismissals are issue ids from one instance, and mean nothing on
     // another — a stale pin would resolve to whatever issue happens to hold that
     // number next. Unlinking is also how a user says "forget my Redmine data".
@@ -609,7 +632,7 @@ Meteor.methods({
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return statusFor(await RedmineLinks.findOneAsync({ userId }));
+    return statusFor(await RedmineLinks.findOneAsync(mainLinkOf(userId)));
   },
 
   /**

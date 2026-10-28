@@ -151,7 +151,7 @@ export function redmineUrlRefusal(baseUrl) {
  */
 async function readErrorMessages(res) {
   try {
-    const data = JSON.parse(await res.text());
+    const data = JSON.parse(await readBounded(res));
     return Array.isArray(data?.errors) ? data.errors.map(String) : [];
   } catch {
     return [];
@@ -267,12 +267,69 @@ async function redmineRequest(
     err.status = res.status;
     err.errors = await readErrorMessages(res);
     logRequestFailure({ method, path, startedAt, err, status: res.status });
+    if (res.status === 401 && accept === 'application/json') await checkKeyRejected(path, account);
     throw err;
   }
 
-  const text = await res.text();
+  const text = await readBounded(res);
   if (accept !== 'application/json') return text;
   return text ? JSON.parse(text) : null;
+}
+
+/**
+ * The most a server's answer may be (#734 step 7). An issue with years of
+ * history is a few megabytes; past this, a broken or hostile server could
+ * fill the backend's memory.
+ */
+export const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+
+/** `res`'s body as text, refused once it passes `MAX_RESPONSE_BYTES`. */
+async function readBounded(res) {
+  const tooLarge = () => {
+    const err = new Error('Redmine answered with more than this TimeHuddle accepts');
+    err.tooLarge = true;
+    return err;
+  };
+  if (Number(res.headers.get('content-length')) > MAX_RESPONSE_BYTES) throw tooLarge();
+  if (!res.body) return '';
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await res.body.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
+ * After a 401, ask Redmine who the key belongs to, and mark the account's key
+ * rejected (`account.onKeyRejected`) only if that is refused too, so no
+ * further request is sent with it (#734 step 7). A 403 never gets here: it
+ * means "not allowed" with a good key (a role without `log_time`, a private
+ * project). Atom isn't checked either: an instance can answer it with 401 for
+ * a good key (see `listActivityIssueIds`). Never throws.
+ */
+async function checkKeyRejected(path, account) {
+  if (typeof account.onKeyRejected !== 'function') return;
+  let rejected = path === '/users/current.json';
+  if (!rejected) {
+    try {
+      // Without the callback, so this check never checks itself.
+      await redmineRequest('/users/current.json', { account: { ...account, onKeyRejected: null } });
+    } catch (err) {
+      rejected = err?.status === 401;
+    }
+  }
+  if (!rejected) return;
+  try {
+    await account.onKeyRejected();
+  } catch (error) {
+    console.error('[redmine] failed to mark a rejected API key:', error);
+  }
 }
 
 /**

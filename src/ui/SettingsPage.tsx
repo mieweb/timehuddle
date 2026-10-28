@@ -65,6 +65,7 @@ import {
 } from '../lib/organizationAccess';
 import { EnterpriseSettings } from '../features/enterprise/EnterpriseSettings';
 import { ActivityLog } from '../features/activity/ActivityLog';
+import { ticketLinkText } from '../features/tickets/link/ticketLinkStrings';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
@@ -853,6 +854,12 @@ const RedmineConnection: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
+      {status?.rejected && (
+        <div className="redmine-key-rejected flex flex-wrap items-center gap-2" role="alert">
+          <Badge variant="danger">{ticketLinkText.keyRejectedTitle}</Badge>
+          <Text size="xs">{ticketLinkText.keyRejectedSettings}</Text>
+        </div>
+      )}
       <Text variant="muted" size="xs">
         Paste your personal Redmine API key (found on your Redmine account page under{' '}
         <code className="text-xs">My account</code>) to link your account

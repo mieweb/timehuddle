@@ -1005,6 +1005,9 @@ async function wormholeCall<T = unknown>(
   console.log(`[wormholeCall] ${method}: got response, status=${status}`);
 
   if (status < 200 || status >= 300) {
+    if (data.error && REDMINE_KEY_CODES.has(data.error)) {
+      window.dispatchEvent(new Event(REDMINE_KEY_PROBLEM));
+    }
     throw new ApiError(
       data.reason || data.message || `Request failed (${status})`,
       status,
@@ -1013,6 +1016,15 @@ async function wormholeCall<T = unknown>(
   }
   return data.result as T;
 }
+
+/**
+ * Broadcast when a call failed for want of a working Redmine key: Redmine
+ * refused it (`invalid-key`), or there is none to use (`not-connected`, which
+ * is also what a key Redmine rejected earlier reads as). `useRedmineStatus`
+ * checks the status again, which says whether the key was rejected (#734).
+ */
+export const REDMINE_KEY_PROBLEM = 'redmine:key-problem';
+const REDMINE_KEY_CODES = new Set(['invalid-key', 'not-connected']);
 
 // ─── Ticket API ───────────────────────────────────────────────────────────────
 
@@ -2491,6 +2503,8 @@ export const tokenApi = {
 /** Client-safe Redmine connection status. Never carries the API key. */
 export interface RedmineStatus {
   connected: boolean;
+  /** Redmine rejected the saved key; it isn't used until a new one is pasted (#734). */
+  rejected?: boolean;
   redmineUserId?: number;
   redmineLogin?: string;
   redmineName?: string;

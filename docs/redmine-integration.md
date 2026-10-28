@@ -132,13 +132,38 @@ You can be clocked in without any ticket timer running, so the shift total is us
 
 Redmine 5.0 or newer, with the REST API enabled, and these settings on the backend:
 
-| Variable                          | Purpose                                                                                                         |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `REDMINE_BASE_URL`                | The Redmine instance every user connects to. Left empty, Redmine is simply unavailable — not an error.          |
-| `REDMINE_ENCRYPTION_KEY`          | Secret used to encrypt each user's personal API key at rest.                                                    |
-| `REDMINE_ENCRYPTION_KEY_PREVIOUS` | Set only while rotating `REDMINE_ENCRYPTION_KEY`, so existing keys can still be read and are re-encrypted.      |
-| `REDMINE_ALLOWED_HOSTS`           | Extra hosts the server may send Redmine requests to in production. `REDMINE_BASE_URL`'s host is always allowed. |
-| `REDMINE_ALLOW_CUSTOM_URL`        | Dev/test only: lets each user link a Redmine URL of their own. **Never enable in production.**                  |
+| Variable                      | Purpose                                                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `REDMINE_BASE_URL`            | The Redmine instance every user connects to. Left empty, Redmine is simply unavailable — not an error.          |
+| `SOURCE_KEYS_SECRET`          | Secret used to encrypt each user's personal API keys at rest. See [Keeping keys safe](#keeping-keys-safe).      |
+| `SOURCE_KEYS_SECRET_PREVIOUS` | Set only while rotating `SOURCE_KEYS_SECRET`, so existing keys can still be read and are re-encrypted.          |
+| `REDMINE_ENCRYPTION_KEY`      | The older name for `SOURCE_KEYS_SECRET` (and `_PREVIOUS`). Still read when the new one isn't set.               |
+| `REDMINE_ALLOWED_HOSTS`       | Extra hosts the server may send Redmine requests to in production. `REDMINE_BASE_URL`'s host is always allowed. |
+| `REDMINE_ALLOW_CUSTOM_URL`    | Dev/test only: lets each user link a Redmine URL of their own. **Never enable in production.**                  |
+
+## Keeping keys safe
+
+Every key is encrypted with AES-256-GCM under `SOURCE_KEYS_SECRET`, sent only in a request header, left out of logs, and never returned to the browser.
+
+**Check the secret.** It must be random: base64 or hex for at least 32 bytes. A passphrase isn't. A weak secret logs `[sources] SOURCE_KEYS_SECRET is weak` at boot; a later release will refuse to start with one, so fix it when you see the warning. To check one by hand (prints 32 or more for a good one):
+
+```bash
+printf %s "$SOURCE_KEYS_SECRET" | base64 -d | wc -c
+```
+
+**Make one:** `openssl rand -base64 32`.
+
+**Rotate it** without anyone re-pasting their key: move the current value to `SOURCE_KEYS_SECRET_PREVIOUS`, put the new one in `SOURCE_KEYS_SECRET`, and restart. Each key is re-encrypted under the new secret the next time it's used. Remove `_PREVIOUS` after a while; anyone whose key wasn't used in between reconnects in Settings.
+
+**Each key is locked to its owner.** A stored key decrypts only on its own member's row (and, for another server, that server's), so copying one onto another account in the database does nothing. Keys stored before this are locked the next time they're used; nobody reconnects.
+
+**A key Redmine rejects stops being used.** When a key is reset or its account disabled in Redmine, TimeHuddle checks once with Redmine (`/users/current.json`) and, if that's refused too, stops sending the key. The member sees a "Couldn't reach Redmine" toast that takes them to Settings → Integrations to paste their current one. A `403` never stops a key: Redmine sends it for "not allowed" with a good key.
+
+**Disconnecting doesn't reset the key in Redmine.** Redmine has no API for that. Someone worried their key leaked resets it on their Redmine account page (My account → API access key → Reset).
+
+**Personal keys, not service accounts.** Each member connects with their own key, so Redmine's permissions apply and time is recorded as them. Dedicated low-privilege accounts per member would double every Redmine admin's account management for little gain: a key never leaves the server, it's encrypted and locked to its owner, the member can reset it, and the secret is strong.
+
+**Which servers TimeHuddle calls.** In production only `REDMINE_BASE_URL` and the hosts in `REDMINE_ALLOWED_HOSTS`, over https, with no redirects followed, a time limit on every request, and answers capped at 20 MB. A member can't point it anywhere else. Servers aren't refused for resolving to a private address: the allowlist already decides where requests go, and a deployment's own Redmine may sit on an internal network on purpose.
 
 ---
 
@@ -150,4 +175,4 @@ Redmine 5.0 or newer, with the REST API enabled, and these settings on the backe
 - **Team-wide views of Redmine work.** A Redmine issue is only ever read through one person's key, so it stays out of team-level screens. An admin reading someone's timesheet sees an issue's title only if their own Redmine account can see it.
 - **Personal-workspace users** logging Redmine time, since a ticket timer requires a team shift.
 - Redmine comments, Redmine-side attachments and issue relations.
-- **More than one Redmine instance.** Issue numbers are not tied to an instance, so a deployment is expected to keep one fixed `REDMINE_BASE_URL`.
+- **Connecting other Redmine servers from Settings.** Org owners can register more servers, and the backend keeps one account per member per server (`sources.connect`), but the Settings screen for it isn't built yet. Time is still sent to `REDMINE_BASE_URL` only.

@@ -182,7 +182,7 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     await db.collection('redmine_links').insertOne({
       _id: new ObjectId(),
       userId,
-      apiKey: encryptSecret('not-a-real-key', deriveKey(KEY!)),
+      apiKey: encryptSecret('not-a-real-key', deriveKey(KEY!), userId),
       redmineUserId: 1,
       createdAt: new Date(),
     });
