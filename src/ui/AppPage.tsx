@@ -72,7 +72,17 @@ export const AppPage: React.FC<AppPageProps> = ({
   const column = cn('mx-auto w-full', COLUMN[width]);
 
   return (
-    <div className={cn('app-page flex w-full flex-col', fill && 'h-full min-h-0', className)}>
+    // A filling page takes the height it is given, never its content's: size
+    // containment keeps a long feed from stretching the pull-to-refresh
+    // wrapper (which grows with ordinary pages) so the page's own scroller
+    // scrolls instead of the whole page.
+    <div
+      className={cn(
+        'app-page flex w-full flex-col',
+        fill && 'h-full min-h-0 [contain:size]',
+        className,
+      )}
+    >
       {hideTitle && <PageTitle className="sr-only" />}
       {hasHeader && (
         <div
