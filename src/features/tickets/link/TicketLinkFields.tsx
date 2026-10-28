@@ -219,7 +219,7 @@ export function TicketLinkFields({
                     </Text>
                   </div>
                 )}
-                {convertId && value.linkIsIssue && !redmineIssueLink && (
+                {convertId && value.linkIsIssue && (
                   <div className="ticket-link-converted mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Text size="sm">{ticketLinkText.convertedTo(convertId)}</Text>
                     <Button

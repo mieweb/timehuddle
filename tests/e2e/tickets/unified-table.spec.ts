@@ -94,7 +94,9 @@ test.describe('Unified ticket table', () => {
   }) => {
     const title = `E2E Outside ID ${Date.now()}`;
     // A repo that does not exist, so no title is fetched over the one typed.
-    await tickets.createTicket(title, 'https://github.com/mieweb/e2e-fixture/issues/717');
+    await tickets.createTicket(title, 'https://github.com/mieweb/e2e-fixture/issues/717', {
+      convert: true,
+    });
     const ref = tickets.rowByTitle(title).locator('.ticket-row-meta');
     await expect(ref).toContainText('e2e-fixture-717');
     await expect(ref).not.toContainText(/TH-\d+/);
