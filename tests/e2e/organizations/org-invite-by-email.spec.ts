@@ -13,7 +13,7 @@
  *      immediately with no invitation email sent.
  *   4. Revoking a pending invitation flips its status to revoked and the
  *      invite link then shows the "This invitation has been revoked" error.
- *   5. Org owners get "Team Settings" (gear) authority on teams they didn't
+ *   5. Org owners get the team Settings tab on teams they didn't
  *      create and aren't in `admins` for.
  *
  * Uses the isolated `timehuddle_test` DB (see global-setup.ts) so it never
@@ -226,7 +226,7 @@ test.describe('Organization Email Invitations', () => {
 test.describe('Org Owner Team Authority', () => {
   const owner = TEST_USERS.owner1;
 
-  test('org owner sees Team Settings on a team they did not create and are not an admin of', async ({
+  test('org owner sees the team Settings tab on a team they did not create and are not an admin of', async ({
     page,
   }) => {
     const client = await MongoClient.connect(MONGO_URL);
@@ -283,7 +283,7 @@ test.describe('Org Owner Team Authority', () => {
       await expect(page.getByRole('heading', { name: teamName, level: 3 })).toBeVisible({
         timeout: 15000,
       });
-      await expect(page.getByRole('button', { name: 'Team Settings' })).toBeVisible({
+      await expect(page.getByRole('tab', { name: 'Settings', exact: true })).toBeVisible({
         timeout: 15000,
       });
     } finally {

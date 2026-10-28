@@ -78,7 +78,7 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
     return () => clearInterval(interval);
   }, [isOwn, fetchToday, fetchClockEvent]);
 
-  // Re-fetch when timer mutations occur (WorkPage broadcasts this event)
+  // Re-fetch when timer mutations occur (WorkWeek broadcasts this event)
   useEffect(() => {
     if (!isOwn) return;
     window.addEventListener('work:refetch', fetchToday);

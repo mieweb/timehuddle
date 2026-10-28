@@ -1,12 +1,15 @@
 // The Settings page's sections and their copy, in one place until the app has i18n.
 import {
   BellIcon,
+  BriefcaseIcon,
   BuildingIcon,
+  ChartIcon,
   HistoryIcon,
   KeyIcon,
   LinkIcon,
   PaletteIcon,
   ShieldIcon,
+  WrenchIcon,
   UserIcon,
   type LucideIcon,
 } from '@mieweb/ui';
@@ -19,7 +22,10 @@ export type SettingsSectionId =
   | 'integrations'
   | 'activity'
   | 'account'
-  | 'organization';
+  | 'organization'
+  | 'enterprise'
+  | 'usage'
+  | 'seeder';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -82,6 +88,28 @@ export const ADMIN_SECTIONS: readonly SettingsSection[] = [
     description: 'The defaults its teams inherit, and its ticket ID prefixes.',
     icon: BuildingIcon,
   },
+  {
+    id: 'enterprise',
+    label: 'Enterprise',
+    description: 'Its name, and the defaults its organizations and teams inherit.',
+    icon: BriefcaseIcon,
+  },
+  {
+    id: 'usage',
+    label: 'Usage',
+    description: 'Who is using TimeHuddle, how often, and what they use it for.',
+    icon: ChartIcon,
+  },
+];
+
+/** The Developers group, outside production only. */
+export const DEVELOPER_SECTIONS: readonly SettingsSection[] = [
+  {
+    id: 'seeder',
+    label: 'Seeder',
+    description: 'Import sample enterprises, organizations, teams and people from YAML.',
+    icon: WrenchIcon,
+  },
 ];
 
 export interface SettingsGroup {
@@ -89,13 +117,21 @@ export interface SettingsGroup {
   sections: readonly SettingsSection[];
 }
 
-/** The nav's groups for this viewer: Personal always, Administration for org admins. */
-export function settingsGroups(isOrgAdmin: boolean): SettingsGroup[] {
+/**
+ * The nav's groups for this viewer: Personal always, Administration for what
+ * they manage, and Developers outside production.
+ */
+export function settingsGroups(
+  manages: { organization: boolean; enterprise: boolean; usage: boolean },
+  developer: boolean,
+): SettingsGroup[] {
   const groups: SettingsGroup[] = [
     { label: SETTINGS_PAGE_STRINGS.personal, sections: PERSONAL_SECTIONS },
   ];
-  if (isOrgAdmin)
-    groups.push({ label: SETTINGS_PAGE_STRINGS.administration, sections: ADMIN_SECTIONS });
+  const admin = ADMIN_SECTIONS.filter((section) => manages[section.id as keyof typeof manages]);
+  if (admin.length) groups.push({ label: SETTINGS_PAGE_STRINGS.administration, sections: admin });
+  if (developer)
+    groups.push({ label: SETTINGS_PAGE_STRINGS.developers, sections: DEVELOPER_SECTIONS });
   return groups;
 }
 
@@ -104,6 +140,7 @@ export const SETTINGS_PAGE_STRINGS = {
   backToOverview: 'Back to Settings',
   personal: 'Personal',
   administration: 'Administration',
+  developers: 'Developers',
   adminNote: 'Team and organization settings are managed by your admins.',
   version: (version: string) => `Version ${version}`,
   whatsNew: 'What’s new',

@@ -6,6 +6,7 @@
  * scrolls sideways rather than wrapping.
  */
 import {
+  BriefcaseIcon,
   Button,
   ClipboardListIcon,
   ClockIcon,
@@ -14,7 +15,6 @@ import {
   MessageIcon,
   PersonIcon,
   SettingsIcon,
-  TimerIcon,
   UsersIcon,
   type LucideIcon,
 } from '@mieweb/ui';
@@ -34,11 +34,11 @@ const NAV: NavItem[][] = [
     { icon: ClockIcon, label: 'Clock', href: '/app/clock' },
     { icon: MessageIcon, label: 'Huddle', href: '/app/huddle' },
     { icon: ClipboardListIcon, label: 'Tickets', href: '/app/tickets' },
-    { icon: TimerIcon, label: 'Work', href: '/app/work' },
   ],
   [
     { icon: UsersIcon, label: 'Teams', href: '/app/teams' },
     { icon: PersonIcon, label: 'People', href: '/app/organization' },
+    { icon: BriefcaseIcon, label: 'Enterprise', href: '/app/enterprise' },
   ],
   [{ icon: SettingsIcon, label: 'Settings', href: '/app/settings' }],
 ];
