@@ -101,11 +101,14 @@ describe('huddleSource.toUnified', () => {
   });
 
   it('names another link only when its server is named', () => {
-    const other = huddleSource.toUnified({ ...huddleTicket, github: 'https://x.dev/i/2' }, ctx);
+    const other = huddleSource.toUnified(
+      { ...huddleTicket, github: 'https://x.dev/issues/2' },
+      ctx,
+    );
     expect(other.externalRef).toMatchObject({ label: 'Issue link', id: null });
 
     const named = huddleSource.toUnified(
-      { ...huddleTicket, github: 'https://x.dev/i/2' },
+      { ...huddleTicket, github: 'https://x.dev/issues/2' },
       { ...ctx, sourcePrefixes: [{ host: 'x.dev', prefix: 'XD' }] },
     );
     expect(named.externalRef?.id).toBe('XD-2');

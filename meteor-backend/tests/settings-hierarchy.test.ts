@@ -460,7 +460,9 @@ describe('teams.byUser publication', () => {
 
   it("publishes the org's named servers, and pushes a change to them (#689)", async () => {
     expect(published(teamId)?.sourcePrefixes).toEqual([]);
-    const servers = [{ host: 'redmine.example.com', prefix: 'PM' }];
+    const servers = [
+      { host: 'redmine.example.com', prefix: 'PM', type: 'redmine', baseUrl: 'https://redmine.example.com' },
+    ];
     const res = await wormhole(
       'orgs.setSourcePrefixes',
       { orgId: orgId.toHexString(), sourcePrefixes: servers },

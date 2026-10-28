@@ -5,6 +5,7 @@ data/
 # Test configuration files
 vitest.config.ts
 vitest.config.js
+vitest.unit.config.ts
 
 # Test files
 **/*.test.ts

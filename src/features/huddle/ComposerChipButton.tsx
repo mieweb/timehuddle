@@ -13,7 +13,7 @@
  * `ghost` plus the border below is that reconciliation, in one place. If
  * @mieweb/ui gains a neutral outline variant, this collapses to it.
  */
-import { Button } from '@mieweb/ui';
+import { Button, cn } from '@mieweb/ui';
 import { forwardRef, type ReactElement, type ReactNode } from 'react';
 
 interface ComposerChipButtonProps {
@@ -28,10 +28,15 @@ interface ComposerChipButtonProps {
   'aria-expanded'?: boolean;
   /** Only where the visible label isn't already a sufficient accessible name. */
   'aria-label'?: string;
+  /**
+   * Below `sm`, just the icon in a circle: the label is kept for screen
+   * readers only, so a row of chips fits a phone.
+   */
+  compact?: boolean;
 }
 
 export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButtonProps>(
-  function ComposerChipButton({ children, leftIcon, onClick, disabled, ...aria }, ref) {
+  function ComposerChipButton({ children, leftIcon, onClick, disabled, compact, ...aria }, ref) {
     return (
       <Button
         ref={ref}
@@ -41,10 +46,15 @@ export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButt
         onClick={onClick}
         disabled={disabled}
         leftIcon={leftIcon}
-        className="gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700"
+        className={cn(
+          'gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
+          // No gap below sm: the hidden label would still hold one, pushing
+          // the icon off centre.
+          compact && 'max-sm:size-8 max-sm:shrink-0 max-sm:justify-center max-sm:gap-0 max-sm:p-0',
+        )}
         {...aria}
       >
-        {children}
+        {compact ? <span className="max-sm:sr-only">{children}</span> : children}
       </Button>
     );
   },

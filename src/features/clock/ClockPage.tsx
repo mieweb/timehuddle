@@ -67,9 +67,8 @@ import { useRouter } from '../../ui/router';
 /** The compact "X or Y" pair beside the plan/wrap-up input — the submit
  *  button and the Pulse chip share this exact class list so the two read as
  *  equal alternatives rather than a primary action and an afterthought. `h-10`
- *  is explicit because Pulse's chip is always rendered at Button `size="lg"`
- *  (h-12) internally — without overriding the height directly, matching
- *  padding alone still left it visibly taller than the plan/wrap-up button. */
+ *  is explicit so both stay the same height whatever Button size either one
+ *  defaults to. */
 const COMPACT_PILL = 'h-10 gap-2 rounded-full px-4 text-sm font-semibold shrink-0';
 
 /** "or Clock in/out with Pulse" — beside every way this page clocks in or out. */
