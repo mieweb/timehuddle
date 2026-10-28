@@ -477,7 +477,10 @@ const AppLayoutContent: React.FC = () => {
                     <AppHeader />
                     <TopNav />
                     <WhatsNewBanner />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
+                    <main
+                      ref={mainRef}
+                      className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"
+                    >
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. The

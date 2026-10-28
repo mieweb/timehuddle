@@ -112,7 +112,7 @@ export function settingsGroups(manages: {
 
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
-  backToOverview: 'Settings',
+  backToOverview: 'Back to Settings',
   personal: 'Personal',
   administration: 'Administration',
   adminNote: 'Team and organization settings are managed by your admins.',
