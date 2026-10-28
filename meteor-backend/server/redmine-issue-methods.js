@@ -69,7 +69,7 @@ const WRITE_FAILURE_MESSAGES = {
  * own validation messages are folded into `reason`, because the REST bridge
  * forwards only `error` and `reason` to the client.
  */
-function toWriteMeteorError(err) {
+export function toWriteMeteorError(err) {
   const code = writeFailureReason(err);
   const details = Array.isArray(err?.errors) && err.errors.length ? ` ${err.errors.join('. ')}.` : '';
   return new Meteor.Error(code, `${WRITE_FAILURE_MESSAGES[code]}${details}`);
@@ -115,7 +115,7 @@ function loadFormOptions(userId, account, projectId) {
  * Best-effort: if the lookups cannot be fetched, the history still renders with
  * `#id` placeholders rather than failing the whole page.
  */
-async function loadJournals(userId, account, raw) {
+export async function loadJournals(userId, account, raw) {
   let lookups = {};
   try {
     const [statuses, options] = await Promise.all([
@@ -164,7 +164,7 @@ const ISSUE_TIME_ENTRY_LIMIT = 10;
  * pages when TimeHuddle's own fill the first (`collectUnpushedTimeEntries`).
  * `null` when Redmine would not list them: the rest of the page still loads.
  */
-async function loadTimeEntries(userId, account, issueId) {
+export async function loadTimeEntries(userId, account, issueId) {
   try {
     const pushedIds = await pushedEntryIdsFor(userId, issueId);
     return await collectUnpushedTimeEntries(

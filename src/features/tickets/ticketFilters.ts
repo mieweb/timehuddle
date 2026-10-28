@@ -7,7 +7,7 @@
  * differently.
  */
 import { displaySourceId, type TicketSourceId, type UnifiedTicket } from './sources';
-import { leadingRefOf, refNumber } from './ticketIds';
+import { leadingRefOf } from './ticketIds';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
@@ -148,50 +148,6 @@ export function toggleSort(current: SortSpec, field: SortField): SortSpec {
   return { field, direction: startsDescending ? 'desc' : 'asc' };
 }
 
-/** Every ID a ticket goes by, lowercase: its own, and the outside one it is linked to or carries. */
-function ticketRefs(ticket: UnifiedTicket): string[] {
-  return [ticket.ref, ticket.linked?.ref, ticket.externalRef?.id]
-    .filter((ref): ref is string => !!ref)
-    .map((ref) => ref.toLowerCase());
-}
-
-/**
- * Match a query against the fields a user would reasonably search by.
- *
- * Two prefixes narrow it, the same way for every source:
- * - `@name` matches an assignee's name; `@` alone matches any assigned ticket
- * - `#ref` matches the start of any ID the ticket goes by, or of the number in
- *   one, so `#233` finds `PM-233`, and `#9` is not `#19`
- */
-export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-
-  if (q.startsWith('@')) {
-    const name = q.slice(1).trim();
-    if (!name) return ticket.assignees.length > 0;
-    // An unresolved Huddle assignee carries its raw id as the name — a name
-    // search must not match characters inside that id.
-    return ticket.assignees.some(
-      (assignee) => assignee.name !== assignee.id && assignee.name.toLowerCase().includes(name),
-    );
-  }
-  const refs = ticketRefs(ticket);
-  if (q.startsWith('#')) {
-    const id = q.slice(1);
-    return refs.some(
-      (ref) => ref.replace(/^#/, '').startsWith(id) || (refNumber(ref)?.startsWith(id) ?? false),
-    );
-  }
-
-  return (
-    ticket.title.toLowerCase().includes(q) ||
-    refs.some((ref) => ref.includes(q)) ||
-    (ticket.container?.name.toLowerCase().includes(q) ?? false) ||
-    (ticket.externalRef?.url.toLowerCase().includes(q) ?? false)
-  );
-}
-
 /**
  * @param meKeys the signed-in user's source-namespaced assignee keys (see
  *   `useMeAssigneeKeys`). Only used to resolve the `ME` sentinel; an empty list
@@ -200,12 +156,10 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
 export function applyFilters(
   tickets: UnifiedTicket[],
   filters: TicketFilters,
-  query: string,
   meKeys: readonly string[] = [],
 ): UnifiedTicket[] {
   const meKeySet = new Set(meKeys);
   return tickets.filter((ticket) => {
-    if (!matchesSearch(ticket, query)) return false;
     // An empty source selection means "every source", not "none".
     if (filters.sources.length > 0 && !filters.sources.includes(displaySourceId(ticket))) {
       return false;

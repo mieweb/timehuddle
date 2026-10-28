@@ -254,6 +254,56 @@ export async function collectUnpushedTimeEntries(
   return toTimeEntries(kept).slice(0, limit);
 }
 
+const toPerson = (named) => (named ? { id: String(named.id), name: named.name } : null);
+
+/**
+ * An issue's history as a ticket record's conversation (#734 step 3), from
+ * `toJournals` and `toTimeEntries` shapes: a journal's notes become a comment
+ * and each change its own entry, all at the journal's time; a time entry
+ * becomes `time`, placed when it was logged (the day it was for when Redmine
+ * gives no time). Oldest first.
+ */
+export function toConversation(journals = [], timeEntries = []) {
+  const entries = [];
+  for (const journal of journals) {
+    if (!journal.createdAt) continue;
+    const base = { author: toPerson(journal.user), at: journal.createdAt };
+    if (journal.notes) {
+      entries.push({
+        kind: 'comment',
+        id: `journal:${journal.id}:note`,
+        ...base,
+        text: { text: journal.notes, format: 'textile' },
+      });
+    }
+    journal.changes.forEach(({ field, from, to }, index) => {
+      entries.push({
+        kind: 'change',
+        id: `journal:${journal.id}:change:${index}`,
+        ...base,
+        field,
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+      });
+    });
+  }
+  for (const entry of timeEntries) {
+    const at = entry.createdAt ?? (entry.spentOn ? `${entry.spentOn}T12:00:00.000Z` : null);
+    if (!at) continue;
+    const note = [entry.activity?.name, entry.comments].filter(Boolean).join(' — ');
+    entries.push({
+      kind: 'time',
+      id: `time:${entry.id}`,
+      author: toPerson(entry.user),
+      at,
+      seconds: Math.round(entry.hours * 3600),
+      ...(entry.spentOn ? { on: entry.spentOn } : {}),
+      ...(note ? { text: { text: note, format: 'plain' } } : {}),
+    });
+  }
+  return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 /** An id → name map from `{ id, name }` items, for `toJournals` lookups. */
 export function toNameMap(items) {
   return new Map(

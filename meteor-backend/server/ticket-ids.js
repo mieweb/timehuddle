@@ -7,8 +7,13 @@
  * Prefixes live on the organization and are read at display time, never
  * copied onto tickets, so renaming one relabels every ticket at once. Takes the
  * Mongo `db` and has no Meteor imports, so it is testable
- * (tests/ticket-ids.test.ts).
+ * (tests/ticket-ids.test.ts, tests/ticket-servers.test.ts).
+ *
+ * The servers an org names are its server registry (#734 step 5): each has a
+ * type, saying which source definition reads its issues, and the address it
+ * lives at.
  */
+import { github } from '@timehuddle/ticket-sources';
 import { ObjectId } from 'mongodb';
 
 import { runMigrationOnce } from './migration-claim';
@@ -33,6 +38,12 @@ export function normalizeTicketPrefix(input) {
 /** How many servers an org can name. */
 export const MAX_SOURCE_PREFIXES = 20;
 
+/**
+ * The source types an owner can register a server as. GitHub isn't one: it is
+ * built in, the same for every org. Jira joins when it has a definition.
+ */
+export const SERVER_TYPES = Object.freeze(['redmine']);
+
 /** The bare lowercase hostname of a pasted URL or hostname, or null. */
 export function hostOf(input) {
   if (typeof input !== 'string' || !input.trim()) return null;
@@ -46,9 +57,25 @@ export function hostOf(input) {
 }
 
 /**
- * The server prefixes to store for `input`, a list of `{ host, prefix }`.
- * Throws an Error whose message says what is wrong, for the caller to show.
- * `ticketPrefix` is the org's own, which no server may share.
+ * A server's address in canonical form — `origin` plus any path Redmine lives
+ * under, no trailing slash — from a pasted URL or bare hostname, or null.
+ * https only, except a server on localhost (dev).
+ */
+export function serverBaseUrlOf(input) {
+  const host = hostOf(input);
+  if (!host) return null;
+  const text = input.trim();
+  const url = new URL(text.includes('://') ? text : `https://${text}`);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && host === 'localhost')) return null;
+  if (url.username || url.password || url.search || url.hash) return null;
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/**
+ * The servers to store for `input`, a list of `{ host, prefix, type, baseUrl }`.
+ * An entry's address is `baseUrl` or, as before types existed, `host`; its type
+ * defaults to Redmine. Throws an Error whose message says what is wrong, for
+ * the caller to show. `ticketPrefix` is the org's own, which no server may share.
  */
 export function normalizeSourcePrefixes(input, ticketPrefix) {
   if (!Array.isArray(input)) throw new Error('sourcePrefixes must be a list');
@@ -58,8 +85,15 @@ export function normalizeSourcePrefixes(input, ticketPrefix) {
   const hosts = new Set();
   const prefixes = new Set([ticketPrefix]);
   return input.map((entry) => {
-    const host = hostOf(entry?.host);
-    if (!host) throw new Error(`Not a server address: ${entry?.host ?? ''}`);
+    const address = entry?.baseUrl || entry?.host;
+    const host = hostOf(address);
+    const baseUrl = serverBaseUrlOf(address);
+    if (!host || !baseUrl) throw new Error(`Not a server address: ${address ?? ''}`);
+    if (github.id.hosts.includes(host)) {
+      throw new Error('GitHub needs no setup: its issues show as the repository and number');
+    }
+    const type = entry?.type ?? 'redmine';
+    if (!SERVER_TYPES.includes(type)) throw new Error(`${host}: not a server type: ${type}`);
     const prefix = normalizeTicketPrefix(entry?.prefix);
     if (!prefix) {
       throw new Error(`${host}: a prefix is a letter followed by up to five letters or digits`);
@@ -68,7 +102,56 @@ export function normalizeSourcePrefixes(input, ticketPrefix) {
     if (prefixes.has(prefix)) throw new Error(`${prefix} is already in use`);
     hosts.add(host);
     prefixes.add(prefix);
-    return { host, prefix };
+    return { host, prefix, type, baseUrl };
+  });
+}
+
+/**
+ * An org's servers as the registry stores them, from entries saved before
+ * types existed (`{ host, prefix }`). Every one was named for Redmine, so
+ * it becomes a Redmine server, at `redmineBaseUrl` when that is its host (it
+ * may live under a path), else at its host's root. A GitHub row never did
+ * anything (GitHub is built in) and is dropped. Typed entries are kept as they
+ * are.
+ */
+export function typedServers(entries, redmineBaseUrl) {
+  const redmineHost = hostOf(redmineBaseUrl);
+  return entries
+    .filter((entry) => entry.type || !github.id.hosts.includes(entry.host))
+    .map((entry) =>
+      entry.type
+        ? entry
+        : {
+            ...entry,
+            type: 'redmine',
+            baseUrl:
+              entry.host === redmineHost ? redmineBaseUrl.replace(/\/+$/, '') : `https://${entry.host}`,
+          },
+    );
+}
+
+/**
+ * Give every org's servers a type and address (#734 step 5), once. Each org is
+ * written only if its list is still the one read, so an owner's save meanwhile
+ * is never overwritten; they saved typed entries anyway.
+ */
+export function migrateServerTypes(db, { redmineBaseUrl }) {
+  return runMigrationOnce(db, 'ticket-servers-759', async () => {
+    const orgs = db
+      .collection('organizations')
+      .find({ 'sourcePrefixes.0': { $exists: true } }, { projection: { sourcePrefixes: 1 } });
+    let typed = 0;
+    for await (const org of orgs) {
+      if (org.sourcePrefixes.every((entry) => entry.type)) continue;
+      const { modifiedCount } = await db
+        .collection('organizations')
+        .updateOne(
+          { _id: org._id, sourcePrefixes: org.sourcePrefixes },
+          { $set: { sourcePrefixes: typedServers(org.sourcePrefixes, redmineBaseUrl) } },
+        );
+      typed += modifiedCount;
+    }
+    if (typed) console.log(`[orgs] gave ${typed} organization(s) server types`);
   });
 }
 

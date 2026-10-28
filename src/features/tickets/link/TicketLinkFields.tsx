@@ -7,7 +7,18 @@
  * so there is a single place, and a single look, for choosing a ticket's link.
  * It only collects the choice; `applyTicketLink` carries it out.
  */
-import { Alert, AlertDescription, Badge, Button, Input, Select, Spinner, Text } from '@mieweb/ui';
+import {
+  Alert,
+  AlertDescription,
+  Badge,
+  Button,
+  ButtonGroup,
+  Input,
+  Select,
+  Spinner,
+  Text,
+  WebsiteInput,
+} from '@mieweb/ui';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -19,7 +30,13 @@ import { SegmentedSwitcher, type SegmentedOption } from '../../../ui/SegmentedSw
 import { settingsPath } from '../../settings/settingsSections';
 import { redmineErrorMessage, toId, toOptions } from '../redmine/redmineForm';
 
-import { isHttpsUrl, type LinkFormState, type LinkKind, type RedmineMode } from './ticketLinkForm';
+import {
+  isLinkableUrl,
+  isRedmineIssueUrl,
+  type LinkFormState,
+  type LinkKind,
+  type RedmineMode,
+} from './ticketLinkForm';
 import { ticketLinkText } from './ticketLinkStrings';
 
 const KIND_OPTIONS: readonly SegmentedOption<LinkKind>[] = [
@@ -67,6 +84,13 @@ export function TicketLinkFields({
   const [trackers, setTrackers] = useState<RedmineNamed[]>([]);
 
   const creatingNew = value.kind === 'redmine' && value.redmineMode === 'new' && !redmineMissing;
+
+  // Only an issue can be a link. A Redmine issue pasted here is offered as one.
+  const linkText = value.github.trim();
+  const redmineIssueLink =
+    linkText !== '' &&
+    isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
+  const notAnIssue = linkText !== '' && !redmineIssueLink && !isLinkableUrl(linkText);
 
   const reducedMotion = useReducedMotion();
   const panelMotion = {
@@ -164,19 +188,44 @@ export function TicketLinkFields({
           <AnimatePresence mode="wait" initial={false}>
             {value.kind === 'github' && (
               <motion.div key="github" className="ticket-link-github" {...panelMotion}>
-                <Input
+                <WebsiteInput
                   label={ticketLinkText.githubLabel}
-                  type="url"
                   placeholder={ticketLinkText.githubPlaceholder}
                   value={value.github}
                   disabled={disabled}
-                  error={
-                    value.github.trim() && !isHttpsUrl(value.github)
-                      ? ticketLinkText.httpsOnly
-                      : undefined
-                  }
-                  onChange={(e) => onChange({ github: e.target.value })}
+                  error={notAnIssue ? ticketLinkText.notAnIssue : undefined}
+                  onChange={(github) => onChange({ github })}
                 />
+                {redmineIssueLink && (
+                  <div className="ticket-link-redmine-offer mt-2 space-y-2">
+                    <Alert variant="info">
+                      <AlertDescription>{ticketLinkText.redmineIssueLink}</AlertDescription>
+                    </Alert>
+                    <ButtonGroup>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => {
+                          // A Find still in flight was for another query: retire it.
+                          searchSeq.current += 1;
+                          setSearching(false);
+                          setMessage(null);
+                          onChange({
+                            kind: 'redmine',
+                            redmineMode: 'existing',
+                            query: linkText,
+                            issue: null,
+                            github: '',
+                          });
+                        }}
+                      >
+                        {ticketLinkText.linkAsRedmine}
+                      </Button>
+                    </ButtonGroup>
+                  </div>
+                )}
               </motion.div>
             )}
 

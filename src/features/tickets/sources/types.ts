@@ -6,6 +6,13 @@
  * external issue, which stores that issue's id and nothing else (`linked`).
  * See README.md for how to add a source.
  */
+import type {
+  RecordNamed,
+  RecordPerson,
+  RecordPriority,
+  RecordStatus,
+} from '@timehuddle/ticket-sources';
+
 import type { SourcePrefix, TicketSourceId } from '../../../lib/api';
 
 /**
@@ -34,36 +41,15 @@ export function ticketDetailPath(ticket: { sourceId: TicketSourceId; id: string 
     : `/app/tickets/${ticket.id}`;
 }
 
-/** A person a ticket is assigned to. Ids are namespaced per source. */
-export interface UnifiedAssignee {
-  /** Unique within the owning source only — never compare across sources. */
-  id: string;
-  name: string;
-}
-
 /**
- * `native` is what the source calls it and is what the row renders. `isClosed`
- * is the only cross-source fact we derive, and it drives the Open/Closed tabs.
+ * The parts of a row that are the shared ticket record's (#734): a person and
+ * a team or project by `{ id, name }`, a status with `isClosed`, a priority
+ * with a cross-source `rank`. See `@timehuddle/ticket-sources`.
  */
-export interface UnifiedStatus {
-  native: string;
-  isClosed: boolean;
-}
-
-/**
- * `rank` normalizes otherwise-incomparable scales so one sort works across
- * sources — higher means more urgent, 0 means "no priority set".
- */
-export interface UnifiedPriority {
-  native: string;
-  rank: number;
-}
-
-/** The grouping a ticket belongs to: a Huddle team, or a Redmine project. */
-export interface UnifiedContainer {
-  id: string;
-  name: string;
-}
+export type UnifiedAssignee = RecordPerson;
+export type UnifiedStatus = RecordStatus;
+export type UnifiedPriority = RecordPriority;
+export type UnifiedContainer = RecordNamed;
 
 /**
  * The external issue a ticket is linked to. The id comes from the ticket; the

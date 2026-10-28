@@ -20,6 +20,7 @@ import {
   openPulseAppOrStore,
 } from '../../lib/device';
 import { buildScanLink, buildUploadDeepLink } from './pulseLinks';
+import { uploadVideoFile, videoFileProblem } from './videoFile';
 
 /** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
@@ -39,7 +40,13 @@ export interface PulseUpload {
   destination: PulseDestination;
   /** Hand out the link: a new one, or the live one this hook already has. */
   start: () => Promise<void>;
+  /** Send a video file from this device through a new link instead of the Pulse app. */
+  upload: (file: File) => Promise<void>;
   reserving: boolean;
+  /** Sent fraction (0–1) of a file on its way up; null otherwise. */
+  progress: number | null;
+  /** A file's bytes are in and the server is converting and delivering it. */
+  processing: boolean;
   error: string | null;
   /** The current link, while there is one for this destination. */
   link: PulseLink | null;
@@ -58,7 +65,7 @@ interface Options {
   onSettled?: (status: PulseUploadStatus) => void;
 }
 
-type LiveLink = PulseLink & { destinationKey: string };
+type LiveLink = PulseLink & { destinationKey: string; fromFile: boolean };
 
 const isSettled = (status: PulseUploadStatus | null) =>
   status?.state === 'done' || status?.state === 'kept';
@@ -91,16 +98,23 @@ export function usePulseUpload(
   const [status, setStatus] = useState<PulseUploadStatus | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [reserving, setReserving] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const notifiedFor = useRef<string | null>(null);
+  // The file upload whose progress the buttons show, by its video id. Once the
+  // host moves on, an earlier upload keeps going to where it was reserved, but
+  // its progress, failure and cleanup no longer touch these buttons.
+  const activeFile = useRef<string | null>(null);
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket), this hook starts afresh; the earlier link
   // still delivers where it was meant to.
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
-    // Whatever went wrong was for the destination before this one.
+    // Whatever went wrong, or was uploading, was for the destination before this one.
     setError(null);
+    setProgress(null);
+    activeFile.current = null;
     launch.current();
   }, [destinationKey]);
   useEffect(() => {
@@ -185,6 +199,44 @@ export function usePulseUpload(
     }
   }, []);
 
+  /** A new link for the destination on screen, or null when it failed or the host moved on. */
+  const reserve = useCallback(
+    async (fromFile: boolean): Promise<LiveLink | null> => {
+      setReserving(true);
+      setError(null);
+      let reservation: { videoid: string; uploadToken: string };
+      try {
+        reservation = await videoApi.reserve(JSON.parse(destinationKey) as PulseDestination);
+      } catch (e) {
+        // Not an error of the destination now on screen, if the host moved on meanwhile.
+        if (mounted.current && latestKey.current === destinationKey) {
+          setError(
+            e instanceof Error && e.message ? e.message : 'Could not start Pulse. Try again.',
+          );
+        }
+        return null;
+      } finally {
+        setReserving(false);
+      }
+
+      // The host moved on (another ticket) or went away while this was
+      // reserving: nobody has seen this link, so nothing can upload with it.
+      // Dropped (it expires unused) rather than used for somewhere not on screen.
+      if (!mounted.current || latestKey.current !== destinationKey) return null;
+
+      const next: LiveLink = {
+        ...reservation,
+        scanLink: buildScanLink(reservation.videoid, reservation.uploadToken),
+        destinationKey,
+        fromFile,
+      };
+      setLink(next);
+      setStatus({ state: 'waiting' });
+      return next;
+    },
+    [destinationKey],
+  );
+
   const start = useCallback(async () => {
     // One link, one upload: while the last link is still waiting, open it
     // again (a re-scan resumes it) rather than mint a second that could also land.
@@ -192,43 +244,49 @@ export function usePulseUpload(
       await openLink(current);
       return;
     }
+    const next = await reserve(false);
+    if (next) await openLink(next);
+  }, [current, status?.state, reserve, openLink]);
 
-    setReserving(true);
-    setError(null);
-    let reservation: { videoid: string; uploadToken: string };
-    try {
-      reservation = await videoApi.reserve(JSON.parse(destinationKey) as PulseDestination);
-    } catch (e) {
-      // Not an error of the destination now on screen, if the host moved on meanwhile.
-      if (mounted.current && latestKey.current === destinationKey) {
-        setError(e instanceof Error && e.message ? e.message : 'Could not start Pulse. Try again.');
+  const upload = useCallback(
+    async (file: File) => {
+      const problem = videoFileProblem(file);
+      if (problem) {
+        setError(problem);
+        return;
       }
-      return;
-    } finally {
-      setReserving(false);
-    }
-
-    // The host moved on (another ticket) or went away while this was
-    // reserving: nobody has seen this link, so nothing can upload with it.
-    // Dropped (it expires unused) rather than opened for somewhere not on screen.
-    if (!mounted.current || latestKey.current !== destinationKey) return;
-
-    const next: LiveLink = {
-      ...reservation,
-      scanLink: buildScanLink(reservation.videoid, reservation.uploadToken),
-      destinationKey,
-    };
-    setLink(next);
-    setStatus({ state: 'waiting' });
-    await openLink(next);
-  }, [current, status?.state, destinationKey, openLink]);
+      const next = await reserve(true);
+      if (!next) return;
+      const isActive = () => mounted.current && activeFile.current === next.videoid;
+      activeFile.current = next.videoid;
+      setProgress(0);
+      try {
+        await uploadVideoFile(file, next, (f) => isActive() && setProgress(f));
+      } catch (e) {
+        if (!isActive()) return;
+        // Nothing landed: drop the link so the chips are free again.
+        setLink((live) => (live?.videoid === next.videoid ? null : live));
+        setStatus(null);
+        setError((e as Error).message);
+      } finally {
+        if (isActive()) {
+          setProgress(null);
+          activeFile.current = null;
+        }
+      }
+    },
+    [reserve],
+  );
 
   const closeModal = useCallback(() => setModalOpen(false), []);
 
   return {
     destination,
     start,
+    upload,
     reserving,
+    progress,
+    processing: Boolean(current?.fromFile) && status?.state === 'waiting' && progress === null,
     error,
     link: current,
     status: current ? status : null,

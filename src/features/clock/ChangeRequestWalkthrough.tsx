@@ -10,7 +10,8 @@ import { Badge } from '@mieweb/ui';
 import React from 'react';
 
 import type { TimesheetChangeRequest } from '../../lib/api';
-import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseControls } from '../pulse-upload/PulseButton';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 
 interface ChangeRequestWalkthroughProps {
   request: Pick<TimesheetChangeRequest, 'id' | 'status' | 'videoUrl'>;
@@ -18,25 +19,70 @@ interface ChangeRequestWalkthroughProps {
   onAdded?: () => void;
 }
 
-export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> = ({
+interface ChangeRequestWalkthroughHostProps extends ChangeRequestWalkthroughProps {
+  /** Places the walkthrough (null when there's nothing to show); may place it differently on each render. */
+  children: (walkthrough: React.ReactNode) => React.ReactNode;
+}
+
+/**
+ * Holds the walkthrough's upload above wherever it's shown, for a host whose
+ * layout moves it (a timesheet row gives it a line of its own on a narrow
+ * screen): the buttons remount there, the upload under way doesn't.
+ */
+export const ChangeRequestWalkthroughHost: React.FC<ChangeRequestWalkthroughHostProps> = ({
   request,
   onAdded,
+  children,
 }) => {
-  if (request.status !== 'pending') return null;
+  if (request.status !== 'pending') return <>{children(null)}</>;
   if (request.videoUrl) {
     return (
-      <Badge variant="success" size="sm" className="change-request-walkthrough-added">
-        Walkthrough added
-      </Badge>
+      <>
+        {children(
+          <Badge variant="success" size="sm" className="change-request-walkthrough-added">
+            Walkthrough added
+          </Badge>,
+        )}
+      </>
     );
   }
   return (
-    <PulseButton
-      destination={{ kind: 'timesheet-request', id: request.id }}
-      ariaLabel="Add a walkthrough with Pulse"
-      onSettled={(status) => {
-        if (status.state === 'done') onAdded?.();
-      }}
-    />
+    <WalkthroughUpload requestId={request.id} onAdded={onAdded}>
+      {children}
+    </WalkthroughUpload>
   );
 };
+
+/** Only mounted while a walkthrough can still be added, so no link is prepared otherwise. */
+const WalkthroughUpload: React.FC<{
+  requestId: string;
+  onAdded?: () => void;
+  children: ChangeRequestWalkthroughHostProps['children'];
+}> = ({ requestId, onAdded, children }) => {
+  const pulse = usePulseUpload(
+    { kind: 'timesheet-request', id: requestId },
+    {
+      onSettled: (status) => {
+        if (status.state === 'done') onAdded?.();
+      },
+    },
+  );
+  // Pulse and Upload, before "Pending approval" (icons only on a phone).
+  // `contents`: they join the host's own row, so they line up with the badge
+  // on one line, wrapping where there's no room.
+  return (
+    <>
+      {children(
+        <div className="change-request-walkthrough contents">
+          <PulseControls pulse={pulse} ariaLabel="Add a walkthrough with Pulse" allowFile compact />
+        </div>,
+      )}
+    </>
+  );
+};
+
+export const ChangeRequestWalkthrough: React.FC<ChangeRequestWalkthroughProps> = (props) => (
+  <ChangeRequestWalkthroughHost {...props}>
+    {(walkthrough) => walkthrough}
+  </ChangeRequestWalkthroughHost>
+);

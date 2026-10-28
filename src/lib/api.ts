@@ -6,6 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
+import type { RecordStatus, SourceServer, TicketRecord } from '@timehuddle/ticket-sources';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
@@ -608,11 +609,11 @@ export const usageApi = {
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
-/** A server an org has named, so an issue on `host` shows as `PM-233` (#689). */
-export interface SourcePrefix {
-  host: string;
-  prefix: string;
-}
+/**
+ * A server an org has registered, so an issue on `host` shows as `PM-233`
+ * (#689), read by its type's definition (#734 step 5).
+ */
+export type SourcePrefix = SourceServer;
 
 export const orgApi = {
   checkSlugAvailability: (slug: string, excludeId?: string) =>
@@ -1090,6 +1091,34 @@ export interface TicketDashboardSummary {
   myHighPriorityOpen: number;
 }
 
+/** How `tickets.search` read a query. */
+export type TicketSearchKind = 'id' | 'url' | 'assignee' | 'text';
+
+/** The outside issue a ticket carries, read through the driver engine (#757). */
+export interface OutsideIssue {
+  kind: string;
+  record: TicketRecord;
+  /** The statuses the caller may move it to, current first. */
+  choices: { status: RecordStatus[] };
+  /** The caller's id in the source, to tell their own activity apart. */
+  me: string | null;
+}
+
+/** Which issue `issue` is, as `tickets.writeOutside` checks it: `kind:server:key`. */
+export function outsideIssueKey(issue: OutsideIssue): string {
+  const ref = issue.record.ref;
+  return `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`;
+}
+
+/** Edits to an outside issue, by record field; ids as the source gives them. */
+export type OutsideEdits = Partial<{
+  title: string;
+  body: string;
+  status: string;
+  priority: string;
+  assignees: string[];
+}>;
+
 export const ticketApi = {
   /**
    * `brief` leaves out descriptions; `assignedTo` + `activeOnly` narrow the list to
@@ -1171,12 +1200,51 @@ export const ticketApi = {
       issueId: Number(issueId),
     }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
 
+  /**
+   * The tickets a search-bar query names, in any of the caller's teams
+   * (#736c): an ID or ID prefix (`THX-12`, `TH-`, `RM0-233`, `pulse-2`, a bare
+   * `223`), `@name`, a pasted issue link, or words in the title. Newest first
+   * (an exact ID first of all), at most 25, without descriptions. `kind` is how
+   * the query was read, null when it was not worth asking.
+   */
+  search: (query: string) =>
+    wormholeCall<{ kind: TicketSearchKind | null; tickets: Array<Record<string, unknown>> }>(
+      'tickets.search',
+      { query },
+    ).then(({ kind, tickets }) => ({ kind, tickets: tickets.map(toTicket) })),
+
   /** Remove a ticket's link. The ticket carries on as a plain TimeHuddle ticket. */
   unlink: (id: string, expectedIssueId: string) =>
     wormholeCall<Record<string, unknown>>('tickets.unlink', {
       ticketId: id,
       expectedIssueId,
     }).then(toTicket),
+
+  /**
+   * The outside issue the ticket carries, read with the caller's own key
+   * (#757). Fails with `not-connected`, `other-server` / `custom-instance`, or
+   * `gone` when they can't read it.
+   */
+  outsideIssue: (id: string) =>
+    wormholeCall<OutsideIssue>('tickets.outsideRecord', { ticketId: id }),
+
+  /**
+   * Write edits to the carried issue as the caller. `expected` is the issue
+   * they were looking at (`kind:server:key`, see `outsideIssueKey`) and its
+   * `dates.updated` then: refused with `stale-link` when the ticket now
+   * carries another issue, and `stale` when it changed. `mismatches` names
+   * what the source stored differently.
+   */
+  writeOutside: (id: string, expected: { issue: string; updated: string }, edits: OutsideEdits) =>
+    wormholeCall<Omit<OutsideIssue, 'kind' | 'me'> & { mismatches: string[] }>(
+      'tickets.writeOutside',
+      {
+        ticketId: id,
+        expectedIssue: expected.issue,
+        expectedUpdatedAt: expected.updated,
+        edits: { ...edits },
+      },
+    ),
 
   /** Who is timing the ticket right now. Cheap enough for a page to poll. */
   lockStatus: (id: string) =>
@@ -1897,13 +1965,6 @@ export const attachmentApi = {
       (r) => r.attachments,
     ),
 
-  add: (data: {
-    url: string;
-    type: AttachmentType;
-    title?: string;
-    attachedTo: { kind: AttachmentKind; id: string };
-  }) => wormholeCall<{ attachment: Attachment }>('attachments.add', data).then((r) => r.attachment),
-
   remove: (id: string) => wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
 };
 
@@ -2190,11 +2251,21 @@ export const videoApi = {
   uploadRetryDelays: [3000, 5000, 10000] as number[],
 
   /**
-   * Don't retry a `409 Upload-Offset conflict`: it means a concurrent/duplicate
-   * PATCH already advanced the offset, so retrying only conflicts again. Every
-   * upload path shares this so ticket and huddle behave identically.
+   * PulseVault's refusals of the file itself ("That file isn't a video.",
+   * "That file is larger than 500 MB."), whose body is written to be shown.
    */
-  shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
+  uploadRefusalStatuses: [400, 413, 422] as number[],
+
+  /**
+   * Don't retry a refusal: the same bytes are refused again. Nor a `409
+   * Upload-Offset conflict`: it means a concurrent/duplicate PATCH already
+   * advanced the offset, so retrying only conflicts again. Every upload path
+   * shares this so ticket and huddle behave identically.
+   */
+  shouldRetryUpload: (err: DetailedError): boolean => {
+    const status = err.originalResponse?.getStatus() ?? 0;
+    return status !== 409 && !videoApi.uploadRefusalStatuses.includes(status);
+  },
 
   /**
    * Where a Pulse upload stands, from PulseVault's status route read with the

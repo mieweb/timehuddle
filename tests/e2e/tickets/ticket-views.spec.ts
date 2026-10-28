@@ -33,24 +33,29 @@ test.describe('Tickets page views', () => {
     await expect(tickets.ticketsTab).toHaveAttribute('aria-checked', 'true');
   });
 
-  test('keeps one search bar above both views, with its text', async ({ page }) => {
+  test('keeps one search bar above both views, with its text, and leaves the rows alone', async ({
+    page,
+  }) => {
     await expect(tickets.searchInput).toHaveCount(1);
     await expect(page.getByPlaceholder('Search My Board…')).toHaveCount(0);
 
-    const title = `E2E Shared Search ${Date.now()}`;
+    const stamp = Date.now();
+    const title = `E2E Shared Search ${stamp}`;
+    const other = `E2E Not Searched ${stamp}`;
     await tickets.createTicket(title);
+    await tickets.createTicket(other);
 
-    // A new ticket is on its creator's board, so the board is filtered by the bar.
-    await tickets.search(title);
-    await expect(tickets.rowByTitle(title)).toBeVisible();
-    await expect(tickets.activePanel.locator('[data-ticket-id]')).toHaveCount(1);
+    // The results are in the dropdown; the board is not filtered by the bar (#736c).
+    await tickets.searchInput.fill(title);
+    await expect(tickets.searchMenu.getByRole('option', { name: new RegExp(title) })).toBeVisible();
+    await tickets.searchInput.press('Escape');
+    await expect(tickets.rowByTitle(other)).toBeVisible();
 
     await tickets.switchToTab('tickets');
     await expect(tickets.searchInput).toHaveValue(title);
-    await expect(tickets.rowByTitle(title)).toBeVisible();
-    await expect(tickets.activePanel.locator('[data-ticket-id]')).toHaveCount(1);
+    await expect(tickets.rowByTitle(other)).toBeVisible();
 
-    await tickets.search('');
+    await tickets.searchInput.clear();
     await tickets.switchToTab('my-board');
     await expect(tickets.searchInput).toHaveValue('');
   });

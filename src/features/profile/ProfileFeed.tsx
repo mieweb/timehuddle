@@ -1,60 +1,16 @@
 import { faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, Spinner, Text } from '@mieweb/ui';
-import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
+import { mediaApi, type MediaItem } from '../../lib/api';
 import { extractVideoThumbnail } from '../../lib/videoThumbnail';
-import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
+import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
+import { isVideoFile, uploadVideoToLibrary, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
-// ─── Upload helpers ───────────────────────────────────────────────────────────
-
-async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void): Promise<string> {
-  const { videoid, uploadToken } = await videoApi.reserve({ kind: 'library' });
-
-  await new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(file, {
-      endpoint: videoApi.uploadEndpoint(),
-      retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
-      metadata: { videoid, filename: file.name, filetype: file.type },
-      headers: { Authorization: `Bearer ${uploadToken}` },
-      onProgress(bytesUploaded, bytesTotal) {
-        onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
-      },
-      onSuccess() {
-        // The media item exists only once the backend has filed the video.
-        void videoApi.waitUntilFiled(videoid, uploadToken).then((filed) => {
-          if (filed.state === 'done') resolve();
-          else
-            // The bytes landed; only the filing didn't. Marked so the caller shows this
-            // message rather than the generic "upload failed".
-            reject(
-              Object.assign(
-                new Error(
-                  filed.state === 'kept'
-                    ? `Uploaded, but not added: ${filed.reason ?? 'its destination is gone'}.`
-                    : filed.state === 'forbidden'
-                      ? 'Uploaded, but this link has expired. Refresh to see it.'
-                      : 'Uploaded; still being processed. Refresh in a minute.',
-                ),
-                { uploaded: true },
-              ),
-            );
-        });
-      },
-      onError(err) {
-        reject(err);
-      },
-    });
-    upload.start();
-  });
-
-  return videoid;
-}
+const MEDIA_UPLOAD_ACCEPT = `image/*,.gif,${VIDEO_FILE_ACCEPT}`;
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -171,11 +127,15 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     setUploadError(null);
     setUploadProgress(0);
     try {
-      if (file.type.startsWith('video/')) {
+      if (isVideoFile(file)) {
         // Start thumbnail extraction in parallel with the upload.
         const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
 
-        const videoid = await uploadFileToLibrary(file, setUploadProgress);
+        const videoid = await uploadVideoToLibrary(file, (f) =>
+          setUploadProgress(Math.round(f * 100)),
+        ).catch((err: Error) => {
+          throw Object.assign(err, { shown: true });
+        });
         const freshItems = await waitForUploadedVideo(videoid);
         if (freshItems) setItems(freshItems);
 
@@ -196,7 +156,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
       setItems((prev) => [created, ...prev]);
     } catch (err) {
       setUploadError(
-        err instanceof Error && (err as Error & { uploaded?: boolean }).uploaded
+        err instanceof Error && (err as Error & { shown?: boolean }).shown
           ? err.message
           : 'Upload failed. Please try again.',
       );
