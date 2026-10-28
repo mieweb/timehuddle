@@ -99,6 +99,8 @@ export const OrganizationSettings: React.FC = () => {
       setSaveError(null);
       try {
         const view = await orgApi.updateSettings(selectedOrgId, patch);
+        // A load still in flight was asked before this save; drop its answer.
+        loadSeq.current++;
         setLoaded((prev) => (prev?.orgId === selectedOrgId ? { ...prev, view } : prev));
         refreshTeamSettings();
         refetchOrganizations();

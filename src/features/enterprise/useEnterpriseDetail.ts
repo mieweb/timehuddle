@@ -47,12 +47,15 @@ export function useEnterpriseDetail() {
   useRefresh(reload);
 
   const enterprise = loaded?.id === selectedEnterpriseId ? loaded : null;
-  /** Merge a partial update (a rename, a settings view) into the loaded detail. */
-  const patch = useCallback(
-    (update: Partial<EnterpriseDetail> & { id: string }) =>
-      setLoaded((prev) => (prev?.id === update.id ? { ...prev, ...update } : prev)),
-    [],
-  );
+  /**
+   * Merge a partial update (a rename, a settings view) into the loaded detail.
+   * A reload still in flight was asked before this save, so its answer is dropped.
+   */
+  const patch = useCallback((update: Partial<EnterpriseDetail> & { id: string }) => {
+    seqRef.current++;
+    setLoading(false);
+    setLoaded((prev) => (prev?.id === update.id ? { ...prev, ...update } : prev));
+  }, []);
 
   return { enterprise, loading, error, reload, patch };
 }
