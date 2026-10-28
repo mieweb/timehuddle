@@ -15,7 +15,7 @@ import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
 import { addBoardEntryIfRoom } from './my-board';
-import { isLinkableUrl, linkedIssueIdOf } from './ticket-link-core';
+import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
 import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
 import { nextTicketNumber } from './ticket-ids';
 import { HUDDLE } from './ticket-refs';
@@ -159,10 +159,9 @@ export async function insertTicket(
 
 const LINKED_TO_REDMINE =
   'This ticket is linked to a Redmine issue. Remove that link before adding another one.';
-// Checked here as well as in the form: this method is callable without it, and
-// the link is rendered as an `href` for the whole team.
-const LINK_MUST_BE_ISSUE =
-  "This link isn't an issue from one of your organization's sources. Put other links in the description.";
+// The link is rendered as an `href` for the whole team, so it is checked here
+// as well as in the form: this method is callable without the form.
+const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
 
 // Lists, the live feed and the dashboard summary all read one team's tickets.
 Meteor.startup(async () => {
@@ -282,8 +281,8 @@ Meteor.methods({
         `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`,
       );
     }
-    if (typeof github === 'string' && github.trim() && !isLinkableUrl(github.trim())) {
-      throw new Meteor.Error('validation-error', LINK_MUST_BE_ISSUE);
+    if (typeof github === 'string' && github.trim() && !isHttpsUrl(github.trim())) {
+      throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
     }
     const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
@@ -364,8 +363,8 @@ Meteor.methods({
     if (github !== undefined) {
       if (typeof github !== 'string')
         throw new Meteor.Error('validation-error', 'github must be a string');
-      if (github.trim() && !isLinkableUrl(github.trim())) {
-        throw new Meteor.Error('validation-error', LINK_MUST_BE_ISSUE);
+      if (github.trim() && !isHttpsUrl(github.trim())) {
+        throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
       }
       // A ticket has one link. The Redmine link is removed through
       // `tickets.unlink`, which tells the people it affects; it is never

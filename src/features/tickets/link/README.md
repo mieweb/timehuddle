@@ -19,12 +19,11 @@ a TimeHuddle ticket; the link says which Redmine issue it stands for.
 and changing its link later are the same choice. There is no other dialog for
 either.
 
-**A link is an issue** (#734 step 5): a GitHub issue or pull request, or a
-Redmine issue linked as one. A doc, a drive folder or a repository page is
-refused, in the form (`isLinkableUrl`) and on the server, with a note to put it
-in the description. A Redmine issue pasted as a GitHub link is offered as a
-Redmine link. Links saved before the rule that aren't issues were moved into
-their ticket's description (`meteor-backend/server/ticket-links-759.js`).
+**A link can be any https address**: a doc, a folder or a tracker. When it's a
+GitHub issue or pull request, or an issue on one of the org's registered
+servers, the ticket shows it by that issue's ID (`pulse-250`, `RMX-233`);
+anything else is a plain link on a `TH-` ticket. A Redmine issue pasted as a
+link is offered as a Redmine link, so its status and history show here.
 
 **One link per ticket.** A ticket is TimeHuddle-only, on GitHub, or on Redmine.
 Linking to Redmine clears a GitHub URL, and the server refuses a GitHub URL

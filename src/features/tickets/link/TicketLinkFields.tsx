@@ -30,7 +30,7 @@ import { SegmentedSwitcher, type SegmentedOption } from '../../../ui/SegmentedSw
 import { redmineErrorMessage, toId, toOptions } from '../redmine/redmineForm';
 
 import {
-  isLinkableUrl,
+  isHttpsUrl,
   isRedmineIssueUrl,
   type LinkFormState,
   type LinkKind,
@@ -84,12 +84,12 @@ export function TicketLinkFields({
 
   const creatingNew = value.kind === 'redmine' && value.redmineMode === 'new' && !redmineMissing;
 
-  // Only an issue can be a link. A Redmine issue pasted here is offered as one.
+  // Any https link can be saved. A Redmine issue pasted here is offered as one.
   const linkText = value.github.trim();
   const redmineIssueLink =
     linkText !== '' &&
     isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
-  const notAnIssue = linkText !== '' && !redmineIssueLink && !isLinkableUrl(linkText);
+  const notHttps = linkText !== '' && !isHttpsUrl(linkText);
 
   const reducedMotion = useReducedMotion();
   const panelMotion = {
@@ -192,7 +192,7 @@ export function TicketLinkFields({
                   placeholder={ticketLinkText.githubPlaceholder}
                   value={value.github}
                   disabled={disabled}
-                  error={notAnIssue ? ticketLinkText.notAnIssue : undefined}
+                  error={notHttps ? ticketLinkText.httpsOnly : undefined}
                   onChange={(github) => onChange({ github })}
                 />
                 {redmineIssueLink && (

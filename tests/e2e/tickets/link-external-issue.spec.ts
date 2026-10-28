@@ -97,7 +97,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     // Changed in place, with no popup. The choice is a link or Redmine only:
     // "TimeHuddle" is not a link to add, and a link is removed with Unlink.
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(card(page).getByRole('radio', { name: 'GitHub', exact: true })).toBeVisible();
+    await expect(card(page).getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
     await expect(card(page).getByRole('radio', { name: 'TimeHuddle', exact: true })).toHaveCount(0);
     await expect(card(page).getByRole('radio', { name: 'Redmine' })).toBeChecked();
     await card(page).getByLabel('Issue number or link').fill('#482');
@@ -141,23 +141,18 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
   });
 
-  test('refuses a link that is not an issue, and offers a Redmine issue as one', async ({
-    page,
-  }) => {
+  test('takes a link that is not an issue, and offers a Redmine issue as one', async ({ page }) => {
     const tickets = new TicketsPage(page);
     await tickets.goto();
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill(`Not an issue ${Date.now()}`);
-    await page.getByRole('radio', { name: 'GitHub', exact: true }).check();
-    const field = page.getByLabel('GitHub issue or pull request');
+    await page.getByRole('radio', { name: 'Link', exact: true }).check();
+    const field = page.getByLabel('Link to the issue');
     const create = page.getByRole('button', { name: 'Create Ticket' });
 
-    // A doc is not an issue: the dialog says where it goes instead.
+    // A doc is a fine link: nothing is refused.
     await field.fill('https://docs.google.com/document/d/abc/edit');
-    await expect(
-      page.getByText("This link isn't an issue from one of your organization's sources."),
-    ).toBeVisible();
-    await expect(create).toBeDisabled();
+    await expect(create).toBeEnabled();
 
     // An issue on this TimeHuddle's Redmine is linked as a Redmine issue.
     await field.fill(`${BASE_URL}/issues/482`);
@@ -206,8 +201,8 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     const tickets = new TicketsPage(page);
     await tickets.goto();
     await page.getByRole('button', { name: 'New Ticket' }).click();
-    await page.getByRole('radio', { name: 'GitHub', exact: true }).check();
-    await page.getByLabel('GitHub issue or pull request').fill(url);
+    await page.getByRole('radio', { name: 'Link', exact: true }).check();
+    await page.getByLabel('Link to the issue').fill(url);
     // The dialog takes the ticket's title from the issue.
     await expect(page.getByPlaceholder('Ticket title')).toHaveValue(githubTitle, {
       timeout: 15000,
