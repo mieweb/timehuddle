@@ -33,6 +33,7 @@ vi.mock('@mieweb/ui', () => ({
     <tr onClick={onClick}>{children}</tr>
   ),
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
 }));
 
 vi.mock('../clock/TimesheetRow', () => ({

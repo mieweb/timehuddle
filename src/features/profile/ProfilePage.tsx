@@ -67,6 +67,7 @@ async function resizeAvatarPhoto(dataUrl: string, maxDim = 2048): Promise<string
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { LinkifiedText } from '../../ui/LinkifiedText';
 import { NoAccessState, type NoAccessKind } from '../../ui/NoAccessState';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { settingsPath } from '../settings/settingsSections';
@@ -331,7 +332,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
             )}
 
             {profile?.bio && (
-              <p className="mt-2 max-w-prose text-sm text-neutral-300">{profile.bio}</p>
+              <p className="mt-2 max-w-prose whitespace-pre-line text-sm text-neutral-300 [overflow-wrap:anywhere]">
+                <LinkifiedText text={profile.bio} inverse />
+              </p>
             )}
 
             {profile?.website && (

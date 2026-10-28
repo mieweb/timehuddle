@@ -1,19 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type {
-  ActivityLogItem,
-  RedmineJournal,
-  RedmineTimeEntry,
-  TicketSession,
-} from '../../../lib/api';
+import type { ConversationEntry } from '@timehuddle/ticket-sources';
 
-import {
-  fromHuddleEvents,
-  fromJournals,
-  fromRedmineTimeEntries,
-  fromSessions,
-  mergeByTime,
-} from './activityEntries';
+import type { ActivityLogItem, TicketSession } from '../../../lib/api';
+
+import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 
 const event = (id: string, type: string, occurredAt: string, payload = {}): ActivityLogItem =>
   ({
@@ -75,6 +66,7 @@ describe('fromSessions', () => {
       actorName: 'You',
       text: 'logged 1h 20m',
       kind: 'session',
+      mine: true,
     });
     expect(entry.detail).toContain('–');
   });
@@ -89,112 +81,101 @@ describe('fromSessions', () => {
   });
 });
 
-describe('fromJournals', () => {
-  const journal = (overrides: Partial<RedmineJournal>): RedmineJournal => ({
-    id: 1,
-    user: { id: 8, name: 'Priya Patel' },
-    createdAt: '2026-09-21T10:00:00.000Z',
-    notes: '',
-    changes: [],
-    ...overrides,
-  });
-
-  it('describes field changes in one sentence', () => {
-    const [entry] = fromJournals([
-      journal({
-        changes: [
-          { field: 'status', from: 'New', to: 'Closed' },
-          { field: 'assignee', from: null, to: 'Riley' },
-          { field: 'description', from: null, to: null },
-        ],
-      }),
-    ]);
-    expect(entry.text).toBe('changed status from New to Closed, assignee to Riley, description');
-    expect(entry.kind).toBe('event');
-  });
-
-  it('treats a notes-only journal as a comment', () => {
-    const [entry] = fromJournals([journal({ notes: 'Looks good' })]);
-    expect(entry).toMatchObject({ text: 'commented', detail: 'Looks good', kind: 'comment' });
-  });
-
-  it('skips a journal with no timestamp', () => {
-    expect(fromJournals([journal({ createdAt: null })])).toEqual([]);
-  });
-});
-
-describe('fromRedmineTimeEntries', () => {
-  const entry = (overrides: Partial<RedmineTimeEntry> = {}): RedmineTimeEntry => ({
-    id: 900,
-    user: { id: 42, name: 'Jane Doe' },
-    hours: 1.5,
-    activity: { id: 9, name: 'Development' },
-    comments: 'Paired on the fix',
-    spentOn: '2026-09-28',
-    createdAt: '2026-09-28T16:20:00.000Z',
-    ...overrides,
-  });
-
-  it('reads as time logged in Redmine, with the activity, day and comment', () => {
-    const [time] = fromRedmineTimeEntries([entry()]);
-    expect(time).toMatchObject({
-      id: 'time:900',
-      at: '2026-09-28T16:20:00.000Z',
-      actorName: 'Jane Doe',
-      text: 'logged 1h 30m in Redmine',
+describe('fromConversation (#757)', () => {
+  const jane = { id: '42', name: 'Jane Doe' };
+  const sam = { id: '7', name: 'Sam' };
+  const at = '2026-09-21T10:00:00.000Z';
+  const conversation: ConversationEntry[] = [
+    {
+      kind: 'comment',
+      id: 'journal:1:note',
+      author: jane,
+      at,
+      text: { text: 'Looks good', format: 'textile' },
+    },
+    {
+      kind: 'change',
+      id: 'journal:1:change:0',
+      author: jane,
+      at,
+      field: 'status',
+      from: 'New',
+      to: 'Closed',
+    },
+    { kind: 'change', id: 'journal:1:change:1', author: jane, at, field: 'assignee', to: 'Riley' },
+    { kind: 'change', id: 'journal:1:change:2', author: jane, at, field: 'description' },
+    {
+      kind: 'comment',
+      id: 'journal:2:note',
+      author: sam,
+      at,
+      text: { text: 'Thanks', format: 'textile' },
+    },
+    {
       kind: 'time',
-      mine: false,
+      id: 'time:900',
+      author: jane,
+      at: '2026-09-28T16:20:00.000Z',
+      seconds: 5400,
+      on: '2026-09-28',
+      text: { text: 'Development — Paired on the fix', format: 'plain' },
+    },
+  ];
+
+  it('reads changes and a comment made together as one entry', () => {
+    const [together] = fromConversation(conversation, { source: 'Redmine' });
+    expect(together).toMatchObject({
+      id: 'outside:journal:1:note',
+      actorName: 'Jane Doe',
+      text: 'changed status from New to Closed, assignee to Riley, description',
+      detail: 'Looks good',
+      kind: 'event',
     });
-    expect(time.detail).toMatch(/^Development, for .+ — Paired on the fix$/);
+  });
+
+  it("keeps someone else's comment at the same moment apart, as a comment", () => {
+    const entries = fromConversation(conversation, { source: 'Redmine' });
+    expect(entries[1]).toMatchObject({
+      actorName: 'Sam',
+      text: 'commented',
+      detail: 'Thanks',
+      kind: 'comment',
+    });
+  });
+
+  it('reads time as logged in the source, with its note and day', () => {
+    const time = fromConversation(conversation, { source: 'Redmine' }).find(
+      (e) => e.kind === 'time',
+    );
+    expect(time).toMatchObject({ id: 'outside:time:900', text: 'logged 1h 30m in Redmine' });
+    expect(time?.detail).toMatch(/^Development — Paired on the fix, for /);
+  });
+
+  it('keeps both comments one person left in the same second', () => {
+    const twice: ConversationEntry[] = [
+      {
+        kind: 'comment',
+        id: 'journal:8:note',
+        author: sam,
+        at,
+        text: { text: 'One', format: 'textile' },
+      },
+      {
+        kind: 'comment',
+        id: 'journal:9:note',
+        author: sam,
+        at,
+        text: { text: 'Two', format: 'textile' },
+      },
+    ];
+    expect(fromConversation(twice, { source: 'Redmine' })[0].detail).toBe('One\n\nTwo');
   });
 
   it("marks the viewer's own entries", () => {
-    const [mine, theirs] = fromRedmineTimeEntries(
-      [entry(), entry({ id: 901, user: { id: 7, name: 'Sam' } })],
-      42,
-    );
-    expect(mine.mine).toBe(true);
-    expect(theirs.mine).toBe(false);
-  });
-
-  it('falls back to the day it was for, and skips undated entries', () => {
-    const entries = fromRedmineTimeEntries([
-      entry({ createdAt: null, comments: '', activity: null }),
-      entry({ id: 2, createdAt: null, spentOn: null }),
-    ]);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].at).toBe(new Date('2026-09-28T12:00:00').toISOString());
-    expect(entries[0].detail).toMatch(/^for /);
-  });
-});
-
-describe('the "mine" marker', () => {
-  it("marks the viewer's journals and always their own sessions", () => {
-    const journals = [
-      {
-        id: 1,
-        user: { id: 42, name: 'Me' },
-        createdAt: '2026-09-01T00:00:00Z',
-        notes: 'hi',
-        changes: [],
-      },
-      {
-        id: 2,
-        user: { id: 7, name: 'Sam' },
-        createdAt: '2026-09-01T00:00:00Z',
-        notes: 'yo',
-        changes: [],
-      },
-    ] as RedmineJournal[];
-    expect(fromJournals(journals, 42).map((j) => j.mine)).toEqual([true, false]);
-    expect(fromJournals(journals).map((j) => j.mine)).toEqual([false, false]);
-    const session = {
-      id: 's',
-      startTime: 0,
-      endTime: 60_000,
-      durationSeconds: 60,
-    } as TicketSession;
-    expect(fromSessions([session], 'You')[0].mine).toBe(true);
+    expect(
+      fromConversation(conversation, { me: '42', source: 'Redmine' }).map((e) => e.mine),
+    ).toEqual([true, false, true]);
+    expect(fromConversation(conversation, { source: 'Redmine' }).every((e) => !e.mine)).toBe(true);
   });
 });
 

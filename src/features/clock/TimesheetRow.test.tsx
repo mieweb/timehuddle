@@ -6,8 +6,12 @@ import { type ClockEvent } from '../../lib/api';
 import { RouterContext } from '../../ui/router';
 import { TimesheetRow } from './TimesheetRow';
 
+/** What useMediaQuery answers: true = the table scrolls sideways (phone, tablet). */
+let mediaQueryMatches = false;
+
 afterEach(() => {
   cleanup();
+  mediaQueryMatches = false;
 });
 
 vi.mock('@fortawesome/react-fontawesome', () => ({
@@ -36,6 +40,8 @@ vi.mock('@mieweb/ui', () => ({
     <tr {...rest}>{children}</tr>
   ),
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
+  useMediaQuery: () => mediaQueryMatches,
 }));
 
 function buildSession(): ClockEvent {
@@ -295,6 +301,39 @@ describe('TimesheetRow', () => {
     expect(screen.queryByText('Completed')).toBeNull();
   });
 
+  it('gives the walkthrough its own line while the table scrolls sideways', () => {
+    const pending = {
+      session: buildSession(),
+      teams: [{ id: 'team-1', name: 'Mobile test' }],
+      onEdit: vi.fn(),
+      changeStatus: 'pending' as const,
+      pendingAction: <button type="button">Walkthrough chips</button>,
+    };
+    const { rerender, container } = render(
+      <table>
+        <tbody>
+          <TimesheetRow {...pending} />
+        </tbody>
+      </table>,
+    );
+    // Wide screen: beside "Pending approval", no extra row.
+    expect(container.querySelector('.pending-walkthrough-row')).toBeNull();
+    expect(screen.getAllByText('Walkthrough chips')).toHaveLength(1);
+
+    mediaQueryMatches = true;
+    rerender(
+      <table>
+        <tbody>
+          <TimesheetRow {...pending} />
+        </tbody>
+      </table>,
+    );
+    // Phone or tablet: once, on a full-width row of its own.
+    const ownLine = container.querySelector('.pending-walkthrough-row');
+    expect(ownLine?.textContent).toContain('Walkthrough chips');
+    expect(screen.getAllByText('Walkthrough chips')).toHaveLength(1);
+  });
+
   it('reports a declined change in place of the status', () => {
     render(
       <table>
@@ -304,7 +343,7 @@ describe('TimesheetRow', () => {
             teams={[{ id: 'team-1', name: 'Mobile test' }]}
             onEdit={vi.fn()}
             changeStatus="rejected"
-            changeNote="Times do not match the roster"
+            changeNote="Times do not match the roster: https://wiki.example.com/roster"
           />
         </tbody>
       </table>,
@@ -312,6 +351,47 @@ describe('TimesheetRow', () => {
 
     expect(screen.getAllByText('Change declined').length).toBeGreaterThan(0);
     expect(screen.queryByText('Pending approval')).toBeNull();
+    // The reviewer's note is on the page, not in a tooltip, and its link works.
+    expect(screen.getAllByText(/Times do not match the roster/).length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getAllByRole('link', { name: 'https://wiki.example.com/roster' })[0]
+        .getAttribute('href'),
+    ).toBe('https://wiki.example.com/roster');
+  });
+
+  it("offers the session's videos only where the host passes onVideos", () => {
+    const session = buildSession();
+    const onVideos = vi.fn();
+    const { rerender } = render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+          />
+        </tbody>
+      </table>,
+    );
+    expect(screen.queryByRole('button', { name: 'Videos for this session' })).toBeNull();
+
+    rerender(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+            onVideos={onVideos}
+          />
+        </tbody>
+      </table>,
+    );
+    const videos = screen.getAllByRole('button', { name: 'Videos for this session' });
+    expect(videos).toHaveLength(1);
+    fireEvent.click(videos[0]);
+    expect(onVideos).toHaveBeenCalledWith(session);
   });
 
   it('opens a Redmine ticket session on its TimeHuddle page, not in Redmine', () => {

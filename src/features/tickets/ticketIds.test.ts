@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UnifiedTicket } from './sources/types';
-import { leadingRefOf, outsideIdOf, outsideRefOf, refNumber } from './ticketIds';
+import { leadingRefOf, outsideIdOf, outsideRefOf } from './ticketIds';
 
 const prefixes = [{ host: 'redmine.example.com', prefix: 'PM' }];
 
@@ -37,14 +37,6 @@ describe('outsideIdOf', () => {
     expect(outsideIdOf('', prefixes)).toBeNull();
     expect(outsideIdOf(null, prefixes)).toBeNull();
     expect(outsideIdOf('see the doc', prefixes)).toBeNull();
-  });
-});
-
-describe('refNumber', () => {
-  it('takes the number at the end of a ref', () => {
-    expect(refNumber('PM-233')).toBe('233');
-    expect(refNumber('#233')).toBe('233');
-    expect(refNumber('#3fa2c')).toBeNull();
   });
 });
 

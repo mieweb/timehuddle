@@ -24,6 +24,7 @@ import {
   Textarea,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
+import { LinkifiedText } from '@ui/LinkifiedText';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -441,7 +442,9 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             <Text size="xs" variant="muted">
               Their explanation
             </Text>
-            <Text size="sm">{active?.description}</Text>
+            <Text size="sm" className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+              <LinkifiedText text={active?.description ?? ''} />
+            </Text>
           </div>
 
           {active?.videoUrl && (
@@ -480,16 +483,19 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
           )}
         </ModalBody>
         <ModalFooter>
-          {/* Approve and Decline share a row and split the width. The icons are
-              dropped: with them the labels truncated to "Appro…" on a phone,
-              and the colours already carry the same signal. */}
+          {/* Approve and Decline share a row: on a phone they split the width,
+              from sm up each is as wide as its label. The icons are dropped:
+              with them the labels truncated to "Appro…" on a phone, and the
+              colours already carry the same signal. (flex-1 alone truncated
+              "Approve" from sm up: a zero basis in a row only as wide as its
+              content.) */}
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             {active?.status === 'pending' ? (
               <>
-                <div className="flex gap-2">
+                <div className="approval-decision-buttons flex w-full gap-2 sm:w-auto">
                   <Button
                     variant="primary"
-                    className="flex-1"
+                    className="flex-1 sm:flex-none"
                     isLoading={busy === 'approve'}
                     disabled={busy !== null}
                     onClick={() => void respond(true)}
@@ -498,7 +504,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                   </Button>
                   <Button
                     variant="danger"
-                    className="flex-1"
+                    className="flex-1 sm:flex-none"
                     isLoading={busy === 'reject'}
                     disabled={rejectDisabled}
                     onClick={() => void respond(false)}
