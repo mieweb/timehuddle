@@ -74,6 +74,7 @@ import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { CreateTeamModal } from './CreateTeamModal';
 import { PendingJoinRequests } from './PendingJoinRequests';
+import { TEAMS_STRINGS } from './teamsStrings';
 import { TeamSettingRow } from '../settings/TeamSettingRow';
 import { SETTINGS_STRINGS } from '../settings/settingsCopy';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -589,13 +590,13 @@ export const TeamsPage: React.FC = () => {
             className="mt-4"
           >
             {tabs.length > 1 && (
-              <TabsList aria-label="Team sections">
-                <TabsTrigger value="members">Members</TabsTrigger>
+              <TabsList aria-label={TEAMS_STRINGS.tabs.label}>
+                <TabsTrigger value="members">{TEAMS_STRINGS.tabs.members}</TabsTrigger>
                 <TabsTrigger value="requests">
-                  Requests{pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}
+                  {TEAMS_STRINGS.tabs.requests(pendingRequestCount)}
                 </TabsTrigger>
-                <TabsTrigger value="invitations">Invitations</TabsTrigger>
-                <TabsTrigger value="settings">Settings</TabsTrigger>
+                <TabsTrigger value="invitations">{TEAMS_STRINGS.tabs.invitations}</TabsTrigger>
+                <TabsTrigger value="settings">{TEAMS_STRINGS.tabs.settings}</TabsTrigger>
               </TabsList>
             )}
             <TabsContent value="members">
