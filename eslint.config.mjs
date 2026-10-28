@@ -152,7 +152,7 @@ export default [
       'src/features/teams/TeamsPage.tsx',
       'src/features/tickets/TicketsPage.tsx',
       'src/features/timers/TodayStatusCard.tsx',
-      'src/features/timers/WorkPage.tsx',
+      'src/features/timers/WorkWeek.tsx',
       'src/ui/BottomNav.tsx',
       'src/ui/CommandPalette.tsx',
       'src/ui/LandingPage.tsx',

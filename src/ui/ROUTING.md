@@ -53,7 +53,7 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 | Ticket `/app/tickets/:ticketId` | none — copy it with **Copy Link**                                                            |
 | Dashboard                       | `tab=me\|team`, `view=timesheet`, `member`, `request`                                        |
 | Huddle                          | `view=me` (Personal), `conversation`, `q`; `post` resolves to the `conversation` holding it  |
-| Work                            | `date=YYYY-MM-DD` (today when absent)                                                        |
+| Tickets → My Week               | `view=week`, `date=YYYY-MM-DD` (today when absent)                                           |
 | Profile                         | `tab` (Feed when absent)                                                                     |
 | People `/app/organization`      | `tab=members\|invitations\|chart` (admins; Members when absent), `q`, `role`                 |
 | Settings → Usage                | `period`, `usageOrg` — not `org`, which is the app-wide scope                                |
@@ -69,13 +69,13 @@ A signed-out visitor who opens an `/app/...` link signs in and comes back to it 
 
 Notification payloads and bookmarks already in the wild use these. They are read as aliases and normalised to the new name the next time the URL is written.
 
-| Legacy                                                                                                                | Now                                            |
-| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `?teamId=`                                                                                                            | `?team=`                                       |
-| `?postId=`                                                                                                            | `?post=`                                       |
-| `?memberId=`                                                                                                          | `?member=`                                     |
-| `?requestId=`                                                                                                         | `?request=`                                    |
-| `/app/timesheet`, `/app/messages`, `/app/media`, `/app/activity`, `/app/org/members`, `/app/org/usage`, `/app/seeder` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
+| Legacy                                                                                                                             | Now                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `?teamId=`                                                                                                                         | `?team=`                                       |
+| `?postId=`                                                                                                                         | `?post=`                                       |
+| `?memberId=`                                                                                                                       | `?member=`                                     |
+| `?requestId=`                                                                                                                      | `?request=`                                    |
+| `/app/timesheet`, `/app/messages`, `/app/media`, `/app/activity`, `/app/org/members`, `/app/org/usage`, `/app/seeder`, `/app/work` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
 
 ## Paths That Don't Resolve
 
