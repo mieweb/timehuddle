@@ -12,7 +12,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, orgApi, type OrganizationInvitation } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -43,18 +43,24 @@ export const InvitationsPanel: React.FC<{ reloadKey: number }> = ({ reloadKey })
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // A pull-to-refresh can still be in flight when a revoke reloads; only the
+  // latest load may write, or an older list would bring back a revoked invite.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    const isLatest = () => seq === loadSeq.current;
     if (!selectedOrgId) {
       setInvitations([]);
       return;
     }
     setLoading(true);
     try {
-      setInvitations(await orgApi.getPendingInvitations(selectedOrgId));
+      const rows = await orgApi.getPendingInvitations(selectedOrgId);
+      if (isLatest()) setInvitations(rows);
     } catch {
-      setInvitations([]);
+      if (isLatest()) setInvitations([]);
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, [selectedOrgId]);
 

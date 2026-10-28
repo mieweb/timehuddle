@@ -245,10 +245,11 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
           aria-label={S.searchLabel}
           className="w-80 max-w-full"
         />
-        <div
+        <ButtonGroup
           role="group"
           aria-label={S.roleFilter}
-          className="members-role-filter flex flex-wrap gap-1 rounded-lg border border-neutral-200 p-1 dark:border-neutral-700"
+          orientation="horizontal"
+          className="members-role-filter flex-wrap justify-start gap-1 rounded-lg border border-neutral-200 p-1 dark:border-neutral-700"
         >
           {filters.map((filter) => (
             <Button
@@ -261,7 +262,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
               {filter.label}
             </Button>
           ))}
-        </div>
+        </ButtonGroup>
       </div>
 
       {error && <Alert variant="danger">{error}</Alert>}

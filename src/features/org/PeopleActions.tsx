@@ -6,6 +6,7 @@
 import {
   Alert,
   Button,
+  ButtonGroup,
   Input,
   MailIcon,
   ModalBody,
@@ -204,35 +205,39 @@ export const PeopleActions: React.FC<{ onChanged: () => void }> = ({ onChanged }
   const close = () => setDialog(null);
 
   return (
-    <div className="people-actions flex flex-wrap justify-end gap-2">
-      <Button
-        variant="ghost"
-        leftIcon={<SettingsIcon className="h-4 w-4" />}
-        // Carry the org, so Settings opens the one shown here, not the stored pick.
-        onClick={() =>
-          navigate(`${settingsPath('organization')}${selectedOrgId ? `&org=${selectedOrgId}` : ''}`)
-        }
-        aria-label={S.organizationSettings}
-      >
-        <ButtonLabel>{S.organizationSettings}</ButtonLabel>
-      </Button>
-      <Button
-        variant="secondary"
-        leftIcon={<UserPlusIcon className="h-4 w-4" />}
-        onClick={() => setDialog('add')}
-        aria-label={S.addExisting}
-      >
-        <ButtonLabel>{S.addExisting}</ButtonLabel>
-      </Button>
-      <Button
-        leftIcon={<MailIcon className="h-4 w-4" />}
-        onClick={() => setDialog('invite')}
-        aria-label={S.invite}
-      >
-        <ButtonLabel>{S.invite}</ButtonLabel>
-      </Button>
+    <>
+      <ButtonGroup orientation="horizontal" className="people-actions gap-2">
+        <Button
+          variant="ghost"
+          leftIcon={<SettingsIcon className="h-4 w-4" />}
+          // Carry the org, so Settings opens the one shown here, not the stored pick.
+          onClick={() =>
+            navigate(
+              `${settingsPath('organization')}${selectedOrgId ? `&org=${selectedOrgId}` : ''}`,
+            )
+          }
+          aria-label={S.organizationSettings}
+        >
+          <ButtonLabel>{S.organizationSettings}</ButtonLabel>
+        </Button>
+        <Button
+          variant="secondary"
+          leftIcon={<UserPlusIcon className="h-4 w-4" />}
+          onClick={() => setDialog('add')}
+          aria-label={S.addExisting}
+        >
+          <ButtonLabel>{S.addExisting}</ButtonLabel>
+        </Button>
+        <Button
+          leftIcon={<MailIcon className="h-4 w-4" />}
+          onClick={() => setDialog('invite')}
+          aria-label={S.invite}
+        >
+          <ButtonLabel>{S.invite}</ButtonLabel>
+        </Button>
+      </ButtonGroup>
       {dialog === 'add' && <AddExistingUserDialog onClose={close} onAdded={onChanged} />}
       {dialog === 'invite' && <InviteDialog onClose={close} onInvited={onChanged} />}
-    </div>
+    </>
   );
 };
