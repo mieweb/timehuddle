@@ -38,6 +38,10 @@ interface AppPageProps {
   /** Optional controls rendered on the same row as the title, right-aligned
    *  (e.g. a Me/Team segmented toggle). Only rendered when there's a title. */
   titleActions?: React.ReactNode;
+  /** Optional control rendered just before the title (e.g. a back button). */
+  titleLeading?: React.ReactNode;
+  /** Keep the title row pinned to the top of the scroll area on phones. */
+  stickyTitle?: boolean;
   /** Content fills the remaining height and manages its own scrolling. */
   fill?: boolean;
   /** Content sits flush to the edges. Only for canvases (chat, org chart). */
@@ -53,6 +57,8 @@ export const AppPage: React.FC<AppPageProps> = ({
   width = 'content',
   subtitle,
   titleActions,
+  titleLeading,
+  stickyTitle,
   fill,
   flush,
   className,
@@ -69,9 +75,19 @@ export const AppPage: React.FC<AppPageProps> = ({
     <div className={cn('app-page flex w-full flex-col', fill && 'h-full min-h-0', className)}>
       {hideTitle && <PageTitle className="sr-only" />}
       {hasHeader && (
-        <div className={cn('shrink-0 px-4 pt-4 md:px-6 md:pt-6', !flush && column)}>
+        <div
+          className={cn(
+            'shrink-0 px-4 pt-4 md:px-6 md:pt-6',
+            !flush && column,
+            stickyTitle &&
+              'max-md:sticky max-md:top-0 max-md:z-10 max-md:bg-neutral-50 max-md:pb-2 max-md:dark:bg-neutral-950',
+          )}
+        >
           <div className="flex items-center justify-between gap-3">
-            <PageTitle subtitle={subtitle} />
+            <div className="flex min-w-0 items-center gap-1">
+              {titleLeading}
+              <PageTitle subtitle={subtitle} />
+            </div>
             {titleActions && <div className="shrink-0">{titleActions}</div>}
           </div>
         </div>

@@ -8,7 +8,6 @@
  */
 import {
   Badge,
-  BellIcon,
   Button,
   Card,
   CardContent,
@@ -72,6 +71,15 @@ import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 import { UserAvatar } from './UserAvatar';
 import { useQueryParam, useRouter } from './router';
+
+/**
+ * On a phone a card frame inside the page's own padding just boxes the content
+ * in twice, so every card in Settings, the menu and the pages it opens alike,
+ * drops its border, background and corners there and widens into the page
+ * gutter, which its own padding then replaces.
+ */
+const PHONE_FLAT_CARDS =
+  'max-md:[&_[data-slot=card]]:-mx-4 max-md:[&_[data-slot=card]]:w-auto max-md:[&_[data-slot=card]]:rounded-none max-md:[&_[data-slot=card]]:border-0 max-md:[&_[data-slot=card]]:bg-transparent max-md:[&_[data-slot=card]]:shadow-none';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -204,10 +212,6 @@ const PushNotificationsSettings: React.FC = () => {
       await subscribeToPush();
       if (!isNative) await refreshStatus();
       else setEnabled(true);
-
-      window.alert(
-        'Notifications enabled! You will receive alerts when team members clock in or out.',
-      );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
@@ -240,14 +244,11 @@ const PushNotificationsSettings: React.FC = () => {
   };
 
   const handleDisable = async () => {
-    if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setDisableLoading(true);
     try {
       await unsubscribeFromPush();
       if (!isNative) await refreshStatus();
       else setEnabled(false);
-
-      window.alert('Notifications disabled.');
     } catch {
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
@@ -275,52 +276,32 @@ const PushNotificationsSettings: React.FC = () => {
 
   return (
     <>
-      <div className="space-y-3 px-5 py-4">
-        {serverHasVapid === false && (
+      {serverHasVapid === false && (
+        <div className="px-5 pt-4">
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
             Web Push is not configured on this server. Add VAPID keys to{' '}
             <code className="text-xs">settings.json</code> (see{' '}
             <code className="text-xs">settings.push.example.json</code>).
           </div>
-        )}
-        {!supported ? (
-          <Text variant="muted" size="sm">
-            Push notifications are not supported on this platform.
-          </Text>
-        ) : enabled ? (
-          <>
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
-              Notifications are enabled. You will receive alerts when team members clock in or out.
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDisable}
-              disabled={disableLoading}
-              isLoading={disableLoading}
-            >
-              Disable notifications
-            </Button>
-          </>
-        ) : (
-          <>
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-              Enable push notifications to get notified when your team members clock in or clock
-              out.
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleEnable}
-              disabled={enableLoading || serverHasVapid === false}
-              isLoading={enableLoading}
-              leftIcon={<BellIcon className="h-3.5 w-3.5" />}
-            >
-              Enable notifications
-            </Button>
-          </>
-        )}
-      </div>
+        </div>
+      )}
+      <Row
+        label="Notifications on this device"
+        hint={
+          supported
+            ? 'Get an alert when a teammate clocks in or out.'
+            : 'Push notifications are not supported on this platform.'
+        }
+      >
+        <Switch
+          checked={enabled}
+          onCheckedChange={(on) => void (on ? handleEnable() : handleDisable())}
+          disabled={
+            !supported || enableLoading || disableLoading || (!enabled && serverHasVapid === false)
+          }
+          aria-label="Toggle push notifications"
+        />
+      </Row>
       {/* Sends an in-app notification too, so it works before push is enabled. */}
       <Row label="Send a test notification" hint="Check that alerts reach you.">
         <Button
@@ -1256,10 +1237,7 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     notifications: (
-      <Section
-        title="Push notifications"
-        description="Alerts on this device when a teammate clocks in or out."
-      >
+      <Section title="Push notifications">
         <PushNotificationsSettings />
       </Section>
     ),
@@ -1284,10 +1262,31 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <AppPage width="wide">
+    <AppPage
+      width="wide"
+      stickyTitle={Boolean(section)}
+      titleLeading={
+        section && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={SETTINGS_PAGE_STRINGS.backToOverview}
+            onClick={() => setSectionParam(null)}
+            className="settings-back -ml-2 h-11 w-11 md:hidden"
+          >
+            <ChevronLeftIcon className="h-5 w-5" />
+          </Button>
+        )
+      }
+    >
       {/* Desktop: side nav and version on the left, the section beside them.
           Phone: the menu, or one section with a back button to it. */}
-      <div className="settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8">
+      <div
+        className={cn(
+          'settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8',
+          PHONE_FLAT_CARDS,
+        )}
+      >
         <nav
           aria-label={SETTINGS_PAGE_STRINGS.navLabel}
           className="settings-nav hidden space-y-4 md:block"
@@ -1329,15 +1328,6 @@ export const SettingsPage: React.FC = () => {
             aria-labelledby="settings-section-title"
             className="settings-panel min-w-0 space-y-4 md:row-span-2"
           >
-            <Button
-              variant="ghost"
-              size="sm"
-              leftIcon={<ChevronLeftIcon className="h-4 w-4" />}
-              onClick={() => setSectionParam(null)}
-              className="settings-back -ml-2 min-h-11 md:hidden"
-            >
-              {SETTINGS_PAGE_STRINGS.backToOverview}
-            </Button>
             <div className="settings-panel-header">
               <Text
                 as="h2"

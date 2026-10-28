@@ -238,9 +238,15 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
     // Flex-column layout: spacer expands to show the indicator, content fills
     // the rest. Using height instead of CSS transform avoids creating a new
     // stacking context, which would break position:fixed modal backdrops.
-    // A definite height (not min-height) so `AppPage fill` pages can size to
-    // the screen; taller pages overflow it and <main> still scrolls them.
-    <div ref={containerRef} className="flex h-full w-full flex-col" data-testid="pull-to-refresh">
+    // A flex item of <main> that grows to at least the screen (so `AppPage
+    // fill` pages can size to it) and past it with taller content. A fixed
+    // h-full let tall pages overflow it, and the overflow does not count
+    // <main>'s bottom padding, leaving the end of the page under the bottom nav.
+    <div
+      ref={containerRef}
+      className="flex w-full flex-[1_0_auto] flex-col"
+      data-testid="pull-to-refresh"
+    >
       {/* Pull indicator — spacer height grows to reveal spinner */}
       <div
         aria-hidden
