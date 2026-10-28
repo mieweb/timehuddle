@@ -137,7 +137,7 @@ export function settingsGroups(
 
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
-  backToOverview: 'Settings',
+  backToOverview: 'Back to Settings',
   personal: 'Personal',
   administration: 'Administration',
   developers: 'Developers',
