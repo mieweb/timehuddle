@@ -406,9 +406,16 @@ const AdminsCard: React.FC<{
   );
 };
 
+/** The app-wide refresh reloads session, teams and clock, not organizations. */
+const useRefreshOrganizations = () => {
+  const { refetchOrganizations } = useTeam();
+  useRefresh(useCallback(async () => refetchOrganizations(), [refetchOrganizations]));
+};
+
 const EnterpriseAdminView: React.FC<{ role: EnterpriseRole }> = ({ role }) => {
   const { navigate } = useRouter();
   const { enterprise, loading, error, reload } = useEnterpriseDetail();
+  useRefreshOrganizations();
 
   const sections = [
     { id: 'organizations', label: S.page.sections.organizations },
@@ -467,10 +474,9 @@ const EnterpriseAdminView: React.FC<{ role: EnterpriseRole }> = ({ role }) => {
 /** Which enterprise and organizations you belong to, read-only. */
 const EnterpriseMemberView: React.FC = () => {
   const M = S.member;
-  const { organizations, selectedOrgId, refetchOrganizations } = useTeam();
+  const { organizations, selectedOrgId } = useTeam();
   const open = useOpenOrganization();
-  // The app-wide refresh reloads session, teams and clock, not organizations.
-  useRefresh(useCallback(async () => refetchOrganizations(), [refetchOrganizations]));
+  useRefreshOrganizations();
 
   const groups = useMemo(() => {
     const byEnterprise = new Map<string, { name: string | null; orgs: Organization[] }>();
