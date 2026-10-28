@@ -4,6 +4,7 @@ import type { RedmineIssue } from '../../../lib/api';
 
 import {
   EMPTY_LINK_FORM,
+  convertibleIdOf,
   isHttpsUrl,
   isRedmineIssueUrl,
   isWebUrl,
@@ -27,19 +28,58 @@ describe('linkKindOf', () => {
 });
 
 describe('linkFormFor', () => {
-  it('starts the control on the ticket’s current link', () => {
-    const form = linkFormFor({ github: 'https://github.com/a/b/issues/1', linkedIssue: null });
-    expect(form).toMatchObject({ kind: 'github', github: 'https://github.com/a/b/issues/1' });
+  const url = 'https://github.com/a/b/issues/1';
+
+  it('starts the control on the ticket’s current link, and whether it was converted', () => {
+    expect(linkFormFor({ github: url, linkIsIssue: false, linkedIssue: null })).toMatchObject({
+      kind: 'github',
+      github: url,
+      linkIsIssue: false,
+    });
   });
 
-  it('starts an unlinked ticket on Redmine, since "TimeHuddle" is not a link to add', () => {
-    expect(linkFormFor({ github: '', linkedIssue: null }).kind).toBe('redmine');
+  it('keeps a link saved before the choice existed converted, as it has always shown', () => {
+    expect(linkFormFor({ github: url, linkIsIssue: null, linkedIssue: null }).linkIsIssue).toBe(
+      true,
+    );
+  });
+
+  it('starts an unlinked ticket on the link field, and a Redmine-linked one on Redmine', () => {
+    expect(linkFormFor({ github: '', linkIsIssue: null, linkedIssue: null }).kind).toBe('github');
+    expect(
+      linkFormFor({
+        github: '',
+        linkIsIssue: null,
+        linkedIssue: { source: 'redmine', id: '482' },
+      }).kind,
+    ).toBe('redmine');
+  });
+});
+
+describe('convertibleIdOf', () => {
+  const servers = [{ host: 'redmine.example.com', prefix: 'PM' }];
+
+  it('names a GitHub issue or pull request by its repo, and a server’s issue by its prefix', () => {
+    expect(convertibleIdOf('https://github.com/mieweb/pulse/issues/250', servers)).toBe(
+      'pulse-250',
+    );
+    expect(convertibleIdOf(' https://github.com/mieweb/pulse/pull/554 ', servers)).toBe(
+      'pulse-554',
+    );
+    expect(convertibleIdOf('https://redmine.example.com/issues/233', servers)).toBe('PM-233');
+  });
+
+  it('offers nothing for any other link, or one that is not https', () => {
+    expect(convertibleIdOf('https://docs.google.com/document/d/abc/edit', servers)).toBeNull();
+    expect(convertibleIdOf('https://other.example.com/issues/233', servers)).toBeNull();
+    expect(convertibleIdOf('http://github.com/mieweb/pulse/issues/250', servers)).toBeNull();
   });
 });
 
 describe('linkFormReady', () => {
-  it('needs nothing more for a TimeHuddle-only ticket', () => {
+  it('takes no link for a new ticket, but not when changing one, where that is Unlink', () => {
     expect(linkFormReady(EMPTY_LINK_FORM)).toBe(true);
+    expect(linkFormReady(EMPTY_LINK_FORM, { allowNone: false })).toBe(false);
   });
 
   it('only accepts an https link, since it is rendered as an href for the whole team', () => {
@@ -68,9 +108,10 @@ describe('linkFormReady', () => {
     }
   });
 
-  it('needs a link for GitHub', () => {
-    expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: '  ' })).toBe(false);
-    expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: 'https://x' })).toBe(true);
+  it('reads a blank link as no link', () => {
+    expect(linkFormReady({ ...EMPTY_LINK_FORM, github: '  ' })).toBe(true);
+    expect(linkFormReady({ ...EMPTY_LINK_FORM, github: '  ' }, { allowNone: false })).toBe(false);
+    expect(linkFormReady({ ...EMPTY_LINK_FORM, github: 'https://x' })).toBe(true);
   });
 
   it('needs a found issue to link an existing Redmine issue', () => {

@@ -29,13 +29,16 @@ export const ticketLinkText = {
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
 
-  kindLabel: 'Tracked in',
-  kindNone: 'TimeHuddle',
-  kindGithub: 'Link',
-  kindRedmine: 'Redmine',
-
-  githubLabel: 'Link to the issue',
-  githubPlaceholder: 'https://github.com/…',
+  linkLabel: 'Link',
+  linkPlaceholder: 'Paste a link to an issue, a pull request, a doc…',
+  /** "Convert to PM issue": the ticket will go by the ID the link names. */
+  convertTo: (prefix: string, pullRequest: boolean) =>
+    `Convert to ${prefix} ${pullRequest ? 'pull request' : 'issue'}`,
+  orKeepAsLink: 'Or save it as a plain link.',
+  convertedTo: (id: string) => `This ticket will go by ${id}.`,
+  keepAsLink: 'Keep as a plain link',
+  useRedmine: 'Link a Redmine issue instead',
+  useLink: 'Use a link instead',
 
   redmineModeLabel: 'Redmine issue',
   modeExisting: 'Existing issue',
@@ -58,8 +61,6 @@ export const ticketLinkText = {
   otherServer:
     "Your Redmine account is on a different server from the one this TimeHuddle uses, so its issues can't be linked or shown here.",
   httpsOnly: 'Enter a full link starting with https://',
-  redmineIssueLink: 'This is a Redmine issue. Link it as one so its status and history show here.',
-  linkAsRedmine: 'Link as a Redmine issue',
   linkFailed: "Couldn't save the link. Please try again.",
   removedNotReplaced:
     "The Redmine link was removed, but the new link couldn't be saved. Save again to add it.",

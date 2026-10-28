@@ -13,12 +13,23 @@
  */
 import { outsideIdOf } from '@timehuddle/ticket-sources';
 
-import type { SourcePrefix } from '../../lib/api';
+import type { SourcePrefix, Ticket } from '../../lib/api';
 
 import type { UnifiedTicket } from './sources/types';
 
 /** The outside ID for an address, from the shared ticket sources (#734). */
 export { outsideIdOf };
+
+/**
+ * The outside ID a ticket's link gives it, e.g. `pulse-250`, or null. A link
+ * saved as just a link (`linkIsIssue: false`) gives none: the ticket keeps its own.
+ */
+export function linkRefOf(
+  ticket: Pick<Ticket, 'github' | 'linkIsIssue'>,
+  prefixes: readonly SourcePrefix[],
+): string | null {
+  return ticket.linkIsIssue === false ? null : outsideIdOf(ticket.github, prefixes);
+}
 
 /**
  * The outside ID of the Redmine issue a ticket carries, e.g. `RMX-150`, or null

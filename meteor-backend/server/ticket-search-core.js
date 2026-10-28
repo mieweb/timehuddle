@@ -183,6 +183,12 @@ const githubIssue = (repo, pattern) =>
     'i',
   );
 
+/**
+ * A ticket whose link matches `link` and stands for its issue: a link saved as
+ * just a link (`linkIsIssue: false`) gives the ticket no outside ID to be found by.
+ */
+const issueLink = (link) => ({ github: link, linkIsIssue: { $ne: false } });
+
 /** A ticket's own number: whole when exact, else read as text and matched from the start. */
 function ownNumber(digits, exact) {
   if (exact) return { number: Number(digits) };
@@ -238,8 +244,8 @@ export function ticketRefSelector(
       clauses.push(
         { ...all, number: Number(digits) },
         { ...all, 'linkedIssue.id': digits },
-        { ...all, github: anyLinkTo(digits) },
-        { ...all, github: githubIssue(null, digits) },
+        { ...all, ...issueLink(anyLinkTo(digits)) },
+        { ...all, ...issueLink(githubIssue(null, digits)) },
       );
     }
   } else {
@@ -258,11 +264,11 @@ export function ticketRefSelector(
     for (const [host, onHost] of byHost) {
       clauses.push(
         { ...inTeams(onHost), ...carriedOn(host, pattern, redmineHost) },
-        { ...inTeams(onHost), github: linkOnHostTo(host, pattern) },
+        { ...inTeams(onHost), ...issueLink(linkOnHostTo(host, pattern)) },
       );
     }
 
-    if (teams.length) clauses.push({ ...inTeams(teams), github: githubIssue(name, pattern) });
+    if (teams.length) clauses.push({ ...inTeams(teams), ...issueLink(githubIssue(name, pattern)) });
   }
 
   return clauses.length ? { status: { $ne: 'deleted' }, $or: clauses } : null;

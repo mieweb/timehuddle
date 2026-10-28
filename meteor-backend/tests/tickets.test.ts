@@ -440,7 +440,7 @@ describe('tickets (wormhole)', () => {
         memberJwt,
       );
       expect(refused.ok).toBe(false);
-      expect(refused.error).toMatch(/Remove that link before adding a GitHub link/);
+      expect(refused.error).toMatch(/Remove that link before adding another one/);
 
       // Clearing a GitHub link, and editing other fields, stay allowed.
       const cleared = await wormhole(
@@ -483,6 +483,29 @@ describe('tickets (wormhole)', () => {
       );
       expect(ok.result.github).toBe('https://tracker.example.com/issues/9');
       await wormhole('tickets.update', { ticketId: linkTicketId, github: '' }, ownerJwt);
+    });
+
+    it('saves whether a link was converted to its issue, and forgets it with the link', async () => {
+      await seedLink(null);
+      const url = 'https://github.com/a/b/issues/1';
+      const update = (fields: Record<string, unknown>) =>
+        wormhole<{ github: string; linkIsIssue?: boolean }>(
+          'tickets.update',
+          { ticketId: linkTicketId, ...fields },
+          ownerJwt,
+        );
+      expect((await update({ github: url, linkIsIssue: true })).result.linkIsIssue).toBe(true);
+      expect((await update({ github: url, linkIsIssue: false })).result.linkIsIssue).toBe(false);
+      expect((await update({ github: url, linkIsIssue: 'yes' })).ok).toBe(false);
+      expect((await update({ github: '' })).result.linkIsIssue).toBeUndefined();
+
+      const created = await wormhole<{ id: string; linkIsIssue?: boolean }>(
+        'tickets.create',
+        { teamId, title: 'Converted on create', github: url, linkIsIssue: true },
+        ownerJwt,
+      );
+      expect(created.result.linkIsIssue).toBe(true);
+      await wormhole('tickets.delete', { ticketId: created.result.id }, ownerJwt);
     });
 
     it('treats unlinking an unlinked ticket as nothing to do', async () => {

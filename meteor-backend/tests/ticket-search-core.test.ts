@@ -122,6 +122,19 @@ beforeAll(async () => {
   await ticket(b1, 'not-github', {
     github: 'https://notgithub.com/mieweb/timehuddle/issues/223',
   });
+  // Saved as just a link: the ticket goes by none of the IDs it names.
+  await ticket(b1, 'plain-github', {
+    github: 'https://github.com/mieweb/pulse/issues/88',
+    linkIsIssue: false,
+  });
+  await ticket(a1, 'plain-server', {
+    github: `https://${REDMINE_HOST}/issues/890`,
+    linkIsIssue: false,
+  });
+  await ticket(b1, 'converted', {
+    github: 'https://github.com/mieweb/pulse/issues/89',
+    linkIsIssue: true,
+  });
   await ticket(a1, 'deleted', { number: 12, status: 'deleted' });
   await ticket(outside, 'not-my-team', { number: 12 });
 });
@@ -230,6 +243,13 @@ describe('ticketRefSelector', () => {
     expect(await find('12')).toEqual(['numbered']);
   });
 
+  it('finds a link saved as just a link by none of the IDs it names', async () => {
+    expect(await find('pulse-88', { exact: true })).toEqual([]);
+    expect(await find('88')).toEqual([]);
+    expect(await find('RM0-890', { exact: true })).toEqual([]);
+    expect(await find('pulse-89', { exact: true })).toEqual(['converted']);
+  });
+
   it('finds nothing for a prefix nobody uses', async () => {
     expect(await find('ZZZ-12')).toEqual([]);
     expect(await find('ZZZ-')).toEqual([]);
@@ -305,5 +325,11 @@ describe('the other selectors', () => {
       'http-link',
       'redmine-link',
     ]);
+    // A plain link is still found by its address.
+    expect(
+      await titles(
+        ticketLinkSelector({ github: { owner: 'mieweb', repo: 'pulse', digits: '88' } }, scope),
+      ),
+    ).toEqual(['plain-github']);
   });
 });

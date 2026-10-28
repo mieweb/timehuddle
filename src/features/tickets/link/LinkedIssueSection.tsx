@@ -299,8 +299,8 @@ export function LinkedIssueSection({
         {mode === 'edit' && (
           <TicketLinkFields
             name="ticket-link"
+            teamId={ticket.teamId}
             value={form}
-            allowNone={false}
             disabled={saving}
             onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
           />
@@ -349,7 +349,7 @@ export function LinkedIssueSection({
               <Button
                 variant="primary"
                 size="sm"
-                disabled={saving || !linkFormReady(form)}
+                disabled={saving || !linkFormReady(form, { allowNone: false })}
                 aria-busy={saving}
                 onClick={() => void run(form)}
               >

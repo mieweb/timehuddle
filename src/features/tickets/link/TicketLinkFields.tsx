@@ -1,7 +1,11 @@
 /**
- * The one control that says where a ticket is tracked: TimeHuddle only, a
- * GitHub link, or a Redmine issue — an existing one (found by number or link
- * and previewed), or a new one created from the ticket.
+ * The one control for a ticket's link: a single field that takes any https
+ * address. When the address names an issue — a GitHub issue or pull request, or
+ * an issue on one of the org's servers — a button offers to convert the ticket
+ * to it, so it goes by that issue's ID (`pulse-250`, `PM-233`). Saved without
+ * that, the address is just a link and the ticket keeps its own ID. An issue on
+ * the connected Redmine converts to a Redmine link, with its status and history.
+ * "Link a Redmine issue instead" finds one by number or creates a new one.
  *
  * Used inside the create dialog and the ticket page's "Linked issue" section,
  * so there is a single place, and a single look, for choosing a ticket's link.
@@ -12,7 +16,6 @@ import {
   AlertDescription,
   Badge,
   Button,
-  ButtonGroup,
   Input,
   Select,
   Spinner,
@@ -23,6 +26,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { redmineApi, type RedmineNamed } from '../../../lib/api';
+import { useTeam } from '../../../lib/TeamContext';
 import { onOtherRedmineServer, useRedmineStatus } from '../../../lib/useRedmineStatus';
 import { AnimatedHeight } from '../../../ui/AnimatedHeight';
 import { useRouter } from '../../../ui/router';
@@ -30,21 +34,15 @@ import { SegmentedSwitcher, type SegmentedOption } from '../../../ui/SegmentedSw
 import { redmineErrorMessage, toId, toOptions } from '../redmine/redmineForm';
 
 import {
+  convertibleIdOf,
   isHttpsUrl,
   isRedmineIssueUrl,
   type LinkFormState,
-  type LinkKind,
   type RedmineMode,
 } from './ticketLinkForm';
 import { ticketLinkText } from './ticketLinkStrings';
 
-const KIND_OPTIONS: readonly SegmentedOption<LinkKind>[] = [
-  { value: 'none', label: ticketLinkText.kindNone },
-  { value: 'github', label: ticketLinkText.kindGithub },
-  { value: 'redmine', label: ticketLinkText.kindRedmine },
-];
-
-const LINKED_KIND_OPTIONS = KIND_OPTIONS.filter((option) => option.value !== 'none');
+const NO_SERVERS: never[] = [];
 
 const MODE_OPTIONS: readonly SegmentedOption<RedmineMode>[] = [
   { value: 'existing', label: ticketLinkText.modeExisting },
@@ -56,26 +54,26 @@ export interface TicketLinkFieldsProps {
   onChange: (patch: Partial<LinkFormState>) => void;
   /** Distinguishes the radio groups when two of these controls are on one page. */
   name: string;
+  /** The ticket's team: its org's servers decide which links name an issue. */
+  teamId: string;
   disabled?: boolean;
-  /**
-   * Offer "TimeHuddle" (no link) as a choice. On for a new ticket; off when
-   * changing an existing ticket's link, where removing it is "Unlink".
-   */
-  allowNone?: boolean;
 }
 
 export function TicketLinkFields({
   value,
   onChange,
   name,
+  teamId,
   disabled = false,
-  allowNone = true,
 }: TicketLinkFieldsProps) {
   const { navigate } = useRouter();
+  const { allTeams } = useTeam();
+  const servers = allTeams.find((team) => team.id === teamId)?.sourcePrefixes ?? NO_SERVERS;
   const redmineStatus = useRedmineStatus();
   // Either way Redmine cannot be offered: no account, or one on another server.
   const otherServer = onOtherRedmineServer(redmineStatus);
   const redmineMissing = redmineStatus?.connected === false || otherServer;
+  const redmineReady = redmineStatus?.connected === true && !otherServer;
 
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -84,12 +82,18 @@ export function TicketLinkFields({
 
   const creatingNew = value.kind === 'redmine' && value.redmineMode === 'new' && !redmineMissing;
 
-  // Any https link can be saved. A Redmine issue pasted here is offered as one.
+  // Any https link can be saved. One that names an issue can be converted to it.
   const linkText = value.github.trim();
-  const redmineIssueLink =
-    linkText !== '' &&
-    isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
   const notHttps = linkText !== '' && !isHttpsUrl(linkText);
+  const convertId = convertibleIdOf(linkText, servers);
+  const redmineIssueLink =
+    redmineReady &&
+    isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
+  const convertLabel = redmineIssueLink
+    ? ticketLinkText.convertTo(convertId ? prefixOf(convertId) : ticketLinkText.redmine, false)
+    : convertId
+      ? ticketLinkText.convertTo(prefixOf(convertId), /\/pull\/\d/.test(linkText))
+      : null;
 
   const reducedMotion = useReducedMotion();
   const panelMotion = {
@@ -140,8 +144,8 @@ export function TicketLinkFields({
   // an answer can never be installed under text it was not asked for.
   const searchSeq = useRef(0);
 
-  const findIssue = async () => {
-    const text = value.query.trim();
+  const findIssue = async (query = value.query) => {
+    const text = query.trim();
     if (!text) return;
     const seq = ++searchSeq.current;
     setSearching(true);
@@ -167,62 +171,66 @@ export function TicketLinkFields({
 
   return (
     <div className="ticket-link-fields flex flex-col gap-3">
-      <SegmentedSwitcher
-        name={`${name}-kind`}
-        label={ticketLinkText.kindLabel}
-        options={allowNone ? KIND_OPTIONS : LINKED_KIND_OPTIONS}
-        value={value.kind}
-        disabled={disabled}
-        onValueChange={(kind) => {
-          setMessage(null);
-          onChange({ kind });
-        }}
-      />
-
-      {/* The fields for the chosen target ease in as the switcher's highlight
-          lands, and the space they need opens smoothly: a dialog around this
-          control would otherwise jump as its height snapped. */}
+      {/* The link field and the Redmine panel ease into each other, and the
+          space they need opens smoothly: a dialog around this control would
+          otherwise jump as its height snapped. */}
       <AnimatedHeight>
         <div className="ticket-link-panel">
           <AnimatePresence mode="wait" initial={false}>
             {value.kind === 'github' && (
               <motion.div key="github" className="ticket-link-github" {...panelMotion}>
                 <WebsiteInput
-                  label={ticketLinkText.githubLabel}
-                  placeholder={ticketLinkText.githubPlaceholder}
+                  label={ticketLinkText.linkLabel}
+                  placeholder={ticketLinkText.linkPlaceholder}
                   value={value.github}
                   disabled={disabled}
                   error={notHttps ? ticketLinkText.httpsOnly : undefined}
-                  onChange={(github) => onChange({ github })}
+                  // A new address is just a link until it is converted.
+                  onChange={(github) => onChange({ github, linkIsIssue: false })}
                 />
-                {redmineIssueLink && (
-                  <div className="ticket-link-redmine-offer mt-2 space-y-2">
-                    <Alert variant="info">
-                      <AlertDescription>{ticketLinkText.redmineIssueLink}</AlertDescription>
-                    </Alert>
-                    <ButtonGroup>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={disabled}
-                        onClick={() => {
-                          // A Find still in flight was for another query: retire it.
-                          searchSeq.current += 1;
-                          setSearching(false);
-                          setMessage(null);
-                          onChange({
-                            kind: 'redmine',
-                            redmineMode: 'existing',
-                            query: linkText,
-                            issue: null,
-                            github: '',
-                          });
-                        }}
-                      >
-                        {ticketLinkText.linkAsRedmine}
-                      </Button>
-                    </ButtonGroup>
+                {convertLabel && !value.linkIsIssue && (
+                  <div className="ticket-link-convert mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (!redmineIssueLink) {
+                          onChange({ linkIsIssue: true });
+                          return;
+                        }
+                        // An issue on the connected Redmine is linked as one. The
+                        // link stays in the form, so "Use a link instead" gets it back.
+                        setMessage(null);
+                        onChange({
+                          kind: 'redmine',
+                          redmineMode: 'existing',
+                          query: linkText,
+                          issue: null,
+                        });
+                        void findIssue(linkText);
+                      }}
+                    >
+                      {convertLabel}
+                    </Button>
+                    <Text size="sm" variant="muted">
+                      {ticketLinkText.orKeepAsLink}
+                    </Text>
+                  </div>
+                )}
+                {convertId && value.linkIsIssue && !redmineIssueLink && (
+                  <div className="ticket-link-converted mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Text size="sm">{ticketLinkText.convertedTo(convertId)}</Text>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={disabled}
+                      onClick={() => onChange({ linkIsIssue: false })}
+                    >
+                      {ticketLinkText.keepAsLink}
+                    </Button>
                   </div>
                 )}
               </motion.div>
@@ -376,6 +384,31 @@ export function TicketLinkFields({
           </div>
         </div>
       </AnimatedHeight>
+
+      {(value.kind === 'redmine' || redmineReady) && (
+        <div className="ticket-link-switch">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            onClick={() => {
+              // A Find still in flight was for the Redmine panel: retire it.
+              searchSeq.current += 1;
+              setSearching(false);
+              setMessage(null);
+              onChange({ kind: value.kind === 'redmine' ? 'github' : 'redmine' });
+            }}
+          >
+            {value.kind === 'redmine' ? ticketLinkText.useLink : ticketLinkText.useRedmine}
+          </Button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** The prefix an outside ID starts with: `PM` of `PM-233`, `pulse` of `pulse-250`. */
+function prefixOf(outsideId: string): string {
+  return outsideId.replace(/-\d+$/, '');
 }

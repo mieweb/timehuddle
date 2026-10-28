@@ -28,6 +28,7 @@ const huddleTicket: Ticket = {
   title: 'Fix the thing',
   description: null,
   github: '',
+  linkIsIssue: null,
   status: 'in-progress',
   priority: 'high',
   createdBy: 'u1',
@@ -112,6 +113,14 @@ describe('huddleSource.toUnified', () => {
       { ...ctx, sourcePrefixes: [{ host: 'x.dev', prefix: 'XD' }] },
     );
     expect(named.externalRef?.id).toBe('XD-2');
+  });
+
+  it('gives a link saved as just a link no ID: the ticket keeps its own', () => {
+    const plain = huddleSource.toUnified(
+      { ...huddleTicket, github: 'https://github.com/o/r/issues/1', linkIsIssue: false },
+      ctx,
+    );
+    expect(plain.externalRef).toMatchObject({ url: 'https://github.com/o/r/issues/1', id: null });
   });
 
   it.each([

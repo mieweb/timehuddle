@@ -207,6 +207,7 @@ async function writeLink(userId, ticket, nextId) {
             github: '',
             ...stamp,
           },
+          $unset: { linkIsIssue: '' },
         }
       : { $unset: { linkedIssue: '' }, $set: stamp },
   );

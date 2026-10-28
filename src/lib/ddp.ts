@@ -636,6 +636,7 @@ export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
     title: String(doc.title ?? ''),
     description: (doc.description as string | undefined) ?? null,
     github: String(doc.github ?? ''),
+    linkIsIssue: typeof doc.linkIsIssue === 'boolean' ? doc.linkIsIssue : null,
     status: String(doc.status ?? 'open'),
     priority: (doc.priority as string | undefined) ?? null,
     createdBy: String(doc.createdBy ?? ''),

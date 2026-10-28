@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UnifiedTicket } from './sources/types';
-import { leadingRefOf, outsideIdOf, outsideRefOf } from './ticketIds';
+import { leadingRefOf, linkRefOf, outsideIdOf, outsideRefOf } from './ticketIds';
 
 const prefixes = [{ host: 'redmine.example.com', prefix: 'PM' }];
+
+describe('linkRefOf', () => {
+  const link = 'https://redmine.example.com/issues/233';
+
+  it('names a converted link, and one saved before the choice existed', () => {
+    expect(linkRefOf({ github: link, linkIsIssue: true }, prefixes)).toBe('PM-233');
+    expect(linkRefOf({ github: link, linkIsIssue: null }, prefixes)).toBe('PM-233');
+  });
+
+  it('names nothing for a link saved as just a link', () => {
+    expect(linkRefOf({ github: link, linkIsIssue: false }, prefixes)).toBeNull();
+  });
+});
 
 describe('outsideIdOf', () => {
   it('names a GitHub issue or pull request by its repo and number, with no setup', () => {
