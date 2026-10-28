@@ -34,6 +34,13 @@ const ROLE_OPTIONS = (['owner', 'admin', 'member'] as const).map((role) => ({
 const errorText = (err: unknown, fallback: string) =>
   err instanceof ApiError ? err.message : fallback;
 
+/**
+ * The modal's focus trap lists its buttons once, on open, so a submit button
+ * that starts disabled could never be tabbed to. An empty form marks it
+ * aria-disabled instead, and its handler ignores the click.
+ */
+const EMPTY_SUBMIT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+
 const AddExistingUserDialog: React.FC<{ onClose: () => void; onAdded: () => void }> = ({
   onClose,
   onAdded,
@@ -106,7 +113,12 @@ const AddExistingUserDialog: React.FC<{ onClose: () => void; onAdded: () => void
         <Button variant="outline" onClick={onClose} disabled={saving}>
           {PEOPLE_STRINGS.cancel}
         </Button>
-        <Button onClick={() => void add()} disabled={saving || !userId}>
+        <Button
+          onClick={() => void add()}
+          disabled={saving}
+          aria-disabled={!userId}
+          className={EMPTY_SUBMIT}
+        >
           {saving ? S.confirming : S.confirm}
         </Button>
       </ModalFooter>
@@ -173,7 +185,12 @@ const InviteDialog: React.FC<{ onClose: () => void; onInvited: () => void }> = (
         <Button variant="outline" onClick={onClose} disabled={sending}>
           {PEOPLE_STRINGS.cancel}
         </Button>
-        <Button onClick={() => void send()} disabled={sending || !email.trim()}>
+        <Button
+          onClick={() => void send()}
+          disabled={sending}
+          aria-disabled={!email.trim()}
+          className={EMPTY_SUBMIT}
+        >
           {sending ? S.confirming : S.confirm}
         </Button>
       </ModalFooter>
