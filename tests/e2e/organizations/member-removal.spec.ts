@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { memberAction, memberRow, membersTable, openMembers } from '../fixtures/people';
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
@@ -61,13 +62,10 @@ test.describe('Organization Member Removal', () => {
 
     // ── The owner removes them ─────────────────────────────────────────────
     await loginAs(page, TEST_USERS.owner1);
-    await page.goto('/app/org/members');
-    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
-
-    const memberRow = page.getByRole('row').filter({ hasText: fullName });
-    await expect(memberRow).toBeVisible({ timeout: 10000 });
-    await memberRow.getByRole('button', { name: `Remove ${fullName} from organization` }).click();
+    await openMembers(page);
+    const row = memberRow(page, fullName);
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await (await memberAction(page, fullName, 'Remove from organization')).click();
 
     // Remove asks first, and says what it will do.
     const dialog = page.getByRole('dialog');
@@ -79,21 +77,17 @@ test.describe('Organization Member Removal', () => {
 
     // The row goes without a manual refresh, and stays gone after one.
     await expect(dialog).toBeHidden({ timeout: 10000 });
-    await expect(memberRow).toBeHidden({ timeout: 10000 });
+    await expect(row).toBeHidden({ timeout: 10000 });
     await page.reload();
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('row').filter({ hasText: fullName })).toBeHidden();
+    await expect(membersTable(page)).toBeVisible({ timeout: 30000 });
+    await expect(memberRow(page, fullName)).toBeHidden();
   });
 
   test('a manager cannot remove themselves', async ({ page }) => {
     const owner = TEST_USERS.owner1;
     await loginAs(page, owner);
-    await page.goto('/app/org/members');
-    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
+    await openMembers(page);
 
-    await expect(
-      page.getByRole('button', { name: `Remove ${owner.name} from organization` }),
-    ).toBeDisabled();
+    await expect(await memberAction(page, owner.name, 'Remove from organization')).toBeDisabled();
   });
 });

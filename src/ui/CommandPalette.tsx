@@ -62,7 +62,12 @@ const NAV_ITEMS: NavSection[] = [
     heading: 'Workspace',
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard', keywords: ['home', 'overview'] },
-      { icon: faStopwatch, label: 'Work', href: '/app/work', keywords: ['timer', 'tracking'] },
+      {
+        icon: faStopwatch,
+        label: 'My Week',
+        href: '/app/tickets?view=week',
+        keywords: ['work', 'timer', 'tracking', 'timesheet'],
+      },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets', keywords: ['tasks', 'issues'] },
     ],
   },
@@ -72,9 +77,9 @@ const NAV_ITEMS: NavSection[] = [
       { icon: faUsers, label: 'Teams', href: '/app/teams', keywords: ['members', 'groups'] },
       {
         icon: faSitemap,
-        label: 'Org Chart',
+        label: 'People',
         href: '/app/organization',
-        keywords: ['organization', 'hierarchy', 'chart', 'structure'],
+        keywords: ['organization', 'org chart', 'hierarchy', 'structure'],
       },
       {
         icon: faBell,
@@ -85,7 +90,7 @@ const NAV_ITEMS: NavSection[] = [
       {
         icon: faClockRotateLeft,
         label: 'Activity Log',
-        href: '/app/activity',
+        href: '/app/settings?section=activity',
         keywords: ['history', 'audit'],
       },
     ],

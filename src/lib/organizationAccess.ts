@@ -61,3 +61,26 @@ export function hasOrganizationAdminAccess(
       DEFAULT_ORG_ADMIN_ROLES.includes(organization.role),
   );
 }
+
+/**
+ * Who sees Members, invitations and Organization settings for the selected
+ * organization: its owners and admins, and the owners and admins of its
+ * enterprise, who manage every organization in it even where their own
+ * membership is plain `member` (as the server's buildOrgAccess grants).
+ * Display only; the server checks every action.
+ */
+export function canManageSelectedOrganization(
+  organizations: ReadonlyArray<{
+    id: string;
+    enterpriseId?: string | null;
+    role: OrganizationRole | 'member' | null;
+  }>,
+  enterprises: ReadonlyArray<{ id: string }>,
+  selectedOrgId: string | null,
+): boolean {
+  const org = organizations.find((organization) => organization.id === selectedOrgId);
+  if (!org) return false;
+  if (org.role === 'owner' || org.role === 'admin') return true;
+  // TeamContext's enterprise list holds only those the user owns or administers.
+  return !!org.enterpriseId && enterprises.some((enterprise) => enterprise.id === org.enterpriseId);
+}

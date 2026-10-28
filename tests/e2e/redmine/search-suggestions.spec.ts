@@ -439,7 +439,7 @@ test.describe('Hidden suggestions in Settings', () => {
         issues: [redmineIssue({ id: 15, subject: 'Alpha intake validation' })],
       },
     });
-    await page.goto('/app/settings');
+    await page.goto('/app/settings?section=integrations');
 
     const section = page.getByRole('region', { name: 'Hidden suggestions' });
     await expect(section.getByText('Alpha intake validation')).toBeVisible();

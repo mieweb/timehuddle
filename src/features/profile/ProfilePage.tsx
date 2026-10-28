@@ -70,6 +70,7 @@ import { AppPage } from '../../ui/AppPage';
 import { LinkifiedText } from '../../ui/LinkifiedText';
 import { NoAccessState, type NoAccessKind } from '../../ui/NoAccessState';
 import { useQueryParam, useRouter } from '../../ui/router';
+import { settingsPath } from '../settings/settingsSections';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileFeed } from './ProfileFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
@@ -361,7 +362,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate('/app/settings')}
+                onClick={() => navigate(settingsPath('profile'))}
                 aria-label="Edit profile in Settings"
                 leftIcon={<FontAwesomeIcon icon={faGear} className="text-xs" />}
                 className="border-white/20 text-white hover:bg-white/10"

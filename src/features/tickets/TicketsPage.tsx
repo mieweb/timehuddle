@@ -21,6 +21,7 @@ import {
   ModalHeader,
   ModalTitle,
   Select,
+  Spinner,
   Text,
   Textarea,
   useToast,
@@ -45,7 +46,7 @@ import { useSession } from '../../lib/useSession';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
-import { useRouter } from '../../ui/router';
+import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
@@ -92,10 +93,16 @@ const STATUS_OPTIONS = [
   { value: 'reviewed', label: 'Reviewed' },
 ];
 
+// The timesheet carries its own week of data and timers; load it when My Week opens.
+const WorkWeek = React.lazy(() =>
+  import('../timers/WorkWeek').then((m) => ({ default: m.WorkWeek })),
+);
+
 /** The two views' names and the empty board's pointer to the other one. */
 const viewText = {
   myBoard: 'My Board',
   allSources: 'All Sources',
+  myWeek: 'My Week',
   emptyBoardHint: 'Find tickets in All Sources and move them here.',
   browseAllSources: 'Browse All Sources',
   switcherLabel: 'Tickets view',
@@ -106,9 +113,12 @@ const viewText = {
   doneSelecting: 'Done',
 };
 
-type TicketsView = 'tickets' | 'my-board';
+type TicketsView = 'tickets' | 'my-board' | 'week';
 
-/** My Board first: it is the view the page opens on. All Sources is the lookup. */
+/**
+ * My Board first: it is the view the page opens on. All Sources is the lookup,
+ * and My Week is the timesheet that was the Work page.
+ */
 const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
   { value: 'my-board', label: viewText.myBoard },
   {
@@ -117,6 +127,7 @@ const VIEW_OPTIONS: readonly SegmentedOption<TicketsView>[] = [
     icon: <Binoculars className="h-4 w-4" aria-hidden="true" />,
     iconOnly: true,
   },
+  { value: 'week', label: viewText.myWeek },
 ];
 
 /**
@@ -332,8 +343,16 @@ export const TicketsPage: React.FC = () => {
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
 
   // My Board vs All Sources — same URL, local state only. My Board is where the
-  // day's work is; All Sources is where more of it is looked up.
-  const [activeView, setActiveView] = useState<TicketsView>('my-board');
+  // day's work is; All Sources is where more of it is looked up. My Week is in
+  // the URL (`?view=week`, alongside its `?date=`) so old Work links land on it.
+  const [viewParam, setViewParam] = useQueryParam('view', { mode: 'push' });
+  const [listView, setListView] = useState<Exclude<TicketsView, 'week'>>('my-board');
+  const activeView: TicketsView = viewParam === 'week' ? 'week' : listView;
+  const setActiveView = (view: TicketsView) => {
+    if (view === 'week') return setViewParam('week');
+    setListView(view);
+    if (viewParam) setViewParam(null);
+  };
   // The All Sources list is a few hundred rows; render it from the first visit on,
   // not while the page is opening on My Board.
   const [allSourcesOpened, setAllSourcesOpened] = useState(false);
@@ -930,38 +949,61 @@ export const TicketsPage: React.FC = () => {
               value={activeView}
               onValueChange={setActiveView}
             />
-            <Button
-              variant={selectionOn ? 'primary' : 'secondary'}
-              size="sm"
-              aria-pressed={selectionOn}
-              rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-              onClick={toggleSelecting}
-              className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+            {activeView !== 'week' && (
+              <Button
+                variant={selectionOn ? 'primary' : 'secondary'}
+                size="sm"
+                aria-pressed={selectionOn}
+                rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                onClick={toggleSelecting}
+                className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+              >
+                {selectionOn ? viewText.doneSelecting : viewText.select}
+              </Button>
+            )}
+          </div>
+
+          {/* One toolbar for both ticket lists: it stays put when the tab changes.
+              My Week is a timesheet, so it has none. */}
+          {activeView !== 'week' && (
+            <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+              {newTicketButton}
+
+              <RedmineSuggestions
+                userId={userId}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                baseUrl={redmineBaseUrl}
+                sourcePrefixes={sourcePrefixes}
+                runningIssueId={runningRedmineIssueId}
+                onToggleTimer={handleSuggestionTimer}
+                runningTicketKey={runningTicket?.key ?? null}
+                onToggleTicketTimer={handleFoundTicketTimer}
+                boardIssueIds={boardRedmineIssueIds}
+                boardKnown={boardKnown}
+                onToggleBoard={handleSuggestionBoard}
+                inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
+              />
+            </div>
+          )}
+
+          {/* ── My Week tab ── */}
+          {activeView === 'week' && (
+            <section
+              aria-label={viewText.myWeek}
+              className="tickets-week-panel min-h-0 flex-1 overflow-y-auto"
             >
-              {selectionOn ? viewText.doneSelecting : viewText.select}
-            </Button>
-          </div>
-
-          {/* One toolbar for both views: it stays put when the tab changes. */}
-          <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-            {newTicketButton}
-
-            <RedmineSuggestions
-              userId={userId}
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              baseUrl={redmineBaseUrl}
-              sourcePrefixes={sourcePrefixes}
-              runningIssueId={runningRedmineIssueId}
-              onToggleTimer={handleSuggestionTimer}
-              runningTicketKey={runningTicket?.key ?? null}
-              onToggleTicketTimer={handleFoundTicketTimer}
-              boardIssueIds={boardRedmineIssueIds}
-              boardKnown={boardKnown}
-              onToggleBoard={handleSuggestionBoard}
-              inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
-            />
-          </div>
+              <React.Suspense
+                fallback={
+                  <div className="flex justify-center py-12">
+                    <Spinner size="md" />
+                  </div>
+                }
+              >
+                <WorkWeek />
+              </React.Suspense>
+            </section>
+          )}
 
           {/* ── All Sources tab ── */}
           {allSourcesOpened && (

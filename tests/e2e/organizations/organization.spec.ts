@@ -17,9 +17,7 @@ test.describe('Organization', () => {
     await loginAs(page, TEST_USERS.member5);
 
     await page.goto('/app/organization');
-    await page
-      .getByRole('heading', { level: 1, name: 'Organization' })
-      .waitFor({ state: 'visible' });
+    await page.getByRole('heading', { level: 1, name: 'People' }).waitFor({ state: 'visible' });
 
     // Verify correct URL
     expect(page.url()).toContain('/app/organization');
@@ -42,10 +40,9 @@ test.describe('Organization', () => {
 
     await loginAs(page, TEST_USERS.owner1);
 
-    await page.goto('/app/organization');
-    await page
-      .getByRole('heading', { level: 1, name: 'Organization' })
-      .waitFor({ state: 'visible' });
+    // Owners land on Members; the chart is its own tab for them.
+    await page.goto('/app/organization?tab=chart');
+    await page.getByRole('heading', { level: 1, name: 'People' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(5000);
 
     // Verify members count
