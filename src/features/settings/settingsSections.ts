@@ -68,7 +68,7 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
 
 export const SETTINGS_PAGE_STRINGS = {
   navLabel: 'Settings sections',
-  backToOverview: 'Settings',
+  backToOverview: 'Back to Settings',
   personal: 'Personal',
   version: (version: string) => `Version ${version}`,
   whatsNew: 'What’s new',
