@@ -43,8 +43,7 @@ test.describe('Dashboard', () => {
     await expect(nav.getByRole('button', { name: /^Dashboard$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Tickets$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Teams$/i })).toBeVisible();
-    await expect(nav.getByRole('button', { name: /^Organization$/i })).toBeVisible();
-    await expect(nav.getByRole('button', { name: /^Activity Log$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^People$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Clock$/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible();
   });

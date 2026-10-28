@@ -61,7 +61,7 @@ async function stubLinkableRedmine(page: Page) {
 }
 
 async function openSettings(page: Page) {
-  await page.goto('/app/settings');
+  await page.goto('/app/settings?section=integrations');
   await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
 }
 

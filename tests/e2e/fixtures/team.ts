@@ -149,7 +149,7 @@ export async function createPlanRequiredTeam(page: Page): Promise<void> {
   await page.getByPlaceholder('Team name').fill(`Test Team PlanTimer-${Date.now()}`);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-  await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+  await page.getByRole('tab', { name: 'Settings', exact: true }).first().click({ timeout: 5000 });
   const settings = new TeamSettingsPage(page);
   await settings.waitForModal();
   await settings.enableRequirePlan();

@@ -37,6 +37,7 @@ import {
   applyTicketLink,
 } from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
+import { settingsPath } from '../../settings/settingsSections';
 import { linkWarnings, type LinkChange } from './linkWarnings';
 import { TicketLinkFields } from './TicketLinkFields';
 import {
@@ -280,7 +281,11 @@ export function LinkedIssueSection({
                 <Text size="sm" variant="muted">
                   {ticketLinkText.notConnected}
                 </Text>
-                <Button variant="outline" size="sm" onClick={() => navigate('/app/settings')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(settingsPath('integrations'))}
+                >
                   {ticketLinkText.goToSettings}
                 </Button>
               </>

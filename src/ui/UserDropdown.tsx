@@ -22,6 +22,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections } from './accountMenu';
+import { settingsPath } from '../features/settings/settingsSections';
 import { useRouter } from './router';
 import { UserAvatar } from './UserAvatar';
 
@@ -54,7 +55,7 @@ export const UserDropdown: React.FC = () => {
     if (user?.username) {
       navigate(`/app/profile/${user.username}`);
     } else {
-      navigate('/app/settings');
+      navigate(settingsPath('profile'));
     }
   }, [navigate, user?.username]);
 
@@ -79,9 +80,6 @@ export const UserDropdown: React.FC = () => {
             aria-label="Account menu"
           >
             <UserAvatar name={displayName} size="sm" src={user?.image} />
-            <Text size="sm" weight="medium" className="hidden max-w-32 truncate md:block">
-              {truncated}
-            </Text>
           </button>
         }
         placement="bottom-end"

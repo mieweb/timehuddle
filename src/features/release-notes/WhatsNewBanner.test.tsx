@@ -34,27 +34,27 @@ afterEach(cleanup);
 describe('WhatsNewBanner', () => {
   it('announces the newest unread release', () => {
     signInAs('0.0.1');
-    render(<WhatsNewBanner placement="mobile" />);
+    render(<WhatsNewBanner />);
     expect(screen.getByText('Huddle got updated! 🎉')).toBeTruthy();
     expect(screen.getByText(newest.title)).toBeTruthy();
   });
 
   it('renders nothing once the newest release has been seen', () => {
     signInAs(newest.version);
-    const { container } = render(<WhatsNewBanner placement="mobile" />);
+    const { container } = render(<WhatsNewBanner />);
     expect(container.innerHTML).toBe('');
   });
 
   it('marks the newest release seen when closed', () => {
     signInAs('0.0.1');
-    render(<WhatsNewBanner placement="sidebar" />);
+    render(<WhatsNewBanner />);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss what’s new' }));
     expect(markReleaseNotesSeen).toHaveBeenCalledWith(newest.version);
   });
 
-  it('opens the release notes from the collapsed rail', () => {
+  it('opens the release notes', () => {
     signInAs('0.0.1');
-    render(<WhatsNewBanner placement="sidebar" collapsed />);
+    render(<WhatsNewBanner />);
     fireEvent.click(screen.getByRole('button', { name: /see what’s new/i }));
     expect(navigate).toHaveBeenCalledWith('/app/release-notes');
   });
