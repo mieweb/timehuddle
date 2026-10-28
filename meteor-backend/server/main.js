@@ -45,7 +45,6 @@ import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
 import { hostOf, migrateServerTypes, migrateTicketNumbers } from './ticket-ids';
-import { migrateUnlinkableLinks } from './ticket-links-759';
 import { migrateBareRedmineData } from './redmine-cleanup-736';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
@@ -107,14 +106,6 @@ Meteor.startup(() => {
 Meteor.startup(() => {
   migrateServerTypes(rawDb(), { redmineBaseUrl: optionalRedmineBaseUrl() }).catch((error) =>
     console.error('[orgs] giving servers a type failed:', error),
-  );
-});
-
-// Not awaited either: until it runs, an old non-issue link still shows as the
-// ticket's link.
-Meteor.startup(() => {
-  migrateUnlinkableLinks(rawDb()).catch((error) =>
-    console.error('[tickets] moving non-issue links failed:', error),
   );
 });
 

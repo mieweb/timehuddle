@@ -440,7 +440,7 @@ describe('tickets (wormhole)', () => {
         memberJwt,
       );
       expect(refused.ok).toBe(false);
-      expect(refused.error).toMatch(/Remove that link before adding a GitHub link/);
+      expect(refused.error).toMatch(/Remove that link before adding another one/);
 
       // Clearing a GitHub link, and editing other fields, stay allowed.
       const cleared = await wormhole(
@@ -459,23 +459,16 @@ describe('tickets (wormhole)', () => {
       expect(allowed.result.github).toBe('https://github.com/a/b/issues/1');
     });
 
-    it('only stores an https GitHub issue or pull request, on create and on update', async () => {
+    it('only stores an https link, on create and on update', async () => {
       await seedLink(null);
-      for (const github of [
-        'javascript:alert(1)',
-        'data:text/html,x',
-        'http://github.com/a/b/issues/1',
-        'https://github.com/a/b',
-        'https://docs.google.com/document/d/abc/edit',
-        'https://tracker.example.com/issues/9',
-      ]) {
+      for (const github of ['javascript:alert(1)', 'data:text/html,x', 'http://github.com/a/b']) {
         const created = await wormhole(
           'tickets.create',
           { teamId, title: 'Bad link', github },
           ownerJwt,
         );
         expect(created.ok, github).toBe(false);
-        expect(created.error, github).toMatch(/isn't an issue/);
+        expect(created.error, github).toMatch(/https:\/\//);
         const updated = await wormhole(
           'tickets.update',
           { ticketId: linkTicketId, github },
@@ -485,11 +478,34 @@ describe('tickets (wormhole)', () => {
       }
       const ok = await wormhole<{ github: string }>(
         'tickets.update',
-        { ticketId: linkTicketId, github: 'https://github.com/mieweb/pulse/pull/554' },
+        { ticketId: linkTicketId, github: 'https://tracker.example.com/issues/9' },
         ownerJwt,
       );
-      expect(ok.result.github).toBe('https://github.com/mieweb/pulse/pull/554');
+      expect(ok.result.github).toBe('https://tracker.example.com/issues/9');
       await wormhole('tickets.update', { ticketId: linkTicketId, github: '' }, ownerJwt);
+    });
+
+    it('saves whether a link was converted to its issue, and forgets it with the link', async () => {
+      await seedLink(null);
+      const url = 'https://github.com/a/b/issues/1';
+      const update = (fields: Record<string, unknown>) =>
+        wormhole<{ github: string; linkIsIssue?: boolean }>(
+          'tickets.update',
+          { ticketId: linkTicketId, ...fields },
+          ownerJwt,
+        );
+      expect((await update({ github: url, linkIsIssue: true })).result.linkIsIssue).toBe(true);
+      expect((await update({ github: url, linkIsIssue: false })).result.linkIsIssue).toBe(false);
+      expect((await update({ github: url, linkIsIssue: 'yes' })).ok).toBe(false);
+      expect((await update({ github: '' })).result.linkIsIssue).toBeUndefined();
+
+      const created = await wormhole<{ id: string; linkIsIssue?: boolean }>(
+        'tickets.create',
+        { teamId, title: 'Converted on create', github: url, linkIsIssue: true },
+        ownerJwt,
+      );
+      expect(created.result.linkIsIssue).toBe(true);
+      await wormhole('tickets.delete', { ticketId: created.result.id }, ownerJwt);
     });
 
     it('treats unlinking an unlinked ticket as nothing to do', async () => {

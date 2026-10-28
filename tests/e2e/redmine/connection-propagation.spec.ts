@@ -93,21 +93,20 @@ test.describe('Redmine connection propagates without a reload', () => {
     await stubLinkableRedmine(page);
     await tickets.goto();
 
-    const chooseRedmine = async () => {
-      await page.getByRole('button', { name: 'New Ticket' }).click();
-      await page.getByRole('radio', { name: 'Redmine' }).check();
-    };
+    const offerRedmine = () => page.getByRole('button', { name: 'Link a Redmine issue instead' });
 
-    // Unlinked: the dialog says to connect Redmine instead of offering a search.
-    await chooseRedmine();
-    await expect(page.getByText(/Connect your Redmine account in Settings/)).toBeVisible();
+    // Unlinked: the dialog has no Redmine to offer, only the link field.
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await expect(page.getByLabel('Link', { exact: true })).toBeVisible();
+    await expect(offerRedmine()).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel' }).click();
 
     await openSettings(page);
     await connectInSettings(page);
     await goToTicketsWithoutReloading(page);
 
-    await chooseRedmine();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await offerRedmine().click();
     await expect(page.getByLabel('Issue number or link')).toBeVisible();
   });
 });

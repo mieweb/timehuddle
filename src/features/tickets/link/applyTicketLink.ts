@@ -13,7 +13,7 @@ import type { LinkFormState } from './ticketLinkForm';
 /** The ticket fields a link change reads: its current link, and what a new issue is made from. */
 export type LinkableTicket = Pick<
   Ticket,
-  'id' | 'title' | 'description' | 'priority' | 'github' | 'linkedIssue'
+  'id' | 'title' | 'description' | 'priority' | 'github' | 'linkIsIssue' | 'linkedIssue'
 >;
 
 /**
@@ -117,10 +117,11 @@ export async function applyTicketLink(
   }
 
   const github = form.kind === 'github' ? form.github.trim() : '';
+  const linkIsIssue = github ? form.linkIsIssue : undefined;
   const unlinked = linkedId ? await ticketApi.unlink(ticket.id, linkedId) : null;
-  if (github === ticket.github) return unlinked;
+  if (github === ticket.github && (!github || linkIsIssue === ticket.linkIsIssue)) return unlinked;
   try {
-    return await ticketApi.updateTicket(ticket.id, { github });
+    return await ticketApi.updateTicket(ticket.id, { github, linkIsIssue });
   } catch (err) {
     // The two steps are separate calls. The first one stands, so say so.
     if (unlinked) throw new LinkRemovedNotReplacedError(unlinked, err);

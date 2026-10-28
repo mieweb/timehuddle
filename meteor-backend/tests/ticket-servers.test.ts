@@ -1,12 +1,10 @@
 /**
  * The server registry (#734 step 5): what an org may register, how servers
- * named before types existed are typed, and which ticket links stay links.
+ * named before types existed are typed.
  * No database, so these run in CI (vitest.unit.config.ts).
  */
 import { describe, expect, it } from 'vitest';
 
-import { isLinkableUrl } from '../server/ticket-link-core';
-import { unlinkableLinkUpdate } from '../server/ticket-links-759';
 import { normalizeSourcePrefixes, serverBaseUrlOf, typedServers } from '../server/ticket-ids';
 
 describe('serverBaseUrlOf', () => {
@@ -76,52 +74,5 @@ describe('typedServers', () => {
   it('drops a GitHub row, which never did anything, and keeps typed servers as they are', () => {
     const typed = { host: 'a.example.com', prefix: 'A', type: 'redmine', baseUrl: 'https://a.example.com/x' };
     expect(typedServers([{ host: 'github.com', prefix: 'GH' }, typed], null)).toEqual([typed]);
-  });
-});
-
-describe('isLinkableUrl', () => {
-  it('takes a GitHub issue or pull request over https', () => {
-    expect(isLinkableUrl('https://github.com/mieweb/timehuddle/issues/223')).toBe(true);
-    expect(isLinkableUrl('https://github.com/mieweb/pulse/pull/554/files')).toBe(true);
-  });
-
-  it('refuses docs, drives, repository pages and plain http', () => {
-    for (const url of [
-      'https://docs.google.com/document/d/abc/edit',
-      'https://drive.google.com/drive/folders/abc',
-      'https://console.cloud.google.com/home',
-      'https://github.com/mieweb/timehuddle',
-      'http://github.com/mieweb/timehuddle/issues/1',
-      'https://notgithub.com/a/b/issues/1',
-    ]) {
-      expect(isLinkableUrl(url)).toBe(false);
-    }
-  });
-});
-
-describe('unlinkableLinkUpdate', () => {
-  it('leaves a link that names an issue, and a ticket with no link, alone', () => {
-    expect(unlinkableLinkUpdate({ github: 'https://github.com/a/b/issues/1' })).toBeNull();
-    // Saved over http before the https rule: still an issue, still has its ID.
-    expect(unlinkableLinkUpdate({ github: 'http://github.com/a/b/pull/2' })).toBeNull();
-    const servers = [{ host: 'redmine0.example.com', prefix: 'RM0' }];
-    expect(
-      unlinkableLinkUpdate({ github: 'https://redmine0.example.com/issues/233' }, servers),
-    ).toBeNull();
-    expect(unlinkableLinkUpdate({ github: '' })).toBeNull();
-    expect(unlinkableLinkUpdate({})).toBeNull();
-  });
-
-  it('moves any other link into the description, keeping what was there', () => {
-    expect(
-      unlinkableLinkUpdate({ github: 'https://docs.google.com/d/1', description: 'Steps:\n1. Open\n' }),
-    ).toEqual({ $set: { description: 'Steps:\n1. Open\n\nLink: https://docs.google.com/d/1', github: '' } });
-    expect(unlinkableLinkUpdate({ github: 'https://github.com/a/b' })).toEqual({
-      $set: { description: 'Link: https://github.com/a/b', github: '' },
-    });
-    // An issue on a server the org hasn't registered isn't one of its sources.
-    expect(unlinkableLinkUpdate({ github: 'https://other.example.com/issues/9' })).toEqual({
-      $set: { description: 'Link: https://other.example.com/issues/9', github: '' },
-    });
   });
 });

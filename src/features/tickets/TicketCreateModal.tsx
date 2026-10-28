@@ -1,9 +1,9 @@
 /**
  * Create a ticket — the one dialog for it, whatever system the work is tracked
- * in. Every ticket is a TimeHuddle ticket; "Tracked in" says whether it also
- * points at a GitHub link or a Redmine issue (an existing one, or a new one
- * created from this ticket). The same choice can be changed later on the
- * ticket's page.
+ * in. Every ticket is a TimeHuddle ticket; its link may point anywhere, may
+ * stand for the issue it names, or may be a Redmine issue (an existing one, or
+ * a new one created from this ticket). The same choice can be changed later on
+ * the ticket's page.
  *
  * Pasting a GitHub issue/PR URL into the title, or entering one as the GitHub
  * link, fills the title from GitHub. The assignee defaults to the creator; the
@@ -159,6 +159,10 @@ export function TicketCreateModal({
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         github: form.link.kind === 'github' ? form.link.github.trim() : undefined,
+        linkIsIssue:
+          form.link.kind === 'github' && form.link.github.trim()
+            ? form.link.linkIsIssue
+            : undefined,
         priority: form.priority === 'none' ? undefined : form.priority,
         assignedToUserIds: form.assigneeId === UNASSIGNED ? [] : [form.assigneeId],
       });
@@ -246,12 +250,13 @@ export function TicketCreateModal({
                 const text = e.clipboardData?.getData('text')?.trim();
                 if (!text || !isGithubIssueUrl(text)) return;
                 e.preventDefault();
-                updateLink({ kind: 'github', github: text });
+                updateLink({ kind: 'github', github: text, linkIsIssue: false });
               }}
             />
 
             <TicketLinkFields
               name="ticket-create-link"
+              teamId={form.teamId}
               value={form.link}
               onChange={updateLink}
               disabled={saving}

@@ -15,7 +15,7 @@ import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
 import { addBoardEntryIfRoom } from './my-board';
-import { isLinkableUrl, linkedIssueIdOf } from './ticket-link-core';
+import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
 import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
 import { nextTicketNumber } from './ticket-ids';
 import { HUDDLE } from './ticket-refs';
@@ -159,10 +159,21 @@ export async function insertTicket(
 
 const LINKED_TO_REDMINE =
   'This ticket is linked to a Redmine issue. Remove that link before adding another one.';
-// Checked here as well as in the form: this method is callable without it, and
-// the link is rendered as an `href` for the whole team.
-const LINK_MUST_BE_ISSUE =
-  "This link isn't an issue from one of your organization's sources. Put other links in the description.";
+// The link is rendered as an `href` for the whole team, so it is checked here
+// as well as in the form: this method is callable without the form.
+const LINK_MUST_BE_HTTPS = 'The link must be a full https:// address.';
+
+/**
+ * `linkIsIssue` says whether the link stands for the ticket's issue, so the
+ * ticket goes by that issue's ID (`PM-233`), or is just a link and keeps its own
+ * (`TH-223`). Absent on links saved before the choice existed: those go by the
+ * issue's ID whenever the link names one, as they always have.
+ */
+function requireLinkIsIssue(linkIsIssue) {
+  if (linkIsIssue !== undefined && typeof linkIsIssue !== 'boolean') {
+    throw new Meteor.Error('validation-error', 'linkIsIssue must be a boolean');
+  }
+}
 
 // Lists, the live feed and the dashboard summary all read one team's tickets.
 Meteor.startup(async () => {
@@ -268,7 +279,15 @@ Meteor.methods({
    * Create a ticket. Mirrors TicketService.create: the creator is assigned
    * unless `assignedToUserIds` names the team members to assign instead.
    */
-  async 'tickets.create'({ teamId, title, description, github, priority, assignedToUserIds } = {}) {
+  async 'tickets.create'({
+    teamId,
+    title,
+    description,
+    github,
+    linkIsIssue,
+    priority,
+    assignedToUserIds,
+  } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const team = await requireTeamMembership(userId, teamId);
@@ -282,15 +301,19 @@ Meteor.methods({
         `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`,
       );
     }
-    if (typeof github === 'string' && github.trim() && !isLinkableUrl(github.trim())) {
-      throw new Meteor.Error('validation-error', LINK_MUST_BE_ISSUE);
+    if (typeof github === 'string' && github.trim() && !isHttpsUrl(github.trim())) {
+      throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
     }
+    requireLinkIsIssue(linkIsIssue);
     const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
     const doc = await insertTicket(userId, { teamId, orgId: team.orgId }, {
       title: title.trim(),
       ...(typeof description === 'string' ? { description } : {}),
       github: typeof github === 'string' ? github : '',
+      ...(typeof github === 'string' && github.trim() && linkIsIssue !== undefined
+        ? { linkIsIssue }
+        : {}),
       ...(priority && !clearPriority ? { priority } : {}),
       assignedTo: assignees,
     });
@@ -349,12 +372,13 @@ Meteor.methods({
   },
 
   /** Edit a ticket's title / github / description. Mirrors TicketService.update. */
-  async 'tickets.update'({ ticketId, title, github, description } = {}) {
+  async 'tickets.update'({ ticketId, title, github, linkIsIssue, description } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
     await assertUnlocked(ticket, userId);
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
+    const $unset = {};
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) {
         throw new Meteor.Error('validation-error', 'title must be a non-empty string');
@@ -364,8 +388,8 @@ Meteor.methods({
     if (github !== undefined) {
       if (typeof github !== 'string')
         throw new Meteor.Error('validation-error', 'github must be a string');
-      if (github.trim() && !isLinkableUrl(github.trim())) {
-        throw new Meteor.Error('validation-error', LINK_MUST_BE_ISSUE);
+      if (github.trim() && !isHttpsUrl(github.trim())) {
+        throw new Meteor.Error('validation-error', LINK_MUST_BE_HTTPS);
       }
       // A ticket has one link. The Redmine link is removed through
       // `tickets.unlink`, which tells the people it affects; it is never
@@ -373,7 +397,10 @@ Meteor.methods({
       if (github.trim() && linkedIssueIdOf(ticket)) {
         throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
       }
+      requireLinkIsIssue(linkIsIssue);
       $set.github = github;
+      if (!github.trim()) $unset.linkIsIssue = '';
+      else if (linkIsIssue !== undefined) $set.linkIsIssue = linkIsIssue;
     }
     if (description !== undefined) {
       if (typeof description !== 'string') {
@@ -390,7 +417,7 @@ Meteor.methods({
         _id: new Mongo.ObjectID(ticketId),
         ...(writesGithub ? { linkedIssue: { $exists: false } } : {}),
       },
-      { $set },
+      Object.keys($unset).length ? { $set, $unset } : { $set },
     );
     if (!changed) throw new Meteor.Error('validation-error', LINKED_TO_REDMINE);
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));

@@ -1022,6 +1022,12 @@ export interface Ticket {
   title: string;
   description: string | null;
   github: string;
+  /**
+   * Whether the link stands for the ticket's issue, so the ticket goes by that
+   * issue's ID. Null on links saved before the choice existed: those do whenever
+   * the link names an issue.
+   */
+  linkIsIssue: boolean | null;
   status: string;
   priority: string | null;
   createdBy: string;
@@ -1063,6 +1069,7 @@ function toTicket(raw: Record<string, unknown>): Ticket {
     title: String(raw.title),
     description: (raw.description as string | undefined) ?? null,
     github: (raw.github as string | undefined) ?? '',
+    linkIsIssue: typeof raw.linkIsIssue === 'boolean' ? raw.linkIsIssue : null,
     status: (raw.status as string | undefined) ?? 'open',
     priority: (raw.priority as string | undefined) ?? null,
     createdBy: String(raw.createdBy),
@@ -1147,12 +1154,16 @@ export const ticketApi = {
     teamId: string;
     title: string;
     github?: string;
+    linkIsIssue?: boolean;
     description?: string;
     priority?: string;
     assignedToUserIds?: string[];
   }) => wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
-  updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
+  updateTicket: (
+    id: string,
+    updates: { title?: string; github?: string; linkIsIssue?: boolean; description?: string },
+  ) =>
     wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
       toTicket,
     ),

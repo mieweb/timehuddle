@@ -1,21 +1,23 @@
 /**
- * The state behind the one control that says where a ticket is tracked:
- * TimeHuddle only, a GitHub link, or a Redmine issue (an existing one, or a new
- * one created from the ticket). The create dialog and the ticket page's
- * "Linked issue" section share it, so the choice reads the same in both.
+ * The state behind the one control for a ticket's link: a link to anything,
+ * which may stand for the issue it names, or a Redmine issue (an existing one,
+ * or a new one created from the ticket). The create dialog and the ticket
+ * page's "Linked issue" section share it, so the choice reads the same in both.
  */
-import { matchIssueUrl, redmine } from '@timehuddle/ticket-sources';
+import { matchIssueUrl, outsideIdOf, redmine, type SourceServer } from '@timehuddle/ticket-sources';
 
 import type { RedmineIssue, Ticket } from '../../../lib/api';
-import { isGithubIssueUrl } from '../githubIssue';
 
 export type LinkKind = 'none' | 'github' | 'redmine';
 export type RedmineMode = 'existing' | 'new';
 
 export interface LinkFormState {
-  kind: LinkKind;
-  /** GitHub issue or pull request URL. */
+  /** `github`: the link field. `redmine`: the Redmine issue panel. */
+  kind: Exclude<LinkKind, 'none'>;
+  /** The link: any https address. Empty for none. */
   github: string;
+  /** "Convert to … issue" was chosen: the ticket goes by the ID the link names. */
+  linkIsIssue: boolean;
   redmineMode: RedmineMode;
   /** What was typed to find an existing issue. Never stored: it may be a patient's name. */
   query: string;
@@ -27,8 +29,9 @@ export interface LinkFormState {
 }
 
 export const EMPTY_LINK_FORM: LinkFormState = {
-  kind: 'none',
+  kind: 'github',
   github: '',
+  linkIsIssue: false,
   redmineMode: 'existing',
   query: '',
   issue: null,
@@ -43,19 +46,33 @@ export function linkKindOf(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): Link
 }
 
 /**
- * The control's starting state for changing an existing ticket's link. There
- * is no "TimeHuddle" choice there (a link is removed with Unlink), so a ticket
- * without a link starts on Redmine.
+ * The control's starting state for changing an existing ticket's link. A link
+ * saved before the convert choice existed went by its issue's ID, so it keeps it.
  */
-export function linkFormFor(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): LinkFormState {
-  const kind = linkKindOf(ticket);
-  return { ...EMPTY_LINK_FORM, kind: kind === 'none' ? 'redmine' : kind, github: ticket.github };
+export function linkFormFor(
+  ticket: Pick<Ticket, 'github' | 'linkIsIssue' | 'linkedIssue'>,
+): LinkFormState {
+  return {
+    ...EMPTY_LINK_FORM,
+    kind: ticket.linkedIssue ? 'redmine' : 'github',
+    github: ticket.github,
+    linkIsIssue: ticket.linkIsIssue ?? true,
+  };
+}
+
+/**
+ * The ID a link would give its ticket if converted, e.g. `pulse-250` or
+ * `PM-233`, or null when it names no issue the org knows.
+ */
+export function convertibleIdOf(link: string, servers: readonly SourceServer[]): string | null {
+  return isHttpsUrl(link) ? outsideIdOf(link.trim(), servers) : null;
 }
 
 /**
  * Whether `value` is an absolute `https://` URL — the only kind of external
  * link that is saved. The link is stored for a team and rendered as an `href`
  * for every member, so `javascript:`, `data:` and plain `http://` are refused.
+ * Any host is allowed. The server makes the same check.
  */
 export function isHttpsUrl(value: string): boolean {
   try {
@@ -63,15 +80,6 @@ export function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Whether `value` may be saved as a ticket's link (#734 step 5): an https
- * GitHub issue or pull request. Never a doc, a drive folder or a repository
- * page. The server makes the same check.
- */
-export function isLinkableUrl(value: string): boolean {
-  return isHttpsUrl(value) && isGithubIssueUrl(value);
 }
 
 /**
@@ -105,9 +113,14 @@ export function isWebUrl(value: string): boolean {
   }
 }
 
-/** Whether the choice is complete enough to save. */
-export function linkFormReady(form: LinkFormState): boolean {
-  if (form.kind === 'github') return isLinkableUrl(form.github);
+/**
+ * Whether the choice is complete enough to save. An empty link is no link: fine
+ * for a new ticket, but not when changing one, where removing it is "Unlink".
+ */
+export function linkFormReady(form: LinkFormState, { allowNone = true } = {}): boolean {
+  if (form.kind === 'github') {
+    return form.github.trim() ? isHttpsUrl(form.github) : allowNone;
+  }
   if (form.kind === 'redmine') {
     return form.redmineMode === 'existing' ? form.issue !== null : form.projectId !== '';
   }
