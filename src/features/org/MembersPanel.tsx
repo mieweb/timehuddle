@@ -252,7 +252,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
         >
           {filters.map((filter) => (
             <Button
-              key={filter.label}
+              key={filter.value ?? 'all'}
               size="sm"
               variant={roleFilter === filter.value ? 'secondary' : 'ghost'}
               aria-pressed={roleFilter === filter.value}
