@@ -4,7 +4,7 @@
  * ticket ID prefixes. Both cards are unchanged from when they sat on Members.
  */
 import { Alert, Spinner } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -64,11 +64,15 @@ export const OrganizationSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // A pull-to-refresh can overlap the first load; only the latest one may write.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
     if (!selectedOrgId) return;
+    const seq = ++loadSeq.current;
     setLoadError(null);
     try {
       const organization = await orgApi.getOrganizationById(selectedOrgId);
+      if (seq !== loadSeq.current) return;
       setLoaded({
         orgId: selectedOrgId,
         view: organization,
@@ -77,6 +81,7 @@ export const OrganizationSettings: React.FC = () => {
         sourcePrefixes: organization.sourcePrefixes,
       });
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setLoadError(err instanceof ApiError ? err.message : STRINGS.failedToLoad);
     }
   }, [selectedOrgId]);
