@@ -12,6 +12,16 @@ import {
   pinExistingTeamPlanSetting,
 } from '../server/settings/migrate';
 
+// The `migrations` collection keys its marker documents by migration name
+// rather than an ObjectId (see server/migration-claim.js), so it needs an
+// explicit schema wherever it's queried directly.
+type MigrationMarker = {
+  _id: string;
+  status: 'running' | 'done';
+  claimedAt: Date;
+  ranAt?: Date;
+};
+
 const tag = `mig607-${Date.now()}`;
 const createdTeams: ObjectId[] = [];
 const createdOrgs: ObjectId[] = [];
@@ -100,7 +110,7 @@ describe('moveOrgAutoJoinIntoSettings', () => {
 describe('migrateSettings', () => {
   it('pins teams once: a team created afterwards still inherits', async () => {
     const db = await getDb();
-    await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
+    await db.collection<MigrationMarker>('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
     const before = await insertTeam({});
 
     await migrateSettings(db);
@@ -114,7 +124,7 @@ describe('migrateSettings', () => {
 
   it('copies org auto-join once: a value reset to inherited stays reset', async () => {
     const db = await getDb();
-    await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
+    await db.collection<MigrationMarker>('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
     const org = await insertOrg({ allowAutoJoin: false });
 
     await migrateSettings(db);
@@ -130,13 +140,13 @@ describe('migrateSettings', () => {
 
   it('tolerates another instance recording the marker first', async () => {
     const db = await getDb();
-    await db.collection('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
+    await db.collection<MigrationMarker>('migrations').deleteOne({ _id: 'hierarchical-settings-607' });
     await expect(Promise.all([migrateSettings(db), migrateSettings(db)])).resolves.toBeDefined();
   });
 
   it('takes over a claim left running by a crashed instance', async () => {
     const db = await getDb();
-    const marker = db.collection('migrations');
+    const marker = db.collection<MigrationMarker>('migrations');
     await marker.deleteOne({ _id: 'hierarchical-settings-607' });
     await marker.insertOne({
       _id: 'hierarchical-settings-607',

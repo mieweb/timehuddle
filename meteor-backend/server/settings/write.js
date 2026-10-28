@@ -91,7 +91,16 @@ function applyLocksPatch(patch, level, resolved, next) {
 /**
  * `current` is the entity's stored `{ settings, settingsLocks }`; `resolved` is
  * its effective settings from the resolver, used to refuse locked keys.
+ * `settings`/`locks` are left loosely typed (`unknown`) since this function's
+ * job is to validate their shape and value types at runtime and throw
+ * `SettingsInputError` for anything invalid.
  * Returns the Mongo `$set` / `$unset` maps (either may be empty).
+ * @param {Object} params
+ * @param {string} params.level
+ * @param {{ settings?: Record<string, unknown>, settingsLocks?: Record<string, boolean> }} [params.current]
+ * @param {Record<string, { value: unknown, source: string, sourceId?: string, locked: boolean }>} [params.resolved]
+ * @param {unknown} [params.settings]
+ * @param {unknown} [params.locks]
  */
 export function buildSettingsUpdate({ level, current = {}, resolved, settings, locks }) {
   const next = {

@@ -90,8 +90,10 @@ beforeAll(async () => {
 afterEach(async () => {
   const db = await getDb();
   await db.collection('tickets').deleteMany({ teamId: { $in: [teamId, otherTeamId] } });
+  // carry_locks keys rows by `${teamId}:${issueId}` (see server/ticket-carry-core.js),
+  // not an ObjectId, so it needs an explicit string _id schema here.
   await db
-    .collection('carry_locks')
+    .collection<{ _id: string }>('carry_locks')
     .deleteMany({ _id: { $regex: `^(${teamId}|${otherTeamId}):` } });
 });
 
