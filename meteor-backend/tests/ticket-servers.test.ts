@@ -1,6 +1,6 @@
 /**
  * The server registry (#734 step 5): what an org may register, how servers
- * named before types existed are typed.
+ * named before types existed are typed when read.
  * No database, so these run in CI (vitest.unit.config.ts).
  */
 import { describe, expect, it } from 'vitest';
@@ -71,7 +71,7 @@ describe('typedServers', () => {
     ]);
   });
 
-  it('drops a GitHub row, which never did anything, and keeps typed servers as they are', () => {
+  it('leaves out a GitHub row, which never did anything, and keeps typed servers as they are', () => {
     const typed = { host: 'a.example.com', prefix: 'A', type: 'redmine', baseUrl: 'https://a.example.com/x' };
     expect(typedServers([{ host: 'github.com', prefix: 'GH' }, typed], null)).toEqual([typed]);
   });
