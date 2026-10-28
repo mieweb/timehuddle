@@ -1198,7 +1198,7 @@ export default function Huddle() {
                               className={`huddle-composer-pulse flex items-center gap-1.5 ${styles.pulseGroup}`}
                             >
                               <span
-                                className="huddle-composer-or px-1 text-sm text-muted-foreground"
+                                className={`huddle-composer-or px-1 text-sm text-muted-foreground ${styles.pulseOr}`}
                                 aria-hidden="true"
                               >
                                 /

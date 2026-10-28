@@ -9,6 +9,7 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
+import { redmineUrlRefusal } from './redmine-client';
 import { DEFAULT_TICKET_PREFIX, normalizeSourcePrefixes, normalizeTicketPrefix } from './ticket-ids';
 import {
   idOf,
@@ -560,8 +561,9 @@ Meteor.methods({
   },
 
   /**
-   * Name the servers the org's outside issues live on: `[{ host, prefix }]`,
-   * so an issue on that host shows as `PM-233`. Replaces the whole list. Org owners only.
+   * Register the servers the org's outside issues live on (#734 step 5):
+   * `[{ baseUrl, prefix, type }]`, so an issue there shows as `PM-233`.
+   * Replaces the whole list. Org owners only.
    */
   async 'orgs.setSourcePrefixes'({ orgId, sourcePrefixes }) {
     const identity = await requireIdentity(this);
@@ -571,6 +573,13 @@ Meteor.methods({
       entries = normalizeSourcePrefixes(sourcePrefixes, org.ticketPrefix || DEFAULT_TICKET_PREFIX);
     } catch (error) {
       throw new Meteor.Error('validation-error', error.message);
+    }
+    // A server new to the org must be one this deployment may send requests to,
+    // as for a Redmine account (production only). Servers it already had stay.
+    const known = new Set((org.sourcePrefixes ?? []).map((entry) => entry.host));
+    for (const entry of entries) {
+      const refusal = known.has(entry.host) ? null : redmineUrlRefusal(entry.baseUrl);
+      if (refusal) throw new Meteor.Error('validation-error', `${entry.host}: ${refusal}`);
     }
     // Only over the ticket prefix these were checked against.
     const { matchedCount } = await rawDb()

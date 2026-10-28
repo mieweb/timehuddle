@@ -8,6 +8,7 @@
 import { Card, CardContent, ScrollArea, Text } from '@mieweb/ui';
 import React from 'react';
 
+import { LinkifiedText } from '../../../ui/LinkifiedText';
 import { UserAvatar } from '../../../ui/UserAvatar';
 
 import type { ActivityEntry } from './activityEntries';
@@ -80,11 +81,11 @@ export function TicketActivityCard({
                       <div
                         className={
                           entry.kind === 'comment' || entry.kind === 'event'
-                            ? 'ticket-activity-comment mt-1 whitespace-pre-wrap rounded-md bg-neutral-50 p-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
+                            ? 'ticket-activity-comment mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] rounded-md bg-neutral-50 p-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
                             : 'ticket-activity-detail text-xs text-neutral-500 dark:text-neutral-400'
                         }
                       >
-                        {entry.detail}
+                        <LinkifiedText text={entry.detail} />
                       </div>
                     )}
                     <div className="ticket-activity-time mt-0.5 text-xs text-neutral-400">

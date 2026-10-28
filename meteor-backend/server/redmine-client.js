@@ -18,6 +18,8 @@
  * itself, so no update or delete helper exists for them. Issues are never
  * deleted from TimeHuddle either.
  */
+import { redmine } from '@timehuddle/ticket-sources';
+
 import { createRateLimiter } from './rate-limit';
 import { activityIssueRefs } from './redmine-atom';
 import { findBillableInPages } from './redmine-billable';
@@ -232,7 +234,8 @@ async function redmineRequest(
     res = await fetch(`${account.baseUrl}${path}`, {
       method,
       headers: {
-        'X-Redmine-API-Key': account.apiKey,
+        // `X-Redmine-API-Key`, as Redmine's definition says.
+        [redmine.connect.header]: account.apiKey,
         Accept: accept,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -482,7 +485,7 @@ export async function getIssue(account, issueId) {
 }
 
 /** A GET whose 404 or 403 means "not there for this caller" rather than a failure. */
-async function requestOrNull(path, account) {
+export async function requestOrNull(path, account) {
   try {
     return await redmineRequest(path, { account });
   } catch (err) {

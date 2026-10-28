@@ -52,6 +52,7 @@ import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine
 import { MyBoard, Teams, Tickets, Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
+import { redminePrefixesFor } from './ticket-search';
 
 /**
  * The merged list, per user, for 90 seconds. Short enough that a pin or a
@@ -331,7 +332,7 @@ Meteor.methods({
    * Find issues the caller named.
    *
    * One bounded Redmine call per search, chosen by what they typed — an issue
-   * number, a pasted link, `@someone`, or words matched against issue **titles**
+   * number (`1234`, or `RM0-1234` when their org calls this server RM0), a pasted link, `@someone`, or words matched against issue **titles**
    * only. At most 25 results, and never a match drawn from a description or a
    * note.
    *
@@ -352,7 +353,11 @@ Meteor.methods({
       return { connected: false, baseUrl: optionalRedmineBaseUrl(), kind: 'text', issues: [] };
     }
 
-    const { kind, value } = parseRedmineQuery(query, account.baseUrl);
+    const { kind, value } = parseRedmineQuery(
+      query,
+      account.baseUrl,
+      await redminePrefixesFor(userId, account.baseUrl),
+    );
     try {
       return {
         connected: true,

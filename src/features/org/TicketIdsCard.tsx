@@ -10,6 +10,7 @@ import {
   CardTitle,
   Input,
   Text,
+  WebsiteInput,
 } from '@mieweb/ui';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -25,9 +26,11 @@ export const TICKET_IDS_STRINGS = {
     `A letter, then up to five letters or digits. Tickets show as ${prefix || 'TH'}-12.`,
   serversTitle: 'Outside servers',
   serversDescription:
-    'Name the servers your issues live on, so an issue there shows as its prefix and number, such as PM-233. GitHub issues need no setup: they show as the repository and number, such as timehuddle-223.',
+    'Register the Redmine servers your issues live on, so an issue there shows as its prefix and number, such as PM-233. GitHub issues need no setup: they show as the repository and number, such as timehuddle-223.',
+  serversOneServerNote:
+    "For now, members open and edit issues on this TimeHuddle's own Redmine server only. Issues on other servers show their ID and can be searched.",
   serverLabel: (row: number) => `Server address, row ${row}`,
-  serverPlaceholder: 'redmine.example.com',
+  serverPlaceholder: 'https://redmine.example.com',
   serverPrefixLabel: (row: number) => `Prefix, row ${row}`,
   serverPrefixPlaceholder: 'PM',
   removeServer: (host: string) => (host ? `Remove ${host}` : 'Remove this server'),
@@ -39,13 +42,23 @@ export const TICKET_IDS_STRINGS = {
   saveFailed: 'The change could not be saved.',
 } as const;
 
-interface ServerDraft extends SourcePrefix {
+/** A server row being edited: its address as typed, with any path Redmine lives under. */
+interface ServerDraft {
   key: number;
+  address: string;
+  prefix: string;
+  type: NonNullable<SourcePrefix['type']>;
 }
 
 let nextDraftKey = 0;
 const toDrafts = (entries: SourcePrefix[]): ServerDraft[] =>
-  entries.map((entry) => ({ ...entry, key: nextDraftKey++ }));
+  entries.map((entry) => ({
+    key: nextDraftKey++,
+    address: entry.baseUrl ?? entry.host,
+    prefix: entry.prefix,
+    // Saved before types existed: every server then was a Redmine one.
+    type: entry.type ?? 'redmine',
+  }));
 
 /** One save at a time, with its error and a "Saved." to announce. */
 function useSaver() {
@@ -130,7 +143,8 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
     void serversSave.run(async () => {
       const saved = await orgApi.setSourcePrefixes(
         orgId,
-        servers.map(({ host, prefix }) => ({ host, prefix })),
+        // The server reads the address, path included, from `host`.
+        servers.map(({ address, prefix, type }) => ({ host: address, prefix, type })),
       );
       setServers(toDrafts(saved));
       setServersChanged(false);
@@ -147,7 +161,7 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
     serversSave.clearStatus();
   };
 
-  const updateServer = (key: number, field: keyof SourcePrefix, value: string) =>
+  const updateServer = (key: number, field: 'address' | 'prefix', value: string) =>
     editServers(servers.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
 
   return (
@@ -192,10 +206,14 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
           </Text>
         </form>
 
+        {/* noValidate: `WebsiteInput` is `type="url"`, which would block a bare
+            host like `redmine.example.com` (how older servers are saved); the
+            backend validates and normalizes the address instead. */}
         <form
           className="org-ticket-servers-form space-y-3"
           aria-labelledby="org-ticket-servers-title"
           onSubmit={saveServers}
+          noValidate
         >
           <div className="org-ticket-servers-heading">
             <Text id="org-ticket-servers-title" size="sm" weight="medium">
@@ -203,6 +221,9 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
             </Text>
             <Text variant="muted" size="xs">
               {TICKET_IDS_STRINGS.serversDescription}
+            </Text>
+            <Text variant="muted" size="xs">
+              {TICKET_IDS_STRINGS.serversOneServerNote}
             </Text>
           </div>
           {serversSave.error && <Alert variant="danger">{serversSave.error}</Alert>}
@@ -214,14 +235,14 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
           {servers.map((row, index) => (
             <div key={row.key} className="org-ticket-server-row flex flex-wrap items-center gap-2">
               <div className="org-ticket-server-host min-w-0 flex-1 basis-56">
-                <Input
+                <WebsiteInput
                   label={TICKET_IDS_STRINGS.serverLabel(index + 1)}
                   hideLabel
                   placeholder={TICKET_IDS_STRINGS.serverPlaceholder}
-                  value={row.host}
+                  value={row.address}
                   autoComplete="off"
                   disabled={serversSave.saving}
-                  onChange={(event) => updateServer(row.key, 'host', event.target.value)}
+                  onChange={(address) => updateServer(row.key, 'address', address)}
                 />
               </div>
               <div className="org-ticket-server-prefix w-24">
@@ -240,7 +261,7 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={TICKET_IDS_STRINGS.removeServer(row.host)}
+                aria-label={TICKET_IDS_STRINGS.removeServer(row.address)}
                 disabled={serversSave.saving}
                 onClick={() => editServers(servers.filter((other) => other.key !== row.key))}
               >

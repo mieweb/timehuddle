@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import {
   collectUnpushedTimeEntries,
   toFormOptions,
+  toConversation,
   toIssue,
   toIssueDetail,
   toJournals,
@@ -370,6 +371,81 @@ describe('redmine-issues collectUnpushedTimeEntries (issue page activity)', () =
     });
     expect(result).toEqual([]);
     expect(offsets).toEqual([0, 50, 100]);
+  });
+});
+
+describe('redmine-issues toConversation (#734 step 3)', () => {
+  const user = { id: 42, name: 'Jane Doe' };
+
+  it('splits a journal into its comment and one entry per change, then time, oldest first', () => {
+    const conversation = toConversation(
+      [
+        {
+          id: 7,
+          user,
+          createdAt: '2026-10-02T10:00:00.000Z',
+          notes: 'Fixed in staging',
+          changes: [
+            { field: 'status', from: 'New', to: 'Resolved' },
+            { field: 'description', from: null, to: null },
+          ],
+        },
+      ],
+      [
+        {
+          id: 3,
+          user,
+          hours: 1.5,
+          activity: { id: 9, name: 'Development' },
+          comments: 'pairing',
+          spentOn: '2026-10-01',
+          createdAt: null,
+        },
+      ],
+    );
+    expect(conversation).toEqual([
+      {
+        kind: 'time',
+        id: 'time:3',
+        author: { id: '42', name: 'Jane Doe' },
+        at: '2026-10-01T12:00:00.000Z',
+        seconds: 5400,
+        on: '2026-10-01',
+        text: { text: 'Development — pairing', format: 'plain' },
+      },
+      {
+        kind: 'comment',
+        id: 'journal:7:note',
+        author: { id: '42', name: 'Jane Doe' },
+        at: '2026-10-02T10:00:00.000Z',
+        text: { text: 'Fixed in staging', format: 'textile' },
+      },
+      {
+        kind: 'change',
+        id: 'journal:7:change:0',
+        author: { id: '42', name: 'Jane Doe' },
+        at: '2026-10-02T10:00:00.000Z',
+        field: 'status',
+        from: 'New',
+        to: 'Resolved',
+      },
+      {
+        kind: 'change',
+        id: 'journal:7:change:1',
+        author: { id: '42', name: 'Jane Doe' },
+        at: '2026-10-02T10:00:00.000Z',
+        field: 'description',
+      },
+    ]);
+  });
+
+  it('skips entries with no time at all', () => {
+    expect(
+      toConversation(
+        [{ id: 1, user: null, createdAt: null, notes: 'x', changes: [] }],
+        [{ id: 2, user: null, hours: 1, activity: null, comments: '', spentOn: null, createdAt: null }],
+      ),
+    ).toEqual([]);
   });
 });
 
