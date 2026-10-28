@@ -25,6 +25,13 @@ export const ticketLinkText = {
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
+  /** The linked issue's own fields, listed under its source line. */
+  issueFields: 'Issue fields',
+  typeField: 'Type',
+  labelsField: 'Labels',
+  milestoneField: 'Milestone',
+  /** "Sprint 12 · due Nov 3, 2026" */
+  milestoneValue: (name: string, due: string | null) => (due ? `${name} · due ${due}` : name),
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
