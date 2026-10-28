@@ -5,13 +5,14 @@
  * issue (docs/redmine-design.md, "What is stored"). No Meteor imports, so this
  * is unit-testable (tests/ticket-link-core.test.ts).
  */
+import { github, matchIssueUrl } from '@timehuddle/ticket-sources';
+
 import { sumClosedSessions, ticketDayKey } from './redmine-net-hours';
 
 /**
  * Whether `value` is an absolute `https://` URL. A ticket's external link is
  * stored for a team and rendered as an `href` for every member, so nothing
  * else is accepted: not `javascript:` or `data:`, and not plain `http://`.
- * Any host is allowed — the link may point at any tracker, not only GitHub.
  */
 export function isHttpsUrl(value) {
   if (typeof value !== 'string') return false;
@@ -20,6 +21,16 @@ export function isHttpsUrl(value) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether `value` may be saved as a ticket's link (#734 step 5): an https
+ * GitHub issue or pull request. A link is an issue from one of the org's
+ * sources, never a doc, a drive folder or a repository page; a Redmine issue
+ * is linked as one (`linkedIssue`), not as a link.
+ */
+export function isLinkableUrl(value) {
+  return isHttpsUrl(value) && matchIssueUrl(github, value) !== null;
 }
 
 /**

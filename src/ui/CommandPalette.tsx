@@ -39,6 +39,7 @@ import {
   type GitHubIssue,
 } from '../features/tickets/githubIssue';
 import { teamApi, ticketApi, type TeamMember, type Ticket } from '../lib/api';
+import { stripMarkdown } from '../lib/markdownText';
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -109,16 +110,6 @@ type PreviewState =
   | { status: 'ready'; url: string; issue: GitHubIssue }
   | { status: 'error'; url: string; message: string }
   | { status: 'creating'; url: string; issue: GitHubIssue };
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[#*_~>]/g, '')
-    .replace(/\n+/g, ' ')
-    .trim();
-}
 
 export const CommandPalette: React.FC = () => {
   const [open, setOpen] = useState(false);

@@ -31,10 +31,10 @@ export const ticketLinkText = {
 
   kindLabel: 'Tracked in',
   kindNone: 'TimeHuddle',
-  kindGithub: 'Link',
+  kindGithub: 'GitHub',
   kindRedmine: 'Redmine',
 
-  githubLabel: 'Link to the issue',
+  githubLabel: 'GitHub issue or pull request',
   githubPlaceholder: 'https://github.com/…',
 
   redmineModeLabel: 'Redmine issue',
@@ -57,7 +57,11 @@ export const ticketLinkText = {
   redmineNeeded: 'Connect your Redmine account in Settings to link a Redmine issue.',
   otherServer:
     "Your Redmine account is on a different server from the one this TimeHuddle uses, so its issues can't be linked or shown here.",
-  httpsOnly: 'Enter a full link starting with https://',
+  /** The server refuses the same links, with the same words (tickets.js). */
+  notAnIssue:
+    "This link isn't an issue from one of your organization's sources. Put other links in the description.",
+  redmineIssueLink: 'This is a Redmine issue. Link it as one so its status and history show here.',
+  linkAsRedmine: 'Link as a Redmine issue',
   linkFailed: "Couldn't save the link. Please try again.",
   removedNotReplaced:
     "The Redmine link was removed, but the new link couldn't be saved. Save again to add it.",

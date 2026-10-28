@@ -5,6 +5,7 @@ import type { RedmineIssue } from '../../../lib/api';
 import {
   EMPTY_LINK_FORM,
   isHttpsUrl,
+  isRedmineIssueUrl,
   isWebUrl,
   linkFormFor,
   linkFormReady,
@@ -41,18 +42,23 @@ describe('linkFormReady', () => {
     expect(linkFormReady(EMPTY_LINK_FORM)).toBe(true);
   });
 
-  it('only accepts an https link, since it is rendered as an href for the whole team', () => {
+  it('only accepts an https GitHub issue or pull request (#734 step 5)', () => {
     const github = (value: string) => ({
       ...EMPTY_LINK_FORM,
       kind: 'github' as const,
       github: value,
     });
-    expect(linkFormReady(github('https://tracker.example.com/issues/1'))).toBe(true);
+    expect(linkFormReady(github('https://github.com/mieweb/timehuddle/issues/1'))).toBe(true);
+    expect(linkFormReady(github(' https://github.com/mieweb/pulse/pull/554/files '))).toBe(true);
     for (const bad of [
       'javascript:alert(1)',
       'data:text/html,x',
-      'http://github.com/a/b',
-      'github.com/a/b',
+      'http://github.com/a/b/issues/1',
+      'github.com/a/b/issues/1',
+      'https://github.com/a/b',
+      'https://docs.google.com/document/d/abc/edit',
+      'https://drive.google.com/drive/folders/abc',
+      'https://tracker.example.com/issues/1',
       'not a link',
     ]) {
       expect(linkFormReady(github(bad)), bad).toBe(false);
@@ -61,7 +67,13 @@ describe('linkFormReady', () => {
 
   it('needs a link for GitHub', () => {
     expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: '  ' })).toBe(false);
-    expect(linkFormReady({ ...EMPTY_LINK_FORM, kind: 'github', github: 'https://x' })).toBe(true);
+    expect(
+      linkFormReady({
+        ...EMPTY_LINK_FORM,
+        kind: 'github',
+        github: 'https://github.com/a/b/issues/1',
+      }),
+    ).toBe(true);
   });
 
   it('needs a found issue to link an existing Redmine issue', () => {
@@ -74,6 +86,21 @@ describe('linkFormReady', () => {
     const form = { ...EMPTY_LINK_FORM, kind: 'redmine' as const, redmineMode: 'new' as const };
     expect(linkFormReady(form)).toBe(false);
     expect(linkFormReady({ ...form, projectId: '2' })).toBe(true);
+  });
+});
+
+describe('isRedmineIssueUrl', () => {
+  const base = 'https://redmine0.example.com';
+
+  it("takes an issue on this TimeHuddle's Redmine, at its root or under a path", () => {
+    expect(isRedmineIssueUrl('https://redmine0.example.com/issues/214', base)).toBe(true);
+    expect(isRedmineIssueUrl('https://redmine0.example.com/redmine/issues/214/', base)).toBe(true);
+  });
+
+  it('refuses another host, a page that is not an issue, and no Redmine at all', () => {
+    expect(isRedmineIssueUrl('https://other.example.com/issues/214', base)).toBe(false);
+    expect(isRedmineIssueUrl('https://redmine0.example.com/projects/web', base)).toBe(false);
+    expect(isRedmineIssueUrl('https://redmine0.example.com/issues/214', null)).toBe(false);
   });
 });
 

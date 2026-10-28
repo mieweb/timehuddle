@@ -41,7 +41,7 @@ import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration } from '../../lib/timeUtils';
+import { formatDate, formatDuration } from '../../lib/timeUtils';
 import {
   ApiError,
   clockApi,
@@ -60,7 +60,7 @@ import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
-import { ChangeRequestWalkthrough } from './ChangeRequestWalkthrough';
+import { ChangeRequestWalkthrough, ChangeRequestWalkthroughHost } from './ChangeRequestWalkthrough';
 import { TimesheetRow } from './TimesheetRow';
 import {
   emptyJustification,
@@ -74,6 +74,7 @@ import {
   getLocalDateKey,
   PRESETS,
   roundDurationSecondsForDisplay,
+  STICKY_ACTIONS_CELL,
   sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
@@ -162,6 +163,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const [data, setData] = useState<TimesheetData | null>(null);
   const [activeSession, setActiveSession] = useState<ClockEvent | null>(null);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  /** The session whose videos are open, apart from the edit dialog: a video lands at once, a change waits for approval. */
+  const [videosSession, setVideosSession] = useState<ClockEvent | null>(null);
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
   const [editBreaks, setEditBreaks] = useState<EditableBreak[]>([]);
@@ -856,30 +859,42 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                     <TableHead>Duration</TableHead>
                     <TableHead>Team</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-16 text-right">Actions</TableHead>
+                    <TableHead className={cn('w-24 text-right', STICKY_ACTIONS_CELL)}>
+                      Actions
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSessions.map((s) => {
                     const request = requestByTarget.get(s.id);
-                    return (
+                    const row = (pendingAction?: React.ReactNode) => (
                       <TimesheetRow
                         key={s.id}
                         session={s}
                         teams={teams}
                         onEdit={openSessionDialog}
+                        onVideos={setVideosSession}
                         changeStatus={
                           request?.status === 'pending' || request?.status === 'rejected'
                             ? request.status
                             : undefined
                         }
                         changeNote={request?.responseNote ?? undefined}
-                        pendingAction={
-                          request?.status === 'pending' ? (
-                            <ChangeRequestWalkthrough request={request} onAdded={loadMyRequests} />
-                          ) : undefined
-                        }
+                        pendingAction={pendingAction}
                       />
+                    );
+                    // The row moves the walkthrough between breakpoints; its
+                    // upload lives here, above both places.
+                    return request?.status === 'pending' ? (
+                      <ChangeRequestWalkthroughHost
+                        key={s.id}
+                        request={request}
+                        onAdded={loadMyRequests}
+                      >
+                        {(walkthrough) => row(walkthrough ?? undefined)}
+                      </ChangeRequestWalkthroughHost>
+                    ) : (
+                      row()
                     );
                   })}
                 </TableBody>
@@ -1051,9 +1066,6 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               approverCount={editApproverCount}
             />
           )}
-          {activeSession && (
-            <AttachmentsPanel kind="clock" entityId={activeSession.id} currentUserId={user?.id} />
-          )}
         </ModalBody>
         <ModalFooter>
           <div className="flex w-full flex-wrap items-center gap-2">
@@ -1092,6 +1104,44 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               </Button>
             )}
           </div>
+        </ModalFooter>
+      </AppModal>
+
+      {/* Session videos: added the moment they land, so kept out of the edit
+          dialog, whose changes wait for approval. */}
+      <AppModal
+        open={videosSession !== null}
+        onOpenChange={(open) => {
+          if (!open) setVideosSession(null);
+        }}
+        aria-labelledby="session-videos-title"
+        className="mt-[env(safe-area-inset-top,0px)]"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="session-videos-title">
+            Session videos
+          </Text>
+          {videosSession && (
+            <Text size="xs" variant="muted">
+              {formatDate(new Date(videosSession.startTime), true)} ·{' '}
+              {teams.find((t) => t.id === videosSession.teamId)?.name ?? ''}
+            </Text>
+          )}
+        </ModalHeader>
+        <ModalBody>
+          {videosSession && (
+            <AttachmentsPanel
+              kind="clock"
+              entityId={videosSession.id}
+              currentUserId={user?.id}
+              showHeading={false}
+            />
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" onClick={() => setVideosSession(null)}>
+            Close
+          </Button>
         </ModalFooter>
       </AppModal>
 

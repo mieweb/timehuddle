@@ -2,6 +2,8 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
+import { linkClassName } from './linkify';
+
 const bodyTextClass = 'text-sm text-neutral-700 dark:text-neutral-300';
 
 const markdownComponents: Components = {
@@ -34,12 +36,7 @@ const markdownComponents: Components = {
     </blockquote>
   ),
   a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-    >
+    <a href={href} target="_blank" rel="noopener noreferrer" className={linkClassName}>
       {children}
     </a>
   ),
