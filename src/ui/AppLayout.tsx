@@ -2,15 +2,15 @@
  * AppLayout — Root shell for all authenticated app routes.
  *
  * Composes three primitives:
- *   • Sidebar     — collapsible, icon-only or full width, drawer on mobile
  *   • AppHeader   — sticky top bar with the org/team switcher and user menu
+ *   • TopNav      — the app's destinations, under the header (md+; phones use BottomNav)
  *   • <main>      — scrollable content area, led by <PageTitle />
  *
  * RouterProvider (./router) is the single source of truth for the URL so any
  * descendant — TeamContext included — can read the current route or navigate
  * without prop-drilling or an external router library.
  *
- * SidebarContext owns expand/collapse + mobile drawer state.
+ * SidebarContext owns the mobile drawer state.
  */
 import React, {
   Activity,
@@ -30,7 +30,6 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
-import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { AppToasts } from './AppToasts';
 import { useBrand } from '../lib/useBrand';
@@ -48,7 +47,7 @@ import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
 import { matchPath, RouterProvider, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
-import { Sidebar } from './Sidebar';
+import { TopNav } from './TopNav';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 export type { RouterCtx } from './router';
@@ -80,7 +79,6 @@ const ReleaseNotesPage = lazyNamed(
   () => import('../features/release-notes/ReleaseNotesPage'),
   'ReleaseNotesPage',
 );
-const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'SeederPage');
 const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
 const loadTicketsPage = () => import('../features/tickets/TicketsPage');
 const TicketsPage = lazyNamed(loadTicketsPage, 'TicketsPage');
@@ -92,26 +90,13 @@ const TicketDetailPage = lazyNamed(
   () => import('../features/tickets/detail/TicketDetailPage'),
   'TicketDetailPage',
 );
-const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
-const ActivityLogPage = lazyNamed(
-  () => import('../features/activity/ActivityLogPage'),
-  'ActivityLogPage',
-);
-const OrganizationMembersPage = lazyNamed(
-  () => import('../features/org/OrganizationMembersPage'),
-  'OrganizationMembersPage',
-);
-const OrgUsagePage = lazyNamed(() => import('../features/usage/OrgUsagePage'), 'OrgUsagePage');
 const Huddle = lazy(() => import('../pages/Huddle'));
 const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
 const OrganizationOverviewPage = lazyNamed(
   () => import('../features/org/OrganizationOverviewPage'),
   'OrganizationOverviewPage',
 );
-const OrganizationPage = lazyNamed(
-  () => import('../features/org/OrganizationPage'),
-  'OrganizationPage',
-);
+const PeoplePage = lazyNamed(() => import('../features/org/PeoplePage'), 'PeoplePage');
 const EnterprisePage = lazyNamed(
   () => import('../features/enterprise/EnterprisePage'),
   'EnterprisePage',
@@ -135,25 +120,17 @@ interface RouteConfig {
 const ROUTES: Record<string, RouteConfig> = {
   '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
 
-  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
-  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/organization': { title: 'People', component: PeoplePage },
   '/app/release-notes': { title: 'What’s New', component: ReleaseNotesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
-  ...(import.meta.env.MODE !== 'production'
-    ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
-    : {}),
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/work': { title: 'Work', component: WorkPage },
-
-  '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
-  '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
 /** Null when nothing matches — the caller shows not-found rather than a page
@@ -166,17 +143,13 @@ function match(pathname: string): RouteConfig | null {
 // ─── Context ─────────────────────────────────────────────────────────────────
 
 export interface SidebarCtx {
-  isExpanded: boolean;
   isMobileOpen: boolean;
-  toggle: () => void;
   openMobile: () => void;
   closeMobile: () => void;
 }
 
 export const SidebarContext = createContext<SidebarCtx>({
-  isExpanded: true,
   isMobileOpen: false,
-  toggle: () => {},
   openMobile: () => {},
   closeMobile: () => {},
 });
@@ -420,20 +393,8 @@ const AppLayoutContent: React.FC = () => {
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  // ── Sidebar ──
-  const [isExpanded, setIsExpanded] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem(SIDEBAR_KEY) !== 'collapsed';
-  });
+  // ── Mobile drawer ──
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-
-  const toggle = useCallback(() => {
-    setIsExpanded((prev) => {
-      const next = !prev;
-      localStorage.setItem(SIDEBAR_KEY, next ? 'expanded' : 'collapsed');
-      return next;
-    });
-  }, []);
 
   const openMobile = useCallback(() => setIsMobileOpen(true), []);
   const closeMobile = useCallback(() => setIsMobileOpen(false), []);
@@ -460,9 +421,7 @@ const AppLayoutContent: React.FC = () => {
                 openFeedback: () => setFeedbackOpen(true),
               }}
             >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-              >
+              <SidebarContext.Provider value={{ isMobileOpen, openMobile, closeMobile }}>
                 <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
                   {/* Mobile backdrop */}
                   {isMobileOpen &&
@@ -504,12 +463,11 @@ const AppLayoutContent: React.FC = () => {
                       document.body,
                     )}
 
-                  <Sidebar />
-
                   {/* Content column */}
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
-                    <WhatsNewBanner placement="mobile" />
+                    <TopNav />
+                    <WhatsNewBanner />
                     <main
                       ref={mainRef}
                       className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"

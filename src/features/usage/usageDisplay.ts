@@ -1,7 +1,7 @@
 /**
  * How the usage report's values are labelled and coloured.
  *
- * Shared by OrgUsagePage (the summary cards) and UsageGrid (the rows) so a
+ * Shared by OrgUsage (the summary cards) and UsageGrid (the rows) so a
  * cadence never reads one way in the cards and another in the table.
  */
 import type { UsageCadence, UsageFeature, UsagePeriodDays, UsageStatus } from '../../lib/api';

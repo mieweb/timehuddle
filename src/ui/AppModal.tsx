@@ -13,6 +13,13 @@ import { Modal, cn, type ModalProps } from '@mieweb/ui';
  * Pass `max-sm:mx-0 max-sm:w-full` to opt out of the small-screen inset — the
  * org/team switcher does, because it is a full-width bottom sheet on mobile.
  */
+/**
+ * The modal's focus trap lists its buttons once, on open, so a submit button
+ * that starts disabled could never be tabbed to. Mark an incomplete form's
+ * submit aria-disabled with this class instead, and ignore the click.
+ */
+export const EMPTY_SUBMIT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+
 export function AppModal({ className, ...props }: ModalProps) {
   return (
     <Modal

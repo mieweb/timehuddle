@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { TEST_USERS } from '../fixtures/users';
+import { memberAction, memberRow, openMembers } from '../fixtures/people';
 
 /**
  * E2E Test: Complete Member Blocking Flow
@@ -34,29 +35,21 @@ test.describe('Member Blocking - Full Flow', () => {
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 45000 });
 
     // ── Step 2: Navigate to org members ────────────────────────────────────
-    await page.goto('/app/org/members');
-    // Wait for org to be selected and table to render
-    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
-
-    // Find member row
-    const memberRow = page.getByRole('row').filter({ hasText: member.name });
-    await expect(memberRow).toBeVisible({ timeout: 5000 });
+    await openMembers(page);
+    await expect(memberRow(page, member.name).first()).toBeVisible({ timeout: 5000 });
 
     // Ensure member is NOT already blocked (clean state from previous run)
-    const existingUnblock = memberRow.locator('button:has-text("Unblock")');
-    if (await existingUnblock.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await existingUnblock.click();
-      await page.waitForTimeout(2000);
-      await page.reload();
-      await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
+    if (
+      await memberRow(page, member.name).first().getByText('Blocked', { exact: true }).isVisible()
+    ) {
+      await (await memberAction(page, member.name, 'Unblock')).click();
+      await expect(
+        memberRow(page, member.name).first().getByText('Blocked', { exact: true }),
+      ).toBeHidden({ timeout: 10000 });
     }
 
     // ── Step 3: Block the member ───────────────────────────────────────────
-    const freshRow = page.getByRole('row').filter({ hasText: member.name });
-    const blockBtn = freshRow.locator('button:has-text("Block")').first();
-    await expect(blockBtn).toBeVisible({ timeout: 5000 });
-    await blockBtn.click();
+    await (await memberAction(page, member.name, 'Block access')).click();
 
     // Fill block modal
     const modal = page.getByRole('dialog');
@@ -74,15 +67,11 @@ test.describe('Member Blocking - Full Flow', () => {
     await page.waitForTimeout(2000);
 
     // Reload and verify blocked badge
-    await page.reload();
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
-
-    const blockedRow = page.getByRole('row').filter({ hasText: member.name });
-    const blockedBadge = blockedRow.getByText(/blocked/i);
-    await expect(blockedBadge).toBeVisible({ timeout: 5000 });
-
-    const unblockButton = blockedRow.locator('button:has-text("Unblock")');
-    await expect(unblockButton).toBeVisible();
+    await openMembers(page);
+    const blockedRow = memberRow(page, member.name).first();
+    await expect(blockedRow.getByText('Blocked', { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(await memberAction(page, member.name, 'Unblock')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     // ── Step 4: Owner logs out ─────────────────────────────────────────────
     await dashboardPage.logout();
@@ -112,25 +101,16 @@ test.describe('Member Blocking - Full Flow', () => {
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 45000 });
 
     // ── Step 7: Unblock the member ─────────────────────────────────────────
-    await page.goto('/app/org/members');
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
-
-    const unblockedRow = page.getByRole('row').filter({ hasText: member.name });
-    const unblockBtn = unblockedRow.locator('button:has-text("Unblock")');
-    await expect(unblockBtn).toBeVisible({ timeout: 5000 });
-    await unblockBtn.click();
+    await openMembers(page);
+    await (await memberAction(page, member.name, 'Unblock')).click();
     await page.waitForTimeout(2000);
 
     // Reload and verify unblocked
-    await page.reload();
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
-
-    const restoredRow = page.getByRole('row').filter({ hasText: member.name });
-    const restoredBlockedBadge = restoredRow.getByText(/blocked/i);
-    await expect(restoredBlockedBadge).not.toBeVisible();
-
-    const reblockButton = restoredRow.locator('button:has-text("Block")').first();
-    await expect(reblockButton).toBeVisible();
+    await openMembers(page);
+    const restoredRow = memberRow(page, member.name).first();
+    await expect(restoredRow.getByText('Blocked', { exact: true })).not.toBeVisible();
+    await expect(await memberAction(page, member.name, 'Block access')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     // ── Step 8: Owner logs out ─────────────────────────────────────────────
     await dashboardPage.logout();

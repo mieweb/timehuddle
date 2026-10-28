@@ -67,13 +67,11 @@ const TEAM_PAGE = '/app/teams/:teamId';
  * nothing to do with a team, and the recipient got a no-access page.
  */
 const TEAM_SCOPED_PATHS = new Set([
-  '/app/activity',
   '/app/clock',
   '/app/dashboard',
   '/app/huddle',
   '/app/teams',
   '/app/tickets',
-  '/app/work',
 ]);
 
 /** Whether the selected team belongs in this path's `?team=`. */
@@ -117,6 +115,8 @@ export interface TeamContextValue {
   organizations: Array<{
     id: string;
     enterpriseId: string | null;
+    /** Absent until `orgs.list` answers (the session seed doesn't carry it). */
+    enterpriseName?: string | null;
     name: string;
     slug: string;
     allowAutoJoin: boolean;

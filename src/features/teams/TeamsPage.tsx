@@ -8,6 +8,8 @@
  *   • Promote/demote admins, remove members, invite by email
  *   • Set member passwords (admin only)
  *   • Deep-link support: ?teamId=XXX
+ *   • Tabs (`?tab=`): Members for everyone; Requests, Invitations and Settings
+ *     for the team's admins
  *
  * The admin Timesheet view has moved to the Dashboard page's "Team" tab —
  * see AdminTimesheetPanel usage in DashboardPage.tsx.
@@ -16,10 +18,8 @@ import {
   faCopy,
   faCrown,
   faEllipsisV,
-  faGear,
   faKey,
   faPlus,
-  faQrcode,
   faRightToBracket,
   faShareNodes,
   faShield,
@@ -49,10 +49,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   teamApi,
@@ -66,11 +70,12 @@ import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
 import { absoluteAppUrl } from '../../lib/useCopyLink';
-import { useRouter } from '../../ui/router';
+import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { CreateTeamModal } from './CreateTeamModal';
 import { LinkifiedText } from '../../ui/LinkifiedText';
 import { PendingJoinRequests } from './PendingJoinRequests';
+import { TEAMS_STRINGS } from './teamsStrings';
 import { TeamSettingRow } from '../settings/TeamSettingRow';
 import { SETTINGS_STRINGS } from '../settings/settingsCopy';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -95,6 +100,15 @@ function invitationStatusVariant(
 }
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
+
+/**
+ * Members is the only view for regular members and on personal teams. With no
+ * tab strip there is no tab to label a panel, so it renders as plain content.
+ */
+const MembersTab: React.FC<{ alone: boolean; children: React.ReactNode }> = ({
+  alone,
+  children,
+}) => (alone ? <>{children}</> : <TabsContent value="members">{children}</TabsContent>);
 
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
@@ -161,10 +175,14 @@ export const TeamsPage: React.FC = () => {
   }, [teams, selectedTeamId]);
 
   // Count of pending join requests for the selected team (admin only)
-  const pendingRequestCount = useMemo(
-    () => (selectedTeamId ? pendingRequests.filter((r) => r.teamId === selectedTeamId).length : 0),
+  const teamRequestIds = useMemo(
+    () =>
+      selectedTeamId
+        ? pendingRequests.filter((r) => r.teamId === selectedTeamId).map((r) => r.id)
+        : [],
     [selectedTeamId, pendingRequests],
   );
+  const pendingRequestCount = teamRequestIds.length;
 
   // `isAdmin` (from TeamContext) already covers org owners, who get full
   // team-admin authority on every team in their org.
@@ -210,7 +228,6 @@ export const TeamsPage: React.FC = () => {
     | 'join'
     | 'delete'
     | 'invite'
-    | 'settings'
     | 'share'
     | { type: 'invite-sent'; email: string }
     | { type: 'password'; memberId: string }
@@ -219,12 +236,20 @@ export const TeamsPage: React.FC = () => {
     | { type: 'pending-request'; teamCode: string }
   >(null);
 
-  // Inline team-name draft used by the "Team Settings" modal's rename field
+  // Members for everyone; Requests, Invitations and Settings for the team's admins.
+  // A tab this viewer can't see, or none, falls back to Members.
+  const [tabParam, setTabParam] = useQueryParam('tab', { mode: 'push' });
+  const tabs = canManageTeamSettings
+    ? (['members', 'requests', 'invitations', 'settings'] as const)
+    : (['members'] as const);
+  const tab = (tabs as readonly string[]).includes(tabParam ?? '') ? tabParam! : 'members';
+
+  // Inline team-name draft used by the Settings tab's rename field
   // (kept separate from `formValue`, which drives the join/invite forms).
   const [teamNameDraft, setTeamNameDraft] = useState('');
   useEffect(() => {
-    if (modal === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
-  }, [modal, selectedTeam]);
+    if (tab === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
+  }, [tab, selectedTeam]);
   const inviteSentEmail =
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 
@@ -339,37 +364,57 @@ export const TeamsPage: React.FC = () => {
     }
   }, [formValue, selectedTeamId, fetchMembers, inviteLoading]);
 
-  // Fetch pending/sent invitations for the Team Settings modal
+  // Fetch pending/sent invitations for the Invitations tab.
+  // Only the latest load for the selected team may write: switching teams
+  // mid-request, or a revoke on the previous team finishing after the switch,
+  // must not show that team's invitations, whose Revoke buttons would act on them.
+  const invitationsSeqRef = useRef(0);
+  const selectedTeamIdRef = useRef(selectedTeamId);
+  selectedTeamIdRef.current = selectedTeamId;
+  const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const fetchInvitations = useCallback(async (teamId: string | null) => {
+    if (teamId !== selectedTeamIdRef.current) return;
+    const seq = ++invitationsSeqRef.current;
+    const isLatest = () =>
+      seq === invitationsSeqRef.current && teamId === selectedTeamIdRef.current;
     if (!teamId) {
       setInvitations([]);
       return;
     }
+    setInvitations([]);
     setInvitationsLoading(true);
     try {
       const data = await teamApi.getPendingInvitations(teamId);
-      setInvitations(data);
+      if (isLatest()) setInvitations(data);
     } catch {
-      setInvitations([]);
+      if (isLatest()) setInvitations([]);
     } finally {
-      setInvitationsLoading(false);
+      if (isLatest()) setInvitationsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (modal === 'settings') {
+    if (tab === 'invitations') {
+      setInvitationsError(null);
       void fetchInvitations(selectedTeamId);
     }
-  }, [modal, selectedTeamId, fetchInvitations]);
+  }, [tab, selectedTeamId, fetchInvitations]);
+
+  // Pull-to-refresh reloads members and TeamContext; the Invitations tab adds its list.
+  useRefresh(
+    useCallback(() => fetchInvitations(selectedTeamId), [fetchInvitations, selectedTeamId]),
+    tab === 'invitations',
+  );
 
   const handleRevokeInvitation = useCallback(
     async (invitationId: string) => {
       setRevokeLoadingId(invitationId);
+      setInvitationsError(null);
       try {
         await teamApi.revokeInvitation(invitationId);
         await fetchInvitations(selectedTeamId);
       } catch (e: any) {
-        setFormError(e.message || 'Failed to revoke invitation');
+        setInvitationsError(e.message || 'Failed to revoke invitation');
       } finally {
         setRevokeLoadingId(null);
       }
@@ -555,185 +600,338 @@ export const TeamsPage: React.FC = () => {
                 </div>
               )}
             </div>
-            {!selectedTeam.isPersonal && (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setModal('settings')}
-                aria-label="Team Settings"
+          </div>
+
+          {/* ── Members · Requests · Invitations · Settings ─────────────────── */}
+          <Tabs
+            value={tab}
+            onValueChange={(value) => setTabParam(value === 'members' ? null : value)}
+            className="mt-4"
+          >
+            {tabs.length > 1 && (
+              <TabsList
+                aria-label={TEAMS_STRINGS.tabs.label}
+                className="team-tabs overflow-x-auto overflow-y-hidden [&_[role=tab]:focus-visible]:ring-inset [&_[role=tab]:focus-visible]:ring-offset-0"
               >
-                <FontAwesomeIcon icon={faGear} className="text-xs" />
-              </Button>
+                <TabsTrigger value="members">{TEAMS_STRINGS.tabs.members}</TabsTrigger>
+                <TabsTrigger value="requests">
+                  {TEAMS_STRINGS.tabs.requests(pendingRequestCount)}
+                </TabsTrigger>
+                <TabsTrigger value="invitations">{TEAMS_STRINGS.tabs.invitations}</TabsTrigger>
+                <TabsTrigger value="settings">{TEAMS_STRINGS.tabs.settings}</TabsTrigger>
+              </TabsList>
             )}
-          </div>
+            <MembersTab alone={tabs.length === 1}>
+              <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
+                <div className="mb-3 flex items-center justify-between">
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="uppercase tracking-widest"
+                  >
+                    Members ({selectedTeam.members.length})
+                  </Text>
+                  {isAdmin && !selectedTeam.isPersonal && (
+                    <Button variant="link" size="sm" onClick={() => setModal('invite')}>
+                      <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
+                      Invite
+                    </Button>
+                  )}
+                </div>
+                {membersLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Spinner size="sm" label="Loading members…" />
+                  </div>
+                ) : null}
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {!membersLoading &&
+                    selectedTeam.members.map((memberId) => {
+                      const m = membersById.get(memberId);
+                      const name = m?.name ?? memberId;
+                      const username = m?.username ?? null;
+                      const email = m?.email ?? '';
+                      const image = m?.image ?? null;
+                      const isMemberAdmin = selectedTeam.admins.includes(memberId);
+                      const isMe = memberId === userId;
 
-          {/* ── Pending join requests (admins only, when there are any) ─── */}
-          {!selectedTeam.isPersonal && isAdmin && pendingRequestCount > 0 && selectedTeamId && (
-            <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="mb-3 uppercase tracking-widest"
-              >
-                Pending requests ({pendingRequestCount})
-              </Text>
-              <PendingJoinRequests teamId={selectedTeamId} />
-            </div>
-          )}
-
-          {/* ── Members ───────────────────────────────────────────────────── */}
-          <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
-            <div className="mb-3 flex items-center justify-between">
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="uppercase tracking-widest"
-              >
-                Members ({selectedTeam.members.length})
-              </Text>
-              {isAdmin && !selectedTeam.isPersonal && (
-                <Button variant="link" size="sm" onClick={() => setModal('invite')}>
-                  <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
-                  Invite
-                </Button>
-              )}
-            </div>
-            {membersLoading ? (
-              <div className="flex justify-center py-6">
-                <Spinner size="sm" label="Loading members…" />
-              </div>
-            ) : null}
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {!membersLoading &&
-                selectedTeam.members.map((memberId) => {
-                  const m = membersById.get(memberId);
-                  const name = m?.name ?? memberId;
-                  const username = m?.username ?? null;
-                  const email = m?.email ?? '';
-                  const image = m?.image ?? null;
-                  const isMemberAdmin = selectedTeam.admins.includes(memberId);
-                  const isMe = memberId === userId;
-
-                  return (
-                    <li key={memberId} className="flex items-center gap-3 py-2.5">
-                      {/* @mieweb/ui Button wraps children in a non-growing label span that can't
+                      return (
+                        <li key={memberId} className="flex items-center gap-3 py-2.5">
+                          {/* @mieweb/ui Button wraps children in a non-growing label span that can't
                           host a full-width multi-line row, so a plain button is used here. */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
-                          )
-                        }
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded p-1 -m-1 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                        aria-label={`View ${name}'s profile`}
-                      >
-                        <div className="relative shrink-0">
-                          <UserAvatar name={name} size="sm" src={image} />
-                          {onlineUsers.has(memberId) && (
-                            <span
-                              className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-                              aria-label={`${name} is online`}
-                            />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <Text size="sm" weight="medium">
-                            {name}
-                            {isMe && (
-                              <Text as="span" variant="muted" size="xs">
-                                {' '}
-                                (you)
-                              </Text>
-                            )}
-                          </Text>
-                          {username && (
-                            <Text variant="muted" size="xs">
-                              @{username}
-                            </Text>
-                          )}
-                          {email && (
-                            <Text variant="muted" size="xs">
-                              {email}
-                            </Text>
-                          )}
-                        </div>
-                      </button>
-                      {isMemberAdmin && (
-                        <Badge
-                          variant="warning"
-                          size="sm"
-                          icon={<FontAwesomeIcon icon={faCrown} />}
-                        >
-                          Admin
-                        </Badge>
-                      )}
-                      {isAdmin && !selectedTeam.isPersonal && (
-                        <Dropdown
-                          trigger={
-                            <Button variant="ghost" size="icon" aria-label="Member actions">
-                              <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
-                            </Button>
-                          }
-                          placement="bottom-end"
-                        >
-                          {!isMe &&
-                            (!isMemberAdmin ? (
-                              <DropdownItem
-                                icon={<FontAwesomeIcon icon={faShield} />}
-                                onClick={() => {
-                                  void teamApi
-                                    .setMemberRole(selectedTeamId!, memberId, 'admin')
-                                    .then(() => {
-                                      refetchTeams();
-                                      void fetchMembers(selectedTeamId);
-                                    });
-                                }}
-                              >
-                                Make Admin
-                              </DropdownItem>
-                            ) : (
-                              <DropdownItem
-                                icon={<FontAwesomeIcon icon={faShield} />}
-                                onClick={() => {
-                                  void teamApi
-                                    .setMemberRole(selectedTeamId!, memberId, 'member')
-                                    .then(() => {
-                                      refetchTeams();
-                                      void fetchMembers(selectedTeamId);
-                                    });
-                                }}
-                              >
-                                Remove Admin
-                              </DropdownItem>
-                            ))}
-                          <DropdownItem
-                            icon={<FontAwesomeIcon icon={faKey} />}
-                            onClick={() => setModal({ type: 'password', memberId })}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              navigate(
+                                username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
+                              )
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded p-1 -m-1 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            aria-label={`View ${name}'s profile`}
                           >
-                            Set Password
-                          </DropdownItem>
-                          {!isMe && (
-                            <>
-                              <DropdownSeparator />
-                              <DropdownItem
-                                icon={<FontAwesomeIcon icon={faUserMinus} />}
-                                variant="danger"
-                                onClick={() => setModal({ type: 'remove', memberId })}
-                              >
-                                Remove Member
-                              </DropdownItem>
-                            </>
+                            <div className="relative shrink-0">
+                              <UserAvatar name={name} size="sm" src={image} />
+                              {onlineUsers.has(memberId) && (
+                                <span
+                                  className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
+                                  aria-label={`${name} is online`}
+                                />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <Text size="sm" weight="medium">
+                                {name}
+                                {isMe && (
+                                  <Text as="span" variant="muted" size="xs">
+                                    {' '}
+                                    (you)
+                                  </Text>
+                                )}
+                              </Text>
+                              {username && (
+                                <Text variant="muted" size="xs">
+                                  @{username}
+                                </Text>
+                              )}
+                              {email && (
+                                <Text variant="muted" size="xs">
+                                  {email}
+                                </Text>
+                              )}
+                            </div>
+                          </button>
+                          {isMemberAdmin && (
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              icon={<FontAwesomeIcon icon={faCrown} />}
+                            >
+                              Admin
+                            </Badge>
                           )}
-                        </Dropdown>
-                      )}
-                    </li>
-                  );
-                })}
-            </ul>
-          </div>
+                          {isAdmin && !selectedTeam.isPersonal && (
+                            <Dropdown
+                              trigger={
+                                <Button variant="ghost" size="icon" aria-label="Member actions">
+                                  <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
+                                </Button>
+                              }
+                              placement="bottom-end"
+                            >
+                              {!isMe &&
+                                (!isMemberAdmin ? (
+                                  <DropdownItem
+                                    icon={<FontAwesomeIcon icon={faShield} />}
+                                    onClick={() => {
+                                      void teamApi
+                                        .setMemberRole(selectedTeamId!, memberId, 'admin')
+                                        .then(() => {
+                                          refetchTeams();
+                                          void fetchMembers(selectedTeamId);
+                                        });
+                                    }}
+                                  >
+                                    Make Admin
+                                  </DropdownItem>
+                                ) : (
+                                  <DropdownItem
+                                    icon={<FontAwesomeIcon icon={faShield} />}
+                                    onClick={() => {
+                                      void teamApi
+                                        .setMemberRole(selectedTeamId!, memberId, 'member')
+                                        .then(() => {
+                                          refetchTeams();
+                                          void fetchMembers(selectedTeamId);
+                                        });
+                                    }}
+                                  >
+                                    Remove Admin
+                                  </DropdownItem>
+                                ))}
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faKey} />}
+                                onClick={() => setModal({ type: 'password', memberId })}
+                              >
+                                Set Password
+                              </DropdownItem>
+                              {!isMe && (
+                                <>
+                                  <DropdownSeparator />
+                                  <DropdownItem
+                                    icon={<FontAwesomeIcon icon={faUserMinus} />}
+                                    variant="danger"
+                                    onClick={() => setModal({ type: 'remove', memberId })}
+                                  >
+                                    Remove Member
+                                  </DropdownItem>
+                                </>
+                              )}
+                            </Dropdown>
+                          )}
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            </MembersTab>
+            {canManageTeamSettings && selectedTeamId && (
+              <>
+                <TabsContent value="requests" className="team-requests-panel mt-4">
+                  {/* Remounts when the team's pending requests change, since the list
+                      only fetches on mount; a refresh then shows the new request. */}
+                  <PendingJoinRequests
+                    key={`${selectedTeamId}:${teamRequestIds.join(',')}`}
+                    teamId={selectedTeamId}
+                  />
+                </TabsContent>
+                <TabsContent value="invitations" className="team-invitations-panel mt-4">
+                  {invitationsError && (
+                    <Text variant="destructive" size="xs" role="alert" className="mb-3">
+                      {invitationsError}
+                    </Text>
+                  )}
+                  {invitationsLoading ? (
+                    <div className="flex justify-center py-6">
+                      <Spinner size="sm" label="Loading invitations…" />
+                    </div>
+                  ) : (
+                    <Table responsive>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Sent</TableHead>
+                          <TableHead>Expires</TableHead>
+                          <TableHead className="w-32">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {invitations.map((inv) => (
+                          <TableRow key={inv.id}>
+                            <TableCell>{inv.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={invitationStatusVariant(inv.status)}>
+                                {inv.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
+                            <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
+                            <TableCell>
+                              {inv.status === 'pending' && (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  onClick={() => void handleRevokeInvitation(inv.id)}
+                                  disabled={revokeLoadingId === inv.id}
+                                  isLoading={revokeLoadingId === inv.id}
+                                  aria-label={`Revoke invitation for ${inv.email}`}
+                                >
+                                  Revoke
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {invitations.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5}>
+                              <Text size="sm" variant="muted" className="py-2">
+                                No invitations have been sent for this team.
+                              </Text>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+                <TabsContent value="settings" className="team-settings-panel mt-4">
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="mb-3 uppercase tracking-widest"
+                  >
+                    Team
+                  </Text>
+                  <div className="mb-6 flex items-end gap-2">
+                    <Input
+                      label="Team name"
+                      value={teamNameDraft}
+                      onChange={(e) => setTeamNameDraft(e.target.value)}
+                      onBlur={handleRenameTeam}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRenameTeam()}
+                      disabled={renameLoading}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="danger"
+                      size="icon"
+                      onClick={() => setModal('delete')}
+                      aria-label="Delete team"
+                    >
+                      <FontAwesomeIcon icon={faTrash} className="text-xs" />
+                    </Button>
+                  </div>
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="mb-3 uppercase tracking-widest"
+                  >
+                    Clock
+                  </Text>
+                  {selectedTeam && (
+                    <TeamSettingRow
+                      className="team-setting-plan-for-clock"
+                      title="Require a plan for every clock-in/out"
+                      description="Members post a plan to start each session, and add a wrap-up to it before clocking out — one Huddle post per session."
+                      switchLabel="Toggle requiring a plan for every clock-in and out"
+                      setting={selectedTeam.resolvedSettings.requirePlanForClock}
+                      names={settingNames}
+                      checked={
+                        pendingSetting.requirePlanForClock ??
+                        selectedTeam.resolvedSettings.requirePlanForClock.value
+                      }
+                      saving={savingSetting !== null}
+                      onToggle={(checked) => void updateTeamSetting('requirePlanForClock', checked)}
+                      onReset={() => void updateTeamSetting('requirePlanForClock', null)}
+                    />
+                  )}
+                  {formError && (
+                    <Text variant="destructive" size="xs" className="mb-4">
+                      {formError}
+                    </Text>
+                  )}
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="mb-3 uppercase tracking-widest"
+                  >
+                    Membership
+                  </Text>
+                  {selectedTeam && (
+                    <TeamSettingRow
+                      className="team-setting-auto-accept"
+                      title="Auto-accept join requests"
+                      description="Anyone joining with the team code is added immediately — no pending approval from an admin."
+                      switchLabel="Toggle auto-accepting join requests"
+                      setting={selectedTeam.resolvedSettings.autoAcceptJoins}
+                      names={settingNames}
+                      checked={
+                        pendingSetting.autoAcceptJoins ??
+                        selectedTeam.resolvedSettings.autoAcceptJoins.value
+                      }
+                      saving={savingSetting !== null}
+                      onToggle={(checked) => void updateTeamSetting('autoAcceptJoins', checked)}
+                      onReset={() => void updateTeamSetting('autoAcceptJoins', null)}
+                    />
+                  )}
+                </TabsContent>
+              </>
+            )}
+          </Tabs>
         </div>
       )}
 
@@ -852,179 +1050,6 @@ export const TeamsPage: React.FC = () => {
             Done
           </Button>
         </ModalFooter>
-      </AppModal>
-
-      <AppModal
-        open={modal === 'settings'}
-        onOpenChange={(open) => !open && closeModal()}
-        size="lg"
-      >
-        <ModalHeader>
-          <ModalTitle>Team Settings</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <Text
-            variant="muted"
-            size="xs"
-            weight="semibold"
-            className="mb-3 uppercase tracking-widest"
-          >
-            Team
-          </Text>
-          <div className="mb-3 flex items-center gap-2">
-            <Button
-              variant="link"
-              size="sm"
-              onClick={() => setModal('share')}
-              aria-label="Share team QR code"
-            >
-              <FontAwesomeIcon icon={faQrcode} className="mr-1" />
-              Share
-            </Button>
-          </div>
-          {canManageTeamSettings && (
-            <div className="mb-6 flex items-end gap-2">
-              <Input
-                label="Team name"
-                value={teamNameDraft}
-                onChange={(e) => setTeamNameDraft(e.target.value)}
-                onBlur={handleRenameTeam}
-                onKeyDown={(e) => e.key === 'Enter' && handleRenameTeam()}
-                disabled={renameLoading}
-                className="flex-1"
-              />
-              <Button
-                variant="danger"
-                size="icon"
-                onClick={() => setModal('delete')}
-                aria-label="Delete team"
-              >
-                <FontAwesomeIcon icon={faTrash} className="text-xs" />
-              </Button>
-            </div>
-          )}
-          {!canManageTeamSettings && <div className="mb-6" />}
-          {canManageTeamSettings && (
-            <>
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="mb-3 uppercase tracking-widest"
-              >
-                Clock
-              </Text>
-              {selectedTeam && (
-                <TeamSettingRow
-                  className="team-setting-plan-for-clock"
-                  title="Require a plan for every clock-in/out"
-                  description="Members post a plan to start each session, and add a wrap-up to it before clocking out — one Huddle post per session."
-                  switchLabel="Toggle requiring a plan for every clock-in and out"
-                  setting={selectedTeam.resolvedSettings.requirePlanForClock}
-                  names={settingNames}
-                  checked={
-                    pendingSetting.requirePlanForClock ??
-                    selectedTeam.resolvedSettings.requirePlanForClock.value
-                  }
-                  saving={savingSetting !== null}
-                  onToggle={(checked) => void updateTeamSetting('requirePlanForClock', checked)}
-                  onReset={() => void updateTeamSetting('requirePlanForClock', null)}
-                />
-              )}
-              {formError && (
-                <Text variant="destructive" size="xs" className="mb-4">
-                  {formError}
-                </Text>
-              )}
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="mb-3 uppercase tracking-widest"
-              >
-                Membership
-              </Text>
-              {selectedTeam && (
-                <TeamSettingRow
-                  className="team-setting-auto-accept"
-                  title="Auto-accept join requests"
-                  description="Anyone joining with the team code is added immediately — no pending approval from an admin."
-                  switchLabel="Toggle auto-accepting join requests"
-                  setting={selectedTeam.resolvedSettings.autoAcceptJoins}
-                  names={settingNames}
-                  checked={
-                    pendingSetting.autoAcceptJoins ??
-                    selectedTeam.resolvedSettings.autoAcceptJoins.value
-                  }
-                  saving={savingSetting !== null}
-                  onToggle={(checked) => void updateTeamSetting('autoAcceptJoins', checked)}
-                  onReset={() => void updateTeamSetting('autoAcceptJoins', null)}
-                />
-              )}
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="mb-3 uppercase tracking-widest"
-              >
-                Invitations
-              </Text>
-              {invitationsLoading ? (
-                <div className="flex justify-center py-6">
-                  <Spinner size="sm" label="Loading invitations…" />
-                </div>
-              ) : (
-                <Table responsive>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Sent</TableHead>
-                      <TableHead>Expires</TableHead>
-                      <TableHead className="w-32">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {invitations.map((inv) => (
-                      <TableRow key={inv.id}>
-                        <TableCell>{inv.email}</TableCell>
-                        <TableCell>
-                          <Badge variant={invitationStatusVariant(inv.status)}>{inv.status}</Badge>
-                        </TableCell>
-                        <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
-                        <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          {inv.status === 'pending' && (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => void handleRevokeInvitation(inv.id)}
-                              disabled={revokeLoadingId === inv.id}
-                              isLoading={revokeLoadingId === inv.id}
-                              aria-label={`Revoke invitation for ${inv.email}`}
-                            >
-                              Revoke
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {invitations.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <Text size="sm" variant="muted" className="py-2">
-                            No invitations have been sent for this team.
-                          </Text>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </>
-          )}
-        </ModalBody>
       </AppModal>
 
       <AppModal
