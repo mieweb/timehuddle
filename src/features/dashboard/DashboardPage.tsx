@@ -62,6 +62,7 @@ import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
+import { stripMarkdown } from '../../lib/markdownText';
 import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { useQueryParams, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -838,7 +839,7 @@ export const DashboardPage: React.FC = () => {
                                 size="sm"
                                 className="mt-1.5 line-clamp-2 leading-snug text-neutral-700 dark:text-neutral-300"
                               >
-                                {post.content.text}
+                                {stripMarkdown(post.content.text)}
                               </Text>
                             )}
                           </div>

@@ -4,7 +4,10 @@
  * one created from the ticket). The create dialog and the ticket page's
  * "Linked issue" section share it, so the choice reads the same in both.
  */
+import { matchIssueUrl, redmine } from '@timehuddle/ticket-sources';
+
 import type { RedmineIssue, Ticket } from '../../../lib/api';
+import { isGithubIssueUrl } from '../githubIssue';
 
 export type LinkKind = 'none' | 'github' | 'redmine';
 export type RedmineMode = 'existing' | 'new';
@@ -53,11 +56,38 @@ export function linkFormFor(ticket: Pick<Ticket, 'github' | 'linkedIssue'>): Lin
  * Whether `value` is an absolute `https://` URL — the only kind of external
  * link that is saved. The link is stored for a team and rendered as an `href`
  * for every member, so `javascript:`, `data:` and plain `http://` are refused.
- * Any host is allowed. The server makes the same check.
  */
 export function isHttpsUrl(value: string): boolean {
   try {
     return new URL(value.trim()).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether `value` may be saved as a ticket's link (#734 step 5): an https
+ * GitHub issue or pull request. Never a doc, a drive folder or a repository
+ * page. The server makes the same check.
+ */
+export function isLinkableUrl(value: string): boolean {
+  return isHttpsUrl(value) && isGithubIssueUrl(value);
+}
+
+/**
+ * Whether `value` is an issue on the Redmine server at `redmineBaseUrl`. That
+ * is linked as a Redmine issue, so the ticket shows its status and history.
+ */
+export function isRedmineIssueUrl(
+  value: string,
+  redmineBaseUrl: string | null | undefined,
+): boolean {
+  if (!redmineBaseUrl) return false;
+  try {
+    const url = new URL(value.trim());
+    return (
+      url.hostname === new URL(redmineBaseUrl).hostname && matchIssueUrl(redmine, url.href) !== null
+    );
   } catch {
     return false;
   }
@@ -77,7 +107,7 @@ export function isWebUrl(value: string): boolean {
 
 /** Whether the choice is complete enough to save. */
 export function linkFormReady(form: LinkFormState): boolean {
-  if (form.kind === 'github') return isHttpsUrl(form.github);
+  if (form.kind === 'github') return isLinkableUrl(form.github);
   if (form.kind === 'redmine') {
     return form.redmineMode === 'existing' ? form.issue !== null : form.projectId !== '';
   }

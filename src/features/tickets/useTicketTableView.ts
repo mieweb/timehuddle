@@ -1,9 +1,10 @@
 /**
- * Search + filter + sort + select pipeline for a `TicketList`.
+ * Filter + sort + select pipeline for a `TicketList`.
  *
  * A hook so each tab (Tickets, My Board) runs the same pipeline over its own
  * ticket list with fully independent state — switching tabs must never reset
- * or leak the other tab's search, filters, sort, or selection.
+ * or leak the other tab's filters, sort, or selection. The search bar does not
+ * filter the table: its results are in its own dropdown (#736c).
  */
 import { useCallback, useMemo, useState } from 'react';
 
@@ -20,8 +21,6 @@ import {
 import type { UnifiedTicket } from './sources';
 
 export interface TicketTableView {
-  searchQuery: string;
-  setSearchQuery: (query: string) => void;
   filters: TicketFilters;
   setFilters: (filters: TicketFilters) => void;
   clearFilters: () => void;
@@ -31,14 +30,14 @@ export interface TicketTableView {
   setShowClosed: (showClosed: boolean) => void;
   openFilterMenu: string | null;
   onOpenFilterMenuChange: (menuId: string | null) => void;
-  /** Everything matching the search + filter chips, before the Open/Closed split. */
-  searchFilteredTickets: UnifiedTicket[];
+  /** Everything matching the filter chips, before the Open/Closed split. */
+  filteredTickets: UnifiedTicket[];
   /**
-   * Everything matching the search alone. What the filter menus build their
+   * Every ticket the tab lists, unfiltered. What the filter menus build their
    * choices from: built from the filtered list, choosing one project would
    * take every other project out of the menu it was chosen in.
    */
-  searchedTickets: UnifiedTicket[];
+  tickets: UnifiedTicket[];
   openCount: number;
   closedCount: number;
   /** The rows the list shows: filtered, split by Open/Closed, and sorted. */
@@ -53,7 +52,6 @@ export function useTicketTableView(
   tickets: UnifiedTicket[],
   meKeys: readonly string[] = [],
 ): TicketTableView {
-  const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<SortSpec>(DEFAULT_SORT);
   const [showClosed, setShowClosed] = useState(false);
@@ -63,31 +61,27 @@ export function useTicketTableView(
   const clearFilters = useCallback(() => setFilters(EMPTY_FILTERS), []);
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), []);
 
-  const searchFilteredTickets = useMemo(
-    () => applyFilters(tickets, filters, searchQuery, meKeys),
-    [tickets, filters, searchQuery, meKeys],
-  );
-  const searchedTickets = useMemo(
-    () => applyFilters(tickets, EMPTY_FILTERS, searchQuery, meKeys),
-    [tickets, searchQuery, meKeys],
+  const filteredTickets = useMemo(
+    () => applyFilters(tickets, filters, meKeys),
+    [tickets, filters, meKeys],
   );
 
   const openCount = useMemo(
-    () => searchFilteredTickets.filter((t) => !t.status.isClosed).length,
-    [searchFilteredTickets],
+    () => filteredTickets.filter((t) => !t.status.isClosed).length,
+    [filteredTickets],
   );
   const closedCount = useMemo(
-    () => searchFilteredTickets.filter((t) => t.status.isClosed).length,
-    [searchFilteredTickets],
+    () => filteredTickets.filter((t) => t.status.isClosed).length,
+    [filteredTickets],
   );
 
   const sortedTickets = useMemo(
     () =>
       sortTickets(
-        searchFilteredTickets.filter((t) => t.status.isClosed === showClosed),
+        filteredTickets.filter((t) => t.status.isClosed === showClosed),
         sort,
       ),
-    [searchFilteredTickets, showClosed, sort],
+    [filteredTickets, showClosed, sort],
   );
 
   const onSortChange = useCallback((field: SortField) => {
@@ -119,8 +113,6 @@ export function useTicketTableView(
   );
 
   return {
-    searchQuery,
-    setSearchQuery,
     filters,
     setFilters,
     clearFilters,
@@ -130,8 +122,8 @@ export function useTicketTableView(
     setShowClosed,
     openFilterMenu,
     onOpenFilterMenuChange: setOpenFilterMenu,
-    searchFilteredTickets,
-    searchedTickets,
+    filteredTickets,
+    tickets,
     openCount,
     closedCount,
     sortedTickets,

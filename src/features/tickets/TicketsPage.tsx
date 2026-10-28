@@ -448,17 +448,9 @@ export const TicketsPage: React.FC = () => {
   }, [selectionScope, clearTicketsSelection, clearBoardSelection]);
 
   // The search is the exception: one bar sits above both tabs, so its text is
-  // one value, applied to whichever table is showing.
-  const searchQuery = ticketsView.searchQuery;
-  const setTicketsSearch = ticketsView.setSearchQuery;
-  const setBoardSearch = boardView.setSearchQuery;
-  const setSearchQuery = useCallback(
-    (query: string) => {
-      setTicketsSearch(query);
-      setBoardSearch(query);
-    },
-    [setTicketsSearch, setBoardSearch],
-  );
+  // one value. It does not filter either table; its results are in its own
+  // dropdown (#736c).
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
   // and bulk (action bar) delete without two code paths.
@@ -526,22 +518,13 @@ export const TicketsPage: React.FC = () => {
     [handleToggleTimer, redmineBaseUrl, sourceCtx],
   );
 
-  // Redmine issues already in the table that is showing — as a row, or as the
-  // issue a ticket is linked to — so "More from Redmine" offers only new ones.
-  // The view that is showing, not every ticket loaded: on My Board, an issue
-  // that is only in All Sources is not on screen, and leaving it out of the
-  // search results as well would make it unfindable from there.
-  const shownTickets = activeView === 'tickets' ? allTickets : boardTickets;
-  const tableRedmineIssueIds = useMemo(
-    () =>
-      new Set(
-        shownTickets.flatMap((t) => [
-          ...(t.sourceId === 'redmine' ? [Number(t.id)] : []),
-          ...(t.linked?.sourceId === 'redmine' ? [Number(t.linked.id)] : []),
-        ]),
-      ),
-    [shownTickets],
+  // A ticket a typed ID found may not be loaded here (another team, or past
+  // the list), so it is shaped the same way and timed through the same path.
+  const handleFoundTicketTimer = useCallback(
+    (ticket: Ticket) => handleToggleTimer(huddleSource.toUnified(ticket, sourceCtx)),
+    [handleToggleTimer, sourceCtx],
   );
+
   // A suggestion reads as running only when the ticket running is its carrier
   // in the selected team: that is the ticket its Stop acts on (#736).
   const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
@@ -968,9 +951,11 @@ export const TicketsPage: React.FC = () => {
               query={searchQuery}
               onQueryChange={setSearchQuery}
               baseUrl={redmineBaseUrl}
-              tableIssueIds={tableRedmineIssueIds}
+              sourcePrefixes={sourcePrefixes}
               runningIssueId={runningRedmineIssueId}
               onToggleTimer={handleSuggestionTimer}
+              runningTicketKey={runningTicket?.key ?? null}
+              onToggleTicketTimer={handleFoundTicketTimer}
               boardIssueIds={boardRedmineIssueIds}
               boardKnown={boardKnown}
               onToggleBoard={handleSuggestionBoard}

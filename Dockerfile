@@ -26,10 +26,14 @@ WORKDIR /app
 # Copy package manifests first for layer caching
 COPY package.json package-lock.json ./
 COPY packages/youtube/package.json ./packages/youtube/
-# ota-version is copied whole, not just its manifest: meteor-backend takes it as
-# a file: dependency, so npm needs the real package present at install time —
-# and that install runs before the `COPY . .` below.
+# Every workspace package's manifest, so `npm install` links it; the code comes
+# with `COPY . .`.
+# ota-version and ticket-sources are copied whole, not just their manifests:
+# meteor-backend takes them as file: dependencies, so npm needs the real
+# packages present at install time — and that install runs before the
+# `COPY . .` below.
 COPY packages/ota-version ./packages/ota-version
+COPY packages/ticket-sources ./packages/ticket-sources
 COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts
@@ -72,12 +76,14 @@ RUN HOME=/root \
 # Only Node.js + MongoDB + pre-built artifacts. No Meteor, no build tools.
 FROM node:22-slim
 
-# MongoDB + minimal runtime deps
+# MongoDB + minimal runtime deps. ffmpeg: PulseVault conforms every uploaded
+# video to faststart H.264/AAC MP4 with it, and serves uploads as-is without.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     ca-certificates \
     procps \
+    ffmpeg \
     && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
        | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
     && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" \

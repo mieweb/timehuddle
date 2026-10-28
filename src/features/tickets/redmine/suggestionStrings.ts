@@ -13,6 +13,8 @@ export const suggestionText = {
   placeholder: 'Search, #number, @person, or paste a link',
   menuLabel: 'Redmine suggestions',
 
+  ticketsHeading: 'Tickets',
+  inTeam: (team: string) => `In ${team}`,
   suggestedHeading: 'Suggested for you',
   moreHeading: 'More from Redmine',
   showAll: (count: number) => `Show all ${count} suggestions`,
@@ -29,11 +31,12 @@ export const suggestionText = {
   loggedReason: (when: string) => `Logged ${when}`,
   loggedReasonUndated: 'Logged recently',
 
-  startTimer: (id: number) => `Start a timer on #${id}`,
-  stopTimer: (id: number) => `Stop the timer on #${id}`,
-  hide: (id: number) => `Hide #${id} from suggestions`,
+  startTimer: (ref: string) => `Start a timer on ${ref}`,
+  stopTimer: (ref: string) => `Stop the timer on ${ref}`,
+  hide: (ref: string) => `Hide ${ref} from suggestions`,
   rowShortcuts:
     'Press Delete to hide, Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
+  ticketRowShortcuts: 'Press Shift+Enter to start or stop a timer.',
   searchRowShortcuts:
     'Press Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
 
@@ -45,11 +48,12 @@ export const suggestionText = {
   connect: 'Connect Redmine to see your issues',
   noSuggestions: 'No suggestions right now. Type to search Redmine.',
 
-  emptyById: (id: string) => `No issue #${id}, or you can't see it.`,
-  emptyByUrl: "That link isn't an issue on your Redmine.",
+  emptyById: (ref: string) => `No issue ${ref}, or you can't see it.`,
+  emptyByRef: (ref: string) => `No tickets or issues match ${ref}.`,
+  emptyByUrl: 'No tickets or issues match that link.',
   emptyByAssignee: (name: string) =>
     `No single person matches “@${name}”. Type more of their name — names work, logins don't.`,
-  emptyByText: (text: string) => `No open Redmine issues with “${text}” in the title.`,
+  emptyByText: (text: string) => `No tickets or open Redmine issues with “${text}” in the title.`,
 
   hidden: (id: number) => `Hidden #${id}`,
   undo: 'Undo',

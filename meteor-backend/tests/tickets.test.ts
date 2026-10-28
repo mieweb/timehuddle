@@ -459,16 +459,23 @@ describe('tickets (wormhole)', () => {
       expect(allowed.result.github).toBe('https://github.com/a/b/issues/1');
     });
 
-    it('only stores an https link, on create and on update', async () => {
+    it('only stores an https GitHub issue or pull request, on create and on update', async () => {
       await seedLink(null);
-      for (const github of ['javascript:alert(1)', 'data:text/html,x', 'http://github.com/a/b']) {
+      for (const github of [
+        'javascript:alert(1)',
+        'data:text/html,x',
+        'http://github.com/a/b/issues/1',
+        'https://github.com/a/b',
+        'https://docs.google.com/document/d/abc/edit',
+        'https://tracker.example.com/issues/9',
+      ]) {
         const created = await wormhole(
           'tickets.create',
           { teamId, title: 'Bad link', github },
           ownerJwt,
         );
         expect(created.ok, github).toBe(false);
-        expect(created.error, github).toMatch(/https:\/\//);
+        expect(created.error, github).toMatch(/isn't an issue/);
         const updated = await wormhole(
           'tickets.update',
           { ticketId: linkTicketId, github },
@@ -478,10 +485,10 @@ describe('tickets (wormhole)', () => {
       }
       const ok = await wormhole<{ github: string }>(
         'tickets.update',
-        { ticketId: linkTicketId, github: 'https://tracker.example.com/issues/9' },
+        { ticketId: linkTicketId, github: 'https://github.com/mieweb/pulse/pull/554' },
         ownerJwt,
       );
-      expect(ok.result.github).toBe('https://tracker.example.com/issues/9');
+      expect(ok.result.github).toBe('https://github.com/mieweb/pulse/pull/554');
       await wormhole('tickets.update', { ticketId: linkTicketId, github: '' }, ownerJwt);
     });
 

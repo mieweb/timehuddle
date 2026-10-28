@@ -39,6 +39,12 @@ describe('shouldSearchServer', () => {
     }
   });
 
+  it('always searches an ID prefix, however short', () => {
+    for (const query of ['p-', 'TH-', 'pulse-2', 'RMX-219']) {
+      expect(shouldSearchServer(query)).toBe(true);
+    }
+  });
+
   it('waits for three characters of words or a name', () => {
     expect(shouldSearchServer('lo')).toBe(false);
     expect(shouldSearchServer('@a')).toBe(false);
@@ -71,6 +77,12 @@ describe('filterSuggestions', () => {
 
   it('keeps everything, in order, for an empty query', () => {
     expect(ids(filterSuggestions(issues, '  ', BASE))).toEqual([12, 120, 31]);
+  });
+
+  it("reads the org's prefix for this Redmine like a number, in any case", () => {
+    expect(ids(filterSuggestions(issues, 'rmx-', BASE, ['RMX']))).toEqual([12, 120, 31]);
+    expect(ids(filterSuggestions(issues, 'RMX-12', BASE, ['RMX']))).toEqual([12, 120]);
+    expect(ids(filterSuggestions(issues, 'TH-12', BASE, ['RMX']))).toEqual([]);
   });
 
   it('matches issue numbers by prefix, with or without #', () => {
@@ -121,6 +133,12 @@ describe('emptySearchMessage', () => {
     expect(emptySearchMessage('url', 'https://x.test/issues/1')).toMatch(/link/);
     expect(emptySearchMessage('assignee', '@al')).toContain('@al');
     expect(emptySearchMessage('text', 'printer')).toContain('printer');
+  });
+
+  it('names an issue the way it was typed, a bare number with its hash', () => {
+    expect(emptySearchMessage('id', '99')).toContain('No issue #99,');
+    expect(emptySearchMessage('id', 'RM0-99')).toBe('No tickets or issues match RM0-99.');
+    expect(emptySearchMessage('text', 'pulse-')).toBe('No tickets or issues match pulse-.');
   });
 });
 
