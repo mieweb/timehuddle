@@ -21,7 +21,7 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, orgApi, type DefaultOrganizationRole } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { AppModal } from '../../ui/AppModal';
+import { AppModal, EMPTY_SUBMIT } from '../../ui/AppModal';
 import { useRouter } from '../../ui/router';
 import { settingsPath } from '../settings/settingsSections';
 import { PEOPLE_STRINGS } from './peopleStrings';
@@ -33,13 +33,6 @@ const ROLE_OPTIONS = (['owner', 'admin', 'member'] as const).map((role) => ({
 
 const errorText = (err: unknown, fallback: string) =>
   err instanceof ApiError ? err.message : fallback;
-
-/**
- * The modal's focus trap lists its buttons once, on open, so a submit button
- * that starts disabled could never be tabbed to. An empty form marks it
- * aria-disabled instead, and its handler ignores the click.
- */
-const EMPTY_SUBMIT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
 
 const AddExistingUserDialog: React.FC<{ onClose: () => void; onAdded: () => void }> = ({
   onClose,
