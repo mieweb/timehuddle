@@ -58,7 +58,7 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
   const [slug, setSlug] = useState(organization?.slug ?? '');
   const [slugEdited, setSlugEdited] = useState(editing);
   const [slugStatus, setSlugStatus] = useState<SlugStatus>('idle');
-  const [autoJoin, setAutoJoin] = useState(organization?.allowAutoJoin ?? defaultAutoJoin);
+  const [autoJoin, setAutoJoin] = useState(defaultAutoJoin);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,10 +70,12 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
   const checkSlug = (next: string) => {
     const seq = ++slugSeq.current;
     if (timer.current) clearTimeout(timer.current);
-    if (!next.trim() || next.trim() === organization?.slug) return setSlugStatus('idle');
+    // The server saves the slugified value, so that is the one to check.
+    const candidate = slugify(next);
+    if (!candidate || candidate === organization?.slug) return setSlugStatus('idle');
     setSlugStatus('checking');
     timer.current = setTimeout(() => {
-      void orgApi.checkSlugAvailability(next.trim(), organization?.id).then((available) => {
+      void orgApi.checkSlugAvailability(candidate, organization?.id).then((available) => {
         if (seq === slugSeq.current) setSlugStatus(available ? 'available' : 'taken');
       });
     }, 400);
@@ -104,7 +106,6 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
         await orgApi.updateOrganization(organization.id, {
           name: name.trim() || undefined,
           slug: slug.trim() !== organization.slug ? slug.trim() : undefined,
-          allowAutoJoin: autoJoin,
         });
         void refetchOrganizations();
       } else {
@@ -167,22 +168,26 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
             </Text>
           )}
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
-          <div>
-            <Text size="sm" weight="medium">
-              {S.autoJoin}
-            </Text>
-            <Text variant="muted" size="xs">
-              {S.autoJoinHelp}
-            </Text>
+        {/* A new organization starts with this; afterwards it is edited only
+            in Settings → Organization, with the other organization defaults. */}
+        {!editing && (
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
+            <div>
+              <Text size="sm" weight="medium">
+                {S.autoJoin}
+              </Text>
+              <Text variant="muted" size="xs">
+                {S.autoJoinHelp}
+              </Text>
+            </div>
+            <Switch
+              checked={autoJoin}
+              onCheckedChange={setAutoJoin}
+              disabled={saving || autoJoinLocked}
+              aria-label={S.autoJoinToggle}
+            />
           </div>
-          <Switch
-            checked={autoJoin}
-            onCheckedChange={setAutoJoin}
-            disabled={saving || autoJoinLocked}
-            aria-label={S.autoJoinToggle}
-          />
-        </div>
+        )}
       </ModalBody>
       <ModalFooter>
         <ButtonGroup>
