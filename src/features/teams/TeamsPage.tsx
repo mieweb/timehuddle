@@ -100,6 +100,15 @@ function invitationStatusVariant(
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
+/**
+ * Members is the only view for regular members and on personal teams. With no
+ * tab strip there is no tab to label a panel, so it renders as plain content.
+ */
+const MembersTab: React.FC<{ alone: boolean; children: React.ReactNode }> = ({
+  alone,
+  children,
+}) => (alone ? <>{children}</> : <TabsContent value="members">{children}</TabsContent>);
+
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -354,14 +363,19 @@ export const TeamsPage: React.FC = () => {
     }
   }, [formValue, selectedTeamId, fetchMembers, inviteLoading]);
 
-  // Fetch pending/sent invitations for the Team Settings modal
-  // Only the latest load may write: switching teams mid-request must not show
-  // the previous team's invitations, whose Revoke buttons would act on them.
+  // Fetch pending/sent invitations for the Invitations tab.
+  // Only the latest load for the selected team may write: switching teams
+  // mid-request, or a revoke on the previous team finishing after the switch,
+  // must not show that team's invitations, whose Revoke buttons would act on them.
   const invitationsSeqRef = useRef(0);
+  const selectedTeamIdRef = useRef(selectedTeamId);
+  selectedTeamIdRef.current = selectedTeamId;
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const fetchInvitations = useCallback(async (teamId: string | null) => {
+    if (teamId !== selectedTeamIdRef.current) return;
     const seq = ++invitationsSeqRef.current;
-    const isLatest = () => seq === invitationsSeqRef.current;
+    const isLatest = () =>
+      seq === invitationsSeqRef.current && teamId === selectedTeamIdRef.current;
     if (!teamId) {
       setInvitations([]);
       return;
@@ -590,7 +604,10 @@ export const TeamsPage: React.FC = () => {
             className="mt-4"
           >
             {tabs.length > 1 && (
-              <TabsList aria-label={TEAMS_STRINGS.tabs.label}>
+              <TabsList
+                aria-label={TEAMS_STRINGS.tabs.label}
+                className="team-tabs overflow-x-auto overflow-y-hidden [&_[role=tab]:focus-visible]:ring-inset [&_[role=tab]:focus-visible]:ring-offset-0"
+              >
                 <TabsTrigger value="members">{TEAMS_STRINGS.tabs.members}</TabsTrigger>
                 <TabsTrigger value="requests">
                   {TEAMS_STRINGS.tabs.requests(pendingRequestCount)}
@@ -599,7 +616,7 @@ export const TeamsPage: React.FC = () => {
                 <TabsTrigger value="settings">{TEAMS_STRINGS.tabs.settings}</TabsTrigger>
               </TabsList>
             )}
-            <TabsContent value="members">
+            <MembersTab alone={tabs.length === 1}>
               <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
                 <div className="mb-3 flex items-center justify-between">
                   <Text
@@ -751,7 +768,7 @@ export const TeamsPage: React.FC = () => {
                     })}
                 </ul>
               </div>
-            </TabsContent>
+            </MembersTab>
             {canManageTeamSettings && selectedTeamId && (
               <>
                 <TabsContent value="requests" className="team-requests-panel mt-4">
