@@ -120,8 +120,10 @@ services:
       #   Left empty, the stack still starts and Redmine simply cannot be connected.
       #   No default host: Redmine is external, so there is no in-stack `redmine` to
       #   fall back to, and a bogus default would only fail later with a DNS error.
-      # REDMINE_ENCRYPTION_KEY: secret used to encrypt personal API keys at rest.
-      #   Set a strong value in meteor-backend/.env.local; do not commit real keys.
+      # SOURCE_KEYS_SECRET: secret used to encrypt personal API keys at rest
+      #   (REDMINE_ENCRYPTION_KEY is still read in its place). Set a random value
+      #   (`openssl rand -base64 32`) in meteor-backend/.env.local; do not commit
+      #   real keys. Checking and rotating it: docs/redmine-integration.md.
       # REDMINE_ALLOW_CUSTOM_URL: dev/test only. When `true`, Settings lets each user
       #   link a Redmine URL of their own (REDMINE_BASE_URL becomes the default). The
       #   server fetches whatever URL is linked, so never enable it in production.
@@ -131,7 +133,7 @@ services:
       #   REDMINE_ALLOW_CUSTOM_URL's braces: if the flag is ever on in production, a
       #   signed-in user could otherwise aim server-side requests at an internal
       #   service or a cloud metadata endpoint. https is also required in production.
-      # REDMINE_ENCRYPTION_KEY_PREVIOUS: set during a rotation of REDMINE_ENCRYPTION_KEY.
+      # SOURCE_KEYS_SECRET_PREVIOUS: set during a rotation of SOURCE_KEYS_SECRET.
       #   Keys that still decrypt under the old secret are re-encrypted under the new one
       #   on next use, so a rotation does not send every user back to Settings. Remove it
       #   once no key decrypts with it any more.

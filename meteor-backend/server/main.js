@@ -29,6 +29,7 @@ import './ticket-search';
 import './ticket-outside';
 import './redmine-suggestions';
 import './redmine';
+import './source-accounts';
 import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
@@ -1239,6 +1240,28 @@ Meteor.startup(async () => {
   Wormhole.expose('redmine.disconnect', {
     description: "Remove the caller's Redmine account link",
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.connect', {
+    description:
+      "Connect the caller to another ticket server their organization registered, with their own API key",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        server: { type: 'string', description: "The registered server's address" },
+        apiKey: { type: 'string', description: 'Personal API key on that server' },
+      },
+      required: ['server', 'apiKey'],
+    },
+  });
+
+  Wormhole.expose('sources.disconnect', {
+    description: "Remove the caller's account on another registered server",
+    inputSchema: {
+      type: 'object',
+      properties: { server: { type: 'string', description: "The server's address" } },
+      required: ['server'],
+    },
   });
 
   Wormhole.expose('redmine.status', {

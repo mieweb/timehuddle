@@ -21,6 +21,7 @@ import { Mongo } from 'meteor/mongo';
 import { RedmineLinks, Tickets, Teams, isValidId } from './collections';
 import {
   findRedmineAccount,
+  mainLinkOf,
   requireRedmineAccount,
   tooManyRedmineRequests,
 } from './redmine-account';
@@ -173,7 +174,7 @@ async function resolveRedmineDisplays(ownerId, viewerId, issueIds, into) {
   let account = await findRedmineAccount(viewerId);
   let baseUrl = account?.baseUrl ?? optionalRedmineBaseUrl();
   if (viewerId !== ownerId) {
-    const ownerLink = await RedmineLinks.findOneAsync({ userId: ownerId }, { fields: { baseUrl: 1 } });
+    const ownerLink = await RedmineLinks.findOneAsync(mainLinkOf(ownerId), { fields: { baseUrl: 1 } });
     const ownerBaseUrl = linkedRedmineBaseUrl(ownerLink?.baseUrl);
     if (account?.baseUrl !== ownerBaseUrl) account = null;
     baseUrl = ownerBaseUrl;

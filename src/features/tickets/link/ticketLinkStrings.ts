@@ -33,6 +33,12 @@ export const ticketLinkText = {
   /** "Sprint 12 · due Nov 3, 2026" */
   milestoneValue: (name: string, due: string | null) => (due ? `${name} · due ${due}` : name),
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
+  /** Redmine refused the saved key, so TimeHuddle stopped sending it (#734). */
+  keyRejectedTitle: "Couldn't reach Redmine",
+  keyRejected: 'Your Redmine API key was rejected. It may have been reset in Redmine.',
+  keyRejectedSettings:
+    'Your API key was rejected. It may have been reset in Redmine: paste your current key to reconnect.',
+  openSettings: 'Open Settings',
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
 

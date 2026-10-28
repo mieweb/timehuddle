@@ -29,6 +29,7 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
+import { RedmineKeyRejectedToast } from '../features/tickets/redmine/RedmineKeyRejectedToast';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { AppToasts } from './AppToasts';
@@ -468,6 +469,7 @@ const AppLayoutContent: React.FC = () => {
                     <AppHeader />
                     <TopNav />
                     <WhatsNewBanner />
+                    <RedmineKeyRejectedToast />
                     <main
                       ref={mainRef}
                       className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"

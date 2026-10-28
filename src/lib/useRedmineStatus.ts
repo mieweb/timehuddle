@@ -6,7 +6,9 @@
  * (#562). Settings therefore broadcasts `redmine:changed` after connecting and
  * after disconnecting, carrying the fresh status. Listeners apply that payload
  * directly, so the signal costs no extra round trip; a dispatch without a
- * usable payload falls back to fetching the status.
+ * usable payload falls back to fetching the status. A call that failed for
+ * want of a working key (`REDMINE_KEY_PROBLEM`) fetches it again too, at most
+ * once every half minute, so a key Redmine just rejected shows as rejected.
  *
  * Two contracts worth knowing:
  *
@@ -19,7 +21,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import { redmineApi, type RedmineStatus } from './api';
+import { REDMINE_KEY_PROBLEM, redmineApi, type RedmineStatus } from './api';
 import { useSession } from './useSession';
 
 /**
@@ -35,6 +37,9 @@ export function onOtherRedmineServer(status: RedmineStatus | null): boolean {
   // the backend refuses every custom account in that case, and so does this.
   return !status.defaultBaseUrl || status.baseUrl !== status.defaultBaseUrl;
 }
+
+/** How often a failed call may make the status be checked again. */
+const KEY_PROBLEM_RECHECK_MS = 30_000;
 
 /** Broadcast when a Redmine account is linked or unlinked. */
 export const REDMINE_CHANGED = 'redmine:changed';
@@ -91,11 +96,20 @@ export function useRedmineStatus(): RedmineStatus | null {
       setStatus(next);
     };
 
+    let lastProblemCheck = 0;
+    const onKeyProblem = () => {
+      if (Date.now() - lastProblemCheck < KEY_PROBLEM_RECHECK_MS) return;
+      lastProblemCheck = Date.now();
+      fetchStatus();
+    };
+
     fetchStatus();
     window.addEventListener(REDMINE_CHANGED, onChanged);
+    window.addEventListener(REDMINE_KEY_PROBLEM, onKeyProblem);
     return () => {
       active = false;
       window.removeEventListener(REDMINE_CHANGED, onChanged);
+      window.removeEventListener(REDMINE_KEY_PROBLEM, onKeyProblem);
     };
   }, [userId]);
 

@@ -1,13 +1,14 @@
 /**
  * The sources the driver engine serves (#734 step 3), by kind: each one's
- * definition, its hooks, how its errors read, and `open(userId)`, the member's
- * way in with their own key:
+ * definition, its hooks, how its errors read, and `open(userId, host)`, the
+ * member's way in with their own key for the server `host` (their main link
+ * when omitted):
  *
  *   `{ server, ctx, request(path), urlOf(ref), me() }`
  *
  * `server` is the host the member's account is on; `request` resolves to the
  * source's answer, or null when the issue is missing or hidden from them.
- * Only Redmine for now: GitHub joins in step 4, more servers in step 5.
+ * Only Redmine for now: GitHub joins in step 4.
  */
 import { redmine } from '@timehuddle/ticket-sources';
 
@@ -24,11 +25,12 @@ const DRIVERS = {
     definition: redmine,
     hooks: redmineHooks,
     toError: toRedmineMeteorError,
-    async open(userId) {
-      const account = await requireRedmineAccount(userId);
-      // An account on another Redmine server would read that server's issue
-      // of the same number.
-      assertOnDefaultRedmine(account);
+    async open(userId, host) {
+      const account = await requireRedmineAccount(userId, host);
+      // A link saved without its server means the deployment's Redmine: an
+      // account on another server would read that server's issue of the same
+      // number.
+      if (!host) assertOnDefaultRedmine(account);
       return {
         server: hostOf(account.baseUrl),
         ctx: { userId, account },
