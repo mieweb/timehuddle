@@ -72,7 +72,6 @@ const TEAM_SCOPED_PATHS = new Set([
   '/app/huddle',
   '/app/teams',
   '/app/tickets',
-  '/app/work',
 ]);
 
 /** Whether the selected team belongs in this path's `?team=`. */
