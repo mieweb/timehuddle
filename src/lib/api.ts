@@ -627,6 +627,8 @@ export const orgApi = {
       organizations: Array<{
         id: string;
         enterpriseId: string | null;
+        /** Shown to every member, unlike `enterprises.list`. */
+        enterpriseName: string | null;
         name: string;
         slug: string;
         allowAutoJoin: boolean;

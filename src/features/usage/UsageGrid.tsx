@@ -1,7 +1,7 @@
 /**
  * UsageGrid — the per-member usage table.
  *
- * Split out from OrgUsagePage and loaded with React.lazy purely for weight:
+ * Split out from OrgUsage and loaded with React.lazy purely for weight:
  * this module is the only thing in the app that pulls in `@mieweb/ui/datavis`
  * (and with it @mieweb/datavis + datavis-ace), and an admin-only page has no
  * business sitting in the entry chunk everyone downloads.

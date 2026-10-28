@@ -48,6 +48,7 @@ import { ticketDetailPath, ticketKey } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
 
 import { ticketTimerText as timerText } from '../../timers/ticketTimerStrings';
+import { settingsPath } from '../../settings/settingsSections';
 import { BoardToggleButton } from '../BoardToggleButton';
 import { boardText } from '../boardStrings';
 
@@ -321,7 +322,7 @@ export function RedmineSuggestions({
       else if (row.kind === 'issue')
         navigate(ticketDetailPath({ sourceId: 'redmine', id: String(row.issue.id) }));
       else if (row.kind === 'show-all') setShowAll(true);
-      else if (row.kind === 'connect') navigate('/app/settings');
+      else if (row.kind === 'connect') navigate(settingsPath('integrations'));
       else {
         // One retry row stands for both requests: retry whichever failed.
         if (suggestions.status === 'error') void retrySuggestions();

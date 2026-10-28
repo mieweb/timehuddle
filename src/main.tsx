@@ -110,6 +110,19 @@ const AppLayout = lazy(loadAppLayout);
 // whose hash no longer exists. Reload to pick up the new build instead of failing.
 window.addEventListener('vite:preloadError', () => window.location.reload());
 
+// ─── Android back gesture/button ──────────────────────────────────────────────
+//
+// A backButton listener replaces Capacitor's default handling, so step back
+// through in-app history here and send the app to the background (rather than
+// closing it) once there is nothing left to go back to. iOS has no such event;
+// its edge swipe is enabled natively in MainViewController.
+if (Capacitor.getPlatform() === 'android') {
+  void CapApp.addListener('backButton', ({ canGoBack }) => {
+    if (canGoBack) window.history.back();
+    else void CapApp.minimizeApp();
+  });
+}
+
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
 // Password reset emails contain a timehuddle://reset?token=XXX link.

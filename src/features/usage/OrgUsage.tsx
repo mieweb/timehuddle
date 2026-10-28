@@ -1,8 +1,8 @@
 /**
- * OrgUsagePage — who in the organization is actually using TimeHuddle.
+ * OrgUsage — who in the organization is actually using TimeHuddle.
  *
- * Restricted to default-org owners and admins, like the Members page it sits
- * next to in the Admin menu. It answers two questions side by side:
+ * Settings → Usage, for organization owners and admins. It answers two
+ * questions side by side:
  *
  *   • the period selector drives the counts — today, or the last 7/14/30 days;
  *   • the cadence badge is fixed to the last 30 days, so switching the period
@@ -35,7 +35,6 @@ import { timeAgo } from '../../lib/date';
 import { hasOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
-import { AppPage } from '../../ui/AppPage';
 import { useQueryParams } from '../../ui/router';
 import {
   CADENCE_META,
@@ -116,9 +115,9 @@ const CadenceLegend: React.FC<{ report: OrgUsageReport }> = ({ report }) => (
   </Card>
 );
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Usage ────────────────────────────────────────────────────────────────────
 
-export const OrgUsagePage: React.FC = () => {
+export const OrgUsage: React.FC = () => {
   const { organizations } = useTeam();
   // Optimistic: the server's owner/admin check is the one that counts, and a
   // `forbidden` from it flips `denied` below.
@@ -198,36 +197,30 @@ export const OrgUsagePage: React.FC = () => {
 
   if (!rolesLoaded) {
     return (
-      <AppPage>
-        <div className="flex justify-center py-12" aria-live="polite" aria-busy="true">
-          <Spinner />
-          <span className="sr-only">Loading usage</span>
-        </div>
-      </AppPage>
+      <div className="flex justify-center py-12" aria-live="polite" aria-busy="true">
+        <Spinner />
+        <span className="sr-only">Loading usage</span>
+      </div>
     );
   }
 
   if (!canAccess) {
     return (
-      <AppPage>
-        <Card padding="lg" className="mx-auto max-w-2xl text-center">
-          <CardContent className="space-y-3">
-            <Text weight="semibold">Usage is unavailable</Text>
-            <Text variant="muted" size="sm">
-              This page is restricted to organization owners and admins.
-            </Text>
-          </CardContent>
-        </Card>
-      </AppPage>
+      <Card padding="lg" className="text-center">
+        <CardContent className="space-y-3">
+          <Text weight="semibold">Usage is unavailable</Text>
+          <Text variant="muted" size="sm">
+            Usage is restricted to organization owners and admins.
+          </Text>
+        </CardContent>
+      </Card>
     );
   }
 
   const totals = report?.totals;
 
   return (
-    <AppPage width="wide" subtitle="Who is using TimeHuddle, how often, and what they use it for.">
-      {/* A row of its own rather than AppPage's titleActions: the pills plus a
-          picker crush the subtitle to one word at phone widths up there. */}
+    <div className="org-usage space-y-6">
       <section className="usage-controls flex flex-wrap items-center gap-3">
         <Tabs
           variant="pills"
@@ -323,6 +316,6 @@ export const OrgUsagePage: React.FC = () => {
           </Text>
         </>
       )}
-    </AppPage>
+    </div>
   );
 };

@@ -31,6 +31,7 @@ import { onOtherRedmineServer, useRedmineStatus } from '../../../lib/useRedmineS
 import { AnimatedHeight } from '../../../ui/AnimatedHeight';
 import { useRouter } from '../../../ui/router';
 import { SegmentedSwitcher, type SegmentedOption } from '../../../ui/SegmentedSwitcher';
+import { settingsPath } from '../../settings/settingsSections';
 import { redmineErrorMessage, toId, toOptions } from '../redmine/redmineForm';
 
 import {
@@ -252,7 +253,7 @@ export function TicketLinkFields({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate('/app/settings')}
+                    onClick={() => navigate(settingsPath('integrations'))}
                   >
                     {ticketLinkText.goToSettings}
                   </Button>

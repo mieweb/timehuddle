@@ -16,7 +16,14 @@ import {
   normalizeTicketPrefix,
   typedServers,
 } from './ticket-ids';
-import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import {
+  idOf,
+  resolveEnterpriseSettings,
+  resolveOrgSettings,
+  settingsUpdateFor,
+  teamsInOrg,
+  toDocId,
+} from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
 import { announceSettingsChanged } from './settings/changes';
 import { subject } from '@casl/ability';
@@ -358,12 +365,27 @@ Meteor.methods({
       .sort({ name: 1 })
       .toArray();
 
+    // Every member may see which enterprise their organization belongs to, so
+    // the name comes along here; enterprises.list only covers owners and admins.
+    // Enterprise ids can be ObjectIds or legacy strings, so normalise both ways.
+    const enterpriseIds = [
+      ...new Set(organizations.map((org) => org.enterpriseId).filter(Boolean).map(idOf)),
+    ];
+    const enterpriseNames = new Map(
+      (
+        await db.collection('enterprises')
+          .find({ _id: { $in: enterpriseIds.map(toDocId) } }, { projection: { name: 1 } })
+          .toArray()
+      ).map((e) => [idOf(e._id), e.name]),
+    );
+
     const summaries = await Promise.all(
       organizations.map(async (org) => {
         const membership = await getOrgMembership(org._id.toHexString(), userId);
-        if (membership) return toOrgSummary(org, membership.role);
-        const entRole = await getEnterpriseRoleForOrg(userId, org);
-        return toOrgSummary(org, entRole ?? 'member');
+        const role = membership?.role ?? (await getEnterpriseRoleForOrg(userId, org)) ?? 'member';
+        const summary = await toOrgSummary(org, role);
+        const enterpriseName = org.enterpriseId ? enterpriseNames.get(idOf(org.enterpriseId)) : null;
+        return { ...summary, enterpriseName: enterpriseName ?? null };
       }),
     );
     return { organizations: summaries.sort((a, b) => a.name.localeCompare(b.name)) };

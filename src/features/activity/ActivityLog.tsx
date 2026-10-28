@@ -1,13 +1,20 @@
 /**
- * ActivityLogPage — Unified event log showing the signed-in user's activity.
+ * ActivityLog — Unified event log showing the signed-in user's activity.
+ * Shown as the Activity log section of Settings.
  *
  * Displays a cursor-paginated list of activity events (clock-in/out,
  * ticket actions, etc.) ordered newest first. New event types are handled
  * automatically via the generic fallback renderer.
  */
-import { faClockRotateLeft, faListCheck, faStar } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
+import {
+  Button,
+  ClipboardListIcon,
+  HistoryIcon,
+  Spinner,
+  StarIcon,
+  Text,
+  type LucideIcon,
+} from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
@@ -15,14 +22,13 @@ import { timeAgo } from '../../lib/date';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
-import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { linkActivityLabel } from '../tickets/link/ticketLinkStrings';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 interface ActivityMeta {
-  icon: typeof faStar;
+  icon: LucideIcon;
   iconClass: string;
   label: string;
 }
@@ -32,23 +38,27 @@ function metaForItem(item: ActivityLogItem): ActivityMeta {
     const action = item.payload.action as string | undefined;
     switch (action) {
       case 'assigned':
-        return { icon: faListCheck, iconClass: 'text-sky-500', label: 'Assigned ticket' };
+        return { icon: ClipboardListIcon, iconClass: 'text-sky-500', label: 'Assigned ticket' };
       case 'unassigned':
-        return { icon: faListCheck, iconClass: 'text-slate-500', label: 'Unassigned ticket' };
+        return { icon: ClipboardListIcon, iconClass: 'text-slate-500', label: 'Unassigned ticket' };
       case 'deleted':
-        return { icon: faListCheck, iconClass: 'text-red-400', label: 'Deleted ticket' };
+        return { icon: ClipboardListIcon, iconClass: 'text-red-400', label: 'Deleted ticket' };
       case 'status-changed':
       case 'batch-status-changed':
-        return { icon: faListCheck, iconClass: 'text-amber-500', label: 'Changed ticket status' };
+        return {
+          icon: ClipboardListIcon,
+          iconClass: 'text-amber-500',
+          label: 'Changed ticket status',
+        };
       case 'priority-changed':
         return {
-          icon: faListCheck,
+          icon: ClipboardListIcon,
           iconClass: 'text-orange-500',
           label: 'Changed ticket priority',
         };
       default:
         return {
-          icon: faListCheck,
+          icon: ClipboardListIcon,
           iconClass: 'text-blue-500',
           label: linkActivityLabel(action) ?? 'Updated ticket',
         };
@@ -57,13 +67,13 @@ function metaForItem(item: ActivityLogItem): ActivityMeta {
 
   switch (item.type) {
     case 'clock.in':
-      return { icon: faClockRotateLeft, iconClass: 'text-green-500', label: 'Clocked in' };
+      return { icon: HistoryIcon, iconClass: 'text-green-500', label: 'Clocked in' };
     case 'clock.out':
-      return { icon: faClockRotateLeft, iconClass: 'text-red-400', label: 'Clocked out' };
+      return { icon: HistoryIcon, iconClass: 'text-red-400', label: 'Clocked out' };
     case 'ticket.created':
-      return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Created ticket' };
+      return { icon: ClipboardListIcon, iconClass: 'text-blue-500', label: 'Created ticket' };
     default:
-      return { icon: faStar, iconClass: 'text-neutral-400', label: item.type };
+      return { icon: StarIcon, iconClass: 'text-neutral-400', label: item.type };
   }
 }
 
@@ -124,7 +134,7 @@ function activitySummary(item: ActivityLogItem): string {
 // ─── ActivityRow ──────────────────────────────────────────────────────────────
 
 const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
-  const { icon, iconClass, label } = metaForItem(item);
+  const { icon: Icon, iconClass, label } = metaForItem(item);
   const summary = activitySummary(item);
 
   return (
@@ -133,7 +143,7 @@ const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
         className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800"
         aria-hidden
       >
-        <FontAwesomeIcon icon={icon} className={`h-3.5 w-3.5 ${iconClass}`} />
+        <Icon className={`h-3.5 w-3.5 ${iconClass}`} />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -156,9 +166,9 @@ const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
   );
 };
 
-// ─── ActivityLogPage ───────────────────────────────────────────────────────────
+// ─── ActivityLog ───────────────────────────────────────────────────────────
 
-export const ActivityLogPage: React.FC = () => {
+export const ActivityLog: React.FC = () => {
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
 
@@ -224,7 +234,7 @@ export const ActivityLogPage: React.FC = () => {
   );
 
   return (
-    <AppPage subtitle="A chronological log of your activity in TimeHuddle.">
+    <>
       {loading ? (
         <div className="flex items-center justify-center py-16" aria-label="Loading activity log">
           <Spinner size="md" />
@@ -244,7 +254,7 @@ export const ActivityLogPage: React.FC = () => {
       ) : (
         <>
           <ul
-            className="divide-y divide-neutral-100 dark:divide-neutral-800/80"
+            className="divide-y divide-neutral-100 px-5 dark:divide-neutral-800/80"
             aria-label="Activity log"
             role="list"
           >
@@ -254,7 +264,7 @@ export const ActivityLogPage: React.FC = () => {
           </ul>
 
           {nextCursor && (
-            <div className="flex justify-center pt-4">
+            <div className="flex justify-center pb-4">
               <Button variant="secondary" size="sm" onClick={loadMore} isLoading={loadingMore}>
                 Load more
               </Button>
@@ -262,6 +272,6 @@ export const ActivityLogPage: React.FC = () => {
           )}
         </>
       )}
-    </AppPage>
+    </>
   );
 };

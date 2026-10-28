@@ -17,6 +17,7 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 const UNKNOWN_TEAM_ID = 'ffffffffffffffffffffffff';
 
 const teamParam = (page: Page) => new URL(page.url()).searchParams.get('team');
+const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main navigation' });
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
@@ -75,11 +76,11 @@ test.describe('Deep links: team scope', () => {
     expect(new URL(page.url()).searchParams.has('teamId')).toBe(false);
   });
 
-  test('sidebar navigation keeps the linked team', async ({ page }) => {
+  test('main navigation keeps the linked team', async ({ page }) => {
     await page.goto(`/app/dashboard?team=${sharedTeamId}`);
     await expect(page.getByText('Test Team Alpha').first()).toBeVisible();
 
-    await page.locator('aside').getByRole('button', { name: 'Tickets', exact: true }).click();
+    await mainNav(page).getByRole('button', { name: 'Tickets', exact: true }).click();
     await expect(page).toHaveURL(/\/app\/tickets\?/);
     expect(teamParam(page)).toBe(sharedTeamId);
   });
@@ -130,9 +131,10 @@ test.describe('Deep links: team pages', () => {
     await expect(
       page.locator('main').getByText('Test Team Alpha').filter({ visible: true }).first(),
     ).toBeVisible();
-    await expect(
-      page.locator('aside').getByRole('button', { name: 'Teams', exact: true }),
-    ).toHaveAttribute('aria-current', 'page');
+    await expect(mainNav(page).getByRole('button', { name: 'Teams', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
 
     await page.reload();
     await expect(

@@ -31,7 +31,6 @@ vi.mock('./seedImport', () => ({
 }));
 
 vi.mock('@mieweb/ui', () => ({
-  // AppPage (which SeederPage renders) composes its classes with cn.
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   Button: ({
     children,
@@ -67,7 +66,7 @@ vi.mock('@mieweb/ui', () => ({
 }));
 
 import { runSeedImport } from './seedImport';
-import { SeederPage } from './SeederPage';
+import { Seeder } from './Seeder';
 
 beforeEach(() => {
   // Default to an org being selected so Import is enabled.
@@ -79,9 +78,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('SeederPage', () => {
+describe('Seeder', () => {
   it('loads a preset into the editor and imports it', async () => {
-    render(<SeederPage />);
+    render(<Seeder />);
 
     // Switch to Generic Business preset — its YAML contains "Midwest Services"
     fireEvent.click(screen.getByRole('button', { name: /Generic Business/i }));
@@ -99,7 +98,7 @@ describe('SeederPage', () => {
   }, 15_000);
 
   it('disables Import and shows inline error on invalid YAML', async () => {
-    render(<SeederPage />);
+    render(<Seeder />);
 
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, {
@@ -114,7 +113,7 @@ describe('SeederPage', () => {
 
   it('shows an import error when runSeedImport rejects', async () => {
     vi.mocked(runSeedImport).mockRejectedValueOnce(new Error('Unknown user: ghost@example.com'));
-    render(<SeederPage />);
+    render(<Seeder />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
@@ -123,7 +122,7 @@ describe('SeederPage', () => {
 
   it('disables Import for a top-level-teams preset when no org is selected', () => {
     teamState.selectedOrgId = null;
-    render(<SeederPage />);
+    render(<Seeder />);
 
     // Default preset (Team) has top-level teams, so an org is required.
     expect(screen.getByText(/No organization selected/i)).toBeTruthy();

@@ -2,7 +2,7 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
- * OrganizationPage - Page object for organization management
+ * OrganizationPage - Page object for the People page (`/app/organization`)
  */
 export class OrganizationPage extends BasePage {
   private readonly heading: Locator;
@@ -11,7 +11,7 @@ export class OrganizationPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.heading = this.page.getByRole('heading', { name: /organization/i });
+    this.heading = this.page.getByRole('heading', { level: 1, name: 'People' });
     this.membersTab = this.page.getByRole('tab', { name: /members/i });
     this.membersList = this.page.getByRole('list').filter({ has: page.getByText(/member/i) });
   }
@@ -28,7 +28,7 @@ export class OrganizationPage extends BasePage {
    * Navigate via sidebar
    */
   async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: /^Organization$/i }).click();
+    await this.page.getByRole('button', { name: /^People$/i }).click();
     await this.waitForLoad();
   }
 
@@ -78,7 +78,7 @@ export class OrganizationPage extends BasePage {
    * Check if organization section is visible in sidebar
    */
   async hasOrganizationInSidebar(): Promise<boolean> {
-    const orgButton = this.page.getByRole('button', { name: /^Organization$/i });
+    const orgButton = this.page.getByRole('button', { name: /^People$/i });
     return await orgButton.isVisible().catch(() => false);
   }
 
