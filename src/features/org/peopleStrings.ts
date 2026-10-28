@@ -1,0 +1,102 @@
+// Every user-facing string on the People page, in one place until the app has i18n.
+import type { DefaultOrganizationRole } from '../../lib/api';
+
+export const PEOPLE_STRINGS = {
+  tabs: {
+    members: 'Members',
+    invitations: 'Pending invitations',
+    chart: 'Org chart',
+    label: 'People sections',
+  },
+  actions: {
+    organizationSettings: 'Organization settings',
+    addExisting: 'Add existing user',
+    invite: 'Invite by email',
+  },
+  roles: { owner: 'Owner', admin: 'Admin', member: 'Member' } satisfies Record<
+    DefaultOrganizationRole,
+    string
+  >,
+  members: {
+    search: 'Search name, username or email',
+    searchLabel: 'Search members',
+    roleFilter: 'Filter by role',
+    all: 'All',
+    plural: { owner: 'Owners', admin: 'Admins', member: 'Members' } satisfies Record<
+      DefaultOrganizationRole,
+      string
+    >,
+    columns: { member: 'Member', role: 'Role', reportsTo: 'Reports to' },
+    actionsColumn: 'Actions',
+    unassigned: 'Unassigned',
+    you: 'You',
+    blocked: 'Blocked',
+    noMatch: 'No members match your search.',
+    loading: 'Loading members',
+    rowMenu: (name: string) => `More actions for ${name}`,
+    viewProfile: 'View profile',
+    block: 'Block access',
+    unblock: 'Unblock',
+    remove: 'Remove from organization',
+    roleFor: (name: string) => `Set role for ${name}`,
+    reportsToFor: (name: string) => `Set Reports To for ${name}`,
+    blockReason: (reason: string) => `Reason: ${reason}`,
+  },
+  block: {
+    title: 'Block Member',
+    body: 'Blocking this member will prevent them from accessing the organization and remove them from all teams. You can optionally provide a reason for the block.',
+    reason: 'Reason (optional)',
+    reasonPlaceholder: 'Enter a reason for blocking this member…',
+    confirm: 'Block Member',
+    confirming: 'Blocking…',
+  },
+  remove: {
+    title: 'Remove Member',
+    body: (name: string, org: string) =>
+      `${name} will be removed from ${org} and from all of its teams except their Personal team, and will lose access to it. To bring them back, add or invite them again.`,
+    confirm: 'Remove Member',
+    confirming: 'Removing…',
+    fallbackName: 'This member',
+    fallbackOrg: 'this organization',
+  },
+  add: {
+    title: 'Add existing user',
+    user: 'User',
+    userPlaceholder: 'Search by name or username…',
+    userSearch: 'Type to search users…',
+    noUsers: 'No users found',
+    role: 'Role',
+    confirm: 'Add Member',
+    confirming: 'Adding…',
+  },
+  invite: {
+    title: 'Invite by email',
+    email: 'Email',
+    placeholder: 'user@example.com',
+    help: 'They get a secure link to set up their account and join this organization.',
+    confirm: 'Send Invite',
+    confirming: 'Inviting…',
+    sent: (email: string) => `A secure account setup link was sent to ${email}.`,
+    joined: (email: string) => `${email} already had an account and was added to the organization.`,
+  },
+  invitations: {
+    columns: { email: 'Email', status: 'Status', sent: 'Sent', expires: 'Expires' },
+    empty: 'No invitations have been sent for this organization.',
+    loading: 'Loading invitations…',
+    revoke: 'Revoke',
+    revokeFor: (email: string) => `Revoke invitation for ${email}`,
+  },
+  cancel: 'Cancel',
+  noOrg: 'No organization is selected.',
+  errors: {
+    load: 'Failed to load organization members',
+    role: 'Failed to update role',
+    reportsTo: 'Failed to update Reports To',
+    add: 'Failed to add organization member',
+    block: 'Failed to block member',
+    unblock: 'Failed to unblock member',
+    remove: 'Failed to remove member',
+    invite: 'Failed to invite organization member',
+    revoke: 'Failed to revoke invitation',
+  },
+} as const;

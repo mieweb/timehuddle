@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { memberAction, memberRow, openMembers } from '../fixtures/people';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 /**
@@ -11,112 +12,49 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 test.describe('Organization Member Blocking Feature', () => {
   const owner = TEST_USERS.owner1;
 
-  async function gotoMembersPage(page: import('@playwright/test').Page) {
-    await page.goto('/app/org/members');
-    const noOrg = page.getByText(/No organization is selected/i);
-    if (await noOrg.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await expect(noOrg).toBeHidden({ timeout: 30000 });
-    }
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
-  }
-
   test.beforeEach(async ({ page }) => {
     // Login as owner
     await loginAs(page, owner);
   });
 
-  test('should display members page with block buttons', async ({ page }) => {
-    // Navigate to members page. Wait for orgs/teams sub to hydrate first —
-    // "No organization is selected" is the pre-selection empty state.
-    await gotoMembersPage(page);
+  test('should display members page with a row menu', async ({ page }) => {
+    await openMembers(page);
 
-    // Verify there's at least one member row (the owner)
-    const memberRows = page.getByRole('row');
-    const rowCount = await memberRows.count();
-    expect(rowCount).toBeGreaterThan(1); // Header + at least 1 member
-
-    // Check if owner row has appropriate buttons
-    const ownerRow = page
-      .getByRole('row')
-      .filter({ hasText: owner.name })
-      .or(page.getByRole('row').filter({ hasText: owner.email }));
-
-    // Owner might have Block, Remove, or other action buttons
-    const hasActionButtons = (await ownerRow.getByRole('button').count()) > 0;
-    expect(hasActionButtons).toBe(true);
+    // The owner's own row has its menu, with block and remove turned off for themselves.
+    const view = await memberAction(page, owner.name, 'View profile');
+    await expect(view).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Remove from organization' })).toBeDisabled();
+    await page.keyboard.press('Escape');
   });
 
-  test('should allow blocking and unblocking workflow', async ({ page }) => {
-    // Navigate to members page
-    await gotoMembersPage(page);
+  test('should open the block dialog from a member row and cancel it', async ({ page }) => {
+    await openMembers(page);
 
-    // Buttons on the members page use aria-labels like "Block Poonam Doe from
-    // organization" so we match by their visible text instead.
-    const blockButtons = page.locator('button:has-text("Block")');
-    const unblockButtons = page.locator('button:has-text("Unblock")');
-    const blockCount = await blockButtons.count();
-    const unblockCount = await unblockButtons.count();
-    expect(blockCount + unblockCount).toBeGreaterThan(0);
+    // The actual block/unblock happy path is covered by member-blocking-full-flow
+    // and meteor-backend/tests/organizations.test.ts; this only opens and cancels.
+    const target = TEST_USERS.member1;
+    await expect(memberRow(page, target.name).first()).toBeVisible();
+    await (await memberAction(page, target.name, 'Block access')).click();
 
-    // Pick the first row that actually has a Block button.
-    const targetRow = page.getByRole('row').filter({ has: blockButtons.first() }).first();
-    if (await targetRow.count()) {
-      const blockButton = targetRow.locator('button:has-text("Block")').first();
-      const unblockButton = targetRow.locator('button:has-text("Unblock")').first();
-      const hasBlockButton = await blockButton.isVisible().catch(() => false);
-      const hasUnblockButton = await unblockButton.isVisible().catch(() => false);
-      expect(hasBlockButton || hasUnblockButton).toBe(true);
-
-      // Verify that clicking Block opens the confirmation modal, then cancel.
-      // The actual block/unblock happy path is covered by
-      // meteor-backend/tests/organizations.test.ts to keep DB state clean here.
-      if (hasBlockButton) {
-        await blockButton.click();
-        // Modal renders its title via the @mieweb/ui ModalHeader (not an <hN>),
-        // so match by dialog role + visible text.
-        const modal = page.getByRole('dialog');
-        await expect(modal).toBeVisible({ timeout: 5000 });
-        await expect(modal.getByText('Block Member').first()).toBeVisible();
-
-        // Close the modal without submitting (Escape or Cancel).
-        const cancelBtn = modal.getByRole('button', { name: /cancel|close/i }).first();
-        if (await cancelBtn.isVisible().catch(() => false)) {
-          await cancelBtn.click();
-        } else {
-          await page.keyboard.press('Escape');
-        }
-        await expect(modal).toBeHidden({ timeout: 5000 });
-      }
-    }
+    // Modal renders its title via the @mieweb/ui ModalHeader (not an <hN>),
+    // so match by dialog role + visible text.
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await expect(modal.getByText('Block Member').first()).toBeVisible();
+    await modal.getByRole('button', { name: 'Cancel' }).click();
+    await expect(modal).toBeHidden({ timeout: 5000 });
   });
 
   test('should show blocked badge for blocked members', async ({ page }) => {
-    // Navigate to members page
-    await gotoMembersPage(page);
+    await openMembers(page);
 
-    // Check if any members are currently blocked
-    const blockedBadges = page.getByText(/blocked/i);
-    const blockedCount = await blockedBadges.count();
-
-    // This test just verifies the UI elements exist
-    // If there are blocked members, they should have:
-    // 1. A "Blocked" badge
-    // 2. An "Unblock" button
-
-    if (blockedCount > 0) {
-      const firstBlockedBadge = blockedBadges.first();
-      await expect(firstBlockedBadge).toBeVisible();
-
-      // Find the row containing this badge
-      const blockedRow = page.getByRole('row').filter({ has: firstBlockedBadge });
-
-      // Should have an Unblock button
-      const unblockButton = blockedRow.getByRole('button', { name: /unblock/i });
-      await expect(unblockButton).toBeVisible();
+    // A blocked member's row says so, and its menu offers Unblock instead of Block.
+    const blockedBadges = page.getByText('Blocked', { exact: true });
+    if ((await blockedBadges.count()) > 0) {
+      const blockedRow = page.getByRole('row').filter({ has: blockedBadges.first() });
+      await blockedRow.getByRole('button', { name: /^More actions for/ }).click();
+      await expect(page.getByRole('menuitem', { name: 'Unblock' })).toBeVisible();
+      await page.keyboard.press('Escape');
     }
-
-    // Test passes regardless of whether there are blocked members
-    // This confirms the page loads and UI elements are accessible
-    expect(true).toBe(true);
   });
 });

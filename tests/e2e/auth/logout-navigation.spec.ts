@@ -77,7 +77,7 @@ test.describe('Logout Navigation', () => {
     await loginPage.loginAs(user);
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
-    // Navigate to organization page
+    // Navigate to the People page
     await page.getByRole('button', { name: /^People$/i }).click();
     await page.waitForTimeout(1000);
 
@@ -103,33 +103,21 @@ test.describe('Logout Navigation', () => {
     await loginPage.loginAs(user);
     await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15000 });
 
-    // Navigate to org members page
+    // Open People, then its Members tab (owners and admins only)
     await page.getByRole('button', { name: /^People$/i }).click();
-    await page.waitForTimeout(500);
+    await page.getByRole('tab', { name: 'Members', exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/organization/);
 
-    // Click members link in the navigation or page
-    const membersButton = page
-      .getByRole('link', { name: /members/i })
-      .or(page.getByRole('button', { name: /members/i }));
+    // Logout
+    await dashboardPage.logout();
+    await page.waitForTimeout(1000);
 
-    if (await membersButton.isVisible()) {
-      await membersButton.click();
-      await page.waitForTimeout(1000);
+    // Should navigate to root
+    expect(page.url()).toMatch(/\/$|\/\?/);
+    expect(page.url()).not.toContain('/app/organization');
 
-      // Verify we're on members page
-      expect(page.url()).toContain('/app/org/members');
-
-      // Logout
-      await dashboardPage.logout();
-      await page.waitForTimeout(1000);
-
-      // Should navigate to root
-      expect(page.url()).toMatch(/\/$|\/\?/);
-      expect(page.url()).not.toContain('/app/org/members');
-
-      // Login form should be visible
-      await expect(loginPage.isOnLoginPage()).resolves.toBe(true);
-    }
+    // Login form should be visible
+    await expect(loginPage.isOnLoginPage()).resolves.toBe(true);
   });
 
   test('should clear /app/* URL when showing login form after session expires', async ({

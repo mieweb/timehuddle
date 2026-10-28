@@ -79,7 +79,6 @@ const ReleaseNotesPage = lazyNamed(
   () => import('../features/release-notes/ReleaseNotesPage'),
   'ReleaseNotesPage',
 );
-const SeederPage = lazyNamed(() => import('../features/seeder/SeederPage'), 'SeederPage');
 const TeamsPage = lazyNamed(() => import('../features/teams/TeamsPage'), 'TeamsPage');
 const loadTicketsPage = () => import('../features/tickets/TicketsPage');
 const TicketsPage = lazyNamed(loadTicketsPage, 'TicketsPage');
@@ -91,22 +90,13 @@ const TicketDetailPage = lazyNamed(
   () => import('../features/tickets/detail/TicketDetailPage'),
   'TicketDetailPage',
 );
-const WorkPage = lazyNamed(() => import('../features/timers/WorkPage'), 'WorkPage');
-const OrganizationMembersPage = lazyNamed(
-  () => import('../features/org/OrganizationMembersPage'),
-  'OrganizationMembersPage',
-);
-const OrgUsagePage = lazyNamed(() => import('../features/usage/OrgUsagePage'), 'OrgUsagePage');
 const Huddle = lazy(() => import('../pages/Huddle'));
 const HiPage = lazyNamed(() => import('../pages/HiPage'), 'HiPage');
 const OrganizationOverviewPage = lazyNamed(
   () => import('../features/org/OrganizationOverviewPage'),
   'OrganizationOverviewPage',
 );
-const OrganizationPage = lazyNamed(
-  () => import('../features/org/OrganizationPage'),
-  'OrganizationPage',
-);
+const PeoplePage = lazyNamed(() => import('../features/org/PeoplePage'), 'PeoplePage');
 const EnterprisePage = lazyNamed(
   () => import('../features/enterprise/EnterprisePage'),
   'EnterprisePage',
@@ -136,18 +126,11 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
-  '/app/organization': { title: 'People', component: OrganizationPage },
+  '/app/organization': { title: 'People', component: PeoplePage },
   '/app/release-notes': { title: 'What’s New', component: ReleaseNotesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
-  ...(import.meta.env.MODE !== 'production'
-    ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
-    : {}),
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/work': { title: 'Work', component: WorkPage },
-
-  '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
-  '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
 /** Null when nothing matches — the caller shows not-found rather than a page

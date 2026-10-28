@@ -2,7 +2,6 @@ import { Button, Select, Text } from '@mieweb/ui';
 import YAML from 'yaml';
 import React, { useRef, useMemo, useState } from 'react';
 
-import { AppPage } from '../../ui/AppPage';
 import { YamlEditor } from './YamlEditor';
 import { runSeedImport } from './seedImport';
 import { useTeam } from '../../lib/TeamContext';
@@ -61,7 +60,8 @@ const PRESETS: Preset[] = [
   },
 ];
 
-export const SeederPage: React.FC = () => {
+/** Settings → Seeder (outside production): import sample data from YAML. */
+export const Seeder: React.FC = () => {
   const { selectedOrgId, organizations } = useTeam();
   const selectedOrg = organizations.find((o) => o.id === selectedOrgId) ?? null;
   const [yaml, setYaml] = useState(techTeamsPreset);
@@ -121,7 +121,7 @@ export const SeederPage: React.FC = () => {
   };
 
   return (
-    <AppPage width="wide">
+    <div className="seeder">
       <div className="space-y-6">
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div>
@@ -264,6 +264,6 @@ export const SeederPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </AppPage>
+    </div>
   );
 };
