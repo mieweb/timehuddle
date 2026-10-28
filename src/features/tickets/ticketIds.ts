@@ -7,47 +7,31 @@
  * - An address on a server the organization has named is `<prefix>-<number>`,
  *   e.g. `PM-233` for `https://redmine.example.com/issues/233`.
  *
- * Pure, so every surface names an issue the same way.
+ * Pure, so every surface names an issue the same way. How an address becomes
+ * an ID lives in `@timehuddle/ticket-sources`, shared with the backend; the
+ * helpers here are about ticket rows.
  */
+import { outsideIdOf } from '@timehuddle/ticket-sources';
+
 import type { SourcePrefix } from '../../lib/api';
 
-import { parseGithubIssueUrl } from './githubIssue';
 import type { UnifiedTicket } from './sources/types';
 
-/** A number at the end of the path, before any query or fragment. */
-const TRAILING_NUMBER = /\/(\d+)\/?$/;
+/** The outside ID for an address, from the shared ticket sources (#734). */
+export { outsideIdOf };
 
-function parseUrl(url: string): URL | null {
-  try {
-    return new URL(url);
-  } catch {
-    return null;
-  }
-}
-
-/** The outside ID for `url`, or null when it is not one we can name. */
-export function outsideIdOf(
-  url: string | null | undefined,
+/**
+ * The outside ID of the Redmine issue a ticket carries, e.g. `RMX-150`, or null
+ * when its server has no prefix. A link with no host is on `redmineHost`, the
+ * connected Redmine.
+ */
+export function carriedRefOf(
+  linked: { id: string; host?: string } | null,
   prefixes: readonly SourcePrefix[],
+  redmineHost: string | null,
 ): string | null {
-  if (!url) return null;
-  const parsed = parseUrl(url.trim());
-  if (!parsed) return null;
-  const host = parsed.hostname.toLowerCase();
-
-  if (host === 'github.com' || host === 'www.github.com') {
-    const parts = parseGithubIssueUrl(parsed.href);
-    return parts ? `${parts.repo}-${parts.number}` : null;
-  }
-
-  const named = prefixes.find((entry) => entry.host === host);
-  const number = parsed.pathname.match(TRAILING_NUMBER)?.[1];
-  return named && number ? `${named.prefix}-${number}` : null;
-}
-
-/** The number at the end of a ref, `233` in `PM-233` or `#233`, or null. */
-export function refNumber(ref: string): string | null {
-  return ref.match(/(\d+)$/)?.[1] ?? null;
+  const host = linked?.host ?? redmineHost;
+  return linked && host ? outsideIdOf(`https://${host}/issues/${linked.id}`, prefixes) : null;
 }
 
 /**

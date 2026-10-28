@@ -59,65 +59,70 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
       </ModalHeader>
 
       <ModalBody>
-        <div className="pulse-modal-body flex flex-col items-center gap-4 py-2">
+        {/* On a short screen (a phone on its side) the QR sits beside the
+            words instead of above them, so the status line stays in view. */}
+        <div className="pulse-modal-body flex flex-col items-center gap-4 py-2 [@media(max-height:520px)]:flex-row [@media(max-height:520px)]:items-start [@media(max-height:520px)]:justify-center">
           {scanLink && (
-            <div className="pulse-modal-qr rounded-lg border border-border bg-white p-4">
+            <div className="pulse-modal-qr shrink-0 rounded-lg border border-border bg-white p-4 [@media(max-height:520px)]:p-2">
               <QRCodeSVG
                 value={scanLink}
                 size={200}
+                className="h-auto w-[200px] max-w-full [@media(max-height:520px)]:w-[140px]"
                 aria-label="QR code to open the Pulse upload screen"
               />
             </div>
           )}
 
-          <div className="pulse-modal-copy flex max-w-xs flex-col gap-1">
-            <Text size="sm" weight="medium" className="text-center">
-              Scan with your phone to record in Pulse.
-            </Text>
-            <Text size="sm" variant="muted" className="text-center">
-              {uploadHint(destination)}
-            </Text>
-          </div>
-
-          <div className="pulse-modal-stores flex flex-col items-center gap-1.5">
-            <Text size="xs" variant="muted">
-              No Pulse app yet?
-            </Text>
-            <PulseStoreBadges />
-          </div>
-
-          <div
-            className="pulse-modal-status flex flex-col items-center gap-1"
-            role="status"
-            aria-live="polite"
-          >
-            {status?.state === 'done' ? (
-              <span className="pulse-modal-landed flex items-center gap-2">
-                <FontAwesomeIcon
-                  icon={faCircleCheck}
-                  className="text-green-600 dark:text-green-500"
-                  aria-hidden="true"
-                />
-                <Text size="sm" weight="medium">
-                  {followUpNote(destination, status.note) || landedLabel(destination)}
-                </Text>
-              </span>
-            ) : status?.state === 'kept' ? (
-              <Text size="xs" variant="muted" className="max-w-xs text-center">
-                {keptMessage(status.reason)}
+          <div className="pulse-modal-details flex min-w-0 flex-col items-center gap-4">
+            <div className="pulse-modal-copy flex max-w-xs flex-col gap-1">
+              <Text size="sm" weight="medium" className="text-center">
+                Scan with your phone to record in Pulse.
               </Text>
-            ) : status?.state === 'expired' ? (
+              <Text size="sm" variant="muted" className="text-center">
+                {uploadHint(destination)}
+              </Text>
+            </div>
+
+            <div className="pulse-modal-stores flex flex-col items-center gap-1.5">
               <Text size="xs" variant="muted">
-                {EXPIRED_MESSAGE}
+                No Pulse app yet?
               </Text>
-            ) : (
-              <span className="pulse-modal-waiting flex items-center gap-2">
-                <Spinner size="xs" />
-                <Text size="xs" variant="muted">
-                  Waiting for your upload…
+              <PulseStoreBadges />
+            </div>
+
+            <div
+              className="pulse-modal-status flex flex-col items-center gap-1"
+              role="status"
+              aria-live="polite"
+            >
+              {status?.state === 'done' ? (
+                <span className="pulse-modal-landed flex items-center gap-2">
+                  <FontAwesomeIcon
+                    icon={faCircleCheck}
+                    className="text-green-600 dark:text-green-500"
+                    aria-hidden="true"
+                  />
+                  <Text size="sm" weight="medium">
+                    {followUpNote(destination, status.note) || landedLabel(destination)}
+                  </Text>
+                </span>
+              ) : status?.state === 'kept' ? (
+                <Text size="xs" variant="muted" className="max-w-xs text-center">
+                  {keptMessage(status.reason)}
                 </Text>
-              </span>
-            )}
+              ) : status?.state === 'expired' ? (
+                <Text size="xs" variant="muted">
+                  {EXPIRED_MESSAGE}
+                </Text>
+              ) : (
+                <span className="pulse-modal-waiting flex items-center gap-2">
+                  <Spinner size="xs" />
+                  <Text size="xs" variant="muted">
+                    Waiting for your upload…
+                  </Text>
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </ModalBody>

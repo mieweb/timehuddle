@@ -4,9 +4,9 @@
  * Redmine issue or a GitHub URL.
  *
  * A ticket stores only a Redmine issue's number. What is shown about the issue
- * is read from Redmine with the viewer's own key, so a teammate who has not
- * connected Redmine, or cannot see the issue, is told why instead of seeing
- * someone else's view of it.
+ * is the page's record of it (`../detail/useOutsideIssue.ts`), read from Redmine
+ * with the viewer's own key, so a teammate who has not connected Redmine, or
+ * cannot see the issue, is told why instead of seeing someone else's view of it.
  *
  * Changing and removing happen in place, with the same control the create
  * dialog uses (`TicketLinkFields`). Before a change is saved, the viewer is
@@ -26,9 +26,9 @@ import {
 } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
-import { ApiError, redmineApi, type RedmineIssue, type Ticket } from '../../../lib/api';
-import { onOtherRedmineServer, useRedmineStatus } from '../../../lib/useRedmineStatus';
+import type { Ticket } from '../../../lib/api';
 import { useRouter } from '../../../ui/router';
+import type { OutsideState } from '../detail/useOutsideIssue';
 import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
 import {
@@ -57,14 +57,9 @@ export interface LinkedIssueSectionProps {
   onChanged: (ticket: Ticket) => void;
   /** Someone is timing the ticket, so its link cannot be changed right now. */
   locked?: boolean;
+  /** The linked Redmine issue as the viewer can read it. */
+  outside: OutsideState;
 }
-
-type IssueState =
-  | { kind: 'loading' }
-  | { kind: 'loaded'; issue: RedmineIssue; /** The issue's page in Redmine. */ url: string | null }
-  | { kind: 'not-connected' }
-  | { kind: 'unavailable' }
-  | { kind: 'other-server' };
 
 type Mode = 'view' | 'edit' | 'remove';
 
@@ -73,8 +68,10 @@ const LINK_CLASS =
   'ticket-linked-issue-link inline-flex max-w-full items-baseline gap-1.5 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400';
 
 /**
- * What a plain link is "from": GitHub for github.com, otherwise the site's host
- * name. The link may point at any tracker, so it is never assumed to be GitHub.
+ * What a link is "from": GitHub for github.com, otherwise the site's host name.
+ * Only GitHub issues can be saved now (#734 step 5); a link to anywhere else
+ * saved before that is moved into the description at startup, and named by its
+ * site until then.
  */
 function linkSourceName(url: string): string {
   const host = new URL(url.trim()).hostname.replace(/^www\./, '');
@@ -117,9 +114,13 @@ function pendingChange(
   return linkedId ? 'unlink' : null;
 }
 
-export function LinkedIssueSection({ ticket, onChanged, locked = false }: LinkedIssueSectionProps) {
+export function LinkedIssueSection({
+  ticket,
+  onChanged,
+  locked = false,
+  outside,
+}: LinkedIssueSectionProps) {
   const { navigate } = useRouter();
-  const [issueState, setIssueState] = useState<IssueState>({ kind: 'loading' });
   const [mode, setMode] = useState<Mode>('view');
   const [form, setForm] = useState<LinkFormState>(EMPTY_LINK_FORM);
   const [saving, setSaving] = useState(false);
@@ -132,33 +133,7 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
   const currentKind = linkKindOf(ticket);
   const status = useLinkStatus(ticket.id, mode !== 'view');
 
-  // An account on another Redmine server would read *that* server's issue of
-  // the same number, so it is not asked at all.
-  const otherServer = onOtherRedmineServer(useRedmineStatus());
-  useEffect(() => {
-    if (!linkedId) return;
-    if (otherServer) {
-      setIssueState({ kind: 'other-server' });
-      return;
-    }
-    let cancelled = false;
-    setIssueState({ kind: 'loading' });
-    redmineApi.issues
-      .get(Number(linkedId))
-      .then(({ issue, baseUrl }) => {
-        if (cancelled) return;
-        const url = baseUrl ? `${baseUrl}/issues/${issue.id}` : null;
-        setIssueState({ kind: 'loaded', issue, url });
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        const notConnected = err instanceof ApiError && err.code === 'not-connected';
-        setIssueState({ kind: notConnected ? 'not-connected' : 'unavailable' });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedId, otherServer]);
+  const record = outside.kind === 'loaded' ? outside.issue.record : null;
 
   // A GitHub issue's title is read from GitHub when the section is shown, like
   // a Redmine issue's: only the link is stored. Private repositories answer
@@ -268,40 +243,40 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
 
         {mode !== 'edit' && linked && (
           <div className="ticket-linked-redmine space-y-1.5" aria-live="polite">
-            {issueState.kind === 'loaded' && issueState.url ? (
+            {record?.url ? (
               <a
-                href={issueState.url}
+                href={record.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={ticketLinkText.openIssue(ref)}
                 className={LINK_CLASS}
               >
                 <span className="ticket-linked-issue-ref font-mono">{ref}</span>
-                <span className="ticket-linked-issue-title">{issueState.issue.subject}</span>
+                <span className="ticket-linked-issue-title">{record.title}</span>
                 <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
               </a>
             ) : (
               <Text size="sm" className="font-mono font-medium">
                 {ref}
-                {issueState.kind === 'loaded' && ` ${issueState.issue.subject}`}
+                {record && ` ${record.title}`}
               </Text>
             )}
             <SourceLine
               source={ticketLinkText.redmine}
               detail={
-                issueState.kind === 'loaded'
+                record
                   ? ticketLinkText.statusAndAssignee(
-                      issueState.issue.status?.name ?? null,
-                      issueState.issue.assignedTo?.name ?? null,
+                      record.status.native || null,
+                      record.assignees[0]?.name ?? null,
                     )
                   : undefined
               }
             />
 
-            {issueState.kind === 'loading' && (
+            {outside.kind === 'loading' && (
               <Spinner size="sm" label={ticketLinkText.loadingIssue} />
             )}
-            {issueState.kind === 'not-connected' && (
+            {outside.kind === 'not-connected' && (
               <>
                 <Text size="sm" variant="muted">
                   {ticketLinkText.notConnected}
@@ -315,12 +290,12 @@ export function LinkedIssueSection({ ticket, onChanged, locked = false }: Linked
                 </Button>
               </>
             )}
-            {issueState.kind === 'unavailable' && (
+            {outside.kind === 'unavailable' && (
               <Text size="sm" variant="muted">
                 {ticketLinkText.issueUnavailable}
               </Text>
             )}
-            {issueState.kind === 'other-server' && (
+            {outside.kind === 'other-server' && (
               <Text size="sm" variant="muted">
                 {ticketLinkText.otherServer}
               </Text>
