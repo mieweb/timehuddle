@@ -58,12 +58,11 @@ export const ENTERPRISE_STRINGS = {
   member: {
     description: 'The enterprise and organizations you belong to.',
     yourOrganizations: 'Your organizations',
-    yourRole: (role: string) => `You are ${role === 'admin' ? 'an' : 'a'} ${role}`,
+    yourRole: { owner: 'You are an owner', admin: 'You are an admin', member: 'You are a member' },
     noEnterprise: 'Not part of an enterprise',
     none: 'You are not in any organization yet.',
     managedBy: 'Your enterprise and organization admins manage these.',
   },
-  orgRoles: { owner: 'owner', admin: 'admin', member: 'member' },
   orgDialog: {
     createTitle: 'Create Organization',
     editTitle: 'Edit Organization',

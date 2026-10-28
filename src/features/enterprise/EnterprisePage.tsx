@@ -115,23 +115,25 @@ const OrganizationsCard: React.FC<{ enterprise: EnterpriseDetail }> = ({ enterpr
                 {org.slug}
               </Text>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={S.organizations.editFor(org.name)}
-              onClick={() => setDialog({ organization: org })}
-            >
-              {S.organizations.edit}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={S.organizations.openFor(org.name)}
-              onClick={() => open(org, 'members')}
-              className="text-primary-600 dark:text-primary-400"
-            >
-              {S.organizations.open}
-            </Button>
+            <ButtonGroup>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={S.organizations.editFor(org.name)}
+                onClick={() => setDialog({ organization: org })}
+              >
+                {S.organizations.edit}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={S.organizations.openFor(org.name)}
+                onClick={() => open(org, 'members')}
+                className="text-primary-600 dark:text-primary-400"
+              >
+                {S.organizations.open}
+              </Button>
+            </ButtonGroup>
           </div>
         ))}
       </CardContent>
@@ -523,7 +525,7 @@ const EnterpriseMemberView: React.FC = () => {
                     )}
                   </div>
                   <Text variant="muted" size="xs">
-                    {M.yourRole(S.orgRoles[org.role ?? 'member'])}
+                    {M.yourRole[org.role ?? 'member']}
                   </Text>
                 </div>
                 <Button

@@ -5,6 +5,7 @@
 import {
   Alert,
   Button,
+  ButtonGroup,
   Input,
   ModalBody,
   ModalFooter,
@@ -13,7 +14,7 @@ import {
   Switch,
   Text,
 } from '@mieweb/ui';
-import { AppModal } from '@ui/AppModal';
+import { AppModal, EMPTY_SUBMIT } from '@ui/AppModal';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { ApiError, orgApi } from '../../lib/api';
@@ -89,7 +90,10 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
     checkSlug(next);
   };
 
+  const incomplete = !name.trim() || slugStatus === 'taken';
+
   const save = async () => {
+    if (saving || incomplete) return;
     setSaving(true);
     setError(null);
     try {
@@ -176,15 +180,19 @@ export const OrganizationDialog: React.FC<OrganizationDialogProps> = ({
         </div>
       </ModalBody>
       <ModalFooter>
-        <Button variant="outline" onClick={onClose} disabled={saving}>
-          {S.cancel}
-        </Button>
-        <Button
-          onClick={() => void save()}
-          disabled={saving || !name.trim() || slugStatus === 'taken'}
-        >
-          {editing ? (saving ? S.saving : S.save) : saving ? S.creating : S.create}
-        </Button>
+        <ButtonGroup>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            {S.cancel}
+          </Button>
+          <Button
+            onClick={() => void save()}
+            disabled={saving}
+            aria-disabled={incomplete}
+            className={EMPTY_SUBMIT}
+          >
+            {editing ? (saving ? S.saving : S.save) : saving ? S.creating : S.create}
+          </Button>
+        </ButtonGroup>
       </ModalFooter>
     </AppModal>
   );
