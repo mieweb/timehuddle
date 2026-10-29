@@ -2,8 +2,19 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ outsideIssue: vi.fn() }));
+/** As the real one: a failed call's Meteor.Error code rides on `code`. */
+const ApiError = vi.hoisted(
+  () =>
+    class extends Error {
+      readonly code?: string;
+      constructor(message: string, _status: number, code?: string) {
+        super(message);
+        this.code = code;
+      }
+    },
+);
 vi.mock('../../../lib/api', () => ({
-  ApiError: class extends Error {},
+  ApiError,
   outsideIssueKey: () => '',
   ticketApi: { outsideIssue: api.outsideIssue },
 }));
@@ -18,7 +29,11 @@ const issueFor = (key: string) => ({
   me: null,
 });
 
-beforeEach(() => api.outsideIssue.mockReset());
+// A block body: an arrow returning the mock would hand vitest a teardown, which
+// it calls after the test, and a rejecting mock would then fail it.
+beforeEach(() => {
+  api.outsideIssue.mockReset();
+});
 afterEach(cleanup);
 
 describe('useOutsideIssue', () => {
@@ -54,5 +69,38 @@ describe('useOutsideIssue', () => {
     rerender({ linkedKey: 'redmine:999' });
     await waitFor(() => expect(result.current.state.kind).toBe('loaded'));
     expect(onRelinked).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['not-connected', 'other-server', 'invalid-key', 'gone'])(
+    'is denied when the viewer’s key answers %s (#788)',
+    async (code) => {
+      api.outsideIssue.mockImplementation(() => Promise.reject(new ApiError('no', 403, code)));
+      const { result } = renderHook(() => useOutsideIssue('t1', 'redmine:482', vi.fn()));
+
+      await waitFor(() => expect(result.current.state.kind).toBe('denied'));
+    },
+  );
+
+  it('is unreachable, not denied, when the source can’t be reached', async () => {
+    api.outsideIssue.mockImplementation(() =>
+      Promise.reject(new ApiError('down', 503, 'unreachable')),
+    );
+    const { result } = renderHook(() => useOutsideIssue('t1', 'redmine:482', vi.fn()));
+
+    await waitFor(() => expect(result.current.state.kind).toBe('unreachable'));
+  });
+
+  it('keeps an issue already shown through a failed background read', async () => {
+    api.outsideIssue.mockResolvedValueOnce(issueFor('482'));
+    const { result } = renderHook(() => useOutsideIssue('t1', 'redmine:482', vi.fn()));
+    await waitFor(() => expect(result.current.state.kind).toBe('loaded'));
+
+    api.outsideIssue.mockImplementation(() =>
+      Promise.reject(new ApiError('down', 503, 'too-many-requests')),
+    );
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.state.kind).toBe('loaded');
   });
 });

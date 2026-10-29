@@ -31,17 +31,17 @@ test.describe('Huddle updates for ticket timers', () => {
     await tickets.startTimerButton(title).click();
 
     await expect(page.getByText(`Started ${title}`, { exact: true })).toBeVisible();
-    // Named by its short reference and title: "Started #3fa2c: <title>".
+    // Named by its ticket ID and title: "Started TH-12: <title>" (#788).
     await expect
       .poll(async () => (await findPostByText(`: ${title}](`))?.content.text ?? '')
-      .toMatch(/^\*Started \[#\w{5}: /);
+      .toMatch(/^\*Started \[[A-Z][A-Z0-9]*-\d+: /);
 
     await page.getByRole('button', { name: 'View post' }).click();
 
     await expect(page).toHaveURL(/\/app\/huddle/);
     const update = inboxMessage(page, `: ${title}`);
     await expect(update).toBeVisible({ timeout: 15000 });
-    await expect(update).toContainText('Started #');
+    await expect(update).toContainText(/Started [A-Z][A-Z0-9]*-\d+/);
 
     // The ticket's name is a link, and it opens the ticket here, not in a new tab.
     await update.getByRole('link').click();

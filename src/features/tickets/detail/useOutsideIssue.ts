@@ -3,9 +3,10 @@
  * page: the Linked issue section, the status, priority and description, and
  * the Activity card all draw from the same record.
  *
- * Read and written with the viewer's own key, so a viewer who hasn't connected
- * the source, or can't see the issue, gets a state saying why, and the page
- * shows the ticket as TimeHuddle has it.
+ * Read and written with the viewer's own key. A viewer whose key can't read the
+ * issue (not connected, another server, refused, or can't see it) is `denied`,
+ * and the page shows them no part of the ticket (#788): its title is the
+ * issue's subject.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -21,15 +22,23 @@ export type OutsideState =
   | { kind: 'none' }
   | { kind: 'loading' }
   | { kind: 'loaded'; issue: OutsideIssue }
-  | { kind: 'not-connected' }
-  | { kind: 'other-server' }
-  | { kind: 'unavailable' };
+  | { kind: 'denied' }
+  | { kind: 'unreachable' };
 
+/** The answers that mean the viewer's own key can't read the issue. */
+const DENIED_CODES = new Set([
+  'not-connected',
+  'other-server',
+  'custom-instance',
+  'invalid-key',
+  'forbidden',
+  'gone',
+]);
+
+/** Anything but a refusal (an outage, a rate limit) says nothing about access. */
 function failedState(err: unknown): OutsideState {
   const code = err instanceof ApiError ? err.code : undefined;
-  if (code === 'not-connected') return { kind: 'not-connected' };
-  if (code === 'other-server' || code === 'custom-instance') return { kind: 'other-server' };
-  return { kind: 'unavailable' };
+  return code && DENIED_CODES.has(code) ? { kind: 'denied' } : { kind: 'unreachable' };
 }
 
 /**
@@ -75,7 +84,13 @@ export function useOutsideIssue(
       setState({ kind: 'loaded', issue });
       return true;
     } catch (err) {
-      if (request === latest.current) setState(failedState(err));
+      // An issue already shown stays shown through a failed background read.
+      const failed = failedState(err);
+      if (request === latest.current) {
+        setState((prev) =>
+          failed.kind === 'unreachable' && prev.kind === 'loaded' ? prev : failed,
+        );
+      }
       return false;
     }
   }, [ticketId, linkedKey]);

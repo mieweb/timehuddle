@@ -475,10 +475,34 @@ describe('postsToConversations', () => {
 
   describe('ticket links', () => {
     const tickets = [
-      { id: 'tkt-1', title: 'Onboarding checklist' },
-      { id: 'tkt-gone', title: null },
-      { id: 'tkt-2', title: 'Fix [beta] *login*' },
+      { id: 'tkt-1', title: 'Onboarding checklist', label: 'TH-1: Onboarding checklist' },
+      { id: 'tkt-gone', title: null, label: null },
+      { id: 'tkt-2', title: 'Fix [beta] *login*', label: 'TH-2: Fix [beta] *login*' },
     ];
+
+    it('names a ticket carrying an outside issue by its ID alone (#788)', () => {
+      const carried = { id: 'tkt-3', title: 'Patient subject', label: 'RMX-656' };
+      const [conversation] = postsToConversations(
+        [makePost({ id: 'p1', tickets: [carried] })],
+        'ticket',
+        VIEWER_MEMBER,
+        NOW,
+      );
+      const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
+      expect(text).toContain('[RMX-656](/app/tickets/tkt-3)');
+      expect(text).not.toContain('Patient subject');
+      expect(conversation.title).not.toContain('Patient subject');
+    });
+
+    it('falls back to the title when the post carries no label', () => {
+      const [conversation] = postsToConversations(
+        [makePost({ id: 'p1', tickets: [{ id: 'tkt-1', title: 'Onboarding checklist' }] })],
+        'day',
+        VIEWER_MEMBER,
+        NOW,
+      );
+      expect(conversation.thread[0].text).toContain('[Onboarding checklist](/app/tickets/tkt-1)');
+    });
 
     it('links each existing ticket to its page and skips deleted ones', () => {
       for (const threadBy of ['session', 'day', 'person', 'ticket'] as const) {
@@ -489,8 +513,9 @@ describe('postsToConversations', () => {
           NOW,
         );
         const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
-        expect(text).toContain('🎫 [Onboarding checklist](/app/tickets/tkt-1)');
-        expect(text).toContain('🎫 [Fix \\[beta\\] \\*login\\*](/app/tickets/tkt-2)');
+        expect(text).toContain('[TH-1: Onboarding checklist](/app/tickets/tkt-1)');
+        expect(text).toContain('[TH-2: Fix \\[beta\\] \\*login\\*](/app/tickets/tkt-2)');
+        expect(text).not.toContain('🎫');
         expect(text).not.toContain('tkt-gone');
       }
     });
@@ -506,7 +531,7 @@ describe('postsToConversations', () => {
       );
       const text = conversation.thread.find((m) => m.id === 'p1')?.text;
       expect(text).toBe(
-        `${post.content.text}\n\n*Plan · 🎫 [Onboarding checklist](/app/tickets/tkt-1) · Dev Team*`,
+        `${post.content.text}\n\n*Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team*`,
       );
     });
 

@@ -50,7 +50,9 @@ import { NoAccessState, type NoAccessKind } from '../../../ui/NoAccessState';
 import { useRouter } from '../../../ui/router';
 import { UserAvatar } from '../../../ui/UserAvatar';
 import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
+import { settingsPath } from '../../settings/settingsSections';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
+import { ticketLinkText } from '../link/ticketLinkStrings';
 import { huddleTicketRef, invalidateRedmineCache, ticketKey } from '../sources';
 
 import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
@@ -472,15 +474,15 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   // ── Render ──
 
-  if (loading) {
-    return (
-      <AppPage>
-        <div className="ticket-detail-loading flex items-center justify-center py-24">
-          <Spinner />
-        </div>
-      </AppPage>
-    );
-  }
+  const loadingPage = (
+    <AppPage>
+      <div className="ticket-detail-loading flex items-center justify-center py-24">
+        <Spinner />
+      </div>
+    </AppPage>
+  );
+
+  if (loading) return loadingPage;
 
   if (unavailable) {
     return (
@@ -501,6 +503,40 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         </div>
       </AppPage>
     );
+  }
+
+  // A ticket carrying an outside issue is shown only to a viewer whose own key
+  // can read the issue (#788): its title is the issue's subject.
+  if (ticket.linkedIssue) {
+    if (outside.state.kind === 'loading') return loadingPage;
+    if (outside.state.kind === 'denied') {
+      return (
+        <AppPage>
+          <NoAccessState
+            kind="forbidden"
+            resource="linked-ticket"
+            action={{
+              label: ticketLinkText.goToSettings,
+              onClick: () => navigate(settingsPath('integrations')),
+            }}
+          />
+        </AppPage>
+      );
+    }
+    if (outside.state.kind === 'unreachable') {
+      return (
+        <AppPage>
+          <div className="ticket-detail-unreachable flex flex-col items-center gap-4 py-24">
+            <Text role="alert">
+              {outsideText.unreachable(sourceLabel(ticket.linkedIssue.source))}
+            </Text>
+            <Button variant="outline" onClick={() => void outside.reload()}>
+              {outsideText.tryAgain}
+            </Button>
+          </div>
+        </AppPage>
+      );
+    }
   }
 
   const team = teams.find((t) => t.id === ticket.teamId);
