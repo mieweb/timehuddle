@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  currentSessionKey,
   notificationPrefsApi,
   type HuddleTeamLevel,
   type NotificationPrefs,
@@ -60,13 +61,17 @@ export function useNotificationPrefs() {
       latest.current.set(field, mine);
       setPrefs((prev) => prev && applyPatch(prev, patch));
       setError(null);
-      queue.current = queue.current.then(() =>
-        notificationPrefsApi.update(patch).catch(() => {
+      const session = currentSessionKey();
+      queue.current = queue.current.then(() => {
+        // Signed out, or someone else signed in, while this waited its turn:
+        // the change belongs to the old account, so don't send it.
+        if (currentSessionKey() !== session) return undefined;
+        return notificationPrefsApi.update(patch).catch(() => {
           if (latest.current.get(field) !== mine) return;
           setPrefs((prev) => prev && applyPatch(prev, undo));
           setError(NOTIFICATION_STRINGS.saveFailed);
-        }),
-      );
+        });
+      });
     },
     [],
   );

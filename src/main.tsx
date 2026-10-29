@@ -89,7 +89,8 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
-import { enterpriseApi, notificationApi } from './lib/api';
+import { enterpriseApi } from './lib/api';
+import { markTappedNotificationRead } from './features/notifications/notificationEvents';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -293,8 +294,7 @@ const App: React.FC = () => {
         if (nData) {
           notif.onclick = () => {
             window.focus();
-            if (nData.type !== 'shift-end-reminder')
-              void notificationApi.markOneRead(n.id).catch(() => {});
+            markTappedNotificationRead({ notificationId: n.id, type: nData.type });
             const url = nData.url as string | undefined;
             if (url?.startsWith('/app/')) {
               // Keep the query string — it carries the deep-link target

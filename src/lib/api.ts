@@ -203,6 +203,19 @@ export function decodeJwtExp(token: string): number {
 }
 
 /**
+ * Identifies who is signed in right now: changes on sign-out and when someone
+ * else signs in. Work queued for later (e.g. preference saves) compares it so
+ * one person's change is never sent with the next person's credentials.
+ */
+export function currentSessionKey(): string | null {
+  try {
+    return localStorage.getItem('meteor_resume_token');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get a short-lived JWT access token from better-auth (`GET /api/auth/token`),
  * cached until ~60s before expiry. Falls back to Meteor resume token when no
  * Fastify session is available. Returns null when signed out.

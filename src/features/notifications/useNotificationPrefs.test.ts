@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { notificationPrefsApi, type NotificationPrefs } from '../../lib/api';
+import { currentSessionKey, notificationPrefsApi, type NotificationPrefs } from '../../lib/api';
 import { useNotificationPrefs } from './useNotificationPrefs';
 
 vi.mock('../../lib/api', () => ({
   notificationPrefsApi: { get: vi.fn(), update: vi.fn() },
+  currentSessionKey: vi.fn(() => 'session-a'),
 }));
 
 const api = vi.mocked(notificationPrefsApi);
@@ -81,5 +82,24 @@ describe('useNotificationPrefs saves', () => {
     act(() => result.current.setTeamLevel(TEAM, 'mute'));
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.teamLevel(TEAM)).toBe('mentions');
+  });
+
+  it('drops a queued save once someone else has signed in', async () => {
+    let finishFirst!: () => void;
+    api.update.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => (finishFirst = resolve));
+      return loaded;
+    });
+    const { result } = await renderLoaded();
+
+    act(() => result.current.setTeamLevel(TEAM, 'all'));
+    act(() => result.current.setTeamLevel(TEAM, 'mute'));
+    await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1));
+    vi.mocked(currentSessionKey).mockReturnValue('session-b');
+    await act(async () => finishFirst());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(api.update).toHaveBeenCalledTimes(1);
+    vi.mocked(currentSessionKey).mockReturnValue('session-a');
   });
 });
