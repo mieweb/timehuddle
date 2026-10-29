@@ -78,14 +78,20 @@ export async function createNotification({ userId, title, body, data }) {
     body,
     ...(data ? { data } : {}),
     read: false,
+    // Which pop-ups this notification was allowed (#784): an open app's own
+    // desktop alert (src/main.tsx) follows it rather than alerting on every row.
+    pushed: { desktop: delivery.desktop, phone: delivery.phone },
     createdAt: new Date(),
   };
   await notifications().insertOne(doc);
   if (delivery.desktop || delivery.phone) {
     // The push carries the row's id so tapping it can mark it read; the stored
     // row doesn't need it.
-    const pushData = { ...data, notificationId: doc._id.toHexString() };
-    sendToUser(userId, { title, body, tag: data?.type, data: pushData }, delivery).catch((err) =>
+    // Tagged with its own id: a shared tag (the type) made each pop-up silently
+    // replace the last one of its kind on desktop and phone.
+    const notificationId = doc._id.toHexString();
+    const pushData = { ...data, notificationId };
+    sendToUser(userId, { title, body, tag: notificationId, data: pushData }, delivery).catch((err) =>
       console.error('[push] sendToUser failed:', err)
     );
   }

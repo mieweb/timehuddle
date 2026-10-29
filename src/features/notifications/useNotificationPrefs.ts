@@ -3,7 +3,7 @@
  * with setters that update the screen first and undo the change if the save
  * fails. Shared by Settings › Notifications and the Huddle bell.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   notificationPrefsApi,
@@ -46,19 +46,38 @@ export function useNotificationPrefs() {
     };
   }, []);
 
-  /** Save `patch`; on failure put back `undo` and say so. */
-  const save = useCallback((patch: NotificationPrefsPatch, undo: NotificationPrefsPatch) => {
-    setPrefs((prev) => prev && applyPatch(prev, patch));
-    setError(null);
-    notificationPrefsApi.update(patch).catch(() => {
-      setPrefs((prev) => prev && applyPatch(prev, undo));
-      setError(NOTIFICATION_STRINGS.saveFailed);
-    });
-  }, []);
+  // Saves go to the server one at a time, in the order they were made: sent
+  // together, a slow earlier save could land after a later one and win.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  // The newest save per setting, so a failed older one can't undo a newer choice.
+  const latest = useRef(new Map<string, number>());
+  const counter = useRef(0);
+
+  /** Save `patch` (which changes `field`); on failure put back `undo` and say so. */
+  const save = useCallback(
+    (field: string, patch: NotificationPrefsPatch, undo: NotificationPrefsPatch) => {
+      const mine = ++counter.current;
+      latest.current.set(field, mine);
+      setPrefs((prev) => prev && applyPatch(prev, patch));
+      setError(null);
+      queue.current = queue.current.then(() =>
+        notificationPrefsApi.update(patch).catch(() => {
+          if (latest.current.get(field) !== mine) return;
+          setPrefs((prev) => prev && applyPatch(prev, undo));
+          setError(NOTIFICATION_STRINGS.saveFailed);
+        }),
+      );
+    },
+    [],
+  );
 
   const setEvent = useCallback(
     (key: string, device: NotificationDevice, on: boolean) =>
-      save({ events: { [key]: { [device]: on } } }, { events: { [key]: { [device]: !on } } }),
+      save(
+        `events.${key}.${device}`,
+        { events: { [key]: { [device]: on } } },
+        { events: { [key]: { [device]: !on } } },
+      ),
     [save],
   );
 
@@ -69,7 +88,11 @@ export function useNotificationPrefs() {
 
   const setTeamLevel = useCallback(
     (teamId: string, level: HuddleTeamLevel) =>
-      save({ teams: { [teamId]: level } }, { teams: { [teamId]: teamLevel(teamId) } }),
+      save(
+        `teams.${teamId}`,
+        { teams: { [teamId]: level } },
+        { teams: { [teamId]: teamLevel(teamId) } },
+      ),
     [save, teamLevel],
   );
 
@@ -79,7 +102,7 @@ export function useNotificationPrefs() {
       const undo = Object.fromEntries(
         Object.keys(change).map((field) => [field, prefs.quiet[field as keyof NotificationQuiet]]),
       );
-      save({ quiet: change }, { quiet: undo });
+      save(`quiet.${Object.keys(change).sort().join(',')}`, { quiet: change }, { quiet: undo });
     },
     [prefs, save],
   );

@@ -179,9 +179,12 @@ interface ForegroundNotif {
  * Tapping a push opens what it's about; it should also mark it read in the
  * inbox. The server puts the inbox row's id on every push as `notificationId`.
  */
-function markPushRead(data: { notificationId?: unknown }) {
+function markPushRead(data: { notificationId?: unknown; type?: unknown }) {
   const id = data.notificationId;
   if (typeof id !== 'string' || !id) return;
+  // The shift-end prompt opens from unread reminders and marks its own read
+  // once answered; reading it here first would stop the prompt opening.
+  if (data.type === 'shift-end-reminder') return;
   notificationApi
     .markOneRead(id)
     // An open Notifications page only hears about new rows; tell it this one is read.

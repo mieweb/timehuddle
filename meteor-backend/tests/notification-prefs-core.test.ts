@@ -158,13 +158,13 @@ describe('quiet time', () => {
     expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW })).toEqual(DELIVER_EVERYWHERE);
   });
 
-  it('holds every push until the user clocks in', () => {
+  it('holds every push until the next clock-in, even when picked mid-shift', () => {
     const p = quiet({ snoozeUntilClockIn: true });
     expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW, clockedIn: false })).toEqual(
       HELD,
     );
     expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW, clockedIn: true })).toEqual(
-      DELIVER_EVERYWHERE,
+      HELD,
     );
   });
 
@@ -198,7 +198,8 @@ describe('quiet time', () => {
     expect(needsClockState(null)).toBe(false);
     expect(needsClockState(quiet({ snoozeUntil: NOW }))).toBe(false);
     expect(needsClockState(quiet({ holdOffShift: true }))).toBe(true);
-    expect(needsClockState(quiet({ snoozeUntilClockIn: true }))).toBe(true);
+    // Clocking in clears this flag itself, so delivery never needs the clock for it.
+    expect(needsClockState(quiet({ snoozeUntilClockIn: true }))).toBe(false);
   });
 });
 
@@ -226,6 +227,26 @@ describe('org settings', () => {
   it("ignores the person's choice when the org locks it on", () => {
     const orgPolicy = { value: true, locked: true };
     expect(resolveDelivery(userOff, { type: 'clock-out', orgPolicy })).toEqual(DELIVER_EVERYWHERE);
+  });
+});
+
+describe('actionable events', () => {
+  it('keeps the shift-end reminder in the inbox with both pop-ups off', () => {
+    const p = prefs({ shiftEnd: { desktop: false, phone: false } });
+    expect(resolveDelivery(p, { type: 'shift-end-reminder' })).toEqual({
+      inbox: true,
+      desktop: false,
+      phone: false,
+    });
+  });
+
+  it('still drops it when the organization turns reminders off', () => {
+    expect(
+      resolveDelivery(null, {
+        type: 'shift-end-reminder',
+        orgPolicy: { value: false, locked: false },
+      }),
+    ).toEqual(DELIVER_NOWHERE);
   });
 });
 

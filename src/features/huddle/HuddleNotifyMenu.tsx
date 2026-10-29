@@ -21,8 +21,9 @@ import {
   SheetHeader,
   SheetTitle,
   useMediaQuery,
+  useToast,
 } from '@mieweb/ui';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { settingsPath } from '../settings/settingsSections';
 import { HUDDLE_TEAM_LEVELS, NOTIFICATION_STRINGS as S } from '../notifications/notificationCopy';
@@ -39,7 +40,12 @@ export function HuddleNotifyMenu({ teamId, teamName }: HuddleNotifyMenuProps) {
   const [open, setOpen] = useState(false);
   const phone = useMediaQuery('(max-width: 767px)');
   const { navigate } = useRouter();
-  const { prefs, teamLevel, setTeamLevel } = useNotificationPrefs();
+  const { prefs, error, teamLevel, setTeamLevel } = useNotificationPrefs();
+  const toast = useToast();
+  // The menu has closed by the time a save fails, so say so where it's heard.
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
   if (!prefs) return null;
 
   const level = teamLevel(teamId);

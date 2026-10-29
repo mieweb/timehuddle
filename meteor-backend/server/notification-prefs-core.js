@@ -17,6 +17,8 @@
  *     before #784 defaults to both devices.
  *   - Huddle events also pass the user's level for the post's team: `mute`
  *     drops them all, `mentions` (the default) drops new-post alerts.
+ *   - An actionable event (the shift-end reminder) stays in the inbox even with
+ *     both devices off, so it can still be answered.
  *   - Quiet time holds the push but keeps the inbox row: a snooze holds every
  *     push, "hold while clocked out" holds Huddle pushes except mentions, and
  *     "skip while viewing" holds Huddle pushes for a team whose Huddle the
@@ -70,6 +72,13 @@ const DROPPED_BY_LEVEL = {
   mute: new Set(['huddleMention', 'huddleReply', 'huddlePost', 'huddleGroupMention']),
 };
 
+/**
+ * Events that ask for an answer: the shift-end reminder is how someone keeps
+ * working past 8 hours instead of being clocked out. Turning off its pop-ups
+ * never drops it from the inbox; only an organization turning it off does.
+ */
+const ACTIONABLE_EVENTS = new Set(['shiftEnd']);
+
 /** The Huddle events, which "hold while clocked out" applies to. */
 const HUDDLE_EVENTS = DROPPED_BY_LEVEL.mute;
 
@@ -121,15 +130,16 @@ export function quietSettings(prefs) {
 
 /** Whether deciding this user's delivery needs to know if they're clocked in. */
 export function needsClockState(prefs) {
-  const quiet = quietSettings(prefs);
-  return quiet.holdOffShift || quiet.snoozeUntilClockIn;
+  return quietSettings(prefs).holdOffShift;
 }
 
 /** Whether quiet time holds the push for event `key` right now. */
 function pushHeld(prefs, key, { now = new Date(), clockedIn = true, viewingTeam = false } = {}) {
   const quiet = quietSettings(prefs);
   if (quiet.snoozeUntil && new Date(quiet.snoozeUntil) > now) return true;
-  if (quiet.snoozeUntilClockIn && !clockedIn) return true;
+  // Set until the next clock-in, which clears it (clockStart), so it holds
+  // even when picked mid-shift.
+  if (quiet.snoozeUntilClockIn) return true;
   if (!HUDDLE_EVENTS.has(key)) return false;
   if (quiet.skipWhileViewing && viewingTeam) return true;
   return quiet.holdOffShift && !clockedIn && key !== 'huddleMention';
@@ -158,7 +168,13 @@ export function resolveDelivery(prefs, ctx) {
   }
   if (ctx.orgPolicy && !ctx.orgPolicy.value) return DELIVER_NOWHERE;
   const { desktop, phone } = ctx.orgPolicy?.locked ? EVENTS[key] : eventSetting(prefs, key);
-  if (!desktop && !phone) return DELIVER_NOWHERE;
+  if (!desktop && !phone) {
+    // Someone has to be able to answer an actionable event, so it stays in the
+    // inbox even with both pop-ups off.
+    return ACTIONABLE_EVENTS.has(key)
+      ? { inbox: true, desktop: false, phone: false }
+      : DELIVER_NOWHERE;
+  }
   if (pushHeld(prefs, key, ctx)) return { inbox: true, desktop: false, phone: false };
   return { inbox: true, desktop, phone };
 }

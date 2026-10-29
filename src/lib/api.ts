@@ -1886,6 +1886,8 @@ export interface Notification {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  /** Which pop-ups the user's preferences allowed for it (#784); absent on older rows. */
+  pushed?: { desktop: boolean; phone: boolean };
   read: boolean;
   createdAt: string; // ISO
 }

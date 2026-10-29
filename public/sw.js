@@ -83,7 +83,6 @@ self.addEventListener('notificationclick', function (event) {
             type: 'timehuddle:openShiftReminder',
             clockEventId: notificationData.clockEventId,
             teamId: notificationData.teamId,
-            notificationId: notificationData.notificationId,
           };
           if (windowClients.length > 0) {
             windowClients[0].postMessage(msg);
@@ -91,7 +90,8 @@ self.addEventListener('notificationclick', function (event) {
           }
           // No open window — open the app; ShiftReminderContext will hydrate from inbox on load
           if (clients.openWindow) {
-            return clients.openWindow(withNotificationId('/app/dashboard', notificationData));
+            // No ?notification=: the prompt marks the reminder read once answered.
+            return clients.openWindow('/app/dashboard');
           }
         })
         .catch((err) => console.error('[Service Worker] Error handling notification click:', err)),

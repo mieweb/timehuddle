@@ -533,6 +533,39 @@ this in a comment at the top of `presence.js`.
 
 ---
 
+## Review Follow-ups (PR #793)
+
+Fixed after the Copilot review and the browser and phone walkthrough (2026-10-29).
+Each one was confirmed before it was fixed.
+
+- [x] **Silent auto clock-out (Copilot #1).** With the shift-end reminder off, the
+      8-hour job still clocked people out with no prompt and nothing in the inbox.
+  - [x] The reminder is now an _actionable_ event (`ACTIONABLE_EVENTS` in the core):
+        unticking both devices stops the pop-ups but keeps it in the inbox.
+  - [x] An organization turning reminders off drops the reminder, and `agenda.js`
+        then schedules no automatic clock-out.
+  - [x] Re-checked on the dev server with backdated sessions: both cases behave.
+- [x] **Shift reminder opened from a closed app (Copilot #10).** A tapped shift-end
+      push is no longer marked read before the prompt opens (`markPushRead`, `sw.js`).
+- [x] **"Until I clock in" picked mid-shift (Copilot #4).** It now holds pop-ups
+      whenever it's set. Clocking in clears it.
+- [x] **The open app's own desktop alert ignored preferences (Copilot #6).** Each
+      inbox row records `pushed: { desktop, phone }`, and `main.tsx` only alerts when
+      `pushed.desktop` is true.
+- [x] **Locked off shown as editable (Copilot #5).** `notificationPrefs.get` reports
+      locks at either value, and shows locked-off events as off and disabled.
+- [x] **Bell save failures were silent (Copilot #8).** The bell shows a toast.
+- [x] **Overlapping saves (Copilot #9).** `useNotificationPrefs` sends saves one at a
+      time, and a failed older save can't undo a newer choice (tested).
+- [x] **Repeat pop-ups replaced each other.** Pushes were tagged with their type, so a
+      second "new post" silently replaced the first on desktop and phone. Each push
+      is now tagged with its own notification id, and the open app's alert uses the
+      same tag so the two collapse into one.
+- [ ] **Left as is:**
+  - Copilot #2 (a comment mentioning the post author): comments can't be written today.
+  - Copilot #7 (legacy team ids in the shared permission check): belongs in a separate PR.
+  - Copilot #3 (skip-while-viewing on by default): waiting on a product decision.
+
 ## Every Milestone
 
 - [x] `npm run test:all`: 793 Vitest tests pass. In Playwright, 438 passed, 3 failed, 3 flaky

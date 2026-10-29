@@ -65,9 +65,11 @@ export async function endSnoozeUntilClockIn(userId) {
 }
 
 /**
- * Events an org has locked on for one of this user's teams, so Settings can show
- * them as fixed. A lock applies per team; showing the row locked when any team
- * locks it is the simple reading for the common case of one organization.
+ * Events an organization has locked for one of this user's teams, with the
+ * value it locked them at, so Settings shows them as fixed. A lock applies per
+ * team; any team locking it on wins over one locking it off, and showing the
+ * row locked when any team locks it is the simple reading for the common case
+ * of one organization.
  */
 async function lockedEvents(userId) {
   const teams = await rawDb()
@@ -75,9 +77,12 @@ async function lockedEvents(userId) {
     .find({ $or: [{ members: userId }, { admins: userId }] })
     .toArray();
   const resolved = await resolveSettingsForTeams(teams);
-  return Object.entries(ORG_SETTING_FOR_EVENT)
-    .filter(([, setting]) => resolved.some((r) => r[setting].locked && r[setting].value))
-    .map(([eventKey]) => eventKey);
+  const locked = {};
+  for (const [eventKey, setting] of Object.entries(ORG_SETTING_FOR_EVENT)) {
+    const locks = resolved.map((r) => r[setting]).filter((value) => value.locked);
+    if (locks.length) locked[eventKey] = locks.some((value) => value.value);
+  }
+  return locked;
 }
 
 /** What the client shows: every event's effective setting, team levels, quiet time and locks. */
@@ -85,8 +90,13 @@ async function toClient(userId, prefs) {
   const quiet = quietSettings(prefs);
   const locked = await lockedEvents(userId);
   const events = allEventSettings(prefs);
-  // A locked event is delivered on its defaults, so show those, not the saved choice.
-  for (const key of locked) events[key] = { desktop: EVENTS[key].desktop, phone: EVENTS[key].phone };
+  // A locked event is delivered on its defaults when locked on, and not at
+  // all when locked off: show that, not the saved choice.
+  for (const [key, on] of Object.entries(locked)) {
+    events[key] = on
+      ? { desktop: EVENTS[key].desktop, phone: EVENTS[key].phone }
+      : { desktop: false, phone: false };
+  }
   return {
     events,
     teams: prefs?.teams ?? {},
@@ -94,7 +104,7 @@ async function toClient(userId, prefs) {
       ...quiet,
       snoozeUntil: quiet.snoozeUntil ? new Date(quiet.snoozeUntil).toISOString() : null,
     },
-    locked,
+    locked: Object.keys(locked),
   };
 }
 
