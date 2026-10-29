@@ -11,6 +11,8 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { sendToUser } from './push';
 import { findUserById } from './auth-bridge';
+import { DELIVER_EVERYWHERE, prefKeyForType, resolveDelivery } from './notification-prefs-core';
+import { getPrefs } from './notification-prefs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -18,8 +20,23 @@ function notifications() {
   return rawDb().collection('notifications');
 }
 
-/** Insert a notification and fire push. Mirror of notificationService.create. */
+/**
+ * Where the user wants this notification (#784). Types that aren't
+ * configurable skip the preferences read entirely.
+ */
+async function deliveryFor(userId, data) {
+  if (!prefKeyForType(data?.type)) return DELIVER_EVERYWHERE;
+  return resolveDelivery(await getPrefs(userId), { type: data.type });
+}
+
+/**
+ * Insert a notification and fire push, as the user's notification preferences
+ * allow. Returns the inserted document, or null when the user has the event
+ * turned off. Mirror of notificationService.create.
+ */
 export async function createNotification({ userId, title, body, data }) {
+  const delivery = await deliveryFor(userId, data);
+  if (!delivery.inbox) return null;
   const doc = {
     _id: new ObjectId(),
     userId,
@@ -30,9 +47,11 @@ export async function createNotification({ userId, title, body, data }) {
     createdAt: new Date(),
   };
   await notifications().insertOne(doc);
-  sendToUser(userId, { title, body, tag: data?.type, data }).catch((err) =>
-    console.error('[push] sendToUser failed:', err)
-  );
+  if (delivery.desktop || delivery.phone) {
+    sendToUser(userId, { title, body, tag: data?.type, data }, delivery).catch((err) =>
+      console.error('[push] sendToUser failed:', err)
+    );
+  }
   return doc;
 }
 

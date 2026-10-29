@@ -37,6 +37,7 @@ import './clock';
 import './timers';
 import './timesheet-approvals';
 import './notifications';
+import './notification-prefs';
 import './presence';
 import './activity';
 import './usage';
@@ -2170,6 +2171,25 @@ Meteor.startup(async () => {
   Wormhole.expose('notifications.pushUnsubscribe', {
     description: 'Remove all push subscriptions for the current user',
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('notificationPrefs.get', {
+    description: "Get the current user's notification preferences (every event, desktop and phone)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('notificationPrefs.update', {
+    description: "Change the current user's notification preferences; returns them all",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        events: {
+          type: 'object',
+          description: 'Event key → { desktop?: boolean, phone?: boolean }',
+        },
+      },
+      required: ['events'],
+    },
   });
 
   // ── Teams ───────────────────────────────────────────────────────────────────

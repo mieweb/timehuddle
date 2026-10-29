@@ -69,29 +69,29 @@ flowchart TD
 4. **Precedence, most specific first:** thread follow → team level → event setting →
    default. An **org lock** overrides all of them for the events it covers.
 5. **Team Mute** drops every Huddle event for that team, mentions included.
-6. **No visible change until a user saves.** A user with no `notificationPrefs` document
-   gets exactly today's behaviour: inbox plus every device, for every type. The
-   defaults in the table below apply only once a user saves preferences for the first
-   time, because the first save writes the full defaults.
+6. **No visible change until a user saves.** An unsaved event uses its default. Every
+   event that existed before #784 defaults to **on for both devices**, so a user who
+   never opens the settings gets exactly today's behaviour. Only the brand-new events
+   (thread replies, all posts, group mentions) default Phone to off.
 
 ### Event Map
 
 Each notification `type` maps to one preference key. A type that isn't listed is
 **not configurable** and keeps today's behaviour.
 
-| Pref key | Notification `type`(s) | Desktop | Phone | Group in UI |
-| --- | --- | --- | --- | --- |
-| `huddleMention` | `huddle-mention`, **new** `huddle-comment-mention` | on | on | Huddle |
-| `huddleReply` | `huddle-comment` (to the post author) | on | on | Huddle |
-| `huddleFollow` | **new** `huddle-thread-reply` | on | off | Huddle |
-| `huddlePost` | **new** `huddle-post` | on | off | Huddle |
-| `huddleGroupMention` | **new** `huddle-group-mention` (M7) | on | off | Huddle |
-| `ticketAssigned` | `ticket-assigned` | on | on | Tickets |
-| `ticketLink` | `ticket-link-changed` | on | off | Tickets |
-| `shiftEnd` | `shift-end-reminder` | on | on | Time |
-| `timesheetRequest` | `timesheet-change-request` | on | on | Time |
-| `teamClock` | `clock-in`, `clock-out`, `clock-session-changed` | on | off | Time (admins) |
-| `joinRequest` | `team-join-request` | on | on | Teams (admins) |
+| Pref key             | Notification `type`(s)                             | Desktop | Phone | Group in UI    |
+| -------------------- | -------------------------------------------------- | ------- | ----- | -------------- |
+| `huddleMention`      | `huddle-mention`, **new** `huddle-comment-mention` | on      | on    | Huddle         |
+| `huddleReply`        | `huddle-comment` (to the post author)              | on      | on    | Huddle         |
+| `huddleFollow`       | **new** `huddle-thread-reply`                      | on      | off   | Huddle         |
+| `huddlePost`         | **new** `huddle-post`                              | on      | off   | Huddle         |
+| `huddleGroupMention` | **new** `huddle-group-mention` (M7)                | on      | off   | Huddle         |
+| `ticketAssigned`     | `ticket-assigned`                                  | on      | on    | Tickets        |
+| `ticketLink`         | `ticket-link-changed`                              | on      | on    | Tickets        |
+| `shiftEnd`           | `shift-end-reminder`                               | on      | on    | Time           |
+| `timesheetRequest`   | `timesheet-change-request`                         | on      | on    | Time           |
+| `teamClock`          | `clock-in`, `clock-out`, `clock-session-changed`   | on      | on    | Time (admins)  |
+| `joinRequest`        | `team-join-request`                                | on      | on    | Teams (admins) |
 
 Not configurable: `test`, `team-setting-change`, `team-invite`, `auto-clock-out`,
 `team-join-request-approved`, `team-join-request-declined`, `redmine`,
@@ -99,11 +99,11 @@ Not configurable: `test`, `team-setting-change`, `team-invite`, `auto-clock-out`
 
 ### Huddle Team Levels
 
-| Level | `huddleMention` / `huddleGroupMention` | `huddleReply` / `huddleFollow` | `huddlePost` |
-| --- | --- | --- | --- |
-| `all` | ✓ | ✓ | ✓ |
-| `mentions` (default) | ✓ | ✓ | ✗ |
-| `mute` | ✗ | ✗ | ✗ |
+| Level                | `huddleMention` / `huddleGroupMention` | `huddleReply` / `huddleFollow` | `huddlePost` |
+| -------------------- | -------------------------------------- | ------------------------------ | ------------ |
+| `all`                | ✓                                      | ✓                              | ✓            |
+| `mentions` (default) | ✓                                      | ✓                              | ✗            |
+| `mute`               | ✗                                      | ✗                              | ✗            |
 
 ✓ means the event goes through to the event setting (the user's Desktop/Phone columns); ✗ means it is dropped.
 
@@ -140,9 +140,9 @@ notification is sent (see "Core Model Data Discipline" in CLAUDE.md).
 ```mermaid
 graph LR
     subgraph Backend["meteor-backend/server"]
-      Resolve["notification-prefs/resolve.js<br/>(new, pure)"]
-      Prefs["notification-prefs/index.js<br/>(new, methods + store)"]
-      Presence["presence.js<br/>(new, M8)"]
+      Resolve["notification-prefs-core.js<br/>(new, pure)"]
+      Prefs["notification-prefs.js<br/>(new, methods + store)"]
+      Presence["presence.js<br/>(existing, extended in M8)"]
       NotifyCore["notify-core.js"]
       Push["push.js"]
       Huddle["huddle.js"]
@@ -171,7 +171,7 @@ graph LR
     HuddlePage --> Bell
 
     classDef added fill:#e6f7fc,stroke:#1f98ca,color:#00506e
-    class Resolve,Prefs,Presence,PrefsUI,Copy,Bell added
+    class Resolve,Prefs,PrefsUI,Copy,Bell added
 ```
 
 ---
@@ -180,46 +180,57 @@ graph LR
 
 No UI. Users notice nothing. This milestone lays the plumbing everything else uses.
 
-- [ ] **1.1 New `meteor-backend/server/notification-prefs/resolve.js`.** Pure: no Meteor
+> **Naming follows the repo.** Per-user preferences here are a pure `*-core.js` file
+> plus a Mongo `*.js` file (see `redmine-prefs-core.js` / `redmine-prefs.js`), so the
+> new files are `notification-prefs-core.js` and `notification-prefs.js`. Later
+> milestones say "the core" for the first and "the prefs module" for the second.
+
+- [x] **1.1 New `meteor-backend/server/notification-prefs-core.js`.** Pure: no Meteor
       or Mongo imports, like `settings/registry.js`.
-  - [ ] `EVENT_DEFAULTS`: the event map table above, as data.
-  - [ ] `prefKeyForType(type)`: returns the pref key, or `null` when the type isn't configurable.
-  - [ ] `resolveDelivery(prefs, ctx)` returns `{ inbox, desktop, phone }`.
-        `ctx = { type, teamId, postId, isFollower, now, clockedIn, viewingTeam }`.
-        In this milestone, apply only rules 1, 2 and 6. Accept the other `ctx` fields
-        and ignore them for now.
-- [ ] **1.2 New `meteor-backend/server/notification-prefs/index.js`.**
-  - [ ] `getPrefs(userId)` and `savePrefs(userId, patch)` on the `notificationPrefs`
-        collection. Create the unique index on `userId` once, the way other indexes are
-        created in `collections.js`.
-  - [ ] Meteor methods `notificationPrefs.get` and `notificationPrefs.update`. Reject
-        unknown event keys and any team level that isn't `all|mentions|mute`. On a
-        user's **first** save, write the full defaults (rule 6).
-- [ ] **1.3 `notify-core.js` `createNotification`:**
-  - [ ] Load the prefs and call `resolveDelivery`.
-  - [ ] If `inbox` is false, return `null`.
-  - [ ] Otherwise insert the row, then call `sendToUser(userId, payload, { desktop, phone })`,
+  - [x] `EVENTS`: the event map table above, as data. Only events that exist today;
+        each later milestone adds its own.
+  - [x] `prefKeyForType(type)`: returns the pref key, or `null` when the type isn't configurable.
+  - [x] `resolveDelivery(prefs, ctx)` returns `{ inbox, desktop, phone }`. `ctx` is
+        `{ type }` for now; later milestones add the fields they need.
+  - [x] `prefsPatchToSet(patch)` validates a client patch and flattens it to dotted
+        `$set` paths. `allEventSettings(prefs)` gives the Settings page every event.
+- [x] **1.2 New `meteor-backend/server/notification-prefs.js`.**
+  - [x] `getPrefs(userId)` and `savePrefs(userId, patch)` on the `notificationPrefs`
+        collection (native driver). A unique index on `userId` is created in
+        `Meteor.startup`, the same way `redmine-suggestions.js` does it.
+  - [x] Meteor methods `notificationPrefs.get` and `notificationPrefs.update`. Both
+        return every event's effective setting. Unknown events or devices and
+        non-boolean values throw `bad-request`. Team levels arrive in M3.
+- [x] **1.3 `notify-core.js` `createNotification`:**
+  - [x] Load the prefs (only for configurable types) and call `resolveDelivery`.
+  - [x] If `inbox` is false, return `null`.
+  - [x] Otherwise insert the row, then call `sendToUser(userId, payload, { desktop, phone })`,
         but only when at least one of the two is true.
-  - [ ] Grep every caller and confirm none of them uses the return value in a way that
-        breaks on `null`.
-- [ ] **1.4 `push.js` `sendToUser(userId, payload, devices = { desktop: true, phone: true })`:**
+  - [x] Grep every caller and confirm none of them uses the return value in a way that
+        breaks on `null`. The two that return it, `agenda.js` `notifyUser` and
+        `notifyRequesterOfDecision`, are awaited and their result is ignored.
+- [x] **1.4 `push.js` `sendToUser(userId, payload, devices = { desktop: true, phone: true })`:**
       skip `webSubs` when `!devices.desktop`, and skip native `tokens` when `!devices.phone`.
       Thanks to the default, other callers don't change.
-- [ ] **1.5 `huddle.js` `huddle.addComment`:**
-  - [ ] Notify mentioned users with type `huddle-comment-mention` in place of `huddle-comment`.
-  - [ ] Replace the `for … await` loop with `Promise.allSettled`, the same pattern as
+- [x] **1.5 `huddle.js` `huddle.addComment`:**
+  - [x] Notify mentioned users with type `huddle-comment-mention` in place of `huddle-comment`.
+  - [x] Replace the `for … await` loop with `Promise.allSettled`, the same pattern as
         `notifyPostRecipients` in `huddle-delivery.js`.
-  - [ ] Confirm the `huddle-mention-retry` job (which dedupes on `huddle-mention` +
-        `postId`) is unaffected.
-- [ ] **1.6 `main.js`:** `Wormhole.expose` both new methods next to the `notifications.*`
-      block. A method missing from this list returns 404 over REST.
-- [ ] **1.7 Tests:**
-  - [ ] Unit tests for `resolve.js`, covering every rule plus the "no prefs document" case.
-  - [ ] `meteor-backend/tests/notification-prefs.test.ts`, modelled on
-        `notifications.test.ts`: save prefs, turn an event off for both devices, and
-        check that no inbox row is written.
+  - [x] Confirm the `huddle-mention-retry` job (which dedupes on `huddle-mention` +
+        `postId`) is unaffected. It only handles post mentions, and the new type keeps
+        comment mentions out of its dedupe query.
+- [x] **1.6 `main.js`:** `Wormhole.expose` both new methods next to the `notifications.*`
+      block, and `import './notification-prefs'`. A method missing from the expose
+      list returns 404 over REST.
+- [x] **1.7 Tests:**
+  - [x] `tests/notification-prefs-core.test.ts` (14 tests): every rule, the "no prefs
+        document" case, and patch validation.
+  - [x] `tests/notification-prefs.test.ts` (6 tests): get/update over REST, and a
+        comment on someone's post is logged with no prefs, dropped with both devices
+        off, and still logged with one device off.
 
 **Done when:** all of these hold.
+
 - A user with no prefs gets the same inbox rows and pushes as on `main`.
 - A user who turns an event off gets no inbox row for it.
 - A Desktop-only event reaches only web subscriptions.
@@ -247,10 +258,7 @@ Use `@mieweb/ui` only:
         test button. **Move** the enable/disable logic out of `PushNotificationsSettings`
         in `SettingsPage.tsx`. Don't copy it.
   - [ ] **What notifies you:** a real `<table>` with Event, Desktop and Phone columns,
-        grouped by the "Group in UI" column of the event map.
-        - Each checkbox has an `aria-label` such as "Someone @mentions me, Phone".
-        - A column is disabled while that device's push is off.
-        - Changes save immediately, with an optimistic update that is reverted if the save fails.
+        grouped by the "Group in UI" column of the event map. - Each checkbox has an `aria-label` such as "Someone @mentions me, Phone". - A column is disabled while that device's push is off. - Changes save immediately, with an optimistic update that is reverted if the save fails.
 - [ ] **2.4 `src/ui/SettingsPage.tsx`:** the `notifications` section renders
       `<NotificationPreferences />`.
 - [ ] **2.5 Phone layout:** below `md`, the table becomes **Desktop | Phone** tabs, with
@@ -259,6 +267,7 @@ Use `@mieweb/ui` only:
       `release-notes/README.md`.
 
 **Done when:** all of these hold.
+
 - The page matches the prototype at desktop and phone widths.
 - Every control works with the keyboard and has an accessible name.
 - A reload shows the saved state.
@@ -274,7 +283,7 @@ Use `@mieweb/ui` only:
   - Use `Promise.allSettled`.
 - [ ] **3.2 Call it where `notifyPostRecipients` is already called:** the immediate-post
       path in `huddle.js` and `deliverScheduledPost`.
-- [ ] **3.3 `resolve.js`:** turn on the **Huddle Team Levels** table.
+- [ ] **3.3 `notification-prefs-core.js`:** turn on the **Huddle Team Levels** table.
 - [ ] **3.4 New `src/features/huddle/HuddleNotifyMenu.tsx`:**
   - [ ] **Desktop:** an icon-only bell `Button` (with an `aria-label`) in the
         **conversation header**, just left of the ⋯ menu. It opens a `Dropdown` with a
@@ -287,6 +296,7 @@ Use `@mieweb/ui` only:
 - [ ] **3.6 Release note.**
 
 **Done when:** all of these hold.
+
 - A member on All posts gets a notification for each new post, including scheduled
   posts when they go out, but not their own posts.
 - A muted member gets nothing from that team.
@@ -313,6 +323,7 @@ Use `@mieweb/ui` only:
 - [ ] **4.4 Release note.**
 
 **Done when:** all of these hold.
+
 - A commenter hears about later comments.
 - Unfollowing stops that, and following a thread you never joined starts it.
 - Nobody gets two notifications for the same comment.
@@ -321,7 +332,7 @@ Use `@mieweb/ui` only:
 
 ## Milestone 5: Quiet Time
 
-- [ ] **5.1 `resolve.js`:** quiet rules turn `desktop` and `phone` off but leave `inbox` on.
+- [ ] **5.1 `notification-prefs-core.js`:** quiet rules turn `desktop` and `phone` off but leave `inbox` on.
   - `snoozeUntil > now`: hold every push.
   - `snoozeUntilClockIn && !clockedIn`: hold every push.
   - `holdOffShift && !clockedIn`: hold Huddle pushes, **except** `huddleMention`.
@@ -337,6 +348,7 @@ Use `@mieweb/ui` only:
 - [ ] **5.5 Release note.**
 
 **Done when:** all of these hold.
+
 - While clocked out with the hold on, posts are logged without a push, and mentions still push.
 - Snooze holds pushes for its duration.
 - Users without quiet settings cause no extra query.
@@ -365,6 +377,7 @@ Use `@mieweb/ui` only:
 - [ ] **6.5 Release note.**
 
 **Done when:** all of these hold.
+
 - An org admin can turn either alert off and lock it.
 - Teams show the inherited value.
 - A locked row can't be changed on the member's Settings page.
@@ -391,7 +404,7 @@ This needs no `vendor/ui` change. SuperChat takes its mention list from us throu
   - `team` covers all team members and admins.
   - `here` covers members with an open `ClockEvents` row for **this team**
     (`teamId`, `endTime: null`).
-- [ ] **7.4 `resolve.js`:** `huddleGroupMention` follows the team-level table above.
+- [ ] **7.4 `notification-prefs-core.js`:** `huddleGroupMention` follows the team-level table above.
       `holdOffShift` **does** hold it, because it isn't a personal mention.
 - [ ] **7.5 Check rendering:** confirm `@team` and `@here` are highlighted like
       `@person` in `MarkdownContent`. If they aren't, stop and ask before changing
@@ -399,6 +412,7 @@ This needs no `vendor/ui` change. SuperChat takes its mention list from us throu
 - [ ] **7.6 Release note.**
 
 **Done when:** all of these hold.
+
 - `@here` reaches only teammates clocked in to that team.
 - `@team` reaches everyone in the team.
 - Nobody gets both a group mention and a direct mention for the same post.
@@ -410,7 +424,8 @@ This needs no `vendor/ui` change. SuperChat takes its mention list from us throu
 This doesn't need `vendor/ui` either. The server has to know that a user has a team's
 Huddle open in a visible tab.
 
-- [ ] **8.1 New `meteor-backend/server/presence.js`:**
+- [ ] **8.1 Extend the existing `meteor-backend/server/presence.js`.** It already has a
+      `presence.watch` online/offline heartbeat; add the following next to it:
   - [ ] `Meteor.publish('huddle.viewing', function (teamId) { … })` publishes no
         documents. It records `this.userId → teamId` in an in-memory
         `Map<userId, Map<teamId, count>>`, calls `this.ready()`, and on `this.onStop`
@@ -424,7 +439,7 @@ Huddle open in a visible tab.
       `huddlePosts.byTeam` subscription around line 542.
 - [ ] **8.3 `notify-core.js`:** for Huddle types with a `teamId`, pass
       `viewingTeam: isViewingTeam(userId, teamId)`.
-- [ ] **8.4 `resolve.js`:** `quiet.skipWhileViewing && viewingTeam` turns `desktop` and
+- [ ] **8.4 `notification-prefs-core.js`:** `quiet.skipWhileViewing && viewingTeam` turns `desktop` and
       `phone` off and keeps `inbox`.
 - [ ] **8.5 Settings Quiet time card:** add a `Switch` labelled "Skip push while I have
       that Huddle open", defaulting to on.
@@ -435,6 +450,7 @@ instance behind a load balancer, move it to a Mongo collection with a TTL index.
 this in a comment at the top of `presence.js`.
 
 **Done when:** all of these hold.
+
 - With the team's Huddle open and visible on desktop, a post in that team causes no
   phone buzz, but the item is in the bell.
 - Hiding the tab restores pushes within a few seconds.
