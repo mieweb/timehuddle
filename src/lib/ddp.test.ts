@@ -99,6 +99,7 @@ describe('method timeouts', () => {
   type Internals = {
     handleMessage(data: Record<string, unknown>): void;
     tryResumeLogin(): Promise<boolean>;
+    authPromise: Promise<void> | null;
     ws: unknown;
     connectPromise: Promise<void> | null;
     status: string;
@@ -166,5 +167,27 @@ describe('method timeouts', () => {
 
     await expect(internals.tryResumeLogin()).resolves.toBe(false);
     expect(localStorage.getItem('meteor_resume_token')).toBeNull();
+  });
+
+  it('rejects the other calls in flight with the timeout, not a lost connection', async () => {
+    vi.useFakeTimers();
+    connectFakeSocket();
+
+    const first = client.call('first');
+    const second = client.call('second');
+    const rejected = Promise.all([
+      expect(first).rejects.toBeInstanceOf(DdpTimeoutError),
+      expect(second).rejects.toBeInstanceOf(DdpTimeoutError),
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+  });
+
+  it('rejects ensureAuthed when the login times out, and lets the next call retry', async () => {
+    connectFakeSocket();
+    vi.spyOn(internals, 'tryResumeLogin').mockRejectedValue(new DdpTimeoutError('timed out'));
+
+    await expect(client.ensureAuthed()).rejects.toBeInstanceOf(DdpTimeoutError);
+    expect(internals.authPromise).toBeNull();
   });
 });

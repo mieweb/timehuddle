@@ -1009,19 +1009,24 @@ async function wormholeCall<T = unknown>(
         : ((response.data as typeof data) ?? {});
   } else {
     let res: Response;
+    const signal = AbortSignal.timeout(WORMHOLE_TIMEOUT_MS);
     try {
       res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(params),
-        signal: AbortSignal.timeout(WORMHOLE_TIMEOUT_MS),
+        signal,
       });
     } catch (fetchError) {
       console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
       throw fetchError;
     }
     status = res.status;
-    data = (await res.json().catch(() => ({}))) as typeof data;
+    data = (await res.json().catch((err: unknown) => {
+      // A timeout mid-body is not an empty 2xx result.
+      if (signal.aborted) throw err;
+      return {};
+    })) as typeof data;
   }
 
   console.log(`[wormholeCall] ${method}: got response, status=${status}`);

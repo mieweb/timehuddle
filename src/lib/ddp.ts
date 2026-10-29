@@ -236,9 +236,9 @@ class DdpClient {
    * reset connection state, and reconnect with backoff — re-authing and
    * restoring every active subscription so live data resumes seamlessly.
    */
-  private handleDisconnect(): void {
+  private handleDisconnect(reason: Error = new Error('DDP connection lost')): void {
     for (const pending of this.pendingMethods.values()) {
-      pending.reject(new Error('DDP connection lost'));
+      pending.reject(reason);
     }
     this.pendingMethods.clear();
     this.readySubs.clear();
@@ -273,7 +273,7 @@ class DdpClient {
    * never fires, so calls wait forever. Detach its handlers (a late close must
    * not tear down the replacement) and reconnect on the next call.
    */
-  private dropDeadSocket(ws: WebSocket): void {
+  private dropDeadSocket(ws: WebSocket, reason: DdpTimeoutError): void {
     if (this.ws !== ws) return;
     ws.onopen = null;
     ws.onmessage = null;
@@ -281,7 +281,8 @@ class DdpClient {
     ws.onclose = null;
     this.status = 'failed';
     ws.close();
-    this.handleDisconnect();
+    // Calls in flight on the dead socket are timeouts too, not a server answer.
+    this.handleDisconnect(reason);
   }
 
   public async ensureAuthed(): Promise<void> {
@@ -291,9 +292,11 @@ class DdpClient {
       // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
       this.authPromise = this.tryResumeLogin()
         .then(() => {})
-        .catch(() => {
+        .catch((err: unknown) => {
           // Reset so next call can retry
           this.authPromise = null;
+          // Callers must not go on as authenticated when the login only timed out.
+          if (err instanceof DdpTimeoutError) throw err;
         });
     }
     return this.authPromise ?? Promise.resolve();
@@ -580,9 +583,10 @@ class DdpClient {
     const ws = this.ws!;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        const timeout = new DdpTimeoutError(`DDP method ${method} timed out`);
         this.pendingMethods.delete(id);
-        reject(new DdpTimeoutError(`DDP method ${method} timed out`));
-        this.dropDeadSocket(ws);
+        reject(timeout);
+        this.dropDeadSocket(ws, timeout);
       }, METHOD_TIMEOUT_MS);
       this.pendingMethods.set(id, {
         resolve: (value) => {
@@ -603,11 +607,15 @@ class DdpClient {
     const id = String(this.nextId++);
     let stopped = false;
     this.activeSubs.set(id, { name, params });
-    void this.ensureAuthed().then(() => {
-      if (stopped) return;
-      if (onReady) this.subReadyListeners.set(id, onReady);
-      this.ws!.send(JSON.stringify({ msg: 'sub', id, name, params }));
-    });
+    if (onReady) this.subReadyListeners.set(id, onReady);
+    void this.ensureAuthed()
+      .then(() => {
+        if (stopped) return;
+        this.ws?.send(JSON.stringify({ msg: 'sub', id, name, params }));
+      })
+      .catch(() => {
+        // Auth timed out and dropped the socket; the reconnect resubscribes every active sub.
+      });
     return () => {
       stopped = true;
       this.activeSubs.delete(id);
