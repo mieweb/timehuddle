@@ -396,9 +396,12 @@ export const ClockPage: React.FC = () => {
   const todayStr = toDateString(new Date());
   const [postDate, setPostDate] = useState(todayStr);
   const [planTeamId, setPlanTeamId] = useState(gateTeamId ?? '');
+  // A plan link reserved before a shift that has since started is refused
+  // (clockInWithPlan), so one prepared ahead on a phone is replaced whenever
+  // you clock in or out.
   const planPulse = usePulseUpload(
     { kind: 'clock-plan', teamId: planTeamId, postDate },
-    { onSettled: refreshClockFor(planDraftRef) },
+    { onSettled: refreshClockFor(planDraftRef), prepareKey: activeClockEvent?.id ?? '' },
   );
   // The session a wrap-up is for, kept after it ends: the wrap-up landing is
   // what clocks you out, and its link must still be the one being watched.
@@ -977,14 +980,14 @@ export const ClockPage: React.FC = () => {
       <PulseUploadModal
         open={planPulse.modalOpen}
         onClose={planPulse.closeModal}
-        scanLink={planPulse.link?.scanLink ?? null}
+        link={planPulse.link?.url ?? null}
         destination={planPulse.destination}
         status={planPulse.status}
       />
       <PulseUploadModal
         open={wrapUpPulse.modalOpen}
         onClose={wrapUpPulse.closeModal}
-        scanLink={wrapUpPulse.link?.scanLink ?? null}
+        link={wrapUpPulse.link?.url ?? null}
         destination={wrapUpPulse.destination}
         status={wrapUpPulse.status}
       />
