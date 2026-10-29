@@ -338,6 +338,13 @@ Use `@mieweb/ui` only:
 
 ## Milestone 4: Thread Follow
 
+> **Blocked (2026-10-29).** Huddle has no comments any more: the comment UI went with
+> the card view (`dd7f9f38`), `huddle.addComment` isn't exposed over REST, and nothing
+> in `src/` calls it. With no replies to follow, this milestone is on hold until comments
+> come back. Meanwhile the **Replies to my posts** (`huddleReply`) row is hidden in
+> Settings (left out of `notificationCopy.ts`). The backend event stays, so nothing
+> breaks if a comment does arrive. The steps below are unchanged, for when it resumes.
+
 - [ ] **4.1 `huddle.js` `huddle.addComment`:** after the author and mention
       notifications, send `huddle-thread-reply` to every follower.
   - **Followers** are: the post author, everyone who commented, everyone mentioned in

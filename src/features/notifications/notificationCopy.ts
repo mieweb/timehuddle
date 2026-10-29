@@ -1,6 +1,8 @@
 // Every user-facing string for notification preferences (#784), in one place
 // until the app has i18n. The event keys match meteor-backend's
-// notification-prefs-core.js EVENTS; their order here is the order shown.
+// notification-prefs-core.js EVENTS; their order here is the order shown. An
+// event left out here isn't shown: `huddleReply` (comments on your post) stays
+// hidden while Huddle has no way to comment (#784, M4).
 
 import type { HuddleTeamLevel } from '../../lib/api';
 
@@ -24,7 +26,6 @@ export const NOTIFICATION_EVENT_GROUPS: NotificationEventGroup[] = [
     label: 'Huddle',
     events: [
       { key: 'huddleMention', label: 'Someone @mentions me', hint: 'In a post or a comment' },
-      { key: 'huddleReply', label: 'Replies to my posts', hint: 'Comments on an update I posted' },
       {
         key: 'huddlePost',
         label: 'New posts in my teams',
