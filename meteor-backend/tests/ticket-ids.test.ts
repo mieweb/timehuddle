@@ -159,6 +159,11 @@ describe('normalizeSourcePrefixes', () => {
     expect(() =>
       normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: 'up30' }], 'TH'),
     ).toThrow(/not a rounding/);
+    for (const inherited of ['constructor', '__proto__', 'toString']) {
+      expect(() =>
+        normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: inherited }], 'TH'),
+      ).toThrow(/not a rounding/);
+    }
   });
 
   it('refuses a repeated host, a repeated prefix, or the org ticket prefix', () => {

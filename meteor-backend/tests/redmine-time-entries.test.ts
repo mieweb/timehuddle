@@ -341,6 +341,13 @@ describe("rounding up (the Redmine server's setting)", () => {
     expect(unsentTotals(day(1440), sent(KEY, 1200, 30), step(15))[0].minutes).toBe(0);
   });
 
+  it('shows the time worked since the last send, not less what was rounded up', () => {
+    // 0:10 went up as 0:15; another 0:10 tops the day up to 0:30 and shows 0:10 worked.
+    const [row] = unsentTotals(day(1200), sent(KEY, 600, 15), step(15));
+    expect(row.minutes).toBe(15);
+    expect(row.rounding).toEqual({ step: 15, exactMinutes: 10 });
+  });
+
   it('never rounds a few stray seconds up to a step', () => {
     expect(unsentTotals(day(20), new Map(), step(5))[0].minutes).toBe(0);
   });

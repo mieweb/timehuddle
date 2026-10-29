@@ -107,7 +107,8 @@ export function normalizeSourcePrefixes(input, ticketPrefix) {
     if (hosts.has(host)) throw new Error(`${host} is listed twice`);
     if (prefixes.has(prefix)) throw new Error(`${prefix} is already in use`);
     const rounding = entry?.rounding ?? 'exact';
-    if (rounding !== 'exact' && !ROUNDING_STEPS[rounding]) {
+    // `hasOwn`, so `constructor` and the like are not mistaken for a step.
+    if (rounding !== 'exact' && !Object.hasOwn(ROUNDING_STEPS, rounding)) {
       throw new Error(`${host}: not a rounding: ${rounding}`);
     }
     hosts.add(host);

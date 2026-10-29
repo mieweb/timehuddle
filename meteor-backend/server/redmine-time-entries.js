@@ -124,11 +124,14 @@ export function unsentTotals(totals, ledgerByKey, stepByKey = new Map()) {
       const step = stepByKey.get(key);
       // Discarded time is never owed to Redmine, so it is left out of the target.
       const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
-      const exactMinutes = Math.max(0, owedMinutes - held.minutes);
+      const seconds = Math.max(0, total.seconds - held.seconds);
+      // The time worked since the last send. Not owed minutes less what was
+      // sent: an earlier entry rounded up would make the new work look shorter.
+      const exactMinutes = Math.round(seconds / 60);
       return {
         ticketId: total.ticketId,
         date: total.date,
-        seconds: Math.max(0, total.seconds - held.seconds),
+        seconds,
         alreadySentSeconds: held.seconds,
         minutes: Math.max(0, roundUpMinutes(owedMinutes, step) - held.minutes),
         ...(step ? { rounding: { step, exactMinutes } } : {}),
