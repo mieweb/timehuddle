@@ -348,6 +348,13 @@ describe("rounding up (the Redmine server's setting)", () => {
     expect(row.rounding).toEqual({ step: 15, exactMinutes: 10 });
   });
 
+  it('follows a rounding the organization changed after part of the day was sent', () => {
+    // 0:12 went up as 0:15 under 5 minutes; with 15 minutes, 0:22 tops up to 0:30.
+    expect(unsentTotals(day(22 * 60), sent(KEY, 12 * 60, 15), step(15))[0].minutes).toBe(15);
+    // Back to 5 minutes: 0:13 is still covered by the 0:15 sent, so nothing more goes.
+    expect(unsentTotals(day(13 * 60), sent(KEY, 12 * 60, 15), step(5))[0].minutes).toBe(0);
+  });
+
   it('never rounds a few stray seconds up to a step', () => {
     expect(unsentTotals(day(20), new Map(), step(5))[0].minutes).toBe(0);
   });

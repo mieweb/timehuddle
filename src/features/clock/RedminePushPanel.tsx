@@ -136,6 +136,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
           comment: comments[rowKey(row)]?.trim() || undefined,
           billable: row.billable,
+          hours: row.hours,
         })),
       );
       setResults(outcome);
@@ -207,7 +208,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
           <Button
             variant="primary"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              // Read again: the organization may have changed the rounding since.
+              void load();
+              setOpen(true);
+            }}
             disabled={!canOpen}
             title={
               idle

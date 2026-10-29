@@ -2575,6 +2575,11 @@ export interface RedmineTimeEntryPushRequest {
    * own lookup, and refuses the entry if that no longer matches what was shown.
    */
   billable?: RedmineBillable | null;
+  /**
+   * The hours the user was shown. The server works them out again, and refuses
+   * the entry if its rounding has since changed them.
+   */
+  hours?: number;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2933,7 +2938,8 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
-      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
+        hours,
+      }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
@@ -2941,6 +2947,7 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
+        hours,
       }),
 
     /**

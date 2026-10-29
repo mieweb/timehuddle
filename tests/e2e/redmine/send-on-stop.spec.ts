@@ -97,6 +97,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
         comment: 'Fixed the intake form validation',
         activityId: 9,
         billable: null,
+        hours: 0.52,
       },
     ]);
   });
@@ -120,7 +121,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as QA')).toBeVisible();
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
-      { ticketId: '15', date: UNSENT.date, activityId: 10, billable: null },
+      { ticketId: '15', date: UNSENT.date, activityId: 10, billable: null, hours: 0.52 },
     ]);
   });
 
@@ -143,7 +144,7 @@ test.describe('Send time to Redmine when a ticket timer ends', () => {
 
     await expect(page.getByText('Sent 0:31 on #15 to Redmine as QA')).toBeVisible();
     expect(rm.calls('timeEntries.sendTicketDay')).toEqual([
-      { ticketId: '15', date: UNSENT.date, activityId: 10, billable: null },
+      { ticketId: '15', date: UNSENT.date, activityId: 10, billable: null, hours: 0.52 },
     ]);
   });
 

@@ -1417,6 +1417,10 @@ Meteor.startup(async () => {
           description:
             "Optional override of the resolved activity; must be one the issue's project allows",
         },
+        hours: {
+          type: 'number',
+          description: 'The hours shown; refused as hours-changed if the server now works out others',
+        },
       },
       required: ['ticketId', 'date'],
     },
@@ -1442,6 +1446,10 @@ Meteor.startup(async () => {
                 description: 'Optional override of the resolved activity',
               },
               comment: { type: 'string', description: "The entry's comment; optional" },
+              hours: {
+                type: 'number',
+                description: 'The hours shown; refused as hours-changed if they moved',
+              },
             },
             required: ['ticketId', 'date'],
           },

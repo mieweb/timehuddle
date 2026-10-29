@@ -407,6 +407,18 @@ function requireShownBillable(shown) {
   return { id: shown.id, value: shown.value };
 }
 
+/**
+ * True when the row's hours are no longer what the user was shown: the
+ * organization changed the server's rounding since. `undefined` checks nothing.
+ */
+function hoursChanged(row, shownHours) {
+  if (shownHours === undefined) return false;
+  if (typeof shownHours !== 'number') {
+    throw new Meteor.Error('bad-request', 'The hours shown must be a number.');
+  }
+  return Math.abs(row.hours - shownHours) > 0.001;
+}
+
 /** True when the row's Billable is no longer what the user was shown. */
 function billableChanged(row, shown) {
   return shown !== undefined && !sameBillable(shown, row.billable);
@@ -774,7 +786,14 @@ Meteor.methods({
    * one the issue's project rules choose, unless `activityId` names another
    * that the project allows.
    */
-  async 'redmine.timeEntries.sendTicketDay'({ ticketId, date, comment, activityId, billable } = {}) {
+  async 'redmine.timeEntries.sendTicketDay'({
+    ticketId,
+    date,
+    comment,
+    activityId,
+    billable,
+    hours,
+  } = {}) {
     const { userId } = await requireIdentity(this);
     enforceRedmineLimit(accountLimiter, userId);
     requireTicketDay(ticketId, date);
@@ -794,6 +813,8 @@ Meteor.methods({
       if (billableChanged(row, shownBillable)) {
         return { ticketId, date, ok: false, reason: 'billable-changed' };
       }
+      // Likewise the hours, which the server's rounding can move.
+      if (hoursChanged(row, hours)) return { ticketId, date, ok: false, reason: 'hours-changed' };
 
       const activity = chosenActivity(row, activityId);
       if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
@@ -847,6 +868,10 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     // As in `sendTicketDay`: a Billable value that moved since it was shown.
     if (billableChanged(row, requireShownBillable(requested.billable))) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'billable-changed' });
+      continue;
+    }
+    if (hoursChanged(row, requested.hours)) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'hours-changed' });
       continue;
     }
 
