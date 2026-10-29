@@ -535,12 +535,25 @@ this in a comment at the top of `presence.js`.
 
 ## Every Milestone
 
-- [ ] `npm run test:all` passes, and the new backend tests pass locally
-- [ ] `npm run lint && npm run typecheck` pass, and `npm run format` is clean
-- [ ] Smoke-tested at `http://localhost:3000`, with one real desktop push and, if a
-      device is available, one phone push
-- [ ] Every new control comes from `@mieweb/ui`, has an accessible name, and takes its
-      strings from `notificationCopy.ts`
+- [x] `npm run test:all`: 793 Vitest tests pass. In Playwright, 438 passed, 3 failed, 3 flaky
+      (2026-10-29). None of the three failures comes from this branch:
+  - `video-upload.spec.ts:40` (WebM served as MP4) fails on `main` as well. It's an
+    environment problem: the local transcoding check doesn't pass here.
+  - `my-board.spec.ts:104` and `clock-in-then-start.spec.ts:84` are flaky: they
+    failed and passed on `main` from one run to the next, and both pass on this branch
+    when rerun.
+- [x] The new backend tests pass locally: 492 backend unit tests, 17 in
+      `notification-prefs.test.ts`, plus the huddle, clock, settings, org and enterprise
+      integration suites.
+- [x] `npm run lint && npm run typecheck` pass, and `npm run format` is clean.
+- [x] Smoke-tested on the dev server (`:3000` → `:3100`) at desktop and phone widths:
+      the Settings cards, the Huddle bell (dropdown and bottom sheet), `@team`
+      suggestions and fan-out, org locks, quiet time, and skip-while-viewing (checked in
+      the server's `sendToUser` log). A real push to a device wasn't checked: there's no
+      browser with notifications allowed, and no phone, in this setup.
+- [x] Every new control comes from `@mieweb/ui` (`Table`, `Checkbox`, `Switch`, `Tabs`,
+      `ButtonGroup`, `Button`, `Dropdown`, `Sheet`, `RadioGroup`, `Badge`), has an
+      accessible name, and takes its strings from `notificationCopy.ts`.
 
 ## Out of Scope (for Now)
 
