@@ -123,7 +123,9 @@ export function quietSettings(prefs) {
     holdOffShift: false,
     snoozeUntil: null,
     snoozeUntilClockIn: false,
-    skipWhileViewing: true,
+    // Off until the person turns it on: it would otherwise change who gets a
+    // push without them choosing it (#784 review).
+    skipWhileViewing: false,
     ...prefs?.quiet,
   };
 }

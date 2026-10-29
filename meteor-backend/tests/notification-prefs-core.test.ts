@@ -180,10 +180,18 @@ describe('quiet time', () => {
     );
   });
 
-  it('skips Huddle pushes for a team whose Huddle is open, but still logs', () => {
+  it('is off until the person turns it on', () => {
     const viewing = { teamId: 't1aaaaaa', viewingTeam: true, now: NOW };
-    expect(resolveDelivery(null, { type: 'huddle-mention', ...viewing })).toEqual(HELD);
-    expect(resolveDelivery(null, { type: 'ticket-assigned', ...viewing })).toEqual(
+    expect(resolveDelivery(null, { type: 'huddle-mention', ...viewing })).toEqual(
+      DELIVER_EVERYWHERE,
+    );
+  });
+
+  it('skips Huddle pushes for a team whose Huddle is open, but still logs', () => {
+    const p = quiet({ skipWhileViewing: true });
+    const viewing = { teamId: 't1aaaaaa', viewingTeam: true, now: NOW };
+    expect(resolveDelivery(p, { type: 'huddle-mention', ...viewing })).toEqual(HELD);
+    expect(resolveDelivery(p, { type: 'ticket-assigned', ...viewing })).toEqual(
       DELIVER_EVERYWHERE,
     );
   });

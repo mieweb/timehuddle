@@ -124,7 +124,7 @@ itself. Store only what the user changed.
     holdOffShift: false,
     snoozeUntil: null,            // Date or null
     snoozeUntilClockIn: false,
-    skipWhileViewing: true,       // M8
+    skipWhileViewing: false,      // M8: off until the person turns it on
   },
   updatedAt: Date,
 }
@@ -512,9 +512,9 @@ Huddle open in a visible tab.
       It's an in-memory lookup, so it needs no gate.
 - [x] **8.4 `notification-prefs-core.js`:** `quiet.skipWhileViewing && viewingTeam` holds
       the push for Huddle events (mentions included, since you're looking at it) and
-      keeps `inbox`. `skipWhileViewing` defaults to **on** and is validated as a boolean.
+      keeps `inbox`. `skipWhileViewing` defaults to **off** (changed after review, see below) and is validated as a boolean.
 - [x] **8.5 Settings Quiet time card:** a "Skip pop-ups for a Huddle I have open"
-      `Switch`, defaulting to on. Both quiet switches share a small `QuietSwitchRow`.
+      `Switch`, off until the person turns it on. Both quiet switches share a small `QuietSwitchRow`.
 - [x] **8.6 Release note:** one sentence added to the "Quiet time" bullet.
 - [x] **Tests:** 2 more unit tests (held while viewing; pushes when turned off).
       Verified end to end on the dev server: with dev-member viewing Bench Team 1, an
@@ -564,7 +564,10 @@ Each one was confirmed before it was fixed.
 - [ ] **Left as is:**
   - Copilot #2 (a comment mentioning the post author): comments can't be written today.
   - Copilot #7 (legacy team ids in the shared permission check): belongs in a separate PR.
-  - Copilot #3 (skip-while-viewing on by default): waiting on a product decision.
+- [x] **Skip-while-viewing was on by default (Copilot #3).** That changed pushes
+      for people who never opened Settings, breaking "nothing changes until you
+      change it". It now defaults to **off**; each person turns it on in Quiet time.
+      No other default changed: people set their own preferences.
 
 ## Every Milestone
 
