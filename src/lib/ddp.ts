@@ -64,6 +64,8 @@ interface DdpMessage {
 
 /** Longest a method call waits for its result before the socket is treated as dead. */
 const METHOD_TIMEOUT_MS = 30_000;
+/** How long a liveness ping waits for its pong before the socket is declared dead. */
+const PING_TIMEOUT_MS = 5_000;
 
 /** A method got no reply in time — the socket is likely half-open, not rejected by the server. */
 export class DdpTimeoutError extends Error {
@@ -80,6 +82,8 @@ class DdpClient {
     string,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
+  private pongWaiters = new Map<string, () => void>();
+  private pingInFlight: Promise<void> | null = null;
   private readySubs = new Set<string>();
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
@@ -283,6 +287,40 @@ class DdpClient {
     ws.close();
     // Calls in flight on the dead socket are timeouts too, not a server answer.
     this.handleDisconnect(reason);
+  }
+
+  /**
+   * Ping the server and drop the socket if it does not answer. A socket that
+   * died while the app was backgrounded never fires `onclose`, so this is how
+   * a resume finds out; the reconnect then happens before the user's next call
+   * instead of that call waiting on the dead socket.
+   */
+  public verifyConnection(): Promise<void> {
+    const ws = this.ws;
+    if (this.status !== 'connected' || !ws) return Promise.resolve();
+    this.pingInFlight ??= (async () => {
+      const id = `ping-${this.nextId++}`;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const alive = new Promise<boolean>((resolve) => {
+        this.pongWaiters.set(id, () => resolve(true));
+        timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS);
+      });
+      try {
+        ws.send(JSON.stringify({ msg: 'ping', id }));
+      } catch {
+        clearTimeout(timer);
+        this.pongWaiters.delete(id);
+        this.dropDeadSocket(ws, new DdpTimeoutError('DDP ping failed to send'));
+        return;
+      }
+      const ok = await alive;
+      clearTimeout(timer);
+      this.pongWaiters.delete(id);
+      if (!ok) this.dropDeadSocket(ws, new DdpTimeoutError('DDP ping timed out'));
+    })().finally(() => {
+      this.pingInFlight = null;
+    });
+    return this.pingInFlight;
   }
 
   public async ensureAuthed(): Promise<void> {
@@ -507,6 +545,9 @@ class DdpClient {
     switch (data.msg) {
       case 'ping':
         this.ws?.send(JSON.stringify({ msg: 'pong', ...(data.id ? { id: data.id } : {}) }));
+        break;
+      case 'pong':
+        if (data.id) this.pongWaiters.get(data.id)?.();
         break;
       case 'result': {
         const pending = data.id ? this.pendingMethods.get(data.id) : undefined;

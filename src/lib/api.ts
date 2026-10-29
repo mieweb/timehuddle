@@ -924,8 +924,6 @@ export const usernameApi = {
 
 // ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
 
-/** Longest a wormhole call waits on the network before failing instead of hanging. */
-const WORMHOLE_TIMEOUT_MS = 30_000;
 /** Longest a wormhole call waits on the DDP login before sending with the token it has. */
 const DDP_AUTH_WAIT_MS = 10_000;
 
@@ -984,14 +982,7 @@ async function wormholeCall<T = unknown>(
   if (_isNativeWebView) {
     let response: { status: number; data: unknown };
     try {
-      response = await CapacitorHttp.request({
-        url,
-        method: 'POST',
-        headers,
-        data: params,
-        connectTimeout: WORMHOLE_TIMEOUT_MS,
-        readTimeout: WORMHOLE_TIMEOUT_MS,
-      });
+      response = await CapacitorHttp.request({ url, method: 'POST', headers, data: params });
     } catch (httpError) {
       console.error(`[wormholeCall] ${method}: native request failed:`, httpError);
       throw httpError;
@@ -1009,24 +1000,18 @@ async function wormholeCall<T = unknown>(
         : ((response.data as typeof data) ?? {});
   } else {
     let res: Response;
-    const signal = AbortSignal.timeout(WORMHOLE_TIMEOUT_MS);
     try {
       res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(params),
-        signal,
       });
     } catch (fetchError) {
       console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
       throw fetchError;
     }
     status = res.status;
-    data = (await res.json().catch((err: unknown) => {
-      // A timeout mid-body is not an empty 2xx result.
-      if (signal.aborted) throw err;
-      return {};
-    })) as typeof data;
+    data = (await res.json().catch(() => ({}))) as typeof data;
   }
 
   console.log(`[wormholeCall] ${method}: got response, status=${status}`);

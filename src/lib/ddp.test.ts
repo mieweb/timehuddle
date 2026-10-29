@@ -190,4 +190,44 @@ describe('method timeouts', () => {
     await expect(client.ensureAuthed()).rejects.toBeInstanceOf(DdpTimeoutError);
     expect(internals.authPromise).toBeNull();
   });
+
+  it('drops a socket that does not answer a liveness ping', async () => {
+    vi.useFakeTimers();
+    const ws = connectFakeSocket();
+
+    const check = client.verifyConnection();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await check;
+
+    expect(JSON.parse(ws.send.mock.calls[0][0] as string)).toMatchObject({ msg: 'ping' });
+    expect(ws.close).toHaveBeenCalledTimes(1);
+    expect(internals.ws).toBeNull();
+  });
+
+  it('keeps a socket that answers the ping', async () => {
+    vi.useFakeTimers();
+    const ws = connectFakeSocket();
+
+    const check = client.verifyConnection();
+    const { id } = JSON.parse(ws.send.mock.calls[0][0] as string) as { id: string };
+    internals.handleMessage({ msg: 'pong', id });
+    await check;
+
+    expect(ws.close).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('sends one ping for overlapping checks and none without a connection', async () => {
+    vi.useFakeTimers();
+    await client.verifyConnection();
+
+    const ws = connectFakeSocket();
+    const first = client.verifyConnection();
+    const second = client.verifyConnection();
+    const { id } = JSON.parse(ws.send.mock.calls[0][0] as string) as { id: string };
+    internals.handleMessage({ msg: 'pong', id });
+    await Promise.all([first, second]);
+
+    expect(ws.send).toHaveBeenCalledTimes(1);
+  });
 });
