@@ -62,6 +62,17 @@ interface DdpMessage {
   session?: string;
 }
 
+/** Longest a method call waits for its result before the socket is treated as dead. */
+const METHOD_TIMEOUT_MS = 30_000;
+
+/** A method got no reply in time — the socket is likely half-open, not rejected by the server. */
+export class DdpTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DdpTimeoutError';
+  }
+}
+
 class DdpClient {
   private ws: WebSocket | null = null;
   private nextId = 1;
@@ -257,6 +268,22 @@ class DdpClient {
     }, delay);
   }
 
+  /**
+   * A socket can stay half-open after the WebView is backgrounded: `onclose`
+   * never fires, so calls wait forever. Detach its handlers (a late close must
+   * not tear down the replacement) and reconnect on the next call.
+   */
+  private dropDeadSocket(ws: WebSocket): void {
+    if (this.ws !== ws) return;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    this.status = 'failed';
+    ws.close();
+    this.handleDisconnect();
+  }
+
   public async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
@@ -284,7 +311,9 @@ class DdpClient {
         localStorage.setItem('meteor_resume_token', loginResult.token);
       }
       return true;
-    } catch {
+    } catch (err) {
+      // A timeout says nothing about the token; keep it so the next call can retry.
+      if (err instanceof DdpTimeoutError) throw err;
       localStorage.removeItem('meteor_resume_token');
       return false;
     }
@@ -430,7 +459,9 @@ class DdpClient {
       // Use a timeout to prevent hanging
       const authedWithTimeout = Promise.race([
         this.ensureAuthed(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new DdpTimeoutError('Session check timed out')), 5000),
+        ),
       ]);
       await authedWithTimeout;
 
@@ -448,7 +479,9 @@ class DdpClient {
         createdAt: string | null;
         releaseNotesSeenVersion: string | null;
       } | null;
-    } catch {
+    } catch (err) {
+      // Unknown, not signed out: the caller keeps whoever it already has.
+      if (err instanceof DdpTimeoutError) throw err;
       return null;
     }
   }
@@ -544,9 +577,24 @@ class DdpClient {
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
+    const ws = this.ws!;
     return new Promise((resolve, reject) => {
-      this.pendingMethods.set(id, { resolve, reject });
-      this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
+      const timer = setTimeout(() => {
+        this.pendingMethods.delete(id);
+        reject(new DdpTimeoutError(`DDP method ${method} timed out`));
+        this.dropDeadSocket(ws);
+      }, METHOD_TIMEOUT_MS);
+      this.pendingMethods.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      ws.send(JSON.stringify({ msg: 'method', id, method, params }));
     });
   }
 

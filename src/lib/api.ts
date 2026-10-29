@@ -924,6 +924,20 @@ export const usernameApi = {
 
 // ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
 
+/** Longest a wormhole call waits on the network before failing instead of hanging. */
+const WORMHOLE_TIMEOUT_MS = 30_000;
+/** Longest a wormhole call waits on the DDP login before sending with the token it has. */
+const DDP_AUTH_WAIT_MS = 10_000;
+
+/** Rejects after `ms` so a call on a dead socket cannot hold its caller forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Timed out')), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
  * dots→underscores>). Auth is a short-lived better-auth JWT in the
@@ -939,9 +953,9 @@ async function wormholeCall<T = unknown>(
   // Ensure DDP auth is complete before reading token
   // This guarantees tryResumeLogin has run and updated localStorage
   try {
-    await getDdpClient().ensureAuthed();
+    await withTimeout(getDdpClient().ensureAuthed(), DDP_AUTH_WAIT_MS);
   } catch {
-    // If auth fails, proceed anyway — getAccessToken will handle it
+    // If auth fails or stalls, proceed anyway — getAccessToken will handle it
   }
 
   const token = await getAccessToken();
@@ -970,7 +984,14 @@ async function wormholeCall<T = unknown>(
   if (_isNativeWebView) {
     let response: { status: number; data: unknown };
     try {
-      response = await CapacitorHttp.request({ url, method: 'POST', headers, data: params });
+      response = await CapacitorHttp.request({
+        url,
+        method: 'POST',
+        headers,
+        data: params,
+        connectTimeout: WORMHOLE_TIMEOUT_MS,
+        readTimeout: WORMHOLE_TIMEOUT_MS,
+      });
     } catch (httpError) {
       console.error(`[wormholeCall] ${method}: native request failed:`, httpError);
       throw httpError;
@@ -993,6 +1014,7 @@ async function wormholeCall<T = unknown>(
         method: 'POST',
         headers,
         body: JSON.stringify(params),
+        signal: AbortSignal.timeout(WORMHOLE_TIMEOUT_MS),
       });
     } catch (fetchError) {
       console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);

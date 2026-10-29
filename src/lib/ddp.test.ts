@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getDdpClient } from './ddp';
+import { DdpTimeoutError, getDdpClient } from './ddp';
 
 describe('getCurrentUser without a stored session', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -92,5 +92,79 @@ describe('collection change notifications', () => {
     off();
     unsubscribe();
     internals.ws = null;
+  });
+});
+
+describe('method timeouts', () => {
+  type Internals = {
+    handleMessage(data: Record<string, unknown>): void;
+    tryResumeLogin(): Promise<boolean>;
+    ws: unknown;
+    connectPromise: Promise<void> | null;
+    status: string;
+  };
+  const client = getDdpClient();
+  const internals = client as unknown as Internals;
+
+  function connectFakeSocket() {
+    const ws = { send: vi.fn(), close: vi.fn(), onclose: vi.fn() };
+    internals.ws = ws;
+    internals.status = 'connected';
+    internals.connectPromise = Promise.resolve();
+    return ws;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    localStorage.removeItem('meteor_resume_token');
+    internals.ws = null;
+    internals.connectPromise = null;
+    internals.status = 'idle';
+  });
+
+  it('rejects a call that gets no reply and drops the dead socket', async () => {
+    vi.useFakeTimers();
+    const ws = connectFakeSocket();
+
+    const call = client.call('slow');
+    const rejected = expect(call).rejects.toBeInstanceOf(DdpTimeoutError);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+
+    expect(ws.close).toHaveBeenCalledTimes(1);
+    expect(ws.onclose).toBeNull();
+    expect(internals.ws).toBeNull();
+    expect(client.status).toBe('failed');
+  });
+
+  it('leaves no timer behind once the server replies', async () => {
+    vi.useFakeTimers();
+    const ws = connectFakeSocket();
+
+    const call = client.call('fast');
+    await vi.advanceTimersByTimeAsync(0);
+    const { id } = JSON.parse(ws.send.mock.calls[0][0] as string) as { id: string };
+    internals.handleMessage({ msg: 'result', id, result: 'ok' });
+
+    await expect(call).resolves.toBe('ok');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(ws.close).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored login when the resume call times out', async () => {
+    localStorage.setItem('meteor_resume_token', 'stored');
+    vi.spyOn(client, 'call').mockRejectedValue(new DdpTimeoutError('timed out'));
+
+    await expect(internals.tryResumeLogin()).rejects.toBeInstanceOf(DdpTimeoutError);
+    expect(localStorage.getItem('meteor_resume_token')).toBe('stored');
+  });
+
+  it('drops the stored login when the server rejects it', async () => {
+    localStorage.setItem('meteor_resume_token', 'stale');
+    vi.spyOn(client, 'call').mockRejectedValue(new Error('You are not logged in'));
+
+    await expect(internals.tryResumeLogin()).resolves.toBe(false);
+    expect(localStorage.getItem('meteor_resume_token')).toBeNull();
   });
 });
