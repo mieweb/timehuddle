@@ -1929,6 +1929,26 @@ export const notificationApi = {
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
+/** A notification event's setting per device (#784): desktop is web push, phone is the app. */
+export interface NotificationDevices {
+  desktop: boolean;
+  phone: boolean;
+}
+
+/** The user's notification preferences: every configurable event's effective setting. */
+export interface NotificationPrefs {
+  events: Record<string, NotificationDevices>;
+}
+
+export const notificationPrefsApi = {
+  /** Every event's effective setting — defaults for anything the user hasn't changed. */
+  get: () => wormholeCall<NotificationPrefs>('notificationPrefs.get', {}),
+
+  /** Change some events' settings; resolves to the full, updated preferences. */
+  update: (events: Record<string, Partial<NotificationDevices>>) =>
+    wormholeCall<NotificationPrefs>('notificationPrefs.update', { events }),
+};
+
 /** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */
 export interface MyBoardRef {
   sourceId: string;

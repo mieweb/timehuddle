@@ -249,22 +249,32 @@ Use `@mieweb/ui` only:
 - `ButtonGroup` + `Button` for segmented choices
 - `Tabs` for the phone layout
 
-- [ ] **2.1 `src/lib/api.ts`:** add `notificationPrefsApi.get()` and `.update(patch)`,
+- [x] **2.1 `src/lib/api.ts`:** add `notificationPrefsApi.get()` and `.update(events)`,
       using the same `wormholeCall` pattern as `notificationApi`.
-- [ ] **2.2 New `src/features/notifications/notificationCopy.ts`:** every user-facing
-      string goes here, following `src/features/settings/settingsCopy.ts`.
-- [ ] **2.3 New `src/features/notifications/NotificationPreferences.tsx`:**
-  - [ ] **Where you get alerts:** a Desktop push row and a Phone push row, plus the
-        test button. **Move** the enable/disable logic out of `PushNotificationsSettings`
-        in `SettingsPage.tsx`. Don't copy it.
-  - [ ] **What notifies you:** a real `<table>` with Event, Desktop and Phone columns,
-        grouped by the "Group in UI" column of the event map. - Each checkbox has an `aria-label` such as "Someone @mentions me, Phone". - A column is disabled while that device's push is off. - Changes save immediately, with an optimistic update that is reverted if the save fails.
-- [ ] **2.4 `src/ui/SettingsPage.tsx`:** the `notifications` section renders
-      `<NotificationPreferences />`.
-- [ ] **2.5 Phone layout:** below `md`, the table becomes **Desktop | Phone** tabs, with
-      one `Switch` per event.
-- [ ] **2.6 Release note:** add an entry under `release-notes/`, following
-      `release-notes/README.md`.
+- [x] **2.2 New `src/features/notifications/notificationCopy.ts`:** every user-facing
+      string goes here, following `src/features/settings/settingsCopy.ts`. It also
+      holds the event groups, labels and display order.
+- [x] **2.3 New `src/features/notifications/NotificationEventSettings.tsx`:** the
+      **What notifies you** card's body.
+  - [x] A `Table` (`@mieweb/ui`) with Event, Desktop and Phone columns, grouped by the
+        "Group in UI" column of the event map.
+  - [x] Each `Checkbox` has an `aria-label` such as "Someone @mentions me, Phone".
+  - [x] Changes save immediately; a failed save flips the box back and shows an error
+        in an `aria-live` region.
+  - [x] Columns stay editable even when this device's push is off. You can set your
+        phone's alerts from a computer, and the switch only says whether _this_
+        device is registered.
+- [x] **2.4 `src/ui/SettingsPage.tsx`:** the `notifications` section is two `Section`
+      cards. **Where you get alerts** keeps the existing `PushNotificationsSettings`
+      (this device's switch + test button), relabelled "Desktop push in this browser" or
+      "Phone push on this device". **What notifies you** renders
+      `<NotificationEventSettings />`. There's no logic to move: a browser can only
+      register itself, so one switch for this device is the honest control.
+- [x] **2.5 Phone layout:** below `md`, the table becomes **Desktop | Phone** `Tabs`,
+      with one `Switch` per event.
+- [x] **2.6 Release note:** a "Choose what notifies you" section in
+      `release-notes/1.2.0.md` (the version is untagged). The section subtitle in
+      `settingsSections.ts` no longer says "teammates clock in or out".
 
 **Done when:** all of these hold.
 

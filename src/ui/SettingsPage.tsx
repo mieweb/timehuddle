@@ -57,6 +57,8 @@ import {
   type SettingsGroup,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
+import { NotificationEventSettings } from '../features/notifications/NotificationEventSettings';
+import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
 import {
   canManageSelectedOrganization,
@@ -301,10 +303,12 @@ const PushNotificationsSettings: React.FC = () => {
         </div>
       )}
       <Row
-        label="Notifications on this device"
+        label={
+          isNative ? NOTIFICATION_STRINGS.thisDevicePhone : NOTIFICATION_STRINGS.thisDeviceDesktop
+        }
         hint={
           supported
-            ? 'Get an alert when a teammate clocks in or out.'
+            ? NOTIFICATION_STRINGS.thisDeviceHint
             : 'Push notifications are not supported on this platform.'
         }
       >
@@ -1260,9 +1264,20 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     notifications: (
-      <Section title="Push notifications">
-        <PushNotificationsSettings />
-      </Section>
+      <>
+        <Section
+          title={NOTIFICATION_STRINGS.deliveryTitle}
+          description={NOTIFICATION_STRINGS.deliveryDescription}
+        >
+          <PushNotificationsSettings />
+        </Section>
+        <Section
+          title={NOTIFICATION_STRINGS.eventsTitle}
+          description={NOTIFICATION_STRINGS.eventsDescription}
+        >
+          <NotificationEventSettings />
+        </Section>
+      </>
     ),
     api: (
       <Section>
