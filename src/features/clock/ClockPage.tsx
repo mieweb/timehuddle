@@ -18,29 +18,13 @@
  */
 import { faMugHot, faPlay, faStop, faTicket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  cn,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
+import { Badge, Button, cn, Input, Spinner, Text } from '@mieweb/ui';
+import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 
-import {
-  clockApi,
-  huddleApi,
-  type ClockEvent,
-  type HuddlePost,
-  type PulseUploadStatus,
-} from '../../lib/api';
+import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
-  formatDate,
   formatDuration,
   formatTime,
   formatTimer,
@@ -69,27 +53,43 @@ import type { MediaItem } from '../huddle/types';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerStrings';
 import { PulseChip } from '../pulse-upload/PulseButton';
-import { PulseLogo } from '../pulse-upload/PulseLogo';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
-import { usePulseUpload } from '../pulse-upload/usePulseUpload';
+import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload';
+import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
+import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
+import { useRecentSessions } from './useRecentSessions';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
-import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
+/** The compact "X or Y" pair beside the plan/wrap-up input — the submit
+ *  button and the Pulse chip share this exact class list so the two read as
+ *  equal alternatives rather than a primary action and an afterthought. `h-10`
+ *  is explicit so both stay the same height whatever Button size either one
+ *  defaults to. */
+const COMPACT_PILL = 'h-10 gap-2 rounded-full px-4 text-sm font-semibold shrink-0';
+
+/** "or Clock in/out with Pulse" — beside every way this page clocks in or out. */
+const PulseAlternative: React.FC<{ pulse: PulseUpload | null; label: string }> = ({
+  pulse,
+  label,
+}) =>
+  pulse && (
+    <>
+      <Text variant="muted" size="sm" className="shrink-0 text-center">
+        {clockText.or}
+      </Text>
+      <PulseChip pulse={pulse} ariaLabel={label} main={{ label, className: COMPACT_PILL }} />
+    </>
+  );
+
 // The rich editor is most of this page's code and only shows while a plan or
-// wrap-up is required, so it loads on demand.
+// wrap-up is being written, so it loads on demand.
 const MarkdownEditor = lazy(() =>
   import('../huddle/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })),
 );
-
-const RECENT_SESSIONS_SHOWN = 8;
-
-/** The page's main buttons — Clock in/out and Clock in/out with Pulse. */
-const MAIN_ACTION_PILL =
-  'w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72';
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
@@ -132,6 +132,19 @@ export const ClockPage: React.FC = () => {
   // Bumped to remount the (uncontrolled) editor — clears it after posting and
   // re-seeds it when the wrap-up's plan text loads.
   const [editorKey, setEditorKey] = useState(0);
+  // Composer-first: a single-line stand-in until focused, so the page reads
+  // as "what are you working on?" rather than opening on a full toolbar.
+  // Focusing it swaps in the real (rich-text) editor and moves focus there.
+  // A composer that already holds something (a wrap-up seeded with the plan's
+  // text and tickets) starts expanded instead — see `showEditor` below.
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  // Only an expand the person asked for moves focus into the editor; one that
+  // happens on its own (seeded content) must not pop the keyboard on mobile.
+  const focusEditorOnMountRef = useRef(false);
+  const expandComposer = () => {
+    focusEditorOnMountRef.current = true;
+    setComposerExpanded(true);
+  };
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
@@ -193,42 +206,21 @@ export const ClockPage: React.FC = () => {
 
   // ── Recent sessions — the user's last completed sessions on this team ──
   const recentSessionsTeamId = gateTeamId ?? selectedTeamId;
-  const [recentSessions, setRecentSessions] = useState<ClockEvent[]>([]);
-  const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
+  const {
+    sessions: recentSessions,
+    loading: recentSessionsLoading,
+    todaySeconds,
+    last7DaysSeconds,
+  } = useRecentSessions(recentSessionsTeamId, activeClockEvent, currentTime);
 
-  useEffect(() => {
-    if (!recentSessionsTeamId) {
-      setRecentSessions([]);
-      setRecentSessionsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setRecentSessionsLoading(true);
-    clockApi
-      .getRecentSessions(recentSessionsTeamId, RECENT_SESSIONS_SHOWN)
-      .then((events) => {
-        if (cancelled) return;
-        setRecentSessions(events);
-      })
-      .catch(() => {
-        if (!cancelled) setRecentSessions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setRecentSessionsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Re-fetch whenever a session finishes so the list stays current.
-  }, [recentSessionsTeamId, isClockedIn]);
-
-  const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
-    ? planMissing
-      ? 'plan'
-      : null
-    : wrapUpMissing
-      ? 'wrapup'
-      : null;
+  // The composer being submitted stays on screen until its post and clock
+  // action have both finished. Otherwise the gate flips first — a posted
+  // wrap-up already satisfies it — and the plain Clock out button flashes in,
+  // spinning, for the moment clock-out takes.
+  const [submittingMode, setSubmittingMode] = useState<ComposerMode | null>(null);
+  const composerMode: ComposerMode | null =
+    submittingMode ??
+    (!isClockedIn ? (planMissing ? 'plan' : null) : wrapUpMissing ? 'wrapup' : null);
 
   // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
   // Its initial subscription sync is slow over a mobile/LAN connection, so the
@@ -246,20 +238,63 @@ export const ClockPage: React.FC = () => {
   // left the wrap-up composer blank, and submitting it overwrote the plan post
   // with wrap-up-only text — silent loss of what the user wrote at clock-in.
   const [seedSettled, setSeedSettled] = useState(false);
+  // The plan this page just posted to clock in. The wrap-up that follows
+  // starts from it straight away, rather than showing a spinner while the
+  // lookup above fetches the same post back.
+  // The draft that plan was posted from (exactly as the editor last reported
+  // it) and the plan text as posted. Clock-in leaves the draft untouched in
+  // the editor and the wrap-up opens on it; changing it here instead would
+  // start a reload in the plan editor, which — when clock-in isn't confirmed
+  // and that editor stays — can land after the draft is cleared and put the
+  // posted plan back, ready to post twice.
+  const handedOverRef = useRef<{ draft: string; plan: string } | null>(null);
+  const [postedPlan, setPostedPlan] = useState<Pick<
+    HuddlePost,
+    'id' | 'content' | 'tickets'
+  > | null>(null);
   // What the editor was actually mounted with. The wrap-up submit overwrites
   // the plan post, so if the editor never received the plan text we must not
   // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
   const shownSeedRef = useRef<string>('');
-  const editorMounted = composerMode !== 'wrapup' || seedSettled;
+  // Only good for the shift it clocked in: dropped once clocked out (a failed
+  // clock-in included), so a later shift never starts from it. The plan text
+  // handed over for the wrap-up goes with it: if clock-in posted the plan but
+  // the page still reads clocked out (its clock read failed), that text would
+  // sit in an active plan composer, and submitting it again would post the
+  // plan twice and restart the shift.
+  useEffect(() => {
+    if (isClockedIn || submittingMode || !postedPlan) return;
+    const handedOver = handedOverRef.current;
+    setText((current) => (current === handedOver?.draft ? '' : current));
+    handedOverRef.current = null;
+    seededTokenRef.current = null;
+    setPostedPlan(null);
+  }, [isClockedIn, submittingMode, postedPlan]);
+  // A composer being submitted keeps its editor: once clock-out lands, the
+  // lookup above resets for a session that has just ended.
+  const editorMounted =
+    composerMode !== 'wrapup' || seedSettled || !!postedPlan || !!submittingMode;
   // Shown while the plan seed settles and while the editor's code downloads.
   const composerLoading = (
     <div
       className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
       data-testid="composer-seed-loading"
     >
-      <Spinner size="sm" label="Loading your plan…" />
+      <Spinner size="sm" label={clockText.loadingPlan} />
     </div>
   );
+  // Focuses the editor whenever an instance actually mounts after the person
+  // expanded the composer. It only renders inside the expanded composer, and
+  // its code is lazy-loaded, so mount time isn't known up front: it can follow
+  // the seed lookup, the chunk download, or an `editorKey` remount once the
+  // fetched plan text arrives. Each mount hands over a new handle, so keying
+  // the effect on it catches all of those. It has to be an effect rather than
+  // the ref callback itself: RichEditor's `focus()` waits on a load it starts
+  // in its own mount effect, which hasn't run yet when the ref is attached.
+  const [editorHandle, setEditorHandle] = useState<RichEditorHandle | null>(null);
+  useEffect(() => {
+    if (focusEditorOnMountRef.current) editorHandle?.focus();
+  }, [editorHandle]);
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
@@ -288,7 +323,10 @@ export const ClockPage: React.FC = () => {
   // clock-in instead of a blank box. The plan composer starts empty.
   const seedText =
     composerMode === 'wrapup'
-      ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
+      ? (sessionPost?.content.text ??
+        sessionPostFetch?.content.text ??
+        postedPlan?.content.text ??
+        '')
       : '';
 
   // Remember what the editor was actually mounted with, for the wrap-up guard.
@@ -305,15 +343,18 @@ export const ClockPage: React.FC = () => {
   // Apply the seed once it becomes available (the session post loads async),
   // unless the user has already started typing. Remount the uncontrolled editor
   // via `editorKey` so it picks up the seeded value.
+  // Not while submitting: posting the wrap-up rewrites the session's post,
+  // and clocking out drops it, so the seed changes twice mid-submit — each a
+  // remount that blanked the editor and could tear it down mid-setup.
   const seededTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!composerMode || !seedText) return;
+    if (!composerMode || !seedText || submittingMode) return;
     const token = `${composerMode}:${seedText}`;
     if (seededTokenRef.current === token) return;
     seededTokenRef.current = token;
     setText((current) => (current.trim() ? current : seedText));
     setEditorKey((k) => k + 1);
-  }, [composerMode, seedText]);
+  }, [composerMode, seedText, submittingMode]);
 
   // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
   // (clocks you out) — the server does both when the upload lands. Owned here,
@@ -400,7 +441,7 @@ export const ClockPage: React.FC = () => {
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
   const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
-  const clockPulseLabel = isClockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse';
+  const clockPulseLabel = clockText.pulse(isClockedIn);
 
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
@@ -408,12 +449,15 @@ export const ClockPage: React.FC = () => {
     setAttachments([]);
     setSelectedTickets([]);
     setMentions([]);
+    setComposerExpanded(false);
+    focusEditorOnMountRef.current = false;
   }, [composerMode, setSelectedTickets]);
 
   // The wrap-up starts with the tickets the plan linked at clock-in, so
   // clocking out keeps them unless removed here. Declared after the reset
   // above so a same-commit mode switch can't clear the seed.
-  const sessionPlan = composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch) : null;
+  const sessionPlan =
+    composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch ?? postedPlan) : null;
   const ticketsSeededForRef = useRef<string | null>(null);
   useEffect(() => {
     // Leaving wrap-up clears the selection (above), so the same plan must
@@ -429,11 +473,24 @@ export const ClockPage: React.FC = () => {
     ]);
   }, [composerMode, sessionPlan, setSelectedTickets]);
 
+  const showEditor =
+    composerExpanded || !!text.trim() || selectedTickets.length > 0 || attachments.length > 0;
+  // Editing pins it open: a seeded wrap-up shows only because it has content,
+  // so clearing that content to start over would otherwise collapse the
+  // editor mid-typing. It stays open until the composer resets.
+  const handleEditorChange = (value: string) => {
+    setText(value);
+    setComposerExpanded(true);
+  };
+
   async function postPlanAndClockIn() {
     const trimmed = composerText();
     if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
+    setSubmittingMode('plan');
     setPostError(null);
+    let planPosted = false;
+    const draft = text;
     try {
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
       const created = await huddleApi.createPost({
@@ -444,17 +501,31 @@ export const ClockPage: React.FC = () => {
         postDate: toDateString(new Date()),
       });
       const planPostId = created.id;
+      planPosted = true;
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      handedOverRef.current = { draft, plan: trimmed };
+      setPostedPlan({
+        id: planPostId,
+        content: { text: trimmed, mentions: mentionUserIds ?? [] },
+        tickets: selectedTickets,
+      });
       draftGenRef.current += 1;
-      setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
+      // The editor keeps showing the plan while it posts, and the wrap-up
+      // that replaces it opens on that same draft. Marked as seeded so it
+      // doesn't remount to load the posted copy of the same text.
+      seededTokenRef.current = `wrapup:${trimmed}`;
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
+      // Once the plan is posted, clear it even if clocking in failed, so a
+      // retry can't post it twice.
+      if (planPosted) setText('');
+      setPostError(e instanceof Error ? e.message : clockText.postFailed);
     } finally {
       setPosting(false);
+      setSubmittingMode(null);
     }
   }
 
@@ -462,6 +533,7 @@ export const ClockPage: React.FC = () => {
     const trimmed = composerText();
     if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
+    setSubmittingMode('wrapup');
     setPostError(null);
     try {
       // Use sessionPost from DDP if available, otherwise fall back to the
@@ -479,8 +551,18 @@ export const ClockPage: React.FC = () => {
         // Only merge when the editor demonstrably never showed the plan —
         // `shownSeedRef` is what it actually mounted with — so text the user
         // deliberately edited or deleted is left exactly as they left it.
-        const planText = (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '').trim();
-        const editorNeverSawPlan = planText !== '' && !shownSeedRef.current.includes(planText);
+        const planText = (
+          sessionPost?.content.text ??
+          sessionPostFetch?.content.text ??
+          postedPlan?.content.text ??
+          ''
+        ).trim();
+        // The draft handed over at clock-in is the plan, even where the
+        // editor's copy differs from the posted one (image alt text).
+        const editorNeverSawPlan =
+          planText !== '' &&
+          handedOverRef.current?.plan !== planText &&
+          !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
 
@@ -506,7 +588,7 @@ export const ClockPage: React.FC = () => {
         // that doubles as the wrap-up, linked to the session. Unlike the
         // update path above this needs a team, and the wrap-up composer can
         // open without one — surface that instead of posting a teamless post.
-        if (!gateTeamId) throw new Error('No team for this session — cannot post a wrap-up.');
+        if (!gateTeamId) throw new Error(clockText.noWrapUpTeam);
         await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds ?? [] },
@@ -518,159 +600,123 @@ export const ClockPage: React.FC = () => {
         });
       }
       draftGenRef.current += 1;
-      setText('');
       cachedPlanPostIdRef.current = null;
       await clockOut();
+      // Cleared only now, so the editor doesn't blank while clock-out runs.
+      setText('');
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
+      setPostError(e instanceof Error ? e.message : clockText.postFailed);
     } finally {
       setPosting(false);
+      setSubmittingMode(null);
     }
   }
 
-  // ── Status card copy ──
-  const eyebrow = !isClockedIn ? 'Clocked out' : isPaused ? 'On break' : 'Clocked in';
+  // ── Status line copy ──
+  const eyebrow = clockText.status(
+    !isClockedIn ? 'clockedOut' : isPaused ? 'onBreak' : 'clockedIn',
+  );
 
-  // ── Composer card copy — always says what's blocking you ──
-  const teamSuffix = teamName && gateTeamId !== selectedTeamId ? ` in “${teamName}”` : '';
-  const composerTitle =
-    composerMode === 'plan' ? 'Plan before you clock in' : 'Wrap up before you clock out';
-  let composerDescription: React.ReactNode = null;
-  if (composerMode === 'plan') {
-    composerDescription = (
-      <>
-        This team requires a short plan before clocking in. It's posted to Huddle so your team can
-        see what you're working on.{' '}
-        <button
-          type="button"
-          onClick={() => navigate('/app/huddle')}
-          className="underline underline-offset-2"
-        >
-          Open huddle
-        </button>
-      </>
-    );
-  } else if (composerMode === 'wrapup') {
-    composerDescription = `Add a quick wrap-up of what you did this session${teamSuffix} before clocking out.`;
-  }
+  // A wrap-up always posts to the session's own team (gateTeamId), which can
+  // differ from whatever team is currently selected if the user switched
+  // teams mid-shift — name it so the destination isn't a surprise. Split
+  // around the link's token so a translation can put the link anywhere.
+  const [destinationBefore, destinationAfter] = composerMode
+    ? clockText
+        .destination(
+          composerMode,
+          composerMode === 'wrapup' && teamName && gateTeamId !== selectedTeamId
+            ? teamName
+            : undefined,
+        )
+        .split(HUDDLE_LINK_TOKEN)
+    : ['', ''];
 
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
+        <Spinner size="lg" label={clockText.loading} />
       </div>
     );
   }
 
   return (
-    <AppPage fill>
-      <div className="clock-screen flex h-full min-h-0 flex-col gap-3 overflow-y-auto md:gap-6 md:mx-auto md:w-full md:max-w-4xl">
-        {/* Names the workspace before you act, not after: hours logged against
-            the wrong team are tedious to unpick. */}
-        <WorkspaceGreeting
-          className="py-3 md:py-4"
-          note={
-            isClockedIn
-              ? 'Your shift is running — the time is being logged here.'
-              : 'Any time you track here gets logged to this workspace.'
-          }
-        />
+    <AppPage fill hideTitle>
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-6 overflow-y-auto">
+        {/* ── Status line — eyebrow + Today/Last 7 days, one compact row ── */}
+        <div className="clock-status flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-500 dark:text-neutral-400">
+          <span
+            className={cn(
+              'h-2 w-2 shrink-0 rounded-full',
+              isClockedIn
+                ? isPaused
+                  ? 'bg-amber-500'
+                  : 'animate-pulse bg-green-500'
+                : 'bg-neutral-400',
+            )}
+          />
+          {/* Only the state is announced: the totals beside it change every
+              minute while clocked in, and would be read out each time. */}
+          <span role="status">{eyebrow}</span>
+          <span aria-hidden className="opacity-50">
+            ·
+          </span>
+          <span>
+            {clockText.today}{' '}
+            <strong className="text-neutral-900 dark:text-neutral-50">
+              {formatDuration(todaySeconds)}
+            </strong>
+          </span>
+          <span aria-hidden className="opacity-50">
+            ·
+          </span>
+          <span>
+            {clockText.last7Days}{' '}
+            <strong className="text-neutral-900 dark:text-neutral-50">
+              {formatDuration(last7DaysSeconds)}
+            </strong>
+          </span>
+        </div>
 
-        {/* ── Pulse — the other way to clock in or out: a video plan or
-             wrap-up, posted to Huddle by the server, which then clocks you
-             in or out. First on the page, and offered whether or not the
-             team requires a plan. Nothing typed in the composer below goes
-             with it. ── */}
-        {clockPulse && (
-          <section
-            className="clock-pulse flex shrink-0 flex-col gap-4 rounded-2xl border border-pulse/20 bg-pulse/5 p-4 sm:flex-row sm:items-center md:p-6 dark:bg-pulse/10"
-            aria-labelledby="clock-pulse-title"
-          >
-            <PulseLogo className="clock-pulse-logo hidden h-12 sm:block" />
-            <div className="clock-pulse-copy flex-1">
-              <Text as="h2" id="clock-pulse-title" size="base" weight="semibold">
-                {isClockedIn ? 'Record your wrap-up' : 'Record your plan'}
-              </Text>
-              <Text variant="muted" size="sm" className="mt-1">
-                {isClockedIn
-                  ? "Sum up your session with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked out."
-                  : "Say what you'll work on with the Pulse camera. Once it's uploaded, it's posted to Huddle and you're clocked in."}
-              </Text>
-              <Text variant="muted" size="xs" className="mt-1">
-                Your Pulse draft's name becomes the post's text.
-              </Text>
-            </div>
-            <div className="clock-pulse-action flex flex-col items-stretch gap-1 sm:items-end">
-              <PulseChip
-                pulse={clockPulse}
-                ariaLabel={clockPulseLabel}
-                main={{ label: clockPulseLabel, className: MAIN_ACTION_PILL }}
-              />
-            </div>
-          </section>
-        )}
-
-        {/* ── Status — eyebrow + big bold session timer ──
-             The surface is tinted by state rather than being a fixed dark slab
-             with a red underline: that read as an error banner on a light page
-             and, in dark mode, sank into the background so only the red line
-             showed. Tinting carries the state in both themes and gives the
-             Break button a surface it contrasts against. Text colour is
-             inherited (`opacity-*`, not `text-white/*`) so it follows. */}
-        <div
-          className={cn(
-            'clock-status shrink-0 rounded-2xl border px-4 py-3 text-center transition-colors md:px-5 md:py-6',
-            isClockedIn
-              ? isPaused
-                ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-50'
-                : 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-50'
-              : 'border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-50',
-          )}
-          aria-live="polite"
-        >
-          <div className="flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] opacity-70">
-            <span
-              className={cn(
-                'h-2.5 w-2.5 shrink-0 rounded-full',
-                isClockedIn
-                  ? isPaused
-                    ? 'bg-amber-500'
-                    : 'animate-pulse bg-green-500'
-                  : 'bg-neutral-400',
-              )}
-            />
-            {eyebrow}
-          </div>
-          <div className="mt-1 font-mono text-3xl font-bold tabular-nums md:text-4xl">
+        {/* ── Big session timer — kept prominent even though the status line
+             above is otherwise flat/compact; this is still the number people
+             come to this page to check. ── */}
+        <div className="clock-timer shrink-0">
+          <div className="font-mono text-4xl font-bold tabular-nums md:text-5xl">
             {formatTimer(sessionSeconds)}
           </div>
           {activeClockEvent && (
-            <p className="mt-2 text-sm opacity-70">
-              since {formatTime(new Date(activeClockEvent.startTime))}
-            </p>
+            <Text variant="muted" size="sm" className="mt-1">
+              {clockText.since(formatTime(new Date(activeClockEvent.startTime), CLOCK_LOCALE))}
+            </Text>
+          )}
+          {/* The team this clock action targets — the session's own team once
+              clocked in, which a mid-shift team switch can make differ from
+              the one selected in the sidebar. */}
+          {teamName && (
+            <Text size="sm" weight="medium" className="clock-team mt-1">
+              {clockText.team(isClockedIn, teamName)}
+            </Text>
           )}
           {/* Break/Resume lives with the timer so it stays visible in every
-              state — plain actions, plan composer, wrap-up composer — instead
-              of scrolling away below whichever composer happens to be open.
-              Filled and full-size on its own line: as a small outline button
-              tucked beside the timer it was easy to miss entirely. */}
+              state — plain actions, plan composer, wrap-up composer. */}
           {isClockedIn && (
             <div className="mt-4">
               <Button
                 variant="primary"
                 onClick={() => void (isPaused ? resumeClock() : pauseClock())}
                 isLoading={clockPauseLoading}
-                aria-label={isPaused ? 'Resume work' : 'Start break'}
+                aria-label={isPaused ? clockText.resumeWork : clockText.takeBreakLabel}
                 leftIcon={<FontAwesomeIcon icon={isPaused ? faPlay : faMugHot} />}
                 className="gap-2 rounded-full px-6 font-semibold shadow-md transition-transform hover:scale-105 active:scale-95"
               >
-                {isPaused ? 'Resume work' : 'Take a break'}
+                {isPaused ? clockText.resumeWork : clockText.takeBreak}
               </Button>
             </div>
           )}
           {/* Active ticket replaces the plan badge when a timer is running. */}
           {isClockedIn && runningTicket ? (
-            <div className="active-ticket-badge mt-3 flex justify-center px-2">
+            <div className="active-ticket-badge mt-3 flex px-2">
               <Button
                 type="button"
                 variant="ghost"
@@ -680,7 +726,7 @@ export const ClockPage: React.FC = () => {
                     ticketDetailPath({ sourceId: runningTicket.source, id: runningTicket.id }),
                   )
                 }
-                aria-label={`Open ticket: ${runningTicket.title}`}
+                aria-label={clockText.openTicket(runningTicket.title)}
                 className="h-auto max-w-full rounded-full p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
               >
                 <Badge
@@ -699,7 +745,7 @@ export const ClockPage: React.FC = () => {
             requirePlan &&
             isClockedIn && (
               <Badge variant="default" size="sm" className="mt-3">
-                Plan required for this team
+                {clockText.planRequired}
               </Badge>
             )
           )}
@@ -724,134 +770,178 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Composer — plan before clock-in / wrap-up before clock-out ── */}
+        {/* ── Composer-first: a big prompt, then one card holding the plan/
+             wrap-up text (collapsed to a single line until focused) and the
+             Pulse alternative inline beside it. ── */}
         {composerMode && (
-          <div className="clock-plan-composer flex shrink-0 flex-col gap-2 md:gap-3">
-            <div>
-              <Text as="h2" size="base" weight="semibold" className="md:text-lg">
-                {composerTitle}
+          <div className="clock-plan flex shrink-0 flex-col gap-3">
+            {/* Same size/weight as every other page's title (PageTitle in
+                AppPage.tsx) — this heading stands in for it here since the
+                page's own title is hidden in favor of the compact status
+                line above. */}
+            <Text as="h2" size="2xl" weight="semibold" className="tracking-tight">
+              {clockText.prompt(composerMode)}
+            </Text>
+
+            {/* Flush on mobile/Capacitor — no border or padding boxing the
+                editor in, so it gets the full screen width. The bordered
+                card is a desktop treatment, from md: up. */}
+            <div className="clock-plan-composer flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800">
+              <Text variant="muted" size="sm">
+                {destinationBefore}
+                <button
+                  type="button"
+                  // The session's own team, which a mid-shift team switch can
+                  // make differ from the selected one — where this post lands.
+                  onClick={() =>
+                    navigate(gateTeamId ? `/app/huddle?team=${gateTeamId}` : '/app/huddle')
+                  }
+                  className="underline underline-offset-2"
+                >
+                  {clockText.huddleLink}
+                </button>
+                {destinationAfter}
               </Text>
-              {composerDescription && (
-                <Text variant="muted" size="sm" className="mt-1">
-                  {composerDescription}
-                </Text>
+
+              {/* Mounted only once the seed lookup has settled — see `seedSettled`.
+                  Mounting earlier gives RichEditor an empty `value` it will never
+                  replace, which silently drops the plan text on wrap-up. Waiting
+                  here, before choosing collapsed or expanded, also means a
+                  seeded wrap-up opens straight onto its content. */}
+              {!editorMounted ? (
+                composerLoading
+              ) : !showEditor ? (
+                // Wraps so the pills drop to their own line where they don't
+                // fit beside the input (e.g. tablet width with the sidebar open).
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                  <div className="min-w-0 flex-1 sm:min-w-64">
+                    <Input
+                      readOnly
+                      placeholder={clockText.placeholder(composerMode)}
+                      aria-label={clockText.writeLabel(composerMode)}
+                      onFocus={expandComposer}
+                    />
+                  </div>
+                  <Button variant="primary" onClick={expandComposer} className={COMPACT_PILL}>
+                    {clockText.submit(composerMode)}
+                  </Button>
+                  <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
+                </div>
+              ) : (
+                <>
+                  <Suspense fallback={composerLoading}>
+                    <MarkdownEditor
+                      ref={setEditorHandle}
+                      key={`${composerMode}-${editorKey}`}
+                      // `text`, not `seedText`: RichEditor reloads when `value` differs
+                      // from its own last output, which is how a pasted image shows inline.
+                      value={text}
+                      onChange={handleEditorChange}
+                      onSubmit={() =>
+                        void (composerMode === 'plan'
+                          ? postPlanAndClockIn()
+                          : postWrapUpAndClockOut())
+                      }
+                      onFiles={uploadDroppedMedia}
+                    />
+                  </Suspense>
+
+                  {/* ── Ticket / mention / attachment chips ── */}
+                  <ComposerChips
+                    selectedTickets={selectedTickets}
+                    onTicketRemove={removeTicket}
+                    mentions={mentions}
+                    onMentionRemove={handleMentionRemove}
+                    attachments={attachments}
+                    onAttachmentRemove={handleAttachmentRemove}
+                  />
+
+                  {/* ── Attach bar — same Photo/Video/Doc/Ticket/@Mention controls as Huddle ── */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ComposerAttachButtons
+                      teamId={gateTeamId}
+                      onAttachmentAdd={handleAttachmentAdd}
+                      selectedTicketIds={selectedTicketIds}
+                      onTicketSelect={addTicket}
+                      onMentionSelect={handleMentionSelect}
+                      onUploadProgress={reporterFor('picker')}
+                      onError={setComposerError}
+                    />
+                  </div>
+
+                  <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
+
+                  <ComposerError message={composerError} onDismiss={() => setComposerError(null)} />
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <Button
+                      variant="primary"
+                      onClick={() =>
+                        void (composerMode === 'plan'
+                          ? postPlanAndClockIn()
+                          : postWrapUpAndClockOut())
+                      }
+                      isLoading={posting || clockInLoading || clockOutLoading}
+                      disabled={!text.trim() || uploadInFlight}
+                      className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
+                    >
+                      {clockText.submit(composerMode)}
+                    </Button>
+                    <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
+                    <Text variant="muted" size="sm" className="font-mono">
+                      {clockText.shortcutHint(composerMode, !text.trim())}
+                    </Text>
+                  </div>
+                  {postError && (
+                    <Text variant="destructive" size="sm">
+                      {postError}
+                    </Text>
+                  )}
+                </>
               )}
             </div>
-
-            {/* Mounted only once the seed lookup has settled — see `seedSettled`.
-                Mounting earlier gives RichEditor an empty `value` it will never
-                replace, which silently drops the plan text on wrap-up. */}
-            {!editorMounted ? (
-              composerLoading
-            ) : (
-              <Suspense fallback={composerLoading}>
-                <MarkdownEditor
-                  key={`${composerMode}-${editorKey}`}
-                  // `text`, not `seedText`: RichEditor reloads when `value` differs
-                  // from its own last output, which is how a pasted image shows inline.
-                  value={text}
-                  onChange={setText}
-                  onSubmit={() =>
-                    void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
-                  }
-                  onFiles={uploadDroppedMedia}
-                />
-              </Suspense>
-            )}
-
-            {/* ── Ticket / mention / attachment chips ── */}
-            <ComposerChips
-              selectedTickets={selectedTickets}
-              onTicketRemove={removeTicket}
-              mentions={mentions}
-              onMentionRemove={handleMentionRemove}
-              attachments={attachments}
-              onAttachmentRemove={handleAttachmentRemove}
-            />
-
-            {/* ── Attach bar — same Photo/Video/Doc/Ticket/@Mention controls as Huddle ── */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <ComposerAttachButtons
-                teamId={gateTeamId}
-                onAttachmentAdd={handleAttachmentAdd}
-                selectedTicketIds={selectedTicketIds}
-                onTicketSelect={addTicket}
-                onMentionSelect={handleMentionSelect}
-                onUploadProgress={reporterFor('picker')}
-                onError={setComposerError}
-              />
-            </div>
-
-            <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
-
-            <ComposerError message={composerError} onDismiss={() => setComposerError(null)} />
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <Button
-                variant="primary"
-                onClick={() =>
-                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
-                }
-                isLoading={posting || clockInLoading || clockOutLoading}
-                disabled={!text.trim() || uploadInFlight}
-                className="w-full sm:w-auto"
-              >
-                {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
-              </Button>
-              <Text variant="muted" size="sm" className="font-mono">
-                {!text.trim()
-                  ? composerMode === 'plan'
-                    ? 'Write a plan first · '
-                    : 'Write a wrap-up first · '
-                  : ''}
-                ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
-              </Text>
-            </div>
-            {postError && (
-              <Text variant="destructive" size="sm">
-                {postError}
-              </Text>
-            )}
           </div>
         )}
 
         {/* ── Plain actions when the gate is satisfied (or off) ──
-             The one thing you came to this page to do, so it's a large pill
-             with an icon rather than a default-sized button in a row of them. */}
+             Same compact pill as the composer's "Clock in with a plan", so
+             it reads as an equal "X or Y" pair with Pulse beside it rather
+             than a primary action next to an afterthought. No `items-start`
+             — children stretch to the container's full width on mobile, so
+             "or" actually centers and both buttons match width too. */}
         {!composerMode && (
-          <div className="clock-actions flex shrink-0 flex-col items-center gap-3">
+          <div className="clock-actions flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
             {!isClockedIn ? (
               <Button
                 variant="primary"
-                size="lg"
                 onClick={() => void clockIn()}
                 isLoading={clockInLoading}
                 disabled={!selectedTeamId}
-                aria-label="Clock in"
+                aria-label={clockText.clockIn}
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
-                className={MAIN_ACTION_PILL}
+                className={COMPACT_PILL}
               >
-                Clock in
+                {clockText.clockIn}
               </Button>
             ) : (
               <Button
                 variant="danger"
-                size="lg"
                 onClick={() => void clockOut()}
                 isLoading={clockOutLoading}
-                aria-label="Clock out"
+                aria-label={clockText.clockOut}
                 leftIcon={<FontAwesomeIcon icon={faStop} />}
-                className={MAIN_ACTION_PILL}
+                className={COMPACT_PILL}
               >
-                Clock out
+                {clockText.clockOut}
               </Button>
             )}
+            <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
           </div>
         )}
 
         {/* Clocking out closes every ticket timer (clock.stop), so say so first. */}
         {isClockedIn && runningTicket && (
-          <Text variant="muted" size="sm" className="clock-out-stops-timer shrink-0 text-center">
+          <Text variant="muted" size="sm" className="clock-out-stops-timer shrink-0">
             {timerText.clockOutStopsTimer(
               timerLabel(runningTicket.source, runningTicket.id, runningTicket.title),
             )}
@@ -868,42 +958,24 @@ export const ClockPage: React.FC = () => {
         <RedminePushPanel isClockedIn={isClockedIn} />
 
         {/* ── Recent sessions ── */}
-        <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">
-          <CardHeader>
-            <CardTitle>Recent sessions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {recentSessionsLoading ? (
-              <Spinner size="sm" label="Loading sessions…" />
-            ) : recentSessions.length === 0 ? (
-              <Text variant="muted" size="sm">
-                No sessions yet.
-              </Text>
-            ) : (
-              <div className="divide-y divide-gray-100 dark:divide-neutral-800">
-                {recentSessions.map((session) => (
-                  <div key={session.id} className="flex items-center justify-between gap-3 py-2">
-                    <div>
-                      <Text size="sm" weight="medium">
-                        {formatDate(new Date(session.startTime))}
-                      </Text>
-                      <Text variant="muted" size="xs">
-                        {formatTime(new Date(session.startTime))} –{' '}
-                        {formatTime(new Date(session.endTime as number))}
-                      </Text>
-                    </div>
-                    <Badge variant="secondary" size="sm" className="font-mono">
-                      {formatDuration(
-                        Math.round((session.endTime! - session.startTime) / 1000) -
-                          (session.totalBreakSeconds ?? 0),
-                      )}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <RecentSessionsPanel
+          sessions={recentSessions}
+          loading={recentSessionsLoading}
+          // The personal timesheet lives on the Dashboard now (`/app/timesheet`
+          // is retired). Explicit tab=me and team=: without them, an admin whose last-used
+          // Dashboard tab was "Team" lands on the admin timesheet instead of
+          // their own history, and the destination would otherwise scope by
+          // whichever team happens to be globally selected rather than the
+          // team these sessions actually belong to (gateTeamId can differ
+          // from selectedTeamId — see the wrap-up team-suffix note above).
+          onViewAll={() =>
+            navigate(
+              recentSessionsTeamId
+                ? `/app/dashboard?view=timesheet&tab=me&team=${recentSessionsTeamId}`
+                : '/app/dashboard?view=timesheet&tab=me',
+            )
+          }
+        />
       </div>
       <PulseUploadModal
         open={planPulse.modalOpen}

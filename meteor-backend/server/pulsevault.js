@@ -129,6 +129,9 @@ const VIDEO_CONTENT_TYPES = {
  * The video a finished upload delivers, as pulse-destinations.js takes it.
  * `name` is the Pulse draft's title (`Upload-Metadata.name`), when sent.
  * `ext` is the uploaded file's; anything conform didn't skip is served as an MP4.
+ * A skipped one (no ffmpeg, a failed or impossible conversion) is still
+ * delivered, as uploaded: it plays wherever its own format does, and the
+ * release note says conversion happens when it can.
  */
 function describeVideo({ artifactId, ext, size, name, webReady }) {
   const servedExt = webReady && webReady.action !== 'skipped' ? '.mp4' : ext;

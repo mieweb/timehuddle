@@ -5,16 +5,21 @@
  * identically.
  */
 import { useCallback, useRef, useState } from 'react';
+import { isVideoFile, MAX_VIDEO_BYTES } from '../pulse-upload/videoFile';
 import { uploadMedia } from './api';
 import { composerErrorMessage } from './composerErrors';
 import type { MediaItem } from './types';
 
 /**
- * Largest file accepted, matching the backend's own MAX_FILE_MB. Checked here
- * so an oversize pick fails instantly with a message naming the file, instead
- * of after however long it takes to push the bytes up and be rejected.
+ * Largest photo or document accepted, matching the backend's own MAX_FILE_MB.
+ * A video goes to PulseVault instead, which takes up to {@link MAX_VIDEO_BYTES}.
+ * Checked here so an oversize pick fails instantly with a message naming the
+ * file, instead of after however long it takes to push the bytes up and be
+ * rejected.
  */
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+const sizeLimit = (file: File) => (isVideoFile(file) ? MAX_VIDEO_BYTES : MAX_ATTACHMENT_BYTES);
 
 const formatMb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
@@ -56,14 +61,15 @@ export function useAttachmentUpload({
       if (files.length === 0) return;
       onError?.(null);
 
-      const oversize = files.filter((file) => file.size > MAX_ATTACHMENT_BYTES);
+      const oversize = files.filter((file) => file.size > sizeLimit(file));
       if (oversize.length > 0) {
         onError?.(
-          `${oversize.map((f) => f.name).join(', ')} — too large to attach ` +
-            `(limit ${formatMb(MAX_ATTACHMENT_BYTES)}).`,
+          oversize
+            .map((f) => `${f.name} — too large to attach (limit ${formatMb(sizeLimit(f))}).`)
+            .join(' '),
         );
       }
-      const accepted = files.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+      const accepted = files.filter((file) => file.size <= sizeLimit(file));
       if (accepted.length === 0) return;
 
       setUploading(true);

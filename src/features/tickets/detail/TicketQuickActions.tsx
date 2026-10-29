@@ -2,9 +2,8 @@
  * TicketQuickActions — the My Board toggle and the timer button in a ticket
  * page's header, the same pair a table row carries.
  *
- * One component for both pages (a TimeHuddle ticket, a Redmine issue), so the
- * two behave alike: off the board the timer reads "Add & Start", because
- * starting one puts the ticket there.
+ * Off the board the timer reads "Add & Start", because starting one puts the
+ * ticket there.
  */
 import { ButtonGroup } from '@mieweb/ui';
 import React, { useState } from 'react';
@@ -26,11 +25,6 @@ export interface TicketQuickActionsProps {
   id: string;
   /** A Huddle ticket's title, which is how its timer messages name it. */
   title?: string | null;
-  /**
-   * The Tickets table already shows this ticket, so starting a timer has
-   * nothing to pin. Only a Redmine issue can be outside the table.
-   */
-  inTable: boolean;
   /** `${sourceId}:${id}` of the issue this ticket is linked to, which also puts it on the board. */
   linkedKey?: string | null;
 }
@@ -39,7 +33,6 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
   sourceId,
   id,
   title,
-  inTable,
   linkedKey = null,
 }) => {
   const { user } = useSession();
@@ -70,7 +63,7 @@ export const TicketQuickActions: React.FC<TicketQuickActionsProps> = ({
       void stop({ sessionId: runningTicket.sessionId, ticketKey: key, label });
       return;
     }
-    void start({ kind: 'ticket', ticket: { sourceId, id }, label, inTable, onBoard });
+    void start({ kind: 'ticket', ticket: { sourceId, id }, label, onBoard });
   };
 
   return (

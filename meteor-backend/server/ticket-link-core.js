@@ -1,7 +1,7 @@
 /**
  * Pure rules for a ticket's link to an external issue.
  *
- * A ticket stores `linkedIssue: { source, id }` and nothing else about the
+ * A ticket stores `linkedIssue: { source, id, host }` and nothing else about the
  * issue (docs/redmine-design.md, "What is stored"). No Meteor imports, so this
  * is unit-testable (tests/ticket-link-core.test.ts).
  */
@@ -11,7 +11,8 @@ import { sumClosedSessions, ticketDayKey } from './redmine-net-hours';
  * Whether `value` is an absolute `https://` URL. A ticket's external link is
  * stored for a team and rendered as an `href` for every member, so nothing
  * else is accepted: not `javascript:` or `data:`, and not plain `http://`.
- * Any host is allowed — the link may point at any tracker, not only GitHub.
+ * Any host is allowed — the link may point at a doc or any tracker. A link to
+ * a GitHub issue or an issue on one of the org's servers shows by its ID.
  */
 export function isHttpsUrl(value) {
   if (typeof value !== 'string') return false;
@@ -20,6 +21,15 @@ export function isHttpsUrl(value) {
   } catch {
     return false;
   }
+}
+
+/**
+ * The `linkedIssue` stored for a link to Redmine issue `id` on the server at
+ * `host` (#736). A link without a host is on the deployment's own Redmine:
+ * links made before the host was stored read that way.
+ */
+export function redmineLinkFor(id, host) {
+  return { source: 'redmine', id, ...(host ? { host } : {}) };
 }
 
 /** The id of the issue a stored ticket is linked to, or null. */

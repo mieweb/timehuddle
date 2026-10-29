@@ -2,9 +2,9 @@
  * Creating a ticket that is tracked in Redmine, and editing a Redmine issue
  * (plan area e, M6; reworked in #638).
  *
- * There is one dialog for creating a ticket. "Tracked in → Redmine" either
- * links an existing issue or creates a new one from the ticket, asking only for
- * the project and tracker.
+ * There is one dialog for creating a ticket. "Link a Redmine issue instead"
+ * either links an existing issue or creates a new one from the ticket, asking
+ * only for the project and tracker.
  *
  * Redmine is stubbed at the wormhole boundary (see `fixtures/redmine.ts`), and
  * so is `tickets.link`, whose real path needs a Redmine account the test backend
@@ -91,13 +91,13 @@ const linkedTicket = (params: Record<string, unknown>) => ({
 /** Tickets these specs created, deleted again so they do not crowd later specs' tables. */
 const createdTitles: string[] = [];
 
-/** Opens New Ticket, fills the title, and chooses "Tracked in → Redmine → New issue". */
+/** Opens New Ticket, fills the title, and chooses "Link a Redmine issue instead → New issue". */
 async function startNewRedmineTicket(page: Page): Promise<string> {
   const title = `Tracked in Redmine ${Date.now()}`;
   createdTitles.push(title);
   await page.getByRole('button', { name: 'New Ticket' }).click();
   await page.getByPlaceholder('Ticket title').fill(title);
-  await page.getByRole('radio', { name: 'Redmine' }).check();
+  await page.getByRole('button', { name: 'Link a Redmine issue instead' }).click();
   await page.getByRole('radio', { name: 'New issue', exact: true }).check();
   return title;
 }
@@ -124,9 +124,10 @@ test.describe('Creating a ticket tracked in Redmine', () => {
     await page.getByRole('button', { name: 'New Ticket' }).click();
 
     await expect(page.getByPlaceholder('Ticket title')).toBeVisible();
-    await expect(page.getByRole('radio', { name: 'TimeHuddle', exact: true })).toBeChecked();
-    await expect(page.getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
-    await expect(page.getByRole('radio', { name: 'Redmine' })).toBeVisible();
+    // One link field, with no choice of system to make first.
+    await expect(page.getByRole('dialog').getByRole('radio')).toHaveCount(0);
+    await expect(page.getByLabel('Link', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Link a Redmine issue instead' })).toBeVisible();
   });
 
   test('a new Redmine issue asks only for project and tracker, and is made from the ticket', async ({
@@ -166,7 +167,7 @@ test.describe('Creating a ticket tracked in Redmine', () => {
     createdTitles.push(title);
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill(title);
-    await page.getByRole('radio', { name: 'Redmine' }).check();
+    await page.getByRole('button', { name: 'Link a Redmine issue instead' }).click();
 
     // Nothing to link until an issue has been found.
     await expect(createButton(page)).toBeDisabled();
@@ -205,7 +206,6 @@ test.describe('Creating a ticket tracked in Redmine', () => {
       timeout: 15000,
     });
     await expect(page.getByText(/You may not create issues there\./)).toBeVisible();
-    await tickets.search(title);
     await expect(tickets.rowByTitle(title)).toHaveCount(1);
   });
 
@@ -244,23 +244,5 @@ test.describe('Creating a ticket tracked in Redmine', () => {
 
     await chooseProject(page, 'Intake');
     await expect(createButton(page)).toBeEnabled();
-  });
-
-  test('opens the edit dialog for an existing issue from its row', async ({ page }) => {
-    const { tickets } = await openTickets(page, {
-      ...linked,
-      'issues.get': { baseUrl: BASE_URL, issue: issueDetail(), journals: [] },
-    });
-
-    await tickets.search('Fix the intake form validation');
-    await tickets
-      .rowByTitle('Fix the intake form validation')
-      .getByRole('button', { name: 'Ticket options' })
-      .click();
-    await page.getByRole('menuitem', { name: 'Edit Ticket' }).click();
-
-    await expect(page.getByRole('heading', { name: 'Edit Redmine issue #15' })).toBeVisible({
-      timeout: 15000,
-    });
   });
 });

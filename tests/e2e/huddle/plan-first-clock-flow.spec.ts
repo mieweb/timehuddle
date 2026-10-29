@@ -70,8 +70,8 @@ test.describe('Plan-First Clock Flow', () => {
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
-    // Open team settings by clicking the gear icon button
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
+    // Open the team's Settings tab
+    const settingsButton = page.getByRole('tab', { name: 'Settings', exact: true }).first();
     await settingsButton.click({ timeout: 5000 });
 
     // Wait for modal to appear
@@ -108,7 +108,7 @@ test.describe('Plan-First Clock Flow', () => {
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
-    await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+    await page.getByRole('tab', { name: 'Settings', exact: true }).first().click({ timeout: 5000 });
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.disableRequirePlan();
     await teamSettingsPage.close();
@@ -151,7 +151,7 @@ test.describe('Plan-First Clock Flow', () => {
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
     // Open team settings and enable plan requirement
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
+    const settingsButton = page.getByRole('tab', { name: 'Settings', exact: true }).first();
     await settingsButton.click({ timeout: 5000 });
 
     await teamSettingsPage.waitForModal();
@@ -186,7 +186,7 @@ test.describe('Plan-First Clock Flow', () => {
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
     // Open team settings and enable plan requirement
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
+    const settingsButton = page.getByRole('tab', { name: 'Settings', exact: true }).first();
     await settingsButton.click({ timeout: 5000 });
 
     await teamSettingsPage.waitForModal();
@@ -209,7 +209,7 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Type wrap-up
     const wrapUpText = `Finished documentation, started code review, will continue tomorrow`;
-    await clockPage.typeWrapUp(wrapUpText);
+    await clockPage.typeWrapUp(wrapUpText, planText);
 
     // Post wrap-up and clock out
     await clockPage.postWrapUpAndClockOut();
@@ -243,7 +243,7 @@ test.describe('Plan-First Clock Flow', () => {
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
     // New teams start gated; turn it off so the first cycle needs no plan
-    await page.getByRole('button', { name: 'Team Settings' }).first().click({ timeout: 5000 });
+    await page.getByRole('tab', { name: 'Settings', exact: true }).first().click({ timeout: 5000 });
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.disableRequirePlan();
     await teamSettingsPage.close();
@@ -264,7 +264,7 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Now enable the requirement in settings
     await teamsPage.goto();
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
+    const settingsButton = page.getByRole('tab', { name: 'Settings', exact: true }).first();
     await settingsButton.click({ timeout: 5000 });
 
     await teamSettingsPage.waitForModal();
@@ -292,7 +292,7 @@ test.describe('Plan-First Clock Flow', () => {
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
 
     // Enable plan requirement
-    const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
+    const settingsButton = page.getByRole('tab', { name: 'Settings', exact: true }).first();
     await settingsButton.click({ timeout: 5000 });
 
     await teamSettingsPage.waitForModal();
@@ -310,7 +310,7 @@ test.describe('Plan-First Clock Flow', () => {
     await clockPage.postPlanAndClockIn();
 
     // Add wrap-up
-    await clockPage.typeWrapUp(wrapUpText);
+    await clockPage.typeWrapUp(wrapUpText, planText);
     await clockPage.postWrapUpAndClockOut();
 
     // Navigate to huddle

@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   BASE_URL,
   connectedStatus,
-  issueDetail,
+  outsideIssue,
   redmineIssue,
   relevantList,
   stubRedmine,
@@ -59,15 +59,18 @@ async function withFakeLink(page: Page, initial: string | null = null) {
   return { link, unlink };
 }
 
-/** Creates a ticket through the UI and opens its page. */
-async function openNewTicket(page: Page, title: string): Promise<void> {
+/**
+ * Creates a ticket through the UI and opens its page. A ticket that carries an
+ * issue is headed by the issue's title once it is read (#757), so `heading`
+ * is what to wait for.
+ */
+async function openNewTicket(page: Page, title: string, heading = title): Promise<void> {
   const tickets = new TicketsPage(page);
   await tickets.goto();
   await tickets.createTicket(title);
-  await tickets.search(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({
+  await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible({
     timeout: 20000,
   });
 }
@@ -79,8 +82,9 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       status: connectedStatus(),
       'issues.relevant': relevantList([]),
       'issues.search': { connected: true, baseUrl: BASE_URL, kind: 'id', issues: [ISSUE] },
-      'issues.get': { baseUrl: BASE_URL, issue: issueDetail(ISSUE), journals: [] },
     });
+    // The linked issue as the page reads it, through the driver engine (#757).
+    await stubTicketCall(page, 'tickets.outsideRecord', () => outsideIssue(ISSUE));
   });
 
   test('links an existing issue by number, after previewing it', async ({ page }) => {
@@ -90,12 +94,11 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
     await card(page).getByRole('button', { name: 'Add link' }).click();
 
-    // Changed in place, with no popup. The choice is a link or Redmine only:
-    // "TimeHuddle" is not a link to add, and a link is removed with Unlink.
+    // Changed in place, with no popup: one link field, and Redmine to one side.
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(card(page).getByRole('radio', { name: 'Link', exact: true })).toBeVisible();
-    await expect(card(page).getByRole('radio', { name: 'TimeHuddle', exact: true })).toHaveCount(0);
-    await expect(card(page).getByRole('radio', { name: 'Redmine' })).toBeChecked();
+    await expect(card(page).getByRole('radio')).toHaveCount(0);
+    await expect(card(page).getByLabel('Link', { exact: true })).toBeVisible();
+    await card(page).getByRole('button', { name: 'Link a Redmine issue instead' }).click();
     await card(page).getByLabel('Issue number or link').fill('#482');
     await card(page).getByRole('button', { name: 'Find', exact: true }).click();
 
@@ -121,7 +124,11 @@ test.describe('Linking a ticket to a Redmine issue', () => {
 
   test('unlinks a Redmine issue after a confirmation', async ({ page }) => {
     const { unlink } = await withFakeLink(page, '482');
-    await openNewTicket(page, `Unlink ${Date.now()}`);
+    await openNewTicket(page, `Unlink ${Date.now()}`, ISSUE.subject);
+    // A carried ticket's assignee is Redmine's, shown as Redmine has it.
+    const assignee = page.locator('.ticket-sidebar-field-assignee');
+    await expect(assignee).toContainText('Assignee in Redmine');
+    await expect(assignee).toContainText('Test User');
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
     await expect(card(page)).toContainText('Unlink this issue?');
@@ -133,14 +140,50 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
   });
 
+  test('takes any link, and offers to convert one that names an issue', async ({ page }) => {
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(`Any link ${Date.now()}`);
+    const field = page.getByLabel('Link', { exact: true });
+    const create = page.getByRole('button', { name: 'Create Ticket' });
+    const convert = page.getByRole('button', { name: /^Convert to / });
+
+    // A doc is a fine link, with nothing to convert to.
+    await field.fill('https://docs.google.com/document/d/abc/edit');
+    await expect(create).toBeEnabled();
+    await expect(convert).toHaveCount(0);
+
+    // A GitHub issue is offered by its repo; left alone, it stays a plain link.
+    await field.fill('https://github.com/mieweb/timehuddle/issues/9999');
+    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+    await expect(page.getByText('Or save it as a plain link.')).toBeVisible();
+    await page.getByRole('button', { name: 'Convert to timehuddle issue' }).click();
+    await expect(page.getByText('This ticket will go by timehuddle-9999.')).toBeVisible();
+    await page.getByRole('button', { name: 'Keep as a plain link' }).click();
+    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+
+    // An issue on this TimeHuddle's Redmine converts to a Redmine link, found at once.
+    await field.fill(`${BASE_URL}/issues/482`);
+    await convert.click();
+    await expect(page.getByLabel('Issue number or link')).toHaveValue(`${BASE_URL}/issues/482`);
+    await expect(page.getByRole('group', { name: 'Issue to link' })).toContainText(
+      'Export job times out',
+    );
+    await page.getByRole('button', { name: 'Use a link instead' }).click();
+    await expect(field).toHaveValue(`${BASE_URL}/issues/482`);
+  });
+
   test('shows a GitHub link in the same section, and can unlink it', async ({ page }) => {
-    // Not an issue or pull request URL, so the dialog does not fetch a title for it.
-    const url = 'https://github.com/mieweb/timehuddle/discussions/1';
+    // GitHub answers nothing, so the link shows as its address.
+    const url = 'https://github.com/mieweb/timehuddle/issues/9999';
+    await page.route('https://api.github.com/repos/mieweb/timehuddle/issues/9999', (route) =>
+      route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: '{}' }),
+    );
     const tickets = new TicketsPage(page);
     await tickets.goto();
     const title = `GitHub link ${Date.now()}`;
     await tickets.createTicket(title, url);
-    await tickets.search(title);
     await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
 
@@ -171,8 +214,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     const tickets = new TicketsPage(page);
     await tickets.goto();
     await page.getByRole('button', { name: 'New Ticket' }).click();
-    await page.getByRole('radio', { name: 'Link', exact: true }).check();
-    await page.getByLabel('Link to the issue').fill(url);
+    await page.getByLabel('Link', { exact: true }).fill(url);
     // The dialog takes the ticket's title from the issue.
     await expect(page.getByPlaceholder('Ticket title')).toHaveValue(githubTitle, {
       timeout: 15000,
@@ -197,7 +239,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: { unlinkedSeconds: 0, unsentSeconds: 8100, sentSeconds: 5400 },
       othersWithTime: 2,
     }));
-    await openNewTicket(page, `Unlink warnings ${Date.now()}`);
+    await openNewTicket(page, `Unlink warnings ${Date.now()}`, ISSUE.subject);
 
     await card(page).getByRole('button', { name: 'Unlink' }).click();
 
@@ -219,11 +261,26 @@ test.describe('Linking a ticket to a Redmine issue', () => {
       myTime: NO_TIME,
       othersWithTime: 1,
     }));
-    await openNewTicket(page, `Locked ${Date.now()}`);
+    await openNewTicket(page, `Locked ${Date.now()}`, ISSUE.subject);
 
     await expect(page.getByText(message)).toBeVisible();
     await expect(card(page).getByRole('button', { name: 'Change' })).toBeDisabled();
     await expect(card(page).getByRole('button', { name: 'Unlink' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
+    // The title is the issue's, written to Redmine (#757): a timer doesn't lock it.
+    await expect(page.getByRole('button', { name: 'Edit title' })).toBeVisible();
+  });
+
+  test("locks a plain ticket's own title while someone is timing it", async ({ page }) => {
+    await withFakeLink(page);
+    await stubTicketCall(page, 'tickets.lockStatus', () => ({
+      lock: { holders: [{ userId: 'u2', name: 'Ticket Member' }], message: 'Timing' },
+      myTime: NO_TIME,
+      othersWithTime: 1,
+    }));
+    await openNewTicket(page, `Locked plain ${Date.now()}`);
+
+    await expect(page.getByText('Timing')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Edit title' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Delete ticket' })).toBeDisabled();
   });
@@ -237,7 +294,7 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await openNewTicket(page, `Refused ${Date.now()}`);
 
     await card(page).getByRole('button', { name: 'Add link' }).click();
-    await card(page).getByRole('radio', { name: 'Redmine' }).check();
+    await card(page).getByRole('button', { name: 'Link a Redmine issue instead' }).click();
     await card(page).getByLabel('Issue number or link').fill('482');
     await card(page).getByRole('button', { name: 'Find', exact: true }).click();
     await card(page).getByRole('button', { name: 'Save' }).click();

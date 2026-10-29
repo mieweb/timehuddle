@@ -14,7 +14,13 @@ import { test, expect, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TicketsPage } from '../pages/TicketsPage';
-import { connectedStatus, redmineIssue, relevantList, stubRedmine } from '../fixtures/redmine';
+import {
+  connectedStatus,
+  redmineIssue,
+  relevantList,
+  stubRedmine,
+  unlinkedStatus,
+} from '../fixtures/redmine';
 
 const REDMINE_USER_ID = 8;
 
@@ -37,15 +43,14 @@ const THEIRS = redmineIssue({
 async function stubLinkableRedmine(page: Page) {
   let linked = false;
   const rm = await stubRedmine(page, {
-    status: () =>
-      linked ? connectedStatus({ redmineUserId: REDMINE_USER_ID }) : { connected: false },
+    status: () => (linked ? connectedStatus({ redmineUserId: REDMINE_USER_ID }) : unlinkedStatus()),
     connect: () => {
       linked = true;
       return connectedStatus({ redmineUserId: REDMINE_USER_ID });
     },
     disconnect: () => {
       linked = false;
-      return { connected: false };
+      return unlinkedStatus();
     },
     'issues.relevant': () =>
       linked
@@ -56,7 +61,7 @@ async function stubLinkableRedmine(page: Page) {
 }
 
 async function openSettings(page: Page) {
-  await page.goto('/app/settings');
+  await page.goto('/app/settings?section=integrations');
   await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
 }
 
@@ -84,89 +89,24 @@ test.describe('Redmine connection propagates without a reload', () => {
     tickets = new TicketsPage(page);
   });
 
-  test('issues appear on the Tickets page after connecting', async ({ page }) => {
-    await stubLinkableRedmine(page);
-
-    // Start on Tickets so the page is mounted with the unlinked view, exactly
-    // as a user who had not connected yet would leave it.
-    await tickets.goto();
-    await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
-
-    await openSettings(page);
-    await connectInSettings(page);
-    await goToTicketsWithoutReloading(page);
-
-    await tickets.search('Mine in Redmine');
-    await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
-  });
-
   test('the New Ticket dialog offers Redmine after connecting', async ({ page }) => {
     await stubLinkableRedmine(page);
     await tickets.goto();
 
-    const chooseRedmine = async () => {
-      await page.getByRole('button', { name: 'New Ticket' }).click();
-      await page.getByRole('radio', { name: 'Redmine' }).check();
-    };
+    const offerRedmine = () => page.getByRole('button', { name: 'Link a Redmine issue instead' });
 
-    // Unlinked: the dialog says to connect Redmine instead of offering a search.
-    await chooseRedmine();
-    await expect(page.getByText(/Connect your Redmine account in Settings/)).toBeVisible();
+    // Unlinked: the dialog has no Redmine to offer, only the link field.
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await expect(page.getByLabel('Link', { exact: true })).toBeVisible();
+    await expect(offerRedmine()).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel' }).click();
 
     await openSettings(page);
     await connectInSettings(page);
     await goToTicketsWithoutReloading(page);
 
-    await chooseRedmine();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await offerRedmine().click();
     await expect(page.getByLabel('Issue number or link')).toBeVisible();
   });
-
-  test('the "Me" filter picks up the linked Redmine account', async ({ page }) => {
-    // The other half of the fix: `useMeAssigneeKeys` used to fetch its own
-    // status once and never look again.
-    await stubLinkableRedmine(page);
-    await tickets.goto();
-
-    await openSettings(page);
-    await connectInSettings(page);
-    await goToTicketsWithoutReloading(page);
-
-    await tickets.filterBy('Assignees', 'Me');
-
-    await tickets.search('Mine in Redmine');
-    await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
-    await tickets.clearSearch();
-    await tickets.search('Theirs in Redmine');
-    await expect(tickets.rowByTitle('Theirs in Redmine')).toHaveCount(0);
-  });
-
-  test('disconnecting clears the issues, also without a reload', async ({ page }) => {
-    await stubLinkableRedmine(page);
-
-    await openSettings(page);
-    await connectInSettings(page);
-    await goToTicketsWithoutReloading(page);
-    await tickets.search('Mine in Redmine');
-    await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
-    await tickets.clearSearch();
-
-    await openSettings(page);
-    await page.getByRole('button', { name: 'Disconnect' }).click();
-    await expect(page.getByLabel('Redmine API key')).toBeVisible({ timeout: 15000 });
-    await goToTicketsWithoutReloading(page);
-
-    await expect(tickets.rowsFromSource('redmine')).toHaveCount(0);
-  });
-
-  // No `issues.relevant` call-count test here, deliberately. `redmineSource` caches
-  // the list for the session, so dropping that cache is half of what the fix
-  // does — but counting the calls cannot demonstrate it: `useUnifiedTickets`
-  // reloads as its own dependencies settle after a navigation, so the count
-  // climbs for reasons that have nothing to do with connecting. Both versions
-  // of such a test passed with the fix reverted.
-  //
-  // The first test in this file covers the cache properly anyway: rows can only
-  // appear after connecting if the cached (empty) list was invalidated *and*
-  // refetched. It fails with the fix removed.
 });

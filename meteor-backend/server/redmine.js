@@ -150,7 +150,12 @@ function statusFor(link) {
 function requestedBaseUrl(rawBaseUrl) {
   if (!customRedmineUrlAllowed() || rawBaseUrl == null || rawBaseUrl === '') {
     const fallback = optionalRedmineBaseUrl();
-    if (!fallback) throw new Meteor.Error('not-configured', 'Redmine is not configured on the server.');
+    if (!fallback) {
+      throw new Meteor.Error(
+        'not-configured',
+        'This TimeHuddle has no Redmine server set up. Whoever runs it needs to set REDMINE_BASE_URL.',
+      );
+    }
     return fallback;
   }
   const baseUrl = normalizeRedmineUrl(rawBaseUrl);

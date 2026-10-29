@@ -14,6 +14,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
+import { ClockPage } from '../pages/ClockPage';
 import { composerEditor, openComposer, setSharedTeamPlanGate } from './helpers';
 
 const ACTION_BUTTONS: Array<string | RegExp> = [
@@ -22,7 +23,7 @@ const ACTION_BUTTONS: Array<string | RegExp> = [
   'Doc',
   'Ticket',
   '@Mention',
-  /(Post|Publish) plan and clock in/,
+  'Clock in with a plan',
 ];
 
 /**
@@ -94,6 +95,47 @@ test.describe('Huddle composer — responsive layout', () => {
       expect(overflowsHorizontally).toBe(false);
     });
   }
+
+  // The composer opens collapsed to one line: input, "Clock in with a plan",
+  // "or" and the Pulse pill. At tablet width with the sidebar open they don't
+  // all fit on one row, so the pills must wrap below rather than squeeze the
+  // input down to a few letters or push past the edge.
+  for (const viewport of [
+    { label: 'phone', width: 390, height: 844 },
+    { label: 'tablet', width: 768, height: 1024 },
+    { label: 'desktop', width: 1280, height: 900 },
+  ]) {
+    test(`the collapsed composer keeps its input usable at ${viewport.label} (${viewport.width}x${viewport.height})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await new ClockPage(page).ensureClockedOut();
+      const input = page.getByRole('textbox', { name: 'Write a plan' });
+      await input.waitFor({ timeout: 20000 });
+
+      expect((await input.boundingBox())!.width, 'collapsed input width').toBeGreaterThanOrEqual(
+        200,
+      );
+      for (const name of ['Clock in with a plan', 'Clock in with Pulse']) {
+        const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+        expect(box!.x + box!.width, `"${name}" right edge`).toBeLessThanOrEqual(viewport.width);
+      }
+      const overflowsHorizontally = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      expect(overflowsHorizontally).toBe(false);
+    });
+  }
+
+  test('clicking the collapsed composer puts the cursor in the editor', async ({ page }) => {
+    // The editor is lazy-loaded and focuses itself only once it is ready, so
+    // this can't be checked by clicking into it, as every other test does.
+    await new ClockPage(page).ensureClockedOut();
+    await page.getByRole('textbox', { name: 'Write a plan' }).click();
+    await expect(composerEditor(page)).toBeFocused({ timeout: 10000 });
+    await page.keyboard.type('typed without clicking the editor');
+    await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeEnabled();
+  });
 
   test('the composer scrolls its own overflow instead of clipping it', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });

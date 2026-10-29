@@ -112,6 +112,10 @@ export function usePulseUpload(
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const notifiedFor = useRef<string | null>(null);
+  // The file upload whose progress the buttons show, by its video id. Once the
+  // host moves on, an earlier upload keeps going to where it was reserved, but
+  // its progress, failure and cleanup no longer touch these buttons.
+  const activeFile = useRef<string | null>(null);
 
   // In a phone's browser the link is ready before the tap, so the tap opens
   // Pulse itself: a Universal Link / App Link opens the app only from a tap,
@@ -149,8 +153,10 @@ export function usePulseUpload(
   // still delivers where it was meant to.
   const current = link?.destinationKey === destinationKey ? link : null;
   useEffect(() => {
-    // Whatever went wrong, or was opening, was for the destination before this one.
+    // Whatever went wrong, or was opening or uploading, was for the destination before this one.
     setError(null);
+    setProgress(null);
+    activeFile.current = null;
     launch.current?.abort();
   }, [destinationKey]);
   useEffect(() => {
@@ -315,17 +321,22 @@ export function usePulseUpload(
       }
       const next = await reserve(true);
       if (!next) return;
+      const isActive = () => mounted.current && activeFile.current === next.videoid;
+      activeFile.current = next.videoid;
       setProgress(0);
       try {
-        await uploadVideoFile(file, next, (f) => mounted.current && setProgress(f));
+        await uploadVideoFile(file, next, (f) => isActive() && setProgress(f));
       } catch (e) {
-        if (!mounted.current) return;
+        if (!isActive()) return;
         // Nothing landed: drop the link so the chips are free again.
-        setLink(null);
+        setLink((live) => (live?.videoid === next.videoid ? null : live));
         setStatus(null);
         setError((e as Error).message);
       } finally {
-        if (mounted.current) setProgress(null);
+        if (isActive()) {
+          setProgress(null);
+          activeFile.current = null;
+        }
       }
     },
     [reserve],

@@ -3,7 +3,7 @@ import { BasePage } from './BasePage';
 import { keepShortStintUpdates } from '../fixtures/timers';
 
 /** Properties with nothing to filter: their pill is the sort itself. */
-const SORT_ONLY_FIELDS = new Set(['Title', 'Issue #', 'Updated']);
+const SORT_ONLY_FIELDS = new Set(['Title', 'Updated']);
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -27,6 +27,8 @@ export class TicketsPage extends BasePage {
   readonly heading: Locator;
   readonly newTicketButton: Locator;
   readonly searchInput: Locator;
+  /** The search bar's dropdown, where its results show; it does not filter the table. */
+  readonly searchMenu: Locator;
   /** The chevron that opens the pane of every sort and filter pill, when they do not all fit. */
   readonly showAllControlsButton: Locator;
   readonly openOption: Locator;
@@ -49,11 +51,12 @@ export class TicketsPage extends BasePage {
     super(page);
     this.heading = this.page.getByRole('heading', { level: 1, name: /Tickets/i });
     this.newTicketButton = this.page.getByRole('button', { name: 'New Ticket' });
-    // One input with two jobs since Redmine MVP2: it filters the table and opens
-    // the Redmine suggestion dropdown, so it is a combobox.
+    // A combobox: its results are tickets and Redmine issues in a dropdown
+    // (#736c), and it no longer filters the table.
     this.searchInput = this.page.getByRole('combobox', {
       name: 'Search tickets and Redmine issues',
     });
+    this.searchMenu = this.page.getByRole('listbox', { name: 'Redmine suggestions' });
     // Open/Closed sits in the list header at every width, labelled with its counts.
     this.showAllControlsButton = this.page.getByRole('button', {
       name: /^Show all sort and filter controls/,
@@ -138,8 +141,9 @@ export class TicketsPage extends BasePage {
 
   /** The pill of a property that can be filtered; it opens that property's menu. */
   filterControl(field: string): Locator {
+    // A pill with only view options, such as Issue #, opens "Options for …".
     return this.page.getByRole('button', {
-      name: new RegExp(`^Filter by ${escapeRegExp(field)}(?::|$)`),
+      name: new RegExp(`^(Filter by|Options for) ${escapeRegExp(field)}(?::|$)`),
     });
   }
 
@@ -200,36 +204,22 @@ export class TicketsPage extends BasePage {
     await this.page.getByPlaceholder('Ticket title').waitFor({ state: 'visible' });
   }
 
-  /** Create a ticket with the given title, optionally with a link to `githubUrl`. */
-  async createTicket(title: string, githubUrl?: string) {
+  /**
+   * Create a ticket with the given title, optionally with a link to `githubUrl`.
+   * `convert` clicks "Convert to …", so the ticket goes by the ID the link names.
+   */
+  async createTicket(title: string, githubUrl?: string, { convert = false } = {}) {
     await this.openCreateForm();
     await this.page.getByPlaceholder('Ticket title').fill(title);
     if (githubUrl) {
-      await this.page.getByRole('radio', { name: 'Link', exact: true }).check();
-      await this.page.getByLabel('Link to the issue').fill(githubUrl);
+      await this.page.getByLabel('Link', { exact: true }).fill(githubUrl);
+      if (convert) await this.page.getByRole('button', { name: /^Convert to / }).click();
       // Wait for title fetch
       await this.page.waitForTimeout(1500);
     }
     await this.page.getByRole('button', { name: 'Create Ticket' }).click();
     // Wait for ticket to appear in the list
     await this.page.waitForTimeout(1000);
-  }
-
-  /**
-   * Filter the table. Escape closes the suggestion dropdown the input opens, so
-   * it cannot sit over the table rows a test goes on to click.
-   */
-  async search(query: string) {
-    await this.searchInput.fill(query);
-    await this.searchInput.press('Escape');
-    await this.page.waitForTimeout(500);
-  }
-
-  /** Clear search, closing the suggestion dropdown as `search` does. */
-  async clearSearch() {
-    await this.searchInput.clear();
-    await this.searchInput.press('Escape');
-    await this.page.waitForTimeout(500);
   }
 
   /** Get the count of visible tickets */

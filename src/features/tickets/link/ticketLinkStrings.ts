@@ -25,19 +25,20 @@ export const ticketLinkText = {
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
-  linkedTo: (ref: string) => `Linked to Redmine ${ref}`,
-  linkedToWithStatus: (ref: string, status: string) => `Linked to Redmine ${ref} · ${status}`,
   notConnected: 'Connect your Redmine account in Settings to see this issue.',
   issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
 
-  kindLabel: 'Tracked in',
-  kindNone: 'TimeHuddle',
-  kindGithub: 'Link',
-  kindRedmine: 'Redmine',
-
-  githubLabel: 'Link to the issue',
-  githubPlaceholder: 'https://github.com/…',
+  linkLabel: 'Link',
+  linkPlaceholder: 'Paste a link to an issue, a pull request, a doc…',
+  /** "Convert to PM issue": the ticket will go by the ID the link names. */
+  convertTo: (prefix: string, pullRequest: boolean) =>
+    `Convert to ${prefix} ${pullRequest ? 'pull request' : 'issue'}`,
+  orKeepAsLink: 'Or save it as a plain link.',
+  convertedTo: (id: string) => `This ticket will go by ${id}.`,
+  keepAsLink: 'Keep as a plain link',
+  useRedmine: 'Link a Redmine issue instead',
+  useLink: 'Use a link instead',
 
   redmineModeLabel: 'Redmine issue',
   modeExisting: 'Existing issue',

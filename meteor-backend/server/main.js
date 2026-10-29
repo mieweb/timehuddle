@@ -24,9 +24,12 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
+import './ticket-carry';
+import './ticket-search';
+import './ticket-outside';
+import './redmine-suggestions';
 import './redmine';
 import './redmine-issue-methods';
-import { MAX_REMOVE_PER_CALL } from './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -41,6 +44,9 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
+import { hostOf, migrateServerTypes, migrateTicketNumbers } from './ticket-ids';
+import { migrateBareRedmineData } from './redmine-cleanup-736';
+import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
@@ -86,6 +92,28 @@ Meteor.startup(async () => {
   }
   // Hear settings changes made by other server instances.
   watchSettingsChanges(rawDb());
+});
+
+// Not awaited before serving: a ticket without a number shows its short id until it gets one.
+Meteor.startup(() => {
+  migrateTicketNumbers(rawDb()).catch((error) =>
+    console.error('[tickets] numbering existing tickets failed:', error),
+  );
+});
+
+// Not awaited either: until it runs, a server named before types existed reads
+// as Redmine anyway (outsideIdOf's default).
+Meteor.startup(() => {
+  migrateServerTypes(rawDb(), { redmineBaseUrl: optionalRedmineBaseUrl() }).catch((error) =>
+    console.error('[orgs] giving servers a type failed:', error),
+  );
+});
+
+// Not awaited either: until it runs, old bare-issue board entries just don't show.
+Meteor.startup(() => {
+  migrateBareRedmineData(rawDb(), { redmineHost: hostOf(optionalRedmineBaseUrl()) }).catch(
+    (error) => console.error('[redmine] clearing bare-issue data failed:', error),
+  );
 });
 
 /**
@@ -440,7 +468,7 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&scope=user:email` +
     `&state=${credentialToken}`;
-  
+
   res.writeHead(302, { Location: githubAuthUrl });
   res.end();
 });
@@ -495,18 +523,19 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       },
     });
     const emails = await emailRes.json();
-    const primaryEmail =
-      emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
+    const primaryEmail = emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
 
-    const frontendUrl =
-      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    const frontendUrl = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
     const { isNative, join, invite, orgInvite, link } = decodeOAuthState(state);
 
     // Settings → Connect GitHub: stage the link, then return to Settings,
     // which confirms it as the signed-in user (see github-link.js).
     if (link) {
       const { result, code } = await stageGithubLink(link, githubUser);
-      const params = code ? { github_confirm: code } : { github: result };
+      const params = {
+        section: 'account',
+        ...(code ? { github_confirm: code } : { github: result }),
+      };
       res.writeHead(302, {
         Location: `${frontendUrl}/app/settings?${new URLSearchParams(params)}`,
       });
@@ -524,9 +553,8 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
 
     // Find or create user in Meteor
     const userId =
-      linkedUserId ??
-      (await findOrCreateUser(primaryEmail, githubUser.name || githubUser.login));
-    
+      linkedUserId ?? (await findOrCreateUser(primaryEmail, githubUser.name || githubUser.login));
+
     // Create Meteor login token for this user
     const stampedToken = Accounts._generateStampedLoginToken();
     await Accounts._insertLoginToken(userId, stampedToken);
@@ -1038,6 +1066,67 @@ Meteor.startup(async () => {
     },
   });
 
+  Wormhole.expose('tickets.carryIssue', {
+    description:
+      "The team's ticket carrying a Redmine issue, created from the issue and linked if there is none. Returns { ticket, created }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        issueId: { type: 'integer', description: 'The Redmine issue number' },
+      },
+      required: ['teamId', 'issueId'],
+    },
+  });
+
+  Wormhole.expose('tickets.search', {
+    description:
+      "The tickets a Tickets search-bar query names in any of the caller's teams: an ID or ID prefix (TH-12, TH-, RMX-1, pulse-223, 223; exact match first), @name (assigned to that teammate), a pasted issue link, or words in the title. Newest first, at most 25. Returns { kind, tickets }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What was typed into the Tickets search bar' },
+      },
+      required: ['query'],
+    },
+  });
+
+  Wormhole.expose('tickets.outsideRecord', {
+    description:
+      "The outside issue a ticket carries (a Redmine issue), read with the caller's own key and returned as a ticket record. Returns { kind, record, choices, me }",
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.writeOutside', {
+    description:
+      "Write edits to the outside issue a ticket carries, as the caller: only fields the source allows, refused as stale if the issue changed since expectedUpdatedAt. Returns { record, choices, mismatches }",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        expectedIssue: {
+          type: 'string',
+          description:
+            'The issue the caller read, as kind:server:key (the record\'s ref); a ticket now carrying another is refused as stale-link',
+        },
+        expectedUpdatedAt: {
+          type: 'string',
+          description: "The record's dates.updated when the caller read it",
+        },
+        edits: {
+          type: 'object',
+          description:
+            'Record field to new value: title, body (text), status, priority (ids), assignees (ids; empty unassigns)',
+        },
+      },
+      required: ['ticketId', 'expectedIssue', 'expectedUpdatedAt', 'edits'],
+    },
+  });
+
   Wormhole.expose('tickets.unlink', {
     description: "Remove a ticket's link to a Redmine issue. Nothing changes in Redmine",
     inputSchema: {
@@ -1126,7 +1215,8 @@ Meteor.startup(async () => {
   });
 
   Wormhole.expose('github.confirmLink', {
-    description: 'Finish linking the GitHub account the OAuth callback staged, as the user who started it',
+    description:
+      'Finish linking the GitHub account the OAuth callback staged, as the user who started it',
     inputSchema: {
       type: 'object',
       properties: { code: { type: 'string' } },
@@ -1196,35 +1286,27 @@ Meteor.startup(async () => {
 
   Wormhole.expose('redmine.prefs.set', {
     description:
-      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine). Refused with 'too-many-pins' past the per-user pin cap",
+      "Hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",
     inputSchema: {
       type: 'object',
       properties: {
         issueId: { type: 'integer' },
         state: {
           type: ['string', 'null'],
-          enum: ['pinned', 'dismissed', null],
-          description: 'null lifts a hide (Undo / Restore); a pin stays',
+          enum: ['dismissed', null],
+          description: 'null lifts a hide (Undo / Restore)',
         },
       },
       required: ['issueId', 'state'],
     },
   });
 
-  Wormhole.expose('redmine.issues.removeFromTable', {
+  Wormhole.expose('redmine.issues.assignedIds', {
     description:
-      "Take Redmine issues out of the caller's Tickets table and My Board (bulk Delete). Never touches Redmine",
+      'One page (100) of the ids of the open Redmine issues assigned to the caller, most recently updated first, whatever they removed from their Tickets table. Returns { issueIds, nextOffset }, nextOffset null at the end',
     inputSchema: {
       type: 'object',
-      properties: {
-        issueIds: {
-          type: 'array',
-          items: { type: 'integer' },
-          minItems: 1,
-          maxItems: MAX_REMOVE_PER_CALL,
-        },
-      },
-      required: ['issueIds'],
+      properties: { offset: { type: 'integer', minimum: 0, description: 'Where the page starts' } },
     },
   });
 
@@ -1332,7 +1414,8 @@ Meteor.startup(async () => {
         comment: { type: 'string', description: "The entry's comment; optional" },
         activityId: {
           type: 'number',
-          description: "Optional override of the resolved activity; must be one the issue's project allows",
+          description:
+            "Optional override of the resolved activity; must be one the issue's project allows",
         },
       },
       required: ['ticketId', 'date'],
@@ -2143,7 +2226,8 @@ Meteor.startup(async () => {
   });
 
   Wormhole.expose('teams.updateSettings', {
-    description: 'Update team settings (admin only). true/false sets a value, null resets it to inherited',
+    description:
+      'Update team settings (admin only). true/false sets a value, null resets it to inherited',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2374,33 +2458,229 @@ Meteor.startup(async () => {
 
   // ── Organizations ─────────────────────────────────────────────────────────
 
-  Wormhole.expose('orgs.list', { description: 'List organizations accessible to the caller', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('orgs.checkSlug', { description: 'Check org slug availability', inputSchema: { type: 'object', properties: { slug: { type: 'string' }, excludeId: { type: 'string' } }, required: ['slug'] } });
-  Wormhole.expose('orgs.create', { description: 'Create organization under enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['enterpriseId', 'name'] } });
-  Wormhole.expose('orgs.get', { description: 'Get organization details', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.update', { description: 'Update organization (name, slug, settings)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.updateSettings', { description: 'Update org settings and locks. Setting values: true/false, or null to reset to inherited. Locks: true to lock, false/null to unlock. allowAutoJoin alone is still accepted', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, allowAutoJoin: { type: 'boolean' }, settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } }, locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.join', { description: 'Join organization (if auto-join enabled)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.listMembers', { description: 'List org members (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.listUsers', { description: 'List org users (accessible)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.searchUsers', { description: 'Search users to add to org', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, q: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.setMemberRole', { description: 'Set org member role', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['orgId', 'userId', 'role'] } });
-  Wormhole.expose('orgs.removeMember', { description: 'Remove org member', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' } }, required: ['orgId', 'userId'] } });
-  Wormhole.expose('orgs.invite', { description: 'Invite a user to an organization by email', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, email: { type: 'string' } }, required: ['orgId', 'email'] } });
-  Wormhole.expose('orgs.getInvitation', { description: 'Get an organization invitation preview', inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] } });
-  Wormhole.expose('orgs.acceptInvite', { description: 'Accept an organization invitation', inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] } });
-  Wormhole.expose('orgs.getPendingInvitations', { description: 'List email invitations sent for an organization (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
-  Wormhole.expose('orgs.revokeInvite', { description: 'Revoke a pending organization invitation', inputSchema: { type: 'object', properties: { invitationId: { type: 'string' } }, required: ['invitationId'] } });
-  Wormhole.expose('orgs.updateMemberReportsTo', { description: 'Update org member reports-to', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['orgId', 'userId'] } });
-  Wormhole.expose('orgs.updateReportsTo', { description: 'Update user reports-to (default org admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['userId'] } });
-  Wormhole.expose('orgs.adminGet', { description: 'Get default org admin metadata', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('orgs.adminUpdate', { description: 'Update default org name (admin)', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } });
-  Wormhole.expose('orgs.adminListUsers', { description: 'List users with default org roles (admin)', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('orgs.adminSetUserRole', { description: 'Set default org role for user (admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['userId', 'role'] } });
-  Wormhole.expose('orgs.publicGet', { description: 'Get default org metadata (all users)', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('orgs.publicListUsers', { description: 'List users with default org roles (all users)', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('orgs.blockMember', { description: 'Block org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' }, reason: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
-  Wormhole.expose('orgs.unblockMember', { description: 'Unblock org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
+  Wormhole.expose('orgs.list', {
+    description: 'List organizations accessible to the caller',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('orgs.checkSlug', {
+    description: 'Check org slug availability',
+    inputSchema: {
+      type: 'object',
+      properties: { slug: { type: 'string' }, excludeId: { type: 'string' } },
+      required: ['slug'],
+    },
+  });
+  Wormhole.expose('orgs.create', {
+    description: 'Create organization under enterprise',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enterpriseId: { type: 'string' },
+        name: { type: 'string' },
+        slug: { type: 'string' },
+        allowAutoJoin: { type: 'boolean' },
+      },
+      required: ['enterpriseId', 'name'],
+    },
+  });
+  Wormhole.expose('orgs.get', {
+    description: 'Get organization details',
+    inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] },
+  });
+  Wormhole.expose('orgs.update', {
+    description: 'Update organization (name, slug, settings)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        name: { type: 'string' },
+        slug: { type: 'string' },
+        allowAutoJoin: { type: 'boolean' },
+      },
+      required: ['orgId'],
+    },
+  });
+  Wormhole.expose('orgs.updateSettings', {
+    description:
+      'Update org settings and locks. Setting values: true/false, or null to reset to inherited. Locks: true to lock, false/null to unlock. allowAutoJoin alone is still accepted',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        allowAutoJoin: { type: 'boolean' },
+        settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } },
+        locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } },
+      },
+      required: ['orgId'],
+    },
+  });
+  Wormhole.expose('orgs.setTicketPrefix', {
+    description:
+      'Set the prefix tickets in the organization are shown with, e.g. TH for TH-12 (org owners only)',
+    inputSchema: {
+      type: 'object',
+      properties: { orgId: { type: 'string' }, ticketPrefix: { type: 'string' } },
+      required: ['orgId', 'ticketPrefix'],
+    },
+  });
+  Wormhole.expose('orgs.setSourcePrefixes', {
+    description:
+      'Name the servers outside issues live on, so an issue there shows as PREFIX-123 (org owners only). Replaces the whole list',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        sourcePrefixes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { host: { type: 'string' }, prefix: { type: 'string' } },
+            required: ['host', 'prefix'],
+          },
+        },
+      },
+      required: ['orgId', 'sourcePrefixes'],
+    },
+  });
+  Wormhole.expose('orgs.join', {
+    description: 'Join organization (if auto-join enabled)',
+    inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] },
+  });
+  Wormhole.expose('orgs.listMembers', {
+    description: 'List org members (manage permission)',
+    inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] },
+  });
+  Wormhole.expose('orgs.listUsers', {
+    description: 'List org users (accessible)',
+    inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] },
+  });
+  Wormhole.expose('orgs.searchUsers', {
+    description: 'Search users to add to org',
+    inputSchema: {
+      type: 'object',
+      properties: { orgId: { type: 'string' }, q: { type: 'string' } },
+      required: ['orgId'],
+    },
+  });
+  Wormhole.expose('orgs.setMemberRole', {
+    description: 'Set org member role',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        userId: { type: 'string' },
+        role: { type: 'string', enum: ['owner', 'admin', 'member'] },
+      },
+      required: ['orgId', 'userId', 'role'],
+    },
+  });
+  Wormhole.expose('orgs.removeMember', {
+    description: 'Remove org member',
+    inputSchema: {
+      type: 'object',
+      properties: { orgId: { type: 'string' }, userId: { type: 'string' } },
+      required: ['orgId', 'userId'],
+    },
+  });
+  Wormhole.expose('orgs.invite', {
+    description: 'Invite a user to an organization by email',
+    inputSchema: {
+      type: 'object',
+      properties: { orgId: { type: 'string' }, email: { type: 'string' } },
+      required: ['orgId', 'email'],
+    },
+  });
+  Wormhole.expose('orgs.getInvitation', {
+    description: 'Get an organization invitation preview',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] },
+  });
+  Wormhole.expose('orgs.acceptInvite', {
+    description: 'Accept an organization invitation',
+    inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] },
+  });
+  Wormhole.expose('orgs.getPendingInvitations', {
+    description: 'List email invitations sent for an organization (manage permission)',
+    inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] },
+  });
+  Wormhole.expose('orgs.revokeInvite', {
+    description: 'Revoke a pending organization invitation',
+    inputSchema: {
+      type: 'object',
+      properties: { invitationId: { type: 'string' } },
+      required: ['invitationId'],
+    },
+  });
+  Wormhole.expose('orgs.updateMemberReportsTo', {
+    description: 'Update org member reports-to',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        userId: { type: 'string' },
+        reportsToUserId: { type: ['string', 'null'] },
+      },
+      required: ['orgId', 'userId'],
+    },
+  });
+  Wormhole.expose('orgs.updateReportsTo', {
+    description: 'Update user reports-to (default org admin)',
+    inputSchema: {
+      type: 'object',
+      properties: { userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } },
+      required: ['userId'],
+    },
+  });
+  Wormhole.expose('orgs.adminGet', {
+    description: 'Get default org admin metadata',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('orgs.adminUpdate', {
+    description: 'Update default org name (admin)',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  });
+  Wormhole.expose('orgs.adminListUsers', {
+    description: 'List users with default org roles (admin)',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('orgs.adminSetUserRole', {
+    description: 'Set default org role for user (admin)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        role: { type: 'string', enum: ['owner', 'admin', 'member'] },
+      },
+      required: ['userId', 'role'],
+    },
+  });
+  Wormhole.expose('orgs.publicGet', {
+    description: 'Get default org metadata (all users)',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('orgs.publicListUsers', {
+    description: 'List users with default org roles (all users)',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('orgs.blockMember', {
+    description: 'Block org member (manage permission)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: { type: 'string' },
+        targetUserId: { type: 'string' },
+        reason: { type: 'string' },
+      },
+      required: ['orgId', 'targetUserId'],
+    },
+  });
+  Wormhole.expose('orgs.unblockMember', {
+    description: 'Unblock org member (manage permission)',
+    inputSchema: {
+      type: 'object',
+      properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' } },
+      required: ['orgId', 'targetUserId'],
+    },
+  });
 
   // ── Usage analytics ───────────────────────────────────────────────────────
 
@@ -2423,14 +2703,75 @@ Meteor.startup(async () => {
 
   // ── Enterprises ───────────────────────────────────────────────────────────
 
-  Wormhole.expose('enterprises.list', { description: 'List enterprises for the caller', inputSchema: { type: 'object', properties: {} } });
-  Wormhole.expose('enterprises.create', { description: 'Create enterprise', inputSchema: { type: 'object', properties: { name: { type: 'string' }, slug: { type: 'string' } }, required: ['name'] } });
-  Wormhole.expose('enterprises.get', { description: 'Get enterprise details', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' } }, required: ['enterpriseId'] } });
-  Wormhole.expose('enterprises.updateSettings', { description: 'Update enterprise settings and locks (owner/admin only). Setting values: true/false, or null to reset. Locks: true to lock, false/null to unlock', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } }, locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } } }, required: ['enterpriseId'] } });
-  Wormhole.expose('enterprises.updateName', { description: 'Update enterprise name', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' } }, required: ['enterpriseId', 'name'] } });
-  Wormhole.expose('enterprises.searchUsers', { description: 'Search users for enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, q: { type: 'string' } }, required: ['enterpriseId'] } });
-  Wormhole.expose('enterprises.setMemberRole', { description: 'Set enterprise member role (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin'] } }, required: ['enterpriseId', 'userId', 'role'] } });
-  Wormhole.expose('enterprises.removeMember', { description: 'Remove enterprise member (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' } }, required: ['enterpriseId', 'userId'] } });
+  Wormhole.expose('enterprises.list', {
+    description: 'List enterprises for the caller',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('enterprises.create', {
+    description: 'Create enterprise',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, slug: { type: 'string' } },
+      required: ['name'],
+    },
+  });
+  Wormhole.expose('enterprises.get', {
+    description: 'Get enterprise details',
+    inputSchema: {
+      type: 'object',
+      properties: { enterpriseId: { type: 'string' } },
+      required: ['enterpriseId'],
+    },
+  });
+  Wormhole.expose('enterprises.updateSettings', {
+    description:
+      'Update enterprise settings and locks (owner/admin only). Setting values: true/false, or null to reset. Locks: true to lock, false/null to unlock',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enterpriseId: { type: 'string' },
+        settings: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } },
+        locks: { type: 'object', additionalProperties: { type: ['boolean', 'null'] } },
+      },
+      required: ['enterpriseId'],
+    },
+  });
+  Wormhole.expose('enterprises.updateName', {
+    description: 'Update enterprise name',
+    inputSchema: {
+      type: 'object',
+      properties: { enterpriseId: { type: 'string' }, name: { type: 'string' } },
+      required: ['enterpriseId', 'name'],
+    },
+  });
+  Wormhole.expose('enterprises.searchUsers', {
+    description: 'Search users for enterprise',
+    inputSchema: {
+      type: 'object',
+      properties: { enterpriseId: { type: 'string' }, q: { type: 'string' } },
+      required: ['enterpriseId'],
+    },
+  });
+  Wormhole.expose('enterprises.setMemberRole', {
+    description: 'Set enterprise member role (owner only)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enterpriseId: { type: 'string' },
+        userId: { type: 'string' },
+        role: { type: 'string', enum: ['owner', 'admin'] },
+      },
+      required: ['enterpriseId', 'userId', 'role'],
+    },
+  });
+  Wormhole.expose('enterprises.removeMember', {
+    description: 'Remove enterprise member (owner only)',
+    inputSchema: {
+      type: 'object',
+      properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' } },
+      required: ['enterpriseId', 'userId'],
+    },
+  });
   Wormhole.expose('enterprises.takeOwnership', {
     description: 'Complete initial installation and take ownership',
     inputSchema: { type: 'object', properties: {} },

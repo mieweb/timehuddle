@@ -1,25 +1,11 @@
 /**
  * SettingsPage — User & application settings.
- * Sections:
- *   • Profile       — display name, bio, website, linked sign-in accounts, password reset
- *   • Appearance    — theme toggle
- *   • Account       — sign out
- *   • About         — stack versions
+ *
+ * `?section=` picks the section shown. On desktop a side nav sits beside it,
+ * and no section means Profile. On a phone no section means the menu, a list
+ * of every section, and an open section has a back button to it. The sections
+ * and their copy are in features/settings/settingsSections.ts.
  */
-import {
-  faBell,
-  faBuilding,
-  faGear,
-  faInfo,
-  faKey,
-  faPalette,
-  faPlug,
-  faRotateLeft,
-  faRightFromBracket,
-  faTrash,
-  faUser,
-} from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
@@ -27,13 +13,21 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  cn,
   Input,
+  LogOutIcon,
+  RefreshIcon,
   Select,
+  Spinner,
   Switch,
   Text,
   Textarea,
+  TrashIcon,
+  useMediaQuery,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -55,41 +49,72 @@ import {
   type RedmineStatus,
 } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
+import {
+  PERSONAL_SECTIONS,
+  settingsGroups,
+  SETTINGS_PAGE_STRINGS,
+  resolveSettingsSection,
+  type SettingsGroup,
+  type SettingsSectionId,
+} from '../features/settings/settingsSections';
+import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import {
+  canManageSelectedOrganization,
+  getEnterpriseRole,
+  hasOrganizationAdminAccess,
+} from '../lib/organizationAccess';
+import { EnterpriseSettings } from '../features/enterprise/EnterpriseSettings';
+import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
-import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { notifyRedmineChanged } from '../lib/useRedmineStatus';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
-import { useRouter } from './router';
+import { UserAvatar } from './UserAvatar';
+import { useQueryParam, useRouter } from './router';
+
+// Loaded when opened: Usage carries the data grid, and Seeder the YAML parser
+// and presets, which production never shows.
+const OrgUsage = React.lazy(() =>
+  import('../features/usage/OrgUsage').then((m) => ({ default: m.OrgUsage })),
+);
+const Seeder = React.lazy(() =>
+  import('../features/seeder/Seeder').then((m) => ({ default: m.Seeder })),
+);
+
+/**
+ * On a phone a card frame inside the page's own padding just boxes the content
+ * in twice, so every card in Settings, the menu and the pages it opens alike,
+ * drops its border, background and corners there and widens into the page
+ * gutter, which its own padding then replaces.
+ */
+const PHONE_FLAT_CARDS =
+  'max-md:[&_[data-slot=card]]:-mx-4 max-md:[&_[data-slot=card]]:w-auto max-md:[&_[data-slot=card]]:rounded-none max-md:[&_[data-slot=card]]:border-0 max-md:[&_[data-slot=card]]:bg-transparent max-md:[&_[data-slot=card]]:shadow-none';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
+/** One card in a section. Untitled when the section heading already says it all. */
 const Section: React.FC<{
-  icon: typeof faGear;
-  title: string;
+  title?: string;
   description?: string;
   children: React.ReactNode;
-}> = ({ icon, title, description, children }) => (
+}> = ({ title, description, children }) => (
   <Card padding="none">
-    <CardHeader className="flex flex-col gap-0 px-5 py-4">
-      <div className="flex flex-row items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-          <FontAwesomeIcon icon={icon} className="text-sm" />
-        </div>
+    {title && (
+      <CardHeader className="flex flex-col gap-0 px-5 py-4">
         <CardTitle className="text-sm">{title}</CardTitle>
-      </div>
-      {description && (
-        <Text variant="muted" size="xs" className="pl-11">
-          {description}
-        </Text>
-      )}
-    </CardHeader>
+        {description && (
+          <Text variant="muted" size="xs">
+            {description}
+          </Text>
+        )}
+      </CardHeader>
+    )}
     <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
       {children}
     </CardContent>
@@ -202,10 +227,6 @@ const PushNotificationsSettings: React.FC = () => {
       await subscribeToPush();
       if (!isNative) await refreshStatus();
       else setEnabled(true);
-
-      window.alert(
-        'Notifications enabled! You will receive alerts when team members clock in or out.',
-      );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
@@ -238,14 +259,11 @@ const PushNotificationsSettings: React.FC = () => {
   };
 
   const handleDisable = async () => {
-    if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setDisableLoading(true);
     try {
       await unsubscribeFromPush();
       if (!isNative) await refreshStatus();
       else setEnabled(false);
-
-      window.alert('Notifications disabled.');
     } catch {
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
@@ -272,62 +290,46 @@ const PushNotificationsSettings: React.FC = () => {
   console.log('[PushSettings]', { isNative, supported, enabled, serverHasVapid });
 
   return (
-    <div className="space-y-3 px-5 py-4">
+    <>
       {serverHasVapid === false && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          Web Push is not configured on this server. Add VAPID keys to{' '}
-          <code className="text-xs">settings.json</code> (see{' '}
-          <code className="text-xs">settings.push.example.json</code>).
+        <div className="px-5 pt-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            Web Push is not configured on this server. Add VAPID keys to{' '}
+            <code className="text-xs">settings.json</code> (see{' '}
+            <code className="text-xs">settings.push.example.json</code>).
+          </div>
         </div>
       )}
-      {!supported ? (
-        <Text variant="muted" size="sm">
-          Push notifications are not supported on this platform.
-        </Text>
-      ) : enabled ? (
-        <>
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
-            Notifications are enabled. You will receive alerts when team members clock in or out.
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTestPush}
-              disabled={testLoading || disableLoading}
-              isLoading={testLoading}
-            >
-              Send test push
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDisable}
-              disabled={testLoading || disableLoading}
-              isLoading={disableLoading}
-            >
-              Disable notifications
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-            Enable push notifications to get notified when your team members clock in or clock out.
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleEnable}
-            disabled={enableLoading || serverHasVapid === false}
-            isLoading={enableLoading}
-            leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
-          >
-            Enable notifications
-          </Button>
-        </>
-      )}
-    </div>
+      <Row
+        label="Notifications on this device"
+        hint={
+          supported
+            ? 'Get an alert when a teammate clocks in or out.'
+            : 'Push notifications are not supported on this platform.'
+        }
+      >
+        <Switch
+          checked={enabled}
+          onCheckedChange={(on) => void (on ? handleEnable() : handleDisable())}
+          disabled={
+            !supported || enableLoading || disableLoading || (!enabled && serverHasVapid === false)
+          }
+          aria-label="Toggle push notifications"
+        />
+      </Row>
+      {/* Sends an in-app notification too, so it works before push is enabled. */}
+      <Row label="Send a test notification" hint="Check that alerts reach you.">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleTestPush}
+          disabled={testLoading}
+          isLoading={testLoading}
+        >
+          Send test notification
+        </Button>
+      </Row>
+    </>
   );
 };
 
@@ -836,11 +838,25 @@ const RedmineConnection: React.FC = () => {
     );
   }
 
+  // No server to link to: a key could only be refused, so say why up front.
+  // Only on an answer: a failed status read shows its error below instead.
+  if (status && !status.defaultBaseUrl && !showUrlField) {
+    return (
+      <div className="redmine-not-configured px-5 py-4">
+        <Text variant="muted" size="xs" role="status">
+          This TimeHuddle has no Redmine server set up yet. Whoever runs it sets one with{' '}
+          <code className="text-xs">REDMINE_BASE_URL</code>.
+        </Text>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
       <Text variant="muted" size="xs">
         Paste your personal Redmine API key (found on your Redmine account page under{' '}
-        <code className="text-xs">My account</code>) to link your account.
+        <code className="text-xs">My account</code>) to link your account
+        {status?.defaultBaseUrl && !showUrlField ? ` on ${status.defaultBaseUrl}` : ''}.
       </Text>
       <div className="flex gap-2">
         <Input
@@ -898,19 +914,11 @@ const RedmineConnection: React.FC = () => {
   );
 };
 
-export const SettingsPage: React.FC = () => {
-  const { user, signOut, refetch } = useSession();
-  const { navigate } = useRouter();
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+// ─── Account and privacy ──────────────────────────────────────────────────────
 
-  useRefresh(
-    useCallback(async () => {
-      await refetch();
-      setRefreshTrigger((prev) => prev + 1);
-    }, [refetch]),
-  );
+const AccountSettings: React.FC = () => {
+  const { signOut } = useSession();
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // Change-password form state
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -966,77 +974,14 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <AppPage>
-      {/* Profile */}
-      <Section
-        icon={faUser}
-        title="Profile"
-        description="Your display name, bio, website, and reporting line."
-      >
-        <ProfileEditor refreshTrigger={refreshTrigger} />
-      </Section>
-
-      {/* Appearance */}
-      <Section
-        icon={faPalette}
-        title="Appearance"
-        description="Control how the application looks on this device."
-      >
-        <DarkModeRow />
-        <Row label="Brand theme" hint="Switch between brand themes">
-          <BrandSelector />
-        </Row>
-      </Section>
-
-      {/* Push notifications */}
-      <Section
-        icon={faBell}
-        title="Push notifications"
-        description="Browser alerts for team clock in/out (same as Time Harbor)."
-      >
-        <PushNotificationsSettings />
-      </Section>
-
-      {/* API Tokens */}
-      <Section
-        icon={faKey}
-        title="API Tokens"
-        description="Generate tokens to connect external services like TimeHarbor."
-      >
-        <ApiTokensManager />
-      </Section>
-
-      {/* Redmine */}
-      <Section
-        icon={faPlug}
-        title="Redmine"
-        description="Link your personal Redmine account with your API key."
-      >
-        <RedmineConnection />
-      </Section>
-
-      {canManageOrganization && (
-        <Section
-          icon={faBuilding}
-          title="Enterprise"
-          description="Admin tools for enterprise scope, organizations, and hierarchy."
-        >
-          <Row label="Workspace hierarchy" hint="Open enterprise tools and organization structure">
-            <Button variant="outline" size="sm" onClick={() => navigate('/app/enterprise')}>
-              Open
-            </Button>
-          </Row>
-        </Section>
-      )}
-
-      {/* Account */}
-      <Section icon={faGear} title="Account">
+    <>
+      <Section title="Sign-in">
         <GitHubConnectionRow />
         <Row label="Change password" hint="Update your password without needing email">
           <Button
             variant="outline"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faRotateLeft} className="text-xs" />}
+            leftIcon={<RefreshIcon className="h-3.5 w-3.5" />}
             onClick={() => {
               setShowChangePassword((v) => !v);
               setPwMessage(null);
@@ -1097,11 +1042,14 @@ export const SettingsPage: React.FC = () => {
             </Text>
           </div>
         )}
+      </Section>
+
+      <Section>
         <Row label="Sign out" hint="You will be returned to the login screen">
           <Button
             variant="danger"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />}
+            leftIcon={<LogOutIcon className="h-3.5 w-3.5" />}
             onClick={() => void signOut()}
           >
             Sign out
@@ -1114,7 +1062,7 @@ export const SettingsPage: React.FC = () => {
           <Button
             variant="danger"
             size="sm"
-            leftIcon={<FontAwesomeIcon icon={faTrash} className="text-xs" />}
+            leftIcon={<TrashIcon className="h-3.5 w-3.5" />}
             disabled={deleteBusy}
             isLoading={deleteBusy}
             loadingText="Deleting…"
@@ -1144,23 +1092,309 @@ export const SettingsPage: React.FC = () => {
           </Button>
         </Row>
       </Section>
+    </>
+  );
+};
 
-      {/* About */}
-      <Section icon={faInfo} title="About" description="Stack versions for this application.">
-        {(
-          [
-            ['Vite', '8'],
-            ['React', '19'],
-            ['Tailwind CSS', '4'],
-            ['TypeScript', '5.9'],
-            ['Node.js', '22'],
-          ] as const
-        ).map(([name, version]) => (
-          <Row key={name} label={name}>
-            <Badge variant="outline">{version}</Badge>
-          </Row>
-        ))}
+// ─── Overview ─────────────────────────────────────────────────────────────────
+
+/** A full-width row that opens a section: icon or avatar, label over detail, chevron. */
+const OverviewRow: React.FC<{
+  /** The section this row opens; the page returns focus here when you come back. */
+  sectionId: SettingsSectionId;
+  leading: React.ReactNode;
+  label: string;
+  detail: string;
+  onOpen: () => void;
+}> = ({ sectionId, leading, label, detail, onOpen }) => (
+  <Button
+    variant="ghost"
+    onClick={onOpen}
+    data-settings-section={sectionId}
+    leftIcon={<span className="settings-overview-leading flex shrink-0">{leading}</span>}
+    rightIcon={<ChevronRightIcon className="h-4 w-4 shrink-0 text-neutral-400" />}
+    // The label slot truncates and hugs its text by default; here it fills the
+    // row, so the chevron sits at the end, and wraps a long detail line.
+    className="settings-overview-row h-auto min-h-13 w-full justify-start gap-3 rounded-none px-5 py-3 text-left [&>[data-slot=button-label]]:flex-1 [&>[data-slot=button-label]]:whitespace-normal"
+  >
+    <span className="settings-overview-text min-w-0 flex-1">
+      <span className="block text-sm font-medium">{label}</span>
+      <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+        {detail}
+      </span>
+    </span>
+  </Button>
+);
+
+/** The phone's Settings menu: who you are (which opens Profile), then every other section. */
+const SettingsMenu: React.FC<{
+  groups: SettingsGroup[];
+  onOpen: (id: SettingsSectionId) => void;
+}> = ({ groups, onOpen }) => {
+  const { user } = useSession();
+  return (
+    <nav aria-label={SETTINGS_PAGE_STRINGS.navLabel} className="settings-menu space-y-4">
+      <Section>
+        <OverviewRow
+          leading={<UserAvatar name={user?.name || user?.email || ''} src={user?.image} />}
+          label={user?.name || user?.email || ''}
+          detail={user?.email ?? ''}
+          sectionId="profile"
+          onOpen={() => onOpen('profile')}
+        />
       </Section>
+      {groups.map((group) => (
+        <div key={group.label} className="settings-menu-group">
+          <NavGroupLabel label={group.label} />
+          <Section>
+            {group.sections
+              .filter((item) => item.id !== 'profile')
+              .map((item) => (
+                <OverviewRow
+                  key={item.id}
+                  sectionId={item.id}
+                  leading={<item.icon className="h-4 w-4" />}
+                  label={item.label}
+                  detail={item.description}
+                  onOpen={() => onOpen(item.id)}
+                />
+              ))}
+          </Section>
+        </div>
+      ))}
+      {!hasAdminGroup(groups) && <AdminNote />}
+    </nav>
+  );
+};
+
+const NavGroupLabel: React.FC<{ label: string }> = ({ label }) => (
+  <Text
+    size="xs"
+    weight="semibold"
+    variant="muted"
+    className="settings-nav-group mb-1 px-2.5 uppercase tracking-widest"
+  >
+    {label}
+  </Text>
+);
+
+const hasAdminGroup = (groups: SettingsGroup[]) =>
+  groups.some((group) => group.label === SETTINGS_PAGE_STRINGS.administration);
+
+/** Tells people without an Administration group where team and org settings went. */
+const AdminNote: React.FC = () => (
+  <Text
+    variant="muted"
+    size="xs"
+    className="settings-admin-note rounded-lg border border-dashed border-neutral-300 p-3 dark:border-neutral-700"
+  >
+    {SETTINGS_PAGE_STRINGS.adminNote}
+  </Text>
+);
+
+// ─── SettingsPage ─────────────────────────────────────────────────────────────
+
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
+
+export const SettingsPage: React.FC = () => {
+  const { refetch } = useSession();
+  const { navigate } = useRouter();
+  const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
+  const groups = settingsGroups(
+    {
+      organization: canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
+      enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
+      usage: hasOrganizationAdminAccess(organizations),
+    },
+    import.meta.env.MODE !== 'production',
+  );
+  const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
+  const phone = useMediaQuery('(max-width: 767px)');
+  // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
+  const section =
+    resolveSettingsSection(sectionParam, groups) ?? (phone ? null : PERSONAL_SECTIONS[0]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // On a phone the menu and a section replace each other, so the focused
+  // button disappears either way. Move focus to the section's heading when it
+  // opens, and back to the row it came from on return (Back included). Never
+  // on the first render: opening the page should not move focus.
+  const lastOpenedRef = useRef<SettingsSectionId | null>(null);
+  const firstRenderRef = useRef(true);
+  useEffect(() => {
+    if (firstRenderRef.current) {
+      firstRenderRef.current = false;
+      lastOpenedRef.current = section?.id ?? null;
+      return;
+    }
+    if (!phone) return;
+    if (section) {
+      lastOpenedRef.current = section.id;
+      document.getElementById('settings-section-title')?.focus();
+    } else if (lastOpenedRef.current) {
+      document
+        .querySelector<HTMLElement>(`[data-settings-section="${lastOpenedRef.current}"]`)
+        ?.focus();
+    }
+  }, [phone, section?.id]);
+
+  useRefresh(
+    useCallback(async () => {
+      await refetch();
+      setRefreshTrigger((prev) => prev + 1);
+    }, [refetch]),
+  );
+
+  const content: Record<SettingsSectionId, React.ReactNode> = {
+    profile: (
+      <Section>
+        <ProfileEditor refreshTrigger={refreshTrigger} />
+      </Section>
+    ),
+    appearance: (
+      <Section title="Theme">
+        <DarkModeRow />
+        <Row label="Brand theme" hint="Switch between brand themes">
+          <BrandSelector />
+        </Row>
+      </Section>
+    ),
+    notifications: (
+      <Section title="Push notifications">
+        <PushNotificationsSettings />
+      </Section>
+    ),
+    api: (
+      <Section>
+        <ApiTokensManager />
+      </Section>
+    ),
+    integrations: (
+      <Section title="Redmine" description="Link your personal Redmine account with your API key.">
+        <RedmineConnection />
+      </Section>
+    ),
+    activity: (
+      <Section>
+        <ActivityLog />
+      </Section>
+    ),
+    account: <AccountSettings />,
+    // Keyed by org, so a slow response for the previous one can't overwrite it.
+    organization: <OrganizationSettings key={selectedOrgId ?? 'none'} />,
+    enterprise: <EnterpriseSettings />,
+    usage: <OrgUsage />,
+    seeder: <Seeder />,
+  };
+
+  return (
+    <AppPage
+      width="wide"
+      stickyTitle={Boolean(section)}
+      titleLeading={
+        section && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={SETTINGS_PAGE_STRINGS.backToOverview}
+            onClick={() => setSectionParam(null)}
+            className="settings-back -ml-2 h-11 w-11 md:hidden"
+          >
+            <ChevronLeftIcon className="h-5 w-5" />
+          </Button>
+        )
+      }
+    >
+      {/* Desktop: side nav and version on the left, the section beside them.
+          Phone: the menu, or one section with a back button to it. */}
+      <div
+        className={cn(
+          'settings-layout flex flex-col gap-6 md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:items-start md:gap-x-8',
+          PHONE_FLAT_CARDS,
+        )}
+      >
+        <nav
+          aria-label={SETTINGS_PAGE_STRINGS.navLabel}
+          className="settings-nav hidden space-y-4 md:block"
+        >
+          {groups.map((group) => (
+            <div key={group.label} className="settings-nav-group-block">
+              <NavGroupLabel label={group.label} />
+              <ul className="settings-nav-list flex flex-col gap-1">
+                {group.sections.map((item) => {
+                  const current = item.id === section?.id;
+                  return (
+                    <li key={item.id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-current={current ? 'page' : undefined}
+                        leftIcon={<item.icon className="h-4 w-4" />}
+                        onClick={() => setSectionParam(item.id)}
+                        // The app nav's active look, so "you are here" reads the same everywhere.
+                        className={cn(
+                          'settings-nav-item w-full justify-start',
+                          current &&
+                            'bg-primary-50 text-primary-700 dark:bg-primary-950/60 dark:text-primary-400',
+                        )}
+                      >
+                        {item.label}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+          {!hasAdminGroup(groups) && <AdminNote />}
+        </nav>
+
+        {section ? (
+          <section
+            aria-labelledby="settings-section-title"
+            className="settings-panel min-w-0 space-y-4 md:row-span-2"
+          >
+            <div className="settings-panel-header">
+              <Text
+                as="h2"
+                id="settings-section-title"
+                tabIndex={-1}
+                size="lg"
+                weight="semibold"
+                className="focus:outline-none"
+              >
+                {section.label}
+              </Text>
+              <Text variant="muted" size="sm">
+                {section.description}
+              </Text>
+            </div>
+            <React.Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <Spinner size="md" />
+                </div>
+              }
+            >
+              {content[section.id]}
+            </React.Suspense>
+          </section>
+        ) : (
+          <SettingsMenu groups={groups} onOpen={setSectionParam} />
+        )}
+
+        {/* On a phone the version closes the menu, not every section. */}
+        <Text
+          variant="muted"
+          size="xs"
+          className={cn('settings-version px-2.5', section && 'max-md:hidden')}
+        >
+          {SETTINGS_PAGE_STRINGS.version(APP_VERSION)} ·{' '}
+          <Button variant="link" size="sm" onClick={() => navigate('/app/release-notes')}>
+            {SETTINGS_PAGE_STRINGS.whatsNew}
+          </Button>
+        </Text>
+      </div>
     </AppPage>
   );
 };

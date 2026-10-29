@@ -46,6 +46,27 @@ jobs:
           path: dist/
           retention-days: 1
 
+  backend-unit:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: meteor-backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: meteor-backend
+        run: npm ci
+
+      # The tests that need no Meteor server or database (vitest.unit.config.ts).
+      - name: Test
+        working-directory: meteor-backend
+        run: npm run test:unit
+
   backend:
     if: false # Disabled - Fastify backend removed, Meteor backend doesn't have these npm scripts
     name: Backend Checks

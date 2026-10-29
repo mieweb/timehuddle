@@ -6,7 +6,14 @@
  * external issue, which stores that issue's id and nothing else (`linked`).
  * See README.md for how to add a source.
  */
-import type { TicketSourceId } from '../../../lib/api';
+import type {
+  RecordNamed,
+  RecordPerson,
+  RecordPriority,
+  RecordStatus,
+} from '@timehuddle/ticket-sources';
+
+import type { SourcePrefix, TicketSourceId } from '../../../lib/api';
 
 /**
  * Registered source identifiers. Defined in `lib/api` because the timer
@@ -34,36 +41,15 @@ export function ticketDetailPath(ticket: { sourceId: TicketSourceId; id: string 
     : `/app/tickets/${ticket.id}`;
 }
 
-/** A person a ticket is assigned to. Ids are namespaced per source. */
-export interface UnifiedAssignee {
-  /** Unique within the owning source only — never compare across sources. */
-  id: string;
-  name: string;
-}
-
 /**
- * `native` is what the source calls it and is what the row renders. `isClosed`
- * is the only cross-source fact we derive, and it drives the Open/Closed tabs.
+ * The parts of a row that are the shared ticket record's (#734): a person and
+ * a team or project by `{ id, name }`, a status with `isClosed`, a priority
+ * with a cross-source `rank`. See `@timehuddle/ticket-sources`.
  */
-export interface UnifiedStatus {
-  native: string;
-  isClosed: boolean;
-}
-
-/**
- * `rank` normalizes otherwise-incomparable scales so one sort works across
- * sources — higher means more urgent, 0 means "no priority set".
- */
-export interface UnifiedPriority {
-  native: string;
-  rank: number;
-}
-
-/** The grouping a ticket belongs to: a Huddle team, or a Redmine project. */
-export interface UnifiedContainer {
-  id: string;
-  name: string;
-}
+export type UnifiedAssignee = RecordPerson;
+export type UnifiedStatus = RecordStatus;
+export type UnifiedPriority = RecordPriority;
+export type UnifiedContainer = RecordNamed;
 
 /**
  * The external issue a ticket is linked to. The id comes from the ticket; the
@@ -100,7 +86,8 @@ export interface UnifiedTicket {
   /** Set when the ticket lives elsewhere and the row should link out. */
   externalUrl: string | null;
   /** A related link the ticket points at, e.g. a Huddle ticket's GitHub issue. */
-  externalRef: { url: string; label: string } | null;
+  /** A link the ticket carries; `id` is its outside ID, e.g. `timehuddle-223`, when it has one. */
+  externalRef: { url: string; label: string; id: string | null } | null;
   /** Huddle-only; always false for other sources. */
   sharedWithTimeharbor: boolean;
   /** The external issue this ticket is linked to, or null. */
@@ -117,7 +104,9 @@ export interface UnifiedTicket {
 export interface TicketSourceContext {
   userId: string | null;
   /** Teams the signed-in user belongs to, for team-scoped sources. */
-  teams: { id: string; name: string }[];
+  teams: { id: string; name: string; ticketPrefix?: string }[];
+  /** The servers the viewer's organization has named, for outside IDs like `PM-233`. */
+  sourcePrefixes?: readonly SourcePrefix[];
   /** Resolves a Huddle user id to a display name. */
   resolveMemberName: (userId: string) => string | null;
   /**

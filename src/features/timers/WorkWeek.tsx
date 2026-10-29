@@ -1,5 +1,5 @@
 /**
- * WorkPage — Week strip + Day view timesheet.
+ * WorkWeek — Week strip + Day view timesheet: the Tickets page's My Week view.
  *
  * Features:
  *   • 7-day week strip (Mon–Sun) with local-day totals
@@ -69,7 +69,6 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { LinkifiedText } from '../../ui/LinkifiedText';
 import { useQueryParam, useRouter } from '../../ui/router';
@@ -133,9 +132,9 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
   return sessions.reduce((sum, s) => sum + runningSeconds(s, now), 0);
 }
 
-// ─── WorkPage ─────────────────────────────────────────────────────────────────
+// ─── WorkWeek ─────────────────────────────────────────────────────────────────
 
-export const WorkPage: React.FC = () => {
+export const WorkWeek: React.FC = () => {
   const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn } = useClockToggle();
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
@@ -717,7 +716,7 @@ export const WorkPage: React.FC = () => {
   }
 
   return (
-    <AppPage width="wide">
+    <div className="work-week space-y-6">
       {/* ── Page Header: week nav + today + week range ── */}
       <div className="flex items-center justify-between gap-3">
         <Text weight="semibold" className="truncate">
@@ -965,19 +964,23 @@ export const WorkPage: React.FC = () => {
                           </Badge>
                         )}
                         {pendingRequest && (
-                          <>
+                          // One group: it moves under the title as a whole
+                          // when it doesn't fit beside it, so the badge never
+                          // ends up on a line apart from its Pulse and Upload.
+                          <div className="pending-approval-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <ChangeRequestWalkthrough
+                              request={pendingRequest}
+                              onAdded={loadMyRequests}
+                            />
                             <Badge
                               variant="warning"
+                              className="shrink-0 whitespace-nowrap"
                               size="sm"
                               title="Waiting for an admin to approve your change"
                             >
                               Pending approval
                             </Badge>
-                            <ChangeRequestWalkthrough
-                              request={pendingRequest}
-                              onAdded={loadMyRequests}
-                            />
-                          </>
+                          </div>
                         )}
                       </div>
                     </TableCell>
@@ -1151,6 +1154,6 @@ export const WorkPage: React.FC = () => {
             </AppModal>
           );
         })()}
-    </AppPage>
+    </div>
   );
 };

@@ -13,16 +13,17 @@
  *      immediately with no invitation email sent.
  *   4. Revoking a pending invitation flips its status to revoked and the
  *      invite link then shows the "This invitation has been revoked" error.
- *   5. Org owners get "Team Settings" (gear) authority on teams they didn't
+ *   5. Org owners get the team Settings tab on teams they didn't
  *      create and aren't in `admins` for.
  *
  * Uses the isolated `timehuddle_test` DB (see global-setup.ts) so it never
  * touches dev data. Mailpit must be reachable at MAILPIT_URL (default
  * localhost:8025).
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { inviteByEmail, openInvitations, openMembers } from '../fixtures/people';
 
 const MAILPIT_URL = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 const MONGO_URL =
@@ -67,19 +68,6 @@ async function hasMailFor(email: string): Promise<boolean> {
   return list.messages.some((m) => m.To.some((t) => t.Address.toLowerCase() === email));
 }
 
-/** Navigate to Organization → Members and open the invite box. */
-async function gotoMembers(page: Page) {
-  await page.goto('/app/org/members');
-  await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-  await expect(page.getByText('Loading members')).toBeHidden({ timeout: 30000 });
-  await expect(page.getByLabel('Invite by Email')).toBeVisible({ timeout: 30000 });
-}
-
-async function sendInvite(page: Page, email: string) {
-  await page.getByLabel('Invite by Email').fill(email);
-  await page.getByRole('button', { name: 'Send Invite' }).click();
-}
-
 test.describe('Organization Email Invitations', () => {
   const owner = TEST_USERS.owner1;
 
@@ -94,19 +82,18 @@ test.describe('Organization Email Invitations', () => {
     test.setTimeout(60000);
     const email = `invitee-${Date.now()}@test.dev`;
 
-    await gotoMembers(page);
-    await sendInvite(page, email);
+    await openMembers(page);
+    await inviteByEmail(page, email);
 
     await expect(page.getByText(`A secure account setup link was sent to ${email}.`)).toBeVisible({
       timeout: 20000,
     });
 
-    // Pending Invitations modal shows the new invite as pending.
-    await page.getByRole('button', { name: 'Pending Invitations' }).click();
+    // The Pending invitations tab shows the new invite as pending.
+    await openInvitations(page);
     const row = page.getByRole('row').filter({ hasText: email });
     await expect(row).toBeVisible({ timeout: 10000 });
     await expect(row.getByText('pending', { exact: true })).toBeVisible();
-    await page.keyboard.press('Escape');
 
     // Fetch the invite link from Mailpit and open it in a fresh context.
     const inviteUrl = await waitForInviteLink(email);
@@ -147,9 +134,8 @@ test.describe('Organization Email Invitations', () => {
       await invitedContext.close();
     }
 
-    // Owner's Pending Invitations now shows the invite as accepted.
-    await gotoMembers(page);
-    await page.getByRole('button', { name: 'Pending Invitations' }).click();
+    // Owner's Pending invitations tab now shows the invite as accepted.
+    await openInvitations(page);
     const acceptedRow = page.getByRole('row').filter({ hasText: email });
     await expect(acceptedRow.getByText('accepted', { exact: true })).toBeVisible({
       timeout: 15000,
@@ -161,13 +147,13 @@ test.describe('Organization Email Invitations', () => {
   }) => {
     const email = `dup-invitee-${Date.now()}@test.dev`;
 
-    await gotoMembers(page);
-    await sendInvite(page, email);
+    await openMembers(page);
+    await inviteByEmail(page, email);
     await expect(page.getByText(`A secure account setup link was sent to ${email}.`)).toBeVisible({
       timeout: 20000,
     });
 
-    await sendInvite(page, email);
+    await inviteByEmail(page, email);
     await expect(
       page.getByText(/pending invitation already exists for this email address/i),
     ).toBeVisible({ timeout: 10000 });
@@ -190,8 +176,8 @@ test.describe('Organization Email Invitations', () => {
         createdAt: new Date(),
       });
 
-      await gotoMembers(page);
-      await sendInvite(page, email);
+      await openMembers(page);
+      await inviteByEmail(page, email);
 
       // No "secure setup link" status message — the user joins right away.
       await expect(
@@ -211,15 +197,15 @@ test.describe('Organization Email Invitations', () => {
   test('revoking a pending invitation blocks the invite link', async ({ page, browser }) => {
     const email = `revoked-invitee-${Date.now()}@test.dev`;
 
-    await gotoMembers(page);
-    await sendInvite(page, email);
+    await openMembers(page);
+    await inviteByEmail(page, email);
     await expect(page.getByText(`A secure account setup link was sent to ${email}.`)).toBeVisible({
       timeout: 20000,
     });
 
     const inviteUrl = await waitForInviteLink(email);
 
-    await page.getByRole('button', { name: 'Pending Invitations' }).click();
+    await openInvitations(page);
     const row = page.getByRole('row').filter({ hasText: email });
     await row.getByRole('button', { name: `Revoke invitation for ${email}` }).click();
     await expect(row.getByText('revoked', { exact: true })).toBeVisible({ timeout: 10000 });
@@ -240,7 +226,7 @@ test.describe('Organization Email Invitations', () => {
 test.describe('Org Owner Team Authority', () => {
   const owner = TEST_USERS.owner1;
 
-  test('org owner sees Team Settings on a team they did not create and are not an admin of', async ({
+  test('org owner sees the team Settings tab on a team they did not create and are not an admin of', async ({
     page,
   }) => {
     const client = await MongoClient.connect(MONGO_URL);
@@ -297,7 +283,7 @@ test.describe('Org Owner Team Authority', () => {
       await expect(page.getByRole('heading', { name: teamName, level: 3 })).toBeVisible({
         timeout: 15000,
       });
-      await expect(page.getByRole('button', { name: 'Team Settings' })).toBeVisible({
+      await expect(page.getByRole('tab', { name: 'Settings', exact: true })).toBeVisible({
         timeout: 15000,
       });
     } finally {

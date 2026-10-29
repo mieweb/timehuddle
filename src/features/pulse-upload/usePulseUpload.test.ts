@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { videoApi, type PulseDestination } from '../../lib/api';
 import { openExternalUrl } from '../../lib/device';
 import { usePulseUpload } from './usePulseUpload';
+import { uploadVideoFile } from './videoFile';
 
 vi.mock('../../lib/api', () => ({
   TIMECORE_BASE_URL: 'http://localhost:3100',
@@ -18,6 +19,13 @@ vi.mock('../../lib/device', () => ({
   openExternalUrl: vi.fn(),
 }));
 const openExternal = vi.mocked(openExternalUrl);
+
+// The tus upload itself is stubbed; the file checks stay real.
+vi.mock('./videoFile', async (importActual) => ({
+  ...(await importActual<typeof import('./videoFile')>()),
+  uploadVideoFile: vi.fn(),
+}));
+const sendFile = vi.mocked(uploadVideoFile);
 
 const reserve = vi.mocked(videoApi.reserve);
 const status = vi.mocked(videoApi.status);
@@ -236,5 +244,38 @@ describe('usePulseUpload', () => {
 
     rerender({ destination: TICKET_B });
     expect(signal.aborted).toBe(true);
+  });
+
+  it("keeps an earlier file upload's progress and failure off the destination that replaced it", async () => {
+    reserve.mockResolvedValueOnce(RESERVATION);
+    let report: (fraction: number) => void = () => {};
+    let fail: (reason: Error) => void = () => {};
+    sendFile.mockImplementationOnce((_file, _reservation, onProgress) => {
+      report = onProgress ?? (() => {});
+      return new Promise((_, reject) => (fail = reject));
+    });
+    const { result, rerender } = renderHook(({ destination }) => usePulseUpload(destination), {
+      initialProps: { destination: TICKET_A },
+    });
+
+    let sending: Promise<void> = Promise.resolve();
+    await act(async () => {
+      sending = result.current.upload(new File(['x'], 'clip.mp4', { type: 'video/mp4' }));
+    });
+    act(() => report(0.4));
+    expect(result.current.progress).toBe(0.4);
+
+    // The host moves on: ticket B's buttons are free at once.
+    rerender({ destination: TICKET_B });
+    expect(result.current.progress).toBeNull();
+
+    // Ticket A's upload still reports, then fails; ticket B hears none of it.
+    act(() => report(0.9));
+    await act(async () => {
+      fail(new Error("The upload didn't finish."));
+      await sending;
+    });
+    expect(result.current.progress).toBeNull();
+    expect(result.current.error).toBeNull();
   });
 });

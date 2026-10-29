@@ -1,82 +1,18 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { assignedToMe, isApproximate, starterText, useAssignedNotice } from './assignedStarter';
-import type { UnifiedTicket } from './sources';
+import {
+  ASSIGNED_PAGES_PER_FILL,
+  collectAssignedOffBoard,
+  starterText,
+  useAssignedNotice,
+} from './assignedStarter';
 
-const CAPS = { edit: true, delete: false, changeStatus: true, openExternal: true };
-
-function ticket(
-  sourceId: 'huddle' | 'redmine',
-  id: string,
-  assigneeId: string | null,
-  isClosed = false,
-): UnifiedTicket {
-  return {
-    key: `${sourceId}:${id}`,
-    sourceId,
-    id,
-    ref: `#${id}`,
-    title: `Ticket ${id}`,
-    container: null,
-    status: { native: isClosed ? 'Closed' : 'New', isClosed },
-    priority: null,
-    assignees: assigneeId ? [{ id: assigneeId, name: assigneeId }] : [],
-    createdBy: null,
-    createdAt: null,
-    updatedAt: null,
-    externalUrl: null,
-    externalRef: null,
-    sharedWithTimeharbor: false,
-    linked: null,
-    capabilities: CAPS,
-  };
-}
-
-const ME_KEYS = ['huddle:u1', 'redmine:7'];
-
-describe('assignedToMe', () => {
-  it('keeps the open Redmine issues assigned to the user, in the order given', () => {
-    const tickets = [
-      ticket('redmine', '30', '7'),
-      ticket('huddle', 'a', 'u1'),
-      ticket('redmine', '10', '7'),
-      ticket('redmine', '20', '8'),
-      ticket('redmine', '40', '7', true),
-      ticket('redmine', '50', null),
-    ];
-    expect(assignedToMe(tickets, ME_KEYS).map((t) => t.key)).toEqual(['redmine:30', 'redmine:10']);
-  });
-
-  it('leaves out a TimeHuddle ticket linked to a Redmine issue, account or not', () => {
-    const linked: UnifiedTicket = {
-      ...ticket('huddle', 'a', 'u1'),
-      linked: { sourceId: 'redmine', id: '30', ref: '#30', status: null, assignee: null },
-    };
-    expect(assignedToMe([linked], ME_KEYS)).toEqual([]);
-    expect(assignedToMe([linked], ['huddle:u1'])).toEqual([]);
-  });
-
-  it('finds nothing without a Redmine identity', () => {
-    expect(assignedToMe([ticket('redmine', '30', '7')], ['huddle:u1'])).toEqual([]);
-  });
-});
-
-describe('the count in the notice', () => {
-  it('is exact below the server cap and a lower bound at it', () => {
-    const assigned = (n: number) =>
-      Array.from({ length: n }, (_, i) => ticket('redmine', String(i), '7'));
-    expect(isApproximate(assigned(99))).toBe(false);
-    expect(isApproximate(assigned(100))).toBe(true);
-  });
-
+describe('the notice', () => {
   it('reads in the singular and the plural', () => {
-    expect(starterText.moreAssigned(1, false)).toBe(
-      '1 more issue assigned to you is in All Sources.',
-    );
-    expect(starterText.moreAssigned(90, true)).toBe(
-      '90+ more issues assigned to you are in All Sources.',
-    );
+    expect(starterText.moreAssigned(1)).toBe('1 more issue assigned to you in Redmine.');
+    expect(starterText.moreAssigned(90)).toBe('90 more issues assigned to you in Redmine.');
+    expect(starterText.addMoreLabel(1)).toBe('Add 1 more issue assigned to you to My Board');
   });
 });
 
@@ -108,5 +44,54 @@ describe('useAssignedNotice', () => {
     expect(result.current.open).toBe(false);
     rerender({ userId: 'u1' });
     expect(result.current.open).toBe(true);
+  });
+});
+
+describe('collectAssignedOffBoard (#736)', () => {
+  /** A Redmine with `total` assigned issues, ids from 1, served 100 a page. */
+  const redmine = (total: number) => {
+    const offsets: number[] = [];
+    const fetchPage = async (offset: number) => {
+      offsets.push(offset);
+      const ids = Array.from(
+        { length: Math.max(0, Math.min(100, total - offset)) },
+        (_, i) => offset + i + 1,
+      );
+      const end = offset + ids.length;
+      return { issueIds: ids, nextOffset: end < total ? end : null };
+    };
+    return { offsets, fetchPage };
+  };
+
+  it('stops at the first page that holds more than a batch off the board', async () => {
+    const { offsets, fetchPage } = redmine(250);
+    const result = await collectAssignedOffBoard(fetchPage, () => true);
+    expect(offsets).toEqual([0]);
+    expect(result.offBoard).toHaveLength(100);
+    expect(result.nextOffset).toBe(100);
+  });
+
+  it('reads on past the first hundred when those are all on the board', async () => {
+    const { offsets, fetchPage } = redmine(250);
+    const result = await collectAssignedOffBoard(fetchPage, (id) => id > 195);
+    expect(offsets).toEqual([0, 100, 200]);
+    expect(result.offBoard).toEqual(Array.from({ length: 55 }, (_, i) => 196 + i));
+    // The whole list was read, so what's left is an exact count.
+    expect(result.nextOffset).toBeNull();
+  });
+
+  it('says where to carry on when it stops at its page limit', async () => {
+    const { offsets, fetchPage } = redmine(5000);
+    const result = await collectAssignedOffBoard(fetchPage, () => false);
+    expect(offsets).toHaveLength(ASSIGNED_PAGES_PER_FILL);
+    expect(result.offBoard).toEqual([]);
+    expect(result.nextOffset).toBe(ASSIGNED_PAGES_PER_FILL * 100);
+  });
+
+  it('takes a page with no nextOffset as the whole list', async () => {
+    const fetchPage = vi.fn(async () => ({ issueIds: [1, 2, 3] }));
+    const result = await collectAssignedOffBoard(fetchPage, () => true);
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ offBoard: [1, 2, 3], nextOffset: null });
   });
 });

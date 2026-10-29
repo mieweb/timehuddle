@@ -13,6 +13,7 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 import {
   BASE_URL,
   connectedStatus,
+  unlinkedStatus,
   stubRedmine,
   type RedmineStub,
   type StubValue,
@@ -26,7 +27,7 @@ async function openSettings(
   overrides: Record<string, StubValue>,
 ): Promise<RedmineStub> {
   const rm = await stubRedmine(page, overrides);
-  await page.goto('/app/settings');
+  await page.goto('/app/settings?section=integrations');
   await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
   return rm;
 }
@@ -44,10 +45,17 @@ test.describe('Settings — Redmine connection', () => {
     await expect(page.getByText('Connected', { exact: true })).toHaveCount(0);
   });
 
+  test('says Redmine is not set up, instead of a key form that can only fail', async ({ page }) => {
+    await openSettings(page, { status: { connected: false, defaultBaseUrl: null } });
+
+    await expect(page.getByText('This TimeHuddle has no Redmine server set up yet.')).toBeVisible();
+    await expect(apiKeyInput(page)).toHaveCount(0);
+  });
+
   test('links an account and shows who it belongs to', async ({ page }) => {
     let connected = false;
     const rm = await openSettings(page, {
-      status: () => (connected ? connectedStatus({ login: 'priya.patel' }) : { connected: false }),
+      status: () => (connected ? connectedStatus({ login: 'priya.patel' }) : unlinkedStatus()),
       connect: () => {
         connected = true;
         return connectedStatus({ login: 'priya.patel', redmineName: 'Priya Patel' });
@@ -65,7 +73,7 @@ test.describe('Settings — Redmine connection', () => {
 
   test('the key never survives a successful link', async ({ page }) => {
     await openSettings(page, {
-      status: { connected: false },
+      status: unlinkedStatus(),
       connect: connectedStatus(),
     });
 
@@ -79,7 +87,7 @@ test.describe('Settings — Redmine connection', () => {
 
   test('Enter submits the key, like the button does', async ({ page }) => {
     const rm = await openSettings(page, {
-      status: { connected: false },
+      status: unlinkedStatus(),
       connect: connectedStatus(),
     });
 
@@ -92,7 +100,7 @@ test.describe('Settings — Redmine connection', () => {
 
   test('a rejected key reports the reason and links nothing', async ({ page }) => {
     await openSettings(page, {
-      status: { connected: false },
+      status: unlinkedStatus(),
       connect: { error: 'invalid-key', reason: 'Redmine rejected that API key.' },
     });
 
@@ -107,10 +115,10 @@ test.describe('Settings — Redmine connection', () => {
   test('unlinks, and the key form comes back', async ({ page }) => {
     let connected = true;
     const rm = await openSettings(page, {
-      status: () => (connected ? connectedStatus() : { connected: false }),
+      status: () => (connected ? connectedStatus() : unlinkedStatus()),
       disconnect: () => {
         connected = false;
-        return { connected: false };
+        return unlinkedStatus();
       },
     });
 
@@ -130,7 +138,7 @@ test.describe('Settings — Redmine connection', () => {
     };
 
     test('stays hidden unless the server allows it', async ({ page }) => {
-      await openSettings(page, { status: { connected: false, customUrlAllowed: false } });
+      await openSettings(page, { status: unlinkedStatus({ customUrlAllowed: false }) });
 
       await expect(apiKeyInput(page)).toBeVisible();
       await expect(baseUrlInput(page)).toHaveCount(0);
