@@ -60,6 +60,7 @@ import {
 import { HuddleTeamLevelSettings } from '../features/notifications/HuddleTeamLevelSettings';
 import { NotificationEventSettings } from '../features/notifications/NotificationEventSettings';
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
+import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
 import {
   canManageSelectedOrganization,
@@ -1283,6 +1284,12 @@ export const SettingsPage: React.FC = () => {
           description={NOTIFICATION_STRINGS.teamsDescription}
         >
           <HuddleTeamLevelSettings />
+        </Section>
+        <Section
+          title={NOTIFICATION_STRINGS.quietTitle}
+          description={NOTIFICATION_STRINGS.quietDescription}
+        >
+          <QuietTimeSettings />
         </Section>
       </>
     ),

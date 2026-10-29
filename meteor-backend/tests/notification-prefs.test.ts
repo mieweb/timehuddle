@@ -195,6 +195,33 @@ describe('team levels', () => {
   });
 });
 
+describe('quiet time', () => {
+  it('saves a snooze and returns it as an ISO date', async () => {
+    const until = new Date(Date.now() + 3600_000).toISOString();
+    const res = await wormhole<{ quiet: { snoozeUntil: string | null; holdOffShift: boolean } }>(
+      'notificationPrefs.update',
+      { quiet: { snoozeUntil: until, holdOffShift: true } },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.quiet).toEqual({
+      holdOffShift: true,
+      snoozeUntil: until,
+      snoozeUntilClockIn: false,
+    });
+  });
+
+  it('still logs a reply while pushes are snoozed', async () => {
+    await wormhole(
+      'notificationPrefs.update',
+      { quiet: { snoozeUntil: new Date(Date.now() + 3600_000).toISOString() } },
+      authorJwt,
+    );
+    await commentAsCommenter('Snoozed reply');
+    expect(await replyNotificationsForAuthor()).toHaveLength(1);
+  });
+});
+
 describe('createNotification obeys preferences', () => {
   it('logs a reply when the user has no preferences', async () => {
     await commentAsCommenter('Looks good');

@@ -17,6 +17,8 @@
  *     before #784 defaults to both devices.
  *   - Huddle events also pass the user's level for the post's team: `mute`
  *     drops them all, `mentions` (the default) drops new-post alerts.
+ *   - Quiet time holds the push but keeps the inbox row: a snooze holds every
+ *     push, and "hold while clocked out" holds Huddle pushes except mentions.
  */
 
 /** Delivery to the inbox and every device — the behaviour before #784. */
@@ -62,6 +64,9 @@ const DROPPED_BY_LEVEL = {
   mute: new Set(['huddleMention', 'huddleReply', 'huddlePost']),
 };
 
+/** The Huddle events, which "hold while clocked out" applies to. */
+const HUDDLE_EVENTS = DROPPED_BY_LEVEL.mute;
+
 /** Team ids are Mongo hex or legacy Meteor ids: safe to use in a dotted path. */
 const TEAM_ID_PATTERN = /^[A-Za-z0-9]{7,32}$/;
 
@@ -85,6 +90,30 @@ export function teamLevel(prefs, teamId) {
   return prefs?.teams?.[teamId] ?? DEFAULT_TEAM_LEVEL;
 }
 
+/** A user's quiet-time settings, with every field present. */
+export function quietSettings(prefs) {
+  return {
+    holdOffShift: false,
+    snoozeUntil: null,
+    snoozeUntilClockIn: false,
+    ...prefs?.quiet,
+  };
+}
+
+/** Whether deciding this user's delivery needs to know if they're clocked in. */
+export function needsClockState(prefs) {
+  const quiet = quietSettings(prefs);
+  return quiet.holdOffShift || quiet.snoozeUntilClockIn;
+}
+
+/** Whether quiet time holds the push for event `key` right now. */
+function pushHeld(prefs, key, { now = new Date(), clockedIn = true } = {}) {
+  const quiet = quietSettings(prefs);
+  if (quiet.snoozeUntil && new Date(quiet.snoozeUntil) > now) return true;
+  if (quiet.snoozeUntilClockIn && !clockedIn) return true;
+  return quiet.holdOffShift && !clockedIn && HUDDLE_EVENTS.has(key) && key !== 'huddleMention';
+}
+
 /** Every event's effective setting, for the Settings page. */
 export function allEventSettings(prefs) {
   return Object.fromEntries(EVENT_KEYS.map((key) => [key, eventSetting(prefs, key)]));
@@ -95,6 +124,8 @@ export function allEventSettings(prefs) {
  *
  * `prefs` is the user's stored document, or null when they have none.
  * `ctx.type` is the notification's `data.type`; `ctx.teamId` its team, if any.
+ * `ctx.now` and `ctx.clockedIn` feed quiet time; `clockedIn` only has to be
+ * looked up when `needsClockState(prefs)` says so.
  */
 export function resolveDelivery(prefs, ctx) {
   const key = prefKeyForType(ctx.type);
@@ -104,6 +135,7 @@ export function resolveDelivery(prefs, ctx) {
   }
   const { desktop, phone } = eventSetting(prefs, key);
   if (!desktop && !phone) return DELIVER_NOWHERE;
+  if (pushHeld(prefs, key, ctx)) return { inbox: true, desktop: false, phone: false };
   return { inbox: true, desktop, phone };
 }
 
@@ -113,7 +145,9 @@ export function resolveDelivery(prefs, ctx) {
  * Meteor.Error.
  *
  * Shape: `{ events?: { <eventKey>: { desktop?: boolean, phone?: boolean } },
- *          teams?: { <teamId>: 'all' | 'mentions' | 'mute' } }`.
+ *          teams?: { <teamId>: 'all' | 'mentions' | 'mute' },
+ *          quiet?: { holdOffShift?: boolean, snoozeUntil?: ISO date | null,
+ *                    snoozeUntilClockIn?: boolean } }`.
  */
 export function prefsPatchToSet(patch) {
   const set = {};
@@ -130,6 +164,26 @@ export function prefsPatchToSet(patch) {
     if (!TEAM_LEVELS.includes(level)) throw new Error(`Unknown team level: ${level}`);
     set[`teams.${teamId}`] = level;
   }
+  for (const [field, value] of Object.entries(patch?.quiet ?? {})) {
+    set[`quiet.${field}`] = quietValue(field, value);
+  }
   if (Object.keys(set).length === 0) throw new Error('Nothing to update');
   return set;
+}
+
+/** One validated quiet-time field, as stored. */
+function quietValue(field, value) {
+  if (field === 'holdOffShift' || field === 'snoozeUntilClockIn') {
+    if (typeof value !== 'boolean') throw new Error(`quiet.${field} must be a boolean`);
+    return value;
+  }
+  if (field === 'snoozeUntil') {
+    if (value === null) return null;
+    const until = new Date(value);
+    if (typeof value !== 'string' || Number.isNaN(until.getTime())) {
+      throw new Error('quiet.snoozeUntil must be a date or null');
+    }
+    return until;
+  }
+  throw new Error(`Unknown quiet setting: ${field}`);
 }

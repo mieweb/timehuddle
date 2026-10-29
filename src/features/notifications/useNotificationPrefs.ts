@@ -10,6 +10,7 @@ import {
   type HuddleTeamLevel,
   type NotificationPrefs,
   type NotificationPrefsPatch,
+  type NotificationQuiet,
 } from '../../lib/api';
 import { NOTIFICATION_STRINGS, type NotificationDevice } from './notificationCopy';
 
@@ -22,7 +23,11 @@ function applyPatch(prefs: NotificationPrefs, patch: NotificationPrefsPatch): No
   for (const [key, devices] of Object.entries(patch.events ?? {})) {
     events[key] = { ...events[key], ...devices };
   }
-  return { events, teams: { ...prefs.teams, ...patch.teams } };
+  return {
+    events,
+    teams: { ...prefs.teams, ...patch.teams },
+    quiet: { ...prefs.quiet, ...patch.quiet },
+  };
 }
 
 export function useNotificationPrefs() {
@@ -67,5 +72,16 @@ export function useNotificationPrefs() {
     [save, teamLevel],
   );
 
-  return { prefs, error, setEvent, teamLevel, setTeamLevel };
+  const setQuiet = useCallback(
+    (change: Partial<NotificationQuiet>) => {
+      if (!prefs) return;
+      const undo = Object.fromEntries(
+        Object.keys(change).map((field) => [field, prefs.quiet[field as keyof NotificationQuiet]]),
+      );
+      save({ quiet: change }, { quiet: undo });
+    },
+    [prefs, save],
+  );
+
+  return { prefs, error, setEvent, teamLevel, setTeamLevel, setQuiet };
 }

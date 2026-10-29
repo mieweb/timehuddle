@@ -76,7 +76,7 @@ export const HUDDLE_TEAM_LEVELS: Array<{
   {
     level: 'mentions',
     label: 'Mentions & replies',
-    description: '@you and replies to your posts',
+    description: 'Only when someone @mentions you',
   },
   { level: 'mute', label: 'Mute', description: 'No pop-ups, nothing under the bell' },
 ];
@@ -104,6 +104,20 @@ export const NOTIFICATION_STRINGS = {
   bellLabel: (team: string, level: string) => `Notifications for ${team}: ${level}`,
   bellHeading: (team: string) => `Notify me in ${team} about`,
   allSettings: 'Notification settings…',
+  quietTitle: 'Quiet time',
+  quietDescription: 'Holds pop-ups. Anything held is still logged under the bell.',
+  holdOffShift: "Hold Huddle pop-ups while I'm clocked out",
+  holdOffShiftHint: 'Mentions still come through.',
+  snooze: 'Snooze all pop-ups',
+  snoozeOptions: {
+    off: 'Off',
+    hour: '1 hour',
+    tomorrow: 'Until tomorrow',
+    clockIn: 'Until I clock in',
+  },
+  snoozeStatusOff: 'Pop-ups are on.',
+  snoozeStatusUntil: (when: string) => `Paused until ${when}.`,
+  snoozeStatusClockIn: 'Paused until you next clock in.',
   loadFailed: 'Could not load your notification settings.',
   saveFailed: 'Could not save that change. Please try again.',
 } as const;

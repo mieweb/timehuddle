@@ -149,9 +149,7 @@ export async function retryMentionNotifications(postId, recipientIds) {
 async function findPostTeam(teamId) {
   const id = String(teamId);
   const ids = /^[a-f0-9]{24}$/i.test(id) ? [id, new ObjectId(id)] : [id];
-  return rawDb()
-    .collection('teams')
-    .findOne({ _id: { $in: ids } });
+  return rawDb().collection('teams').findOne({ _id: { $in: ids } });
 }
 
 /** Whether `userId` is still a member or admin of `team`. */

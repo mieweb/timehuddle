@@ -8,10 +8,15 @@
  * version did is replaced by the reactive `notifications.liveForUser` pub.
  */
 import { MongoInternals } from 'meteor/mongo';
-import { rawDb, isValidId } from './collections';
+import { ClockEvents, rawDb, isValidId } from './collections';
 import { sendToUser } from './push';
 import { findUserById } from './auth-bridge';
-import { DELIVER_EVERYWHERE, prefKeyForType, resolveDelivery } from './notification-prefs-core';
+import {
+  DELIVER_EVERYWHERE,
+  needsClockState,
+  prefKeyForType,
+  resolveDelivery,
+} from './notification-prefs-core';
 import { getPrefs } from './notification-prefs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -26,7 +31,17 @@ function notifications() {
  */
 async function deliveryFor(userId, data) {
   if (!prefKeyForType(data?.type)) return DELIVER_EVERYWHERE;
-  return resolveDelivery(await getPrefs(userId), { type: data.type, teamId: data.teamId });
+  const prefs = await getPrefs(userId);
+  // Only quiet time needs the clock, so most users never pay for this read.
+  const clockedIn = needsClockState(prefs)
+    ? Boolean(await ClockEvents.findOneAsync({ userId, endTime: null }, { fields: { _id: 1 } }))
+    : true;
+  return resolveDelivery(prefs, {
+    type: data.type,
+    teamId: data.teamId,
+    now: new Date(),
+    clockedIn,
+  });
 }
 
 /**

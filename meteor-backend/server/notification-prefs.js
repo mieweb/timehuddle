@@ -8,7 +8,7 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge.js';
-import { allEventSettings, prefsPatchToSet } from './notification-prefs-core';
+import { allEventSettings, prefsPatchToSet, quietSettings } from './notification-prefs-core';
 
 function notificationPrefs() {
   return rawDb().collection('notificationPrefs');
@@ -49,9 +49,25 @@ export async function usersFollowingTeam(teamId, userIds) {
   return docs.map((doc) => doc.userId);
 }
 
-/** What the client shows: every event's effective setting, and the teams set off the default. */
+/** Clocking in ends an "until I clock in" snooze. */
+export async function endSnoozeUntilClockIn(userId) {
+  await notificationPrefs().updateOne(
+    { userId, 'quiet.snoozeUntilClockIn': true },
+    { $set: { 'quiet.snoozeUntilClockIn': false, updatedAt: new Date() } },
+  );
+}
+
+/** What the client shows: every event's effective setting, team levels and quiet time. */
 function toClient(prefs) {
-  return { events: allEventSettings(prefs), teams: prefs?.teams ?? {} };
+  const quiet = quietSettings(prefs);
+  return {
+    events: allEventSettings(prefs),
+    teams: prefs?.teams ?? {},
+    quiet: {
+      ...quiet,
+      snoozeUntil: quiet.snoozeUntil ? new Date(quiet.snoozeUntil).toISOString() : null,
+    },
+  };
 }
 
 Meteor.startup(async () => {

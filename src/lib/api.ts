@@ -1938,17 +1938,29 @@ export interface NotificationDevices {
 /** How much of one team's Huddle notifies the user. Absent means 'mentions'. */
 export type HuddleTeamLevel = 'all' | 'mentions' | 'mute';
 
+/** Quiet time: holds pop-ups, while everything is still logged under the bell. */
+export interface NotificationQuiet {
+  /** Hold Huddle pop-ups (not mentions) while clocked out. */
+  holdOffShift: boolean;
+  /** ISO time the snooze ends, or null. */
+  snoozeUntil: string | null;
+  /** Snoozed until the user next clocks in. */
+  snoozeUntilClockIn: boolean;
+}
+
 /** The user's notification preferences: every configurable event's effective setting. */
 export interface NotificationPrefs {
   events: Record<string, NotificationDevices>;
   /** Team id → level, for teams set off the default only. */
   teams: Record<string, HuddleTeamLevel>;
+  quiet: NotificationQuiet;
 }
 
-/** A change to some events and/or team levels. */
+/** A change to some events, team levels and/or quiet time. */
 export interface NotificationPrefsPatch {
   events?: Record<string, Partial<NotificationDevices>>;
   teams?: Record<string, HuddleTeamLevel>;
+  quiet?: Partial<NotificationQuiet>;
 }
 
 export const notificationPrefsApi = {

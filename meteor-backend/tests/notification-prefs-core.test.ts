@@ -8,6 +8,7 @@ import {
   DELIVER_EVERYWHERE,
   DELIVER_NOWHERE,
   EVENTS,
+  needsClockState,
   teamLevel,
   allEventSettings,
   prefKeyForType,
@@ -120,6 +121,52 @@ describe('team levels', () => {
   });
 });
 
+describe('quiet time', () => {
+  const NOW = new Date('2026-10-29T15:00:00Z');
+  const quiet = (q: Record<string, unknown>) => ({ quiet: q });
+  const HELD = { inbox: true, desktop: false, phone: false };
+
+  it('holds every push during a snooze, but still logs', () => {
+    const p = quiet({ snoozeUntil: new Date('2026-10-29T16:00:00Z') });
+    expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW })).toEqual(HELD);
+    expect(resolveDelivery(p, { type: 'huddle-mention', now: NOW })).toEqual(HELD);
+  });
+
+  it('lets pushes through once the snooze has ended', () => {
+    const p = quiet({ snoozeUntil: new Date('2026-10-29T14:00:00Z') });
+    expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW })).toEqual(DELIVER_EVERYWHERE);
+  });
+
+  it('holds every push until the user clocks in', () => {
+    const p = quiet({ snoozeUntilClockIn: true });
+    expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW, clockedIn: false })).toEqual(
+      HELD,
+    );
+    expect(resolveDelivery(p, { type: 'ticket-assigned', now: NOW, clockedIn: true })).toEqual(
+      DELIVER_EVERYWHERE,
+    );
+  });
+
+  it('holds Huddle pushes while clocked out, except mentions', () => {
+    const p = { ...quiet({ holdOffShift: true }), teams: { t1aaaaaa: 'all' } };
+    const off = { now: NOW, clockedIn: false, teamId: 't1aaaaaa' };
+    expect(resolveDelivery(p, { type: 'huddle-post', ...off })).toEqual(HELD);
+    expect(resolveDelivery(p, { type: 'huddle-comment', ...off })).toEqual(HELD);
+    expect(resolveDelivery(p, { type: 'huddle-mention', ...off })).toEqual(DELIVER_EVERYWHERE);
+    expect(resolveDelivery(p, { type: 'ticket-assigned', ...off })).toEqual(DELIVER_EVERYWHERE);
+    expect(resolveDelivery(p, { type: 'huddle-comment', ...off, clockedIn: true })).toEqual(
+      DELIVER_EVERYWHERE,
+    );
+  });
+
+  it('only needs the clock when a clock-based setting is on', () => {
+    expect(needsClockState(null)).toBe(false);
+    expect(needsClockState(quiet({ snoozeUntil: NOW }))).toBe(false);
+    expect(needsClockState(quiet({ holdOffShift: true }))).toBe(true);
+    expect(needsClockState(quiet({ snoozeUntilClockIn: true }))).toBe(true);
+  });
+});
+
 describe('allEventSettings', () => {
   it('fills every event the user has not saved with its default', () => {
     const all = allEventSettings(prefs({ shiftEnd: { phone: false } }));
@@ -143,7 +190,22 @@ describe('prefsPatchToSet', () => {
     });
   });
 
+  it('stores quiet time, with the snooze end as a Date', () => {
+    expect(
+      prefsPatchToSet({ quiet: { holdOffShift: true, snoozeUntil: '2026-10-29T16:00:00.000Z' } }),
+    ).toEqual({
+      'quiet.holdOffShift': true,
+      'quiet.snoozeUntil': new Date('2026-10-29T16:00:00.000Z'),
+    });
+    expect(prefsPatchToSet({ quiet: { snoozeUntil: null } })).toEqual({
+      'quiet.snoozeUntil': null,
+    });
+  });
+
   it.each([
+    [{ quiet: { holdOffShift: 'yes' } }, /must be a boolean/],
+    [{ quiet: { snoozeUntil: 'soon' } }, /must be a date/],
+    [{ quiet: { loud: true } }, /Unknown quiet setting/],
     [{ teams: { 'a.b': 'all' } }, /Invalid team/],
     [{ teams: { aaaaaaaaaaaaaaaaaaaaaaaa: 'loud' } }, /Unknown team level/],
     [{ events: { nope: { phone: true } } }, /Unknown event/],

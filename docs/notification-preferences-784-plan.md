@@ -371,20 +371,28 @@ Use `@mieweb/ui` only:
 
 ## Milestone 5: Quiet Time
 
-- [ ] **5.1 `notification-prefs-core.js`:** quiet rules turn `desktop` and `phone` off but leave `inbox` on.
-  - `snoozeUntil > now`: hold every push.
-  - `snoozeUntilClockIn && !clockedIn`: hold every push.
-  - `holdOffShift && !clockedIn`: hold Huddle pushes, **except** `huddleMention`.
-- [ ] **5.2 `notify-core.js`:** look up `clockedIn` only when the user has one of these
-      quiet settings on, so the common path makes no extra query. A user counts as
-      clocked in when they have a `ClockEvents` row with `endTime: null`.
-- [ ] **5.3 `clock.js` clock-in:** clear `snoozeUntilClockIn`.
-- [ ] **5.4 Settings page:** add a **Quiet time** card.
-  - A `Switch` for "Hold Huddle pushes while I'm clocked out".
-  - A snooze `ButtonGroup`: Off / 1 hour / Until tomorrow / Until I clock in. "Until
-    tomorrow" means 8:00 the next morning in the user's local time; the client works
-    it out and sends a `Date`.
-- [ ] **5.5 Release note.**
+- [x] **5.1 `notification-prefs-core.js`:** quiet rules turn `desktop` and `phone` off but leave `inbox` on.
+  - [x] `snoozeUntil > now`: hold every push.
+  - [x] `snoozeUntilClockIn && !clockedIn`: hold every push.
+  - [x] `holdOffShift && !clockedIn`: hold Huddle pushes, **except** `huddleMention`.
+  - [x] `prefsPatchToSet` validates `quiet` (booleans; `snoozeUntil` an ISO date or
+        `null`, stored as a `Date`). `quietSettings(prefs)` fills the defaults.
+- [x] **5.2 `notify-core.js`:** `needsClockState(prefs)` decides whether to look up
+      `clockedIn` (a `ClockEvents` row with `endTime: null`), so users without
+      clock-based quiet settings cost no extra query.
+- [x] **5.3 `clock.js` `clockStart`:** calls `endSnoozeUntilClockIn(userId)` (in
+      `notification-prefs.js`), fire-and-forget.
+- [x] **5.4 Settings page:** a **Quiet time** card (`QuietTimeSettings.tsx`).
+  - A `Switch` for "Hold Huddle pop-ups while I'm clocked out".
+  - A snooze `ButtonGroup`: Off / 1 hour / Until tomorrow / Until I clock in, with a
+    live status line ("Paused until Thu 3:23 PM."). The client works out the end time
+    (`snoozeChange`, unit-tested; "tomorrow" is 8:00 local) and sends an ISO date. A
+    snooze that has ended reads as Off.
+  - `useNotificationPrefs` gained `setQuiet`, with the same undo on a failed save.
+- [x] **5.5 Release note:** a "Quiet time" bullet in `release-notes/1.2.0.md`.
+- [x] **Tests:** 9 more unit tests (quiet rules, `needsClockState`, patch validation),
+      2 integration tests (a snooze saves as an ISO date; a reply is still logged while
+      snoozed), and `QuietTimeSettings.test.ts` for `snoozeChange`.
 
 **Done when:** all of these hold.
 

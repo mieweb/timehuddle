@@ -2191,6 +2191,11 @@ Meteor.startup(async () => {
           type: 'object',
           description: "Team id → Huddle level: 'all' | 'mentions' | 'mute'",
         },
+        quiet: {
+          type: 'object',
+          description:
+            'Quiet time: { holdOffShift?: boolean, snoozeUntil?: ISO date | null, snoozeUntilClockIn?: boolean }',
+        },
       },
     },
   });
