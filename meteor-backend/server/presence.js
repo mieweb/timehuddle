@@ -1,4 +1,5 @@
 import { Meteor } from 'meteor/meteor';
+import { requireTeamMembership } from './permissions';
 
 const TIMEOUT_MS = 75_000;
 
@@ -58,4 +59,45 @@ Meteor.publish('presence.watch', function (watchIds) {
     clearInterval(heartbeat);
     markOffline(userId);
   });
+});
+
+// ─── Huddle viewing (#784) ────────────────────────────────────────────────────
+//
+// Who has a team's Huddle open in a visible tab, so a push about that team can
+// be skipped for someone already looking at it. The Huddle page holds this
+// no-data subscription only while its tab is visible.
+//
+// In memory, per server process: one instance per app today. If an app ever
+// runs several instances behind a load balancer, move this to a Mongo
+// collection with a TTL index, or a viewer on one instance is invisible to
+// notifications sent from another.
+
+/** userId → (teamId → number of open subscriptions, one per visible tab). */
+const viewing = new Map();
+
+function adjustViewing(userId, teamId, delta) {
+  const teams = viewing.get(userId) ?? new Map();
+  const count = (teams.get(teamId) ?? 0) + delta;
+  if (count > 0) teams.set(teamId, count);
+  else teams.delete(teamId);
+  if (teams.size > 0) viewing.set(userId, teams);
+  else viewing.delete(userId);
+}
+
+/** Whether `userId` has `teamId`'s Huddle open in a visible tab right now. */
+export function isViewingTeam(userId, teamId) {
+  return (viewing.get(userId)?.get(String(teamId)) ?? 0) > 0;
+}
+
+Meteor.publish('huddle.viewing', async function (teamId) {
+  if (!this.userId || typeof teamId !== 'string') return this.ready();
+  try {
+    await requireTeamMembership(this.userId, teamId);
+  } catch {
+    return this.ready();
+  }
+  const userId = this.userId;
+  adjustViewing(userId, teamId, 1);
+  this.onStop(() => adjustViewing(userId, teamId, -1));
+  this.ready();
 });

@@ -211,6 +211,7 @@ describe('quiet time', () => {
       holdOffShift: true,
       snoozeUntil: until,
       snoozeUntilClockIn: false,
+      skipWhileViewing: true,
     });
   });
 

@@ -495,26 +495,31 @@ This needs no `vendor/ui` change. SuperChat takes its mention list from us throu
 This doesn't need `vendor/ui` either. The server has to know that a user has a team's
 Huddle open in a visible tab.
 
-- [ ] **8.1 Extend the existing `meteor-backend/server/presence.js`.** It already has a
-      `presence.watch` online/offline heartbeat; add the following next to it:
-  - [ ] `Meteor.publish('huddle.viewing', function (teamId) { … })` publishes no
-        documents. It records `this.userId → teamId` in an in-memory
+- [x] **8.1 Extended the existing `meteor-backend/server/presence.js`** (it already had a
+      `presence.watch` online/offline heartbeat):
+  - [x] `Meteor.publish('huddle.viewing', function (teamId) { … })` publishes no
+        documents. It records `userId → teamId` in an in-memory
         `Map<userId, Map<teamId, count>>`, calls `this.ready()`, and on `this.onStop`
         decrements the count and deletes it at zero. Counting handles several open tabs.
-  - [ ] It checks team membership (`requireTeamMember`) before recording anything.
-  - [ ] It exports `isViewingTeam(userId, teamId)`.
-- [ ] **8.2 `src/pages/Huddle.tsx`:** while a team is selected **and**
-      `document.visibilityState === 'visible'`, hold
-      `getDdpClient().subscribe('huddle.viewing', [teamId])`. Unsubscribe when the tab
-      is hidden, when the team changes, and on unmount. Follow the existing
-      `huddlePosts.byTeam` subscription around line 542.
-- [ ] **8.3 `notify-core.js`:** for Huddle types with a `teamId`, pass
-      `viewingTeam: isViewingTeam(userId, teamId)`.
-- [ ] **8.4 `notification-prefs-core.js`:** `quiet.skipWhileViewing && viewingTeam` turns `desktop` and
-      `phone` off and keeps `inbox`.
-- [ ] **8.5 Settings Quiet time card:** add a `Switch` labelled "Skip push while I have
-      that Huddle open", defaulting to on.
-- [ ] **8.6 Release note.**
+  - [x] It checks team membership (`requireTeamMembership`) before recording anything; a
+        non-member's subscription is just ready and records nothing.
+  - [x] It exports `isViewingTeam(userId, teamId)`.
+- [x] **8.2 New `src/features/huddle/useHuddleViewing.ts`, called from `src/pages/Huddle.tsx`:**
+      holds `getDdpClient().subscribe('huddle.viewing', [teamId])` while a team is
+      selected (not the Personal view) **and** the tab is visible. It unsubscribes on
+      hide, team change and unmount. The DDP client resubscribes after a reconnect.
+- [x] **8.3 `notify-core.js`:** passes `viewingTeam: isViewingTeam(userId, data.teamId)`.
+      It's an in-memory lookup, so it needs no gate.
+- [x] **8.4 `notification-prefs-core.js`:** `quiet.skipWhileViewing && viewingTeam` holds
+      the push for Huddle events (mentions included, since you're looking at it) and
+      keeps `inbox`. `skipWhileViewing` defaults to **on** and is validated as a boolean.
+- [x] **8.5 Settings Quiet time card:** a "Skip pop-ups for a Huddle I have open"
+      `Switch`, defaulting to on. Both quiet switches share a small `QuietSwitchRow`.
+- [x] **8.6 Release note:** one sentence added to the "Quiet time" bullet.
+- [x] **Tests:** 2 more unit tests (held while viewing; pushes when turned off).
+      Verified end to end on the dev server: with dev-member viewing Bench Team 1, an
+      `@team` post gave all four teammates an inbox row, and `sendToUser` ran for the
+      three who weren't viewing but not for the viewer.
 
 **Known limit:** the map lives in one server process. If an app ever runs more than one
 instance behind a load balancer, move it to a Mongo collection with a TTL index. Note

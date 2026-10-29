@@ -55,6 +55,27 @@ function snoozeState(
   return { current: null, status: S.snoozeStatusUntil(when) };
 }
 
+/** One quiet-time on/off setting: label and hint, with its switch. */
+const QuietSwitchRow: React.FC<{
+  className: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}> = ({ className, label, hint, checked, onChange }) => (
+  <div className={`${className} flex items-center justify-between gap-4 px-5 py-3.5`}>
+    <div className="min-w-0">
+      <Text size="sm" weight="medium">
+        {label}
+      </Text>
+      <Text variant="muted" size="xs" className="mt-0.5">
+        {hint}
+      </Text>
+    </div>
+    <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
+  </div>
+);
+
 export const QuietTimeSettings: React.FC = () => {
   const { prefs, error, setQuiet } = useNotificationPrefs();
   const snooze = prefs && snoozeState(prefs.quiet);
@@ -64,21 +85,20 @@ export const QuietTimeSettings: React.FC = () => {
       <PrefsStatus loading={!prefs} error={error} />
       {prefs && snooze && (
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          <div className="quiet-hold-off-shift flex items-center justify-between gap-4 px-5 py-3.5">
-            <div className="min-w-0">
-              <Text size="sm" weight="medium">
-                {S.holdOffShift}
-              </Text>
-              <Text variant="muted" size="xs" className="mt-0.5">
-                {S.holdOffShiftHint}
-              </Text>
-            </div>
-            <Switch
-              checked={prefs.quiet.holdOffShift}
-              onCheckedChange={(on) => setQuiet({ holdOffShift: on })}
-              aria-label={S.holdOffShift}
-            />
-          </div>
+          <QuietSwitchRow
+            className="quiet-hold-off-shift"
+            label={S.holdOffShift}
+            hint={S.holdOffShiftHint}
+            checked={prefs.quiet.holdOffShift}
+            onChange={(on) => setQuiet({ holdOffShift: on })}
+          />
+          <QuietSwitchRow
+            className="quiet-skip-while-viewing"
+            label={S.skipWhileViewing}
+            hint={S.skipWhileViewingHint}
+            checked={prefs.quiet.skipWhileViewing}
+            onChange={(on) => setQuiet({ skipWhileViewing: on })}
+          />
           <div className="quiet-snooze flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
             <div className="min-w-0">
               <Text size="sm" weight="medium">

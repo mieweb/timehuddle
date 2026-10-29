@@ -18,7 +18,9 @@
  *   - Huddle events also pass the user's level for the post's team: `mute`
  *     drops them all, `mentions` (the default) drops new-post alerts.
  *   - Quiet time holds the push but keeps the inbox row: a snooze holds every
- *     push, and "hold while clocked out" holds Huddle pushes except mentions.
+ *     push, "hold while clocked out" holds Huddle pushes except mentions, and
+ *     "skip while viewing" holds Huddle pushes for a team whose Huddle the
+ *     user has open.
  *   - Some events follow a team setting from the settings hierarchy
  *     (ORG_SETTING_FOR_EVENT): off drops the event for everyone; locked means
  *     the event's defaults apply whatever the person chose.
@@ -112,6 +114,7 @@ export function quietSettings(prefs) {
     holdOffShift: false,
     snoozeUntil: null,
     snoozeUntilClockIn: false,
+    skipWhileViewing: true,
     ...prefs?.quiet,
   };
 }
@@ -123,11 +126,13 @@ export function needsClockState(prefs) {
 }
 
 /** Whether quiet time holds the push for event `key` right now. */
-function pushHeld(prefs, key, { now = new Date(), clockedIn = true } = {}) {
+function pushHeld(prefs, key, { now = new Date(), clockedIn = true, viewingTeam = false } = {}) {
   const quiet = quietSettings(prefs);
   if (quiet.snoozeUntil && new Date(quiet.snoozeUntil) > now) return true;
   if (quiet.snoozeUntilClockIn && !clockedIn) return true;
-  return quiet.holdOffShift && !clockedIn && HUDDLE_EVENTS.has(key) && key !== 'huddleMention';
+  if (!HUDDLE_EVENTS.has(key)) return false;
+  if (quiet.skipWhileViewing && viewingTeam) return true;
+  return quiet.holdOffShift && !clockedIn && key !== 'huddleMention';
 }
 
 /** Every event's effective setting, for the Settings page. */
@@ -143,6 +148,7 @@ export function allEventSettings(prefs) {
  * `ctx.now` and `ctx.clockedIn` feed quiet time; `clockedIn` only has to be
  * looked up when `needsClockState(prefs)` says so. `ctx.orgPolicy` is the
  * resolved team setting (`{ value, locked }`) for types that have one.
+ * `ctx.viewingTeam` says the user has the notification's team's Huddle open.
  */
 export function resolveDelivery(prefs, ctx) {
   const key = prefKeyForType(ctx.type);
@@ -165,7 +171,7 @@ export function resolveDelivery(prefs, ctx) {
  * Shape: `{ events?: { <eventKey>: { desktop?: boolean, phone?: boolean } },
  *          teams?: { <teamId>: 'all' | 'mentions' | 'mute' },
  *          quiet?: { holdOffShift?: boolean, snoozeUntil?: ISO date | null,
- *                    snoozeUntilClockIn?: boolean } }`.
+ *                    snoozeUntilClockIn?: boolean, skipWhileViewing?: boolean } }`.
  */
 export function prefsPatchToSet(patch) {
   const set = {};
@@ -191,7 +197,7 @@ export function prefsPatchToSet(patch) {
 
 /** One validated quiet-time field, as stored. */
 function quietValue(field, value) {
-  if (field === 'holdOffShift' || field === 'snoozeUntilClockIn') {
+  if (field === 'holdOffShift' || field === 'snoozeUntilClockIn' || field === 'skipWhileViewing') {
     if (typeof value !== 'boolean') throw new Error(`quiet.${field} must be a boolean`);
     return value;
   }

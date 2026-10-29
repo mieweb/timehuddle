@@ -132,6 +132,8 @@ export const NOTIFICATION_STRINGS = {
   quietDescription: 'Holds pop-ups. Anything held is still logged under the bell.',
   holdOffShift: "Hold Huddle pop-ups while I'm clocked out",
   holdOffShiftHint: 'Mentions still come through.',
+  skipWhileViewing: 'Skip pop-ups for a Huddle I have open',
+  skipWhileViewingHint: 'No phone buzz about a team you are already looking at.',
   snooze: 'Snooze all pop-ups',
   snoozeOptions: {
     off: 'Off',

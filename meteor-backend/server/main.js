@@ -2199,7 +2199,7 @@ Meteor.startup(async () => {
         quiet: {
           type: 'object',
           description:
-            'Quiet time: { holdOffShift?: boolean, snoozeUntil?: ISO date | null, snoozeUntilClockIn?: boolean }',
+            'Quiet time: { holdOffShift?: boolean, snoozeUntil?: ISO date | null, snoozeUntilClockIn?: boolean, skipWhileViewing?: boolean }',
         },
       },
     },

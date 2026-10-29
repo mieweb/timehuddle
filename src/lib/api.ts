@@ -1960,6 +1960,8 @@ export interface NotificationQuiet {
   snoozeUntil: string | null;
   /** Snoozed until the user next clocks in. */
   snoozeUntilClockIn: boolean;
+  /** Skip Huddle pop-ups for a team whose Huddle the user has open. */
+  skipWhileViewing: boolean;
 }
 
 /** The user's notification preferences: every configurable event's effective setting. */

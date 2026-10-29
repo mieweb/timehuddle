@@ -49,6 +49,7 @@ import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedul
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { HuddleNotifyMenu } from '../features/huddle/HuddleNotifyMenu';
+import { useHuddleViewing } from '../features/huddle/useHuddleViewing';
 import {
   findConversationHeader,
   findListHeader,
@@ -666,6 +667,8 @@ export default function Huddle() {
   const feedRef = useRef<HTMLDivElement>(null);
   const listHeaderEl = useInboxSlot(feedRef, findListHeader);
   const conversationHeaderEl = useInboxSlot(feedRef, findConversationHeader);
+  // Pushes about this team are skipped while it's on screen (#784).
+  useHuddleViewing(scope === 'team' ? selectedTeamId : null);
 
   // Both filter dropdowns share one look: equal-width bordered fields with a
   // small legend notched into the top border.

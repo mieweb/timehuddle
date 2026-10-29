@@ -180,6 +180,20 @@ describe('quiet time', () => {
     );
   });
 
+  it('skips Huddle pushes for a team whose Huddle is open, but still logs', () => {
+    const viewing = { teamId: 't1aaaaaa', viewingTeam: true, now: NOW };
+    expect(resolveDelivery(null, { type: 'huddle-mention', ...viewing })).toEqual(HELD);
+    expect(resolveDelivery(null, { type: 'ticket-assigned', ...viewing })).toEqual(
+      DELIVER_EVERYWHERE,
+    );
+  });
+
+  it('pushes while viewing when the user turned skipping off', () => {
+    const p = quiet({ skipWhileViewing: false });
+    const viewing = { teamId: 't1aaaaaa', viewingTeam: true, now: NOW };
+    expect(resolveDelivery(p, { type: 'huddle-mention', ...viewing })).toEqual(DELIVER_EVERYWHERE);
+  });
+
   it('only needs the clock when a clock-based setting is on', () => {
     expect(needsClockState(null)).toBe(false);
     expect(needsClockState(quiet({ snoozeUntil: NOW }))).toBe(false);

@@ -20,6 +20,7 @@ import {
 } from './notification-prefs-core';
 import { getPrefs } from './notification-prefs';
 import { resolveSettings } from './settings';
+import { isViewingTeam } from './presence';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -57,6 +58,7 @@ async function deliveryFor(userId, data) {
     teamId: data.teamId,
     now: new Date(),
     clockedIn,
+    viewingTeam: data.teamId ? isViewingTeam(userId, data.teamId) : false,
     orgPolicy: await orgPolicyFor(data),
   });
 }
