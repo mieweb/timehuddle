@@ -8,6 +8,22 @@
  */
 import { SETTINGS } from './registry';
 
+/**
+ * @typedef {Object} ResolvedSetting
+ * @property {unknown} value
+ * @property {string} source
+ * @property {string} [sourceId]
+ * @property {boolean} locked
+ */
+
+/**
+ * @typedef {Object} ChainEntry
+ * @property {'team'|'org'|'enterprise'} level
+ * @property {string} id
+ * @property {Record<string, unknown>} [settings]
+ * @property {Record<string, boolean>} [settingsLocks]
+ */
+
 const LOCKING_LEVELS = ['enterprise', 'org'];
 
 // The first team in the chain is the team itself; later ones are its parents.
@@ -58,6 +74,11 @@ function resolveKey(chain, key, def, isPersonal) {
   return { value: def.default, source: 'system', locked: false };
 }
 
+/**
+ * @param {ChainEntry[]} chain
+ * @param {{ isPersonal?: boolean }} [options]
+ * @returns {Record<keyof typeof SETTINGS, ResolvedSetting>}
+ */
 export function resolveFromChain(chain, { isPersonal = false } = {}) {
   const resolved = {};
   for (const [key, def] of Object.entries(SETTINGS)) {

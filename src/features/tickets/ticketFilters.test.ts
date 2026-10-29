@@ -100,11 +100,11 @@ describe('filter option derivation', () => {
 
 describe('applyFilters', () => {
   it('treats an empty source selection as every source', () => {
-    expect(applyFilters(all, EMPTY_FILTERS, '')).toHaveLength(2);
+    expect(applyFilters(all, EMPTY_FILTERS)).toHaveLength(2);
   });
 
   it('isolates a single source', () => {
-    expect(applyFilters(all, withFilters({ sources: ['redmine'] }), '')).toEqual([redmine]);
+    expect(applyFilters(all, withFilters({ sources: ['redmine'] }))).toEqual([redmine]);
   });
 
   it('counts a ticket linked to a Redmine issue as Redmine work, until it is unlinked', () => {
@@ -117,84 +117,14 @@ describe('applyFilters', () => {
     const redmineOnly = { ...EMPTY_FILTERS, sources: ['redmine' as const] };
     const huddleOnly = { ...EMPTY_FILTERS, sources: ['huddle' as const] };
 
-    expect(applyFilters([linked], redmineOnly, '')).toEqual([linked]);
-    expect(applyFilters([linked], huddleOnly, '')).toEqual([]);
-    expect(applyFilters([unlinked], huddleOnly, '')).toEqual([unlinked]);
-    expect(applyFilters([unlinked], redmineOnly, '')).toEqual([]);
-  });
-
-  it('searches title, ref and project', () => {
-    expect(applyFilters(all, EMPTY_FILTERS, 'alpha')).toEqual([huddle]);
-    expect(applyFilters(all, EMPTY_FILTERS, '#9')).toEqual([redmine]);
-    expect(applyFilters(all, EMPTY_FILTERS, 'platform')).toEqual([redmine]);
-    expect(applyFilters(all, EMPTY_FILTERS, 'nothing')).toEqual([]);
-  });
-
-  describe('the @person search prefix', () => {
-    const adaHuddle = make({
-      key: 'huddle:2',
-      id: '2',
-      assignees: [{ id: 'u1', name: 'Ada King' }],
-    });
-    const adaRedmine = make({
-      key: 'redmine:3',
-      sourceId: 'redmine',
-      id: '3',
-      ref: '#3',
-      assignees: [{ id: '8', name: 'Ada Lovelace' }],
-    });
-    const grace = make({ key: 'huddle:4', id: '4', assignees: [{ id: 'u2', name: 'Grace' }] });
-    const rows = [huddle, adaHuddle, adaRedmine, grace];
-
-    it('matches the assignee name in every source, ignoring case', () => {
-      expect(applyFilters(rows, EMPTY_FILTERS, '@ADA')).toEqual([adaHuddle, adaRedmine]);
-      expect(applyFilters(rows, EMPTY_FILTERS, '@lovelace')).toEqual([adaRedmine]);
-      expect(applyFilters(rows, EMPTY_FILTERS, '@nobody')).toEqual([]);
-    });
-
-    it('on its own, keeps every assigned ticket', () => {
-      expect(applyFilters(rows, EMPTY_FILTERS, '@')).toEqual([adaHuddle, adaRedmine, grace]);
-    });
-
-    it('does not match a title that mentions the name', () => {
-      const mention = make({ key: 'huddle:5', id: '5', title: 'Ask Ada about the build' });
-      expect(applyFilters([mention], EMPTY_FILTERS, '@ada')).toEqual([]);
-      expect(applyFilters([mention], EMPTY_FILTERS, 'ada')).toEqual([mention]);
-    });
-
-    it('does not match inside the raw id of an unresolved assignee', () => {
-      const unresolved = make({
-        key: 'huddle:6',
-        id: '6',
-        assignees: [{ id: 'k7adaq2', name: 'k7adaq2' }],
-      });
-      expect(applyFilters([unresolved], EMPTY_FILTERS, '@ada')).toEqual([]);
-      expect(applyFilters([unresolved], EMPTY_FILTERS, '@')).toEqual([unresolved]);
-    });
-  });
-
-  describe('the #ref search prefix', () => {
-    const nineteen = make({ key: 'redmine:19', sourceId: 'redmine', id: '19', ref: '#19' });
-    const huddleRef = make({ key: 'huddle:6', id: '6', ref: '#A3f1c' });
-
-    it('matches from the start of the reference', () => {
-      expect(applyFilters([redmine, nineteen], EMPTY_FILTERS, '#9')).toEqual([redmine]);
-      expect(applyFilters([redmine, nineteen], EMPTY_FILTERS, '#1')).toEqual([nineteen]);
-    });
-
-    it('matches a TimeHuddle reference, which has letters in it', () => {
-      expect(applyFilters([redmine, huddleRef], EMPTY_FILTERS, '#a3f')).toEqual([huddleRef]);
-    });
-
-    it('does not match a title that contains the reference', () => {
-      const mention = make({ key: 'huddle:7', id: '7', ref: '#7', title: 'Follow-up to #9' });
-      expect(applyFilters([mention], EMPTY_FILTERS, '#9')).toEqual([]);
-      expect(applyFilters([mention], EMPTY_FILTERS, 'to #9')).toEqual([mention]);
-    });
+    expect(applyFilters([linked], redmineOnly)).toEqual([linked]);
+    expect(applyFilters([linked], huddleOnly)).toEqual([]);
+    expect(applyFilters([unlinked], huddleOnly)).toEqual([unlinked]);
+    expect(applyFilters([unlinked], redmineOnly)).toEqual([]);
   });
 
   it('filters by a source-specific native status', () => {
-    expect(applyFilters(all, withFilters({ statuses: ['Feedback'] }), '')).toEqual([redmine]);
+    expect(applyFilters(all, withFilters({ statuses: ['Feedback'] }))).toEqual([redmine]);
   });
 
   it('lists a ticket assigned to any of several chosen people, or left unassigned', () => {
@@ -204,11 +134,11 @@ describe('applyFilters', () => {
     const nobody = make({ key: 'huddle:5', id: '5', assignees: [] });
     const rows = [ada, grace, linus, nobody];
 
-    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u1', 'huddle:u2'] }), '')).toEqual([
+    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u1', 'huddle:u2'] }))).toEqual([
       ada,
       grace,
     ]);
-    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u3', UNASSIGNED] }), '')).toEqual([
+    expect(applyFilters(rows, withFilters({ assignees: ['huddle:u3', UNASSIGNED] }))).toEqual([
       linus,
       nobody,
     ]);
@@ -224,7 +154,6 @@ describe('applyFilters', () => {
       applyFilters(
         [platform, billing, support, loose],
         withFilters({ containers: ['huddle:7', 'huddle:9'] }),
-        '',
       ),
     ).toEqual([platform, support]);
   });
@@ -238,13 +167,13 @@ describe('applyFilters', () => {
       id: '2',
       assignees: [{ id: 'u1', name: 'Ada' }],
     });
-    const result = applyFilters([mine, theirs], withFilters({ assignees: ['huddle:u1'] }), '');
+    const result = applyFilters([mine, theirs], withFilters({ assignees: ['huddle:u1'] }));
     expect(result).toEqual([mine]);
   });
 
   it('finds unassigned tickets', () => {
     const assigned = make({ key: 'huddle:2', id: '2', assignees: [{ id: 'u1', name: 'Ada' }] });
-    expect(applyFilters([huddle, assigned], withFilters({ assignees: [UNASSIGNED] }), '')).toEqual([
+    expect(applyFilters([huddle, assigned], withFilters({ assignees: [UNASSIGNED] }))).toEqual([
       huddle,
     ]);
   });
@@ -264,14 +193,13 @@ describe('applyFilters', () => {
       const result = applyFilters(
         [myHuddle, myRedmine, theirs, huddle],
         withFilters({ assignees: [ME] }),
-        '',
         meKeys,
       );
       expect(result).toEqual([myHuddle, myRedmine]);
     });
 
     it('still works for Huddle before the Redmine id has loaded', () => {
-      const result = applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }), '', [
+      const result = applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }), [
         'huddle:u1',
       ]);
       expect(result).toEqual([myHuddle]);
@@ -280,25 +208,25 @@ describe('applyFilters', () => {
     it('does not match a same-numbered assignee in another namespace', () => {
       // Redmine account 8 must not be matched by a Huddle user literally id "8".
       const huddleEight = make({ key: 'huddle:9', id: '9', assignees: [{ id: '8', name: 'Ada' }] });
-      expect(
-        applyFilters([huddleEight], withFilters({ assignees: [ME] }), '', ['redmine:8']),
-      ).toEqual([]);
+      expect(applyFilters([huddleEight], withFilters({ assignees: [ME] }), ['redmine:8'])).toEqual(
+        [],
+      );
     });
 
     it('matches nothing rather than everything when the user is unknown', () => {
-      expect(applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }), '')).toEqual([]);
+      expect(applyFilters([myHuddle, myRedmine], withFilters({ assignees: [ME] }))).toEqual([]);
     });
   });
 
   it('finds tickets with no priority', () => {
     const high = make({ key: 'huddle:2', id: '2', priority: { native: 'high', rank: 3 } });
-    expect(applyFilters([huddle, high], withFilters({ priorities: [NO_PRIORITY] }), '')).toEqual([
+    expect(applyFilters([huddle, high], withFilters({ priorities: [NO_PRIORITY] }))).toEqual([
       huddle,
     ]);
-    expect(applyFilters([huddle, high], withFilters({ priorities: ['high'] }), '')).toEqual([high]);
+    expect(applyFilters([huddle, high], withFilters({ priorities: ['high'] }))).toEqual([high]);
     // Several at once: a ticket with any of them is listed.
     expect(
-      applyFilters([huddle, high], withFilters({ priorities: ['high', NO_PRIORITY] }), ''),
+      applyFilters([huddle, high], withFilters({ priorities: ['high', NO_PRIORITY] })),
     ).toEqual([huddle, high]);
   });
 });

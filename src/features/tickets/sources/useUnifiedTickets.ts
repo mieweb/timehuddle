@@ -65,6 +65,14 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     [teams],
   );
 
+  // Rows are labelled when they load (`TH-12`, `PM-233`), so a changed prefix reloads them.
+  const { sourcePrefixes } = ctx;
+  const labelsKey = useMemo(
+    () =>
+      JSON.stringify([teams.map((t) => `${t.id}:${t.ticketPrefix ?? ''}`), sourcePrefixes ?? []]),
+    [teams, sourcePrefixes],
+  );
+
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
@@ -119,18 +127,21 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     }
   }, []);
 
-  const loaded = useRef<{ userId: string | null; teamsKey: string; membersKey?: string } | null>(
-    null,
-  );
+  const loaded = useRef<{
+    userId: string | null;
+    teamsKey: string;
+    membersKey?: string;
+    labelsKey?: string;
+  } | null>(null);
 
   useEffect(() => {
     const previous = loaded.current;
-    loaded.current = { userId, teamsKey, membersKey };
+    loaded.current = { userId, teamsKey, membersKey, labelsKey };
     // This hook outlives a sign-in as someone else, and a load keeps the rows it
     // had: the next user must not see the previous one's while theirs arrive.
     if (previous && previous.userId !== userId) setPartitions(initialPartitions());
     const sameScope = previous?.userId === userId && previous.teamsKey === teamsKey;
-    if (sameScope && previous.membersKey !== membersKey) {
+    if (sameScope && previous.labelsKey === labelsKey && previous.membersKey !== membersKey) {
       // Member data only renames people on rows already shown: no refetch.
       setPartitions((prev) => {
         const next = { ...prev };
@@ -147,8 +158,9 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
       });
       return;
     }
+    // A changed prefix renames what rows already show, so it reloads behind them.
     load(sameScope);
-  }, [load, userId, teamsKey, membersKey]);
+  }, [load, userId, teamsKey, membersKey, labelsKey]);
 
   const refetch = useCallback(() => load(), [load]);
 

@@ -80,13 +80,18 @@ describe('mergeLinked', () => {
   });
 
   it('shows the linked issue on its ticket and drops the issue row', () => {
-    const [merged, ...rest] = mergeLinked([huddle('a', linkTo('482')), redmine('482')]);
+    const [merged, ...rest] = mergeLinked([
+      huddle('a', linkTo('482')),
+      redmine('482', { ref: 'PM-482' }),
+    ]);
     expect(rest).toEqual([]);
     expect(merged.key).toBe('huddle:a');
     // The linked issue's status replaces the ticket's, so it decides Open/Closed.
     expect(merged.status).toEqual({ native: 'Resolved', isClosed: true });
+    // The issue's own ref names it, so a named server's prefix shows on the link.
     expect(merged.linked).toEqual({
       ...linkTo('482'),
+      ref: 'PM-482',
       status: { native: 'Resolved', isClosed: true },
       assignee: { id: '42', name: 'Jane Doe' },
     });

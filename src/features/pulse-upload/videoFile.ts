@@ -2,7 +2,8 @@
  * A video file from this device, sent the way the Pulse app sends one: over
  * tus (resumable) to a reserved PulseVault upload. The server checks it by its
  * content and conforms it to the Pulse format (faststart H.264/AAC MP4) before
- * anything is delivered, so every caller gets the same playable result.
+ * anything is delivered. One it can't convert (PulseVault's `skipped`) is
+ * delivered as uploaded, and plays wherever its own format does.
  */
 import * as tus from 'tus-js-client';
 

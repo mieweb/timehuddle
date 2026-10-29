@@ -54,8 +54,12 @@ jobs:
     name: Backend Checks
     runs-on: ubuntu-latest
     services:
+      # Pinned to mongo:7 (matches the MongoDB 7.0 installed by the production
+      # Dockerfile). mongo:8 crashes on startup on GitHub-hosted ubuntu-latest
+      # runners, whose kernel (6.19+) hits a known MongoDB 8.x/TCMalloc rseq
+      # incompatibility - see https://jira.mongodb.org/browse/SERVER-121912.
       mongodb:
-        image: mongo:8
+        image: mongo:7
         ports:
           - 27017:27017
         options: >-

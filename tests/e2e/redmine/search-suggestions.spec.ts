@@ -5,6 +5,10 @@
  * issues — "Suggested for you" on focus, "More from Redmine" from a server search.
  * Redmine is stubbed at the wormhole boundary (`fixtures/redmine.ts`), so these
  * assert what the UI does with a given answer, not how the server ranks.
+ *
+ * Since #736 a Redmine issue is never a table row: timing it or putting it on
+ * My Board acts on the TimeHuddle ticket carrying it (`tickets.carryIssue`,
+ * stubbed too, as the test backend has no Redmine to create one from).
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -20,7 +24,13 @@ import {
   type RedmineIssueShape,
   type StubValue,
 } from '../fixtures/redmine';
-import { stubMyBoard, stubRunningTimer, stubTimerCreate } from '../fixtures/timers';
+import {
+  carrierIdOf,
+  stubCarryIssue,
+  stubMyBoard,
+  stubRunningTimer,
+  stubTimerCreate,
+} from '../fixtures/timers';
 
 type Reason = 'running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned';
 
@@ -80,8 +90,8 @@ test.describe('Redmine search suggestions', () => {
     expect(rm.calls('issues.relevant').some((c) => c.includeDismissed === true)).toBe(true);
   });
 
-  test('typing narrows the suggestions and still filters the table', async ({ page }) => {
-    const { tickets, input, menu, option } = await openTickets(page);
+  test('typing narrows the suggestions, and keeps what was typed', async ({ page }) => {
+    const { input, menu, option } = await openTickets(page);
 
     await input.fill('alpha');
 
@@ -90,20 +100,6 @@ test.describe('Redmine search suggestions', () => {
     await input.press('Escape');
     await expect(menu).toBeHidden();
     await expect(input).toHaveValue('alpha');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
-  });
-
-  test('the table lists only assigned issues; the rest are suggestions', async ({ page }) => {
-    const { tickets, input, option } = await openTickets(page);
-
-    await tickets.filterBySource('Redmine');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
-    await expect(tickets.rowByTitle('Zulu export timeout')).toHaveCount(0);
-    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
-
-    await input.click();
-    await expect(option(/Zulu export timeout/)).toBeVisible();
-    await expect(option(/Kilo billing report/)).toBeVisible();
   });
 
   test('adds new issues from a server search under "More from Redmine"', async ({ page }) => {
@@ -118,41 +114,9 @@ test.describe('Redmine search suggestions', () => {
 
     await expect(menu.getByText('More from Redmine')).toBeVisible();
     await expect(option(/Alpha printer queue/)).toBeVisible();
-    // #15 is already in the table and the suggestions, so it is not offered twice.
+    // #15 is already in the suggestions, so it is not offered twice.
     await expect(option(/Alpha intake validation/)).toHaveCount(1);
     expect(rm.calls('issues.search').at(-1)).toEqual({ query: 'alpha' });
-  });
-
-  test('on My Board, a search still finds an issue that is only in All Sources', async ({
-    page,
-  }) => {
-    // #40 is assigned, so it is in the All Sources table, but the user hid it
-    // from their suggestions and it is not on their board.
-    const hidden = suggestion(40, 'Hidden export job');
-    await stubRedmine(page, {
-      status: connectedStatus(),
-      'issues.relevant': (params: { includeDismissed?: boolean }) =>
-        relevant(params.includeDismissed ? [...SUGGESTED, hidden] : SUGGESTED),
-      'issues.search': searchResult('text', [redmineIssue({ id: 40, subject: hidden.subject })]),
-    });
-    const tickets = new TicketsPage(page);
-    // Not `tickets.goto()`, which switches to All Sources: this is about the default view.
-    await page.goto('/app/tickets');
-    await tickets.heading.waitFor({ state: 'visible' });
-    const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
-    const found = menu.getByRole('option', { name: /Hidden export job/ });
-
-    // The board does not have it, so the search has to.
-    await tickets.searchInput.fill('hidden export');
-    await expect(tickets.rowByTitle('Hidden export job')).toHaveCount(0);
-    await expect(found).toBeVisible();
-
-    // In All Sources it is a row in the table, so it is not offered a second time.
-    await tickets.switchToTab('tickets');
-    await expect(tickets.rowByTitle('Hidden export job')).toBeVisible();
-    await tickets.searchInput.click();
-    await expect(menu).toBeVisible();
-    await expect(found).toHaveCount(0);
   });
 
   test('finds an issue by number straight away', async ({ page }) => {
@@ -190,7 +154,7 @@ test.describe('Redmine search suggestions', () => {
   });
 
   test('hides a suggestion with the x, and Undo brings it back', async ({ page }) => {
-    const { rm, tickets, input, menu, option } = await openTickets(page);
+    const { rm, input, menu, option } = await openTickets(page);
 
     await input.click();
     const row = option(/Alpha intake validation/);
@@ -205,10 +169,6 @@ test.describe('Redmine search suggestions', () => {
     await expect.poll(() => rm.calls('prefs.set').at(-1)).toEqual({ issueId: 15, state: null });
     await input.click();
     await expect(option(/Alpha intake validation/)).toBeVisible();
-
-    // Hiding a suggestion never touched the table.
-    await tickets.search('Alpha intake');
-    await expect(tickets.rowByTitle('Alpha intake validation')).toBeVisible();
   });
 
   test('Delete hides the highlighted suggestion from the keyboard', async ({ page }) => {
@@ -306,16 +266,24 @@ test.describe('Redmine suggestion timers', () => {
     clock = new ClockPage(page);
   });
 
-  /** The test backend has no Redmine, so the timer start itself is stubbed. */
+  /**
+   * The test backend has no Redmine, so carrying the issue and the timer start
+   * are stubbed. `onBoard` names issues whose suggestion reads as on the board.
+   */
   async function stubTimerStart(page: Page, { onBoard = [] as string[] } = {}) {
+    const carries = await stubCarryIssue(page);
     const bodies = await stubTimerCreate(page);
-    // My Board, so "added" versus "already there" is deterministic.
     const { adds: boardAdds } = await stubMyBoard(
       page,
       onBoard.map((ticketId) => ({ sourceId: 'redmine', ticketId })),
     );
-    return { bodies, boardAdds };
+    return { carries, bodies, boardAdds };
   }
+
+  /** The board add for the ticket carrying issue `issueId`. */
+  const carrierOnBoard = (issueId: number) => ({
+    refs: [{ sourceId: 'huddle', ticketId: carrierIdOf(issueId) }],
+  });
 
   test('Shift+Enter starts a timer on the highlighted suggestion', async ({ page }) => {
     await clock.ensureClockedIn();
@@ -328,24 +296,29 @@ test.describe('Redmine suggestion timers', () => {
     await input.press('Shift+Enter');
 
     await expect(page.getByText('Started #15')).toBeVisible();
-    expect(bodies[0]).toMatchObject({ ticketId: '15', source: 'redmine', startNow: true });
-    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '15' }] });
+    // Timed as the ticket carrying the issue, which goes on My Board.
+    expect(bodies[0]).toMatchObject({
+      ticketId: carrierIdOf(15),
+      source: 'huddle',
+      startNow: true,
+    });
+    expect(boardAdds[0]).toEqual(carrierOnBoard(15));
   });
 
   test('the timer icon starts one too, without opening the issue', async ({ page }) => {
     await clock.ensureClockedIn();
-    const { bodies, boardAdds } = await stubTimerStart(page, { onBoard: ['23'] });
+    const { carries, bodies, boardAdds } = await stubTimerStart(page);
     const { input, option } = await openTickets(page);
 
     await input.click();
     const row = option(/Zulu export timeout/);
     await row.hover();
-    await row.getByLabel('Start a timer on #23').click();
+    await row.getByLabel('Add #23 to My Board and start timer').click();
 
-    // Already on My Board, so it is not added a second time.
     await expect(page.getByText('Started #23')).toBeVisible();
-    expect(boardAdds).toHaveLength(0);
-    expect(bodies[0]).toMatchObject({ ticketId: '23', source: 'redmine' });
+    expect(carries[0]).toMatchObject({ issueId: 23 });
+    expect(bodies[0]).toMatchObject({ ticketId: carrierIdOf(23), source: 'huddle' });
+    expect(boardAdds[0]).toEqual(carrierOnBoard(23));
     await expect(page).toHaveURL(/\/app\/tickets(\?|$)/);
   });
 
@@ -397,12 +370,10 @@ test.describe('Redmine suggestion timers', () => {
     await row.hover();
     await row.getByLabel('Add #23 to My Board', { exact: true }).click();
 
-    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '23' }] });
+    await expect.poll(() => boardAdds).toEqual([carrierOnBoard(23)]);
     expect(bodies).toHaveLength(0);
-    // The menu stays open, and the row now offers to take the issue off again.
-    await row.hover();
-    await expect(row.getByLabel('Remove #23 from My Board')).toBeVisible();
-    await expect(row.getByLabel('Start a timer on #23')).toBeVisible();
+    // The menu stays open.
+    await expect(row).toBeVisible();
   });
 
   test('Alt+Enter adds the highlighted suggestion to My Board (#672)', async ({ page }) => {
@@ -414,35 +385,17 @@ test.describe('Redmine suggestion timers', () => {
     await input.press('ArrowDown');
     await input.press('Alt+Enter');
 
-    await expect
-      .poll(() => boardAdds)
-      .toEqual([{ refs: [{ sourceId: 'redmine', ticketId: '15' }] }]);
+    await expect.poll(() => boardAdds).toEqual([carrierOnBoard(15)]);
     expect(bodies).toHaveLength(0);
     await expect(menu.getByRole('option').first()).toBeVisible();
   });
 
-  test('a timer on an issue you do not own adds it to the table, then My Board', async ({
+  test('a timer on an issue makes it a ticket in the selected team, with no pin (#736)', async ({
     page,
   }) => {
     await clock.ensureClockedIn();
-    const { boardAdds } = await stubTimerStart(page);
-    // The server answers with the issue as pinned only once it has been pinned.
-    let pinned = false;
-    const { rm, tickets, input, option } = await openTickets(page, {
-      'prefs.set': (params) => {
-        if (params.state === 'pinned') pinned = true;
-        return { ok: true };
-      },
-      'issues.relevant': () =>
-        relevant(
-          SUGGESTED.map((issue) =>
-            issue.id === 31 && pinned ? { ...issue, reasons: ['pinned', 'activity'] } : issue,
-          ),
-        ),
-    });
-
-    await tickets.filterBySource('Redmine');
-    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
+    const { carries, bodies, boardAdds } = await stubTimerStart(page);
+    const { rm, input, option } = await openTickets(page);
 
     await input.click();
     const row = option(/Kilo billing report/);
@@ -450,39 +403,10 @@ test.describe('Redmine suggestion timers', () => {
     await row.getByLabel('Add #31 to My Board and start timer').click();
 
     await expect(page.getByText('Started #31')).toBeVisible();
-    expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
-    expect(boardAdds[0]).toEqual({ refs: [{ sourceId: 'redmine', ticketId: '31' }] });
-    await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
-
-    await tickets.switchToTab('my-board');
-    await expect(tickets.rowByTitle('Kilo billing report')).toBeVisible();
-    await expect(page.getByText(/no longer available/)).toHaveCount(0);
-  });
-
-  test('at the pin limit the timer starts, but the issue stays off the table and My Board', async ({
-    page,
-  }) => {
-    await clock.ensureClockedIn();
-    const { bodies, boardAdds } = await stubTimerStart(page);
-    const { rm, tickets, input, option } = await openTickets(page, {
-      'prefs.set': { error: 'too-many-pins', status: 500 },
-    });
-
-    await tickets.filterBySource('Redmine');
-    await input.click();
-    const row = option(/Kilo billing report/);
-    await row.hover();
-    await row.getByLabel('Add #31 to My Board and start timer').click();
-
-    await expect(
-      page.getByText(
-        "Started #31. You've reached the 500-pin limit, so it wasn't added to your Tickets or My Board.",
-      ),
-    ).toBeVisible();
-    expect(bodies[0]).toMatchObject({ ticketId: '31', source: 'redmine' });
-    expect(rm.calls('prefs.set')).toContainEqual({ issueId: 31, state: 'pinned' });
-    expect(boardAdds).toHaveLength(0);
-    await expect(tickets.rowByTitle('Kilo billing report')).toHaveCount(0);
+    expect(carries).toEqual([{ teamId: expect.any(String), issueId: 31 }]);
+    expect(bodies[0]).toMatchObject({ ticketId: carrierIdOf(31), source: 'huddle' });
+    expect(boardAdds[0]).toEqual(carrierOnBoard(31));
+    expect(rm.calls('prefs.set')).toEqual([]);
   });
 
   test('asks to clock in first when there is no shift', async ({ page }) => {
@@ -515,7 +439,7 @@ test.describe('Hidden suggestions in Settings', () => {
         issues: [redmineIssue({ id: 15, subject: 'Alpha intake validation' })],
       },
     });
-    await page.goto('/app/settings');
+    await page.goto('/app/settings?section=integrations');
 
     const section = page.getByRole('region', { name: 'Hidden suggestions' });
     await expect(section.getByText('Alpha intake validation')).toBeVisible();

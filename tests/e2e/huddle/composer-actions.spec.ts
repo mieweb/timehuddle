@@ -68,6 +68,44 @@ test.describe('Huddle composer — individual actions', () => {
     await clockOut(page);
   });
 
+  test('a seeded wrap-up stays open when its text is cleared', async ({ page }) => {
+    // The wrap-up opens expanded because it holds the plan. Deleting all of
+    // it to start over must not collapse it back to the one-line stand-in.
+    const planText = `Plan to replace ${Date.now()}`;
+    await composerEditor(page).fill(planText);
+    await submitPost(page);
+    await expect(composerEditor(page)).toContainText(planText);
+
+    await composerEditor(page).click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('A fresh wrap-up');
+
+    await expect(page.getByRole('textbox', { name: 'Write a wrap-up' })).toHaveCount(0);
+    await expect(composerEditor(page)).toContainText('A fresh wrap-up');
+  });
+
+  test('a plan posted while the clock read fails is not left ready to post again', async ({
+    page,
+  }) => {
+    // Clock-in succeeds but the read after it fails, so the page still shows
+    // the plan composer. The plan it just posted must not sit there, enabled:
+    // submitting it again would post it twice and restart the shift.
+    const planText = `Posted once ${Date.now()}`;
+    await composerEditor(page).fill(planText);
+    await page.route('**/api/clock_activeForUser*', (route) => route.abort());
+    await postButton(page).click();
+    // The button is briefly disabled while posting too, so check the text first.
+    await expect(composerEditor(page)).not.toContainText(planText, { timeout: 30000 });
+    await expect(postButton(page)).toBeDisabled();
+
+    await page.unroute('**/api/clock_activeForUser*');
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'What did you work on?' })).toBeVisible({
+      timeout: 30000,
+    });
+  });
+
   test('posts text only', async ({ page }) => {
     const postText = `Text only ${Date.now()}`;
     await composerEditor(page).fill(postText);
@@ -183,7 +221,7 @@ test.describe('Huddle composer — individual actions', () => {
     await submitPost(page);
 
     // The wrap-up starts with the plan's tickets, named by title; dropping one
-    // keeps the other.
+    // keeps the other. Seeded like this it opens expanded, chips showing.
     for (const title of titles) {
       await expect(
         page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),
@@ -192,8 +230,8 @@ test.describe('Huddle composer — individual actions', () => {
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
     await page.getByRole('button', { name: `Remove ticket ${titles[0]}`, exact: true }).click();
-    await page.getByRole('button', { name: 'Post wrap-up and clock out' }).click();
-    await expect(page.getByRole('button', { name: /plan and clock in/ })).toBeVisible({
+    await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
+    await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
       timeout: 30000,
     });
     const wrapped = (await findPostByText(postText)) as { ticketIds?: string[] } | null;

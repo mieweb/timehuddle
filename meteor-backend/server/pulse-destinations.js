@@ -9,7 +9,6 @@
  *
  *   library  → the uploader's media library
  *   ticket   → an attachment on a Huddle ticket
- *   redmine  → an attachment on a Redmine issue (lives only in TimeHuddle)
  *   clock    → an attachment on the uploader's own clock session
  *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
  *   clock-plan   → a new plan post in that team, then clock in to it
@@ -30,7 +29,6 @@ import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
 import { requireTeamMembership } from './permissions.js';
-import { REDMINE, resolveTicketRef } from './ticket-refs.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -381,13 +379,6 @@ const DESTINATIONS = {
     // Whoever can see the ticket's team — the same check as reading the ticket,
     // unconditional like there: a ticket without a valid team is refused.
     await requireTeamMembership(userId, String(ticket.teamId ?? ''));
-    return { id };
-  }),
-
-  // An issue the uploader's own Redmine key can see (attachments.add's own check).
-  [REDMINE]: attachment(REDMINE, async (userId, { id }) => {
-    requireId(id, 'Redmine issue');
-    await resolveTicketRef(userId, REDMINE, id);
     return { id };
   }),
 

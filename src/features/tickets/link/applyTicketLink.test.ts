@@ -26,6 +26,7 @@ const ticket = {
   description: 'Steps',
   priority: 'high',
   github: '',
+  linkIsIssue: null,
   linkedIssue: null,
 };
 const onRedmine = { ...ticket, linkedIssue: { source: 'redmine' as const, id: '482' } };
@@ -59,7 +60,33 @@ describe('applyTicketLink', () => {
 
   it('removes a GitHub link by clearing it', async () => {
     await applyTicketLink(onGithub, EMPTY_LINK_FORM);
-    expect(api.updateTicket).toHaveBeenCalledWith('t1', { github: '' });
+    expect(api.updateTicket).toHaveBeenCalledWith('t1', { github: '', linkIsIssue: undefined });
+  });
+
+  it('saves a link as just a link unless it was converted', async () => {
+    const url = 'https://github.com/a/b/issues/9';
+    await applyTicketLink(ticket, { ...EMPTY_LINK_FORM, github: url });
+    expect(api.updateTicket).toHaveBeenCalledWith('t1', { github: url, linkIsIssue: false });
+    await applyTicketLink(ticket, { ...EMPTY_LINK_FORM, github: url, linkIsIssue: true });
+    expect(api.updateTicket).toHaveBeenLastCalledWith('t1', { github: url, linkIsIssue: true });
+  });
+
+  it('saves converting the same link, or turning it back into a plain one', async () => {
+    const converted = { ...onGithub, linkIsIssue: true };
+    await applyTicketLink(converted, { ...EMPTY_LINK_FORM, github: onGithub.github });
+    expect(api.updateTicket).toHaveBeenCalledWith('t1', {
+      github: onGithub.github,
+      linkIsIssue: false,
+    });
+    api.updateTicket.mockClear();
+    expect(
+      await applyTicketLink(converted, {
+        ...EMPTY_LINK_FORM,
+        github: onGithub.github,
+        linkIsIssue: true,
+      }),
+    ).toBeNull();
+    expect(api.updateTicket).not.toHaveBeenCalled();
   });
 
   it('says the Redmine link is gone when the GitHub link then fails to save', async () => {
@@ -94,6 +121,7 @@ describe('applyTicketLink', () => {
     expect(api.unlink).toHaveBeenCalledWith('t1', '482');
     expect(api.updateTicket).toHaveBeenCalledWith('t1', {
       github: 'https://github.com/a/b/pull/2',
+      linkIsIssue: false,
     });
     expect(api.unlink.mock.invocationCallOrder[0]).toBeLessThan(
       api.updateTicket.mock.invocationCallOrder[0],

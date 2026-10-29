@@ -190,25 +190,12 @@ test.describe('OTA version labels', () => {
     await expect(versionText).toHaveText(EXPECTED_LABEL);
   });
 
-  test('sidebar shows the app version when expanded', async ({ page }) => {
+  test('Settings shows the app version', async ({ page }) => {
+    // The side rail that used to carry a version label is gone (#765); Settings
+    // shows "Version X.Y.Z · What's new" beside its menu instead.
     await loginAs(page, TEST_USERS.owner1);
-    await page.waitForURL('**/app/**');
-
-    // The sidebar version label (desktop only — the sidebar is hidden on mobile).
-    // Expand the sidebar if it is collapsed.
-    const collapseBtn = page.getByRole('button', { name: /expand sidebar/i });
-    if (await collapseBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await collapseBtn.click();
-    }
-
-    // The sidebar version label — use the broader locator since it can be in
-    // the collapsed or expanded state.
-    const anyVersionLabel = page
-      .locator('p, span')
-      .filter({ hasText: /^v\d+\.\d+\.\d+/ })
-      .first();
-    await expect(anyVersionLabel).toBeVisible({ timeout: 5000 });
-    await expect(anyVersionLabel).toContainText(EXPECTED_LABEL);
+    await page.goto('/app/settings');
+    await expect(page.getByText(`Version ${APP_VERSION}`)).toBeVisible({ timeout: 15000 });
   });
 });
 

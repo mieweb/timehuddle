@@ -9,8 +9,18 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { resolveEnterpriseSettings, resolveOrgSettings, settingsUpdateFor, teamsInOrg } from './settings';
+import { redmineUrlRefusal } from './redmine-client';
+import { DEFAULT_TICKET_PREFIX, normalizeSourcePrefixes, normalizeTicketPrefix } from './ticket-ids';
+import {
+  idOf,
+  resolveEnterpriseSettings,
+  resolveOrgSettings,
+  settingsUpdateFor,
+  teamsInOrg,
+  toDocId,
+} from './settings';
 import { writeNotifyingPlanChanges } from './settings/notify';
+import { announceSettingsChanged } from './settings/changes';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
 import { sendEmail } from './email';
@@ -111,6 +121,29 @@ async function buildOrgAccess(userId, org) {
   };
 }
 
+const PREFIXES_CHANGED = 'The ticket IDs changed while you were editing. Reload and try again.';
+
+// Ticket ID prefixes are an owner's call alone: an org owner, by membership,
+// and not blocked from the org (a block keeps their `org_members` row).
+async function isOrgOwner(orgId, userId) {
+  if ((await getOrgMembership(orgId, userId))?.role !== 'owner') return false;
+  const blocked = await rawDb()
+    .collection('users')
+    .findOne({ _id: String(userId), 'blocked.orgId': orgId }, { projection: { _id: 1 } });
+  return !blocked;
+}
+
+// The org, if `userId` owns it.
+async function requireOrgOwner(orgId, userId) {
+  if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+  const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
+  if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+  if (!(await isOrgOwner(orgId, userId))) {
+    throw new Meteor.Error('forbidden', 'Only an organization owner can change ticket IDs');
+  }
+  return org;
+}
+
 async function toOrgSummary(org, role) {
   const effectiveSettings = await resolveOrgSettings(org);
   return {
@@ -118,6 +151,8 @@ async function toOrgSummary(org, role) {
     enterpriseId: org.enterpriseId ?? null,
     name: org.name,
     slug: org.slug,
+    ticketPrefix: org.ticketPrefix || DEFAULT_TICKET_PREFIX,
+    sourcePrefixes: org.sourcePrefixes ?? [],
     allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
@@ -325,12 +360,27 @@ Meteor.methods({
       .sort({ name: 1 })
       .toArray();
 
+    // Every member may see which enterprise their organization belongs to, so
+    // the name comes along here; enterprises.list only covers owners and admins.
+    // Enterprise ids can be ObjectIds or legacy strings, so normalise both ways.
+    const enterpriseIds = [
+      ...new Set(organizations.map((org) => org.enterpriseId).filter(Boolean).map(idOf)),
+    ];
+    const enterpriseNames = new Map(
+      (
+        await db.collection('enterprises')
+          .find({ _id: { $in: enterpriseIds.map(toDocId) } }, { projection: { name: 1 } })
+          .toArray()
+      ).map((e) => [idOf(e._id), e.name]),
+    );
+
     const summaries = await Promise.all(
       organizations.map(async (org) => {
         const membership = await getOrgMembership(org._id.toHexString(), userId);
-        if (membership) return toOrgSummary(org, membership.role);
-        const entRole = await getEnterpriseRoleForOrg(userId, org);
-        return toOrgSummary(org, entRole ?? 'member');
+        const role = membership?.role ?? (await getEnterpriseRoleForOrg(userId, org)) ?? 'member';
+        const summary = await toOrgSummary(org, role);
+        const enterpriseName = org.enterpriseId ? enterpriseNames.get(idOf(org.enterpriseId)) : null;
+        return { ...summary, enterpriseName: enterpriseName ?? null };
       }),
     );
     return { organizations: summaries.sort((a, b) => a.name.localeCompare(b.name)) };
@@ -400,6 +450,8 @@ Meteor.methods({
       organization: {
         ...(await toOrgSummary(org, membership?.role ?? entRole ?? 'member')),
         canManage: access.canManage,
+        // The same rule `requireOrgOwner` enforces: an org owner, not an enterprise one.
+        canEditTicketIds: await isOrgOwner(orgId, userId),
       },
     };
   },
@@ -479,6 +531,67 @@ Meteor.methods({
         effectiveSettings,
       },
     };
+  },
+
+  /** Set the prefix every ticket in the org is shown with (`TH-12`). Org owners only. */
+  async 'orgs.setTicketPrefix'({ orgId, ticketPrefix }) {
+    const identity = await requireIdentity(this);
+    const org = await requireOrgOwner(orgId, identity.userId);
+    const prefix = normalizeTicketPrefix(ticketPrefix);
+    if (!prefix) {
+      throw new Meteor.Error(
+        'validation-error',
+        'A ticket prefix is a letter followed by up to five letters or digits.',
+      );
+    }
+    if ((org.sourcePrefixes ?? []).some((entry) => entry.prefix === prefix)) {
+      throw new Meteor.Error('validation-error', `${prefix} is already used for a server.`);
+    }
+    // Checked again in the write, so a server named meanwhile can't take the same prefix.
+    const { matchedCount } = await rawDb()
+      .collection('organizations')
+      .updateOne(
+        { _id: org._id, 'sourcePrefixes.prefix': { $ne: prefix } },
+        { $set: { ticketPrefix: prefix, updatedAt: new Date() } },
+      );
+    if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
+    // Live team subscriptions republish the prefix, so open ticket lists relabel.
+    announceSettingsChanged();
+    return { ticketPrefix: prefix };
+  },
+
+  /**
+   * Register the servers the org's outside issues live on (#734 step 5):
+   * `[{ baseUrl, prefix, type }]`, so an issue there shows as `PM-233`.
+   * Replaces the whole list. Org owners only.
+   */
+  async 'orgs.setSourcePrefixes'({ orgId, sourcePrefixes }) {
+    const identity = await requireIdentity(this);
+    const org = await requireOrgOwner(orgId, identity.userId);
+    let entries;
+    try {
+      entries = normalizeSourcePrefixes(sourcePrefixes, org.ticketPrefix || DEFAULT_TICKET_PREFIX);
+    } catch (error) {
+      throw new Meteor.Error('validation-error', error.message);
+    }
+    // A server new to the org must be one this deployment may send requests to,
+    // as for a Redmine account (production only). Servers it already had stay.
+    const known = new Set((org.sourcePrefixes ?? []).map((entry) => entry.host));
+    for (const entry of entries) {
+      const refusal = known.has(entry.host) ? null : redmineUrlRefusal(entry.baseUrl);
+      if (refusal) throw new Meteor.Error('validation-error', `${entry.host}: ${refusal}`);
+    }
+    // Only over the ticket prefix these were checked against.
+    const { matchedCount } = await rawDb()
+      .collection('organizations')
+      .updateOne(
+        { _id: org._id, ticketPrefix: org.ticketPrefix ?? null },
+        { $set: { sourcePrefixes: entries, updatedAt: new Date() } },
+      );
+    if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
+    // Live team subscriptions republish the servers, so open ticket lists relabel.
+    announceSettingsChanged();
+    return { sourcePrefixes: entries };
   },
 
   async 'orgs.join'({ orgId }) {

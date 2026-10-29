@@ -24,18 +24,23 @@ export const SEARCH_DEBOUNCE_MS = 300;
 const MIN_SERVER_QUERY = 3;
 
 const ISSUE_NUMBER = /^#?(\d+)$/;
+/** A prefix or repo name, a dash, and the start of a number: `RMX-`, `pulse-2`. */
+const NAMED_REF = /^([A-Za-z0-9._][A-Za-z0-9._-]*?)-(\d*)$/;
 const ISSUE_URL_ID = /\/issues\/(\d+)\/?(?:[?#].*)?$/;
 
 const isLink = (query: string) => /^https?:\/\//i.test(query);
 
+/** Whether the query is an ID or the start of one after its prefix: `TH-`, `pulse-22`. */
+export const isRefQuery = (raw: string): boolean => NAMED_REF.test(raw.trim());
+
 /**
- * Whether the query goes to the server at all. Issue numbers and links always
- * do; words and `@name` only from `MIN_SERVER_QUERY` characters.
+ * Whether the query goes to the server at all. Issue numbers, IDs and links
+ * always do; words and `@name` only from `MIN_SERVER_QUERY` characters.
  */
 export function shouldSearchServer(raw: string): boolean {
   const query = raw.trim();
   if (!query) return false;
-  if (isLink(query) || ISSUE_NUMBER.test(query)) return true;
+  if (isLink(query) || ISSUE_NUMBER.test(query) || isRefQuery(query)) return true;
   return query.length >= MIN_SERVER_QUERY;
 }
 
@@ -51,7 +56,8 @@ export function isCompleteQuery(raw: string): boolean {
 /**
  * The suggestions that match what the user typed, in the server's order.
  *
- * - `#12` or `12` matches issue numbers starting with those digits
+ * - `#12` or `12` matches issue numbers starting with those digits, and so
+ *   does `RMX-12` when RMX is in `prefixes`, what the org calls this Redmine
  * - a pasted issue link matches that issue, when it is on the connected
  *   instance (`baseUrl`): issue numbers mean nothing across instances, so a
  *   link elsewhere is left to the server search, which says so
@@ -62,12 +68,15 @@ export function filterSuggestions<T extends RedmineIssue>(
   issues: T[],
   raw: string,
   baseUrl: string | null,
+  prefixes: readonly string[] = [],
 ): T[] {
   const query = raw.trim().toLowerCase();
   if (!query) return issues;
 
-  const number = query.match(ISSUE_NUMBER)?.[1];
-  if (number) return issues.filter((issue) => String(issue.id).startsWith(number));
+  const named = query.match(NAMED_REF);
+  const ownPrefix = named && prefixes.some((prefix) => prefix.toLowerCase() === named[1]);
+  const number = ownPrefix ? named[2] : query.match(ISSUE_NUMBER)?.[1];
+  if (number !== undefined) return issues.filter((issue) => String(issue.id).startsWith(number));
 
   if (isLink(query)) {
     const base = baseUrl?.replace(/\/+$/, '').toLowerCase();
@@ -108,9 +117,10 @@ export function newSearchResults(
 /** What to tell the user when a search found nothing, worded by how it was read. */
 export function emptySearchMessage(kind: RedmineSearchKind, raw: string): string {
   const query = raw.trim();
+  if (isRefQuery(query)) return suggestionText.emptyByRef(query);
   switch (kind) {
     case 'id':
-      return suggestionText.emptyById(query.replace(/^#/, ''));
+      return suggestionText.emptyById(`#${query.replace(/^#/, '')}`);
     case 'url':
       return suggestionText.emptyByUrl;
     case 'assignee':

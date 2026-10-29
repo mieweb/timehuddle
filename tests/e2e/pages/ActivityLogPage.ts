@@ -10,22 +10,17 @@ export class ActivityLogPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.heading = this.page.getByRole('heading', { level: 1, name: /Activity Log/i });
-    this.description = this.page.getByText('A chronological log of your activity');
+    this.heading = this.page.getByRole('heading', { level: 2, name: 'Activity log' });
+    this.description = this.page.getByText('Your clock-ins, tickets and other actions');
   }
 
   async goto() {
-    await this.page.goto('/app/activity');
+    await this.page.goto('/app/settings?section=activity');
     await this.waitForLoad();
   }
 
   async waitForLoad(timeout = 10000) {
     await this.heading.waitFor({ state: 'visible', timeout });
-  }
-
-  async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: /^Activity Log$/i }).click();
-    await this.waitForLoad();
   }
 
   /** Check if activity log is empty */

@@ -1,0 +1,1159 @@
+/**
+ * WorkWeek — Week strip + Day view timesheet: the Tickets page's My Week view.
+ *
+ * Features:
+ *   • 7-day week strip (Mon–Sun) with local-day totals
+ *   • Day view: list of work item rows with start/stop controls
+ *   • "+" action: create a new work item for the selected day
+ *   • Copy from previous day
+ *   • Soft-deleted ticket rows render as "Unassociated Timer"
+ */
+import {
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
+  faCopy,
+  faEllipsisVertical,
+  faSpinner,
+} from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Text,
+} from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import {
+  ApiError,
+  isPendingChange,
+  timerApi,
+  ticketApi,
+  timesheetApprovalApi,
+  type DayEntry,
+  type Timer,
+  type Ticket,
+  type TimesheetChangeRequest,
+} from '../../lib/api';
+import {
+  timesheetApprovalRequired,
+  timesheetApproversFor,
+  timesheetVideoRequired,
+} from '../../lib/timesheetApproval';
+import {
+  emptyJustification,
+  isJustificationComplete,
+  TimesheetJustificationFields,
+  type TimesheetJustificationState,
+} from '../clock/TimesheetJustificationFields';
+import { ChangeRequestWalkthrough } from '../clock/ChangeRequestWalkthrough';
+import { toLocalDateStr } from '../../lib/date';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
+import { useTeam } from '../../lib/TeamContext';
+import { useRefresh } from '../../lib/RefreshContext';
+import { useSession } from '../../lib/useSession';
+import { formatDuration } from '../../lib/timeUtils';
+import { useClockToggle } from '../../lib/useClockToggle';
+import { EmptyState } from '../../ui/EmptyState';
+import { LinkifiedText } from '../../ui/LinkifiedText';
+import { useQueryParam, useRouter } from '../../ui/router';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
+
+import { useTicketStart } from './TicketStartProvider';
+import { timerLabel } from './ticketTimerStrings';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Format total seconds as "H:MM" for the duration input field. */
+function secondsToHHMM(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+/** Parse "H:MM" or "HH:MM" to seconds. Returns null if invalid. */
+function hhmmToSeconds(value: string): number | null {
+  const match = value.trim().match(/^(\d+):([0-5]\d)$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 3600 + parseInt(match[2], 10) * 60;
+}
+
+function getWeekStart(d: Date): Date {
+  const dow = d.getDay(); // 0 = Sun
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((dow + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/**
+ * A `YYYY-MM-DD` that is also a real calendar day. The shape alone isn't
+ * enough: `2026-99-99` parses to Invalid Date and `2026-02-31` silently
+ * rolls over into March, so the parsed date has to round-trip back to the
+ * string it came from.
+ */
+function isLocalDateStr(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime()) && toLocalDateStr(parsed) === value;
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function fmtShortDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+}
+
+function runningSeconds(session: Timer, now: number): number {
+  if (session.endTime !== null) return session.durationSeconds ?? 0;
+  return Math.max(0, Math.floor((now - session.startTime) / 1000));
+}
+
+function entryTotalSeconds(sessions: Timer[], now: number): number {
+  return sessions.reduce((sum, s) => sum + runningSeconds(s, now), 0);
+}
+
+// ─── WorkWeek ─────────────────────────────────────────────────────────────────
+
+export const WorkWeek: React.FC = () => {
+  const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
+  const { isClockedIn } = useClockToggle();
+  // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
+  const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
+  const { navigate } = useRouter();
+  const previousClockedInRef = useRef(isClockedIn);
+
+  // Selected day (local YYYY-MM-DD) — `?date=`, today when absent. Picking a
+  // day pushes, so Back returns to the previous one.
+  const [dateParam, setDateParam] = useQueryParam('date', { mode: 'push' });
+  const selectedDate =
+    dateParam && isLocalDateStr(dateParam) ? dateParam : toLocalDateStr(new Date());
+  const setSelectedDate = useCallback(
+    (date: string) => setDateParam(date === toLocalDateStr(new Date()) ? null : date),
+    [setDateParam],
+  );
+
+  // Whether the selected day is today (updates reactively at midnight via currentTime)
+  const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
+  const isFuture = selectedDate > toLocalDateStr(new Date(currentTime));
+  const isOnBreak = isClockedIn && !!activeClockEvent?.isPaused;
+
+  // Week days derived from selectedDate
+  const weekDays = useMemo(() => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    const monday = getWeekStart(base);
+    return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  }, [selectedDate]);
+
+  // Day totals from API
+  const [weekTotals, setWeekTotals] = useState<Record<string, number>>({});
+  const [weekTotalsLoading, setWeekTotalsLoading] = useState(false);
+
+  // Day entries
+  const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+
+  const [showNewEntry, setShowNewEntry] = useState(false);
+  const [newEntryTicketId, setNewEntryTicketId] = useState('');
+  const [newEntryNote, setNewEntryNote] = useState('');
+  const [newEntryLoading, setNewEntryLoading] = useState(false);
+
+  // Copy state
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [copyDone, setCopyDone] = useState(false);
+
+  // All tickets across the user's teams (for labels and pickers)
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+
+  // Edit modal state
+  const [editEntry, setEditEntry] = useState<DayEntry | null>(null);
+  const [editNote, setEditNote] = useState('');
+  const [editDuration, setEditDuration] = useState('');
+  const [editTicketId, setEditTicketId] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editJustification, setEditJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
+
+  // Changes submitted for review, keyed by the entry they target: a queued edit
+  // leaves the row looking untouched, so without this the user is given no sign
+  // it went anywhere and reopens it straight into `already-pending`.
+  const [myRequests, setMyRequests] = useState<TimesheetChangeRequest[]>([]);
+  const pendingByEntry = useMemo(() => {
+    const map = new Map<string, TimesheetChangeRequest>();
+    for (const r of myRequests) {
+      if (r.targetId && r.status === 'pending' && !map.has(r.targetId)) map.set(r.targetId, r);
+    }
+    return map;
+  }, [myRequests]);
+  const loadMyRequests = useCallback(() => {
+    timesheetApprovalApi
+      .listMine({ status: 'pending' })
+      .then(setMyRequests)
+      .catch(() => {});
+  }, []);
+
+  const { user } = useSession();
+  const userId = user?.id ?? '';
+
+  // The day holds entries from every team the user tracks against, but
+  // `allTickets` is loaded for the selected team alone. Anything missing is
+  // fetched by id so the edit form gates against the team that really reviews
+  // the entry; a null marks a lookup that failed, so it isn't retried forever.
+  const [otherTeamTickets, setOtherTeamTickets] = useState<Map<string, Ticket | null>>(new Map());
+  useEffect(() => {
+    const missing = [
+      ...new Set(
+        dayEntries
+          .map((de) => de.entry.ticketId)
+          .filter((id) => id && !allTickets.some((t) => t.id === id) && !otherTeamTickets.has(id)),
+      ),
+    ];
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      missing.map((id) =>
+        ticketApi
+          .getTicket(id)
+          .then((t) => [id, t] as const)
+          .catch(() => [id, null] as const),
+      ),
+    ).then((fetched) => {
+      if (cancelled) return;
+      setOtherTeamTickets((prev) => new Map([...prev, ...fetched]));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dayEntries, allTickets, otherTeamTickets]);
+
+  // Mirrors `timers.updateEntry`: a duration change lands the time on the
+  // destination team's timesheet, so either end of a move can call for review.
+  const { sourceTeam, destinationTeam, teamUnresolved } = useMemo(() => {
+    const sourceTicketId = editEntry?.entry.ticketId;
+    const destinationTicketId = editTicketId || sourceTicketId;
+    const teamFor = (ticketId?: string) => {
+      if (!ticketId) return undefined;
+      const ticket =
+        allTickets.find((t) => t.id === ticketId) ?? otherTeamTickets.get(ticketId) ?? undefined;
+      // `allTeams` rather than the org-scoped `teams`: the entry's team is
+      // often simply outside the org currently selected.
+      return ticket ? allTeams.find((t) => t.id === ticket.teamId) : undefined;
+    };
+    const source = teamFor(sourceTicketId);
+    const destination =
+      destinationTicketId === sourceTicketId ? source : teamFor(destinationTicketId);
+    return {
+      sourceTeam: source,
+      destinationTeam: destination,
+      teamUnresolved: Boolean(editEntry) && (!source || !destination),
+    };
+  }, [editEntry, editTicketId, allTickets, otherTeamTickets, allTeams]);
+
+  const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
+    timesheetApprovalRequired(t, userId),
+  );
+  // A team that still can't be named after the lookup counts as reviewed:
+  // assuming otherwise only defers the refusal to submission.
+  const entryNeedsApproval = teamUnresolved || Boolean(reviewingTeam);
+  const entryApproverCount = timesheetApproversFor(reviewingTeam, userId).length;
+  // A delete stays with the team that owns the entry — there is no destination.
+  const deleteNeedsApproval = sourceTeam
+    ? timesheetApprovalRequired(sourceTeam, userId)
+    : Boolean(editEntry);
+
+  // ── Fetch tickets for selected team only ──
+
+  useEffect(() => {
+    if (!selectedTeamId) {
+      setAllTickets([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTickets = async () => {
+      try {
+        // Titles and status only: descriptions are never shown on this page.
+        const tickets = await ticketApi.getTickets(selectedTeamId, { brief: true });
+        if (cancelled) return;
+        setAllTickets(tickets);
+      } catch {
+        if (!cancelled) setAllTickets([]);
+      }
+    };
+
+    void loadTickets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTeamId]);
+
+  // ── Fetch week totals ──
+
+  const fetchWeekTotals = useCallback(async () => {
+    setWeekTotalsLoading(true);
+    try {
+      const days = await timerApi.getWeek(toLocalDateStr(weekDays[0]));
+      const map: Record<string, number> = {};
+      for (const d of days) map[d.date] = d.totalSeconds;
+      setWeekTotals(map);
+    } catch {
+      // keep previous
+    } finally {
+      setWeekTotalsLoading(false);
+    }
+  }, [weekDays]);
+
+  useEffect(() => {
+    void fetchWeekTotals();
+  }, [fetchWeekTotals]);
+
+  // ── Fetch day entries ──
+
+  // Several refreshes can overlap (clocking in, then the timer start that
+  // follows it, fire one each), and an older answer can land last. Only the
+  // newest request may write, so a pre-start snapshot never replaces a running row.
+  const fetchDaySeq = useRef(0);
+  const fetchDay = useCallback(async () => {
+    const seq = ++fetchDaySeq.current;
+    try {
+      const entries = await timerApi.getDay(selectedDate);
+      if (seq === fetchDaySeq.current) setDayEntries(entries);
+    } catch {
+      // keep previous
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    void fetchDay();
+  }, [fetchDay]);
+
+  useEffect(loadMyRequests, [loadMyRequests]);
+
+  // A decision is made elsewhere, by someone else, and changes a request rather
+  // than this page's data — so nothing here would otherwise re-run, and the row
+  // would stay flagged and locked after the admin had already ruled.
+  useEffect(
+    () =>
+      subscribeNewNotifications((n) => {
+        const type = (n.data as Record<string, unknown> | undefined)?.type;
+        if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+          loadMyRequests();
+          void fetchDay();
+        }
+      }),
+    [loadMyRequests, fetchDay],
+  );
+
+  // Pull-to-refresh: combine both fetches
+  useRefresh(
+    useCallback(async () => {
+      loadMyRequests();
+      await Promise.all([fetchDay(), fetchWeekTotals()]);
+    }, [loadMyRequests, fetchDay, fetchWeekTotals]),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    };
+    window.addEventListener('work:refetch', handler);
+    return () => window.removeEventListener('work:refetch', handler);
+  }, [fetchDay, fetchWeekTotals]);
+
+  useEffect(() => {
+    const previousClockedIn = previousClockedInRef.current;
+    previousClockedInRef.current = isClockedIn;
+
+    if (previousClockedIn === isClockedIn || !isToday) return;
+
+    void fetchDay();
+    void fetchWeekTotals();
+  }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
+
+  // ── Real-time clock updates (Meteor DDP, oplog-backed) ──
+
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
+  useEffect(() => {
+    if (!teamIdsKey) return;
+
+    const teamIds = teamIdsKey.split(',');
+    const ddp = getDdpClient();
+
+    // On any clock event change (clock in/out from any writer), refetch the
+    // current day and week totals. The first batch is what was just fetched.
+    let ready = false;
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      if (!ready) return;
+      void fetchDay();
+      void fetchWeekTotals();
+    });
+    const unsubscribe = ddp.subscribe('clock.liveForTeams', [teamIds], () => {
+      ready = true;
+    });
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [teamIdsKey, fetchDay, fetchWeekTotals]);
+
+  // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
+
+  useEffect(() => {
+    const ddp = getDdpClient();
+
+    // The user's running timers are published reactively; a start/stop/delete
+    // from any writer (Meteor or the Fastify REST mutations) shows up via the
+    // oplog. On any change after the first batch, refetch the current day and week totals.
+    let ready = false;
+    const offChange = ddp.onCollectionChange('timers', () => {
+      if (!ready) return;
+      void fetchDay();
+      void fetchWeekTotals();
+    });
+    const unsubscribe = ddp.subscribe('timers.liveForUser', [], () => {
+      ready = true;
+    });
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [fetchDay, fetchWeekTotals]);
+
+  // ── Handlers ──
+
+  const handleCreateEntry = useCallback(async () => {
+    if (!newEntryTicketId) return;
+    setNewEntryLoading(true);
+    try {
+      await timerApi.createEntry({
+        ticketId: newEntryTicketId,
+        date: selectedDate,
+        note: newEntryNote.trim() ? newEntryNote.trim() : undefined,
+        notifyAdmins: false,
+      });
+      setShowNewEntry(false);
+      setNewEntryTicketId('');
+      setNewEntryNote('');
+      void fetchDay();
+    } catch {
+      // ignore duplicates (entry already exists)
+      setShowNewEntry(false);
+    } finally {
+      setNewEntryLoading(false);
+    }
+  }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
+
+  const handleDeleteEntry = useCallback(
+    async (entryId: string) => {
+      setDeletingEntryId(entryId);
+      try {
+        const result = await timerApi.deleteEntry(
+          entryId,
+          { notifyAdmins: false },
+          deleteNeedsApproval
+            ? {
+                description: editJustification.description,
+                videoUrl: editJustification.videoUrl ?? undefined,
+              }
+            : undefined,
+        );
+        if (!isPendingChange(result)) {
+          setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        } else {
+          setMyRequests((prev) => [result.request, ...prev]);
+        }
+        setEditJustification(emptyJustification);
+        void fetchWeekTotals();
+      } catch {
+        void fetchDay();
+      } finally {
+        setDeletingEntryId(null);
+      }
+    },
+    [fetchDay, fetchWeekTotals, deleteNeedsApproval, editJustification],
+  );
+
+  const handlePrevWeek = useCallback(() => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    setSelectedDate(toLocalDateStr(addDays(base, -7)));
+  }, [selectedDate, setSelectedDate]);
+
+  const handleNextWeek = useCallback(() => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    setSelectedDate(toLocalDateStr(addDays(base, 7)));
+  }, [selectedDate, setSelectedDate]);
+
+  const handleGoToToday = useCallback(() => {
+    setSelectedDate(toLocalDateStr(new Date()));
+  }, [setSelectedDate]);
+
+  const handleOpenEdit = useCallback((de: DayEntry) => {
+    const total = entryTotalSeconds(de.sessions, Date.now());
+    setEditEntry(de);
+    setEditNote(de.entry.note ?? '');
+    setEditDuration(secondsToHHMM(total));
+    setEditTicketId(de.entry.ticketId);
+    setEditError(null);
+    // Per entry: evidence gathered for one work item must not be submitted as
+    // justification for the next one opened.
+    setEditJustification(emptyJustification);
+  }, []);
+
+  const handleUpdateEntry = useCallback(async () => {
+    if (!editEntry) return;
+    const parsedSeconds = hhmmToSeconds(editDuration);
+    const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+    const ticketChanged =
+      editEntry.entry.source !== 'redmine' && editTicketId !== editEntry.entry.ticketId;
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      // Compared against the entry's current total, not merely parseable: the
+      // modal enables a note-only edit without evidence on exactly that basis,
+      // so sending `durationSeconds` regardless would have the server treat it
+      // as a time claim and reject it.
+      const durationChanged =
+        !isRunning &&
+        parsedSeconds !== null &&
+        parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
+      const result = await timerApi.updateEntry(
+        editEntry.entry.id,
+        {
+          note: editNote || null,
+          ...(durationChanged ? { durationSeconds: parsedSeconds } : {}),
+          ...(ticketChanged ? { ticketId: editTicketId } : {}),
+        },
+        // Only a duration change is a time claim; the server gates on the same
+        // condition, so a note-only edit must not send a justification.
+        durationChanged && entryNeedsApproval
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) {
+        setMyRequests((prev) => [result.request, ...prev]);
+        setEditEntry(null);
+        setEditJustification(emptyJustification);
+        return;
+      }
+      const updated = result.entry;
+      setDayEntries((prev) =>
+        prev.map((de) => (de.entry.id === updated.id ? { ...de, entry: updated } : de)),
+      );
+      if (durationChanged) void fetchDay();
+      setEditEntry(null);
+      setEditJustification(emptyJustification);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setEditError(error.message);
+      } else {
+        setEditError('Unable to update work item. Please try again.');
+      }
+    } finally {
+      setEditLoading(false);
+    }
+  }, [
+    editEntry,
+    editNote,
+    editDuration,
+    editTicketId,
+    editJustification,
+    entryNeedsApproval,
+    currentTime,
+    fetchDay,
+  ]);
+
+  const handleCopyPrevious = useCallback(async () => {
+    setCopyLoading(true);
+    try {
+      await timerApi.copyPrevious(selectedDate);
+      setCopyDone(true);
+      setTimeout(() => setCopyDone(false), 2000);
+      void fetchDay();
+    } catch {
+      // ignore
+    } finally {
+      setCopyLoading(false);
+    }
+  }, [selectedDate, fetchDay]);
+
+  // ── Derived ──
+
+  const ticketOptions = useMemo(
+    () =>
+      allTickets
+        .filter((t) => t.status !== 'deleted')
+        .map((t) => ({ value: t.id, label: t.title })),
+    [allTickets],
+  );
+
+  const ticketsById = useMemo(() => {
+    const map = new Map<string, Ticket>();
+    for (const ticket of allTickets) map.set(ticket.id, ticket);
+    return map;
+  }, [allTickets]);
+
+  const getWorkItemLabel = useCallback(
+    (entry: DayEntry['entry']) => {
+      // Redmine subjects only ever arrive resolved from the server; the local
+      // ticket cache holds Huddle tickets, so it is a Huddle-only fallback.
+      if (entry.displayTitle) return entry.displayTitle;
+      if (entry.source === 'redmine') return `#${entry.ticketId}`;
+      return ticketsById.get(entry.ticketId)?.title || '(untitled)';
+    },
+    [ticketsById],
+  );
+
+  /** How an entry's ticket is named in timer messages (`timerLabel`). */
+  const timerLabelFor = useCallback(
+    (entry: DayEntry['entry']) =>
+      timerLabel(
+        entry.source,
+        entry.ticketId,
+        entry.displayTitle ?? ticketsById.get(entry.ticketId)?.title,
+      ),
+    [ticketsById],
+  );
+
+  // Clocked out, `startTimer` opens the app-wide clock-in prompt. Both refresh
+  // this page through work:refetch, and the live timers subscription.
+  const handleStart = useCallback(
+    (entry: DayEntry['entry']) =>
+      void startTimer({
+        kind: 'entry',
+        entryId: entry.id,
+        ticketKey: `${entry.source}:${entry.ticketId}`,
+        label: timerLabelFor(entry),
+      }),
+    [startTimer, timerLabelFor],
+  );
+
+  const handleStop = useCallback(
+    (entry: DayEntry['entry'], sessionId: string) =>
+      void stopTimer({
+        sessionId,
+        ticketKey: `${entry.source}:${entry.ticketId}`,
+        label: timerLabelFor(entry),
+      }),
+    [stopTimer, timerLabelFor],
+  );
+
+  /** Open a work item's ticket — in-app for Huddle, the instance for Redmine. */
+  const openWorkItemTicket = useCallback(
+    (entry: DayEntry['entry']) => {
+      const url = entry.displayUrl ?? `/app/tickets/${entry.ticketId}`;
+      if (entry.source === 'redmine') {
+        if (entry.displayUrl) window.open(entry.displayUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      navigate(url);
+    },
+    [navigate],
+  );
+
+  const selectedDayLabel = useMemo(
+    () =>
+      new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      }),
+    [selectedDate],
+  );
+
+  const weekRangeLabel = useMemo(() => {
+    const formatWeekDay = (d: Date) =>
+      d.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+
+    return `${formatWeekDay(weekDays[0])} - ${formatWeekDay(weekDays[6])}`;
+  }, [weekDays]);
+
+  if (!teamsReady) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Spinner size="lg" label="Loading…" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="work-week space-y-6">
+      {/* ── Page Header: week nav + today + week range ── */}
+      <div className="flex items-center justify-between gap-3">
+        <Text weight="semibold" className="truncate">
+          {weekRangeLabel}
+        </Text>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handlePrevWeek}
+            aria-label="Previous week"
+            className="shrink-0"
+          >
+            <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">
+            Today
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleNextWeek}
+            aria-label="Next week"
+            className="shrink-0"
+          >
+            <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Week Strip + Add Button ── */}
+      <div className="flex flex-col gap-2 sm:gap-0">
+        {/* On small screens: full-width add button above the strip */}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setShowNewEntry(true)}
+          aria-label="Add work item"
+          className="w-full sm:hidden min-h-12"
+        >
+          + Add Work Item
+        </Button>
+
+        <Card padding="sm">
+          <CardContent>
+            <div className="flex items-center gap-1">
+              {/* On wider screens: + button sits left of the day selectors */}
+              <Button
+                variant="primary"
+                size="icon"
+                onClick={() => setShowNewEntry(true)}
+                aria-label="Add work item"
+                className="hidden sm:flex shrink-0 mr-1"
+              >
+                +
+              </Button>
+              <div className="grid grid-cols-7 gap-1 flex-1" role="tablist" aria-label="Select day">
+                {weekDays.map((day) => {
+                  const dateStr = toLocalDateStr(day);
+                  const total = weekTotals[dateStr] ?? 0;
+                  const isSelected = dateStr === selectedDate;
+                  const isToday = dateStr === toLocalDateStr(new Date());
+                  return (
+                    <button
+                      key={dateStr}
+                      role="tab"
+                      aria-selected={isSelected}
+                      onClick={() => setSelectedDate(dateStr)}
+                      className={`flex flex-col items-center rounded-lg p-2 text-xs transition-colors ${
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : isToday
+                            ? 'bg-primary/10 text-primary'
+                            : 'hover:bg-muted'
+                      }`}
+                    >
+                      <span className="font-medium">{fmtShortDate(day)}</span>
+                      <span className={`mt-0.5 font-mono ${total > 0 ? '' : 'opacity-40'}`}>
+                        {weekTotalsLoading ? '…' : formatDuration(total)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Day Header ── */}
+      <div className="flex items-center">
+        <Text weight="semibold">{selectedDayLabel}</Text>
+        {isOnBreak && (
+          <Badge variant="warning" size="sm" className="ml-2">
+            On Break
+          </Badge>
+        )}
+      </div>
+
+      {/* ── New Entry Modal ── */}
+      <AppModal
+        open={showNewEntry}
+        onOpenChange={(o) => {
+          setShowNewEntry(o);
+          if (!o) {
+            setNewEntryTicketId('');
+            setNewEntryNote('');
+          }
+        }}
+        aria-labelledby="new-entry-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="new-entry-title">
+            Add work item for{' '}
+            {new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
+          </Text>
+        </ModalHeader>
+        <ModalBody className="flex flex-col gap-4">
+          <Select
+            label="Ticket"
+            searchable
+            searchPlaceholder="Search tickets…"
+            options={ticketOptions}
+            value={newEntryTicketId}
+            onValueChange={(v) => setNewEntryTicketId(v)}
+            placeholder="Select a ticket…"
+          />
+          <Input
+            label="Note (optional)"
+            value={newEntryNote}
+            onChange={(e) => setNewEntryNote(e.target.value)}
+            placeholder="Note (optional)"
+          />
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              onClick={handleCreateEntry}
+              isLoading={newEntryLoading}
+              disabled={!newEntryTicketId}
+            >
+              Add work item
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowNewEntry(false);
+                setNewEntryTicketId('');
+                setNewEntryNote('');
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </ModalFooter>
+      </AppModal>
+
+      {/* ── Day View ── */}
+      {dayEntries.length === 0 ? (
+        <EmptyState title="No timers for this day" description='Create one with "+".' />
+      ) : (
+        <Card padding="none">
+          <Table aria-label={`Work items for ${selectedDayLabel}`}>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10" />
+                <TableHead>Work Item</TableHead>
+                <TableHead className="text-right">Time</TableHead>
+                <TableHead className="w-20" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dayEntries.map((de) => {
+                const title = getWorkItemLabel(de.entry);
+                const total = entryTotalSeconds(de.sessions, currentTime);
+                const runningSess = de.sessions.find((s) => s.endTime === null);
+                const isRunning = !!runningSess;
+                const pendingRequest = pendingByEntry.get(de.entry.id);
+                const awaitingApproval = Boolean(pendingRequest);
+                const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
+                const disabledReason = isOnBreak
+                  ? 'Timers are paused while you are on break.'
+                  : !isRunning && !isToday
+                    ? 'Timers can only run on the current day — editing this entry is still available.'
+                    : undefined;
+
+                return (
+                  <TableRow key={de.entry.id}>
+                    <TableCell className="py-2 pr-0">
+                      <TimerToggleButton
+                        isRunning={isRunning}
+                        // One start or stop at a time, app-wide (TicketStartProvider).
+                        isLoading={timerBusyKey === `${de.entry.source}:${de.entry.ticketId}`}
+                        disabled={controlsDisabled || timerBusyKey !== null}
+                        onClick={() =>
+                          isRunning && runningSess
+                            ? handleStop(de.entry, runningSess.id)
+                            : handleStart(de.entry)
+                        }
+                        title={disabledReason}
+                      />
+                    </TableCell>
+
+                    <TableCell className="py-2">
+                      {/* Wraps: on a phone the badges and the walkthrough's
+                          Pulse · Upload drop under the title instead of being
+                          cut off at the card's edge. */}
+                      <div className="work-item-summary flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="min-w-0 max-w-full">
+                          <button
+                            type="button"
+                            className="block max-w-full text-left hover:text-primary"
+                            title={title}
+                            onClick={() => openWorkItemTicket(de.entry)}
+                          >
+                            <Text size="sm" weight="medium" truncate>
+                              {title}
+                            </Text>
+                          </button>
+                          {de.entry.note?.trim() && (
+                            // In full, not cut off: a link in it stays
+                            // visible and clickable.
+                            <Text size="xs" variant="muted" className="[overflow-wrap:anywhere]">
+                              <LinkifiedText text={de.entry.note.trim()} />
+                            </Text>
+                          )}
+                        </div>
+                        {de.entry.source === 'redmine' && (
+                          <Badge variant="outline" size="sm">
+                            Redmine
+                          </Badge>
+                        )}
+                        {isRunning && (
+                          <Badge variant="success" size="sm">
+                            <FontAwesomeIcon
+                              icon={faSpinner}
+                              className="mr-1 animate-spin text-[10px]"
+                            />
+                            Running
+                          </Badge>
+                        )}
+                        {pendingRequest && (
+                          // One group: it moves under the title as a whole
+                          // when it doesn't fit beside it, so the badge never
+                          // ends up on a line apart from its Pulse and Upload.
+                          <div className="pending-approval-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <ChangeRequestWalkthrough
+                              request={pendingRequest}
+                              onAdded={loadMyRequests}
+                            />
+                            <Badge
+                              variant="warning"
+                              className="shrink-0 whitespace-nowrap"
+                              size="sm"
+                              title="Waiting for an admin to approve your change"
+                            >
+                              Pending approval
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="py-2 text-right font-mono">
+                      <Text size="sm" variant={total > 0 ? 'default' : 'muted'}>
+                        {formatDuration(total)}
+                      </Text>
+                    </TableCell>
+
+                    <TableCell className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(de)}
+                        aria-label="Edit work item"
+                        title={
+                          awaitingApproval
+                            ? 'A change to this entry is already awaiting review.'
+                            : undefined
+                        }
+                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
+                      >
+                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      {(isToday || isFuture) && dayEntries.length === 0 && (
+        <div className="flex justify-start">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopyPrevious}
+            isLoading={copyLoading}
+            aria-label="Copy entries from previous day"
+          >
+            <FontAwesomeIcon icon={copyDone ? faCheck : faCopy} className="mr-1" />
+            {copyDone
+              ? 'Copied entries from most recent timesheet!'
+              : 'Copy entries from most recent timesheet'}
+          </Button>
+        </div>
+      )}
+
+      {/* ── Edit Modal ── */}
+      {editEntry &&
+        (() => {
+          const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+          // Only a change to logged time is a payroll claim — the server gates
+          // on the same condition, so a note-only edit skips the justification.
+          const parsedSeconds = hhmmToSeconds(editDuration);
+          const durationChanged =
+            !isRunning &&
+            parsedSeconds !== null &&
+            parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
+          const editBlocked =
+            entryNeedsApproval &&
+            durationChanged &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
+          const deleteBlocked =
+            deleteNeedsApproval &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
+          return (
+            <AppModal
+              open
+              onOpenChange={(o) => {
+                if (!o) setEditEntry(null);
+              }}
+              aria-labelledby="edit-entry-title"
+            >
+              <ModalHeader>
+                <Text weight="semibold" id="edit-entry-title">
+                  Edit work item for{' '}
+                  {new Date(editEntry.entry.date + 'T00:00:00').toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })}
+                </Text>
+              </ModalHeader>
+              <ModalBody className="flex flex-col gap-4">
+                {/* Retargeting picks from Huddle tickets, so a Redmine-sourced
+                    entry shows its issue instead of an unusable picker. */}
+                {editEntry.entry.source === 'redmine' ? (
+                  <Input
+                    label="Issue"
+                    value={getWorkItemLabel(editEntry.entry)}
+                    readOnly
+                    disabled
+                  />
+                ) : (
+                  <Select
+                    label="Ticket"
+                    searchable
+                    searchPlaceholder="Search tickets…"
+                    options={allTickets
+                      .filter((t) => t.status !== 'deleted')
+                      .map((t) => ({ value: t.id, label: t.title }))}
+                    value={editTicketId}
+                    onValueChange={(v) => setEditTicketId(v)}
+                    placeholder="Select a ticket…"
+                  />
+                )}
+                <Input
+                  label="Note (optional)"
+                  value={editNote}
+                  onChange={(e) => setEditNote(e.target.value)}
+                  placeholder="Note (optional)"
+                />
+                <Input
+                  label="Duration"
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(e.target.value)}
+                  placeholder="H:MM"
+                  disabled={isRunning}
+                  aria-describedby={isRunning ? 'duration-running-hint' : undefined}
+                />
+                {isRunning && (
+                  <Text size="xs" variant="muted" id="duration-running-hint">
+                    Duration cannot be edited while the timer is running.
+                  </Text>
+                )}
+                {editError && (
+                  <Text size="xs" className="text-danger">
+                    {editError}
+                  </Text>
+                )}
+                {entryNeedsApproval && (
+                  <TimesheetJustificationFields
+                    value={editJustification}
+                    onChange={setEditJustification}
+                    videoRequired={timesheetVideoRequired('update')}
+                    disabled={editLoading}
+                    approverCount={entryApproverCount}
+                  />
+                )}
+              </ModalBody>
+              <ModalFooter className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    onClick={handleUpdateEntry}
+                    isLoading={editLoading}
+                    disabled={(!isRunning && parsedSeconds === null) || editBlocked}
+                  >
+                    {entryNeedsApproval && durationChanged ? 'Submit for approval' : 'Update'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditEntry(null)}>
+                    Cancel
+                  </Button>
+                </div>
+                <Button
+                  variant="danger"
+                  disabled={deleteBlocked}
+                  onClick={() => {
+                    void handleDeleteEntry(editEntry.entry.id);
+                    setEditEntry(null);
+                  }}
+                  aria-label="Delete work item"
+                >
+                  Delete
+                </Button>
+              </ModalFooter>
+            </AppModal>
+          );
+        })()}
+    </div>
+  );
+};

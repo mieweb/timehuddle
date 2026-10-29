@@ -58,10 +58,10 @@ function lookupCapabilitySecret(kid) {
 }
 
 /**
- * Verify a PulseVault capability token. Exported so the `/pulse/open` scan
- * interstitial can reject a made-up token before rendering a page that would
- * otherwise hand Pulse Cam a live-looking upload session (see pulse-link.js).
- * On a `create` it also holds the upload to the shape of a pulse.
+ * Verify a PulseVault capability token. Exported so the legacy `/pulse/open`
+ * redirect can refuse a made-up token before handing Pulse an upload session
+ * (see pulse-link.js). On a `create` it also holds the upload to the shape of
+ * a pulse.
  */
 export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, {
   issuer: ISSUER,
@@ -129,6 +129,9 @@ const VIDEO_CONTENT_TYPES = {
  * The video a finished upload delivers, as pulse-destinations.js takes it.
  * `name` is the Pulse draft's title (`Upload-Metadata.name`), when sent.
  * `ext` is the uploaded file's; anything conform didn't skip is served as an MP4.
+ * A skipped one (no ffmpeg, a failed or impossible conversion) is still
+ * delivered, as uploaded: it plays wherever its own format does, and the
+ * release note says conversion happens when it can.
  */
 function describeVideo({ artifactId, ext, size, name, webReady }) {
   const servedExt = webReady && webReady.action !== 'skipped' ? '.mp4' : ext;

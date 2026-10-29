@@ -30,6 +30,16 @@ vi.mock('./sources', () => ({
   },
 }));
 
+const team = vi.hoisted(() => ({ selectedTeamId: 'team1' as string | null }));
+vi.mock('../../lib/TeamContext', () => ({ useTeam: () => team }));
+
+// A Redmine issue goes on as its carrier, `huddle:carrier-<n>` (#736).
+const carry = vi.hoisted(() => {
+  class NoTeamError extends Error {}
+  return { NoTeamError, carriedKey: vi.fn() };
+});
+vi.mock('./carryIssue', () => carry);
+
 const { useBoardActions } = await import('./useBoardActions');
 const { boardText } = await import('./boardStrings');
 const { removalText } = await import('./ticketRemovalStrings');
@@ -40,6 +50,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.addMany.mockResolvedValue({ addedCount: 1 });
   api.removeMany.mockResolvedValue({ removedCount: 1 });
+  team.selectedTeamId = 'team1';
+  carry.carriedKey.mockImplementation(async (key: string, teamId: string | null) => {
+    if (!key.startsWith('redmine:')) return key;
+    if (!teamId) throw new carry.NoTeamError();
+    return `huddle:carrier-${key.slice('redmine:'.length)}`;
+  });
   window.addEventListener('tickets:refetch', refetch);
 });
 afterEach(() => {
@@ -51,11 +67,55 @@ describe('useBoardActions', () => {
   it('adds tickets by key and tells the app to look again', async () => {
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['huddle:a'])).resolves.toBe(true);
+    await expect(result.current.add(['huddle:a'])).resolves.toEqual({
+      requested: ['huddle:a'],
+      added: ['huddle:a'],
+    });
 
     expect(api.addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'a' }]);
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(sources.invalidateRedmineCache).not.toHaveBeenCalled();
+  });
+
+  it('puts a Redmine issue on as the ticket carrying it in the selected team (#736)', async () => {
+    const { result } = renderHook(() => useBoardActions());
+
+    await expect(result.current.add(['redmine:482', 'huddle:a'])).resolves.toEqual({
+      requested: ['redmine:482', 'huddle:a'],
+      added: ['huddle:carrier-482', 'huddle:a'],
+    });
+
+    expect(carry.carriedKey).toHaveBeenCalledWith('redmine:482', 'team1');
+    expect(api.addMany).toHaveBeenCalledWith([
+      { sourceId: 'huddle', ticketId: 'carrier-482' },
+      { sourceId: 'huddle', ticketId: 'a' },
+    ]);
+  });
+
+  it('adds nothing, and says why, when no team is selected for a Redmine issue', async () => {
+    team.selectedTeamId = null;
+    const { result } = renderHook(() => useBoardActions());
+
+    await expect(result.current.add(['redmine:482'])).resolves.toBeNull();
+
+    expect(toast.error).toHaveBeenCalledWith(boardText.noTeam);
+    expect(api.addMany).not.toHaveBeenCalled();
+  });
+
+  it('adds the rest when one issue cannot be carried', async () => {
+    carry.carriedKey.mockImplementation(async (key: string) => {
+      if (key === 'redmine:9') throw new api.ApiError('gone', 404, 'issue-unavailable');
+      return key.startsWith('redmine:') ? `huddle:carrier-${key.slice(8)}` : key;
+    });
+    const { result } = renderHook(() => useBoardActions());
+
+    // Says which of the requested issues made it, so a caller can count them.
+    await expect(result.current.add(['redmine:9', 'redmine:482'])).resolves.toEqual({
+      requested: ['redmine:482'],
+      added: ['huddle:carrier-482'],
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(boardText.carryFailed(1));
   });
 
   it('drops the cached Redmine issues when a Redmine issue joins or leaves the board', async () => {
@@ -73,7 +133,7 @@ describe('useBoardActions', () => {
     );
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['huddle:a'])).resolves.toBe(false);
+    await expect(result.current.add(['huddle:a'])).resolves.toBeNull();
 
     expect(toast.error).toHaveBeenCalledWith('My Board holds at most 500 tickets.');
     expect(refetch).not.toHaveBeenCalled();
@@ -84,7 +144,7 @@ describe('useBoardActions', () => {
     api.removeMany.mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useBoardActions());
 
-    await expect(result.current.add(['huddle:a'])).resolves.toBe(false);
+    await expect(result.current.add(['huddle:a'])).resolves.toBeNull();
     await expect(result.current.remove(['huddle:a'])).resolves.toBe(false);
 
     expect(toast.error).toHaveBeenNthCalledWith(1, removalText.boardAddFailed);
@@ -110,6 +170,8 @@ describe('useBoardActions', () => {
     expect(shown.action.label).toBe(boardText.undo);
 
     shown.action.onClick();
-    expect(api.addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'a' }]);
+    await vi.waitFor(() =>
+      expect(api.addMany).toHaveBeenCalledWith([{ sourceId: 'huddle', ticketId: 'a' }]),
+    );
   });
 });

@@ -19,6 +19,7 @@ import {
   isRedmineBudgetExhausted,
   isRedmineTimeout,
   linkedRedmineBaseUrl,
+  listAssignedIssuePage,
   listAssignedIssues,
   mapInChunks,
   normalizeRedmineUrl,
@@ -183,5 +184,35 @@ describe('mapInChunks', () => {
     const fn = vi.fn();
     await expect(mapInChunks([], 5, fn)).resolves.toEqual([]);
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('listAssignedIssuePage (#736)', () => {
+  let urls: string[];
+
+  beforeEach(() => {
+    urls = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ issues: [{ id: 7 }], total_count: 250 }), {
+          status: 200,
+        });
+      }),
+    );
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('asks for the page from `offset`, and passes on Redmine\u2019s total', async () => {
+    const page = await listAssignedIssuePage(account, { offset: 100 });
+
+    const query = new URL(urls[0]).searchParams;
+    expect(query.get('assigned_to_id')).toBe('me');
+    expect(query.get('status_id')).toBe('open');
+    expect(query.get('offset')).toBe('100');
+    expect(query.get('limit')).toBe('100');
+    expect(page).toEqual({ issues: [{ id: 7 }], totalCount: 250 });
   });
 });

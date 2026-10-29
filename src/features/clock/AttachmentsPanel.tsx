@@ -1,10 +1,10 @@
 /**
- * AttachmentsPanel — the videos on a ticket, a Redmine issue or a clock
- * session. **Pulse** records one on a phone and **Upload** sends a file from
- * this device; either way the server converts it and attaches it here when it
- * lands, and it plays here inline. A link goes in the description (or the
- * session's post), not here: links attached before that rule are still
- * listed, and can be removed.
+ * AttachmentsPanel — the videos on a ticket or a clock session. **Pulse**
+ * records one on a phone and **Upload** sends a file from this device; either
+ * way the server converts it when it can and attaches it here when it lands,
+ * and it plays here inline. A link goes in the description (or the session's
+ * post), not here: links attached before that rule are still listed, and can
+ * be removed.
  *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
@@ -71,14 +71,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
 
   return (
     <section className="attachments-panel">
-      {/* Wraps instead of squeezing: on a phone the chips (and the upload's
-          status line beside them) drop under the heading. */}
-      <div className="attachments-header mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      {/* Wraps instead of squeezing: on a phone the chips drop under the
+          heading. Top-aligned: a message that doesn't fit beside the chips
+          drops under them, and the heading stays level with the chips. */}
+      <div className="attachments-header mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         {showHeading && (
           <Text
             as="h3"
             size="sm"
-            className="flex items-center gap-1.5 font-semibold text-neutral-700 dark:text-neutral-300"
+            className="flex min-h-8 items-center gap-1.5 font-semibold text-neutral-700 dark:text-neutral-300"
           >
             <FontAwesomeIcon icon={faVideo} size="sm" aria-hidden />
             Videos
@@ -88,6 +89,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           destination={{ kind, id: entityId }}
           ariaLabel="Add a video with Pulse"
           allowFile
+          card={showHeading ? 'end' : 'start'}
           onSettled={(status) => status.state === 'done' && void fetchAttachments()}
         />
       </div>

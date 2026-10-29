@@ -116,6 +116,7 @@ beforeEach(async () => {
     { $set: { owners: [ownerId], admins: [] } },
   );
   await db.collection('users').updateOne({ _id: memberId as never }, { $unset: { removedFromOrgs: '' } });
+  await db.collection('users').updateOne({ _id: ownerId as never }, { $unset: { blocked: '' } });
   await addMembership(ownerId, 'owner');
 });
 
@@ -353,5 +354,94 @@ describe('a member removed from the default organization', () => {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     expect(await defaultMembership()).toBeNull();
     expect(await listedMember(defaultOrgId)).toBeUndefined();
+  });
+});
+
+// A block keeps the owner's org_members row; only users.blocked records it.
+async function blockOwner() {
+  const db = await getDb();
+  await db
+    .collection('users')
+    .updateOne({ _id: ownerId as never }, { $push: { blocked: { orgId, blockedAt: new Date() } } as never });
+}
+
+describe('orgs.setTicketPrefix', () => {
+  const setPrefix = (jwt: string, ticketPrefix: string) =>
+    wormhole<{ ticketPrefix: string }>('orgs.setTicketPrefix', { orgId, ticketPrefix }, jwt);
+
+  it('lets an owner set it, stored uppercase, and teams in the org show it', async () => {
+    const teamId = await addTeam({ name: 'Prefix Team', members: [ownerId], admins: [ownerId] });
+    const res = await setPrefix(ownerJwt, 'tj');
+    expect(res.ok).toBe(true);
+    expect(res.result.ticketPrefix).toBe('TJ');
+
+    const org = await wormhole<{ organization: { ticketPrefix: string } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.ticketPrefix).toBe('TJ');
+    const teams = await wormhole<{ teams: { id: string; ticketPrefix: string }[] }>('teams.list', {}, ownerJwt);
+    expect(teams.result.teams.find((t) => t.id === teamId.toHexString())?.ticketPrefix).toBe('TJ');
+  });
+
+  it('refuses an admin and a member', async () => {
+    await addMembership(memberId, 'admin');
+    expect((await setPrefix(memberJwt, 'AD')).ok).toBe(false);
+    const db = await getDb();
+    await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
+    expect((await setPrefix(memberJwt, 'ME')).ok).toBe(false);
+  });
+
+  it('refuses an owner blocked from the org, and stops offering them the setting', async () => {
+    await blockOwner();
+    expect((await setPrefix(ownerJwt, 'BL')).ok).toBe(false);
+    const org = await wormhole<{ organization: { canEditTicketIds: boolean } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.canEditTicketIds).toBe(false);
+  });
+
+  it('refuses a prefix that is not a letter followed by up to five letters or digits', async () => {
+    expect((await setPrefix(ownerJwt, '1TH')).ok).toBe(false);
+    expect((await setPrefix(ownerJwt, 'TOOLONG')).ok).toBe(false);
+  });
+});
+
+describe('orgs.setSourcePrefixes', () => {
+  type Entry = { host: string; prefix: string; type?: string; baseUrl?: string };
+  const pm = { host: 'redmine.example.com', prefix: 'PM', type: 'redmine', baseUrl: 'https://redmine.example.com' };
+  const setSources = (jwt: string, sourcePrefixes: unknown) =>
+    wormhole<{ sourcePrefixes: Entry[] }>('orgs.setSourcePrefixes', { orgId, sourcePrefixes }, jwt);
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: new ObjectId(orgId) }, { $unset: { sourcePrefixes: '', ticketPrefix: '' } });
+  });
+
+  it('lets an owner name servers, and orgs.get returns them', async () => {
+    const res = await setSources(ownerJwt, [{ host: 'https://Redmine.Example.com/', prefix: 'pm' }]);
+    expect(res.ok).toBe(true);
+    expect(res.result.sourcePrefixes).toEqual([pm]);
+    const org = await wormhole<{ organization: { sourcePrefixes: Entry[] } }>('orgs.get', { orgId }, ownerJwt);
+    expect(org.result.organization.sourcePrefixes).toEqual([pm]);
+  });
+
+  it('refuses an admin and a member', async () => {
+    const entries = [{ host: 'redmine.example.com', prefix: 'PM' }];
+    await addMembership(memberId, 'admin');
+    expect((await setSources(memberJwt, entries)).ok).toBe(false);
+    const db = await getDb();
+    await db.collection('org_members').updateOne({ orgId, userId: memberId }, { $set: { role: 'member' } });
+    expect((await setSources(memberJwt, entries)).ok).toBe(false);
+  });
+
+  it('refuses an owner blocked from the org', async () => {
+    await blockOwner();
+    expect((await setSources(ownerJwt, [{ host: 'redmine.example.com', prefix: 'PM' }])).ok).toBe(false);
+  });
+
+  it("keeps server prefixes and the org's ticket prefix apart", async () => {
+    expect((await setSources(ownerJwt, [{ host: 'a.example.com', prefix: 'TH' }])).ok).toBe(false);
+    expect((await setSources(ownerJwt, [{ host: 'a.example.com', prefix: 'PM' }])).ok).toBe(true);
+    expect(
+      (await wormhole('orgs.setTicketPrefix', { orgId, ticketPrefix: 'PM' }, ownerJwt)).ok,
+    ).toBe(false);
   });
 });

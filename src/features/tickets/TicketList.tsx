@@ -22,6 +22,7 @@ import { RowList } from '../../ui/RowList';
 import { TicketRow } from './TicketRow';
 import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketListControls, type TicketField } from './TicketListControls';
+import { useShowHuddleIds } from './useShowHuddleIds';
 import { SOURCE_LABELS, TICKET_SOURCES, type TicketSourceId, type UnifiedTicket } from './sources';
 import {
   assigneeOptions,
@@ -40,6 +41,7 @@ const text = {
   list: (showClosed: boolean) => (showClosed ? 'Closed tickets' : 'Open tickets'),
   selectAll: 'Select all tickets',
   deselectAll: 'Deselect all tickets',
+  showHuddleIds: 'Show TimeHuddle IDs',
   loading: 'Loading tickets',
   count: (count: number, showClosed: boolean) =>
     `${count} ${showClosed ? 'closed' : 'open'} ticket${count === 1 ? '' : 's'}`,
@@ -141,6 +143,8 @@ export const TicketList: React.FC<TicketListProps> = ({
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
 
+  const [showHuddleIds, setShowHuddleIds] = useShowHuddleIds();
+
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
 
@@ -214,7 +218,11 @@ export const TicketList: React.FC<TicketListProps> = ({
         extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
       },
     },
-    { label: 'Issue #', sortField: 'ref' },
+    {
+      label: 'Issue #',
+      sortField: 'ref',
+      toggles: [{ label: text.showHuddleIds, on: showHuddleIds, onChange: setShowHuddleIds }],
+    },
     { label: 'Updated', sortField: 'updated' },
     { label: 'Title', sortField: 'title' },
   ];

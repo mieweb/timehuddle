@@ -2,12 +2,11 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { REDMINE, resolveTicketRef } from './ticket-refs';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
-const VALID_KINDS = ['clock', 'ticket', REDMINE];
+const VALID_KINDS = ['clock', 'ticket'];
 const VALID_TYPES = ['video', 'image', 'link'];
 
 function toPublic(a) {
@@ -99,13 +98,10 @@ async function assertCanReachSession(userId, id) {
 
 /**
  * Whether the caller may see — and so add to — what `attachedTo` names. A
- * Redmine issue's attachments live only in TimeHuddle, but they belong to an
- * issue the caller's own key must be able to see (`resolveTicketRef` throws
- * when it cannot); a clock session is its owner's or its team admins'.
- * Huddle tickets are not gated here.
+ * clock session is its owner's or its team admins'. Huddle tickets are not
+ * gated here.
  */
 async function assertCanReach(userId, attachedTo) {
-  if (attachedTo.kind === REDMINE) await resolveTicketRef(userId, REDMINE, attachedTo.id);
   if (attachedTo.kind === 'clock') await assertCanReachSession(userId, attachedTo.id);
 }
 
@@ -128,8 +124,8 @@ Meteor.methods({
   // (GET /pulsevault/artifacts/:videoId/poster), never from whoever attached it.
   async 'attachments.add'({ url, type, title, attachedTo }) {
     const identity = await requireIdentity(this);
-    // A string id, as `list` matches it: a numeric one would pass the Redmine
-    // check but be stored where no list ever finds it.
+    // A string id, as `list` matches it: a numeric one would be stored where
+    // no list ever finds it.
     if (typeof attachedTo?.id !== 'string') throw new Meteor.Error('bad-request', 'attachedTo is required');
     await assertCanReach(identity.userId, attachedTo);
     const attachment = await createAttachment({ url, type, title, attachedTo, addedBy: identity.userId });

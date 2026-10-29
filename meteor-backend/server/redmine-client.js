@@ -18,6 +18,8 @@
  * itself, so no update or delete helper exists for them. Issues are never
  * deleted from TimeHuddle either.
  */
+import { redmine } from '@timehuddle/ticket-sources';
+
 import { createRateLimiter } from './rate-limit';
 import { activityIssueRefs } from './redmine-atom';
 import { findBillableInPages } from './redmine-billable';
@@ -232,7 +234,8 @@ async function redmineRequest(
     res = await fetch(`${account.baseUrl}${path}`, {
       method,
       headers: {
-        'X-Redmine-API-Key': account.apiKey,
+        // `X-Redmine-API-Key`, as Redmine's definition says.
+        [redmine.connect.header]: account.apiKey,
         Accept: accept,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -300,13 +303,19 @@ function logRequestFailure({ method, path, startedAt, err, status = null }) {
  * added later that forgot to narrow its query would fail here rather than
  * quietly listing the instance.
  */
-async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
+async function issueQuery(account, params, options) {
+  return (await issuePage(account, params, options)).issues;
+}
+
+/** As `issueQuery`, with Redmine's `total_count` for the whole match. */
+async function issuePage(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
   const query = new URLSearchParams({ limit: '100', ...params });
   if (!isNarrowIssueQuery(query)) {
     throw new Error('Refusing to list Redmine issues without a filter');
   }
   const data = await redmineRequest(`/issues.json?${query.toString()}`, { account, timeoutMs });
-  return data?.issues ?? [];
+  const issues = data?.issues ?? [];
+  return { issues, totalCount: Number(data?.total_count ?? issues.length) };
 }
 
 /**
@@ -346,13 +355,22 @@ export const ASSIGNED_ISSUES_LIMIT = 100;
  * filters by assignee before it checks visibility.
  */
 export function listAssignedIssues(account, { timeoutMs } = {}) {
-  return issueQuery(
+  return listAssignedIssuePage(account, { timeoutMs }).then((page) => page.issues);
+}
+
+/**
+ * One page of `listAssignedIssues` from `offset`, with Redmine's total, so a
+ * caller can go past the first `ASSIGNED_ISSUES_LIMIT`.
+ */
+export function listAssignedIssuePage(account, { offset = 0, timeoutMs } = {}) {
+  return issuePage(
     account,
     {
       assigned_to_id: 'me',
       status_id: 'open',
       sort: 'updated_on:desc',
       limit: String(ASSIGNED_ISSUES_LIMIT),
+      offset: String(offset),
     },
     { timeoutMs },
   );
@@ -467,7 +485,7 @@ export async function getIssue(account, issueId) {
 }
 
 /** A GET whose 404 or 403 means "not there for this caller" rather than a failure. */
-async function requestOrNull(path, account) {
+export async function requestOrNull(path, account) {
   try {
     return await redmineRequest(path, { account });
   } catch (err) {
