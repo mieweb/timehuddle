@@ -32,7 +32,7 @@ export const POSTER_RETRY_MS = [2_000, 5_000, 10_000, 20_000, 40_000];
  * plain box meanwhile instead of flickering, and switches once a look finds it
  * (at that URL, already loaded).
  */
-function usePoster(video: string): { src: string | null; onError: () => void } {
+export function usePoster(video: string): { src: string | null; onError: () => void } {
   const [attempt, setAttempt] = useState(0);
   const [missing, setMissing] = useState(false);
 
@@ -66,6 +66,30 @@ function posterUrl(video: string, attempt: number): string {
   );
 }
 
+/**
+ * A card at its widest, and at its tallest (a portrait clip is as tall as
+ * this): never more than half the screen, so a phone — upright or sideways —
+ * shows the whole card with room around it. `max-h-[…]` below says the same.
+ */
+const CARD_WIDTH_REM = 18;
+const CARD_MAX_HEIGHT = 'min(28rem, 50dvh)';
+
+/**
+ * The card in its video's shape (width ÷ height), once known: as wide as the
+ * card allows, narrower for a portrait clip so it isn't taller than the cap.
+ * The poster and the player then fill the same box — nothing cropped, no bars.
+ */
+function cardBox(aspect: number | null): React.CSSProperties | undefined {
+  if (!aspect) return undefined;
+  return {
+    aspectRatio: String(aspect),
+    // In rem only: a percentage would resolve against a host that sizes to its
+    // content, and shrink the card to the poster's own pixels. `max-w-full`
+    // on the card still keeps it inside a narrow host.
+    width: `min(${CARD_WIDTH_REM}rem, calc(${CARD_MAX_HEIGHT} * ${aspect}))`,
+  };
+}
+
 /** The one video playing, so starting another pauses it. */
 let playingNow: HTMLVideoElement | null = null;
 
@@ -94,6 +118,11 @@ function PulseVideoCard({ video, title }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
   // No poster (yet), or it failed to load: the same plain box with the ▶.
   const poster = usePoster(video);
+  // The shape: from the poster first, then from the video itself once it loads.
+  const [aspect, setAspect] = useState<number | null>(null);
+  const learnShape = (width: number, height: number) => {
+    if (width > 0 && height > 0) setAspect(width / height);
+  };
   const name = title || 'Pulse video';
   // The play button unmounts on click: keep keyboard focus on what replaced it.
   // Played from here, still inside the tap's commit — iOS blocks `autoPlay`
@@ -110,24 +139,31 @@ function PulseVideoCard({ video, title }: PulseVideoPlayerProps) {
   }, []);
 
   return (
-    // Fixed width so the card isn't squeezed to the bubble's text width; the
-    // height follows the poster, so vertical Pulse clips keep their shape.
-    <div className="pulse-video-card relative my-1 w-72 max-w-full overflow-hidden rounded-xl bg-neutral-900">
+    // Fixed width so the card isn't squeezed to the bubble's text width; once
+    // the shape is known the card takes it, so portrait and landscape clips
+    // each keep theirs, before and after Play.
+    <div
+      className="pulse-video-card relative my-1 w-72 max-w-full overflow-hidden rounded-xl bg-neutral-900"
+      style={cardBox(aspect)}
+    >
       {playing ? (
         <video
           ref={attachPlayer}
-          className="pulse-video-player block max-h-[28rem] w-full bg-black object-contain"
+          className="pulse-video-player block h-full max-h-[min(28rem,50dvh)] w-full bg-black object-contain"
           src={resolveMediaUrl(artifactPath(video))}
           poster={poster.src ?? undefined}
           controls
           playsInline
           onPlay={playAlone}
+          onLoadedMetadata={(e) =>
+            learnShape(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
+          }
           aria-label={name}
         />
       ) : (
         <Button
           variant="ghost"
-          className="pulse-video-poster group relative block h-auto w-full rounded-none p-0 hover:bg-transparent"
+          className="pulse-video-poster group relative block h-full w-full rounded-none p-0 hover:bg-transparent"
           onClick={() => setPlaying(true)}
           aria-label={`Play ${name}`}
         >
@@ -139,7 +175,10 @@ function PulseVideoCard({ video, title }: PulseVideoPlayerProps) {
               alt=""
               loading="lazy"
               onError={poster.onError}
-              className="pulse-video-poster-image block max-h-[28rem] w-full object-cover"
+              onLoad={(e) =>
+                learnShape(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
+              }
+              className="pulse-video-poster-image block h-full max-h-[min(28rem,50dvh)] w-full object-cover"
             />
           )}
           <span
