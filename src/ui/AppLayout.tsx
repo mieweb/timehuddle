@@ -45,8 +45,10 @@ import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
-import { matchPath, RouterProvider, useRouter } from './router';
+import { matchPath, RouterProvider, useQueryParam, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
+import { notificationApi } from '../lib/api';
+import { NOTIFICATION_READ_EVENT } from '../features/notifications/notificationEvents';
 import { TopNav } from './TopNav';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -173,6 +175,20 @@ interface ForegroundNotif {
 
 // ─── AppLayout Content ────────────────────────────────────────────────────────
 
+/**
+ * Tapping a push opens what it's about; it should also mark it read in the
+ * inbox. The server puts the inbox row's id on every push as `notificationId`.
+ */
+function markPushRead(data: { notificationId?: unknown }) {
+  const id = data.notificationId;
+  if (typeof id !== 'string' || !id) return;
+  notificationApi
+    .markOneRead(id)
+    // An open Notifications page only hears about new rows; tell it this one is read.
+    .then(() => window.dispatchEvent(new CustomEvent(NOTIFICATION_READ_EVENT, { detail: { id } })))
+    .catch((err) => console.error('[push] marking the tapped notification read failed:', err));
+}
+
 const AppLayoutContent: React.FC = () => {
   const { refetch: refetchSession } = useSession();
   const { refetchTeams, refetchClock, teamAccess, orgAccess } = useTeam();
@@ -180,6 +196,15 @@ const AppLayoutContent: React.FC = () => {
   useBrand();
 
   const { pathname, navigate } = useRouter();
+
+  // A web push clicked while the app was closed opens it with ?notification=<id>
+  // (public/sw.js): mark that one read, then drop the param.
+  const [tappedNotificationId, clearTappedNotification] = useQueryParam('notification');
+  useEffect(() => {
+    if (!tappedNotificationId) return;
+    markPushRead({ notificationId: tappedNotificationId });
+    clearTappedNotification(null);
+  }, [tappedNotificationId, clearTappedNotification]);
 
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -190,6 +215,7 @@ const AppLayoutContent: React.FC = () => {
   const handleNotificationData = useCallback(
     (data: Record<string, string>) => {
       console.log('[handleNotificationData] received:', JSON.stringify(data));
+      markPushRead(data);
       if (data.type === 'shift-end-reminder') {
         window.dispatchEvent(
           new CustomEvent('timehuddle:openShiftReminder', {
@@ -287,6 +313,7 @@ const AppLayoutContent: React.FC = () => {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const handler = (event: MessageEvent) => {
+      markPushRead(event.data ?? {});
       if (event.data?.type === 'timehuddle:openShiftReminder') {
         window.dispatchEvent(
           new CustomEvent('timehuddle:openShiftReminder', { detail: event.data }),

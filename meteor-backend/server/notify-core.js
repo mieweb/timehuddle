@@ -82,7 +82,10 @@ export async function createNotification({ userId, title, body, data }) {
   };
   await notifications().insertOne(doc);
   if (delivery.desktop || delivery.phone) {
-    sendToUser(userId, { title, body, tag: data?.type, data }, delivery).catch((err) =>
+    // The push carries the row's id so tapping it can mark it read; the stored
+    // row doesn't need it.
+    const pushData = { ...data, notificationId: doc._id.toHexString() };
+    sendToUser(userId, { title, body, tag: data?.type, data: pushData }, delivery).catch((err) =>
       console.error('[push] sendToUser failed:', err)
     );
   }
