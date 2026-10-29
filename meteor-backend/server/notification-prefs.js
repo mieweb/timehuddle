@@ -8,7 +8,14 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge.js';
-import { allEventSettings, prefsPatchToSet, quietSettings } from './notification-prefs-core';
+import {
+  EVENTS,
+  ORG_SETTING_FOR_EVENT,
+  allEventSettings,
+  prefsPatchToSet,
+  quietSettings,
+} from './notification-prefs-core';
+import { resolveSettingsForTeams } from './settings';
 
 function notificationPrefs() {
   return rawDb().collection('notificationPrefs');
@@ -57,16 +64,37 @@ export async function endSnoozeUntilClockIn(userId) {
   );
 }
 
-/** What the client shows: every event's effective setting, team levels and quiet time. */
-function toClient(prefs) {
+/**
+ * Events an org has locked on for one of this user's teams, so Settings can show
+ * them as fixed. A lock applies per team; showing the row locked when any team
+ * locks it is the simple reading for the common case of one organization.
+ */
+async function lockedEvents(userId) {
+  const teams = await rawDb()
+    .collection('teams')
+    .find({ $or: [{ members: userId }, { admins: userId }] })
+    .toArray();
+  const resolved = await resolveSettingsForTeams(teams);
+  return Object.entries(ORG_SETTING_FOR_EVENT)
+    .filter(([, setting]) => resolved.some((r) => r[setting].locked && r[setting].value))
+    .map(([eventKey]) => eventKey);
+}
+
+/** What the client shows: every event's effective setting, team levels, quiet time and locks. */
+async function toClient(userId, prefs) {
   const quiet = quietSettings(prefs);
+  const locked = await lockedEvents(userId);
+  const events = allEventSettings(prefs);
+  // A locked event is delivered on its defaults, so show those, not the saved choice.
+  for (const key of locked) events[key] = { desktop: EVENTS[key].desktop, phone: EVENTS[key].phone };
   return {
-    events: allEventSettings(prefs),
+    events,
     teams: prefs?.teams ?? {},
     quiet: {
       ...quiet,
       snoozeUntil: quiet.snoozeUntil ? new Date(quiet.snoozeUntil).toISOString() : null,
     },
+    locked,
   };
 }
 
@@ -81,7 +109,7 @@ Meteor.startup(async () => {
 Meteor.methods({
   async 'notificationPrefs.get'() {
     const { userId } = await requireIdentity(this);
-    return toClient(await getPrefs(userId));
+    return toClient(userId, await getPrefs(userId));
   },
 
   async 'notificationPrefs.update'(patch) {
@@ -92,6 +120,6 @@ Meteor.methods({
       if (error instanceof Meteor.Error) throw error;
       throw new Meteor.Error('bad-request', error.message);
     }
-    return toClient(await getPrefs(userId));
+    return toClient(userId, await getPrefs(userId));
   },
 });

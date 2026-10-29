@@ -6,6 +6,7 @@
  * undone on screen if the save fails. Rendered inside a Settings card.
  */
 import {
+  Badge,
   Checkbox,
   Switch,
   Table,
@@ -38,19 +39,31 @@ import { useNotificationPrefs } from './useNotificationPrefs';
 type Events = Record<string, NotificationDevices>;
 type Toggle = (key: string, device: NotificationDevice, on: boolean) => void;
 
-/** The groups and events the server knows about, in display order. */
-function visibleGroups(events: Events): NotificationEventGroup[] {
+type ShownEvent = NotificationEventCopy & { locked: boolean };
+type ShownGroup = Omit<NotificationEventGroup, 'events'> & { events: ShownEvent[] };
+
+/** The groups and events the server knows about, in display order, each marked if an org locked it. */
+function visibleGroups(events: Events, locked: string[]): ShownGroup[] {
   return NOTIFICATION_EVENT_GROUPS.map((group) => ({
     ...group,
-    events: group.events.filter((event) => events[event.key]),
+    events: group.events
+      .filter((event) => events[event.key])
+      .map((event) => ({ ...event, locked: locked.includes(event.key) })),
   })).filter((group) => group.events.length > 0);
 }
 
-const EventLabel: React.FC<{ event: NotificationEventCopy }> = ({ event }) => (
+const EventLabel: React.FC<{ event: ShownEvent }> = ({ event }) => (
   <div className="notification-event-label min-w-0">
-    <Text size="sm" weight="medium">
-      {event.label}
-    </Text>
+    <div className="flex flex-wrap items-center gap-2">
+      <Text size="sm" weight="medium">
+        {event.label}
+      </Text>
+      {event.locked && (
+        <Badge variant="secondary" size="sm">
+          {S.lockedByOrg}
+        </Badge>
+      )}
+    </div>
     {event.hint && (
       <Text variant="muted" size="xs">
         {event.hint}
@@ -67,7 +80,7 @@ const GroupLabel: React.FC<{ label: string }> = ({ label }) => (
 
 const EventTable: React.FC<{
   events: Events;
-  groups: NotificationEventGroup[];
+  groups: ShownGroup[];
   onToggle: Toggle;
 }> = ({ events, groups, onToggle }) => (
   <Table className="notification-event-table">
@@ -99,6 +112,7 @@ const EventTable: React.FC<{
                   <div className="flex justify-center">
                     <Checkbox
                       checked={events[event.key][device]}
+                      disabled={event.locked}
                       onChange={(e) => onToggle(event.key, device, e.target.checked)}
                       aria-label={S.cellLabel(event.label, device)}
                     />
@@ -115,7 +129,7 @@ const EventTable: React.FC<{
 
 const EventTabs: React.FC<{
   events: Events;
-  groups: NotificationEventGroup[];
+  groups: ShownGroup[];
   onToggle: Toggle;
 }> = ({ events, groups, onToggle }) => (
   <Tabs defaultValue="desktop" variant="pills" className="notification-event-tabs px-4 py-3">
@@ -137,6 +151,7 @@ const EventTabs: React.FC<{
                   <EventLabel event={event} />
                   <Switch
                     checked={events[event.key][device]}
+                    disabled={event.locked}
                     onCheckedChange={(on) => onToggle(event.key, device, on)}
                     aria-label={S.cellLabel(event.label, device)}
                   />
@@ -161,13 +176,13 @@ export const NotificationEventSettings: React.FC = () => {
         (phone ? (
           <EventTabs
             events={prefs.events}
-            groups={visibleGroups(prefs.events)}
+            groups={visibleGroups(prefs.events, prefs.locked)}
             onToggle={setEvent}
           />
         ) : (
           <EventTable
             events={prefs.events}
-            groups={visibleGroups(prefs.events)}
+            groups={visibleGroups(prefs.events, prefs.locked)}
             onToggle={setEvent}
           />
         ))}

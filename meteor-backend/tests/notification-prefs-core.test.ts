@@ -9,6 +9,7 @@ import {
   DELIVER_NOWHERE,
   EVENTS,
   needsClockState,
+  orgSettingForType,
   teamLevel,
   allEventSettings,
   prefKeyForType,
@@ -164,6 +165,33 @@ describe('quiet time', () => {
     expect(needsClockState(quiet({ snoozeUntil: NOW }))).toBe(false);
     expect(needsClockState(quiet({ holdOffShift: true }))).toBe(true);
     expect(needsClockState(quiet({ snoozeUntilClockIn: true }))).toBe(true);
+  });
+});
+
+describe('org settings', () => {
+  const userOff = prefs({ teamClock: { desktop: false, phone: false } });
+
+  it('maps the clock events to their team settings', () => {
+    expect(orgSettingForType('clock-in')).toBe('notifyAdminsOnClock');
+    expect(orgSettingForType('clock-session-changed')).toBe('notifyAdminsOnClock');
+    expect(orgSettingForType('shift-end-reminder')).toBe('shiftEndReminders');
+    expect(orgSettingForType('ticket-assigned')).toBeNull();
+    expect(orgSettingForType('test')).toBeNull();
+  });
+
+  it('drops the event for everyone when the org turns it off', () => {
+    const orgPolicy = { value: false, locked: false };
+    expect(resolveDelivery(null, { type: 'clock-in', orgPolicy })).toEqual(DELIVER_NOWHERE);
+  });
+
+  it("follows the person's own choice when the org leaves it on and unlocked", () => {
+    const orgPolicy = { value: true, locked: false };
+    expect(resolveDelivery(userOff, { type: 'clock-in', orgPolicy })).toEqual(DELIVER_NOWHERE);
+  });
+
+  it("ignores the person's choice when the org locks it on", () => {
+    const orgPolicy = { value: true, locked: true };
+    expect(resolveDelivery(userOff, { type: 'clock-out', orgPolicy })).toEqual(DELIVER_EVERYWHERE);
   });
 });
 

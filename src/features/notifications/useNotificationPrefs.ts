@@ -24,6 +24,7 @@ function applyPatch(prefs: NotificationPrefs, patch: NotificationPrefsPatch): No
     events[key] = { ...events[key], ...devices };
   }
   return {
+    ...prefs,
     events,
     teams: { ...prefs.teams, ...patch.teams },
     quiet: { ...prefs.quiet, ...patch.quiet },

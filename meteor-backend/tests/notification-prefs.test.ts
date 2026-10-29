@@ -222,6 +222,37 @@ describe('quiet time', () => {
   });
 });
 
+describe('org locks', () => {
+  const orgId = new ObjectId();
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('organizations').deleteOne({ _id: orgId });
+    await db.collection('teams').updateOne({ code: TEAM_CODE }, { $unset: { orgId: '' } });
+  });
+
+  it('reports an event its organization has locked on', async () => {
+    const before = await wormhole<{ locked: string[] }>('notificationPrefs.get', {}, authorJwt);
+    expect(before.result.locked).toEqual([]);
+
+    const db = await getDb();
+    await db.collection('organizations').insertOne({
+      _id: orgId,
+      name: 'WH Prefs Org',
+      slug: `wh-prefs-org-${orgId.toHexString()}`,
+      settings: { notifyAdminsOnClock: true },
+      settingsLocks: { notifyAdminsOnClock: true },
+      createdAt: new Date(),
+    });
+    await db
+      .collection('teams')
+      .updateOne({ code: TEAM_CODE }, { $set: { orgId: orgId.toHexString() } });
+
+    const after = await wormhole<{ locked: string[] }>('notificationPrefs.get', {}, authorJwt);
+    expect(after.result.locked).toEqual(['teamClock']);
+  });
+});
+
 describe('createNotification obeys preferences', () => {
   it('logs a reply when the user has no preferences', async () => {
     await commentAsCommenter('Looks good');

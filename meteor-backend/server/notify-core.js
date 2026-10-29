@@ -8,21 +8,37 @@
  * version did is replaced by the reactive `notifications.liveForUser` pub.
  */
 import { MongoInternals } from 'meteor/mongo';
-import { ClockEvents, rawDb, isValidId } from './collections';
+import { ClockEvents, rawDb, isValidId, isObjectIdHex } from './collections';
 import { sendToUser } from './push';
 import { findUserById } from './auth-bridge';
 import {
   DELIVER_EVERYWHERE,
   needsClockState,
+  orgSettingForType,
   prefKeyForType,
   resolveDelivery,
 } from './notification-prefs-core';
 import { getPrefs } from './notification-prefs';
+import { resolveSettings } from './settings';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 function notifications() {
   return rawDb().collection('notifications');
+}
+
+/**
+ * The team setting that governs this notification (#784), resolved through the
+ * settings hierarchy: `{ value, locked }`, or null when none applies.
+ */
+async function orgPolicyFor(data) {
+  const setting = orgSettingForType(data.type);
+  const teamId = data.teamId ? String(data.teamId) : null;
+  if (!setting || !isValidId(teamId)) return null;
+  const team = await rawDb()
+    .collection('teams')
+    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
+  return team ? (await resolveSettings(team))[setting] : null;
 }
 
 /**
@@ -41,6 +57,7 @@ async function deliveryFor(userId, data) {
     teamId: data.teamId,
     now: new Date(),
     clockedIn,
+    orgPolicy: await orgPolicyFor(data),
   });
 }
 

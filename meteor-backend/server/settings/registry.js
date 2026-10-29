@@ -25,6 +25,20 @@ export const SETTINGS = {
     levels: ['enterprise', 'org'],
     personalExempt: false,
   },
+  // Notifications (#784). Off means the notification isn't sent at all; a lock
+  // also stops each person from turning it off for themselves.
+  notifyAdminsOnClock: {
+    type: 'boolean',
+    default: true,
+    levels: ['enterprise', 'org', 'team'],
+    personalExempt: false,
+  },
+  shiftEndReminders: {
+    type: 'boolean',
+    default: true,
+    levels: ['enterprise', 'org', 'team'],
+    personalExempt: false,
+  },
 };
 
 export const SETTING_KEYS = Object.keys(SETTINGS);

@@ -19,6 +19,9 @@
  *     drops them all, `mentions` (the default) drops new-post alerts.
  *   - Quiet time holds the push but keeps the inbox row: a snooze holds every
  *     push, and "hold while clocked out" holds Huddle pushes except mentions.
+ *   - Some events follow a team setting from the settings hierarchy
+ *     (ORG_SETTING_FOR_EVENT): off drops the event for everyone; locked means
+ *     the event's defaults apply whatever the person chose.
  */
 
 /** Delivery to the inbox and every device — the behaviour before #784. */
@@ -70,6 +73,12 @@ const HUDDLE_EVENTS = DROPPED_BY_LEVEL.mute;
 /** Team ids are Mongo hex or legacy Meteor ids: safe to use in a dotted path. */
 const TEAM_ID_PATTERN = /^[A-Za-z0-9]{7,32}$/;
 
+/** Events an org (or enterprise, or team) controls, by settings/registry.js key. */
+export const ORG_SETTING_FOR_EVENT = Object.freeze({
+  teamClock: 'notifyAdminsOnClock',
+  shiftEnd: 'shiftEndReminders',
+});
+
 const KEY_BY_TYPE = new Map(
   Object.entries(EVENTS).flatMap(([key, event]) => event.types.map((type) => [type, key])),
 );
@@ -77,6 +86,12 @@ const KEY_BY_TYPE = new Map(
 /** The event a notification type belongs to, or null when it isn't configurable. */
 export function prefKeyForType(type) {
   return KEY_BY_TYPE.get(type) ?? null;
+}
+
+/** The team setting that governs a notification type, or null. */
+export function orgSettingForType(type) {
+  const key = prefKeyForType(type);
+  return (key && ORG_SETTING_FOR_EVENT[key]) || null;
 }
 
 /** A user's effective setting for one event: what they saved over its default. */
@@ -125,7 +140,8 @@ export function allEventSettings(prefs) {
  * `prefs` is the user's stored document, or null when they have none.
  * `ctx.type` is the notification's `data.type`; `ctx.teamId` its team, if any.
  * `ctx.now` and `ctx.clockedIn` feed quiet time; `clockedIn` only has to be
- * looked up when `needsClockState(prefs)` says so.
+ * looked up when `needsClockState(prefs)` says so. `ctx.orgPolicy` is the
+ * resolved team setting (`{ value, locked }`) for types that have one.
  */
 export function resolveDelivery(prefs, ctx) {
   const key = prefKeyForType(ctx.type);
@@ -133,7 +149,8 @@ export function resolveDelivery(prefs, ctx) {
   if (ctx.teamId && DROPPED_BY_LEVEL[teamLevel(prefs, ctx.teamId)].has(key)) {
     return DELIVER_NOWHERE;
   }
-  const { desktop, phone } = eventSetting(prefs, key);
+  if (ctx.orgPolicy && !ctx.orgPolicy.value) return DELIVER_NOWHERE;
+  const { desktop, phone } = ctx.orgPolicy?.locked ? EVENTS[key] : eventSetting(prefs, key);
   if (!desktop && !phone) return DELIVER_NOWHERE;
   if (pushHeld(prefs, key, ctx)) return { inbox: true, desktop: false, phone: false };
   return { inbox: true, desktop, phone };

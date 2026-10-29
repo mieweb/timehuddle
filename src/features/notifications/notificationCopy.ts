@@ -5,6 +5,7 @@
 // hidden while Huddle has no way to comment (#784, M4).
 
 import type { HuddleTeamLevel } from '../../lib/api';
+import type { DefaultSettingRow } from '../settings/DefaultsCard';
 
 export type NotificationDevice = 'desktop' | 'phone';
 
@@ -81,6 +82,24 @@ export const HUDDLE_TEAM_LEVELS: Array<{
   { level: 'mute', label: 'Mute', description: 'No pop-ups, nothing under the bell' },
 ];
 
+/** Notification defaults an organization or enterprise sets for its teams, with locks. */
+export const NOTIFICATION_DEFAULT_ROWS: DefaultSettingRow[] = [
+  {
+    key: 'notifyAdminsOnClock',
+    title: 'Tell team admins when a member clocks in or out',
+    description:
+      'Off sends no clock-in or clock-out alerts. Locked, admins cannot turn them off for themselves.',
+    lockable: true,
+  },
+  {
+    key: 'shiftEndReminders',
+    title: 'Shift-end reminders',
+    description:
+      'Remind members to clock out as they near 8 hours. Locked, nobody can turn them off.',
+    lockable: true,
+  },
+];
+
 export const NOTIFICATION_STRINGS = {
   deliveryTitle: 'Where you get alerts',
   deliveryDescription:
@@ -118,6 +137,7 @@ export const NOTIFICATION_STRINGS = {
   snoozeStatusOff: 'Pop-ups are on.',
   snoozeStatusUntil: (when: string) => `Paused until ${when}.`,
   snoozeStatusClockIn: 'Paused until you next clock in.',
+  lockedByOrg: 'Set by your organization',
   loadFailed: 'Could not load your notification settings.',
   saveFailed: 'Could not save that change. Please try again.',
 } as const;

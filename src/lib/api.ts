@@ -1458,7 +1458,12 @@ export interface ResolvedSetting {
 export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
 
 /** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
-export type DefaultSettingKey = TeamSettingKey | 'allowAutoJoin';
+export type DefaultSettingKey =
+  | TeamSettingKey
+  | 'allowAutoJoin'
+  // Notification defaults (#784): set and locked from the org or enterprise.
+  | 'notifyAdminsOnClock'
+  | 'shiftEndReminders';
 
 /** `true`/`false` sets a value (or locks); `null` resets it to inherited (or unlocks). */
 export type SettingsPatch = Partial<Record<DefaultSettingKey, boolean | null>>;
@@ -1954,6 +1959,8 @@ export interface NotificationPrefs {
   /** Team id → level, for teams set off the default only. */
   teams: Record<string, HuddleTeamLevel>;
   quiet: NotificationQuiet;
+  /** Events an organization has locked on: the user's own choice doesn't apply. */
+  locked: string[];
 }
 
 /** A change to some events, team levels and/or quiet time. */

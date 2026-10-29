@@ -404,24 +404,32 @@ Use `@mieweb/ui` only:
 
 ## Milestone 6: Org Defaults and Locks for Clock Alerts
 
-- [ ] **6.1 `settings/registry.js`:** add two booleans, set at
-      `['enterprise', 'org', 'team']`. Both are `personalExempt: false`.
+- [x] **6.1 `settings/registry.js`:** two booleans, set at `['enterprise', 'org', 'team']`,
+      both `personalExempt: false`:
   - `notifyAdminsOnClock` (default `true`)
   - `shiftEndReminders` (default `true`)
-- [ ] **6.2 Callers:** check the resolved setting before sending. Off means the
-      notification isn't created at all.
-  - In `clock.js`: the admin clock-in and clock-out notifications.
-  - In `notify-core.js`: `notifyClockAdmins`.
-  - In `agenda.js`: the `shift-end-reminder` job.
-- [ ] **6.3 Lock:**
-  - [ ] When the setting is **locked and on**, `resolveDelivery` uses the defaults for
-        `teamClock` / `shiftEnd` and ignores the user's saved columns.
-  - [ ] Return the lock state from `notificationPrefs.get`, so the Settings table can
-        disable the row and show a **Locked by org** `Badge`.
-- [ ] **6.4 Organization settings:** add a **Notifications** tab with the two rows.
-      Reuse `TeamSettingRow` and `describeSetting` for "Inherited from …" and
-      "Reset to inherited".
-- [ ] **6.5 Release note.**
+- [x] **6.2 Checked centrally, not in each caller.** `ORG_SETTING_FOR_EVENT` in the core
+      maps `teamClock` → `notifyAdminsOnClock` and `shiftEnd` → `shiftEndReminders`.
+      `createNotification` resolves that team setting (`orgPolicyFor`, through
+      `resolveSettings`) for those types only, and `resolveDelivery` drops the
+      notification when it's off. `clock.js`, `notifyClockAdmins` and `agenda.js` are
+      untouched.
+- [x] **6.3 Lock:**
+  - [x] Locked and on: `resolveDelivery` uses the event's defaults and ignores the
+        person's saved columns.
+  - [x] `notificationPrefs.get` returns `locked` (events locked on for any of the user's
+        teams) and shows those events at their defaults. The Settings table disables
+        the row and shows a **Set by your organization** `Badge`.
+- [x] **6.4 Organization and Enterprise settings:** no new tab. Both rows are added to
+      the existing **Team defaults** card (`DefaultsCard`), which already handles
+      "Inherited from …", "Reset to inherited" and the lock switch. The rows live once,
+      in `NOTIFICATION_DEFAULT_ROWS` (`notificationCopy.ts`), spread into both lists.
+      `DefaultSettingKey` in `api.ts` gained the two keys. The team page has no row:
+      teams inherit, and adding a team-level control is out of scope.
+- [x] **6.5 Release note:** an "Organizations set the clock alerts" bullet in `release-notes/1.2.0.md`.
+- [x] **Tests:** 4 more unit tests (`orgSettingForType`, off / unlocked / locked), and an
+      integration test that an org lock shows up in `locked`. The settings, clock, org and
+      enterprise integration suites still pass.
 
 **Done when:** all of these hold.
 
