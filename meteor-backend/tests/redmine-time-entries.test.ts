@@ -318,7 +318,7 @@ describe("rounding up (the Redmine server's setting)", () => {
   const day = (seconds: number) => [{ ticketId: '7', date: '2026-10-29', seconds }];
 
   it('rounds whole minutes up to the step, or leaves them without one', () => {
-    expect([3, 5, 10, 15].map((each) => roundUpMinutes(282, each))).toEqual([282, 285, 290, 285]);
+    expect([5, 10, 15].map((each) => roundUpMinutes(282, each))).toEqual([285, 290, 285]);
     expect(roundUpMinutes(282, undefined)).toBe(282);
   });
 

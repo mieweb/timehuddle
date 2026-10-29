@@ -37,7 +37,6 @@ export const TICKET_IDS_STRINGS = {
   serverRoundingLabel: (row: number) => `Rounding for time entries, row ${row}`,
   roundings: {
     exact: 'Exact time',
-    up3: 'Round up to 3 min',
     up5: 'Round up to 5 min',
     up10: 'Round up to 10 min',
     up15: 'Round up to 15 min',

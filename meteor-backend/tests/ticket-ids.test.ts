@@ -159,7 +159,7 @@ describe('normalizeSourcePrefixes', () => {
     expect(() =>
       normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: 'up30' }], 'TH'),
     ).toThrow(/not a rounding/);
-    for (const inherited of ['constructor', '__proto__', 'toString']) {
+    for (const inherited of ['up3', 'constructor', '__proto__', 'toString']) {
       expect(() =>
         normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: inherited }], 'TH'),
       ).toThrow(/not a rounding/);

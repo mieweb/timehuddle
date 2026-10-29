@@ -48,7 +48,7 @@ export const SERVER_TYPES = Object.freeze(['redmine']);
  * How a Redmine server's time entries are rounded: up to this many minutes.
  * A server with none set sends exact minutes.
  */
-export const ROUNDING_STEPS = Object.freeze({ up3: 3, up5: 5, up10: 10, up15: 15 });
+export const ROUNDING_STEPS = Object.freeze({ up5: 5, up10: 10, up15: 15 });
 
 /** The bare lowercase hostname of a pasted URL or hostname, or null. */
 export function hostOf(input) {
