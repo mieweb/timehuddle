@@ -32,6 +32,11 @@ export const NOTIFICATION_EVENT_GROUPS: NotificationEventGroup[] = [
         label: 'New posts in my teams',
         hint: 'Only for teams set to All posts',
       },
+      {
+        key: 'huddleGroupMention',
+        label: '@team and @here',
+        hint: 'Posts addressed to the whole team, or to everyone clocked in',
+      },
     ],
   },
   {

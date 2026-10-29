@@ -57,7 +57,13 @@ import {
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
 import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth';
-import { detectMentions, useTeamMentions } from '../features/huddle/useTeamMentions';
+import {
+  GROUP_MENTION_OPTIONS,
+  detectGroupMentions,
+  detectMentions,
+  isGroupMentionId,
+  useTeamMentions,
+} from '../features/huddle/useTeamMentions';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
@@ -935,8 +941,11 @@ export default function Huddle() {
           // SuperChat only resolves names of people already in the thread, so
           // the roster match is unioned in for everyone else on the team.
           mentions: [...new Set([...sentMentions, ...mentions.detect(text)])].filter(
-            (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
+            (participantId) =>
+              participantId !== SYSTEM_PARTICIPANT_ID && !isGroupMentionId(participantId),
           ),
+          // @team / @here only mean something in a team's Huddle, not Personal.
+          groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
         ticketIds,
         attachments: [...media, ...staged].map(toPostAttachment),
@@ -995,7 +1004,11 @@ export default function Huddle() {
       const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
-      await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
+      await huddleApi.updatePost(messageId, {
+        text: body,
+        mentions: editedMentions,
+        groupMentions: detectGroupMentions(body),
+      });
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
       await refreshActiveScope();
@@ -1144,7 +1157,10 @@ export default function Huddle() {
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
                       isSending: sending || ticketVideos.loading,
-                      mentionOptions: mentions.options,
+                      mentionOptions:
+                        scope === 'team'
+                          ? [...GROUP_MENTION_OPTIONS, ...mentions.options]
+                          : mentions.options,
                       sendOptions: postingTeamId
                         ? [
                             {

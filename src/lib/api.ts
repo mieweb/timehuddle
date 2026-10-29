@@ -1337,6 +1337,15 @@ export interface HuddleComment {
   updatedAt: string;
 }
 
+/** A post's text and who it addresses, as written to the server. */
+export interface HuddlePostContentInput {
+  text: string;
+  /** User ids @mentioned. */
+  mentions: string[];
+  /** `@team` (everyone on the team) / `@here` (everyone clocked in to it), #784. */
+  groupMentions?: Array<'team' | 'here'>;
+}
+
 export const huddleApi = {
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
@@ -1391,7 +1400,7 @@ export const huddleApi = {
    */
   createPost: (params: {
     teamId: string;
-    content: { text: string; mentions: string[] };
+    content: HuddlePostContentInput;
     ticketIds?: string[];
     attachments?: HuddlePostAttachment[];
     postDate?: string;
@@ -1413,7 +1422,7 @@ export const huddleApi = {
    * Pass attachments/ticketIds to edit them (omit to leave untouched; `[]` clears tickets). */
   updatePost: (
     postId: string,
-    content: { text: string; mentions: string[] },
+    content: HuddlePostContentInput,
     options?: {
       wrapUp?: boolean;
       attachments?: HuddlePostAttachment[];

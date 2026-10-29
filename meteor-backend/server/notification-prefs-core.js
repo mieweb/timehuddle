@@ -41,6 +41,7 @@ export const EVENTS = Object.freeze({
   },
   huddleReply: { types: ['huddle-comment'], desktop: true, phone: true },
   huddlePost: { types: ['huddle-post'], desktop: true, phone: false },
+  huddleGroupMention: { types: ['huddle-group-mention'], desktop: true, phone: false },
   ticketAssigned: { types: ['ticket-assigned'], desktop: true, phone: true },
   ticketLink: { types: ['ticket-link-changed'], desktop: true, phone: true },
   shiftEnd: { types: ['shift-end-reminder'], desktop: true, phone: true },
@@ -64,7 +65,7 @@ export const DEFAULT_TEAM_LEVEL = 'mentions';
 const DROPPED_BY_LEVEL = {
   all: new Set(),
   mentions: new Set(['huddlePost']),
-  mute: new Set(['huddleMention', 'huddleReply', 'huddlePost']),
+  mute: new Set(['huddleMention', 'huddleReply', 'huddlePost', 'huddleGroupMention']),
 };
 
 /** The Huddle events, which "hold while clocked out" applies to. */

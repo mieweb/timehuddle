@@ -1821,6 +1821,11 @@ Meteor.startup(async () => {
     properties: {
       text: { type: 'string' },
       mentions: { type: 'array', items: { type: 'string' } },
+      groupMentions: {
+        type: 'array',
+        items: { type: 'string', enum: ['team', 'here'] },
+        description: '@team (everyone on the team) or @here (everyone clocked in to it)',
+      },
     },
     required: ['text'],
   };

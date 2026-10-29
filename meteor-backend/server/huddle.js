@@ -5,7 +5,7 @@ import { resolveSince } from './huddle-window-core';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
+import { GROUP_MENTIONS, deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
 import {
   isAwaitingDelivery,
   isHiddenFrom,
@@ -130,6 +130,15 @@ async function hasPostsBefore(filter, sinceDate) {
 }
 
 // Permission helpers
+/** `@team` / `@here` on a post (#784): validated, deduped, never user ids. */
+function validGroupMentions(groupMentions) {
+  if (groupMentions === undefined || groupMentions === null) return [];
+  if (!Array.isArray(groupMentions) || groupMentions.some((g) => !GROUP_MENTIONS.includes(g))) {
+    throw new Meteor.Error('bad-request', `groupMentions must be a list of: ${GROUP_MENTIONS.join(', ')}`);
+  }
+  return [...new Set(groupMentions)];
+}
+
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
   let team = await rawDb().collection('teams').findOne({ _id: teamId });
@@ -500,6 +509,7 @@ export async function createHuddlePost(
       }
     }
   }
+  const groupMentions = validGroupMentions(content.groupMentions);
 
   // Validate clockEventId if provided — must be the caller's own session in
   // this team, so a spoofed id can't later surface someone else's clock-in/
@@ -527,6 +537,7 @@ export async function createHuddlePost(
     content: {
       text,
       mentions: content.mentions ?? [],
+      ...(groupMentions.length ? { groupMentions } : {}),
     },
     ticketIds: postTicketIds,
     attachments: attachments ?? [],
@@ -866,6 +877,8 @@ Meteor.methods({
       }
     }
 
+    const groupMentions = validGroupMentions(content.groupMentions);
+
     // Omitted keeps the post's tickets; `[]` (or a legacy `ticketId: null`) clears them.
     const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
     await requireTeamTickets(postTicketIds, post.teamId);
@@ -880,6 +893,7 @@ Meteor.methods({
             content: {
               text,
               mentions: content.mentions ?? [],
+              ...(groupMentions.length ? { groupMentions } : {}),
             },
             // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.

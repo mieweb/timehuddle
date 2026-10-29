@@ -104,6 +104,7 @@ describe('team levels', () => {
       'huddle-comment-mention',
       'huddle-comment',
       'huddle-post',
+      'huddle-group-mention',
     ]) {
       expect(resolveDelivery(withLevel('mute'), { type, teamId: TEAM })).toEqual(DELIVER_NOWHERE);
     }
@@ -119,6 +120,25 @@ describe('team levels', () => {
     expect(
       resolveDelivery(withLevel('mute'), { type: 'ticket-assigned', teamId: TEAM }).inbox,
     ).toBe(true);
+  });
+});
+
+describe('group mentions', () => {
+  const TEAM = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+
+  it('reach a member on the default level, desktop only by default', () => {
+    expect(resolveDelivery(null, { type: 'huddle-group-mention', teamId: TEAM })).toEqual({
+      inbox: true,
+      desktop: true,
+      phone: false,
+    });
+  });
+
+  it('are held while clocked out, unlike a direct mention', () => {
+    const p = { quiet: { holdOffShift: true } };
+    const ctx = { teamId: TEAM, clockedIn: false };
+    expect(resolveDelivery(p, { type: 'huddle-group-mention', ...ctx }).desktop).toBe(false);
+    expect(resolveDelivery(p, { type: 'huddle-mention', ...ctx }).desktop).toBe(true);
   });
 });
 

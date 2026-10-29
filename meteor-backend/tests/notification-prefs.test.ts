@@ -5,7 +5,7 @@
  * this covers the methods and that createNotification obeys a saved
  * preference end to end (a comment on someone's post).
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import {
   createUserAndGetJwt,
   DDPConnection,
@@ -112,9 +112,12 @@ describe('notificationPrefs.get', () => {
     const res = await wormhole<{ events: Events }>('notificationPrefs.get', {}, authorJwt);
     expect(res.ok).toBe(true);
     expect(res.result.events.huddleReply).toEqual({ desktop: true, phone: true });
-    // Events that existed before #784 start on for both devices; new posts start desktop-only.
-    expect(res.result.events.huddlePost).toEqual({ desktop: true, phone: false });
-    const existing = Object.entries(res.result.events).filter(([key]) => key !== 'huddlePost');
+    // Events that existed before #784 start on for both devices; new ones start desktop-only.
+    const NEW_EVENTS = ['huddlePost', 'huddleGroupMention'];
+    for (const key of NEW_EVENTS) {
+      expect(res.result.events[key]).toEqual({ desktop: true, phone: false });
+    }
+    const existing = Object.entries(res.result.events).filter(([key]) => !NEW_EVENTS.includes(key));
     expect(existing.every(([, e]) => e.desktop && e.phone)).toBe(true);
   });
 });
@@ -219,6 +222,73 @@ describe('quiet time', () => {
     );
     await commentAsCommenter('Snoozed reply');
     expect(await replyNotificationsForAuthor()).toHaveLength(1);
+  });
+});
+
+describe('group mentions', () => {
+  async function postAsCommenterWithGroups(text: string, groupMentions: string[]) {
+    const ddp = new DDPConnection(METEOR_URL.replace(/^http/, 'ws') + '/websocket');
+    try {
+      await ddp.connect();
+      await ddp.login(COMMENTER.email, COMMENTER.password);
+      return (await ddp.call('huddle.createPost', [
+        { teamId, content: { text, mentions: [], groupMentions } },
+      ])) as { id: string };
+    } finally {
+      ddp.close();
+    }
+  }
+
+  async function groupNotificationsForAuthor(postId: string) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const db = await getDb();
+    return db
+      .collection('notifications')
+      .find({ userId: authorId, 'data.type': 'huddle-group-mention', 'data.postId': postId })
+      .toArray();
+  }
+
+  afterEach(async () => {
+    const db = await getDb();
+    await db.collection('clockevents').deleteMany({ userId: authorId, teamId });
+  });
+
+  it('@team reaches every teammate', async () => {
+    const { id } = await postAsCommenterWithGroups('Standup in 5 @team', ['team']);
+    expect(await groupNotificationsForAuthor(id)).toHaveLength(1);
+  });
+
+  it('@here skips a teammate who is not clocked in', async () => {
+    const { id } = await postAsCommenterWithGroups('Anyone around? @here', ['here']);
+    expect(await groupNotificationsForAuthor(id)).toHaveLength(0);
+  });
+
+  it('@here reaches a teammate clocked in to the team', async () => {
+    const db = await getDb();
+    await db.collection('clockevents').insertOne({
+      userId: authorId,
+      teamId,
+      startTime: Date.now(),
+      accumulatedTime: 0,
+      endTime: null,
+    });
+    const { id } = await postAsCommenterWithGroups('Anyone around? @here', ['here']);
+    expect(await groupNotificationsForAuthor(id)).toHaveLength(1);
+  });
+
+  it('sends a follower one notification, not a new-post one as well', async () => {
+    await wormhole('notificationPrefs.update', { teams: { [teamId]: 'all' } }, authorJwt);
+    const { id } = await postAsCommenterWithGroups('Big news @team', ['team']);
+    expect(await groupNotificationsForAuthor(id)).toHaveLength(1);
+    const db = await getDb();
+    const newPost = await db
+      .collection('notifications')
+      .countDocuments({ userId: authorId, 'data.type': 'huddle-post', 'data.postId': id });
+    expect(newPost).toBe(0);
+  });
+
+  it('rejects an unknown group', async () => {
+    await expect(postAsCommenterWithGroups('hi @everyone', ['everyone'])).rejects.toBeTruthy();
   });
 });
 

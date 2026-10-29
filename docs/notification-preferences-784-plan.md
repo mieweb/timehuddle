@@ -444,27 +444,43 @@ Use `@mieweb/ui` only:
 This needs no `vendor/ui` change. SuperChat takes its mention list from us through
 `composerProps.mentionOptions`.
 
-- [ ] **7.1 `src/features/huddle/useTeamMentions.ts`:**
-  - [ ] Put two group options at the front of `options`: `team` ("Everyone in this
-        team") and `here` ("Everyone clocked in now").
-  - [ ] Teach `detect()` to return them separately as `groupMentions`, so they never
-        end up in the user-id `mentions` list.
-- [ ] **7.2 `huddle.createPost`:**
-  - [ ] Accept `content.groupMentions`, an array of `'team' | 'here'`.
-  - [ ] Validate it before the existing user-id mention check, which would otherwise
-        throw "User not found" on `team`.
-  - [ ] Store it on the post. It is domain data: who was addressed.
-- [ ] **7.3 `huddle-delivery.js` `notifyPostRecipients`:** expand the group mentions and
-      send type `huddle-group-mention`, skipping the author and anyone mentioned directly.
-  - `team` covers all team members and admins.
-  - `here` covers members with an open `ClockEvents` row for **this team**
-    (`teamId`, `endTime: null`).
-- [ ] **7.4 `notification-prefs-core.js`:** `huddleGroupMention` follows the team-level table above.
-      `holdOffShift` **does** hold it, because it isn't a personal mention.
-- [ ] **7.5 Check rendering:** confirm `@team` and `@here` are highlighted like
-      `@person` in `MarkdownContent`. If they aren't, stop and ask before changing
-      `vendor/ui`.
-- [ ] **7.6 Release note.**
+- [x] **7.1 `src/features/huddle/useTeamMentions.ts`:**
+  - [x] `GROUP_MENTION_OPTIONS`: `team` ("Everyone in this team") and `here` ("Everyone
+        clocked in now"), using the composer's `value` and `description` fields.
+        `useTeamMentions().options` stays the roster, so its tests are unchanged.
+        `Huddle.tsx` puts the group options first in `mentionOptions`, in a team's view
+        only (not Personal).
+  - [x] `detectGroupMentions(text)` returns them separately, by the same word-boundary
+        rule as a person's. `isGroupMentionId` keeps the option ids out of the user-id
+        `mentions`.
+- [x] **7.2 `huddle.createPost` and `huddle.updatePost`:**
+  - [x] Accept `content.groupMentions` (`'team' | 'here'`), validated by
+        `validGroupMentions` before anything is written. It sits apart from the user-id
+        check, so `team` never hits "User not found".
+  - [x] Stored on the post only when non-empty. Editing a scheduled post recomputes it
+        from the text, as mentions are. The REST `huddlePostContentSchema` documents it.
+- [x] **7.3 `huddle-delivery.js` `notifyPostRecipients`:** after direct mentions,
+      `notifyGroupMentions` sends `huddle-group-mention`, and only then
+      `notifyTeamFollowers` runs. Each person gets one notification per post: a direct
+      mention, else a group mention, else a new-post alert.
+  - `team` covers all members and admins.
+  - `here` covers members with an open `clockevents` row for **this team**.
+  - `sendPostNotifications` is shared by group mentions and new-post alerts.
+- [x] **7.4 `notification-prefs-core.js`:** `huddleGroupMention` (desktop on, phone off by
+      default). Dropped on Mute, allowed on Mentions & replies, and held by
+      `holdOffShift`, since it isn't a personal mention.
+- [x] **7.5 Rendering:** SuperChat doesn't highlight `@person` mentions either; both are
+      plain text in the bubble. `@team` reads the same as a person, so vendor/ui
+      doesn't need a change.
+- [x] **7.6 Release note:** an "@team and @here in Huddle" bullet in `release-notes/1.2.0.md`.
+- [x] **Settings:** an "@team and @here" row in **What notifies you**.
+- [x] **Tests:**
+  - 3 unit tests in the core.
+  - 3 in `useTeamMentions.test.ts`.
+  - 5 integration tests: `@team` reaches a teammate; `@here` skips someone not clocked
+    in and reaches someone who is; a follower gets one notification, not two; an
+    unknown group is rejected.
+  - Smoke-tested in the browser: suggestion list, send, and fan-out to 4 teammates.
 
 **Done when:** all of these hold.
 
