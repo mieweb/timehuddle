@@ -232,6 +232,8 @@ export interface SourceServer {
   type?: 'redmine';
   /** The server's address, with any path Redmine lives under. */
   baseUrl?: string;
+  /** How time entries sent to this server are rounded up; absent for exact. */
+  rounding?: 'exact' | 'up3' | 'up5' | 'up10' | 'up15';
 }
 
 /** The outside ID for `url` (#689), e.g. `timehuddle-223` or `PM-233`, or null. */

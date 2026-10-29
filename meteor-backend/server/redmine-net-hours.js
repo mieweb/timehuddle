@@ -58,10 +58,10 @@ export function sumClosedSessions(sessions) {
  * Days with no closed time are dropped: a still-running timer has no final
  * duration, and a pushed entry can never be corrected.
  *
- * @template {{endTime?: number|null, durationSeconds?: number|null}} T
+ * @template {{endTime?: number|null, durationSeconds?: number|null, clockEventId?: string|null}} T
  * @param {T[]} sessions
  * @param {(session: T) => string | null | undefined} keyOf
- * @returns {Array<{ticketId: string, date: string, seconds: number}>}
+ * @returns {Array<{ticketId: string, date: string, seconds: number, clockEventId: string|null}>}
  */
 export function ticketDayTotals(sessions, keyOf) {
   const byKey = new Map();
@@ -75,7 +75,25 @@ export function ticketDayTotals(sessions, keyOf) {
   return [...byKey.entries()]
     .map(([key, bucket]) => {
       const [ticketId, date] = key.split('|');
-      return { ticketId, date, seconds: sumClosedSessions(bucket) };
+      return {
+        ticketId,
+        date,
+        seconds: sumClosedSessions(bucket),
+        clockEventId: latestClockEventId(bucket),
+      };
     })
     .filter((total) => total.seconds > 0);
+}
+
+/**
+ * The shift the ticket-day's latest session ran in, or null when none says.
+ * Its team's organization sets the rounding the day's time goes to Redmine under.
+ */
+function latestClockEventId(sessions) {
+  let latest = null;
+  for (const session of sessions) {
+    if (!session.clockEventId) continue;
+    if (!latest || session.endTime > latest.endTime) latest = session;
+  }
+  return latest?.clockEventId ?? null;
 }

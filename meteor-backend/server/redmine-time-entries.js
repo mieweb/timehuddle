@@ -43,6 +43,15 @@ function minutesToHours(minutes) {
 }
 
 /**
+ * Whole minutes rounded up to a multiple of `step`; without one they stay as
+ * they are. Seconds are made whole minutes first (`unsentTotals`), so a few
+ * stray seconds never round up to a step.
+ */
+export function roundUpMinutes(minutes, step) {
+  return step ? Math.ceil(minutes / step) * step : minutes;
+}
+
+/**
  * The hours to send for one unsent total (see `unsentTotals`): its `minutes`,
  * or without them its seconds rounded as they stand.
  */
@@ -93,26 +102,36 @@ export function hoursAgree(sent, stored) {
  * difference is what stops repeated pushes drifting — two 30-second pushes
  * would otherwise each round up, and put two minutes in Redmine for one worked.
  *
+ * A server that rounds up works the same way: the day's total is rounded up to
+ * its step, and only what Redmine does not hold yet is sent, so time already
+ * covered by a rounded-up entry sends nothing more. `rounding` then carries the
+ * step and the exact minutes, for the dialog to show both.
+ *
  * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
  * so short stretches accumulate until they are worth sending.
  *
  * @param {Map<string, {seconds: number, discardedSeconds: number, minutes: number}>} ledgerByKey
  *   what has been handled per `ticketId|date` — see `pushLedgerFor`
- * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number}>}
+ * @param {Map<string, number>} [stepByKey] the minutes each ticket-day rounds up to; none is exact
+ * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number, rounding?: {step: number, exactMinutes: number}}>}
  */
-export function unsentTotals(totals, ledgerByKey) {
+export function unsentTotals(totals, ledgerByKey, stepByKey = new Map()) {
   if (!Array.isArray(totals)) return [];
   return totals
     .map((total) => {
-      const held = ledgerByKey.get(ticketDayKey(total.ticketId, total.date)) ?? NOTHING_HANDLED;
+      const key = ticketDayKey(total.ticketId, total.date);
+      const held = ledgerByKey.get(key) ?? NOTHING_HANDLED;
+      const step = stepByKey.get(key);
       // Discarded time is never owed to Redmine, so it is left out of the target.
       const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
+      const exactMinutes = Math.max(0, owedMinutes - held.minutes);
       return {
         ticketId: total.ticketId,
         date: total.date,
         seconds: Math.max(0, total.seconds - held.seconds),
         alreadySentSeconds: held.seconds,
-        minutes: Math.max(0, owedMinutes - held.minutes),
+        minutes: Math.max(0, roundUpMinutes(owedMinutes, step) - held.minutes),
+        ...(step ? { rounding: { step, exactMinutes } } : {}),
       };
     })
     .filter((total) => total.seconds > 0);
@@ -177,6 +196,10 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityOptions: activity.options ?? [],
         // The Billable field the entry is sent with, or null for none (#686).
         billable: issue?.billable ?? null,
+        // The step the hours were rounded up to, and the exact hours; null for exact.
+        rounding: total.rounding
+          ? { step: total.rounding.step, exactHours: minutesToHours(total.rounding.exactMinutes) }
+          : null,
         // Every reason a row cannot be sent, so the dialog explains itself
         // rather than just disabling a checkbox.
         blockedReason: !isPushable(hours)

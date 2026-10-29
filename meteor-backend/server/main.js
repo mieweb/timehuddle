@@ -2534,7 +2534,15 @@ Meteor.startup(async () => {
           type: 'array',
           items: {
             type: 'object',
-            properties: { host: { type: 'string' }, prefix: { type: 'string' } },
+            properties: {
+              host: { type: 'string' },
+              prefix: { type: 'string' },
+              rounding: {
+                type: 'string',
+                enum: ['exact', 'up3', 'up5', 'up10', 'up15'],
+                description: "How the server's time entries are rounded; exact when left out",
+              },
+            },
             required: ['host', 'prefix'],
           },
         },

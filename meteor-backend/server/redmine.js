@@ -13,14 +13,17 @@ import { randomUUID } from 'node:crypto';
 
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
+import { ObjectId } from 'mongodb';
 
 import {
   ClockEvents,
   DUPLICATE_KEY_ERROR_CODE,
   RedmineLinks,
+  Teams,
   Timers,
   WorkItems,
   isObjectIdHex,
+  rawDb,
 } from './collections';
 import { requireIdentity } from './auth-bridge';
 import {
@@ -64,6 +67,7 @@ import {
 } from './redmine-time-entries';
 import { flagEntry, pushLedgerFor, recordDiscard, recordEntry } from './redmine-time-sync';
 import { ticketDayKey } from './redmine-net-hours';
+import { ROUNDING_STEPS, hostOf } from './ticket-ids';
 import { REDMINE, normalizeSource } from './ticket-refs';
 import { redmineTicketDaysFor } from './timer-core';
 
@@ -271,7 +275,55 @@ async function unsentTicketDays(userId, account, only) {
     includeLinked: onDefaultRedmine(account),
     only,
   });
-  return totals.length ? unsentTotals(totals, await pushLedgerFor(userId, only)) : [];
+  if (!totals.length) return [];
+  const [ledger, steps] = await Promise.all([
+    pushLedgerFor(userId, only),
+    roundingStepsFor(totals, account),
+  ]);
+  return unsentTotals(totals, ledger, steps);
+}
+
+const objectIds = (ids) => [...new Set(ids.filter(isObjectIdHex))].map((id) => new Mongo.ObjectID(id));
+
+/**
+ * The minutes each ticket-day rounds up to: the rounding its organization set
+ * on the user's Redmine server, found through the team of the shift the day's
+ * latest session ran in. A day with no shift on record, or a server with no
+ * rounding, is left out and goes exact.
+ */
+async function roundingStepsFor(totals, account) {
+  const host = hostOf(account.baseUrl);
+  const shiftIds = objectIds(totals.map((total) => total.clockEventId));
+  if (!host || !shiftIds.length) return new Map();
+  const shifts = await ClockEvents.find({ _id: { $in: shiftIds } }, { fields: { teamId: 1 } }).fetchAsync();
+  const teamIds = objectIds(shifts.map((shift) => shift.teamId));
+  const teams = teamIds.length
+    ? await Teams.find({ _id: { $in: teamIds } }, { fields: { orgId: 1 } }).fetchAsync()
+    : [];
+  const orgIds = [...new Set(teams.map((team) => team.orgId).filter(isObjectIdHex))];
+  const orgs = orgIds.length
+    ? await rawDb()
+        .collection('organizations')
+        .find({ _id: { $in: orgIds.map((id) => new ObjectId(id)) } })
+        .project({ sourcePrefixes: 1 })
+        .toArray()
+    : [];
+  const stepByOrg = new Map(
+    orgs.map((org) => {
+      const server = (org.sourcePrefixes ?? []).find((entry) => entry.host === host);
+      return [org._id.toHexString(), ROUNDING_STEPS[server?.rounding]];
+    }),
+  );
+  const orgByTeam = new Map(teams.map((team) => [team._id.toHexString(), team.orgId]));
+  const orgByShift = new Map(
+    shifts.map((shift) => [shift._id.toHexString(), orgByTeam.get(shift.teamId)]),
+  );
+  const steps = new Map();
+  for (const total of totals) {
+    const step = stepByOrg.get(orgByShift.get(total.clockEventId));
+    if (step) steps.set(ticketDayKey(total.ticketId, total.date), step);
+  }
+  return steps;
 }
 
 /** The Redmine issue a timer session's time belongs to, as a string id, or null. */

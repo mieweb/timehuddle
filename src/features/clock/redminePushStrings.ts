@@ -121,4 +121,7 @@ export const entryCardText = {
   commentPlaceholder: 'Optional',
   showAsTime: 'Show as time',
   showAsRedmineHours: 'Show as Redmine hours',
+  rounding: 'Rounding',
+  /** `worked` is the time as tracked; the entry's hours above are what is sent. */
+  roundedUp: (worked: string, step: number) => `${worked} worked, rounded up to ${step} min`,
 };

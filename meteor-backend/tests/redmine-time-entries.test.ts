@@ -13,6 +13,7 @@ import {
   hoursAgree,
   isPushable,
   buildPushRows,
+  roundUpMinutes,
   sendableForTicketDay,
   unsentTotals,
 } from '../server/redmine-time-entries';
@@ -308,5 +309,50 @@ describe('sendableForTicketDay (#688 — what a timer that just ended left to se
 
   it('is nothing for under a minute, which Redmine would refuse', () => {
     expect(sendableForTicketDay(unsent, '20', '2026-09-21')).toBeNull();
+  });
+});
+
+describe("rounding up (the Redmine server's setting)", () => {
+  const KEY = '7|2026-10-29';
+  const step = (minutes: number) => new Map([[KEY, minutes]]);
+  const day = (seconds: number) => [{ ticketId: '7', date: '2026-10-29', seconds }];
+
+  it('rounds whole minutes up to the step, or leaves them without one', () => {
+    expect([3, 5, 10, 15].map((each) => roundUpMinutes(282, each))).toEqual([282, 285, 290, 285]);
+    expect(roundUpMinutes(282, undefined)).toBe(282);
+  });
+
+  it('sends exact minutes, with no rounding detail, for a server that does not round', () => {
+    const [row] = unsentTotals(day(282 * 60), new Map());
+    expect(row.minutes).toBe(282);
+    expect(row).not.toHaveProperty('rounding');
+  });
+
+  it('rounds up and keeps the exact minutes for the dialog', () => {
+    const [row] = unsentTotals(day(282 * 60), new Map(), step(10));
+    expect(row.minutes).toBe(290);
+    expect(row.rounding).toEqual({ step: 10, exactMinutes: 282 });
+  });
+
+  it('rounds the day total, so several stops never add up past it', () => {
+    // Up to 15: 0:10 sends 0:15, 0:20 tops up to 0:30, and 0:24 sends nothing.
+    expect(unsentTotals(day(600), new Map(), step(15))[0].minutes).toBe(15);
+    expect(unsentTotals(day(1200), sent(KEY, 600, 15), step(15))[0].minutes).toBe(15);
+    expect(unsentTotals(day(1440), sent(KEY, 1200, 30), step(15))[0].minutes).toBe(0);
+  });
+
+  it('never rounds a few stray seconds up to a step', () => {
+    expect(unsentTotals(day(20), new Map(), step(5))[0].minutes).toBe(0);
+  });
+
+  it('carries the rounding into the dialog row as hours', () => {
+    const [total] = unsentTotals(
+      [{ ticketId: '19', date: '2026-10-29', seconds: 282 * 60 }],
+      new Map(),
+      new Map([['19|2026-10-29', 15]]),
+    );
+    const [row] = buildPushRows([total], issues, resolver);
+    expect(row.hours).toBe(4.75);
+    expect(row.rounding).toEqual({ step: 15, exactHours: 4.7 });
   });
 });

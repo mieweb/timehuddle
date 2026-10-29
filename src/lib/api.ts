@@ -2543,6 +2543,8 @@ export interface RedmineTimeEntryRow {
    * time entry that has one; null when Redmine has none to copy (#686).
    */
   billable: RedmineBillable | null;
+  /** The minutes `hours` was rounded up to, and the exact hours; null when sent exact. */
+  rounding?: { step: number; exactHours: number } | null;
   blockedReason: RedmineBlockedReason | null;
 }
 
