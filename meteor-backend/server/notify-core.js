@@ -26,7 +26,7 @@ function notifications() {
  */
 async function deliveryFor(userId, data) {
   if (!prefKeyForType(data?.type)) return DELIVER_EVERYWHERE;
-  return resolveDelivery(await getPrefs(userId), { type: data.type });
+  return resolveDelivery(await getPrefs(userId), { type: data.type, teamId: data.teamId });
 }
 
 /**

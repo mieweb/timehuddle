@@ -112,7 +112,10 @@ describe('notificationPrefs.get', () => {
     const res = await wormhole<{ events: Events }>('notificationPrefs.get', {}, authorJwt);
     expect(res.ok).toBe(true);
     expect(res.result.events.huddleReply).toEqual({ desktop: true, phone: true });
-    expect(Object.values(res.result.events).every((e) => e.desktop && e.phone)).toBe(true);
+    // Events that existed before #784 start on for both devices; new posts start desktop-only.
+    expect(res.result.events.huddlePost).toEqual({ desktop: true, phone: false });
+    const existing = Object.entries(res.result.events).filter(([key]) => key !== 'huddlePost');
+    expect(existing.every(([, e]) => e.desktop && e.phone)).toBe(true);
   });
 });
 
@@ -131,9 +134,64 @@ describe('notificationPrefs.update', () => {
   });
 
   it('rejects an unknown event', async () => {
-    const res = await wormhole('notificationPrefs.update', { events: { nope: { phone: true } } }, authorJwt);
+    const res = await wormhole(
+      'notificationPrefs.update',
+      { events: { nope: { phone: true } } },
+      authorJwt,
+    );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Unknown event/);
+  });
+});
+
+describe('team levels', () => {
+  async function postAsCommenter(text: string) {
+    const ddp = new DDPConnection(METEOR_URL.replace(/^http/, 'ws') + '/websocket');
+    try {
+      await ddp.connect();
+      await ddp.login(COMMENTER.email, COMMENTER.password);
+      return (await ddp.call('huddle.createPost', [
+        { teamId, content: { text, mentions: [] } },
+      ])) as {
+        id: string;
+      };
+    } finally {
+      ddp.close();
+    }
+  }
+
+  async function newPostNotificationsForAuthor() {
+    const db = await getDb();
+    // Post notifications are sent after createPost returns; give them a moment.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return db
+      .collection('notifications')
+      .find({ userId: authorId, 'data.type': 'huddle-post' })
+      .toArray();
+  }
+
+  it('sends nothing about new posts on the default level', async () => {
+    await postAsCommenter('A post nobody follows');
+    expect(await newPostNotificationsForAuthor()).toHaveLength(0);
+  });
+
+  it('notifies a member on All posts about each new post', async () => {
+    const res = await wormhole<{ teams: Record<string, string> }>(
+      'notificationPrefs.update',
+      { teams: { [teamId]: 'all' } },
+      authorJwt,
+    );
+    expect(res.result.teams[teamId]).toBe('all');
+    const { id } = await postAsCommenter('A post for followers');
+    const found = await newPostNotificationsForAuthor();
+    expect(found).toHaveLength(1);
+    expect(found[0].data.postId).toBe(id);
+  });
+
+  it('drops a reply on a muted team', async () => {
+    await wormhole('notificationPrefs.update', { teams: { [teamId]: 'mute' } }, authorJwt);
+    await commentAsCommenter('Muted reply');
+    expect(await replyNotificationsForAuthor()).toHaveLength(0);
   });
 });
 
@@ -154,7 +212,11 @@ describe('createNotification obeys preferences', () => {
   });
 
   it('still logs when only one device is off', async () => {
-    await wormhole('notificationPrefs.update', { events: { huddleReply: { phone: false } } }, authorJwt);
+    await wormhole(
+      'notificationPrefs.update',
+      { events: { huddleReply: { phone: false } } },
+      authorJwt,
+    );
     await commentAsCommenter('One more');
     expect(await replyNotificationsForAuthor()).toHaveLength(1);
   });

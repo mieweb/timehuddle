@@ -2,7 +2,7 @@ import { cleanup, render } from '@testing-library/react';
 import { SuperChatInbox, type SuperChatConversation } from '@mieweb/ui/components/SuperChat';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { findListHeader } from './useInboxSlot';
+import { findConversationHeader, findListHeader } from './useInboxSlot';
 
 // SuperChat reads layout APIs jsdom doesn't implement.
 beforeAll(() => {
@@ -58,5 +58,11 @@ describe('SuperChatInbox portal targets', () => {
     const header = findListHeader(renderInbox());
     expect(header).not.toBeNull();
     expect(header?.closest('[data-slot="superchat-conversations"]')).not.toBeNull();
+  });
+
+  it('finds the open conversation header', () => {
+    const header = findConversationHeader(renderInbox());
+    expect(header).not.toBeNull();
+    expect(header?.tagName).toBe('HEADER');
   });
 });

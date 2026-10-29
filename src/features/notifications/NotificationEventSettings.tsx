@@ -7,7 +7,6 @@
  */
 import {
   Checkbox,
-  Spinner,
   Switch,
   Table,
   TableBody,
@@ -22,9 +21,9 @@ import {
   Text,
   useMediaQuery,
 } from '@mieweb/ui';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
-import { notificationPrefsApi, type NotificationDevices } from '../../lib/api';
+import type { NotificationDevices } from '../../lib/api';
 import {
   NOTIFICATION_DEVICES,
   NOTIFICATION_EVENT_GROUPS,
@@ -33,6 +32,8 @@ import {
   type NotificationEventCopy,
   type NotificationEventGroup,
 } from './notificationCopy';
+import { PrefsStatus } from './PrefsStatus';
+import { useNotificationPrefs } from './useNotificationPrefs';
 
 type Events = Record<string, NotificationDevices>;
 type Toggle = (key: string, device: NotificationDevice, on: boolean) => void;
@@ -150,49 +151,26 @@ const EventTabs: React.FC<{
 );
 
 export const NotificationEventSettings: React.FC = () => {
-  const [events, setEvents] = useState<Events | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { prefs, error, setEvent } = useNotificationPrefs();
   const phone = useMediaQuery('(max-width: 767px)');
-
-  useEffect(() => {
-    notificationPrefsApi
-      .get()
-      .then((prefs) => setEvents(prefs.events))
-      .catch(() => setError(S.loadFailed));
-  }, []);
-
-  const setCell = (key: string, device: NotificationDevice, on: boolean) =>
-    setEvents((prev) => prev && { ...prev, [key]: { ...prev[key], [device]: on } });
-
-  const toggle: Toggle = (key, device, on) => {
-    setCell(key, device, on);
-    setError(null);
-    notificationPrefsApi.update({ [key]: { [device]: on } }).catch(() => {
-      setCell(key, device, !on);
-      setError(S.saveFailed);
-    });
-  };
 
   return (
     <div className="notification-event-settings">
-      <div aria-live="polite" className="empty:hidden">
-        {error && (
-          <Text size="sm" className="px-5 py-3 text-destructive">
-            {error}
-          </Text>
-        )}
-      </div>
-      {!events ? (
-        !error && (
-          <div className="flex justify-center py-6">
-            <Spinner size="md" />
-          </div>
-        )
-      ) : phone ? (
-        <EventTabs events={events} groups={visibleGroups(events)} onToggle={toggle} />
-      ) : (
-        <EventTable events={events} groups={visibleGroups(events)} onToggle={toggle} />
-      )}
+      <PrefsStatus loading={!prefs} error={error} />
+      {prefs &&
+        (phone ? (
+          <EventTabs
+            events={prefs.events}
+            groups={visibleGroups(prefs.events)}
+            onToggle={setEvent}
+          />
+        ) : (
+          <EventTable
+            events={prefs.events}
+            groups={visibleGroups(prefs.events)}
+            onToggle={setEvent}
+          />
+        ))}
     </div>
   );
 };

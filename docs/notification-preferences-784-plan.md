@@ -286,24 +286,46 @@ Use `@mieweb/ui` only:
 
 ## Milestone 3: Huddle Team Level and "All Posts"
 
-- [ ] **3.1 `huddle-delivery.js`:** add `notifyTeamFollowers(post, team)`.
-  - It sends `huddle-post` to every member and admin of the team, except the author and
-    anyone already @mentioned in the post.
-  - Don't pre-filter by level; `resolveDelivery` drops members who aren't on `all`.
-  - Use `Promise.allSettled`.
-- [ ] **3.2 Call it where `notifyPostRecipients` is already called:** the immediate-post
-      path in `huddle.js` and `deliverScheduledPost`.
-- [ ] **3.3 `notification-prefs-core.js`:** turn on the **Huddle Team Levels** table.
-- [ ] **3.4 New `src/features/huddle/HuddleNotifyMenu.tsx`:**
-  - [ ] **Desktop:** an icon-only bell `Button` (with an `aria-label`) in the
-        **conversation header**, just left of the ⋯ menu. It opens a `Dropdown` with a
-        **{Team name}** section (All posts / Mentions & replies / Mute) and a
-        "Notification settings…" link to `/app/settings?section=notifications`.
-  - [ ] **Phone:** the same content in a `Sheet` (bottom sheet).
-  - [ ] Show the bell as active while the team isn't on Mute.
-- [ ] **3.5 Settings page:** add a **Huddle, per team** card listing the user's teams,
-      with a `ButtonGroup` per team.
-- [ ] **3.6 Release note.**
+- [x] **3.1 `huddle-delivery.js`:** add `notifyTeamFollowers(post, team)`.
+  - [x] It sends `huddle-post` to members and admins of the team who set it to All
+        posts, except the author and anyone already @mentioned in the post.
+  - [x] **Changed from the first draft:** it _does_ pre-filter, with one query
+        (`usersFollowingTeam` in `notification-prefs.js`). Without it, every post
+        would read every member's preferences just to drop most of them.
+        `resolveDelivery` still applies the level and the event setting to whoever is left.
+  - [x] Uses `Promise.allSettled`. Misses are logged, not retried: the post is in the
+        feed either way.
+- [x] **3.2 Called from inside `notifyPostRecipients`**, after the mention sends. Both
+      places that deliver a post (the immediate-post path in `huddle.js` and
+      `deliverScheduledPost`) already call that, so neither caller changed, and the
+      mention retry's return value is untouched.
+- [x] **3.3 `notification-prefs-core.js`:** the **Huddle Team Levels** table, using
+      `ctx.teamId` (which `createNotification` reads from `data.teamId`). Team levels are
+      validated in `prefsPatchToSet` and returned as `teams` by both methods. The new
+      `huddlePost` event defaults to desktop on, phone off.
+- [x] **3.4 New `src/features/huddle/HuddleNotifyMenu.tsx`:**
+  - [x] **Desktop:** an icon-only bell `Button` (with an `aria-label` naming the team and
+        level) in the **conversation header**. It opens a `Dropdown` with "Notify me in
+        {team} about", All posts / Mentions & replies / Mute (`menuitemradio`), and a
+        "Notification settings…" item.
+  - [x] **Phone:** the same choices as a `RadioGroup` in a bottom `Sheet`.
+  - [x] Bell in the primary colour, or `BellOffIcon` in muted grey on Mute.
+  - [x] SuperChat has no header slot, so the bell is portaled into
+        `[data-slot="superchat-header"]` with `useInboxSlot` + `findConversationHeader`,
+        the same stopgap as the list-header filters. The selector is pinned by
+        `useInboxSlot.test.tsx`, and the gap (2.7, `headerActions`) is logged in
+        `docs/superchat-inbox-gaps.md`.
+  - [x] Shown only when a team is selected. The Personal view mixes teams, so it has no bell.
+- [x] **3.5 Settings page:** a **Huddle, per team** card (`HuddleTeamLevelSettings.tsx`)
+      listing the user's non-personal teams, each with a `ButtonGroup` of the three
+      levels (`role="radiogroup"`).
+  - [x] The bell and the card share `useNotificationPrefs`, a hook that loads the prefs,
+        updates the screen first and undoes the change on a failed save. "What notifies
+        you" uses it too now, and `PrefsStatus` shows each card's spinner and error.
+- [x] **3.6 Release note:** a bullet under "Choose what notifies you" in `release-notes/1.2.0.md`.
+- [x] **Tests:** 7 more unit tests (levels and patch validation). Integration tests check
+      that the default level sends nothing about new posts, All posts notifies the
+      follower with the right post id, and Mute drops a reply.
 
 **Done when:** all of these hold.
 

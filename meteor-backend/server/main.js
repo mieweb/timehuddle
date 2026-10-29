@@ -2187,8 +2187,11 @@ Meteor.startup(async () => {
           type: 'object',
           description: 'Event key → { desktop?: boolean, phone?: boolean }',
         },
+        teams: {
+          type: 'object',
+          description: "Team id → Huddle level: 'all' | 'mentions' | 'mute'",
+        },
       },
-      required: ['events'],
     },
   });
 

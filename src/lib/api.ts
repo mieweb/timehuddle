@@ -1935,18 +1935,29 @@ export interface NotificationDevices {
   phone: boolean;
 }
 
+/** How much of one team's Huddle notifies the user. Absent means 'mentions'. */
+export type HuddleTeamLevel = 'all' | 'mentions' | 'mute';
+
 /** The user's notification preferences: every configurable event's effective setting. */
 export interface NotificationPrefs {
   events: Record<string, NotificationDevices>;
+  /** Team id → level, for teams set off the default only. */
+  teams: Record<string, HuddleTeamLevel>;
+}
+
+/** A change to some events and/or team levels. */
+export interface NotificationPrefsPatch {
+  events?: Record<string, Partial<NotificationDevices>>;
+  teams?: Record<string, HuddleTeamLevel>;
 }
 
 export const notificationPrefsApi = {
   /** Every event's effective setting — defaults for anything the user hasn't changed. */
   get: () => wormholeCall<NotificationPrefs>('notificationPrefs.get', {}),
 
-  /** Change some events' settings; resolves to the full, updated preferences. */
-  update: (events: Record<string, Partial<NotificationDevices>>) =>
-    wormholeCall<NotificationPrefs>('notificationPrefs.update', { events }),
+  /** Apply a change; resolves to the full, updated preferences. */
+  update: (patch: NotificationPrefsPatch) =>
+    wormholeCall<NotificationPrefs>('notificationPrefs.update', { ...patch }),
 };
 
 /** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */

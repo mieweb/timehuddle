@@ -48,7 +48,12 @@ import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/Schedul
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { TicketPicker } from '../features/huddle/TicketPicker';
-import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
+import { HuddleNotifyMenu } from '../features/huddle/HuddleNotifyMenu';
+import {
+  findConversationHeader,
+  findListHeader,
+  useInboxSlot,
+} from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
 import { useFeedWindow } from '../features/huddle/useFeedWindow';
 import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth';
@@ -654,6 +659,7 @@ export default function Huddle() {
   // portaled into it.
   const feedRef = useRef<HTMLDivElement>(null);
   const listHeaderEl = useInboxSlot(feedRef, findListHeader);
+  const conversationHeaderEl = useInboxSlot(feedRef, findConversationHeader);
 
   // Both filter dropdowns share one look: equal-width bordered fields with a
   // small legend notched into the top border.
@@ -1219,6 +1225,17 @@ export default function Huddle() {
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
+              {/* A team's bell; the Personal view mixes teams, so it has none. */}
+              {conversationHeaderEl &&
+                scope === 'team' &&
+                selectedTeamId &&
+                createPortal(
+                  <HuddleNotifyMenu
+                    teamId={selectedTeamId}
+                    teamName={teamOptions.find((t) => t.id === selectedTeamId)?.name ?? ''}
+                  />,
+                  conversationHeaderEl,
+                )}
             </>
           )}
         </div>

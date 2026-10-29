@@ -8,6 +8,7 @@ import {
   DELIVER_EVERYWHERE,
   DELIVER_NOWHERE,
   EVENTS,
+  teamLevel,
   allEventSettings,
   prefKeyForType,
   prefsPatchToSet,
@@ -31,8 +32,9 @@ describe('prefKeyForType', () => {
 });
 
 describe('resolveDelivery', () => {
-  it('delivers everywhere when the user has no preferences', () => {
-    for (const event of Object.values(EVENTS)) {
+  it('delivers everywhere when the user has no preferences, for every event that existed before #784', () => {
+    const existing = Object.values(EVENTS).filter((event) => event.desktop && event.phone);
+    for (const event of existing) {
       for (const type of event.types) {
         expect(resolveDelivery(null, { type })).toEqual(DELIVER_EVERYWHERE);
       }
@@ -75,6 +77,49 @@ describe('resolveDelivery', () => {
   });
 });
 
+describe('team levels', () => {
+  const TEAM = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  const withLevel = (level: string) => ({ teams: { [TEAM]: level } });
+
+  it('defaults to mentions', () => {
+    expect(teamLevel(null, TEAM)).toBe('mentions');
+    expect(resolveDelivery(null, { type: 'huddle-post', teamId: TEAM })).toEqual(DELIVER_NOWHERE);
+    expect(resolveDelivery(null, { type: 'huddle-mention', teamId: TEAM }).inbox).toBe(true);
+  });
+
+  it('lets new posts through on all, desktop only by default', () => {
+    expect(resolveDelivery(withLevel('all'), { type: 'huddle-post', teamId: TEAM })).toEqual({
+      inbox: true,
+      desktop: true,
+      phone: false,
+    });
+  });
+
+  it('drops every Huddle event on mute, mentions included', () => {
+    for (const type of [
+      'huddle-mention',
+      'huddle-comment-mention',
+      'huddle-comment',
+      'huddle-post',
+    ]) {
+      expect(resolveDelivery(withLevel('mute'), { type, teamId: TEAM })).toEqual(DELIVER_NOWHERE);
+    }
+  });
+
+  it('only applies to the team it is set on', () => {
+    expect(
+      resolveDelivery(withLevel('mute'), { type: 'huddle-mention', teamId: OTHER }).inbox,
+    ).toBe(true);
+  });
+
+  it('never touches events outside Huddle', () => {
+    expect(
+      resolveDelivery(withLevel('mute'), { type: 'ticket-assigned', teamId: TEAM }).inbox,
+    ).toBe(true);
+  });
+});
+
 describe('allEventSettings', () => {
   it('fills every event the user has not saved with its default', () => {
     const all = allEventSettings(prefs({ shiftEnd: { phone: false } }));
@@ -92,7 +137,15 @@ describe('prefsPatchToSet', () => {
     });
   });
 
+  it('flattens team levels', () => {
+    expect(prefsPatchToSet({ teams: { aaaaaaaaaaaaaaaaaaaaaaaa: 'all' } })).toEqual({
+      'teams.aaaaaaaaaaaaaaaaaaaaaaaa': 'all',
+    });
+  });
+
   it.each([
+    [{ teams: { 'a.b': 'all' } }, /Invalid team/],
+    [{ teams: { aaaaaaaaaaaaaaaaaaaaaaaa: 'loud' } }, /Unknown team level/],
     [{ events: { nope: { phone: true } } }, /Unknown event/],
     [{ events: { shiftEnd: { tablet: true } } }, /Unknown device/],
     [{ events: { shiftEnd: { phone: 'yes' } } }, /must be a boolean/],

@@ -37,9 +37,21 @@ export async function savePrefs(userId, patch) {
   );
 }
 
-/** What the Settings page shows: every event's effective setting. */
+/**
+ * Of `userIds`, those who set `teamId`'s Huddle to All posts — one query, so a
+ * new post doesn't read every member's preferences to find the few who want it.
+ */
+export async function usersFollowingTeam(teamId, userIds) {
+  if (!userIds.length) return [];
+  const docs = await notificationPrefs()
+    .find({ userId: { $in: userIds }, [`teams.${teamId}`]: 'all' }, { projection: { userId: 1 } })
+    .toArray();
+  return docs.map((doc) => doc.userId);
+}
+
+/** What the client shows: every event's effective setting, and the teams set off the default. */
 function toClient(prefs) {
-  return { events: allEventSettings(prefs) };
+  return { events: allEventSettings(prefs), teams: prefs?.teams ?? {} };
 }
 
 Meteor.startup(async () => {

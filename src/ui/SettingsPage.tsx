@@ -57,6 +57,7 @@ import {
   type SettingsGroup,
   type SettingsSectionId,
 } from '../features/settings/settingsSections';
+import { HuddleTeamLevelSettings } from '../features/notifications/HuddleTeamLevelSettings';
 import { NotificationEventSettings } from '../features/notifications/NotificationEventSettings';
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
@@ -1276,6 +1277,12 @@ export const SettingsPage: React.FC = () => {
           description={NOTIFICATION_STRINGS.eventsDescription}
         >
           <NotificationEventSettings />
+        </Section>
+        <Section
+          title={NOTIFICATION_STRINGS.teamsTitle}
+          description={NOTIFICATION_STRINGS.teamsDescription}
+        >
+          <HuddleTeamLevelSettings />
         </Section>
       </>
     ),

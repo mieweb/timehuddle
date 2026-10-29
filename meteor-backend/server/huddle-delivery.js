@@ -6,6 +6,7 @@
 import { ObjectId } from 'mongodb';
 import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
+import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
@@ -79,7 +80,35 @@ export async function notifyPostRecipients(post, team) {
   const recipients = [...new Set(post.content?.mentions ?? [])].filter(
     (userId) => userId !== post.userId && onTeam.has(String(userId)),
   );
-  return sendMentionNotifications(post, recipients);
+  const failed = await sendMentionNotifications(post, recipients);
+  await notifyTeamFollowers(post, team, new Set(recipients.map(String))).catch((err) =>
+    console.error('[huddle] new-post notifications failed:', err),
+  );
+  return failed;
+}
+
+/**
+ * Tell teammates who set this team's Huddle to All posts (#784) about a new
+ * post — not its author, and not anyone it already @mentions. Best-effort: a
+ * miss here isn't retried, since the post is in the feed either way.
+ */
+async function notifyTeamFollowers(post, team, alreadyNotified) {
+  const teamId = String(post.teamId);
+  const candidates = [...teamMemberIds(team)].filter(
+    (userId) => userId !== String(post.userId) && !alreadyNotified.has(userId),
+  );
+  const followers = await usersFollowingTeam(teamId, candidates);
+  if (!followers.length) return;
+  const postId = String(post._id);
+  const title = `${await userDisplayName(post.userId)} posted in ${team.name ?? 'Huddle'}`;
+  const body = (post.content?.text ?? '').substring(0, 100);
+  const data = { type: 'huddle-post', postId, teamId, url: huddlePostUrl(teamId, postId) };
+  const results = await Promise.allSettled(
+    followers.map((userId) => createNotification({ userId, title, body, data })),
+  );
+  for (const r of results) {
+    if (r.status === 'rejected') console.error('[huddle] new-post notification failed:', r.reason);
+  }
 }
 
 /**
@@ -120,7 +149,9 @@ export async function retryMentionNotifications(postId, recipientIds) {
 async function findPostTeam(teamId) {
   const id = String(teamId);
   const ids = /^[a-f0-9]{24}$/i.test(id) ? [id, new ObjectId(id)] : [id];
-  return rawDb().collection('teams').findOne({ _id: { $in: ids } });
+  return rawDb()
+    .collection('teams')
+    .findOne({ _id: { $in: ids } });
 }
 
 /** Whether `userId` is still a member or admin of `team`. */
