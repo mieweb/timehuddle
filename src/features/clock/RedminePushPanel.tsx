@@ -108,8 +108,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
   const rows = useMemo(() => preview?.rows ?? [], [preview]);
   const sendable = useMemo(() => rows.filter((row) => row.blockedReason === null), [rows]);
-  // A few seconds of new time is not worth a row of its own: it stays unsent
-  // and accumulates, so it neither summons the panel nor counts as blocked.
+  // New time Redmine already covers has nothing to send: it stays unsent and
+  // accumulates, so it neither summons the panel nor counts as blocked.
   const blocked = useMemo(
     () => rows.filter((row) => row.blockedReason !== null && row.blockedReason !== 'too-short'),
     [rows],
@@ -136,6 +136,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
           comment: comments[rowKey(row)]?.trim() || undefined,
           billable: row.billable,
+          hours: row.hours,
         })),
       );
       setResults(outcome);
@@ -207,7 +208,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
           <Button
             variant="primary"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              // Read again: the organization may have changed the rounding since.
+              void load();
+              setOpen(true);
+            }}
             disabled={!canOpen}
             title={
               idle
@@ -255,6 +260,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                     decimalHours={decimalHours}
                     onToggleHours={() => setDecimalHours((on) => !on)}
                     billable={row.billable}
+                    rounding={row.rounding}
                     runSeconds={row.runSeconds}
                   >
                     {row.alreadySentSeconds > 0 && (

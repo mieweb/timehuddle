@@ -224,9 +224,9 @@ test.describe('Redmine push panel', () => {
     await expect(page.getByRole('option')).toHaveText(['Development', 'QA']);
   });
 
-  test('sub-minute time is withheld entirely — no row, no block, no panel', async ({ page }) => {
-    // `too-short` rows are not worth a Redmine entry and must not summon the
-    // panel or be counted among the blocked ones.
+  test('time Redmine already covers is withheld — no row, no block, no panel', async ({ page }) => {
+    // `too-short` rows have nothing to send and must not summon the panel or
+    // be counted among the blocked ones.
     await openClock(page, {
       'timeEntries.preview': preview({
         rows: [previewRow({ ticketId: '15', seconds: 30, blockedReason: 'too-short' })],
@@ -287,7 +287,7 @@ test.describe('Redmine push panel', () => {
     await expect.poll(() => rm.callCount('timeEntries.push')).toBe(1);
     // The panel always sends the resolved activity, so assert the *changed* id.
     expect(rm.calls('timeEntries.push')[0]).toEqual({
-      entries: [{ ticketId: '15', date, activityId: 10, billable: null }],
+      entries: [{ ticketId: '15', date, activityId: 10, billable: null, hours: 0.62 }],
     });
     // The result names the activity it went under, not the row's default.
     await expect(page.locator('.redmine-push-entry-sent')).toContainText('QA');
@@ -355,6 +355,7 @@ test.describe('Redmine push panel', () => {
           activityId: 9,
           comment: 'Fixed the intake form validation',
           billable: null,
+          hours: 0.62,
         },
       ],
     });

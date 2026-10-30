@@ -136,6 +136,8 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         // if it moved since. When the preview failed nothing was shown, so a value
         // the server finds on its own is refused, never sent unseen.
         billable: row?.billable ?? null,
+        // The hours shown, read or from the stop: the server refuses them if they moved since.
+        hours,
       });
     } catch (err) {
       // Nothing was decided (a push already running, the network): the prompt
@@ -146,10 +148,12 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
       return;
     }
 
-    if (outcome.reason === 'billable-changed') {
+    if (outcome.reason === 'billable-changed' || outcome.reason === 'hours-changed') {
       // Nothing was sent. Stay open with the comment, and read the value again
       // so the card shows what a second Send would use.
-      setError(text.redmineBillableChanged);
+      setError(
+        outcome.reason === 'hours-changed' ? text.redmineHoursChanged : text.redmineBillableChanged,
+      );
       setRereads((count) => count + 1);
       busyRef.current = false;
       setSending(false);
@@ -216,6 +220,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             decimalHours={decimalHours}
             onToggleHours={() => setDecimalHours((on) => !on)}
             billable={row?.billable}
+            rounding={row?.rounding}
             runSeconds={row?.runSeconds}
             // One entry, and the dialog frames it already.
             bare

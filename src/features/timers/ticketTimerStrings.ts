@@ -120,6 +120,9 @@ export const ticketTimerText = {
    */
   redmineBillableChanged:
     'Billable status changed in Redmine, so nothing was sent. Check it below, then press Send again.',
+  /** The server's rounding moved the hours since the prompt showed them. Nothing was sent. */
+  redmineHoursChanged:
+    'The rounding for this Redmine server changed, so nothing was sent. Check the hours below, then press Send again.',
   /** The send itself could not be made; the prompt stays open. */
   redmineSendFailed:
     'Could not send the time to Redmine. Try again, or close this to send it later.',

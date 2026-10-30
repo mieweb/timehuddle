@@ -2075,7 +2075,7 @@ export interface TimerUpdateRef {
 /**
  * What a timer session that just closed left to send to Redmine: its issue-day
  * and the hours not yet sent. Null when there is nothing worth sending (not a
- * Redmine issue, no linked account, or under a minute).
+ * Redmine issue, no linked account, or time an earlier entry already covers).
  */
 export interface UnsentRedmineTime {
   ticketId: string;
@@ -2560,6 +2560,8 @@ export interface RedmineTimeEntryRow {
    * time entry that has one; null when Redmine has none to copy (#686).
    */
   billable: RedmineBillable | null;
+  /** The minutes `hours` was rounded up to, and the exact hours; null when sent exact. */
+  rounding?: { step: number; exactHours: number } | null;
   blockedReason: RedmineBlockedReason | null;
 }
 
@@ -2590,6 +2592,11 @@ export interface RedmineTimeEntryPushRequest {
    * own lookup, and refuses the entry if that no longer matches what was shown.
    */
   billable?: RedmineBillable | null;
+  /**
+   * The hours the user was shown. The server works them out again, and refuses
+   * the entry if its rounding has since changed them.
+   */
+  hours?: number;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -2948,7 +2955,8 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
-      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
+        hours,
+      }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
@@ -2956,6 +2964,7 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
+        hours,
       }),
 
     /**

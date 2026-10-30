@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { orgApi } from '../../lib/api';
 import { TicketIdsCard } from './TicketIdsCard';
 
 vi.mock('../../lib/TeamContext', () => ({
@@ -56,5 +57,21 @@ describe('TicketIdsCard', () => {
     rerender(<TicketIdsCard orgId="org-b" ticketPrefix="TH" sourcePrefixes={servers()} />);
     expect(prefixField().value).toBe('TH');
     expect(hostField().value).toBe('redmine.example.com');
+  });
+
+  it("saves each server's rounding with the rest of the server", async () => {
+    vi.mocked(orgApi.setSourcePrefixes).mockResolvedValue([]);
+    render(
+      <TicketIdsCard
+        orgId="org-a"
+        ticketPrefix="TH"
+        sourcePrefixes={[{ host: 'redmine.example.com', prefix: 'PM', rounding: 'up10' }]}
+      />,
+    );
+    fireEvent.change(hostField(), { target: { value: 'tracker.example.com' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[1]);
+    expect(orgApi.setSourcePrefixes).toHaveBeenCalledWith('org-a', [
+      { host: 'tracker.example.com', prefix: 'PM', type: 'redmine', rounding: 'up10' },
+    ]);
   });
 });

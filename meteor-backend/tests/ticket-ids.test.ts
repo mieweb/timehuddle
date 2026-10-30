@@ -146,6 +146,26 @@ describe('normalizeSourcePrefixes', () => {
     ]);
   });
 
+  it('keeps a server\'s rounding, storing exact as nothing', () => {
+    const [rounded, exact] = normalizeSourcePrefixes(
+      [
+        { host: 'a.example.com', prefix: 'AA', rounding: 'up10' },
+        { host: 'b.example.com', prefix: 'BB', rounding: 'exact' },
+      ],
+      'TH',
+    );
+    expect(rounded.rounding).toBe('up10');
+    expect(exact).not.toHaveProperty('rounding');
+    expect(() =>
+      normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: 'up30' }], 'TH'),
+    ).toThrow(/not a rounding/);
+    for (const inherited of ['up3', 'constructor', '__proto__', 'toString']) {
+      expect(() =>
+        normalizeSourcePrefixes([{ host: 'a.example.com', prefix: 'AA', rounding: inherited }], 'TH'),
+      ).toThrow(/not a rounding/);
+    }
+  });
+
   it('refuses a repeated host, a repeated prefix, or the org ticket prefix', () => {
     const row = { host: 'a.example.com', prefix: 'AA' };
     expect(() => normalizeSourcePrefixes([row, { ...row, prefix: 'BB' }], 'TH')).toThrow(/twice/);

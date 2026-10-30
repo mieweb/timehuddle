@@ -106,7 +106,7 @@ export function findClosedAtTime(userId, endTime) {
  * For the paths that act on one issue's day (a timer just ended, one entry
  * being sent), which would otherwise slow down as that history grows.
  *
- * @returns {Promise<Array<{ticketId: string, date: string, seconds: number, runSeconds: number[]}>>}
+ * @returns {Promise<Array<{ticketId: string, date: string, seconds: number, clockEventId: string|null, runSeconds: number[]}>>}
  */
 export async function redmineTicketDaysFor(userId, { includeLinked = true, only } = {}) {
   const day = only ? { ticketId: String(only.ticketId), date: only.date } : null;
@@ -128,7 +128,7 @@ export async function redmineTicketDaysFor(userId, { includeLinked = true, only 
       ? timers()
           .find(
             { workItemId: { $in: [...keyByWorkItem.keys()] }, ...closed },
-            { projection: { workItemId: 1, endTime: 1, durationSeconds: 1 } },
+            { projection: { workItemId: 1, endTime: 1, durationSeconds: 1, clockEventId: 1 } },
           )
           .toArray()
       : [],
@@ -140,7 +140,9 @@ export async function redmineTicketDaysFor(userId, { includeLinked = true, only 
             day
               ? { userId, redmineIssueId: day.ticketId, date: day.date, ...closed }
               : { userId, redmineIssueId: { $type: 'string' }, ...closed },
-            { projection: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1 } },
+            {
+              projection: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1, clockEventId: 1 },
+            },
           )
           .toArray()
       : [],
