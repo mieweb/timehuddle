@@ -154,6 +154,17 @@ describe('a reminder run', () => {
     const job = await run(2);
     expect(stub.sendToUser).not.toHaveBeenCalled();
     expect(job.removed).toBe(true);
+    expect(agenda.created).toHaveLength(0);
+  });
+
+  it('starts again when a notification lands between its count and its removal', async () => {
+    stub.unread = [0, 1, 1];
+    const job = await run(2);
+    expect(stub.sendToUser).not.toHaveBeenCalled();
+    expect(job.removed).toBe(true);
+    expect(agenda.created).toHaveLength(1);
+    expect(agenda.created[0].data).toEqual({ userId: USER, step: 0 });
+    expect(agenda.created[0].runAt).toEqual(new Date(NOW.getTime() + 2 * HOUR));
   });
 
   it('removes the job without a push once reminders are turned off', async () => {

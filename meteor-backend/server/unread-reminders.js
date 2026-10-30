@@ -38,6 +38,7 @@ async function runUnreadReminder(job) {
   const [count, prefs] = await Promise.all([unreadCount(userId), getPrefs(userId)]);
   if (!count || !wantsUnreadReminders(prefs)) {
     await job.remove();
+    if (!count) await restartIfUnread(userId);
     return;
   }
   // Quiet time holds a reminder like any pop-up; a held one is skipped, not delayed.
@@ -90,7 +91,14 @@ export async function startUnreadReminders(userId) {
 export async function stopUnreadRemindersIfAllRead(userId) {
   if (!_agenda || (await unreadCount(userId)) > 0) return;
   await _agenda.cancel({ name: UNREAD_REMINDER_JOB, data: { userId } });
-  // A notification that arrived between the count and the cancel lost its
-  // job to the cancel; start it again.
+  await restartIfUnread(userId);
+}
+
+/**
+ * After removing a job because nothing was unread: a notification that
+ * arrived between that count and the removal may have reset the job just
+ * before it was removed, so start the reminders again.
+ */
+async function restartIfUnread(userId) {
   if ((await unreadCount(userId)) > 0) await startUnreadReminders(userId);
 }
