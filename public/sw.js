@@ -36,6 +36,9 @@ self.addEventListener('push', function (event) {
       icon: data.icon || '/logo.png',
       badge: data.badge || '/logo.png',
       tag: data.tag || 'default',
+      // Each unread reminder replaces the last one (same tag) but must still
+      // alert; without renotify, Chrome swaps it in silently.
+      renotify: notificationData.type === 'unread-reminder',
       data: notificationData,
       requireInteraction: false,
       vibrate: [200, 100, 200],

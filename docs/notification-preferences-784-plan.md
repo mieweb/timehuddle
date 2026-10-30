@@ -549,7 +549,10 @@ to check the bell, with each wait double the last.
       (`unread-reminder`, data `{ userId, step }`).
   - [x] `createNotification` calls `startUnreadReminders(userId)` after its insert. It
         schedules step 0 two hours out with `.unique(…, { insertOnly: true })`, so a
-        notification arriving mid-run doesn't restart the waits.
+        notification arriving mid-run doesn't restart the waits. When the new
+        notification is the only unread one, it overwrites any queued job instead:
+        that job is left over from notifications read or removed outside the inbox
+        methods (timesheet prompts, join requests), which don't cancel it.
   - [x] When the job runs it counts every unread row. With none, or with reminders
         turned off since, it removes itself. Otherwise it pushes "You have N unread
         notifications" (tag `unread-reminder`, `url: /app/notifications`) and queues the
@@ -557,7 +560,9 @@ to check the bell, with each wait double the last.
         starts again at 2 hours.
   - [x] `markOneRead`, `markAllRead`, `deleteMany` and `respondToInvite` call
         `stopUnreadRemindersIfAllRead(userId)`, which cancels the job once nothing is
-        unread.
+        unread, then counts again and restarts it if a notification landed in between.
+  - [x] `public/sw.js` sets `renotify` for `unread-reminder`, so a reminder that
+        replaces the last one on desktop still alerts.
 - [x] **9.3 Settings:** a **Reminders** group in `notificationCopy.ts`. The existing
       What notifies you table shows it with no new component.
 - [x] **9.4 Tapping it** opens `/app/notifications` through the existing `url` handling in

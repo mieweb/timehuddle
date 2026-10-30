@@ -73,10 +73,15 @@ export function defineUnreadReminderJob(agenda) {
 /** Start the reminders for a new notification, unless they're off or already running. */
 export async function startUnreadReminders(userId) {
   if (!_agenda || !wantsUnreadReminders(await getPrefs(userId))) return;
+  // With nothing else unread, a job still queued is left from a run whose
+  // notifications were read or removed without cancelling it (a timesheet
+  // prompt answered, a join request handled), so start again at 2 hours.
+  // Otherwise keep the run: a notification arriving mid-run must not restart
+  // the waits.
+  const startOver = (await unreadCount(userId)) <= 1;
   await _agenda
     .create(UNREAD_REMINDER_JOB, { userId, step: 0 })
-    // insertOnly: a notification arriving mid-run must not restart the waits.
-    .unique({ name: UNREAD_REMINDER_JOB, 'data.userId': userId }, { insertOnly: true })
+    .unique({ name: UNREAD_REMINDER_JOB, 'data.userId': userId }, { insertOnly: !startOver })
     .schedule(new Date(Date.now() + unreadReminderDelayMs(0)))
     .save();
 }
@@ -85,4 +90,7 @@ export async function startUnreadReminders(userId) {
 export async function stopUnreadRemindersIfAllRead(userId) {
   if (!_agenda || (await unreadCount(userId)) > 0) return;
   await _agenda.cancel({ name: UNREAD_REMINDER_JOB, data: { userId } });
+  // A notification that arrived between the count and the cancel lost its
+  // job to the cancel; start it again.
+  if ((await unreadCount(userId)) > 0) await startUnreadReminders(userId);
 }

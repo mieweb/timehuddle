@@ -411,6 +411,34 @@ describe('unread reminders', () => {
     expect(new Date(jobs[0].nextRunAt).getTime()).toBe(runAt);
   });
 
+  it('starts again at 2 hours when a leftover job outlived its unread notifications', async () => {
+    await turnOn();
+    await commentAsCommenter('First');
+    const [first] = await settledReminderJobs();
+    // Read some other way than the inbox methods (a prompt answered elsewhere),
+    // so nothing cancelled the job, which had already moved on to its 16-hour wait.
+    const db = await getDb();
+    await db.collection('notifications').updateMany({ userId: authorId }, { $set: { read: true } });
+    await db
+      .collection('agendajobs')
+      .updateOne(
+        { _id: first._id },
+        { $set: { 'data.step': 3, nextRunAt: new Date(Date.now() + 16 * HOUR) } },
+      );
+
+    const before = Date.now();
+    await commentAsCommenter('Second');
+    let job = (await reminderJobs())[0];
+    for (let i = 0; i < 20 && job?.data.step !== 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      job = (await reminderJobs())[0];
+    }
+    expect(await reminderJobs()).toHaveLength(1);
+    expect(job.data.step).toBe(0);
+    expect(new Date(job.nextRunAt).getTime()).toBeGreaterThanOrEqual(before + 2 * HOUR);
+    expect(new Date(job.nextRunAt).getTime()).toBeLessThan(Date.now() + 2 * HOUR + 1000);
+  });
+
   it('stops once everything is read', async () => {
     await turnOn();
     await commentAsCommenter('Read me');
