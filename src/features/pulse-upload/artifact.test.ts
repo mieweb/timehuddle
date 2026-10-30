@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pulseArtifactId } from './artifact';
+import { pulseArtifactId, videoLabel } from './artifact';
 
 const ID = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
 
@@ -22,5 +22,18 @@ describe('pulseArtifactId', () => {
     expect(pulseArtifactId('/pulsevault/artifacts/../../etc')).toBeNull();
     expect(pulseArtifactId(null)).toBeNull();
     expect(pulseArtifactId('')).toBeNull();
+  });
+});
+
+describe('videoLabel', () => {
+  const VIDEO = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
+
+  it("is the video's name", () => {
+    expect(videoLabel('Morning standup', VIDEO)).toBe('Morning standup');
+  });
+
+  it('falls back to "Video" and the start of its id', () => {
+    expect(videoLabel(null, VIDEO)).toBe('Video 0b7e7c1e');
+    expect(videoLabel('   ', VIDEO)).toBe('Video 0b7e7c1e');
   });
 });

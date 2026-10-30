@@ -13,6 +13,27 @@
   overflow-wrap: anywhere;
 }
 
+/* A post with a video is as wide as its widest video, the way a chat shows
+   media: its text wraps under the video instead of stretching the bubble past
+   it, and the bubble is a thin frame round the video. Several videos take
+   the widest one's width, the narrower ones centred. */
+.inbox :global([data-slot='superchat-bubble']:has(.pulse-video-card)) {
+  width: min-content;
+  padding: 0.375rem;
+}
+/* Everything else in that post keeps the bubble's usual inset. */
+.inbox
+  :global(
+    [data-slot='superchat-bubble']:has(.pulse-video-card)
+      > .prose
+      > :not(.pulse-video-card):not(:has(.pulse-video-card))
+  ) {
+  padding: 0.25rem 0.625rem;
+}
+.inbox :global([data-slot='superchat-bubble'] .pulse-video-card) {
+  margin-inline: auto;
+}
+
 /* ChatComposer draws its own + after the leadingSlot, and the slot is one
    wrapper; let the slot's children join the row so Pulse (behind its "/")
    can sit to the right of the +. Visual order only: in the DOM, and so for

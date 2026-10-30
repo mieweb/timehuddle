@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
+import { videoIdOf, videoNamesFor } from './video-names.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -117,7 +118,24 @@ Meteor.methods({
       .find({ 'attachedTo.kind': kind, 'attachedTo.id': id })
       .sort({ addedAt: 1 })
       .toArray();
-    return { attachments: docs.map(toPublic) };
+    // A video's name is its media item's (video-names.js), renamed by its owner.
+    const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
+    return {
+      attachments: docs.map((a) => {
+        const video = a.type === 'video' ? videos.get(videoIdOf(a.url)) : undefined;
+        return {
+          ...toPublic(a),
+          ...(a.type === 'video'
+            ? {
+                name: video?.name ?? null,
+                // Its owner; or, for a video from before every video had a
+                // media item, whoever attached it (videos.rename makes one).
+                canRename: video ? video.ownerId === userId : a.addedBy === userId,
+              }
+            : {}),
+        };
+      }),
+    };
   },
 
   // No `thumbnail` from clients: a Pulse video's poster comes from PulseVault

@@ -18,12 +18,13 @@ import type {
   SuperChatMessage,
 } from '@mieweb/ui/components/SuperChat';
 
-function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
+function attachmentMarkdown(att: HuddlePost['attachments'][number], mine: boolean): string {
   const name = att.filename ?? 'attachment';
   // A Pulse video becomes the `pulse_video` card (poster + play); anything that
   // isn't a PulseVault artifact falls through to a plain link.
   if (att.type === 'video') {
-    const card = pulseVideoMarkdown(att.url, att.filename);
+    // The card shows the video's name, as every video card does.
+    const card = pulseVideoMarkdown(att.url, att.name ?? undefined, mine);
     if (card) return card;
   }
   // Posts store attachment URLs by path — bind them to the current backend
@@ -294,12 +295,15 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
 function postToInboxMessageText(
   post: HuddlePost,
   isSessionPost: boolean,
+  viewerId: string,
   teamName?: string,
 ): string {
   const parts = [post.content.text];
   const attachments = attachmentsNotInlined(post);
   if (attachments.length > 0) {
-    parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
+    // The poster's own videos: their cards offer Rename.
+    const mine = post.userId === viewerId;
+    parts.push(attachments.map((att) => attachmentMarkdown(att, mine)).join('\n\n'));
   }
   const label = postLabelParts(post, isSessionPost, teamName);
   if (label.length > 0) {
@@ -456,7 +460,12 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      text: postToInboxMessageText(
+        post,
+        planPostIds.has(post.id),
+        viewer.userId,
+        getTeamName?.(post.teamId),
+      ),
       time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
       ...(isAwaitingDelivery(post) && { scheduledFor: post.deliverAt }),
@@ -577,7 +586,7 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
     post.clockEventId ? undefined : OFF_THE_CLOCK,
     post.session && post.session.endTime == null ? 'live' : undefined,
-    ...post.attachments.flatMap((att) => [att.filename, att.type]),
+    ...post.attachments.flatMap((att) => [att.filename, att.name ?? undefined, att.type]),
     teamName,
     dateKey,
     formatDayLabel(dateKey),

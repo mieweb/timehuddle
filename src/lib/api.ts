@@ -1281,6 +1281,8 @@ export interface HuddlePostAttachment {
   url: string;
   thumbnailUrl?: string;
   filename?: string;
+  /** A video's name, from its media item (null: unnamed). Videos only. */
+  name?: string | null;
 }
 
 export interface HuddlePost {
@@ -1696,6 +1698,8 @@ export interface TimesheetChangeRequest {
   } | null;
   description: string;
   videoUrl: string | null;
+  /** The walkthrough's name (null: unnamed). */
+  videoName?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   requestedAt: string;
   respondedAt: string | null;
@@ -1967,6 +1971,10 @@ export interface Attachment {
   attachedTo: { kind: AttachmentKind; id: string };
   addedBy: string;
   addedAt: string;
+  /** A video's name, from its media item (null: unnamed). Videos only. */
+  name?: string | null;
+  /** Whether the caller owns the video and so may rename it. Videos only. */
+  canRename?: boolean;
 }
 
 export const attachmentApi = {
@@ -2249,6 +2257,13 @@ async function readPulseStatus(
 }
 
 export const videoApi = {
+  /**
+   * Name one of the caller's own videos by its id (empty clears it). One name
+   * per video, so it shows everywhere the video appears. Resolves the name kept.
+   */
+  rename: (videoId: string, name: string) =>
+    wormholeCall<{ name: string | null }>('videos.rename', { videoId, name }).then((r) => r.name),
+
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
 

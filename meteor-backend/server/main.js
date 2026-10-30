@@ -2867,6 +2867,14 @@ Meteor.startup(async () => {
       required: ['mediaId'],
     },
   });
+  Wormhole.expose('videos.rename', {
+    description: "Name one of your own videos (empty clears it); shown wherever it appears",
+    inputSchema: {
+      type: 'object',
+      properties: { videoId: { type: 'string' }, name: { type: 'string' } },
+      required: ['videoId', 'name'],
+    },
+  });
   Wormhole.expose('media.remove', {
     description: 'Delete media item + files (owner)',
     inputSchema: {

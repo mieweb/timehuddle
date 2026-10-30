@@ -20,6 +20,15 @@ describe('pulseVideoMarkdown', () => {
     });
   });
 
+  it("marks the viewer's own video, and leaves the flag out otherwise", () => {
+    const props = (mine?: boolean) =>
+      JSON.parse(pulseVideoMarkdown(`/pulsevault/artifacts/${VIDEO}`, 'Clip', mine)!.split('\n')[1])
+        .props;
+    expect(props(true)).toEqual({ video: VIDEO, title: 'Clip', mine: true });
+    expect(props(false)).toEqual({ video: VIDEO, title: 'Clip' });
+    expect(props()).toEqual({ video: VIDEO, title: 'Clip' });
+  });
+
   it('is null for anything that is not a PulseVault artifact', () => {
     expect(pulseVideoMarkdown('https://example.com/clip.mp4')).toBeNull();
   });

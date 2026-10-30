@@ -24,6 +24,11 @@ export function pulseArtifactId(url: string | undefined | null): string | null {
   return id && ARTIFACT_ID.test(id) ? id : null;
 }
 
+/** What to call a video: its name, else "Video" and the start of its id. */
+export function videoLabel(name: string | null | undefined, videoId: string): string {
+  return name?.trim() || `Video ${videoId.slice(0, 8)}`;
+}
+
 /** The playback path for an artifact id. */
 export function artifactPath(id: string): string {
   return `/pulsevault/artifacts/${id}`;

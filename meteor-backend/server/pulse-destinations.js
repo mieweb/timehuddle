@@ -28,6 +28,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
+import { cleanVideoName } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -61,10 +62,11 @@ const attachment = (kind, check) => ({
     return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
   },
   async deliver(userId, { id }, video) {
+    // The video's name lives on its media item (video-names.js), not here.
+    await addToLibrary(userId, video);
     await createAttachment({
       url: video.url,
       type: 'video',
-      title: video.title,
       attachedTo: { kind, id },
       addedBy: userId,
     });
@@ -94,7 +96,8 @@ async function addToLibrary(userId, video) {
     videoid: video.artifactId,
     filename: video.filename,
     size: video.size,
-    title: video.title,
+    // The video's one name (video-names.js): the draft's or the file's, until renamed.
+    title: cleanVideoName(video.name),
     caption: null,
     altText: null,
     thumbnail: null,
@@ -352,6 +355,8 @@ const DESTINATIONS = {
       return WALKTHROUGH_NOTE;
     },
     async deliver(userId, { id }, video) {
+      // Its name lives on its media item, as every video's does.
+      await addToLibrary(userId, video);
       // Still pending and still without one: a walkthrough never replaces another.
       const { matchedCount } = await rawDb()
         .collection('timesheetchangerequests')

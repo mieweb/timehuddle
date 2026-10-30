@@ -28,6 +28,7 @@ import {
   notifyRequesterOfDecision,
   toPublicChangeRequest,
 } from './timesheet-change-requests';
+import { withVideoNames } from './video-names.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -318,7 +319,7 @@ Meteor.methods({
   async 'timesheetApprovals.listMine'({ teamId, status } = {}) {
     const identity = await requireIdentity(this);
     const requests = await listRequestsForUser(identity.userId, { teamId, status });
-    return { requests: requests.map((r) => toPublicChangeRequest(r)) };
+    return { requests: await withVideoNames(requests.map((r) => toPublicChangeRequest(r))) };
   },
 
   /** Requests awaiting the caller's review across the teams they administer. */
@@ -343,12 +344,14 @@ Meteor.methods({
 
     const names = await attachRequesterNames(requests);
     return {
-      requests: await Promise.all(
-        requests.map((r) =>
-          withCurrent(r, {
-            requesterName: names.get(r.userId) ?? 'Someone',
-            teamName: teamNames.get(r.teamId) ?? null,
-          })
+      requests: await withVideoNames(
+        await Promise.all(
+          requests.map((r) =>
+            withCurrent(r, {
+              requesterName: names.get(r.userId) ?? 'Someone',
+              teamName: teamNames.get(r.teamId) ?? null,
+            })
+          )
         )
       ),
     };
@@ -368,11 +371,14 @@ Meteor.methods({
     }
 
     const names = await attachRequesterNames([request]);
-    return withCurrent(request, {
-      requesterName: names.get(request.userId) ?? 'Someone',
-      teamName: team?.name ?? null,
-      canReview: isReviewer && request.userId !== identity.userId && request.status === 'pending',
-    });
+    const [detail] = await withVideoNames([
+      await withCurrent(request, {
+        requesterName: names.get(request.userId) ?? 'Someone',
+        teamName: team?.name ?? null,
+        canReview: isReviewer && request.userId !== identity.userId && request.status === 'pending',
+      }),
+    ]);
+    return detail;
   },
 
   async 'timesheetApprovals.approve'({ requestId, note } = {}) {

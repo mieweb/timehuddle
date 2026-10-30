@@ -15,6 +15,7 @@ import {
   visibleTo,
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
+import { videoIdOf, videoNamesFor } from './video-names.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -195,7 +196,13 @@ async function enrichPost(post) {
       : post.clockEventId
         ? await fetchOwnedSession(post)
         : undefined;
-  
+
+  // A video's name is its media item's (video-names.js), shown on its card
+  // here as everywhere else. No query for a post without a video.
+  const videoNames = await videoNamesFor(
+    (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null)),
+  );
+
   return {
     id,
     teamId: post.teamId,
@@ -206,6 +213,7 @@ async function enrichPost(post) {
     tickets,
     attachments: (post.attachments ?? []).map((att) => ({
       ...att,
+      ...(att.type === 'video' ? { name: videoNames.get(videoIdOf(att.url))?.name ?? null } : {}),
       url: att.url && /^https?:\/\//i.test(att.url)
         ? att.url
         : `${METEOR_BASE_URL}${att.url?.startsWith('/') ? '' : '/'}${att.url ?? ''}`,

@@ -27,6 +27,11 @@ export const pulseVideoSchema = z.object({
    * PulseVault caps a name at 512 code points, at most 1024 UTF-16 units.
    */
   title: z.string().max(1024).optional(),
+  /**
+   * The viewer posted it, so the card offers to rename it. Only what's
+   * offered: a hand-written block can claim it, and the server still refuses.
+   */
+  mine: z.boolean().optional(),
 });
 
 export type PulseVideoProps = z.infer<typeof pulseVideoSchema>;
@@ -37,10 +42,15 @@ export type PulseVideoProps = z.infer<typeof pulseVideoSchema>;
  * of JSON, so the block holds no blank line — the inbox splits a message's
  * decorations on blank lines (see stripInboxDecorations).
  */
-export function pulseVideoMarkdown(videoUrl: string, title?: string): string | null {
+export function pulseVideoMarkdown(
+  videoUrl: string,
+  title?: string,
+  mine?: boolean,
+): string | null {
   const video = pulseArtifactId(videoUrl);
   if (!video) return null;
-  const block = { widget: PULSE_VIDEO_WIDGET, props: { video, ...(title ? { title } : {}) } };
+  const props = { video, ...(title ? { title } : {}), ...(mine ? { mine } : {}) };
+  const block = { widget: PULSE_VIDEO_WIDGET, props };
   // A draft name is the person's own text: its backticks are encoded (JSON
   // reads `\u0060` back as a backtick) so it can never close the fence.
   return '```genui\n' + JSON.stringify(block).replace(/`/g, '\\u0060') + '\n```';

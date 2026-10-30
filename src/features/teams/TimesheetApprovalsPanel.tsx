@@ -455,7 +455,11 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             // other URL plays as is, capped so a portrait recording doesn't
             // push the decision buttons off the bottom of a phone screen.
             (walkthroughVideo ? (
-              <PulseVideoPlayer video={walkthroughVideo} title="Walkthrough" />
+              <PulseVideoPlayer
+                video={walkthroughVideo}
+                title={active.videoName ?? 'Walkthrough'}
+                caption={active.videoName}
+              />
             ) : (
               <video
                 src={resolveMediaUrl(active.videoUrl)}
