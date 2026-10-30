@@ -98,7 +98,9 @@ export function hoursAgree(sent, stored) {
  *
  * @param {Map<string, {seconds: number, discardedSeconds: number, minutes: number}>} ledgerByKey
  *   what has been handled per `ticketId|date` — see `pushLedgerFor`
- * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number}>}
+ * `runSeconds` is the timer runs that difference is made of, oldest first.
+ *
+ * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number, runSeconds: number[]}>}
  */
 export function unsentTotals(totals, ledgerByKey) {
   if (!Array.isArray(totals)) return [];
@@ -107,18 +109,36 @@ export function unsentTotals(totals, ledgerByKey) {
       const held = ledgerByKey.get(ticketDayKey(total.ticketId, total.date)) ?? NOTHING_HANDLED;
       // Discarded time is never owed to Redmine, so it is left out of the target.
       const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
+      const unsentSeconds = Math.max(0, total.seconds - held.seconds);
       return {
         ticketId: total.ticketId,
         date: total.date,
-        seconds: Math.max(0, total.seconds - held.seconds),
+        seconds: unsentSeconds,
         alreadySentSeconds: held.seconds,
         minutes: Math.max(0, owedMinutes - held.minutes),
+        runSeconds: unsentRuns(total.runSeconds, unsentSeconds),
       };
     })
     .filter((total) => total.seconds > 0);
 }
 
 const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
+
+/**
+ * The timer runs that make up a ticket-day's unsent seconds. The ledger holds
+ * seconds, not runs, but each send covers every run closed by then, so the unsent
+ * time is normally the newest runs: go back from the latest until they cover it.
+ * Moving or editing an entry can break that, so when no run list adds up to the
+ * unsent time there is none to show: it never contradicts the total.
+ *
+ * @param {number[]} [runSeconds] each run's seconds, oldest first
+ */
+function unsentRuns(runSeconds = [], unsentSeconds) {
+  let covered = 0;
+  let first = runSeconds.length;
+  while (first > 0 && covered < unsentSeconds) covered += runSeconds[--first];
+  return covered === unsentSeconds ? runSeconds.slice(first) : [];
+}
 
 /**
  * What one ticket-day has left that is worth sending, out of `unsentTotals`'
@@ -144,7 +164,7 @@ export function sendableForTicketDay(unsent, ticketId, date) {
  * tracked time, and hiding it would silently drop work. It carries
  * `issueMissing: true` so the dialog can show it as unsendable instead.
  *
- * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
+ * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number, runSeconds?: number[]}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
  * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
@@ -166,6 +186,7 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         date: total.date,
         seconds: total.seconds,
         alreadySentSeconds: total.alreadySentSeconds ?? 0,
+        runSeconds: total.runSeconds ?? [],
         hours,
         subject: issue?.subject ?? null,
         trackerName: issue?.trackerName ?? null,

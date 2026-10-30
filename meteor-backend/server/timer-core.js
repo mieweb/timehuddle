@@ -106,7 +106,7 @@ export function findClosedAtTime(userId, endTime) {
  * For the paths that act on one issue's day (a timer just ended, one entry
  * being sent), which would otherwise slow down as that history grows.
  *
- * @returns {Promise<Array<{ticketId: string, date: string, seconds: number}>>}
+ * @returns {Promise<Array<{ticketId: string, date: string, seconds: number, runSeconds: number[]}>>}
  */
 export async function redmineTicketDaysFor(userId, { includeLinked = true, only } = {}) {
   const day = only ? { ticketId: String(only.ticketId), date: only.date } : null;

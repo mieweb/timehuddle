@@ -86,7 +86,9 @@ describe('ticketDayTotals', () => {
         ? ticketDayKey(session.redmineIssueId, session.date)
         : (keyByWorkItem.get(session.workItemId ?? '') ?? null),
     );
-    expect(totals).toEqual([{ ticketId: '482', date: '2026-10-04', seconds: 1800 }]);
+    expect(totals).toEqual([
+      { ticketId: '482', date: '2026-10-04', seconds: 1800, runSeconds: [1200, 600] },
+    ]);
   });
 
   it('keeps time logged under different issues apart, so a relink never moves it', () => {
@@ -96,9 +98,20 @@ describe('ticketDayTotals', () => {
     ];
     const totals = ticketDayTotals(sessions, (s) => ticketDayKey(s.redmineIssueId, s.date));
     expect(totals).toEqual([
-      { ticketId: '482', date: '2026-10-04', seconds: 900 },
-      { ticketId: '500', date: '2026-10-04', seconds: 300 },
+      { ticketId: '482', date: '2026-10-04', seconds: 900, runSeconds: [900] },
+      { ticketId: '500', date: '2026-10-04', seconds: 300, runSeconds: [300] },
     ]);
+  });
+
+  it('lists each closed run oldest first, leaving out open and empty ones', () => {
+    const sessions = [
+      { key: 'a|d', endTime: 30, durationSeconds: 300 },
+      { key: 'a|d', endTime: 10, durationSeconds: 100 },
+      { key: 'a|d', endTime: null, durationSeconds: null },
+      { key: 'a|d', endTime: 20, durationSeconds: 0 },
+    ];
+    const [total] = ticketDayTotals(sessions, (s) => s.key);
+    expect(total.runSeconds).toEqual([100, 300]);
   });
 
   it('leaves out sessions with no ticket-day, and days with no closed time', () => {

@@ -121,4 +121,6 @@ export const entryCardText = {
   commentPlaceholder: 'Optional',
   showAsTime: 'Show as time',
   showAsRedmineHours: 'Show as Redmine hours',
+  addsUpRuns: (runs: number) => `Adds up ${runs} timer runs`,
+  runLabel: (run: number) => `Run ${run}`,
 };

@@ -2542,6 +2542,8 @@ export interface RedmineTimeEntryRow {
   seconds: number;
   /** Seconds already sent for this ticket-day by earlier pushes. */
   alreadySentSeconds: number;
+  /** The seconds of each timer run that `seconds` adds up, oldest first. */
+  runSeconds: number[];
   /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
   hours: number;
   subject: string | null;

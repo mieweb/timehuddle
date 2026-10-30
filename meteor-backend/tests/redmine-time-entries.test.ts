@@ -213,14 +213,40 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
       seconds: 2215,
       alreadySentSeconds: 4546,
       minutes: 37,
+      runSeconds: [],
     });
+  });
+
+  it('lists only the runs not yet sent', () => {
+    const totals = [{ ticketId: '15', date: '2026-09-21', seconds: 300, runSeconds: [60, 60, 180] }];
+    const unsentRuns = (held: number) =>
+      unsentTotals(totals, sent('15|2026-09-21', held))[0].runSeconds;
+    expect(unsentTotals(totals, new Map())[0].runSeconds).toEqual([60, 60, 180]);
+    expect(unsentRuns(60)).toEqual([60, 180]);
+    expect(unsentRuns(120)).toEqual([180]);
+  });
+
+  it('lists no runs when the newest ones do not add up to the unsent time', () => {
+    // Two older 60 s runs moved onto a day whose later 600 s run was already sent.
+    const [row] = unsentTotals(
+      [{ ticketId: '15', date: '2026-09-21', seconds: 720, runSeconds: [60, 60, 600] }],
+      sent('15|2026-09-21', 600),
+    );
+    expect(row).toMatchObject({ seconds: 120, runSeconds: [] });
   });
 
   it('passes a never-pushed ticket-day through whole', () => {
     expect(
       unsentTotals([{ ticketId: '12', date: '2026-09-21', seconds: 1442 }], new Map()),
     ).toEqual([
-      { ticketId: '12', date: '2026-09-21', seconds: 1442, alreadySentSeconds: 0, minutes: 24 },
+      {
+        ticketId: '12',
+        date: '2026-09-21',
+        seconds: 1442,
+        alreadySentSeconds: 0,
+        minutes: 24,
+        runSeconds: [],
+      },
     ]);
   });
 
