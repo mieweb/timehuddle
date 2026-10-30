@@ -695,11 +695,14 @@ export default function Huddle() {
     [ownsVideo],
   );
   // The conversation's media view (SuperChat's feed of its videos). ▶ on a
-  // card is a tap to watch it, with its sound, as on every other card (the feed
-  // has no unmute control); the card's ⋯ menu is there too, to copy a video's
-  // link or rename one of your own while you watch it.
+  // card is a tap to watch it, so it starts with its sound, as on every other
+  // card (the player's own mute is in its bar); the card's ⋯ menu is there
+  // too, to copy a video's link or rename one of your own while you watch it.
   const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
     () => ({
+      // Mobile first: each clip edge to edge, and on a phone the media view
+      // takes the whole screen above the message box.
+      layout: 'overlay',
       muted: false,
       renderActions: ({ attachment }) => (
         <VideoMenu
