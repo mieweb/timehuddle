@@ -198,10 +198,9 @@ async function enrichPost(post) {
         : undefined;
 
   // A video's name is its media item's (video-names.js), shown on its card
-  // here as everywhere else. No query for a post without a video.
-  const videoNames = await videoNamesFor(
-    (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null)),
-  );
+  // here as everywhere else. A feed looked them all up at once
+  // (attachEnrichment); a single post looks up its own, none without a video.
+  const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
 
   return {
     id,
@@ -285,29 +284,36 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** The ids of a post's PulseVault videos. */
+function postVideoIds(post) {
+  return (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null));
+}
+
 /**
  * Batch lookups for a list of posts — one `$in` query each for sessions,
  * authors and ticket titles instead of one per post, since
  * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
- * unbounded feed. Mutates each post with `session`, `authorInfo` and
- * `tickets`, which `enrichPost` then just passes through.
+ * unbounded feed. Mutates each post with `session`, `authorInfo`, `tickets`
+ * and `videoNames`, which `enrichPost` then just passes through.
  */
 async function attachEnrichment(posts) {
   if (!posts.length) return posts;
   const userIds = [...new Set(posts.map((p) => String(p.userId)))];
   const ticketIds = [...new Set(posts.flatMap((p) => (p.ticketIds ?? []).map(String)))];
-  const [users, titlesById] = await Promise.all([
+  const [users, titlesById, videoNames] = await Promise.all([
     rawDb()
       .collection('users')
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
     fetchTicketTitles(ticketIds),
+    videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
     post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
     post.tickets = toPostTickets(post, titlesById);
+    post.videoNames = videoNames;
   }
   return posts;
 }

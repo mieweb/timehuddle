@@ -10,9 +10,28 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
+import { artifactBelongsTo } from './pulsevault.js';
 import { cleanVideoName, videoIdOf, videoNameOf } from './video-names-core.js';
 
 export { cleanVideoName, videoIdOf, videoNameOf, VIDEO_NAME_MAX } from './video-names-core.js';
+
+/** A duplicate key: another write made this video's media item first. */
+export const isDuplicateKey = (err) => err?.code === 11000;
+
+// One media item per video. Fails (and says so) where duplicates already
+// exist; reads still work then, the newest match winning.
+Meteor.startup(async () => {
+  try {
+    await rawDb()
+      .collection('mediaitems')
+      .createIndex(
+        { videoid: 1 },
+        { unique: true, partialFilterExpression: { videoid: { $type: 'string' } } },
+      );
+  } catch (error) {
+    console.error('[video-names] no unique mediaitems.videoid index (duplicates?):', error.message);
+  }
+});
 
 /** Each video's name, media item and owner, by video id (absent: no media item). */
 export async function videoNamesFor(videoIds) {
@@ -27,29 +46,14 @@ export async function videoNamesFor(videoIds) {
   );
 }
 
-/**
- * When `userId` brought this video here without a media item to name it on — a
- * video attached before every video had one — the attachment or walkthrough it
- * came in as, for the item made on its first name. Else null.
- */
-async function videoBroughtBy(userId, videoId) {
-  const url = `/pulsevault/artifacts/${videoId}`;
-  const attachment = await rawDb()
-    .collection('attachments')
-    .findOne({ url, type: 'video', addedBy: userId }, { projection: { addedAt: 1 } });
-  if (attachment) return { url, at: attachment.addedAt };
-  const request = await rawDb()
-    .collection('timesheetchangerequests')
-    .findOne({ videoUrl: url, userId }, { projection: { requestedAt: 1 } });
-  return request ? { url, at: request.requestedAt } : null;
-}
-
 Meteor.methods({
   /**
    * Name one of your own videos (empty clears it). The name is on its media
    * item, so it shows everywhere the video appears. A video from before every
-   * video had a media item gets one on its first name, if you're the one who
-   * attached it.
+   * video had a media item gets one on its first name, if PulseVault's own
+   * record says you uploaded it — never because you attached it somewhere
+   * (attachments.add takes any URL). That item is `embedded`: naming a video
+   * doesn't put it in your media library for teammates to browse.
    */
   async 'videos.rename'({ videoId, name } = {}) {
     const identity = await requireIdentity(this);
@@ -64,29 +68,34 @@ Meteor.methods({
       await media.updateOne({ _id: item._id }, { $set: { title } });
       return { name: videoNameOf(title) };
     }
-    const brought = await videoBroughtBy(userId, id);
-    if (!brought) throw new Meteor.Error('forbidden', 'Not your video');
-    // Upserted, so two first names at once leave one item.
-    await media.updateOne(
-      { videoid: id },
-      {
-        $set: { title },
-        $setOnInsert: {
-          userId,
-          type: 'video',
-          mimeType: 'video/mp4',
-          url: brought.url,
-          videoid: id,
-          filename: `${id}.mp4`,
-          size: 0,
-          caption: null,
-          altText: null,
-          thumbnail: null,
-          uploadedAt: brought.at instanceof Date ? brought.at : new Date(),
+    if (!(await artifactBelongsTo(id, userId))) throw new Meteor.Error('forbidden', 'Not your video');
+    try {
+      await media.updateOne(
+        { videoid: id },
+        {
+          $set: { title },
+          $setOnInsert: {
+            userId,
+            type: 'video',
+            mimeType: 'video/mp4',
+            url: `/pulsevault/artifacts/${id}`,
+            videoid: id,
+            filename: `${id}.mp4`,
+            size: 0,
+            caption: null,
+            altText: null,
+            thumbnail: null,
+            embedded: true,
+            uploadedAt: new Date(),
+          },
         },
-      },
-      { upsert: true },
-    );
+        { upsert: true },
+      );
+    } catch (err) {
+      // Two first names at once: the unique index let one insert; name that one.
+      if (!isDuplicateKey(err)) throw err;
+      await media.updateOne({ videoid: id, userId }, { $set: { title } });
+    }
     return { name: videoNameOf(title) };
   },
 });

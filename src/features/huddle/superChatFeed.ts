@@ -12,6 +12,8 @@ import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
 import { PULSE_VIDEO_WIDGET, pulseVideoMarkdown } from './pulseVideoBlock';
+import { pulseArtifactId } from '../pulse-upload/artifact';
+import { renamedName } from '../pulse-upload/renamedVideos';
 import type {
   Participant,
   SuperChatConversation,
@@ -23,8 +25,12 @@ function attachmentMarkdown(att: HuddlePost['attachments'][number], mine: boolea
   // A Pulse video becomes the `pulse_video` card (poster + play); anything that
   // isn't a PulseVault artifact falls through to a plain link.
   if (att.type === 'video') {
-    // The card shows the video's name, as every video card does.
-    const card = pulseVideoMarkdown(att.url, att.name ?? undefined, mine);
+    // The card shows the video's name, as every video card does — the one it
+    // was renamed to in this tab, until the next fetch brings it.
+    const videoId = pulseArtifactId(att.url);
+    const renamed = videoId ? renamedName(videoId) : undefined;
+    const title = renamed !== undefined ? renamed : att.name;
+    const card = pulseVideoMarkdown(att.url, title ?? undefined, mine);
     if (card) return card;
   }
   // Posts store attachment URLs by path — bind them to the current backend

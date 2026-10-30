@@ -49,6 +49,7 @@ import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { useRenamedVideosVersion } from '../features/pulse-upload/renamedVideos';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -639,6 +640,8 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
+  // A rename doesn't change the post, so the feed rebuilds on one itself.
+  const renamedVideosVersion = useRenamedVideosVersion();
   const allConversations = useMemo(() => {
     const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
     return user
@@ -650,7 +653,7 @@ export default function Huddle() {
           nowMinute,
         )
       : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope]);
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, renamedVideosVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:

@@ -28,7 +28,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
-import { cleanVideoName } from './video-names.js';
+import { cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -63,7 +63,8 @@ const attachment = (kind, check) => ({
   },
   async deliver(userId, { id }, video) {
     // The video's name lives on its media item (video-names.js), not here.
-    await addToLibrary(userId, video);
+    // Embedded: a ticket's or session's video isn't for the library.
+    await addToLibrary(userId, video, { embedded: true });
     await createAttachment({
       url: video.url,
       type: 'video',
@@ -81,28 +82,49 @@ const attachment = (kind, check) => ({
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
-/** The video's media-library item, created once; returns its id. */
-async function addToLibrary(userId, video) {
+/**
+ * The video's media item, created once; returns its id. It holds the video's
+ * one name. `embedded` keeps it out of the uploader's library and profile
+ * (media.list / media.listForUser): for a video that only belongs where it
+ * was sent, such as a clock session or a timesheet walkthrough.
+ */
+async function addToLibrary(userId, video, { embedded = false } = {}) {
   const media = rawDb().collection('mediaitems');
-  const existing = await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-  if (existing) return existing._id.toHexString();
+  // Sent somewhere it belongs in the library after all: it shows there now.
+  const shown = (item) =>
+    embedded || !item.embedded ? null : media.updateOne({ _id: item._id }, { $unset: { embedded: '' } });
+  const projection = { _id: 1, embedded: 1 };
+  const existing = await media.findOne({ videoid: video.artifactId }, { projection });
+  if (existing) {
+    await shown(existing);
+    return existing._id.toHexString();
+  }
   const _id = new ObjectId();
-  await media.insertOne({
-    _id,
-    userId,
-    type: 'video',
-    mimeType: video.mimeType,
-    url: video.url,
-    videoid: video.artifactId,
-    filename: video.filename,
-    size: video.size,
-    // The video's one name (video-names.js): the draft's or the file's, until renamed.
-    title: cleanVideoName(video.name),
-    caption: null,
-    altText: null,
-    thumbnail: null,
-    uploadedAt: new Date(),
-  });
+  try {
+    await media.insertOne({
+      _id,
+      userId,
+      type: 'video',
+      mimeType: video.mimeType,
+      url: video.url,
+      videoid: video.artifactId,
+      filename: video.filename,
+      size: video.size,
+      // The video's one name (video-names.js): the draft's or the file's, until renamed.
+      title: cleanVideoName(video.name),
+      caption: null,
+      altText: null,
+      thumbnail: null,
+      ...(embedded ? { embedded: true } : {}),
+      uploadedAt: new Date(),
+    });
+  } catch (err) {
+    // A replayed delivery got there first (one item per video): use that one.
+    if (!isDuplicateKey(err)) throw err;
+    const winner = await media.findOne({ videoid: video.artifactId }, { projection });
+    await shown(winner);
+    return winner._id.toHexString();
+  }
   return _id.toHexString();
 }
 
@@ -355,8 +377,9 @@ const DESTINATIONS = {
       return WALKTHROUGH_NOTE;
     },
     async deliver(userId, { id }, video) {
-      // Its name lives on its media item, as every video's does.
-      await addToLibrary(userId, video);
+      // Its name lives on its media item, as every video's does; embedded,
+      // since a walkthrough is evidence for its reviewers, not library media.
+      await addToLibrary(userId, video, { embedded: true });
       // Still pending and still without one: a walkthrough never replaces another.
       const { matchedCount } = await rawDb()
         .collection('timesheetchangerequests')

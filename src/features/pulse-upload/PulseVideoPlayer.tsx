@@ -25,6 +25,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
+import { noteRenamed } from './renamedVideos';
 import { VideoRenameDialog } from './VideoRenameDialog';
 
 /**
@@ -287,6 +288,7 @@ function PulseVideoCard({
           onClose={() => setRenaming(false)}
           onRenamed={(renamed) => {
             setShownName(renamed);
+            noteRenamed(video, renamed);
             onRenamed?.(renamed);
           }}
         />

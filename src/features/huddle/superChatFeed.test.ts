@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
+import { noteRenamed } from '../pulse-upload/renamedVideos';
 import {
   defaultConversation,
   postsToConversations,
@@ -582,6 +583,29 @@ describe('attachments', () => {
     const text = conversation.thread[0].text ?? '';
     expect(text.match(/a\.png/g)).toHaveLength(1);
     expect(text).toContain('![b.png]');
+  });
+
+  it("shows a video by the name it was renamed to in this tab, over the post's", () => {
+    const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        {
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Old name',
+        },
+      ],
+    });
+    const cardTitle = () =>
+      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].text ?? '';
+    expect(cardTitle()).toContain('"title":"Old name"');
+    noteRenamed(videoId, 'New name');
+    expect(cardTitle()).toContain('"title":"New name"');
+    noteRenamed(videoId, null);
+    expect(cardTitle()).not.toContain('"title"');
   });
 });
 
