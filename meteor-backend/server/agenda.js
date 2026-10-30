@@ -24,6 +24,7 @@ import {
   isPostStillAwaitingDelivery,
   retryMentionNotifications,
 } from './huddle-delivery';
+import { defineUnreadReminderJob } from './unread-reminders';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -268,12 +269,15 @@ export async function initAgenda() {
     await job.schedule(new Date(Date.now() + MENTION_RETRY_DELAY_MS * attempt)).save();
   });
 
+  // ── Job: remind a user about unread notifications (#784) ────────────────
+  defineUnreadReminderJob(_agenda);
+
   // Processor loop is opt-in during coexistence (see file header).
   if (process.env.METEOR_AGENDA_ENABLED === 'true') {
     await _agenda.start();
     await _agenda.every('1 minute', POST_SWEEP_JOB);
     console.log(
-      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry, huddle-post-sweep'
+      '[agenda] processor started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout, huddle-post-deliver, huddle-mention-retry, huddle-post-sweep, unread-reminder'
     );
   } else {
     console.log(

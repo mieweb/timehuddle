@@ -15,6 +15,8 @@ import {
   prefKeyForType,
   prefsPatchToSet,
   resolveDelivery,
+  unreadReminderDelayMs,
+  wantsUnreadReminders,
 } from '../server/notification-prefs-core';
 
 const prefs = (events: Record<string, { desktop?: boolean; phone?: boolean }>) => ({ events });
@@ -255,6 +257,39 @@ describe('actionable events', () => {
         orgPolicy: { value: false, locked: false },
       }),
     ).toEqual(DELIVER_NOWHERE);
+  });
+});
+
+describe('unread reminders', () => {
+  const HOUR = 3_600_000;
+  const on = prefs({ unreadReminder: { desktop: true, phone: false } });
+
+  it('are off until the person turns them on', () => {
+    expect(wantsUnreadReminders(null)).toBe(false);
+    expect(resolveDelivery(null, { type: 'unread-reminder' })).toEqual(DELIVER_NOWHERE);
+    expect(wantsUnreadReminders(on)).toBe(true);
+  });
+
+  it('pop up but are never logged under the bell', () => {
+    expect(resolveDelivery(on, { type: 'unread-reminder' })).toEqual({
+      inbox: false,
+      desktop: true,
+      phone: false,
+    });
+  });
+
+  it('are held, and not logged, during a snooze', () => {
+    const snoozed = { ...on, quiet: { snoozeUntil: new Date('2026-10-29T16:00:00Z') } };
+    expect(
+      resolveDelivery(snoozed, { type: 'unread-reminder', now: new Date('2026-10-29T15:00:00Z') }),
+    ).toEqual(DELIVER_NOWHERE);
+  });
+
+  it('wait 2, 4, 8, 16 and 32 hours, then stop', () => {
+    expect([0, 1, 2, 3, 4].map(unreadReminderDelayMs)).toEqual(
+      [2, 4, 8, 16, 32].map((h) => h * HOUR),
+    );
+    expect(unreadReminderDelayMs(5)).toBeNull();
   });
 });
 

@@ -94,11 +94,15 @@ beforeEach(async () => {
   const db = await getDb();
   await db.collection('notificationPrefs').deleteMany({ userId: authorId });
   await db.collection('notifications').deleteMany({ userId: authorId });
+  await db.collection('agendajobs').deleteMany({ name: 'unread-reminder', 'data.userId': authorId });
 });
 
 afterAll(async () => {
   const db = await getDb();
   await db.collection('notificationPrefs').deleteMany({ userId: { $in: [authorId, commenterId] } });
+  await db
+    .collection('agendajobs')
+    .deleteMany({ name: 'unread-reminder', 'data.userId': { $in: [authorId, commenterId] } });
   await db.collection('huddleComments').deleteMany({ postId: postId.toHexString() });
   await db.collection('huddlePosts').deleteMany({ teamId });
   await db.collection('teams').deleteMany({ code: TEAM_CODE });
@@ -117,7 +121,11 @@ describe('notificationPrefs.get', () => {
     for (const key of NEW_EVENTS) {
       expect(res.result.events[key]).toEqual({ desktop: true, phone: false });
     }
-    const existing = Object.entries(res.result.events).filter(([key]) => !NEW_EVENTS.includes(key));
+    // Unread reminders are off until chosen.
+    expect(res.result.events.unreadReminder).toEqual({ desktop: false, phone: false });
+    const existing = Object.entries(res.result.events).filter(
+      ([key]) => !NEW_EVENTS.includes(key) && key !== 'unreadReminder',
+    );
     expect(existing.every(([, e]) => e.desktop && e.phone)).toBe(true);
   });
 });
@@ -348,5 +356,95 @@ describe('createNotification obeys preferences', () => {
     );
     await commentAsCommenter('One more');
     expect(await replyNotificationsForAuthor()).toHaveLength(1);
+  });
+});
+
+describe('unread reminders', () => {
+  const HOUR = 3_600_000;
+
+  async function reminderJobs() {
+    const db = await getDb();
+    return db
+      .collection('agendajobs')
+      .find({ name: 'unread-reminder', 'data.userId': authorId })
+      .toArray();
+  }
+
+  /** The job is queued just after the notification is written; give it a moment. */
+  async function settledReminderJobs() {
+    for (let i = 0; i < 20; i++) {
+      const jobs = await reminderJobs();
+      if (jobs.length) return jobs;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return reminderJobs();
+  }
+
+  async function turnOn() {
+    await wormhole(
+      'notificationPrefs.update',
+      { events: { unreadReminder: { desktop: true } } },
+      authorJwt,
+    );
+  }
+
+  it('starts nothing while they are off', async () => {
+    await commentAsCommenter('No reminder please');
+    expect(await settledReminderJobs()).toHaveLength(0);
+  });
+
+  it('starts one reminder 2 hours out, which a later notification does not move', async () => {
+    await turnOn();
+    const before = Date.now();
+    await commentAsCommenter('Remind me');
+    const [job] = await settledReminderJobs();
+    expect(job.data.step).toBe(0);
+    const runAt = new Date(job.nextRunAt).getTime();
+    expect(runAt).toBeGreaterThanOrEqual(before + 2 * HOUR);
+    expect(runAt).toBeLessThan(Date.now() + 2 * HOUR + 1000);
+
+    await commentAsCommenter('And again');
+    // Give the second notification's reminder time to land, if it wrongly did.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const jobs = await reminderJobs();
+    expect(jobs).toHaveLength(1);
+    expect(new Date(jobs[0].nextRunAt).getTime()).toBe(runAt);
+  });
+
+  it('starts again at 2 hours when a leftover job outlived its unread notifications', async () => {
+    await turnOn();
+    await commentAsCommenter('First');
+    const [first] = await settledReminderJobs();
+    // Read some other way than the inbox methods (a prompt answered elsewhere),
+    // so nothing cancelled the job, which had already moved on to its 16-hour wait.
+    const db = await getDb();
+    await db.collection('notifications').updateMany({ userId: authorId }, { $set: { read: true } });
+    await db
+      .collection('agendajobs')
+      .updateOne(
+        { _id: first._id },
+        { $set: { 'data.step': 3, nextRunAt: new Date(Date.now() + 16 * HOUR) } },
+      );
+
+    const before = Date.now();
+    await commentAsCommenter('Second');
+    let job = (await reminderJobs())[0];
+    for (let i = 0; i < 20 && job?.data.step !== 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      job = (await reminderJobs())[0];
+    }
+    expect(await reminderJobs()).toHaveLength(1);
+    expect(job.data.step).toBe(0);
+    expect(new Date(job.nextRunAt).getTime()).toBeGreaterThanOrEqual(before + 2 * HOUR);
+    expect(new Date(job.nextRunAt).getTime()).toBeLessThan(Date.now() + 2 * HOUR + 1000);
+  });
+
+  it('stops once everything is read', async () => {
+    await turnOn();
+    await commentAsCommenter('Read me');
+    expect(await settledReminderJobs()).toHaveLength(1);
+    const res = await wormhole('notifications.markAllRead', {}, authorJwt);
+    expect(res.ok).toBe(true);
+    expect(await reminderJobs()).toHaveLength(0);
   });
 });
