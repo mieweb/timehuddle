@@ -126,7 +126,7 @@
     "@types/react-dom": "^19.1.0",
     "@types/tus-js-client": "^1.8.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
-    "@typescript-eslint/parser": "^8.42.0",
+    "@typescript-eslint/parser": "^8.72.1",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
     "bcrypt": "^6.0.0",
