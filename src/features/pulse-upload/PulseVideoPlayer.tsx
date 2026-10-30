@@ -13,20 +13,12 @@
  */
 import { faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Button,
-  Dropdown,
-  DropdownItem,
-  MoreHorizontalIcon,
-  PencilIcon,
-  TrashIcon,
-} from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Button, MediaControls, useMediaTransport } from '@mieweb/ui';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
-import { noteRenamed } from './renamedVideos';
-import { VideoRenameDialog } from './VideoRenameDialog';
+import { VideoMenu } from './VideoMenu';
 
 /**
  * How long to wait before each new look for a poster that wasn't there: the
@@ -83,19 +75,31 @@ function posterUrl(video: string, attempt: number): string {
 const CARD_WIDTH_REM = 18;
 const CARD_MAX_HEIGHT = 'min(28rem, 50dvh)';
 
+/** User-facing copy, kept together for translation. */
+const PLAYER_COPY = {
+  untitled: 'Pulse video',
+  play: (video: string) => `Play ${video}`,
+};
+
 /**
- * The card in its video's shape (width ÷ height), once known: as wide as the
- * card allows, narrower for a portrait clip so it isn't taller than the cap.
- * The poster and the player then fill the same box — nothing cropped, no bars.
+ * The card's box: its shape (width ÷ height) once known, so the poster and the
+ * player fill the same box — nothing cropped, no bars — and its width: the
+ * card's usual width, or narrower for a portrait clip so it isn't taller than
+ * the cap. In rem, not %: the host sizes itself to this width, and a
+ * percentage would shrink the card to the poster's own pixels. `max-w-full`
+ * on the card still keeps it inside a narrow host.
+ *
+ * A host that has room can let it grow, through `--pulse-video-grow` (e.g.
+ * `100%` of the space it's given), up to the height cap. That's a min-width:
+ * a percentage there plays no part in sizing the host, only in filling it.
  */
-function cardBox(aspect: number | null): React.CSSProperties | undefined {
-  if (!aspect) return undefined;
+function cardBox(aspect: number | null): React.CSSProperties {
+  const usual = `${CARD_WIDTH_REM}rem`;
+  const capped = aspect ? `calc(${CARD_MAX_HEIGHT} * ${aspect})` : usual;
   return {
-    aspectRatio: String(aspect),
-    // In rem only: a percentage would resolve against a host that sizes to its
-    // content, and shrink the card to the poster's own pixels. `max-w-full`
-    // on the card still keeps it inside a narrow host.
-    width: `min(${CARD_WIDTH_REM}rem, calc(${CARD_MAX_HEIGHT} * ${aspect}))`,
+    ...(aspect ? { aspectRatio: String(aspect) } : {}),
+    width: `min(${usual}, ${capped})`,
+    minWidth: `min(${capped}, var(--pulse-video-grow, 0px))`,
   };
 }
 
@@ -123,6 +127,13 @@ interface PulseVideoPlayerProps {
   onRenamed?: (name: string | null) => void;
   /** Where the host lets the viewer take it off (a ticket's Videos): the menu offers Remove. */
   onRemove?: () => void;
+  /**
+   * Where the host plays it somewhere else (Huddle's media view): ▶ calls this
+   * instead of playing it in the card.
+   */
+  onOpen?: () => void;
+  /** Marks ▶ for the host to return focus to (SuperChat's `data-media-launch-id`). */
+  launchId?: string;
 }
 
 /**
@@ -141,18 +152,13 @@ function PulseVideoCard({
   renamable,
   onRenamed,
   onRemove,
+  onOpen,
+  launchId,
 }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
   // The card keeps the name it shows, so a rename here shows at once.
   const [shownName, setShownName] = useState(caption ?? null);
   useEffect(() => setShownName(caption ?? null), [caption]);
-  const [renaming, setRenaming] = useState(false);
-  // Controlled: the library's menu doesn't close when an item is chosen.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const choose = (action: () => void) => () => {
-    setMenuOpen(false);
-    action();
-  };
   // No poster (yet), or it failed to load: the same plain box with the ▶.
   const poster = usePoster(video);
   // The shape: from the poster first, then from the video itself once it loads.
@@ -160,49 +166,64 @@ function PulseVideoCard({
   const learnShape = (width: number, height: number) => {
     if (width > 0 && height > 0) setAspect(width / height);
   };
-  const name = shownName || title || 'Pulse video';
-  // The play button unmounts on click: keep keyboard focus on what replaced it.
-  // Played from here, still inside the tap's commit — iOS blocks `autoPlay`
-  // with sound once the gesture is over. A card that goes away (navigating
-  // off, say) stops its video with it.
-  const attachPlayer = useCallback((el: HTMLVideoElement | null) => {
-    if (!el) return;
-    el.focus();
-    void el.play().catch(() => {});
-    return () => {
-      el.pause();
-      if (playingNow === el) playingNow = null;
-    };
-  }, []);
+  const name = shownName || title || PLAYER_COPY.untitled;
+  // The library's touch-first controls over the video, as in the media view.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const transport = useMediaTransport();
+  const { setMediaElement } = transport;
+  // The play button unmounts on click: keep keyboard focus on what replaced it
+  // (the controls' Pause). Played from here, still inside the tap's commit —
+  // iOS blocks `autoPlay` with sound once the gesture is over. A card that goes
+  // away (navigating off, say) stops its video with it.
+  const attachPlayer = useCallback(
+    (el: HTMLVideoElement | null) => {
+      if (!el) return;
+      setMediaElement(el);
+      cardRef.current
+        ?.querySelector<HTMLButtonElement>('[data-slot="media-controls-bar"] button')
+        ?.focus();
+      void el.play().catch(() => {});
+      return () => {
+        el.pause();
+        if (playingNow === el) playingNow = null;
+        setMediaElement(null);
+      };
+    },
+    [setMediaElement],
+  );
 
   return (
     // Fixed width so the card isn't squeezed to the bubble's text width; once
     // the shape is known the card takes it, so portrait and landscape clips
     // each keep theirs, before and after Play.
     <div
-      className="pulse-video-card relative my-1 w-72 max-w-full overflow-hidden bg-neutral-900"
+      ref={cardRef}
+      className="pulse-video-card relative my-1 max-w-full overflow-hidden bg-neutral-900"
       style={cardBox(aspect)}
     >
       {playing ? (
-        <video
-          ref={attachPlayer}
-          className="pulse-video-player block h-full max-h-[min(28rem,50dvh)] w-full bg-black object-contain"
-          src={resolveMediaUrl(artifactPath(video))}
-          poster={poster.src ?? undefined}
-          controls
-          playsInline
-          onPlay={playAlone}
-          onLoadedMetadata={(e) =>
-            learnShape(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
-          }
-          aria-label={name}
-        />
+        <>
+          <video
+            ref={attachPlayer}
+            className="pulse-video-player block h-full max-h-[min(28rem,50dvh)] w-full bg-black object-contain in-[:fullscreen]:max-h-none"
+            src={resolveMediaUrl(artifactPath(video))}
+            poster={poster.src ?? undefined}
+            playsInline
+            onPlay={playAlone}
+            onLoadedMetadata={(e) =>
+              learnShape(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
+            }
+            aria-label={name}
+          />
+          <MediaControls transport={transport} fullscreenTarget={cardRef} />
+        </>
       ) : (
         <Button
           variant="ghost"
           className="pulse-video-poster group relative block h-full w-full rounded-none p-0 hover:bg-transparent"
-          onClick={() => setPlaying(true)}
-          aria-label={`Play ${name}`}
+          onClick={onOpen ?? (() => setPlaying(true))}
+          data-media-launch-id={launchId}
+          aria-label={PLAYER_COPY.play(name)}
         >
           {poster.src === null ? (
             <span className="pulse-video-poster-placeholder block aspect-video w-full" />
@@ -239,60 +260,22 @@ function PulseVideoCard({
           )}
         </Button>
       )}
-      {(renamable || onRemove) && (
-        // Beside the poster, not inside its Play button: a button in a button
-        // is neither valid nor reachable. Over the top corner, before and
-        // after Play, clear of the player's own controls along the bottom;
-        // a thumb-sized 40px on a touch screen. The library's Button sets its
-        // icon inline on a text line, 1.3px low; as a block it's dead centre.
-        <div className="pulse-video-menu absolute end-2 top-2 z-10">
-          <Dropdown
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
-            placement="bottom-end"
-            trigger={
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`More for ${name}`}
-                className="h-8 w-8 rounded-full bg-black/55 pointer-coarse:h-10 pointer-coarse:w-10 [&_svg]:block! text-white shadow-sm backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white"
-              >
-                <MoreHorizontalIcon className="h-4 w-4" />
-              </Button>
-            }
-          >
-            {renamable && (
-              <DropdownItem
-                icon={<PencilIcon className="h-4 w-4" />}
-                onClick={choose(() => setRenaming(true))}
-              >
-                {shownName ? 'Rename' : 'Add a name'}
-              </DropdownItem>
-            )}
-            {onRemove && (
-              <DropdownItem
-                variant="danger"
-                icon={<TrashIcon className="h-4 w-4" />}
-                onClick={choose(onRemove)}
-              >
-                Remove
-              </DropdownItem>
-            )}
-          </Dropdown>
-        </div>
-      )}
-      {renamable && (
-        <VideoRenameDialog
-          videoId={renaming ? video : null}
+      {/* Beside the poster, not inside its Play button: a button in a button
+          is neither valid nor reachable. Over the top corner, before and
+          after Play, clear of the player's own controls along the bottom. */}
+      <div className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden">
+        <VideoMenu
+          video={video}
           name={shownName}
-          onClose={() => setRenaming(false)}
+          label={name}
+          renamable={renamable}
+          onRemove={onRemove}
           onRenamed={(renamed) => {
             setShownName(renamed);
-            noteRenamed(video, renamed);
             onRenamed?.(renamed);
           }}
         />
-      )}
+      </div>
     </div>
   );
 }

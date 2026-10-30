@@ -4,7 +4,8 @@
  * A Pulse video shows as a card (PulseVideoPlayer) — its poster with a Play
  * button — not as a link, wherever it appears: Huddle posts, a ticket's or a
  * clock session's Videos, a timesheet walkthrough. The player only mounts on
- * Play, so its URL is read from the `<video>` that replaces the button.
+ * Play, so its URL is read from the `<video>` it starts: the one that
+ * replaces the button, or in Huddle, the conversation's media view.
  */
 import { expect, type Locator } from '@playwright/test';
 
@@ -23,9 +24,12 @@ export async function playPulseVideoCard(
     .first();
   await expect(play).toBeVisible({ timeout });
   await play.click();
-  const player = scope.locator(
-    `.pulse-video-card video[src*="/pulsevault/artifacts/${videoid ?? ''}"]`,
-  );
+  const src = `[src*="/pulsevault/artifacts/${videoid ?? ''}"]`;
+  const player = scope
+    .page()
+    .locator(
+      `.pulse-video-card video${src}, [data-slot="superchat-media-view"] [data-active="true"] video${src}`,
+    );
   await expect(player.first()).toBeVisible();
   return (await player.first().getAttribute('src'))!;
 }

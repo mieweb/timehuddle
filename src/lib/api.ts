@@ -1283,6 +1283,11 @@ export interface HuddlePostAttachment {
   filename?: string;
   /** A video's name, from its media item (null: unnamed). Videos only. */
   name?: string | null;
+  /**
+   * Who owns the video — the one who may rename it — which needn't be whoever
+   * posted it (null: a video from before every video had a media item). Videos only.
+   */
+  ownerId?: string | null;
 }
 
 export interface HuddlePost {
@@ -2256,7 +2261,29 @@ async function readPulseStatus(
   return { state: 'waiting' };
 }
 
+/** What a video's watch page shows (`videos.publicInfo`). */
+export interface VideoPublicInfo {
+  videoId: string;
+  /** Its name, or null when it has none. */
+  name: string | null;
+  addedAt: string | null;
+  /** Who added it — only for someone signed in. `image` is absolute. */
+  author: { name: string | null; image: string | null } | null;
+  /** The caller added it, so they may rename it. */
+  canRename: boolean;
+}
+
 export const videoApi = {
+  /** A video's watch-page details; works signed out (see VideoPublicInfo). */
+  publicInfo: (videoId: string) =>
+    wormholeCall<VideoPublicInfo>('videos.publicInfo', { videoId }).then((info) => ({
+      ...info,
+      author: info.author && {
+        ...info.author,
+        image: toAbsoluteUrl(info.author.image),
+      },
+    })),
+
   /**
    * Name one of the caller's own videos by its id (empty clears it). One name
    * per video, so it shows everywhere the video appears. Resolves the name kept.

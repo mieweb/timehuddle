@@ -2,8 +2,9 @@
  * superChatFeed — map huddle posts onto SuperChatInbox conversations, grouped
  * by session, day, person, or ticket (`postsToConversations`). Image
  * attachments are embedded as markdown images (rendered by createImagePlugin
- * with a lightbox), Pulse videos as `pulse_video` GenUI cards (see
- * pulseVideoBlock.ts); other attachments become plain links. Comments have no
+ * with a lightbox); Pulse videos are the message's `media`, which Huddle draws
+ * as its video card and SuperChat's media view plays (`postMedia`); other
+ * attachments become plain links. Comments have no
  * surface here — SuperChat has no per-message thread concept (see
  * .attic/huddle-superchat-inbox/README.md).
  */
@@ -11,28 +12,58 @@ import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
-import { PULSE_VIDEO_WIDGET, pulseVideoMarkdown } from './pulseVideoBlock';
-import { pulseArtifactId } from '../pulse-upload/artifact';
+import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
 import { renamedName } from '../pulse-upload/renamedVideos';
 import type {
   Participant,
   SuperChatConversation,
+  SuperChatMediaAttachment,
   SuperChatMessage,
 } from '@mieweb/ui/components/SuperChat';
 
-function attachmentMarkdown(att: HuddlePost['attachments'][number], mine: boolean): string {
+type PostAttachment = HuddlePost['attachments'][number];
+
+/** The PulseVault video an attachment is, or null (an image, a file, an outside link). */
+function pulseVideoOf(att: PostAttachment): string | null {
+  return att.type === 'video' ? pulseArtifactId(att.url) : null;
+}
+
+/**
+ * A video attachment's name as shown: the one it was renamed to in this tab,
+ * until the next fetch brings it, else the server's.
+ */
+function shownVideoName(att: PostAttachment): string | null {
+  const video = pulseVideoOf(att);
+  const renamed = video ? renamedName(video) : undefined;
+  return renamed !== undefined ? renamed : (att.name ?? null);
+}
+
+/**
+ * A post's Pulse videos, as the message's media: its id is the video's, so
+ * Huddle's card finds it, and the media view plays the artifact with its
+ * poster. Titled with the video's name — the one it was renamed to in this
+ * tab, until the next fetch brings it; the caption is the post's own text.
+ */
+function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
+  return attachmentsNotInlined(post).flatMap((att) => {
+    const video = pulseVideoOf(att);
+    if (!video) return [];
+    const name = shownVideoName(att);
+    return [
+      {
+        id: video,
+        kind: 'video' as const,
+        src: resolveMediaUrl(artifactPath(video)),
+        poster: resolveMediaUrl(posterPath(video)),
+        ...(name ? { title: name } : {}),
+        caption: post.content.text,
+      },
+    ];
+  });
+}
+
+function attachmentMarkdown(att: PostAttachment): string {
   const name = att.filename ?? 'attachment';
-  // A Pulse video becomes the `pulse_video` card (poster + play); anything that
-  // isn't a PulseVault artifact falls through to a plain link.
-  if (att.type === 'video') {
-    // The card shows the video's name, as every video card does — the one it
-    // was renamed to in this tab, until the next fetch brings it.
-    const videoId = pulseArtifactId(att.url);
-    const renamed = videoId ? renamedName(videoId) : undefined;
-    const title = renamed !== undefined ? renamed : att.name;
-    const card = pulseVideoMarkdown(att.url, title ?? undefined, mine);
-    if (card) return card;
-  }
   // Posts store attachment URLs by path — bind them to the current backend
   // origin.
   const url = resolveMediaUrl(att.url);
@@ -297,19 +328,17 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
 }
 
 /** Message text for the inbox: body first (the sidebar preview shows the
- *  first line), then attachments, then an italic plan/ticket label. */
+ *  first line), then attachments other than Pulse videos (those are its
+ *  media), then an italic plan/ticket label. */
 function postToInboxMessageText(
   post: HuddlePost,
   isSessionPost: boolean,
-  viewerId: string,
   teamName?: string,
 ): string {
   const parts = [post.content.text];
-  const attachments = attachmentsNotInlined(post);
+  const attachments = attachmentsNotInlined(post).filter((att) => !pulseVideoOf(att));
   if (attachments.length > 0) {
-    // The poster's own videos: their cards offer Rename.
-    const mine = post.userId === viewerId;
-    parts.push(attachments.map((att) => attachmentMarkdown(att, mine)).join('\n\n'));
+    parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
   }
   const label = postLabelParts(post, isSessionPost, teamName);
   if (label.length > 0) {
@@ -466,12 +495,8 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(
-        post,
-        planPostIds.has(post.id),
-        viewer.userId,
-        getTeamName?.(post.teamId),
-      ),
+      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      media: postMedia(post),
       time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
       ...(isAwaitingDelivery(post) && { scheduledFor: post.deliverAt }),
@@ -507,60 +532,10 @@ function normalizeForSearch(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
-const FENCE = '```';
-
-/** Whether a GenUI block's payload is a Pulse card (one the card would draw). */
-function isPulseCardPayload(payload: string): boolean {
-  try {
-    return (JSON.parse(payload) as { widget?: unknown })?.widget === PULSE_VIDEO_WIDGET;
-  } catch {
-    // Not JSON: it shows as code, so its text stays searchable.
-    return false;
-  }
-}
-
 /**
- * `text` without its `pulse_video` GenUI blocks, one line or pretty-printed.
- * Fences are whole lines, as in Markdown, so backticks inside the JSON (a
- * title) don't end one. One pass over the lines: each block is read once, and
- * an unclosed fence ends the search (nothing after it can close either), so
- * no hand-written post can make this slow.
- */
-function withoutPulseCards(text: string): string {
-  const lines = text.split('\n');
-  const kept: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const close = lines[i] === `${FENCE}genui` ? lines.indexOf(FENCE, i + 1) : -1;
-    if (lines[i] === `${FENCE}genui` && close === -1) {
-      kept.push(...lines.slice(i));
-      break;
-    }
-    if (close !== -1) {
-      if (!isPulseCardPayload(lines.slice(i + 1, close).join('\n'))) {
-        kept.push(...lines.slice(i, close + 1));
-      }
-      i = close + 1;
-      continue;
-    }
-    kept.push(lines[i]);
-    i++;
-  }
-  return kept.join('\n');
-}
-
-/**
- * Text as a reader sees it: no markdown link targets and no Pulse card
- * payloads, so media URLs, the widget name and artifact ids don't match every
- * query. Other GenUI blocks show as code, so their text stays searchable.
- */
-function searchableText(text: string): string {
-  return withoutLinkTargets(withoutPulseCards(text));
-}
-
-/**
- * `text` with each markdown link target dropped (`[name](url)` → `[name]`).
- * One pass: once a `](` has no `)` after it, no later one can either.
+ * `text` as a reader sees it, for search: each markdown link target dropped
+ * (`[name](url)` → `[name]`), so media URLs don't match every query. One pass:
+ * once a `](` has no `)` after it, no later one can either.
  */
 function withoutLinkTargets(text: string): string {
   let out = '';
@@ -586,13 +561,17 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
     year: 'numeric',
   });
   return [
-    searchableText(post.content.text),
+    withoutLinkTargets(post.content.text),
     post.userName,
     ...ticketTitles(post),
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
     post.clockEventId ? undefined : OFF_THE_CLOCK,
     post.session && post.session.endTime == null ? 'live' : undefined,
-    ...post.attachments.flatMap((att) => [att.filename, att.name ?? undefined, att.type]),
+    ...post.attachments.flatMap((att) => [
+      att.filename,
+      shownVideoName(att) ?? undefined,
+      att.type,
+    ]),
     teamName,
     dateKey,
     formatDayLabel(dateKey),
@@ -723,7 +702,7 @@ export function searchConversations(
         conversation.title,
         ...conversation.participants.map((p) => p.name),
         ...conversation.thread.map((message) => {
-          const shown = searchableText(message.text ?? '');
+          const shown = withoutLinkTargets(message.text ?? '');
           const post = postsById.get(message.id);
           return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
         }),

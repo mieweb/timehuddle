@@ -96,6 +96,17 @@ export async function artifactBelongsTo(artifactId, userId) {
   return status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
 }
 
+/** PulseVault's status for a video by this id (an upload under way counts), else null. */
+export async function videoArtifactStatus(artifactId) {
+  const status = await core.getStatus(artifactId).catch(() => null);
+  return status?.kind === 'video' ? status : null;
+}
+
+/** Whether PulseVault holds a video by this id (an upload under way counts). */
+export async function videoArtifactExists(artifactId) {
+  return (await videoArtifactStatus(artifactId)) !== null;
+}
+
 /**
  * Playback path for an artifact — stored path-only, never host-qualified.
  *

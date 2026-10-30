@@ -1,8 +1,9 @@
 /**
  * The rules for a video's name, with no Meteor or database (see video-names.js
  * for where names are kept and looked up): which URLs are videos, how a name
- * is cleaned before it's stored, and that the old `Video 1a2b3c4d` titles are
- * placeholders, not names.
+ * is cleaned before it's stored, that the old `Video 1a2b3c4d` titles are
+ * placeholders, not names, who may rename a video, and what its public page
+ * may show.
  */
 
 /** A Pulse video's playback path, the only URL a video is stored under. */
@@ -29,4 +30,30 @@ export function cleanVideoName(name) {
 export function videoNameOf(title) {
   const name = cleanVideoName(title);
   return name && !PLACEHOLDER.test(name) ? name : null;
+}
+
+/**
+ * Whether `userId` may name a video: its media item's owner, or — for a video
+ * from before every video had a media item — whoever PulseVault's own record
+ * says uploaded it (`uploadedByUser`), never someone who only attached it.
+ */
+export function mayRenameVideo({ item, userId, uploadedByUser = false }) {
+  if (!userId) return false;
+  return item ? item.userId === userId : uploadedByUser === true;
+}
+
+/**
+ * What a video's public page (`videos.publicInfo`) may show: its name and when
+ * it was added, to anyone with the link; who added it only to someone signed in
+ * (`viewerId`), since a link can travel outside the team.
+ */
+export function publicVideoInfo({ id, item, viewerId, owner, canRename = false }) {
+  const signedIn = Boolean(viewerId);
+  return {
+    videoId: id,
+    name: videoNameOf(item?.title),
+    addedAt: item?.uploadedAt ?? null,
+    author: signedIn && owner ? { name: owner.profile?.name ?? null, image: owner.image ?? null } : null,
+    canRename: signedIn && canRename === true,
+  };
 }

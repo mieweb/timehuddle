@@ -10,10 +10,22 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
-import { artifactBelongsTo } from './pulsevault.js';
-import { cleanVideoName, videoIdOf, videoNameOf } from './video-names-core.js';
+import { artifactBelongsTo, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
+import {
+  cleanVideoName,
+  mayRenameVideo,
+  publicVideoInfo,
+  videoIdOf,
+  videoNameOf,
+} from './video-names-core.js';
 
-export { cleanVideoName, videoIdOf, videoNameOf, VIDEO_NAME_MAX } from './video-names-core.js';
+export {
+  cleanVideoName,
+  mayRenameVideo,
+  videoIdOf,
+  videoNameOf,
+  VIDEO_NAME_MAX,
+} from './video-names-core.js';
 
 /** A duplicate key: another write made this video's media item first. */
 export const isDuplicateKey = (err) => err?.code === 11000;
@@ -46,7 +58,46 @@ export async function videoNamesFor(videoIds) {
   );
 }
 
+/** The signed-in caller, or null for someone who isn't (a shared link's reader). */
+async function viewerOf(methodContext) {
+  try {
+    return await requireIdentity(methodContext);
+  } catch {
+    return null;
+  }
+}
+
 Meteor.methods({
+  /**
+   * What a video's watch page (`/watch/:videoId`) shows, to anyone with its
+   * link — playback itself is public. Its name and when it was added; who
+   * added it only to someone signed in, since a shared link can travel
+   * outside the team. Not found when PulseVault has no such video.
+   */
+  async 'videos.publicInfo'({ videoId } = {}) {
+    const id = videoIdOf(`/pulsevault/artifacts/${videoId}`);
+    if (!id) throw new Meteor.Error('not-found', 'Video not found');
+    const item = await rawDb()
+      .collection('mediaitems')
+      .findOne({ videoid: id }, { projection: { title: 1, userId: 1, uploadedAt: 1 } });
+    if (!item && !(await videoArtifactExists(id))) {
+      throw new Meteor.Error('not-found', 'Video not found');
+    }
+    const viewer = await viewerOf(this);
+    const owner =
+      viewer && item
+        ? await rawDb()
+            .collection('users')
+            .findOne({ _id: item.userId }, { projection: { 'profile.name': 1, image: 1 } })
+        : null;
+    const canRename = mayRenameVideo({
+      item,
+      userId: viewer?.userId,
+      uploadedByUser: viewer && !item ? await artifactBelongsTo(id, viewer.userId) : false,
+    });
+    return publicVideoInfo({ id, item, viewerId: viewer?.userId, owner, canRename });
+  },
+
   /**
    * Name one of your own videos (empty clears it). The name is on its media
    * item, so it shows everywhere the video appears. A video from before every
@@ -63,12 +114,17 @@ Meteor.methods({
     const media = rawDb().collection('mediaitems');
     const title = cleanVideoName(name);
     const item = await media.findOne({ videoid: id }, { projection: { userId: 1 } });
+    const uploadedByUser = item ? false : await artifactBelongsTo(id, userId);
+    if (!mayRenameVideo({ item, userId, uploadedByUser })) {
+      throw new Meteor.Error('forbidden', 'Not your video');
+    }
     if (item) {
-      if (item.userId !== userId) throw new Meteor.Error('forbidden', 'Not your video');
       await media.updateOne({ _id: item._id }, { $set: { title } });
       return { name: videoNameOf(title) };
     }
-    if (!(await artifactBelongsTo(id, userId))) throw new Meteor.Error('forbidden', 'Not your video');
+    // Only what's known about it: PulseVault keeps its size, not its type,
+    // file name or upload time, so those stay empty rather than made up.
+    const status = await videoArtifactStatus(id);
     try {
       await media.updateOne(
         { videoid: id },
@@ -77,16 +133,16 @@ Meteor.methods({
           $setOnInsert: {
             userId,
             type: 'video',
-            mimeType: 'video/mp4',
+            mimeType: null,
             url: `/pulsevault/artifacts/${id}`,
             videoid: id,
-            filename: `${id}.mp4`,
-            size: 0,
+            filename: null,
+            size: status?.bytesReceived ?? status?.size ?? null,
             caption: null,
             altText: null,
             thumbnail: null,
             embedded: true,
-            uploadedAt: new Date(),
+            uploadedAt: null,
           },
         },
         { upsert: true },

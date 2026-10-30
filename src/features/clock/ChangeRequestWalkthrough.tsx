@@ -13,6 +13,13 @@ import type { TimesheetChangeRequest } from '../../lib/api';
 import { PulseControls } from '../pulse-upload/PulseButton';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 
+/** User-facing copy, kept together for translation. */
+const WALKTHROUGH_COPY = {
+  added: 'Walkthrough added',
+  named: (video: string) => `Walkthrough: ${video}`,
+  addedNamed: (video: string) => `Walkthrough added: ${video}`,
+};
+
 interface ChangeRequestWalkthroughProps {
   request: Pick<TimesheetChangeRequest, 'id' | 'status' | 'videoUrl' | 'videoName'>;
   /** Called once the walkthrough has landed on the request, so the host refetches it. */
@@ -46,10 +53,12 @@ export const ChangeRequestWalkthroughHost: React.FC<ChangeRequestWalkthroughHost
             variant="success"
             size="sm"
             className="change-request-walkthrough-added max-w-56"
-            title={request.videoName ? `Walkthrough added: ${request.videoName}` : undefined}
+            title={request.videoName ? WALKTHROUGH_COPY.addedNamed(request.videoName) : undefined}
           >
             <span className="change-request-walkthrough-name min-w-0 truncate">
-              {request.videoName ? `Walkthrough: ${request.videoName}` : 'Walkthrough added'}
+              {request.videoName
+                ? WALKTHROUGH_COPY.named(request.videoName)
+                : WALKTHROUGH_COPY.added}
             </span>
           </Badge>,
         )}

@@ -607,7 +607,9 @@ function toPublicMediaItem(m) {
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
-    uploadedAt: m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : String(m.uploadedAt),
+    // A video named before it had a media item has no known upload time.
+    uploadedAt:
+      m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : m.uploadedAt ? String(m.uploadedAt) : null,
   };
 }
 

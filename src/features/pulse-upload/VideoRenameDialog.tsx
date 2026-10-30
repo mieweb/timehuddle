@@ -14,6 +14,16 @@ import { AppModal } from '@ui/AppModal';
 /** Longest name the server keeps (VIDEO_NAME_MAX in meteor-backend/server/video-names.js). */
 export const VIDEO_NAME_MAX = 120;
 
+/** User-facing copy, kept together for translation. */
+const RENAME_COPY = {
+  title: 'Rename video',
+  label: 'Name',
+  help: 'Shown wherever this video appears.',
+  failed: "The name wasn't saved. Try again.",
+  save: 'Save',
+  cancel: 'Cancel',
+};
+
 interface VideoRenameDialogProps {
   /** The video's PulseVault id; null keeps the dialog closed. */
   videoId: string | null;
@@ -49,7 +59,7 @@ export const VideoRenameDialog: React.FC<VideoRenameDialogProps> = ({
       onRenamed(await videoApi.rename(videoId, value));
       onClose();
     } catch {
-      setError("The name wasn't saved. Try again.");
+      setError(RENAME_COPY.failed);
     } finally {
       setSaving(false);
     }
@@ -69,17 +79,17 @@ export const VideoRenameDialog: React.FC<VideoRenameDialogProps> = ({
       <form className="video-rename-form" onSubmit={save}>
         <ModalHeader>
           <Text weight="semibold" id="video-rename-title">
-            Rename video
+            {RENAME_COPY.title}
           </Text>
         </ModalHeader>
         <ModalBody className="space-y-2">
           <Input
-            label="Name"
+            label={RENAME_COPY.label}
             value={value}
             maxLength={VIDEO_NAME_MAX}
             autoFocus
             onChange={(e) => setValue(e.target.value)}
-            helperText="Shown wherever this video appears."
+            helperText={RENAME_COPY.help}
           />
           {error && (
             <Text size="sm" className="text-red-600 dark:text-red-400" role="alert">
@@ -89,10 +99,10 @@ export const VideoRenameDialog: React.FC<VideoRenameDialogProps> = ({
         </ModalBody>
         <ModalFooter>
           <Button type="submit" variant="primary" isLoading={saving}>
-            Save
+            {RENAME_COPY.save}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+            {RENAME_COPY.cancel}
           </Button>
         </ModalFooter>
       </form>

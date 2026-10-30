@@ -15,10 +15,14 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
+import {
+  SuperChatInbox,
+  type ComposerAttachment,
+  type SuperChatMediaFeedProps,
+  type SuperChatRenderMessageMedia,
+} from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
-  createGenUIPlugin,
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
@@ -33,7 +37,6 @@ import {
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage } from '../features/huddle/composerErrors';
-import { PULSE_VIDEO_WIDGET, pulseVideoWidget } from '../features/huddle/pulseVideoBlock';
 import {
   defaultConversation,
   isAwaitingDelivery,
@@ -49,6 +52,9 @@ import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
+import { PulseVideoPlayer } from '../features/pulse-upload/PulseVideoPlayer';
+import { VideoMenu } from '../features/pulse-upload/VideoMenu';
 import { useRenamedVideosVersion } from '../features/pulse-upload/renamedVideos';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
@@ -112,18 +118,6 @@ const imagePlugin = {
   ...baseImagePlugin,
   components: { ...baseImagePlugin.components, img: BackendImage },
 };
-
-/**
- * Host widgets for fenced ```genui blocks: Pulse videos (see pulseVideoBlock.ts).
- * Without a prototype: the plugin looks a post's `widget` up by name, and a
- * plain object would answer `"toString"` or `"__proto__"` with something that
- * isn't a widget, crashing the post for everyone who reads it.
- */
-const genUIPlugin = createGenUIPlugin(
-  Object.assign(Object.create(null) as Parameters<typeof createGenUIPlugin>[0], {
-    [PULSE_VIDEO_WIDGET]: pulseVideoWidget,
-  }),
-);
 
 /** Reserves the check's slot on unselected items so every label lines up. */
 function SelectedCheck({ selected }: { selected: boolean }) {
@@ -665,9 +659,58 @@ export default function Huddle() {
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
   }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
-  const renderPlugins = useMemo(
-    () => [createCodePlugin(), imagePlugin, createMermaidPlugin(), genUIPlugin],
-    [],
+  const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  // A post's Pulse video (its message's media, see superChatFeed.ts) is the
+  // same card as everywhere else; ▶ opens it in the conversation's media view,
+  // which plays it and swipes through the conversation's other videos.
+  // Who owns each video in view, for Rename: its owner, not whoever posted it
+  // (a post can carry a ticket's videos). Read through a ref, so the media
+  // callbacks below keep their identity as posts change.
+  const videoOwners = useRef(new Map<string, string | null>());
+  videoOwners.current = useMemo(() => {
+    const owners = new Map<string, string | null>();
+    for (const post of activePosts) {
+      for (const att of post.attachments) {
+        const video = att.type === 'video' ? pulseArtifactId(att.url) : null;
+        if (video) owners.set(video, att.ownerId ?? null);
+      }
+    }
+    return owners;
+  }, [activePosts]);
+  const ownsVideo = useCallback(
+    (videoId: string) => !!user?.id && videoOwners.current.get(videoId) === user.id,
+    [user?.id],
+  );
+  const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
+    ({ attachment, open, launchId }) => (
+      <PulseVideoPlayer
+        video={attachment.id}
+        title={videoLabel(attachment.title, attachment.id)}
+        caption={attachment.title}
+        renamable={ownsVideo(attachment.id)}
+        onOpen={open && (() => open(true))}
+        launchId={launchId}
+      />
+    ),
+    [ownsVideo],
+  );
+  // The conversation's media view (SuperChat's feed of its videos). ▶ on a
+  // card is a tap to watch it, with its sound, as on every other card (the feed
+  // has no unmute control); the card's ⋯ menu is there too, to copy a video's
+  // link or rename one of your own while you watch it.
+  const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
+    () => ({
+      muted: false,
+      renderActions: ({ attachment }) => (
+        <VideoMenu
+          video={attachment.id}
+          name={attachment.title ?? null}
+          label={videoLabel(attachment.title, attachment.id)}
+          renamable={ownsVideo(attachment.id)}
+        />
+      ),
+    }),
+    [ownsVideo],
   );
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
@@ -1139,6 +1182,8 @@ export default function Huddle() {
                       ) : undefined
                     }
                     renderPlugins={renderPlugins}
+                    renderMessageMedia={renderMessageMedia}
+                    mediaFeedProps={mediaFeedProps}
                     acceptedFileTypes={['image', 'video', 'pdf']}
                     onMessageSent={(text, { mentions: sentMentions, attachments, sendOption }) =>
                       handleMessageSent(text, sentMentions, attachments, sendOption)

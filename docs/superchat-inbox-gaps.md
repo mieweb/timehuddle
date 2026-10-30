@@ -111,26 +111,26 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 
 ### 3. Messages
 
-| #    | What the mockup does                                                                                        | 0.9.0 today                                                                                                                      | Priority |
-| ---- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 3.1  | Date separators when a thread spans several days ("Mon, Sep 28")                                            | ❌ None                                                                                                                          | P1       |
-| 3.2  | A way to tell which day each message is from                                                                | ❌ Time only ("9:15 AM"). In Person, Ticket and Milestone threads the day is lost                                                | P1       |
-| 3.3  | System message variants: clock-in (green, ⏱), clock-out (grey, ⏹, with duration), still clocked in (red, ●) | ⚠️ Every `system` message is the same small grey centered text, with no variant, icon or color                                   | P1       |
-| 3.4  | Replies indented under the post they answer, with a lighter bubble                                          | ❌ Flat thread. `MessageComposer` already supports `replyTo`, but SuperChat doesn't pass it through, and there's no Reply action | P1       |
-| 3.5  | Post type label next to the time: **PLAN / UPDATE / WRAP-UP**                                               | ❌ No slot; we currently put it in the message text                                                                              | P2       |
-| 3.6  | Ticket chip inside the message (bordered, 🎫 #398 Onboarding checklist, clickable)                          | ⚠️ Only as inline code in markdown. `ref` items exist but are separate thread items and can't be attached to a message           | P2       |
-| 3.7  | Pulse video card inside the message (thumbnail, ▶, duration)                                                | ⚠️ Host GenUI widget `pulse_video`: poster + ▶, plays inline. No duration; the sidebar preview shows its JSON (1.2)              | P2       |
-| 3.8  | Team name on each message when the scope is "Me · all teams"                                                | ❌ No per-message badge slot                                                                                                     | P2       |
-| 3.9  | Time format set by the host (24-hour, monospaced, `09:15`)                                                  | ❌ `formatTime` is fixed to the locale's `hour: 'numeric'`                                                                       | P3       |
-| 3.10 | Own messages marked as "You"                                                                                | ✅ Right-aligned with the user bubble style                                                                                      | —        |
-| 3.11 | Per-person color                                                                                            | ✅ `participant.color`                                                                                                           | —        |
-| 3.12 | Copy and edit on messages                                                                                   | ✅                                                                                                                               | —        |
-| 3.13 | Delete a message, and per-message edit/delete rights for moderators (team admins, org owners)               | ❌ No delete action or callback, and edit is offered on own messages only. Huddle has no way to delete a published post today    | P1       |
-| 3.14 | Enter adds a new line in the edit box; Ctrl/Cmd+Enter or Save saves                                         | ⚠️ Plain Enter saved and closed the edit mid-sentence. **Fixed in mieweb/ui#524** (open)                                         | P1       |
-| 3.15 | Inline edit stays available when the message box is hidden or read-only                                     | ❌ `readOnly` also turns off Edit                                                                                                | P2       |
-| 3.16 | Edit opens the host's own editor (e.g. TimeHuddle's rich editor)                                            | ❌ Edit always opens SuperChat's plain textarea; no `onEditRequest`-style hook                                                   | P3       |
-| 3.17 | Long URLs and wide images wrap inside the bubble                                                            | ❌ They push the bubble past the thread; Huddle caps it with CSS                                                                 | P2       |
-| 3.18 | Links in messages show a focus ring, and the host can name them ("Open ticket: …", #737)                    | ❌ The default link has no `focus-visible` style and no way to set `aria-label`                                                  | P2       |
+| #    | What the mockup does                                                                                        | 0.9.0 today                                                                                                                                    | Priority |
+| ---- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 3.1  | Date separators when a thread spans several days ("Mon, Sep 28")                                            | ❌ None                                                                                                                                        | P1       |
+| 3.2  | A way to tell which day each message is from                                                                | ❌ Time only ("9:15 AM"). In Person, Ticket and Milestone threads the day is lost                                                              | P1       |
+| 3.3  | System message variants: clock-in (green, ⏱), clock-out (grey, ⏹, with duration), still clocked in (red, ●) | ⚠️ Every `system` message is the same small grey centered text, with no variant, icon or color                                                 | P1       |
+| 3.4  | Replies indented under the post they answer, with a lighter bubble                                          | ❌ Flat thread. `MessageComposer` already supports `replyTo`, but SuperChat doesn't pass it through, and there's no Reply action               | P1       |
+| 3.5  | Post type label next to the time: **PLAN / UPDATE / WRAP-UP**                                               | ❌ No slot; we currently put it in the message text                                                                                            | P2       |
+| 3.6  | Ticket chip inside the message (bordered, 🎫 #398 Onboarding checklist, clickable)                          | ⚠️ Only as inline code in markdown. `ref` items exist but are separate thread items and can't be attached to a message                         | P2       |
+| 3.7  | Pulse video card inside the message (thumbnail, ▶, duration)                                                | ✅ The message's `media`, drawn by our own card through `renderMessageMedia` (vendored, not upstream yet); ▶ opens the media view. No duration | P2       |
+| 3.8  | Team name on each message when the scope is "Me · all teams"                                                | ❌ No per-message badge slot                                                                                                                   | P2       |
+| 3.9  | Time format set by the host (24-hour, monospaced, `09:15`)                                                  | ❌ `formatTime` is fixed to the locale's `hour: 'numeric'`                                                                                     | P3       |
+| 3.10 | Own messages marked as "You"                                                                                | ✅ Right-aligned with the user bubble style                                                                                                    | —        |
+| 3.11 | Per-person color                                                                                            | ✅ `participant.color`                                                                                                                         | —        |
+| 3.12 | Copy and edit on messages                                                                                   | ✅                                                                                                                                             | —        |
+| 3.13 | Delete a message, and per-message edit/delete rights for moderators (team admins, org owners)               | ❌ No delete action or callback, and edit is offered on own messages only. Huddle has no way to delete a published post today                  | P1       |
+| 3.14 | Enter adds a new line in the edit box; Ctrl/Cmd+Enter or Save saves                                         | ⚠️ Plain Enter saved and closed the edit mid-sentence. **Fixed in mieweb/ui#524** (open)                                                       | P1       |
+| 3.15 | Inline edit stays available when the message box is hidden or read-only                                     | ❌ `readOnly` also turns off Edit                                                                                                              | P2       |
+| 3.16 | Edit opens the host's own editor (e.g. TimeHuddle's rich editor)                                            | ❌ Edit always opens SuperChat's plain textarea; no `onEditRequest`-style hook                                                                 | P3       |
+| 3.17 | Long URLs and wide images wrap inside the bubble                                                            | ❌ They push the bubble past the thread; Huddle caps it with CSS                                                                               | P2       |
+| 3.18 | Links in messages show a focus ring, and the host can name them ("Open ticket: …", #737)                    | ❌ The default link has no `focus-visible` style and no way to set `aria-label`                                                                | P2       |
 
 ### 4. Message Box (Composer)
 
@@ -237,8 +237,9 @@ Code in TimeHuddle that exists only because of a gap above. When the gap closes 
 
 ## Parent PR: SuperChat Host Extension Points
 
-**Where it's built:** the `vendor/ui` submodule, branch `feat/superchat-host-extension-points` on
-the fork `Dharp02/ui`. TimeHuddle runs that branch before it's released — see
+**Where it's built:** the `vendor/ui` submodule — first on `Dharp02/ui`'s branch
+`feat/superchat-host-extension-points`, now carried on `priyamrmore/ui`'s
+`feat/superchat-message-media-slot`. TimeHuddle runs that branch before it's released — see
 [`vendor/README.md`](../vendor/README.md). Each item below is done there, then the matching
 TimeHuddle workaround is deleted.
 

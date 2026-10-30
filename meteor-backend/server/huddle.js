@@ -212,7 +212,15 @@ async function enrichPost(post) {
     tickets,
     attachments: (post.attachments ?? []).map((att) => ({
       ...att,
-      ...(att.type === 'video' ? { name: videoNames.get(videoIdOf(att.url))?.name ?? null } : {}),
+      // Its name, and who may rename it: the video's owner, not necessarily
+      // whoever posted it (a post can carry a ticket's videos). A video from
+      // before every video had a media item has no owner here (null).
+      ...(att.type === 'video'
+        ? (() => {
+            const video = videoNames.get(videoIdOf(att.url));
+            return { name: video?.name ?? null, ownerId: video?.ownerId ?? null };
+          })()
+        : {}),
       url: att.url && /^https?:\/\//i.test(att.url)
         ? att.url
         : `${METEOR_BASE_URL}${att.url?.startsWith('/') ? '' : '/'}${att.url ?? ''}`,

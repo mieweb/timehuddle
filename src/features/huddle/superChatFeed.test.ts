@@ -585,8 +585,37 @@ describe('attachments', () => {
     expect(text).toContain('![b.png]');
   });
 
-  it("shows a video by the name it was renamed to in this tab, over the post's", () => {
+  it("makes a post's Pulse video the message's media, not text", () => {
     const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Standup', mentions: [] },
+      attachments: [
+        {
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Sprint review',
+        },
+      ],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(message.text).not.toContain(videoId);
+    expect(message.media).toEqual([
+      {
+        id: videoId,
+        kind: 'video',
+        src: expect.stringMatching(new RegExp(`/pulsevault/artifacts/${videoId}$`)),
+        poster: expect.stringMatching(new RegExp(`/pulsevault/artifacts/${videoId}/poster$`)),
+        title: 'Sprint review',
+        caption: 'Standup',
+      },
+    ]);
+  });
+
+  it("shows a video by the name it was renamed to in this tab, over the post's", () => {
+    const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2d';
     const post = makePost({
       id: 'p1',
       attachments: [
@@ -599,13 +628,13 @@ describe('attachments', () => {
         },
       ],
     });
-    const cardTitle = () =>
-      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].text ?? '';
-    expect(cardTitle()).toContain('"title":"Old name"');
+    const shownName = () =>
+      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].media?.[0]?.title;
+    expect(shownName()).toBe('Old name');
     noteRenamed(videoId, 'New name');
-    expect(cardTitle()).toContain('"title":"New name"');
+    expect(shownName()).toBe('New name');
     noteRenamed(videoId, null);
-    expect(cardTitle()).not.toContain('"title"');
+    expect(shownName()).toBeUndefined();
   });
 });
 
@@ -662,65 +691,38 @@ describe('searchConversations', () => {
     expect(titlesFor('uploads')).toEqual([]);
   });
 
-  it('does not match on Pulse card payloads, generated or typed by hand', () => {
+  it('matches a Pulse video by its name and file, never its id', () => {
     const videoId = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
-    const typedId = '5f0c9d2a-1b3e-4f6a-8c7d-9e0f1a2b3c4d';
-    const withCards = [
+    const withVideo = [
       makePost({
         id: 'p4',
-        content: {
-          text:
-            'Demo\n\n```genui\n{\n  "widget": "pulse_video",\n  "props": { "video": "' +
-            typedId +
-            '" }\n}\n```',
-          mentions: [],
-        },
+        content: { text: 'Demo', mentions: [] },
         attachments: [
           {
             mediaId: 'm4',
             type: 'video',
             url: `/pulsevault/artifacts/${videoId}`,
             filename: 'Standup recap',
+            name: 'Sprint review',
           },
         ],
       }),
     ];
-    const grouped = postsToConversations(withCards, 'session', VIEWER_MEMBER, NOW);
-    const hits = (query: string) => searchConversations(grouped, withCards, query).length;
+    const grouped = postsToConversations(withVideo, 'session', VIEWER_MEMBER, NOW);
+    const hits = (query: string) => searchConversations(grouped, withVideo, query).length;
     expect(hits('standup recap')).toBe(1);
+    expect(hits('sprint review')).toBe(1);
     expect(hits('demo')).toBe(1);
-    for (const query of ['pulse_video', 'widget', videoId, typedId]) expect(hits(query)).toBe(0);
-  });
-
-  it('drops a typed Pulse card whose title has backticks, up to its closing fence line', () => {
-    const typedId = '5f0c9d2a-1b3e-4f6a-8c7d-9e0f1a2b3c4d';
-    const withCard = [
-      makePost({
-        id: 'p6',
-        content: {
-          text:
-            'Recap\n\n```genui\n{"widget":"pulse_video","props":{"video":"' +
-            typedId +
-            '","title":"a ``` b"}}\n```\n\nafter the card',
-          mentions: [],
-        },
-      }),
-    ];
-    const grouped = postsToConversations(withCard, 'session', VIEWER_MEMBER, NOW);
-    const hits = (query: string) => searchConversations(grouped, withCard, query).length;
-    for (const query of ['pulse_video', typedId]) expect(hits(query)).toBe(0);
-    expect(hits('recap')).toBe(1);
-    expect(hits('after the card')).toBe(1);
+    for (const query of [videoId, 'pulsevault']) expect(hits(query)).toBe(0);
   });
 
   it('searches a post built to be slow to strip without stalling', () => {
-    const field = '"widget":"pulse_video",';
     const slow = [
       makePost({
         id: 'p7',
         content: {
-          // An unclosed card full of widget fields, and link openers with no target end.
-          text: `Slow\n\n\`\`\`genui\n{${field.repeat(20_000)}\n${'](x'.repeat(20_000)}`,
+          // Link openers with no target end, many times over.
+          text: `Slow\n\n${'](x'.repeat(40_000)}`,
           mentions: [],
         },
       }),

@@ -3,7 +3,8 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
-import { videoIdOf, videoNamesFor } from './video-names.js';
+import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { artifactBelongsTo } from './pulsevault.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -121,20 +122,30 @@ Meteor.methods({
     // A video's name is its media item's (video-names.js), renamed by its owner.
     const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
     return {
-      attachments: docs.map((a) => {
-        const video = a.type === 'video' ? videos.get(videoIdOf(a.url)) : undefined;
-        return {
-          ...toPublic(a),
-          ...(a.type === 'video'
-            ? {
-                name: video?.name ?? null,
-                // Its owner; or, for a video from before every video had a
-                // media item, whoever attached it (videos.rename makes one).
-                canRename: video ? video.ownerId === userId : a.addedBy === userId,
-              }
-            : {}),
-        };
-      }),
+      attachments: await Promise.all(
+        docs.map(async (a) => {
+          const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
+          const video = videoId ? videos.get(videoId) : undefined;
+          return {
+            ...toPublic(a),
+            ...(a.type === 'video'
+              ? {
+                  name: video?.name ?? null,
+                  // Its owner; or, for a video from before every video had a
+                  // media item, whoever PulseVault says uploaded it — the rule
+                  // videos.rename applies (attaching a URL proves nothing).
+                  canRename: mayRenameVideo({
+                    item: video ? { userId: video.ownerId } : null,
+                    userId,
+                    // Only worth asking PulseVault for a video this viewer attached.
+                    uploadedByUser:
+                      !video && a.addedBy === userId && !!videoId && (await artifactBelongsTo(videoId, userId)),
+                  }),
+                }
+              : {}),
+          };
+        }),
+      ),
     };
   },
 

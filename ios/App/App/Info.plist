@@ -44,9 +44,13 @@
 	<string>TimeHuddle uses the microphone to record audio when capturing videos for messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TimeHuddle accesses your photo library to update your profile photo.</string>
+	<!-- audio: "Audio, AirPlay, and Picture in Picture". iOS lets a video in the
+	     app float in picture in picture (and play on in the background) only
+	     with it. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>audio</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

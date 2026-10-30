@@ -92,7 +92,9 @@ done
 # 3. Start frontend static server on port 3000 (bind to 0.0.0.0 so Proxmox reverse proxy can reach it)
 echo "Starting frontend on port 3000..."
 cd /app
-npx serve -s dist -l tcp:0.0.0.0:3000 &
+# serve-frontend.mjs is `serve -s dist` plus link-preview tags for a video's
+# page (/watch/:id); it reads the backend's public address from the build.
+PORT=3000 HOST=0.0.0.0 node scripts/serve-frontend.mjs &
 
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID)"

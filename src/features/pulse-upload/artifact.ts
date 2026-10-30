@@ -35,6 +35,14 @@ export function artifactPath(id: string): string {
 }
 
 /**
+ * A video's own page (WatchPage): what its Copy link shares and its ⋯ menu
+ * opens. Public, as playback is.
+ */
+export function watchPath(videoId: string): string {
+  return `/watch/${videoId}`;
+}
+
+/**
  * A video's poster frame, by the video's own id: PulseVault serves the
  * thumbnail Pulse uploaded `relatedTo` it, or answers 404 when there isn't one
  * (yet) — so it shows whichever order Pulse uploaded the two in.

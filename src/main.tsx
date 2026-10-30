@@ -89,6 +89,7 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
+import { WatchPage, watchPathVideoId } from './features/pulse-upload/WatchPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
@@ -474,6 +475,12 @@ function renderRoot() {
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
       _root.render(<InboxPage />);
+      return;
+    } else if (watchPathVideoId(window.location.pathname)) {
+      // A video's own page: public, since a shared link reaches people who
+      // aren't signed in (see WatchPage).
+      _root = createRoot(el);
+      _root.render(<WatchPage videoId={watchPathVideoId(window.location.pathname)!} />);
       return;
     } else if (window.location.pathname === '/release-notes') {
       // Public on purpose: linked from the landing page, so someone deciding
