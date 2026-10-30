@@ -17,6 +17,7 @@ import { Notifications } from './collections';
 import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge.js';
 import { sendToUser } from './push';
+import { stopUnreadRemindersIfAllRead } from './unread-reminders';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -69,6 +70,7 @@ Meteor.methods({
       { _id: toId(notificationId), userId },
       { $set: { read: true } }
     );
+    await stopUnreadRemindersIfAllRead(userId);
     return { ok: true };
   },
 
@@ -79,6 +81,7 @@ Meteor.methods({
       { userId, read: false },
       { $set: { read: true } }
     );
+    await stopUnreadRemindersIfAllRead(userId);
     return { ok: true };
   },
 
@@ -93,6 +96,7 @@ Meteor.methods({
       _id: { $in: objectIds },
       userId,
     });
+    await stopUnreadRemindersIfAllRead(userId);
     return { deletedCount: result.deletedCount };
   },
 
@@ -150,6 +154,7 @@ Meteor.methods({
       { _id: toId(notificationId) },
       { $set: { read: true } }
     );
+    await stopUnreadRemindersIfAllRead(userId);
     return { ok: true };
   },
 

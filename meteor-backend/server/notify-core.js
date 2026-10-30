@@ -21,6 +21,7 @@ import {
 import { getPrefs } from './notification-prefs';
 import { resolveSettings } from './settings';
 import { isViewingTeam } from './presence';
+import { startUnreadReminders } from './unread-reminders';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -84,6 +85,9 @@ export async function createNotification({ userId, title, body, data }) {
     createdAt: new Date(),
   };
   await notifications().insertOne(doc);
+  startUnreadReminders(userId).catch((err) =>
+    console.error('[unread-reminder] failed to start:', err)
+  );
   if (delivery.desktop || delivery.phone) {
     // The push carries the row's id so tapping it can mark it read; the stored
     // row doesn't need it.

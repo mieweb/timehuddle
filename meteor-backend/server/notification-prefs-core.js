@@ -23,6 +23,9 @@
  *     push, "hold while clocked out" holds Huddle pushes except mentions, and
  *     "skip while viewing" holds Huddle pushes for a team whose Huddle the
  *     user has open.
+ *   - The unread reminder is push only: it is about the inbox, so it never
+ *     adds a row to it (one would keep the reminders going forever). It is off
+ *     until the person turns it on.
  *   - Some events follow a team setting from the settings hierarchy
  *     (ORG_SETTING_FOR_EVENT): off drops the event for everyone; locked means
  *     the event's defaults apply whatever the person chose.
@@ -56,6 +59,7 @@ export const EVENTS = Object.freeze({
     phone: true,
   },
   joinRequest: { types: ['team-join-request'], desktop: true, phone: true },
+  unreadReminder: { types: ['unread-reminder'], desktop: false, phone: false },
 });
 
 export const EVENT_KEYS = Object.keys(EVENTS);
@@ -78,6 +82,27 @@ const DROPPED_BY_LEVEL = {
  * never drops it from the inbox; only an organization turning it off does.
  */
 const ACTIONABLE_EVENTS = new Set(['shiftEnd']);
+
+/** Events that pop up but are never logged under the bell. */
+const PUSH_ONLY_EVENTS = new Set(['unreadReminder']);
+
+/**
+ * Hours between unread reminders: each wait doubles, and the reminder after
+ * 32 hours is the last until a new notification starts them again.
+ */
+export const UNREAD_REMINDER_HOURS = [2, 4, 8, 16, 32];
+
+/** The wait before unread reminder `step` (from 0), or null once they are over. */
+export function unreadReminderDelayMs(step) {
+  const hours = UNREAD_REMINDER_HOURS[step];
+  return hours ? hours * 3_600_000 : null;
+}
+
+/** Whether the user turned unread reminders on for either device. */
+export function wantsUnreadReminders(prefs) {
+  const { desktop, phone } = eventSetting(prefs, 'unreadReminder');
+  return desktop || phone;
+}
 
 /** The Huddle events, which "hold while clocked out" applies to. */
 const HUDDLE_EVENTS = DROPPED_BY_LEVEL.mute;
@@ -177,8 +202,11 @@ export function resolveDelivery(prefs, ctx) {
       ? { inbox: true, desktop: false, phone: false }
       : DELIVER_NOWHERE;
   }
-  if (pushHeld(prefs, key, ctx)) return { inbox: true, desktop: false, phone: false };
-  return { inbox: true, desktop, phone };
+  const inbox = !PUSH_ONLY_EVENTS.has(key);
+  if (pushHeld(prefs, key, ctx)) {
+    return inbox ? { inbox: true, desktop: false, phone: false } : DELIVER_NOWHERE;
+  }
+  return { inbox, desktop, phone };
 }
 
 /**

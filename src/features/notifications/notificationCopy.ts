@@ -70,6 +70,16 @@ export const NOTIFICATION_EVENT_GROUPS: NotificationEventGroup[] = [
     label: 'Teams',
     events: [{ key: 'joinRequest', label: 'Someone asks to join my team', hint: 'Admins' }],
   },
+  {
+    label: 'Reminders',
+    events: [
+      {
+        key: 'unreadReminder',
+        label: 'Remind me about unread notifications',
+        hint: 'After 2, 4, 8, 16 and 32 hours, until you read them. Never logged under the bell.',
+      },
+    ],
+  },
 ];
 
 /** The three Huddle team levels, in the order they're offered. */

@@ -92,6 +92,7 @@ Each notification `type` maps to one preference key. A type that isn't listed is
 | `timesheetRequest`   | `timesheet-change-request`                         | on      | on    | Time           |
 | `teamClock`          | `clock-in`, `clock-out`, `clock-session-changed`   | on      | on    | Time (admins)  |
 | `joinRequest`        | `team-join-request`                                | on      | on    | Teams (admins) |
+| `unreadReminder`     | **new** `unread-reminder` (M9, push only)          | off     | off   | Reminders      |
 
 Not configurable: `test`, `team-setting-change`, `team-invite`, `auto-clock-out`,
 `team-join-request-approved`, `team-join-request-declined`, `redmine`,
@@ -530,6 +531,46 @@ this in a comment at the top of `presence.js`.
 - With the team's Huddle open and visible on desktop, a post in that team causes no
   phone buzz, but the item is in the bell.
 - Hiding the tab restores pushes within a few seconds.
+
+---
+
+## Milestone 9: Remind Me About Unread Notifications
+
+A stacked PR on #793. Someone who doesn't see a notification gets a push reminding them
+to check the bell, with each wait double the last.
+
+- [x] **9.1 `notification-prefs-core.js`:** a new `unreadReminder` event (type
+      `unread-reminder`), **off** for both devices until the person turns it on. It is
+      **push only**: `resolveDelivery` returns `inbox: false` for it, since a row about
+      unread rows would keep the reminders going forever. Quiet time holds it like any
+      pop-up. `UNREAD_REMINDER_HOURS = [2, 4, 8, 16, 32]` and `unreadReminderDelayMs(step)`
+      give the waits; `wantsUnreadReminders(prefs)` says whether either device is on.
+- [x] **9.2 New `meteor-backend/server/unread-reminders.js`:** one Agenda job per user
+      (`unread-reminder`, data `{ userId, step }`).
+  - [x] `createNotification` calls `startUnreadReminders(userId)` after its insert. It
+        schedules step 0 two hours out with `.unique(…, { insertOnly: true })`, so a
+        notification arriving mid-run doesn't restart the waits.
+  - [x] When the job runs it counts every unread row. With none, or with reminders
+        turned off since, it removes itself. Otherwise it pushes "You have N unread
+        notifications" (tag `unread-reminder`, `url: /app/notifications`) and queues the
+        next step. After the 32-hour reminder it removes itself; the next notification
+        starts again at 2 hours.
+  - [x] `markOneRead`, `markAllRead`, `deleteMany` and `respondToInvite` call
+        `stopUnreadRemindersIfAllRead(userId)`, which cancels the job once nothing is
+        unread.
+- [x] **9.3 Settings:** a **Reminders** group in `notificationCopy.ts`. The existing
+      What notifies you table shows it with no new component.
+- [x] **9.4 Tapping it** opens `/app/notifications` through the existing `url` handling in
+      `public/sw.js` and `AppLayout`. It carries no `notificationId`, so nothing is
+      marked read.
+- [x] **9.5 Release note:** a bullet under "Choose what notifies you".
+- [x] **Tests:** 4 unit tests (off by default, push only, held by a snooze, the waits),
+      3 integration tests (nothing while off; one job 2 hours out that a second
+      notification doesn't move; cancelled by Mark all read). Checked on the test backend
+      that a due job pushes and moves itself to step 1, 4 hours out.
+
+**Known limit:** turning reminders on doesn't start them for notifications that are
+already unread; the next new notification does.
 
 ---
 
