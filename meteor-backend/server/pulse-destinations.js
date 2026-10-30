@@ -28,7 +28,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
-import { cleanVideoName, isDuplicateKey } from './video-names.js';
+import { CANONICAL_ITEM, cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -90,13 +90,25 @@ const attachment = (kind, check) => ({
  */
 async function addToLibrary(userId, video, { embedded = false } = {}) {
   const media = rawDb().collection('mediaitems');
-  // Sent somewhere it belongs in the library after all: it shows there now.
-  const shown = (item) =>
-    embedded || !item.embedded ? null : media.updateOne({ _id: item._id }, { $unset: { embedded: '' } });
-  const projection = { _id: 1, embedded: 1 };
-  const existing = await media.findOne({ videoid: video.artifactId }, { projection });
+  // An item made before this delivery: an earlier one, or a rename while the
+  // video was still uploading (videos.rename), which knows only the name.
+  // Fill in what the upload knows that it doesn't, and, sent somewhere it
+  // belongs in the library after all, show it there now.
+  const finish = (item) => {
+    const known = { mimeType: video.mimeType, filename: video.filename, size: video.size, uploadedAt: new Date() };
+    const $set = Object.fromEntries(
+      Object.entries(known).filter(([field, value]) => item[field] == null && value != null),
+    );
+    const update = {
+      ...(Object.keys($set).length ? { $set } : {}),
+      ...(!embedded && item.embedded ? { $unset: { embedded: '' } } : {}),
+    };
+    return Object.keys(update).length ? media.updateOne({ _id: item._id }, update) : null;
+  };
+  const projection = { _id: 1, embedded: 1, mimeType: 1, filename: 1, size: 1, uploadedAt: 1 };
+  const existing = await media.findOne({ videoid: video.artifactId }, { projection, ...CANONICAL_ITEM });
   if (existing) {
-    await shown(existing);
+    await finish(existing);
     return existing._id.toHexString();
   }
   const _id = new ObjectId();
@@ -121,8 +133,8 @@ async function addToLibrary(userId, video, { embedded = false } = {}) {
   } catch (err) {
     // A replayed delivery got there first (one item per video): use that one.
     if (!isDuplicateKey(err)) throw err;
-    const winner = await media.findOne({ videoid: video.artifactId }, { projection });
-    await shown(winner);
+    const winner = await media.findOne({ videoid: video.artifactId }, { projection, ...CANONICAL_ITEM });
+    await finish(winner);
     return winner._id.toHexString();
   }
   return _id.toHexString();
@@ -232,11 +244,13 @@ const DESTINATIONS = {
     async check() {
       return {};
     },
+    // In the library: an item that isn't embedded. One a rename made while it
+    // uploaded, or a ticket's, is embedded, so this delivery still runs.
     async delivered(_userId, _destination, video) {
       const item = await rawDb()
         .collection('mediaitems')
-        .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-      return item ? LIBRARY_NOTE : null;
+        .findOne({ videoid: video.artifactId }, { projection: { embedded: 1 }, ...CANONICAL_ITEM });
+      return item && !item.embedded ? LIBRARY_NOTE : null;
     },
     async deliver(userId, _destination, video) {
       await addToLibrary(userId, video);

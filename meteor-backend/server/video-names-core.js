@@ -1,21 +1,42 @@
 /**
  * The rules for a video's name, with no Meteor or database (see video-names.js
  * for where names are kept and looked up): which URLs are videos, how a name
- * is cleaned before it's stored, that the old `Video 1a2b3c4d` titles are
- * placeholders, not names, who may rename a video, and what its public page
- * may show.
+ * is cleaned before it's stored, that the old `Video 1a2b3c4d` titles (the
+ * start of the video's own id) are placeholders, not names, who may rename a
+ * video, and what its public page may show.
  */
 
-/** A Pulse video's playback path, the only URL a video is stored under. */
+/** A Pulse video's playback path. */
 const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
-/** What every video was titled before videos kept a name: a placeholder, not a name. */
-const PLACEHOLDER = /^Video [0-9a-f]{8}$/i;
 /** Longest name kept. */
 export const VIDEO_NAME_MAX = 120;
 
-/** The video id in a `/pulsevault/artifacts/<id>` path, else null. */
-export function videoIdOf(url) {
-  const match = typeof url === 'string' ? url.match(ARTIFACT_PATH) : null;
+/**
+ * Which media item is a video's where old data has more than one (the unique
+ * index can't be built over them): the oldest, the same one for every read,
+ * ownership check and write. Spread into a find's options.
+ */
+export const CANONICAL_ITEM = { sort: { _id: 1 } };
+
+/**
+ * The video id in a `/pulsevault/artifacts/<id>` path, else null. A full URL
+ * counts only on one of `trustedOrigins` (this backend's own): a video on
+ * another site is not this backend's video.
+ */
+export function videoIdOf(url, trustedOrigins = []) {
+  if (typeof url !== 'string') return null;
+  let path = url;
+  if (/^https?:\/\//i.test(url)) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    if (!trustedOrigins.includes(parsed.origin)) return null;
+    path = parsed.pathname;
+  }
+  const match = path.match(ARTIFACT_PATH);
   return match ? match[1].toLowerCase() : null;
 }
 
@@ -26,10 +47,16 @@ export function cleanVideoName(name) {
   return clean || null;
 }
 
-/** A stored title as a name: null for none, and for the old placeholder. */
-export function videoNameOf(title) {
+/**
+ * A stored title as a name: null for none, and for the placeholder every video
+ * was titled before videos kept a name, `Video ` and the start of its own id.
+ * Only that exact title is one: `Video 20261029` from a file is a real name.
+ */
+export function videoNameOf(title, videoId) {
   const name = cleanVideoName(title);
-  return name && !PLACEHOLDER.test(name) ? name : null;
+  if (!name) return null;
+  const placeholder = typeof videoId === 'string' ? `Video ${videoId.slice(0, 8)}` : null;
+  return placeholder && name.toLowerCase() === placeholder.toLowerCase() ? null : name;
 }
 
 /**
@@ -51,7 +78,7 @@ export function publicVideoInfo({ id, item, viewerId, owner, canRename = false }
   const signedIn = Boolean(viewerId);
   return {
     videoId: id,
-    name: videoNameOf(item?.title),
+    name: videoNameOf(item?.title, id),
     addedAt: item?.uploadedAt ?? null,
     author: signedIn && owner ? { name: owner.profile?.name ?? null, image: owner.image ?? null } : null,
     canRename: signedIn && canRename === true,

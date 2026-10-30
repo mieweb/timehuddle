@@ -1,6 +1,7 @@
 /**
  * Unit tests for video-names-core (server/video-names-core.js): which URLs are
- * videos, how a name is cleaned, and that old placeholder titles aren't names.
+ * videos, how a name is cleaned, and that old placeholder titles aren't names
+ * (only the exact `Video <id start>` one).
  */
 import { describe, it, expect } from 'vitest';
 
@@ -19,6 +20,13 @@ describe('videoIdOf', () => {
   it('reads the id out of a PulseVault playback path, lower-cased', () => {
     expect(videoIdOf(`/pulsevault/artifacts/${ID}`)).toBe(ID);
     expect(videoIdOf(`/pulsevault/artifacts/${ID.toUpperCase()}`)).toBe(ID);
+  });
+
+  it("reads a full URL on this backend's own origin, never another site's", () => {
+    const own = ['https://timehuddle.example'];
+    expect(videoIdOf(`https://timehuddle.example/pulsevault/artifacts/${ID}`, own)).toBe(ID);
+    expect(videoIdOf(`https://example.com/pulsevault/artifacts/${ID}`, own)).toBeNull();
+    expect(videoIdOf(`https://timehuddle.example/pulsevault/artifacts/${ID}`)).toBeNull();
   });
 
   it('is null for anything else', () => {
@@ -48,15 +56,17 @@ describe('cleanVideoName', () => {
 
 describe('videoNameOf', () => {
   it('reads a stored title as its name', () => {
-    expect(videoNameOf('Repro of the login bug')).toBe('Repro of the login bug');
+    expect(videoNameOf('Repro of the login bug', ID)).toBe('Repro of the login bug');
   });
 
-  it('reads the old "Video 1a2b3c4d" titles as no name', () => {
-    expect(videoNameOf('Video 0b7e7c1e')).toBeNull();
+  it("reads the old placeholder, \"Video\" and the start of the video's own id, as no name", () => {
+    expect(videoNameOf('Video 0b7e7c1e', ID)).toBeNull();
+    expect(videoNameOf('video 0B7E7C1E', ID)).toBeNull();
   });
 
-  it('keeps a real name that only starts with "Video"', () => {
-    expect(videoNameOf('Video call with design')).toBe('Video call with design');
+  it('keeps a real name that only looks like the placeholder', () => {
+    expect(videoNameOf('Video 20261029', ID)).toBe('Video 20261029');
+    expect(videoNameOf('Video call with design', ID)).toBe('Video call with design');
   });
 });
 

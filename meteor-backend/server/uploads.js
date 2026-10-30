@@ -603,7 +603,7 @@ function toPublicMediaItem(m) {
     filename: m.filename,
     size: m.size,
     // A video's title is its name (video-names.js): the old placeholder reads as none.
-    title: m.type === 'video' ? videoNameOf(m.title) : (m.title ?? null),
+    title: m.type === 'video' ? videoNameOf(m.title, m.videoid) : (m.title ?? null),
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,

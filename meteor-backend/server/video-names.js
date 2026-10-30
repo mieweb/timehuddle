@@ -12,26 +12,33 @@ import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
 import { artifactBelongsTo, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
 import {
+  CANONICAL_ITEM,
   cleanVideoName,
   mayRenameVideo,
   publicVideoInfo,
-  videoIdOf,
+  videoIdOf as videoIdOfUrl,
   videoNameOf,
 } from './video-names-core.js';
 
 export {
+  CANONICAL_ITEM,
   cleanVideoName,
   mayRenameVideo,
-  videoIdOf,
   videoNameOf,
   VIDEO_NAME_MAX,
 } from './video-names-core.js';
+
+/** This backend's own origin: the one a full video URL may be on. */
+const OWN_ORIGINS = [new URL(Meteor.absoluteUrl()).origin];
+
+/** The video id in a video URL: a path, or a full URL on this backend; else null. */
+export const videoIdOf = (url) => videoIdOfUrl(url, OWN_ORIGINS);
 
 /** A duplicate key: another write made this video's media item first. */
 export const isDuplicateKey = (err) => err?.code === 11000;
 
 // One media item per video. Fails (and says so) where duplicates already
-// exist; reads still work then, the newest match winning.
+// exist; reads and writes still agree then, on CANONICAL_ITEM.
 Meteor.startup(async () => {
   try {
     await rawDb()
@@ -51,11 +58,15 @@ export async function videoNamesFor(videoIds) {
   if (ids.length === 0) return new Map();
   const items = await rawDb()
     .collection('mediaitems')
-    .find({ videoid: { $in: ids } }, { projection: { videoid: 1, title: 1, userId: 1 } })
+    .find({ videoid: { $in: ids } }, { projection: { videoid: 1, title: 1, userId: 1 }, ...CANONICAL_ITEM })
     .toArray();
-  return new Map(
-    items.map((m) => [m.videoid, { mediaId: m._id.toHexString(), name: videoNameOf(m.title), ownerId: m.userId }]),
-  );
+  const names = new Map();
+  for (const m of items) {
+    // The first is CANONICAL_ITEM's, where old data has duplicates.
+    if (names.has(m.videoid)) continue;
+    names.set(m.videoid, { mediaId: m._id.toHexString(), name: videoNameOf(m.title, m.videoid), ownerId: m.userId });
+  }
+  return names;
 }
 
 /** The signed-in caller, or null for someone who isn't (a shared link's reader). */
@@ -79,7 +90,7 @@ Meteor.methods({
     if (!id) throw new Meteor.Error('not-found', 'Video not found');
     const item = await rawDb()
       .collection('mediaitems')
-      .findOne({ videoid: id }, { projection: { title: 1, userId: 1, uploadedAt: 1 } });
+      .findOne({ videoid: id }, { projection: { title: 1, userId: 1, uploadedAt: 1 }, ...CANONICAL_ITEM });
     if (!item && !(await videoArtifactExists(id))) {
       throw new Meteor.Error('not-found', 'Video not found');
     }
@@ -113,14 +124,14 @@ Meteor.methods({
     if (!id) throw new Meteor.Error('not-found', 'Video not found');
     const media = rawDb().collection('mediaitems');
     const title = cleanVideoName(name);
-    const item = await media.findOne({ videoid: id }, { projection: { userId: 1 } });
+    const item = await media.findOne({ videoid: id }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
     const uploadedByUser = item ? false : await artifactBelongsTo(id, userId);
     if (!mayRenameVideo({ item, userId, uploadedByUser })) {
       throw new Meteor.Error('forbidden', 'Not your video');
     }
     if (item) {
       await media.updateOne({ _id: item._id }, { $set: { title } });
-      return { name: videoNameOf(title) };
+      return { name: videoNameOf(title, id) };
     }
     // Only what's known about it: PulseVault keeps its size, not its type,
     // file name or upload time, so those stay empty rather than made up.
@@ -152,7 +163,7 @@ Meteor.methods({
       if (!isDuplicateKey(err)) throw err;
       await media.updateOne({ videoid: id, userId }, { $set: { title } });
     }
-    return { name: videoNameOf(title) };
+    return { name: videoNameOf(title, id) };
   },
 });
 
