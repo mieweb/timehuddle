@@ -392,6 +392,7 @@ describe('TicketStartProvider', () => {
         comment: 'Fixed the clock',
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
       expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
@@ -413,6 +414,7 @@ describe('TicketStartProvider', () => {
         comment: undefined,
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -432,6 +434,7 @@ describe('TicketStartProvider', () => {
         comment: 'Fixed the clock',
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -450,6 +453,7 @@ describe('TicketStartProvider', () => {
         comment: undefined,
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -628,6 +632,8 @@ describe('TicketStartProvider', () => {
           comment: undefined,
           activityId: undefined,
           billable: null,
+          // The hours on the card, so a total that moved is refused too.
+          hours: UNSENT.hours,
         }),
       );
     });

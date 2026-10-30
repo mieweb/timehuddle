@@ -136,8 +136,8 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         // if it moved since. When the preview failed nothing was shown, so a value
         // the server finds on its own is refused, never sent unseen.
         billable: row?.billable ?? null,
-        // The hours shown, when read: the server refuses them if the rounding moved since.
-        hours: row?.hours,
+        // The hours shown, read or from the stop: the server refuses them if they moved since.
+        hours,
       });
     } catch (err) {
       // Nothing was decided (a push already running, the network): the prompt
