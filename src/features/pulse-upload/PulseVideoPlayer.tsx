@@ -67,14 +67,6 @@ function posterUrl(video: string, attempt: number): string {
   );
 }
 
-/**
- * A card at its widest, and at its tallest (a portrait clip is as tall as
- * this): never more than half the screen, so a phone — upright or sideways —
- * shows the whole card with room around it. `max-h-[…]` below says the same.
- */
-const CARD_WIDTH_REM = 18;
-const CARD_MAX_HEIGHT = 'min(28rem, 50dvh)';
-
 /** User-facing copy, kept together for translation. */
 const PLAYER_COPY = {
   untitled: 'Pulse video',
@@ -82,25 +74,22 @@ const PLAYER_COPY = {
 };
 
 /**
- * The card's box: its shape (width ÷ height) once known, so the poster and the
- * player fill the same box — nothing cropped, no bars — and its width: the
- * card's usual width, or narrower for a portrait clip so it isn't taller than
- * the cap. In rem, not %: the host sizes itself to this width, and a
- * percentage would shrink the card to the poster's own pixels. `max-w-full`
- * on the card still keeps it inside a narrow host.
- *
- * A host that has room can let it grow, through `--pulse-video-grow` (e.g.
- * `100%` of the space it's given), up to the height cap. That's a min-width:
- * a percentage there plays no part in sizing the host, only in filling it.
+ * The card's box, inside the `--pulse-video-max-w` × `--pulse-video-max-h`
+ * box (styles.css): its shape (width ÷ height) once known, so the poster and
+ * the player fill the same box — nothing cropped, no bars — and its width: the
+ * box's, or narrower for an upright clip so it isn't taller than the box. The
+ * same size however long the message. Not a percentage: the message sizes
+ * itself to the card, and `max-w-full` on the card still fits it, shape and
+ * all, inside a narrower one.
  */
 function cardBox(aspect: number | null): React.CSSProperties {
-  const usual = `${CARD_WIDTH_REM}rem`;
-  const capped = aspect ? `calc(${CARD_MAX_HEIGHT} * ${aspect})` : usual;
-  return {
-    ...(aspect ? { aspectRatio: String(aspect) } : {}),
-    width: `min(${usual}, ${capped})`,
-    minWidth: `min(${capped}, var(--pulse-video-grow, 0px))`,
-  };
+  const width = 'var(--pulse-video-max-w)';
+  return aspect
+    ? {
+        aspectRatio: String(aspect),
+        width: `min(${width}, calc(var(--pulse-video-max-h) * ${aspect}))`,
+      }
+    : { width };
 }
 
 /** The one video playing, so starting another pauses it. */
@@ -205,7 +194,7 @@ function PulseVideoCard({
         <>
           <video
             ref={attachPlayer}
-            className="pulse-video-player block h-full max-h-[min(28rem,50dvh)] w-full bg-black object-contain in-[:fullscreen]:max-h-none"
+            className="pulse-video-player block h-full max-h-(--pulse-video-max-h) w-full bg-black object-contain in-[:fullscreen]:max-h-none"
             src={resolveMediaUrl(artifactPath(video))}
             poster={poster.src ?? undefined}
             playsInline
@@ -236,7 +225,7 @@ function PulseVideoCard({
               onLoad={(e) =>
                 learnShape(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
               }
-              className="pulse-video-poster-image block h-full max-h-[min(28rem,50dvh)] w-full object-cover"
+              className="pulse-video-poster-image block h-full max-h-(--pulse-video-max-h) w-full object-cover"
             />
           )}
           <span

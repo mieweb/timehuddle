@@ -25,6 +25,12 @@ html[data-theme='dark'] {
    (e.g. the Huddle chat input) sits flush on the bar with no gap. */
 :root {
   --bottom-nav-height: 4rem;
+  /* A video card's box (PulseVideoPlayer): each video fits inside it at its own
+     shape, a wide one up to the width, an upright one up to the height, and
+     never wider than the message or panel it's in. A host can set its own on
+     any ancestor. */
+  --pulse-video-max-w: 20rem;
+  --pulse-video-max-h: min(18rem, 40dvh);
 }
 
 /* Bottom nav safe area — sits above the iPhone home indicator */

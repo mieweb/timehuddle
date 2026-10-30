@@ -14,14 +14,12 @@
 }
 
 /* A post with a video sizes like any other post: as wide as its text needs,
-   up to the thread's usual limit, and never narrower than its video. Its
-   videos grow with it (--pulse-video-grow, see PulseVideoPlayer's cardBox) up
-   to their height cap, so a long message on a wide screen doesn't squeeze
-   into a column the width of the card, and a short one still hugs the video
-   with a thin frame. A video that reaches its cap (a portrait clip) sits at
-   the start edge, where the text starts. */
+   up to the thread's usual limit, and never narrower than its video. The video
+   keeps its own size (--pulse-video-max-w/-h, styles.css) at the start edge,
+   where the text starts: a short post hugs it with a thin frame, a long one
+   wraps its text beside the same card, and a narrow screen shrinks the card to
+   fit the message. */
 .inbox :global([data-slot='superchat-bubble']:has(.pulse-video-card)) {
-  --pulse-video-grow: 100%;
   padding: 0.375rem;
 }
 /* Everything else in that post keeps the bubble's usual inset. */
