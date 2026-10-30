@@ -127,7 +127,9 @@ const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
 /**
  * The timer runs that make up a ticket-day's unsent seconds. The ledger holds
  * seconds, not runs, but each send covers every run closed by then, so the unsent
- * time is always the newest runs: go back from the latest until they cover it.
+ * time is normally the newest runs: go back from the latest until they cover it.
+ * Moving or editing an entry can break that, so when no run list adds up to the
+ * unsent time there is none to show: it never contradicts the total.
  *
  * @param {number[]} [runSeconds] each run's seconds, oldest first
  */
@@ -135,7 +137,7 @@ function unsentRuns(runSeconds = [], unsentSeconds) {
   let covered = 0;
   let first = runSeconds.length;
   while (first > 0 && covered < unsentSeconds) covered += runSeconds[--first];
-  return runSeconds.slice(first);
+  return covered === unsentSeconds ? runSeconds.slice(first) : [];
 }
 
 /**

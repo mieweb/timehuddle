@@ -226,6 +226,15 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
     expect(unsentRuns(120)).toEqual([180]);
   });
 
+  it('lists no runs when the newest ones do not add up to the unsent time', () => {
+    // Two older 60 s runs moved onto a day whose later 600 s run was already sent.
+    const [row] = unsentTotals(
+      [{ ticketId: '15', date: '2026-09-21', seconds: 720, runSeconds: [60, 60, 600] }],
+      sent('15|2026-09-21', 600),
+    );
+    expect(row).toMatchObject({ seconds: 120, runSeconds: [] });
+  });
+
   it('passes a never-pushed ticket-day through whole', () => {
     expect(
       unsentTotals([{ ticketId: '12', date: '2026-09-21', seconds: 1442 }], new Map()),
