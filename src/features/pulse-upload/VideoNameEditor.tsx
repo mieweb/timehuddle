@@ -1,13 +1,13 @@
 /**
- * VideoNameEditor — one of your own videos' name, edited in place, where the
- * name shows (a card's caption, the media view's actions beside its title), as
- * a message is edited in Huddle: Enter or Save keeps it, Escape or Cancel
- * leaves it. A video has one name (on its media item), so the new one shows
- * everywhere it appears. Empty clears it, and the video is called by its id
- * again.
+ * VideoNameEditor — one of your own videos' name, edited in place with the
+ * library's InlineEdit: on a card it is the name itself (click it, or ⋯ →
+ * Rename); beside the media view's title it stands in for the ⋯ menu while
+ * renaming. Enter or ✓ keeps it, Escape or ✕ leaves it. A video has one name
+ * (on its media item), so the new one shows everywhere it appears. Empty
+ * clears it, and the video is called by its id again.
  */
-import { Button, ButtonGroup, Input, Text } from '@mieweb/ui';
-import React, { useState } from 'react';
+import { InlineEdit, useToast } from '@mieweb/ui';
+import React from 'react';
 import { videoApi } from '@lib/api';
 import { noteRenamed } from './videoNames';
 
@@ -17,6 +17,9 @@ export const VIDEO_NAME_MAX = 120;
 /** User-facing copy, kept together for translation. */
 export const NAME_EDITOR_COPY = {
   label: 'Video name',
+  addName: 'Add a name',
+  rename: (name: string) => `Rename ${name}`,
+  tooLong: `At most ${VIDEO_NAME_MAX} characters.`,
   failed: "The name wasn't saved. Try again.",
   save: 'Save',
   cancel: 'Cancel',
@@ -27,70 +30,60 @@ interface VideoNameEditorProps {
   video: string;
   /** Its name now (null: none). */
   name: string | null;
-  /**
-   * Editing is over: with the name the server kept (null: none) after a save,
-   * or `undefined` when it was cancelled.
-   */
-  onDone: (renamed?: string | null) => void;
+  /** Whether the editor is open (InlineEdit's `editing`). */
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
+  /** After a save, with the name the server kept (null: none). */
+  onRenamed?: (name: string | null) => void;
   className?: string;
 }
 
-export function VideoNameEditor({ video, name, onDone, className = '' }: VideoNameEditorProps) {
-  const [value, setValue] = useState(name ?? '');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      const renamed = await videoApi.rename(video, value);
-      noteRenamed(video, renamed);
-      onDone(renamed);
-    } catch {
-      setError(NAME_EDITOR_COPY.failed);
-      setSaving(false);
-    }
-  };
-
+export function VideoNameEditor({
+  video,
+  name,
+  editing,
+  onEditingChange,
+  onRenamed,
+  className = '',
+}: VideoNameEditorProps) {
+  const toast = useToast();
   return (
     // Dark, like the video it sits on. Its keys and taps stay its own: Escape
     // doesn't also leave the media view, and a tap doesn't play the video.
-    <form
+    <div
       data-theme="dark"
-      className={`video-name-editor flex flex-col gap-2 ${className}`}
-      onSubmit={save}
+      className={`video-name-editor ${className}`}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
-        if (event.key !== 'Escape') return;
-        event.preventDefault();
-        event.stopPropagation();
-        onDone();
+        if (event.key === 'Escape') event.stopPropagation();
       }}
     >
-      <Input
-        aria-label={NAME_EDITOR_COPY.label}
+      <InlineEdit
         size="sm"
-        value={value}
-        maxLength={VIDEO_NAME_MAX}
-        autoFocus
-        onFocus={(event) => event.currentTarget.select()}
-        onChange={(event) => setValue(event.target.value)}
+        label={NAME_EDITOR_COPY.label}
+        value={name ?? ''}
+        placeholder={NAME_EDITOR_COPY.addName}
+        validate={(next) => (next.length > VIDEO_NAME_MAX ? NAME_EDITOR_COPY.tooLong : undefined)}
+        editing={editing}
+        onEditingChange={onEditingChange}
+        labels={{
+          edit: () => (name ? NAME_EDITOR_COPY.rename(name) : NAME_EDITOR_COPY.addName),
+          save: NAME_EDITOR_COPY.save,
+          cancel: NAME_EDITOR_COPY.cancel,
+          saveFailed: NAME_EDITOR_COPY.failed,
+        }}
+        onSave={async (next) => {
+          try {
+            const renamed = await videoApi.rename(video, next);
+            noteRenamed(video, renamed);
+            onRenamed?.(renamed);
+          } catch (error) {
+            // The editor may have closed already (it saves as it closes).
+            toast.error(NAME_EDITOR_COPY.failed);
+            throw error;
+          }
+        }}
       />
-      {error && (
-        <Text size="sm" className="text-red-300" role="alert">
-          {error}
-        </Text>
-      )}
-      <ButtonGroup className="justify-end">
-        <Button type="button" size="sm" variant="ghost" onClick={() => onDone()} disabled={saving}>
-          {NAME_EDITOR_COPY.cancel}
-        </Button>
-        <Button type="submit" size="sm" variant="primary" isLoading={saving}>
-          {NAME_EDITOR_COPY.save}
-        </Button>
-      </ButtonGroup>
-    </form>
+    </div>
   );
 }

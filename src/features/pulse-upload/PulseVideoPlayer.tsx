@@ -154,9 +154,8 @@ function PulseVideoCard({
   maxSize = VIDEO_CARD_SIZE,
 }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
-  // Its name is being edited in place (VideoNameEditor), from the ⋯ menu.
+  // Its name is being edited in place (VideoNameEditor).
   const [editing, setEditing] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   // The card keeps the name it shows, so a rename here shows at once.
   const [shownName, setShownName] = useState(caption ?? null);
   useEffect(() => setShownName(caption ?? null), [caption]);
@@ -247,7 +246,7 @@ function PulseVideoCard({
             {/* ▶ points right in either reading direction, so its optical nudge does too. */}
             <FontAwesomeIcon icon={faPlay} className="translate-x-0.5 text-xl" />
           </span>
-          {shownName && !editing && (
+          {shownName && !renamable && (
             // Read out as part of the button's label, so hidden from screen
             // readers here. `text-start` follows the reading direction.
             <span
@@ -261,31 +260,31 @@ function PulseVideoCard({
           )}
         </Button>
       )}
-      {editing ? (
-        // In place of the name: over the poster's foot, where the name shows,
-        // or over the top while it plays, clear of the player's controls.
+      {renamable && (!playing || editing) && (
+        // The owner's name is its editor (InlineEdit): click it, or ⋯ →
+        // Rename. Over the poster's foot, where the name shows, or over the
+        // top while it plays, clear of the player's controls.
         <VideoNameEditor
           video={video}
           name={shownName}
-          className={`pulse-video-name-editor absolute inset-x-0 z-20 bg-black/75 p-2 ${playing ? 'top-0' : 'bottom-0'}`}
-          onDone={(renamed) => {
-            if (renamed !== undefined) {
-              setShownName(renamed);
-              onRenamed?.(renamed);
-            }
-            setEditing(false);
-            // Back to where Rename was chosen.
-            requestAnimationFrame(() => menuRef.current?.querySelector('button')?.focus());
+          editing={editing}
+          onEditingChange={setEditing}
+          onRenamed={(renamed) => {
+            setShownName(renamed);
+            onRenamed?.(renamed);
           }}
+          className={`pulse-video-name absolute inset-x-0 z-20 p-1.5 ${
+            playing
+              ? 'top-0 bg-black/75'
+              : 'bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-8'
+          }`}
         />
-      ) : (
+      )}
+      {!editing && (
         // Beside the poster, not inside its Play button: a button in a button
         // is neither valid nor reachable. Over the top corner, before and
         // after Play, clear of the player's own controls along the bottom.
-        <div
-          ref={menuRef}
-          className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden"
-        >
+        <div className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden">
           <VideoMenu
             video={video}
             name={shownName}

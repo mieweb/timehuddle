@@ -138,11 +138,10 @@ export function VideoActions({
     <VideoNameEditor
       video={menu.video}
       name={menu.name}
+      editing
+      onEditingChange={setEditing}
+      onRenamed={onRenamed}
       className="w-64 max-w-[60vw]"
-      onDone={(renamed) => {
-        if (renamed !== undefined) onRenamed?.(renamed);
-        setEditing(false);
-      }}
     />
   ) : (
     <VideoMenu {...menu} onRename={renamable ? () => setEditing(true) : undefined} />
