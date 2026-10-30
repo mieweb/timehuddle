@@ -17,6 +17,7 @@ import { github } from '@timehuddle/ticket-sources';
 import { ObjectId } from 'mongodb';
 
 import { runMigrationOnce } from './migration-claim';
+import { optionalRedmineBaseUrl } from './redmine-client';
 
 export const DEFAULT_TICKET_PREFIX = 'TH';
 
@@ -107,12 +108,13 @@ export function normalizeSourcePrefixes(input, ticketPrefix) {
 }
 
 /**
- * An org's servers as the registry stores them, from entries saved before
+ * An org's servers as the registry reads them, typing entries saved before
  * types existed (`{ host, prefix }`). Every one was named for Redmine, so
- * it becomes a Redmine server, at `redmineBaseUrl` when that is its host (it
+ * it reads as a Redmine server, at `redmineBaseUrl` when that is its host (it
  * may live under a path), else at its host's root. A GitHub row never did
- * anything (GitHub is built in) and is dropped. Typed entries are kept as they
- * are.
+ * anything (GitHub is built in) and is left out. Typed entries are kept as
+ * they are. Applied on every read, never written back: saved lists stay as
+ * they are until an owner saves them.
  */
 export function typedServers(entries, redmineBaseUrl) {
   const redmineHost = hostOf(redmineBaseUrl);
@@ -128,31 +130,6 @@ export function typedServers(entries, redmineBaseUrl) {
               entry.host === redmineHost ? redmineBaseUrl.replace(/\/+$/, '') : `https://${entry.host}`,
           },
     );
-}
-
-/**
- * Give every org's servers a type and address (#734 step 5), once. Each org is
- * written only if its list is still the one read, so an owner's save meanwhile
- * is never overwritten; they saved typed entries anyway.
- */
-export function migrateServerTypes(db, { redmineBaseUrl }) {
-  return runMigrationOnce(db, 'ticket-servers-759', async () => {
-    const orgs = db
-      .collection('organizations')
-      .find({ 'sourcePrefixes.0': { $exists: true } }, { projection: { sourcePrefixes: 1 } });
-    let typed = 0;
-    for await (const org of orgs) {
-      if (org.sourcePrefixes.every((entry) => entry.type)) continue;
-      const { modifiedCount } = await db
-        .collection('organizations')
-        .updateOne(
-          { _id: org._id, sourcePrefixes: org.sourcePrefixes },
-          { $set: { sourcePrefixes: typedServers(org.sourcePrefixes, redmineBaseUrl) } },
-        );
-      typed += modifiedCount;
-    }
-    if (typed) console.log(`[orgs] gave ${typed} organization(s) server types`);
-  });
 }
 
 // Legacy orgs can carry non-ObjectId string ids.
@@ -201,7 +178,9 @@ export async function ticketIdsFor(db, orgIds) {
         id,
         {
           ticketPrefix: org?.ticketPrefix || DEFAULT_TICKET_PREFIX,
-          sourcePrefixes: org?.sourcePrefixes ?? DEFAULT_TICKET_IDS.sourcePrefixes,
+          sourcePrefixes: org?.sourcePrefixes
+            ? typedServers(org.sourcePrefixes, optionalRedmineBaseUrl())
+            : DEFAULT_TICKET_IDS.sourcePrefixes,
         },
       ];
     }),

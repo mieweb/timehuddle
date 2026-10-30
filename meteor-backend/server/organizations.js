@@ -9,8 +9,13 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { redmineUrlRefusal } from './redmine-client';
-import { DEFAULT_TICKET_PREFIX, normalizeSourcePrefixes, normalizeTicketPrefix } from './ticket-ids';
+import { optionalRedmineBaseUrl, redmineUrlRefusal } from './redmine-client';
+import {
+  DEFAULT_TICKET_PREFIX,
+  normalizeSourcePrefixes,
+  normalizeTicketPrefix,
+  typedServers,
+} from './ticket-ids';
 import {
   idOf,
   resolveEnterpriseSettings,
@@ -152,7 +157,7 @@ async function toOrgSummary(org, role) {
     name: org.name,
     slug: org.slug,
     ticketPrefix: org.ticketPrefix || DEFAULT_TICKET_PREFIX,
-    sourcePrefixes: org.sourcePrefixes ?? [],
+    sourcePrefixes: typedServers(org.sourcePrefixes ?? [], optionalRedmineBaseUrl()),
     allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
