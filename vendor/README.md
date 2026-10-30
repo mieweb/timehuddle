@@ -15,9 +15,11 @@ Changes TimeHuddle needs from `@mieweb/ui` (see [`docs/superchat-inbox-gaps.md`]
 are built in the library itself, on a branch that is sent upstream as a PR, rather than worked
 around in this app. Vendoring lets the app use that branch before it is released.
 
-`ui` points at the fork `Dharp02/ui`, branch `feat/superchat-host-extension-points`, with
-`mieweb/ui` as its `upstream` remote. CI and Docker never check the submodule out: they install
-the committed tarball.
+`ui` points at the fork `priyamrmore/ui`, branch `feat/superchat-message-media-slot`, with
+`mieweb/ui` as its `upstream` remote. That branch carries the SuperChat host extension points
+(first built on `Dharp02/ui`'s `feat/superchat-host-extension-points`) and the media
+conversation work on top; both go to `mieweb/ui` `main` as their own PRs. CI and Docker never
+check the submodule out: they install the committed tarball.
 
 ```mermaid
 graph LR
