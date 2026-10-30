@@ -12,7 +12,8 @@ import { expect, type Locator } from '@playwright/test';
 /**
  * Play the Pulse video card inside `scope` and return the URL it plays, which
  * is the PulseVault artifact (`/pulsevault/artifacts/<videoid>`). Pass
- * `videoid` to require that exact artifact.
+ * `videoid` to require that exact artifact. The page is left as it was: in
+ * Huddle, the media view the card opened is closed again.
  */
 export async function playPulseVideoCard(
   scope: Locator,
@@ -31,5 +32,10 @@ export async function playPulseVideoCard(
       `.pulse-video-card video${src}, [data-slot="superchat-media-view"] [data-active="true"] video${src}`,
     );
   await expect(player.first()).toBeVisible();
-  return (await player.first().getAttribute('src'))!;
+  const played = (await player.first().getAttribute('src'))!;
+  // In Huddle the card opened the conversation's media view in place of the
+  // thread: go back, so the post is there for whatever the test checks next.
+  const back = scope.page().getByRole('button', { name: 'Back to conversation', exact: true });
+  if (await back.isVisible()) await back.click();
+  return played;
 }
