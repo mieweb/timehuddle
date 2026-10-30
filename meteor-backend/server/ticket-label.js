@@ -1,14 +1,9 @@
 /**
  * How a ticket is named where its team reads it, in a timer's Huddle update
  * and on a post's tickets (#788): by the ID it leads with in the Tickets table
- * (#689) and, only when the title is TimeHuddle's or GitHub's own, its title.
- *
- * A ticket carrying an issue from any other source (a Redmine server, Jira) is
- * named by its ID alone: its title is the issue's subject, which may carry
- * patient information, and only someone whose own key can read the issue sees
- * it (on the ticket page). Pure: no Meteor, no database.
+ * (#689) and its title. Pure: no Meteor, no database.
  */
-import { github, matchIssueUrl, outsideIdOf } from '@timehuddle/ticket-sources';
+import { outsideIdOf } from '@timehuddle/ticket-sources';
 
 /** The ticket's own page in the app, where a reader with access sees the rest. */
 export function ticketPath(source, ticketId) {
@@ -38,7 +33,7 @@ function carriedRef(linkedIssue, sourcePrefixes, redmineHost) {
 /**
  * How a Huddle ticket is named: the ID it leads with, as `leadingRefOf` in the
  * app (the issue it carries, else the issue its link names, else its own), and
- * its title only when that is TimeHuddle's or GitHub's.
+ * its title.
  *
  * @param {{ _id: unknown, title?: string | null, number?: number, github?: string | null,
  *   linkIsIssue?: boolean, linkedIssue?: { id: string, host?: string } | null }} ticket
@@ -51,18 +46,17 @@ export function huddleTicketLabel(ticket, { ticketPrefix, sourcePrefixes }, redm
   const id = String(ticket._id);
   const own = huddleTicketRef(id, ticket.number, ticketPrefix);
   const link = ticket.linkIsIssue === false ? null : ticket.github;
-  const linkRef = outsideIdOf(link, sourcePrefixes);
-  const onGithub = Boolean(linkRef) && matchIssueUrl(github, link) !== null;
-  const ref = carriedRef(ticket.linkedIssue, sourcePrefixes, redmineHost) ?? linkRef ?? own;
-  // A carried ticket's title is its issue's subject, whatever its ID ends up as.
-  const ownTitle = !ticket.linkedIssue && (!linkRef || onGithub);
-  return { ref, title: ownTitle ? (ticket.title ?? null) : null, path: ticketPath('huddle', id) };
+  const ref =
+    carriedRef(ticket.linkedIssue, sourcePrefixes, redmineHost) ??
+    outsideIdOf(link, sourcePrefixes) ??
+    own;
+  return { ref, title: ticket.title ?? null, path: ticketPath('huddle', id) };
 }
 
 /**
  * How a bare Redmine issue (a work item from before #736) is named: by its
- * outside ID on the deployment's own Redmine, e.g. `RMX-200`, else `#200`.
- * Never its subject.
+ * outside ID on the deployment's own Redmine, e.g. `RMX-200`, else `#200`. It
+ * has no ticket, so no stored title to show.
  */
 export function redmineIssueLabel(issueId, sourcePrefixes, redmineHost) {
   const ref =

@@ -480,8 +480,8 @@ describe('postsToConversations', () => {
       { id: 'tkt-2', title: 'Fix [beta] *login*', label: 'TH-2: Fix [beta] *login*' },
     ];
 
-    it('names a ticket carrying an outside issue by its ID alone (#788)', () => {
-      const carried = { id: 'tkt-3', title: 'Patient subject', label: 'RMX-656' };
+    it('names a ticket by the label the server sends (#788)', () => {
+      const carried = { id: 'tkt-3', title: 'Fix login', label: 'RMX-656: Fix login' };
       const [conversation] = postsToConversations(
         [makePost({ id: 'p1', tickets: [carried] })],
         'ticket',
@@ -489,9 +489,7 @@ describe('postsToConversations', () => {
         NOW,
       );
       const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
-      expect(text).toContain('[RMX-656](/app/tickets/tkt-3)');
-      expect(text).not.toContain('Patient subject');
-      expect(conversation.title).not.toContain('Patient subject');
+      expect(text).toContain('[RMX-656: Fix login](/app/tickets/tkt-3)');
     });
 
     it('falls back to the title when the post carries no label', () => {

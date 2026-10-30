@@ -30,7 +30,7 @@ describe('timerUpdateText', () => {
     expect(
       timerUpdateText(
         TimerUpdate.STARTED,
-        label({ linkedIssue: { id: '656', host: REDMINE_HOST } }),
+        label({ title: null, linkedIssue: { id: '656', host: REDMINE_HOST } }),
       ),
     ).toBe(`*Started [RMX-656](/app/tickets/${ID})*`);
   });

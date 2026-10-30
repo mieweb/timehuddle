@@ -1295,8 +1295,7 @@ export interface HuddlePost {
   };
   /**
    * Linked tickets; `title` is null when the ticket no longer exists. `label`
-   * is how the feed names it (#788): `TH-7: Fix login`, or the ID alone for a
-   * ticket carrying an issue from Redmine or another tracker.
+   * is how the feed names it (#788): `TH-7: Fix login`.
    */
   tickets?: { id: string; title: string | null; label?: string | null }[];
   attachments: HuddlePostAttachment[];

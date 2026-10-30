@@ -683,7 +683,7 @@ describe('huddle post tickets', () => {
     });
     const docs = [
       ticket('Ticket A', teamId, { number: 7 }),
-      // Carries a Redmine issue: its title is the issue's subject (#736).
+      // Carries a Redmine issue (#736).
       ticket('Ticket B', teamId, {
         number: 8,
         linkedIssue: { source: 'redmine', id: '656', host: 'redmine.example.com' },
@@ -735,7 +735,7 @@ describe('huddle post tickets', () => {
     // The label names a ticket carrying an outside issue by its ID alone (#788).
     expect(post?.tickets).toEqual([
       { id: ticketA, title: 'Ticket A', label: 'TH-7: Ticket A' },
-      { id: ticketB, title: 'Ticket B', label: 'TH-8' },
+      { id: ticketB, title: 'Ticket B', label: 'TH-8: Ticket B' },
     ]);
   });
 

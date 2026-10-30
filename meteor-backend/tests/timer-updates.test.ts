@@ -122,15 +122,15 @@ describe('timer updates in Huddle', () => {
     expect(await updates()).toEqual([`*Started [TH-41: Charlie](/app/tickets/${numbered})*`]);
   });
 
-  it('never posts the title of a ticket carrying a Redmine issue (#788)', async () => {
-    const carried = await insertTicket('Patient subject', {
+  it('posts the title of a ticket carrying a Redmine issue (#788)', async () => {
+    const carried = await insertTicket('Delta', {
       number: 42,
       linkedIssue: { source: 'redmine', id: '656', host: 'redmine.example.com' },
     });
     await start(carried);
 
     // The team's org names no Redmine server, so the ticket keeps its own ID.
-    expect(await updates()).toEqual([`*Started [TH-42](/app/tickets/${carried})*`]);
+    expect(await updates()).toEqual([`*Started [TH-42: Delta](/app/tickets/${carried})*`]);
   });
 
   it('posts one "Switched to" for the ticket switched to', async () => {

@@ -36,10 +36,10 @@ describe('huddleTicketLabel', () => {
     });
   });
 
-  it('names a ticket carrying a Redmine issue by the issue ID alone', () => {
+  it('names a ticket carrying a Redmine issue by the issue ID, with its title', () => {
     expect(label({ linkedIssue: { id: '656', host: REDMINE_HOST } })).toEqual({
       ref: 'RMX-656',
-      title: null,
+      title: 'Fix login',
       path: `/app/tickets/${ID}`,
     });
   });
@@ -48,17 +48,17 @@ describe('huddleTicketLabel', () => {
     expect(label({ linkedIssue: { id: '656' } }).ref).toBe('RMX-656');
   });
 
-  it('names a ticket linked to another named server by its ID alone', () => {
+  it('names a ticket linked to another named server by its ID, with its title', () => {
     expect(label({ github: 'https://jira.example.com/issues/772' })).toMatchObject({
       ref: 'JRA-772',
-      title: null,
+      title: 'Fix login',
     });
   });
 
-  it('never shows a carried issue’s subject, even when its server has no prefix', () => {
+  it('keeps its own ID when a carried issue’s server has no prefix', () => {
     expect(label({ linkedIssue: { id: '656', host: 'other.example.com' } })).toMatchObject({
       ref: 'TH-123',
-      title: null,
+      title: 'Fix login',
     });
   });
 
@@ -81,7 +81,7 @@ describe('huddleTicketLabel', () => {
 });
 
 describe('redmineIssueLabel', () => {
-  it('names a bare issue by its outside ID, never its subject', () => {
+  it('names a bare issue by its outside ID', () => {
     expect(redmineIssueLabel('200', IDS.sourcePrefixes, REDMINE_HOST)).toEqual({
       ref: 'RMX-200',
       title: null,
