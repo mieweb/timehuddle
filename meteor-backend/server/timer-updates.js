@@ -12,6 +12,9 @@
  */
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
+import { optionalRedmineBaseUrl } from './redmine-client';
+import { hostOf, ticketIdsForTeams } from './ticket-ids';
+import { huddleTicketLabel, redmineIssueLabel } from './ticket-label';
 import { normalizeSource } from './ticket-refs';
 import { timerUpdateText } from './timer-updates-core';
 
@@ -36,21 +39,24 @@ async function isOnTeam(teamId, userId) {
 }
 
 /**
- * Where an update goes and how it names its ticket. A Huddle ticket's update
- * goes to the ticket's team. A Redmine issue has no team, so its update goes
- * to the team of the shift the session runs inside.
+ * Where an update goes, and how it names its ticket given the team's ticket
+ * IDs. A Huddle ticket's update goes to the ticket's team. A Redmine issue has
+ * no team, so its update goes to the team of the shift the session runs inside.
  */
 async function audienceFor(session, workItem) {
-  const source = normalizeSource(workItem.source);
-  const ticket = { source, ticketId: workItem.ticketId, title: null };
-
-  if (source === 'huddle') {
+  if (normalizeSource(workItem.source) === 'huddle') {
     if (!isValidId(workItem.ticketId)) return null;
     const row = await rawDb()
       .collection('tickets')
-      .findOne({ _id: new ObjectId(workItem.ticketId) }, { projection: { teamId: 1, title: 1 } });
+      .findOne(
+        { _id: new ObjectId(workItem.ticketId) },
+        { projection: { teamId: 1, title: 1, number: 1, github: 1, linkIsIssue: 1, linkedIssue: 1 } },
+      );
     if (!row?.teamId) return null;
-    return { teamId: String(row.teamId), ticket: { ...ticket, title: row.title } };
+    return {
+      teamId: String(row.teamId),
+      label: (ids, redmineHost) => huddleTicketLabel(row, ids, redmineHost),
+    };
   }
 
   if (!isValidId(session.clockEventId)) return null;
@@ -58,7 +64,10 @@ async function audienceFor(session, workItem) {
     .collection('clockevents')
     .findOne({ _id: new ObjectId(session.clockEventId) }, { projection: { teamId: 1 } });
   if (!shift?.teamId) return null;
-  return { teamId: String(shift.teamId), ticket };
+  return {
+    teamId: String(shift.teamId),
+    label: (ids, redmineHost) => redmineIssueLabel(workItem.ticketId, ids.sourcePrefixes, redmineHost),
+  };
 }
 
 /**
@@ -82,13 +91,15 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
     if (!workItem) return null;
     const audience = await audienceFor(session, workItem);
     if (!audience || !(await isOnTeam(audience.teamId, session.userId))) return null;
+    const ids = (await ticketIdsForTeams(rawDb(), [audience.teamId])).get(audience.teamId);
+    const label = audience.label(ids, hostOf(optionalRedmineBaseUrl()));
 
     const now = at === undefined ? new Date() : new Date(at);
     const post = {
       _id: new ObjectId(),
       teamId: audience.teamId,
       userId: session.userId,
-      content: { text: timerUpdateText(action, audience.ticket), mentions: [] },
+      content: { text: timerUpdateText(action, label), mentions: [] },
       attachments: [],
       likes: [],
       commentCount: 0,

@@ -1,13 +1,12 @@
 /**
  * The wording of the automatic Huddle update a ticket timer posts when it
- * starts, switches, stops or resumes ("Started #3fa2c: Fix login"). Pure: no
+ * starts, switches, stops or resumes ("Started TH-12: Fix login"). Pure: no
  * Meteor, no database, so it is unit-tested directly.
  *
  * Every word of an update is in this module, as the seam a translation will
- * plug into. A Redmine issue is named by its number only ("#200 ticket of
- * Redmine"): its subject may carry patient information and is never stored in
- * TimeHuddle (see `collections.js`).
+ * plug into. How the ticket is named is `ticket-label.js` (#788).
  */
+import { ticketName } from './ticket-label';
 
 export const TimerUpdate = {
   STARTED: 'started',
@@ -23,34 +22,6 @@ const WORDING = {
   [TimerUpdate.RESUMED]: (ticket) => `Resumed ${ticket}`,
 };
 
-/** How a Redmine issue reads after its linked number: "#200 ticket of Redmine". */
-const OF_REDMINE = 'ticket of Redmine';
-
-/** The ticket's own page in the app, where a reader with access sees the rest. */
-export function ticketPath(source, ticketId) {
-  return source === 'redmine' ? `/app/tickets/redmine/${ticketId}` : `/app/tickets/${ticketId}`;
-}
-
-/**
- * A Huddle ticket's short reference, e.g. `#3fa2c`: the tail of its id, as the
- * Tickets table and the ticket page show it (`huddleTicketRef` in the app).
- */
-export function huddleTicketRef(ticketId) {
-  return `#${String(ticketId).slice(-5)}`;
-}
-
-/**
- * How an update names a ticket: `#200` for a Redmine issue; the short
- * reference and the title, `#3fa2c: Fix login`, for a Huddle ticket.
- */
-export function ticketName(source, ticketId, title) {
-  if (source === 'redmine') return `#${ticketId}`;
-  const ref = huddleTicketRef(ticketId);
-  // One line: a title may hold line breaks, and an update is a single line.
-  const oneLine = title?.replace(/\s+/g, ' ').trim();
-  return oneLine ? `${ref}: ${oneLine}` : ref;
-}
-
 /** A title is user text going into markdown: its own markup must not take effect. */
 function escapeMarkdown(text) {
   return text.replace(/([\\`*_[\]()<>])/g, '\\$1');
@@ -59,12 +30,11 @@ function escapeMarkdown(text) {
 /**
  * The update as markdown: one italic line with the ticket linked.
  * @param {string} action one of `TimerUpdate`
- * @param {{ source: string, ticketId: string, title?: string | null }} ticket
+ * @param {{ ref: string, title: string | null, path: string }} label from
+ *   `huddleTicketLabel` or `redmineIssueLabel` (ticket-label.js)
  */
-export function timerUpdateText(action, { source, ticketId, title }) {
-  const name = escapeMarkdown(ticketName(source, ticketId, title));
-  const link = `[${name}](${ticketPath(source, ticketId)})`;
-  return `*${WORDING[action](source === 'redmine' ? `${link} ${OF_REDMINE}` : link)}*`;
+export function timerUpdateText(action, label) {
+  return `*${WORDING[action](`[${escapeMarkdown(ticketName(label))}](${label.path})`)}*`;
 }
 
 /**
