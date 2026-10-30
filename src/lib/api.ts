@@ -2075,7 +2075,7 @@ export interface TimerUpdateRef {
 /**
  * What a timer session that just closed left to send to Redmine: its issue-day
  * and the hours not yet sent. Null when there is nothing worth sending (not a
- * Redmine issue, no linked account, or under a minute).
+ * Redmine issue, no linked account, or time an earlier entry already covers).
  */
 export interface UnsentRedmineTime {
   ticketId: string;

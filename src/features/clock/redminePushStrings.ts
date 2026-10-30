@@ -16,7 +16,7 @@ export const REDMINE_COMMENT_MAX_LENGTH = 1024;
 
 /** Plain-English reasons, so a blocked row explains itself instead of just being disabled. */
 export const BLOCKED_TEXT: Record<string, string> = {
-  'too-short': 'Under a minute — Redmine rejects a zero-hour entry',
+  'too-short': 'Already covered by what was sent for this day',
   'issue-unavailable': 'Issue could not be loaded from Redmine',
   'no-activity': 'This issue’s project allows no activity in Redmine',
 };
@@ -128,4 +128,5 @@ export const entryCardText = {
   roundedUp: (worked: string, step: number) => `${worked} worked, rounded up to ${step} min`,
   addsUpRuns: (runs: number) => `Adds up ${runs} timer runs`,
   runLabel: (run: number) => `Run ${run}`,
+  underAMinute: 'Under a minute',
 };

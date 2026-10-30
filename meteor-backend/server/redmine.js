@@ -341,7 +341,7 @@ async function redmineIssueOf(session, account) {
 /**
  * What a session that has just closed left to send to Redmine: its issue-day
  * and the hours not yet sent, or null when there is nothing worth sending (not
- * a Redmine issue, no linked account, or under a minute).
+ * a Redmine issue, no linked account, or time an earlier entry already covers).
  *
  * The answer to "should the user be asked for a comment now?" (#688). Local
  * data only, and never a reason for the stop that asked to fail.

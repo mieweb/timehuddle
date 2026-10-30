@@ -75,11 +75,10 @@ describe('toHours', () => {
 });
 
 describe('isPushable', () => {
-  it('withholds anything under a minute — Redmine rejects a zero entry', () => {
-    expect(isPushable(toHours(10))).toBe(false); // 10s → 0 min → 0.00h
-    expect(isPushable(toHours(29))).toBe(false);
-    expect(isPushable(toHours(30))).toBe(true); // 30s → 1 min → 0.02h
-    expect(toHours(30)).toBe(0.02);
+  it('withholds only zero hours, which Redmine rejects', () => {
+    expect(isPushable(0)).toBe(false);
+    expect(isPushable(toHours(2))).toBe(true); // any tracked time is at least 1 min → 0.02h
+    expect(toHours(2)).toBe(0.02);
   });
 });
 
@@ -137,9 +136,9 @@ describe('buildPushRows', () => {
     ]);
   });
 
-  it('blocks a too-short row rather than letting Redmine 422 it', () => {
+  it('blocks a row with no minutes to send rather than letting Redmine 422 it', () => {
     const [row] = buildPushRows(
-      [{ ticketId: '19', date: '2026-09-19', seconds: 10 }],
+      [{ ticketId: '19', date: '2026-09-19', seconds: 10, minutes: 0 }],
       issues,
       resolver,
     );
@@ -260,7 +259,7 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
     ).toEqual([]);
   });
 
-  it('keeps a few new seconds so they can accumulate', () => {
+  it('keeps a few new seconds that Redmine already covers, with nothing to send yet', () => {
     const [row] = unsentTotals(
       [{ ticketId: '12', date: '2026-09-21', seconds: 1447 }],
       sent('12|2026-09-21', 1442),
@@ -333,7 +332,7 @@ describe('sendableForTicketDay (#688 — what a timer that just ended left to se
     expect(sendableForTicketDay([], '15', '2026-09-21')).toBeNull();
   });
 
-  it('is nothing for under a minute, which Redmine would refuse', () => {
+  it('is nothing for new time Redmine already covers', () => {
     expect(sendableForTicketDay(unsent, '20', '2026-09-21')).toBeNull();
   });
 });
@@ -381,8 +380,25 @@ describe("rounding up (the Redmine server's setting)", () => {
     expect(unsentTotals(day(13 * 60), sent(KEY, 12 * 60, 15), step(5))[0].minutes).toBe(0);
   });
 
-  it('never rounds a few stray seconds up to a step', () => {
-    expect(unsentTotals(day(20), new Map(), step(5))[0].minutes).toBe(0);
+  it('rounds a few seconds up to the whole step', () => {
+    const [row] = unsentTotals(day(2), new Map(), step(15));
+    expect(row.minutes).toBe(15);
+    expect(row.rounding).toEqual({ step: 15, exactMinutes: 0 });
+  });
+
+  it('sends a few seconds as one minute for a server that does not round', () => {
+    expect(unsentTotals(day(2), new Map())[0].minutes).toBe(1);
+  });
+
+  it('adds nothing for more seconds that an earlier entry already covers', () => {
+    expect(unsentTotals(day(7), sent(KEY, 2, 15), step(15))[0].minutes).toBe(0);
+    expect(unsentTotals(day(7), sent(KEY, 2, 1))[0].minutes).toBe(0);
+  });
+
+  it('owes nothing for short time that was discarded', () => {
+    const discarded = new Map([[KEY, { seconds: 5, discardedSeconds: 5, minutes: 0 }]]);
+    expect(unsentTotals(day(5), discarded, step(15))).toEqual([]);
+    expect(unsentTotals(day(9), discarded, step(15))[0].minutes).toBe(15);
   });
 
   it('carries the rounding into the dialog row as hours', () => {

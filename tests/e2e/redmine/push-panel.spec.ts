@@ -224,9 +224,9 @@ test.describe('Redmine push panel', () => {
     await expect(page.getByRole('option')).toHaveText(['Development', 'QA']);
   });
 
-  test('sub-minute time is withheld entirely — no row, no block, no panel', async ({ page }) => {
-    // `too-short` rows are not worth a Redmine entry and must not summon the
-    // panel or be counted among the blocked ones.
+  test('time Redmine already covers is withheld — no row, no block, no panel', async ({ page }) => {
+    // `too-short` rows have nothing to send and must not summon the panel or
+    // be counted among the blocked ones.
     await openClock(page, {
       'timeEntries.preview': preview({
         rows: [previewRow({ ticketId: '15', seconds: 30, blockedReason: 'too-short' })],

@@ -105,7 +105,12 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
       {rounding && (
         <RedmineEntryField label={text.rounding}>
           <Text size="sm" className="redmine-entry-rounding">
-            {text.roundedUp(hoursLabel(rounding.exactHours, decimalHours), rounding.step)}
+            {text.roundedUp(
+              rounding.exactHours > 0
+                ? hoursLabel(rounding.exactHours, decimalHours)
+                : text.underAMinute,
+              rounding.step,
+            )}
           </Text>
         </RedmineEntryField>
       )}

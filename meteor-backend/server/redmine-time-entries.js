@@ -33,8 +33,16 @@ export const MAX_COMMENT_LENGTH = 1024;
  * cannot hold a finer figure than a minute.
  */
 export function toHours(seconds) {
+  return minutesToHours(wholeMinutes(seconds));
+}
+
+/**
+ * Seconds as the whole minutes Redmine holds. Any tracked time is at least one
+ * minute, the least Redmine accepts, so a short stint is never left unsendable.
+ */
+function wholeMinutes(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
-  return minutesToHours(Math.round(seconds / 60));
+  return Math.max(1, Math.round(seconds / 60));
 }
 
 /** Whole minutes as the 2-decimal hours Redmine is sent. */
@@ -42,11 +50,7 @@ function minutesToHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
 }
 
-/**
- * Whole minutes rounded up to a multiple of `step`; without one they stay as
- * they are. Seconds are made whole minutes first (`unsentTotals`), so a few
- * stray seconds never round up to a step.
- */
+/** Whole minutes rounded up to a multiple of `step`; without one they stay as they are. */
 export function roundUpMinutes(minutes, step) {
   return step ? Math.ceil(minutes / step) * step : minutes;
 }
@@ -60,13 +64,12 @@ export function hoursToSend(total) {
 }
 
 /**
- * Whether a rounded total is worth sending.
+ * Whether a total has anything to send.
  *
- * Redmine rejects a zero-hour entry, so anything under 30 seconds — which
- * quantizes to zero minutes — must be withheld rather than pushed and failed. A
- * stray few-second session is a mis-click, not work, so dropping it is also the
- * honest outcome; it simply stays unsynced in Huddle. The smallest figure that
- * can be sent is one minute, `0.02h`.
+ * Redmine rejects a zero-hour entry, so a total whose time Redmine already
+ * holds — new seconds covered by what an earlier entry rounded up — is withheld
+ * rather than pushed and failed. The smallest figure that can be sent is one
+ * minute, `0.02h`.
  */
 export function isPushable(hours) {
   return Number.isFinite(hours) && hours >= 0.01;
@@ -107,8 +110,9 @@ export function hoursAgree(sent, stored) {
  * covered by a rounded-up entry sends nothing more. `rounding` then carries the
  * step and the exact minutes, for the dialog to show both.
  *
- * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
- * so short stretches accumulate until they are worth sending.
+ * A ticket-day with nothing new is dropped. One whose new seconds are already
+ * covered is kept with no minutes to send, so they count once the day passes
+ * what Redmine holds.
  *
  * @param {Map<string, {seconds: number, discardedSeconds: number, minutes: number}>} ledgerByKey
  *   what has been handled per `ticketId|date` — see `pushLedgerFor`
@@ -126,7 +130,7 @@ export function unsentTotals(totals, ledgerByKey, stepByKey = new Map()) {
       const held = ledgerByKey.get(key) ?? NOTHING_HANDLED;
       const step = stepByKey.get(key);
       // Discarded time is never owed to Redmine, so it is left out of the target.
-      const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
+      const owedMinutes = wholeMinutes(total.seconds - held.discardedSeconds);
       const seconds = Math.max(0, total.seconds - held.seconds);
       // The time worked since the last send. Not owed minutes less what was
       // sent: an earlier entry rounded up would make the new work look shorter.
@@ -163,9 +167,9 @@ function unsentRuns(runSeconds = [], unsentSeconds) {
 }
 
 /**
- * What one ticket-day has left that is worth sending, out of `unsentTotals`'
- * result: `{ ticketId, date, hours }`, or null when it has nothing unsent or
- * less than a minute of it.
+ * What one ticket-day has left to send, out of `unsentTotals`' result:
+ * `{ ticketId, date, hours }`, or null when it has nothing unsent or only time
+ * an earlier entry already covers.
  */
 export function sendableForTicketDay(unsent, ticketId, date) {
   const key = ticketDayKey(ticketId, date);

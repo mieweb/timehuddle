@@ -29,6 +29,11 @@ describe('RedmineEntryCard rounding', () => {
     expect(screen.getByText('4:42 worked, rounded up to 15 min')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^4:45 on issue 15/ })).toBeTruthy();
   });
+
+  it('says under a minute, not 0:00, for a few seconds rounded up', () => {
+    renderCard({ hours: 0.25, rounding: { step: 15, exactHours: 0 } });
+    expect(screen.getByText('Under a minute worked, rounded up to 15 min')).toBeTruthy();
+  });
 });
 
 describe('RedmineEntryCard', () => {

@@ -108,8 +108,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
   const rows = useMemo(() => preview?.rows ?? [], [preview]);
   const sendable = useMemo(() => rows.filter((row) => row.blockedReason === null), [rows]);
-  // A few seconds of new time is not worth a row of its own: it stays unsent
-  // and accumulates, so it neither summons the panel nor counts as blocked.
+  // New time Redmine already covers has nothing to send: it stays unsent and
+  // accumulates, so it neither summons the panel nor counts as blocked.
   const blocked = useMemo(
     () => rows.filter((row) => row.blockedReason !== null && row.blockedReason !== 'too-short'),
     [rows],
