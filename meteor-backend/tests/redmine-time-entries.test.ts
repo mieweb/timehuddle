@@ -213,14 +213,31 @@ describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
       seconds: 2215,
       alreadySentSeconds: 4546,
       minutes: 37,
+      timerRuns: 0,
     });
+  });
+
+  it('counts only the runs not yet sent', () => {
+    const totals = [{ ticketId: '15', date: '2026-09-21', seconds: 300, runSeconds: [60, 60, 180] }];
+    const unsentRuns = (held: number) =>
+      unsentTotals(totals, sent('15|2026-09-21', held))[0].timerRuns;
+    expect(unsentTotals(totals, new Map())[0].timerRuns).toBe(3);
+    expect(unsentRuns(60)).toBe(2);
+    expect(unsentRuns(120)).toBe(1);
   });
 
   it('passes a never-pushed ticket-day through whole', () => {
     expect(
       unsentTotals([{ ticketId: '12', date: '2026-09-21', seconds: 1442 }], new Map()),
     ).toEqual([
-      { ticketId: '12', date: '2026-09-21', seconds: 1442, alreadySentSeconds: 0, minutes: 24 },
+      {
+        ticketId: '12',
+        date: '2026-09-21',
+        seconds: 1442,
+        alreadySentSeconds: 0,
+        minutes: 24,
+        timerRuns: 0,
+      },
     ]);
   });
 

@@ -35,6 +35,8 @@ export interface RedmineEntryCardProps {
   onToggleHours: () => void;
   /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
   billable?: RedmineBillable | null;
+  /** How many timer runs `hours` adds up; a single run needs no mention. */
+  timerRuns?: number;
   /** No border or padding: for the one entry of a dialog that frames it already. */
   bare?: boolean;
   children?: React.ReactNode;
@@ -48,6 +50,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
+  timerRuns = 1,
   bare = false,
   children,
 }) => {
@@ -83,6 +86,12 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           </Text>
         </div>
       </div>
+      {/* Sessions lists each run, so say why this is one entry. */}
+      {timerRuns > 1 && (
+        <Text size="xs" variant="muted" className="redmine-entry-timer-runs">
+          {text.addsUpRuns(timerRuns)}
+        </Text>
+      )}
       {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
       {billable && (
         <RedmineEntryField label={text.billable}>

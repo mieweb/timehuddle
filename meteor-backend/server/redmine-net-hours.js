@@ -61,7 +61,10 @@ export function sumClosedSessions(sessions) {
  * @template {{endTime?: number|null, durationSeconds?: number|null}} T
  * @param {T[]} sessions
  * @param {(session: T) => string | null | undefined} keyOf
- * @returns {Array<{ticketId: string, date: string, seconds: number}>}
+ * `runSeconds` is what each closed timer run added, oldest first, so a total can
+ * say how many runs it is made of (see `unsentRuns`).
+ *
+ * @returns {Array<{ticketId: string, date: string, seconds: number, runSeconds: number[]}>}
  */
 export function ticketDayTotals(sessions, keyOf) {
   const byKey = new Map();
@@ -75,7 +78,11 @@ export function ticketDayTotals(sessions, keyOf) {
   return [...byKey.entries()]
     .map(([key, bucket]) => {
       const [ticketId, date] = key.split('|');
-      return { ticketId, date, seconds: sumClosedSessions(bucket) };
+      const runSeconds = bucket
+        .filter((session) => session?.endTime != null && session.durationSeconds > 0)
+        .sort((a, b) => a.endTime - b.endTime)
+        .map((session) => session.durationSeconds);
+      return { ticketId, date, seconds: sumClosedSessions(bucket), runSeconds };
     })
     .filter((total) => total.seconds > 0);
 }
