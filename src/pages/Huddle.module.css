@@ -18,8 +18,8 @@
    videos grow with it (--pulse-video-grow, see PulseVideoPlayer's cardBox) up
    to their height cap, so a long message on a wide screen doesn't squeeze
    into a column the width of the card, and a short one still hugs the video
-   with a thin frame. A video that reaches its cap (a portrait clip) is
-   centred. */
+   with a thin frame. A video that reaches its cap (a portrait clip) sits at
+   the start edge, where the text starts. */
 .inbox :global([data-slot='superchat-bubble']:has(.pulse-video-card)) {
   --pulse-video-grow: 100%;
   padding: 0.375rem;
@@ -32,9 +32,6 @@
       > :not(.pulse-video-card):not(:has(.pulse-video-card))
   ) {
   padding: 0.25rem 0.625rem;
-}
-.inbox :global([data-slot='superchat-bubble'] .pulse-video-card) {
-  margin-inline: auto;
 }
 
 /* ChatComposer draws its own + after the leadingSlot, and the slot is one
