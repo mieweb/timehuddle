@@ -41,6 +41,7 @@ import {
   defaultConversation,
   isAwaitingDelivery,
   postsToConversations,
+  postVideoNames,
   searchConversations,
   starterConversation,
   stripInboxDecorations,
@@ -55,7 +56,7 @@ import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
 import { PulseVideoPlayer } from '../features/pulse-upload/PulseVideoPlayer';
 import { VideoMenu } from '../features/pulse-upload/VideoMenu';
-import { useRenamedVideosVersion } from '../features/pulse-upload/renamedVideos';
+import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -339,7 +340,10 @@ export default function Huddle() {
   const meLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getMyPosts(meSince);
+      // The server's names as of the fetch, newer than any rename made before it.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // Answered for a window that has since moved on; the newer fetch owns the state.
       if (meSinceRef.current !== meSince) return;
       setMyPosts(page.posts);
@@ -440,7 +444,10 @@ export default function Huddle() {
   const refreshFeed = useCallback(async (): Promise<boolean> => {
     if (!selectedTeamId) return true;
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getPosts(selectedTeamId, teamSince);
+      // The server's names as of the fetch, whichever copy of a post wins below.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed; the
       // same goes for one answered for a window that has since widened.
@@ -634,8 +641,8 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
-  // A rename doesn't change the post, so the feed rebuilds on one itself.
-  const renamedVideosVersion = useRenamedVideosVersion();
+  // A rename doesn't change the post, so the feed rebuilds on a name itself.
+  const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
     const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
     return user
@@ -647,7 +654,7 @@ export default function Huddle() {
           nowMinute,
         )
       : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, renamedVideosVersion]);
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:

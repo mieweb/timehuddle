@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
-import { noteRenamed } from '../pulse-upload/renamedVideos';
+import { noteRenamed, noteVideoNames } from '../pulse-upload/videoNames';
 import {
   defaultConversation,
   postsToConversations,
@@ -658,6 +658,32 @@ describe('attachments', () => {
     expect(shownName()).toBe('New name');
     noteRenamed(videoId, null);
     expect(shownName()).toBeUndefined();
+  });
+
+  it('lets a fetch after a rename take over, but not one from before it', () => {
+    const videoId = '1c9f3d2b-4a5e-4f6b-8c7d-8e9f0a1b2c3e';
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        {
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Posted name',
+        },
+      ],
+    });
+    const shownName = () =>
+      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].media?.[0]?.title;
+    const beforeRename = Date.now() - 1000;
+    noteRenamed(videoId, 'Renamed here');
+    // A fetch that started before the rename brings older news.
+    noteVideoNames([[videoId, 'Posted name']], beforeRename);
+    expect(shownName()).toBe('Renamed here');
+    // Another tab renames it again; the next fetch brings that.
+    noteVideoNames([[videoId, 'Renamed elsewhere']], Date.now() + 1000);
+    expect(shownName()).toBe('Renamed elsewhere');
   });
 });
 

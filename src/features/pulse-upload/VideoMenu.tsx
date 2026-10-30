@@ -4,7 +4,7 @@
  * works for whoever it's sent to — Rename (or Add a name) for its owner, and
  * Remove where the host lets the viewer take it off. The same menu on the
  * video's card and in Huddle's media view, so a video is renamed the same way
- * wherever it's watched. A rename is noted for this tab (renamedVideos.ts), so
+ * wherever it's watched. A rename is noted for this tab (videoNames.ts), so
  * cards built from posts show it too.
  */
 import {
@@ -21,7 +21,7 @@ import React, { useState } from 'react';
 
 import { useCopyLink } from '@lib/useCopyLink';
 import { watchPath } from './artifact';
-import { noteRenamed } from './renamedVideos';
+import { noteRenamed } from './videoNames';
 import { VideoRenameDialog } from './VideoRenameDialog';
 
 /** User-facing copy, kept together for translation. */

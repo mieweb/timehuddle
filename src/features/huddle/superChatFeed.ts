@@ -13,7 +13,7 @@ import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
 import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
-import { renamedName } from '../pulse-upload/renamedVideos';
+import { knownVideoName } from '../pulse-upload/videoNames';
 import type {
   Participant,
   SuperChatConversation,
@@ -29,20 +29,30 @@ function pulseVideoOf(att: PostAttachment): string | null {
 }
 
 /**
- * A video attachment's name as shown: the one it was renamed to in this tab,
- * until the next fetch brings it, else the server's.
+ * A video attachment's name as shown: the newest this tab knows (a rename made
+ * here, or a later fetch; see videoNames.ts), else the post copy's.
  */
 function shownVideoName(att: PostAttachment): string | null {
   const video = pulseVideoOf(att);
-  const renamed = video ? renamedName(video) : undefined;
-  return renamed !== undefined ? renamed : (att.name ?? null);
+  const known = video ? knownVideoName(video) : undefined;
+  return known !== undefined ? known : (att.name ?? null);
+}
+
+/** The names a fetch of `posts` brought for their videos, to note in videoNames.ts. */
+export function postVideoNames(posts: HuddlePost[]): [string, string | null][] {
+  return posts.flatMap((post) =>
+    post.attachments.flatMap((att) => {
+      const video = pulseVideoOf(att);
+      return video ? [[video, att.name ?? null] as [string, string | null]] : [];
+    }),
+  );
 }
 
 /**
  * A post's Pulse videos, as the message's media: its id is the video's, so
  * Huddle's card finds it, and the media view plays the artifact with its
- * poster. Titled with the video's name — the one it was renamed to in this
- * tab, until the next fetch brings it; the caption is the post's own text.
+ * poster. Titled with the video's name, the newest this tab knows; the
+ * caption is the post's own text.
  */
 function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
   return attachmentsNotInlined(post).flatMap((att) => {

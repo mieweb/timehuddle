@@ -1,30 +1,51 @@
 /**
- * Videos renamed in this tab, by video id. A Huddle post's card gets its name
- * from the post, and a rename doesn't touch the post (its text is what was
- * posted), so the live feed would go on showing the old name until the post
- * itself changed. The feed lays these over the names it was sent, and
- * rebuilds when one changes.
+ * What this tab knows each video is called, by video id, and as of when. A
+ * Huddle post's card gets its name from the post, but a rename doesn't touch
+ * the post (its text is what was posted), so a post copy can carry an older
+ * name than the server's. Two things know better, and the newer one wins:
+ *
+ * - a rename made here, as of when it was saved;
+ * - a fetch of posts, as of when it started: the server's names then, which
+ *   include any rename saved before it, from this tab or another.
+ *
+ * So a rename shows at once, and a later fetch takes over from it again. The
+ * feed lays these over the names in the posts, and rebuilds when one changes.
  */
 import { useSyncExternalStore } from 'react';
 
-const renamed = new Map<string, string | null>();
+const known = new Map<string, { name: string | null; asOf: number }>();
 const listeners = new Set<() => void>();
 let version = 0;
 
-/** Record a rename this tab made, and tell anyone building cards from posts. */
-export function noteRenamed(videoId: string, name: string | null): void {
-  renamed.set(videoId, name);
+/** Record videos' names as of `asOf` (ms); older news than what's known is ignored. */
+export function noteVideoNames(
+  names: Iterable<readonly [videoId: string, name: string | null]>,
+  asOf: number,
+): void {
+  let changed = false;
+  for (const [videoId, name] of names) {
+    const current = known.get(videoId);
+    if (current && current.asOf > asOf) continue;
+    if (!current || current.name !== name) changed = true;
+    known.set(videoId, { name, asOf });
+  }
+  if (!changed) return;
   version++;
   for (const listener of listeners) listener();
 }
 
-/** The name this tab gave the video, or `undefined` when it hasn't renamed it. */
-export function renamedName(videoId: string): string | null | undefined {
-  return renamed.has(videoId) ? (renamed.get(videoId) ?? null) : undefined;
+/** Record a rename this tab just saved. */
+export function noteRenamed(videoId: string, name: string | null): void {
+  noteVideoNames([[videoId, name]], Date.now());
 }
 
-/** Changes whenever a video is renamed in this tab, for a memo to rebuild on. */
-export function useRenamedVideosVersion(): number {
+/** The name this tab knows for the video, or `undefined` when it knows none. */
+export function knownVideoName(videoId: string): string | null | undefined {
+  return known.get(videoId)?.name;
+}
+
+/** Changes whenever a known name does, for a memo to rebuild on. */
+export function useVideoNamesVersion(): number {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
