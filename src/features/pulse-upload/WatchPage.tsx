@@ -89,65 +89,72 @@ export function WatchPage({ videoId }: { videoId: string }) {
 
   return (
     <ToastProvider>
-      <main className="watch-page relative h-dvh overflow-hidden bg-black pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-white">
+      <main className="watch-page h-dvh overflow-hidden bg-black pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-white">
         {/* The page's own heading, for screen readers; the name shows over the video. */}
         <h1 className="sr-only">{videoLabel(name, videoId)}</h1>
-        {back ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className={`${cornerButton} p-0 hover:text-white`}
-            aria-label={WATCH_COPY.back}
-            title={WATCH_COPY.back}
-            onClick={() => window.history.back()}
-          >
-            <ArrowLeftIcon className="h-5 w-5 rtl:rotate-180" />
-          </Button>
-        ) : (
-          <a
-            href="/app"
-            className={cornerButton}
-            aria-label={WATCH_COPY.home}
-            title={WATCH_COPY.home}
-          >
-            <Logo size={22} className="rounded-md" />
-          </a>
-        )}
-        <MediaFeed
-          className="h-full"
-          items={[videoId]}
-          getId={(id) => id}
-          getMedia={(id) => ({
-            kind: 'video',
-            src: resolveMediaUrl(artifactPath(id)),
-            poster: resolveMediaUrl(posterPath(id)),
-          })}
-          getTitle={(id) => videoLabel(name, id)}
-          getAuthor={
-            info?.author?.name
-              ? () => ({ name: info.author!.name!, avatar: info.author!.image ?? undefined })
-              : undefined
-          }
-          renderActions={(id) => (
-            <VideoMenu
-              video={id}
-              name={name}
-              label={videoLabel(name, id)}
-              renamable={info?.canRename}
-              onRenamed={renamed}
-              openable={false}
-            />
+        {/* Inside the safe areas, so the corner button clears the notch and the
+            status bar too: an absolute child ignores its parent's padding. */}
+        <div className="watch-page-frame relative h-full">
+          {back ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`${cornerButton} p-0 hover:text-white`}
+              aria-label={WATCH_COPY.back}
+              title={WATCH_COPY.back}
+              onClick={() => window.history.back()}
+            >
+              <ArrowLeftIcon className="h-5 w-5 rtl:rotate-180" />
+            </Button>
+          ) : (
+            <a
+              href="/app"
+              className={cornerButton}
+              aria-label={WATCH_COPY.home}
+              title={WATCH_COPY.home}
+            >
+              <Logo size={22} className="rounded-md" />
+            </a>
           )}
-          // One video, started by its viewer: no immersive viewer (the
-          // player's own full screen is there), no autoplay, no loop, with sound.
-          allowFullscreen={false}
-          autoPlay={false}
-          loop={false}
-          muted={false}
-          error={missing ? WATCH_COPY.missing : undefined}
-          labels={{ feed: WATCH_COPY.page }}
-          classNames={{ details: 'ps-14', controls: 'hidden' }}
-        />
+          <MediaFeed
+            className="h-full"
+            // As in Huddle's media view: the clip edge to edge under the
+            // player's touch-first controls, its name over the top.
+            layout="overlay"
+            items={[videoId]}
+            getId={(id) => id}
+            getMedia={(id) => ({
+              kind: 'video',
+              src: resolveMediaUrl(artifactPath(id)),
+              poster: resolveMediaUrl(posterPath(id)),
+            })}
+            getTitle={(id) => videoLabel(name, id)}
+            getAuthor={
+              info?.author?.name
+                ? () => ({ name: info.author!.name!, avatar: info.author!.image ?? undefined })
+                : undefined
+            }
+            renderActions={(id) => (
+              <VideoMenu
+                video={id}
+                name={name}
+                label={videoLabel(name, id)}
+                renamable={info?.canRename}
+                onRenamed={renamed}
+                openable={false}
+              />
+            )}
+            // One video, started by its viewer: no immersive viewer (the
+            // player's own full screen is there), no autoplay, no loop, with sound.
+            allowFullscreen={false}
+            autoPlay={false}
+            loop={false}
+            muted={false}
+            error={missing ? WATCH_COPY.missing : undefined}
+            labels={{ feed: WATCH_COPY.page }}
+            classNames={{ details: 'ps-14', controls: 'hidden' }}
+          />
+        </div>
       </main>
     </ToastProvider>
   );

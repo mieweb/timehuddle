@@ -4,7 +4,7 @@
  * ticket's or clock session's Videos, a timesheet walkthrough.
  * Empty clears it, and the video is called by its id again.
  */
-import { Button, Input, ModalBody, ModalFooter, ModalHeader, Text } from '@mieweb/ui';
+import { Button, ButtonGroup, Input, ModalBody, ModalFooter, ModalHeader, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -98,12 +98,14 @@ export const VideoRenameDialog: React.FC<VideoRenameDialogProps> = ({
           )}
         </ModalBody>
         <ModalFooter>
-          <Button type="submit" variant="primary" isLoading={saving}>
-            {RENAME_COPY.save}
-          </Button>
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-            {RENAME_COPY.cancel}
-          </Button>
+          <ButtonGroup>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              {RENAME_COPY.cancel}
+            </Button>
+            <Button type="submit" variant="primary" isLoading={saving}>
+              {RENAME_COPY.save}
+            </Button>
+          </ButtonGroup>
         </ModalFooter>
       </form>
     </AppModal>,
