@@ -261,6 +261,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                     onToggleHours={() => setDecimalHours((on) => !on)}
                     billable={row.billable}
                     rounding={row.rounding}
+                    runSeconds={row.runSeconds}
                   >
                     {row.alreadySentSeconds > 0 && (
                       <Text variant="muted" size="xs">

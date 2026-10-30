@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { RedmineEntryCard } from './RedmineEntryCard';
@@ -28,5 +28,26 @@ describe('RedmineEntryCard rounding', () => {
     renderCard({ rounding: { step: 15, exactHours: 4.7 } });
     expect(screen.getByText('4:42 worked, rounded up to 15 min')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^4:45 on issue 15/ })).toBeTruthy();
+  });
+});
+
+describe('RedmineEntryCard', () => {
+  it('lists each timer run behind a collapsed row', () => {
+    renderCard({ runSeconds: [60, 90] });
+    const toggle = screen.getByRole('button', { name: 'Adds up 2 timer runs' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Run 1')).toBeTruthy();
+    expect(screen.getByText('00:01:00')).toBeTruthy();
+    expect(screen.getByText('Run 2')).toBeTruthy();
+    expect(screen.getByText('00:01:30')).toBeTruthy();
+  });
+
+  it.each([[[60]], [undefined]])('says nothing for a single run (%s)', (runSeconds) => {
+    renderCard({ runSeconds });
+    expect(screen.queryByText(/timer run/)).toBeNull();
   });
 });

@@ -123,6 +123,20 @@ if (Capacitor.getPlatform() === 'android') {
   });
 }
 
+// ─── Dead-socket check on resume ─────────────────────────────────────────────
+//
+// The live socket can die while the app is backgrounded without ever closing, so
+// check it on return; otherwise the first call after resume waits on it.
+const verifyLiveConnection = () => void getDdpClient().verifyConnection();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') verifyLiveConnection();
+});
+if (Capacitor.isNativePlatform()) {
+  void CapApp.addListener('appStateChange', ({ isActive }) => {
+    if (isActive) verifyLiveConnection();
+  });
+}
+
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
 // Password reset emails contain a timehuddle://reset?token=XXX link.

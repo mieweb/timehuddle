@@ -87,7 +87,7 @@ describe('ticketDayTotals', () => {
         : (keyByWorkItem.get(session.workItemId ?? '') ?? null),
     );
     expect(totals).toEqual([
-      { ticketId: '482', date: '2026-10-04', seconds: 1800, clockEventId: null },
+      { ticketId: '482', date: '2026-10-04', seconds: 1800, clockEventId: null, runSeconds: [1200, 600] },
     ]);
   });
 
@@ -98,8 +98,8 @@ describe('ticketDayTotals', () => {
     ];
     const totals = ticketDayTotals(sessions, (s) => ticketDayKey(s.redmineIssueId, s.date));
     expect(totals).toEqual([
-      { ticketId: '482', date: '2026-10-04', seconds: 900, clockEventId: null },
-      { ticketId: '500', date: '2026-10-04', seconds: 300, clockEventId: null },
+      { ticketId: '482', date: '2026-10-04', seconds: 900, clockEventId: null, runSeconds: [900] },
+      { ticketId: '500', date: '2026-10-04', seconds: 300, clockEventId: null, runSeconds: [300] },
     ]);
   });
 
@@ -110,6 +110,17 @@ describe('ticketDayTotals', () => {
       { key: 'x|2026-10-04', endTime: 3, durationSeconds: 600 },
     ];
     expect(ticketDayTotals(sessions, (s) => s.key)[0].clockEventId).toBe('late');
+  });
+
+  it('lists each closed run oldest first, leaving out open and empty ones', () => {
+    const sessions = [
+      { key: 'a|d', endTime: 30, durationSeconds: 300 },
+      { key: 'a|d', endTime: 10, durationSeconds: 100 },
+      { key: 'a|d', endTime: null, durationSeconds: null },
+      { key: 'a|d', endTime: 20, durationSeconds: 0 },
+    ];
+    const [total] = ticketDayTotals(sessions, (s) => s.key);
+    expect(total.runSeconds).toEqual([100, 300]);
   });
 
   it('leaves out sessions with no ticket-day, and days with no closed time', () => {
