@@ -571,8 +571,12 @@ to check the bell, with each wait double the last.
 - [x] **9.5 Release note:** a bullet under "Choose what notifies you".
 - [x] **Tests:** 4 unit tests (off by default, push only, held by a snooze, the waits),
       3 integration tests (nothing while off; one job 2 hours out that a second
-      notification doesn't move; cancelled by Mark all read). Checked on the test backend
-      that a due job pushes and moves itself to step 1, 4 hours out.
+      notification doesn't move; cancelled by Mark all read; a leftover job reset to 2
+      hours). `tests/unread-reminders.test.ts` runs the job itself against stubbed Mongo,
+      preferences and push and a fake Agenda: the push it sends, each next wait, a snooze
+      skipping the push, removal after 32 hours or once nothing is unread, and how start
+      and stop treat a queued job. Checked on the test backend that a due job pushes and
+      moves itself to step 1, 4 hours out.
 
 **Known limit:** turning reminders on doesn't start them for notifications that are
 already unread; the next new notification does.
