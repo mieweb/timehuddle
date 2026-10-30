@@ -19,6 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
 import { VideoMenu } from './VideoMenu';
+import { VideoNameEditor } from './VideoNameEditor';
 
 /**
  * How long to wait before each new look for a poster that wasn't there: the
@@ -74,22 +75,27 @@ const PLAYER_COPY = {
 };
 
 /**
- * The card's box, inside the `--pulse-video-max-w` × `--pulse-video-max-h`
- * box (styles.css): its shape (width ÷ height) once known, so the poster and
- * the player fill the same box — nothing cropped, no bars — and its width: the
- * box's, or narrower for an upright clip so it isn't taller than the box. The
- * same size however long the message. Not a percentage: the message sizes
- * itself to the card, and `max-w-full` on the card still fits it, shape and
- * all, inside a narrower one.
+ * A video card's box, both ways, as a CSS length: a wide clip up to this wide,
+ * an upright one up to this tall, and at most 40% of a short screen. Huddle
+ * gives SuperChat the same (`mediaMaxSize`), so its cards match.
  */
-function cardBox(aspect: number | null): React.CSSProperties {
-  const width = 'var(--pulse-video-max-w)';
-  return aspect
-    ? {
-        aspectRatio: String(aspect),
-        width: `min(${width}, calc(var(--pulse-video-max-h) * ${aspect}))`,
-      }
-    : { width };
+export const VIDEO_CARD_SIZE = 'min(16rem, 40dvh)';
+
+/**
+ * The card's box: its shape (width ÷ height) once known, so the poster and the
+ * player fill the same box — nothing cropped, no bars — and its width: `size`,
+ * or narrower for an upright clip so it isn't taller than `size`. The same
+ * however long the message. Not a percentage: the message sizes itself to the
+ * card, and `max-w-full` on the card still fits it, shape and all, inside a
+ * narrower one. `--card-size` gives the poster and player their height cap.
+ */
+function cardBox(aspect: number | null, size: string): React.CSSProperties {
+  return {
+    ['--card-size' as string]: size,
+    ...(aspect
+      ? { aspectRatio: String(aspect), width: `min(${size}, calc(${size} * ${aspect}))` }
+      : { width: size }),
+  };
 }
 
 /** The one video playing, so starting another pauses it. */
@@ -123,6 +129,8 @@ interface PulseVideoPlayerProps {
   onOpen?: () => void;
   /** Marks ▶ for the host to return focus to (SuperChat's `data-media-launch-id`). */
   launchId?: string;
+  /** The card's box (SuperChat's `maxSize` in Huddle). @default VIDEO_CARD_SIZE */
+  maxSize?: string;
 }
 
 /**
@@ -143,8 +151,12 @@ function PulseVideoCard({
   onRemove,
   onOpen,
   launchId,
+  maxSize = VIDEO_CARD_SIZE,
 }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
+  // Its name is being edited in place (VideoNameEditor), from the ⋯ menu.
+  const [editing, setEditing] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   // The card keeps the name it shows, so a rename here shows at once.
   const [shownName, setShownName] = useState(caption ?? null);
   useEffect(() => setShownName(caption ?? null), [caption]);
@@ -188,13 +200,13 @@ function PulseVideoCard({
     <div
       ref={cardRef}
       className="pulse-video-card relative my-1 max-w-full overflow-hidden bg-neutral-900"
-      style={cardBox(aspect)}
+      style={cardBox(aspect, maxSize)}
     >
       {playing ? (
         <>
           <video
             ref={attachPlayer}
-            className="pulse-video-player block h-full max-h-(--pulse-video-max-h) w-full bg-black object-contain in-[:fullscreen]:max-h-none"
+            className="pulse-video-player block h-full max-h-(--card-size) w-full bg-black object-contain in-[:fullscreen]:max-h-none"
             src={resolveMediaUrl(artifactPath(video))}
             poster={poster.src ?? undefined}
             playsInline
@@ -225,7 +237,7 @@ function PulseVideoCard({
               onLoad={(e) =>
                 learnShape(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
               }
-              className="pulse-video-poster-image block h-full max-h-(--pulse-video-max-h) w-full object-cover"
+              className="pulse-video-poster-image block h-full max-h-(--card-size) w-full object-cover"
             />
           )}
           <span
@@ -235,7 +247,7 @@ function PulseVideoCard({
             {/* ▶ points right in either reading direction, so its optical nudge does too. */}
             <FontAwesomeIcon icon={faPlay} className="translate-x-0.5 text-xl" />
           </span>
-          {shownName && (
+          {shownName && !editing && (
             // Read out as part of the button's label, so hidden from screen
             // readers here. `text-start` follows the reading direction.
             <span
@@ -249,22 +261,40 @@ function PulseVideoCard({
           )}
         </Button>
       )}
-      {/* Beside the poster, not inside its Play button: a button in a button
-          is neither valid nor reachable. Over the top corner, before and
-          after Play, clear of the player's own controls along the bottom. */}
-      <div className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden">
-        <VideoMenu
+      {editing ? (
+        // In place of the name: over the poster's foot, where the name shows,
+        // or over the top while it plays, clear of the player's controls.
+        <VideoNameEditor
           video={video}
           name={shownName}
-          label={name}
-          renamable={renamable}
-          onRemove={onRemove}
-          onRenamed={(renamed) => {
-            setShownName(renamed);
-            onRenamed?.(renamed);
+          className={`pulse-video-name-editor absolute inset-x-0 z-20 bg-black/75 p-2 ${playing ? 'top-0' : 'bottom-0'}`}
+          onDone={(renamed) => {
+            if (renamed !== undefined) {
+              setShownName(renamed);
+              onRenamed?.(renamed);
+            }
+            setEditing(false);
+            // Back to where Rename was chosen.
+            requestAnimationFrame(() => menuRef.current?.querySelector('button')?.focus());
           }}
         />
-      </div>
+      ) : (
+        // Beside the poster, not inside its Play button: a button in a button
+        // is neither valid nor reachable. Over the top corner, before and
+        // after Play, clear of the player's own controls along the bottom.
+        <div
+          ref={menuRef}
+          className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden"
+        >
+          <VideoMenu
+            video={video}
+            name={shownName}
+            label={name}
+            onRename={renamable ? () => setEditing(true) : undefined}
+            onRemove={onRemove}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -54,8 +54,8 @@ import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/Schedul
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
-import { PulseVideoPlayer } from '../features/pulse-upload/PulseVideoPlayer';
-import { VideoMenu } from '../features/pulse-upload/VideoMenu';
+import { PulseVideoPlayer, VIDEO_CARD_SIZE } from '../features/pulse-upload/PulseVideoPlayer';
+import { VideoActions } from '../features/pulse-upload/VideoMenu';
 import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
@@ -689,8 +689,9 @@ export default function Huddle() {
     [user?.id],
   );
   const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
-    ({ attachment, open, launchId }) => (
+    ({ attachment, open, launchId, maxSize }) => (
       <PulseVideoPlayer
+        maxSize={maxSize}
         video={attachment.id}
         title={videoLabel(attachment.title, attachment.id)}
         caption={attachment.title}
@@ -712,7 +713,7 @@ export default function Huddle() {
       layout: 'overlay',
       muted: false,
       renderActions: ({ attachment }) => (
-        <VideoMenu
+        <VideoActions
           video={attachment.id}
           name={attachment.title ?? null}
           label={videoLabel(attachment.title, attachment.id)}
@@ -1163,6 +1164,8 @@ export default function Huddle() {
                 !postUnavailable &&
                 user && (
                   <SuperChatInbox
+                    // One box for the thread's cards, ours and SuperChat's.
+                    mediaMaxSize={VIDEO_CARD_SIZE}
                     conversations={conversations}
                     activeConversationId={activeConversation?.id}
                     onConversationOpened={(conversation) => openConversation(conversation.id)}

@@ -15,7 +15,7 @@
 
 /* A post with a video sizes like any other post: as wide as its text needs,
    up to the thread's usual limit, and never narrower than its video. The video
-   keeps its own size (--pulse-video-max-w/-h, styles.css) at the start edge,
+   keeps its own size (VIDEO_CARD_SIZE, PulseVideoPlayer) at the start edge,
    where the text starts: a short post hugs it with a thin frame, a long one
    wraps its text beside the same card, and a narrow screen shrinks the card to
    fit the message. */

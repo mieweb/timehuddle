@@ -4,8 +4,9 @@
  * works for whoever it's sent to — Rename (or Add a name) for its owner, and
  * Remove where the host lets the viewer take it off. The same menu on the
  * video's card and in Huddle's media view, so a video is renamed the same way
- * wherever it's watched. A rename is noted for this tab (videoNames.ts), so
- * cards built from posts show it too.
+ * wherever it's watched: in place, where its name shows (VideoNameEditor), as
+ * a message is edited. On a card the card does that; `VideoActions` does it
+ * beside a title.
  */
 import {
   Button,
@@ -21,8 +22,7 @@ import React, { useState } from 'react';
 
 import { useCopyLink } from '@lib/useCopyLink';
 import { watchPath } from './artifact';
-import { noteRenamed } from './videoNames';
-import { VideoRenameDialog } from './VideoRenameDialog';
+import { VideoNameEditor } from './VideoNameEditor';
 
 /** User-facing copy, kept together for translation. */
 export const VIDEO_MENU_COPY = {
@@ -41,10 +41,8 @@ interface VideoMenuProps {
   name: string | null;
   /** What to call it in the button's label ("More for …"). */
   label: string;
-  /** The viewer owns it: Rename. The server checks ownership again. */
-  renamable?: boolean;
-  /** After a rename, with the name the server kept (null: none). */
-  onRenamed?: (name: string | null) => void;
+  /** The viewer owns it: Rename, which edits the name in place there. The server checks ownership again. */
+  onRename?: () => void;
   /** Where the host lets the viewer take it off: Remove. */
   onRemove?: () => void;
   /** Offer Open video page (default true; not on that page itself). */
@@ -55,13 +53,11 @@ export function VideoMenu({
   video,
   name,
   label,
-  renamable,
-  onRenamed,
+  onRename,
   onRemove,
   openable = true,
 }: VideoMenuProps) {
   const copyLink = useCopyLink();
-  const [renaming, setRenaming] = useState(false);
   // Controlled: the library's menu doesn't close when an item is chosen.
   const [menuOpen, setMenuOpen] = useState(false);
   const choose = (action: () => void) => () => {
@@ -104,11 +100,8 @@ export function VideoMenu({
         >
           {VIDEO_MENU_COPY.copyLink}
         </DropdownItem>
-        {renamable && (
-          <DropdownItem
-            icon={<PencilIcon className="h-4 w-4" />}
-            onClick={choose(() => setRenaming(true))}
-          >
+        {onRename && (
+          <DropdownItem icon={<PencilIcon className="h-4 w-4" />} onClick={choose(onRename)}>
             {name ? VIDEO_MENU_COPY.rename : VIDEO_MENU_COPY.addName}
           </DropdownItem>
         )}
@@ -122,17 +115,36 @@ export function VideoMenu({
           </DropdownItem>
         )}
       </Dropdown>
-      {renamable && (
-        <VideoRenameDialog
-          videoId={renaming ? video : null}
-          name={name}
-          onClose={() => setRenaming(false)}
-          onRenamed={(renamed) => {
-            noteRenamed(video, renamed);
-            onRenamed?.(renamed);
-          }}
-        />
-      )}
     </>
+  );
+}
+
+/**
+ * A video's ⋯ menu beside its title (the media view, its own page), which
+ * becomes the name's editor there on Rename and the menu again when done.
+ */
+export function VideoActions({
+  renamable,
+  onRenamed,
+  ...menu
+}: Omit<VideoMenuProps, 'onRename'> & {
+  /** The viewer owns it: Rename. */
+  renamable?: boolean;
+  /** After a rename, with the name the server kept (null: none). */
+  onRenamed?: (name: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  return editing ? (
+    <VideoNameEditor
+      video={menu.video}
+      name={menu.name}
+      className="w-64 max-w-[60vw]"
+      onDone={(renamed) => {
+        if (renamed !== undefined) onRenamed?.(renamed);
+        setEditing(false);
+      }}
+    />
+  ) : (
+    <VideoMenu {...menu} onRename={renamable ? () => setEditing(true) : undefined} />
   );
 }

@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { resolveMediaUrl, videoApi, type VideoPublicInfo } from '@lib/api';
 import { Logo } from '../../ui/Logo';
 import { ARTIFACT_ID, artifactPath, posterPath, videoLabel } from './artifact';
-import { VideoMenu } from './VideoMenu';
+import { VideoActions } from './VideoMenu';
 
 /** User-facing copy, kept together for translation. */
 const WATCH_COPY = {
@@ -135,7 +135,7 @@ export function WatchPage({ videoId }: { videoId: string }) {
                 : undefined
             }
             renderActions={(id) => (
-              <VideoMenu
+              <VideoActions
                 video={id}
                 name={name}
                 label={videoLabel(name, id)}
