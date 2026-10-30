@@ -9,11 +9,12 @@
  * dialog whether to send it at all. Each of those sits in a
  * `RedmineEntryField`, which names it.
  */
-import { Button, Card, Text } from '@mieweb/ui';
+import { Accordion, Button, Card, Text } from '@mieweb/ui';
 import { ArrowLeftRight } from 'lucide-react';
 import React from 'react';
 
 import type { RedmineBillable } from '@lib/api';
+import { formatTimer } from '@lib/timeUtils';
 
 import {
   billableValueLabel,
@@ -35,8 +36,8 @@ export interface RedmineEntryCardProps {
   onToggleHours: () => void;
   /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
   billable?: RedmineBillable | null;
-  /** How many timer runs `hours` adds up; a single run needs no mention. */
-  timerRuns?: number;
+  /** The seconds of each timer run `hours` adds up; a single run needs no mention. */
+  runSeconds?: number[];
   /** No border or padding: for the one entry of a dialog that frames it already. */
   bare?: boolean;
   children?: React.ReactNode;
@@ -50,7 +51,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
-  timerRuns = 1,
+  runSeconds = [],
   bare = false,
   children,
 }) => {
@@ -86,12 +87,8 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           </Text>
         </div>
       </div>
-      {/* Sessions lists each run, so say why this is one entry. */}
-      {timerRuns > 1 && (
-        <Text size="xs" variant="muted" className="redmine-entry-timer-runs">
-          {text.addsUpRuns(timerRuns)}
-        </Text>
-      )}
+      {/* Sessions lists each run, so show why this is one entry. */}
+      {runSeconds.length > 1 && <RedmineEntryRuns runSeconds={runSeconds} />}
       {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
       {billable && (
         <RedmineEntryField label={text.billable}>
@@ -114,6 +111,38 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
     </Card>
   );
 };
+
+/** The timer runs an entry adds up, collapsed until asked for. */
+const RedmineEntryRuns: React.FC<{ runSeconds: number[] }> = ({ runSeconds }) => (
+  <Accordion
+    className="redmine-entry-timer-runs"
+    headingLevel="h4"
+    items={[
+      {
+        id: 'timer-runs',
+        title: (
+          <Text as="span" size="xs" variant="muted">
+            {text.addsUpRuns(runSeconds.length)}
+          </Text>
+        ),
+        content: (
+          <ol className="redmine-entry-timer-run-list flex flex-col gap-1">
+            {runSeconds.map((seconds, index) => (
+              <li key={index} className="redmine-entry-timer-run flex justify-between gap-3">
+                <Text as="span" size="xs" variant="muted">
+                  {text.runLabel(index + 1)}
+                </Text>
+                <Text as="span" size="xs" className="tabular-nums">
+                  {formatTimer(seconds)}
+                </Text>
+              </li>
+            ))}
+          </ol>
+        ),
+      },
+    ]}
+  />
+);
 
 /**
  * One thing to decide about an entry, with its name beside it. The name here

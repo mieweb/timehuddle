@@ -1,11 +1,11 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { RedmineEntryCard } from './RedmineEntryCard';
 
 afterEach(cleanup);
 
-const renderCard = (timerRuns?: number) =>
+const renderCard = (runSeconds?: number[]) =>
   render(
     <RedmineEntryCard
       ticketId="445"
@@ -14,18 +14,27 @@ const renderCard = (timerRuns?: number) =>
       hours={0.08}
       decimalHours={false}
       onToggleHours={() => {}}
-      timerRuns={timerRuns}
+      runSeconds={runSeconds}
     />,
   );
 
 describe('RedmineEntryCard', () => {
-  it('says how many timer runs an entry adds up', () => {
-    renderCard(5);
-    expect(screen.getByText('Adds up 5 timer runs')).toBeTruthy();
+  it('lists each timer run behind a collapsed row', () => {
+    renderCard([60, 90]);
+    const toggle = screen.getByRole('button', { name: 'Adds up 2 timer runs' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Run 1')).toBeTruthy();
+    expect(screen.getByText('00:01:00')).toBeTruthy();
+    expect(screen.getByText('Run 2')).toBeTruthy();
+    expect(screen.getByText('00:01:30')).toBeTruthy();
   });
 
-  it.each([1, undefined])('says nothing for a single run (%s)', (timerRuns) => {
-    renderCard(timerRuns);
+  it.each([[[60]], [undefined]])('says nothing for a single run (%s)', (runSeconds) => {
+    renderCard(runSeconds);
     expect(screen.queryByText(/timer run/)).toBeNull();
   });
 });

@@ -122,4 +122,5 @@ export const entryCardText = {
   showAsTime: 'Show as time',
   showAsRedmineHours: 'Show as Redmine hours',
   addsUpRuns: (runs: number) => `Adds up ${runs} timer runs`,
+  runLabel: (run: number) => `Run ${run}`,
 };
