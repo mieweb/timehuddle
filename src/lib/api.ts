@@ -924,6 +924,18 @@ export const usernameApi = {
 
 // ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
 
+/** Longest a wormhole call waits on the DDP login before sending with the token it has. */
+const DDP_AUTH_WAIT_MS = 10_000;
+
+/** Rejects after `ms` so a call on a dead socket cannot hold its caller forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Timed out')), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
  * dots→underscores>). Auth is a short-lived better-auth JWT in the
@@ -939,9 +951,9 @@ async function wormholeCall<T = unknown>(
   // Ensure DDP auth is complete before reading token
   // This guarantees tryResumeLogin has run and updated localStorage
   try {
-    await getDdpClient().ensureAuthed();
+    await withTimeout(getDdpClient().ensureAuthed(), DDP_AUTH_WAIT_MS);
   } catch {
-    // If auth fails, proceed anyway — getAccessToken will handle it
+    // If auth fails or stalls, proceed anyway — getAccessToken will handle it
   }
 
   const token = await getAccessToken();

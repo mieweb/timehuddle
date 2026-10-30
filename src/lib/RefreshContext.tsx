@@ -5,6 +5,9 @@ import React, { createContext, useCallback, useContext, useEffect, useRef } from
 
 type RefreshHandler = () => Promise<void> | void;
 
+/** Longest a pull-to-refresh waits on its handlers before the indicator clears. */
+export const REFRESH_TIMEOUT_MS = 15_000;
+
 interface RefreshContextValue {
   /** Register a refresh handler; returns an unregister function. */
   registerRefreshHandler: (handler: RefreshHandler) => () => void;
@@ -38,23 +41,28 @@ export const RefreshProvider: React.FC<RefreshProviderProps> = ({
   }, []);
 
   const triggerRefresh = useCallback(async () => {
-    const promises: Promise<void>[] = [];
+    const promises: Promise<unknown>[] = [];
 
-    for (const handler of handlersRef.current) {
-      const result = handler();
-      if (result instanceof Promise) {
-        promises.push(result);
+    for (const handler of [...handlersRef.current, ...globalRefreshHandlers]) {
+      try {
+        const result = handler();
+        if (result instanceof Promise) promises.push(result);
+      } catch (err) {
+        console.error('[Refresh] handler threw:', err);
       }
     }
 
-    for (const handler of globalRefreshHandlers) {
-      const result = handler();
-      if (result instanceof Promise) {
-        promises.push(result);
-      }
+    // A handler that rejects or never settles (a request on a dead socket) must
+    // not keep the pull indicator up, so settle independently and stop waiting at the cap.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cap = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, REFRESH_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([Promise.allSettled(promises), cap]);
+    } finally {
+      clearTimeout(timer);
     }
-
-    await Promise.all(promises);
   }, [globalRefreshHandlers]);
 
   return (
