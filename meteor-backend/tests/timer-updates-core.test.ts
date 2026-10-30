@@ -1,59 +1,52 @@
 /**
- * Unit tests for timer-updates-core (server/timer-updates-core.js), #681.
+ * Unit tests for timer-updates-core (server/timer-updates-core.js), #681, #788.
  */
 import { describe, it, expect } from 'vitest';
 
-import {
-  TimerUpdate,
-  startAction,
-  ticketName,
-  ticketPath,
-  timerUpdateText,
-} from '../server/timer-updates-core';
+import { huddleTicketLabel, redmineIssueLabel } from '../server/ticket-label';
+import { TimerUpdate, startAction, timerUpdateText } from '../server/timer-updates-core';
+
+const ID = '64f0c1a2b3c4d5e6f7a3fa2c';
+const REDMINE_HOST = 'redmine.example.com';
+const IDS = {
+  ticketPrefix: 'TH',
+  sourcePrefixes: [
+    { host: REDMINE_HOST, prefix: 'RMX', type: 'redmine' },
+    { host: 'jira.example.com', prefix: 'JRA', type: 'redmine' },
+  ],
+};
+
+const label = (ticket: Record<string, unknown>) =>
+  huddleTicketLabel({ _id: ID, title: 'Fix login', number: 123, ...ticket }, IDS, REDMINE_HOST);
 
 describe('timerUpdateText', () => {
-  it('names a Redmine issue by its number only, linked to its page in the app', () => {
-    expect(
-      timerUpdateText(TimerUpdate.STARTED, { source: 'redmine', ticketId: '200', title: 'PHI' }),
-    ).toBe('*Started [#200](/app/tickets/redmine/200) ticket of Redmine*');
+  it('links the ID and title to the ticket page', () => {
+    expect(timerUpdateText(TimerUpdate.STOPPED, label({}))).toBe(
+      `*Stopped [TH-123: Fix login](/app/tickets/${ID})*`,
+    );
   });
 
-  it('names a Huddle ticket by its short reference and title', () => {
+  it('links an ID alone when there is no title to show', () => {
     expect(
-      timerUpdateText(TimerUpdate.STOPPED, {
-        source: 'huddle',
-        ticketId: '64f0c1a2b3c4d5e6f7a3fa2c',
-        title: 'Fix login',
-      }),
-    ).toBe('*Stopped [#3fa2c: Fix login](/app/tickets/64f0c1a2b3c4d5e6f7a3fa2c)*');
+      timerUpdateText(
+        TimerUpdate.STARTED,
+        label({ title: null, linkedIssue: { id: '656', host: REDMINE_HOST } }),
+      ),
+    ).toBe(`*Started [RMX-656](/app/tickets/${ID})*`);
   });
 
   it('has a wording for each action', () => {
-    const ticket = { source: 'redmine', ticketId: '7' };
-    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Switched to [#7]');
-    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Resumed [#7]');
-    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('ticket of Redmine');
+    const ticket = redmineIssueLabel('7', IDS.sourcePrefixes, REDMINE_HOST);
+    expect(timerUpdateText(TimerUpdate.STARTED, ticket)).toContain('Started [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.SWITCHED, ticket)).toContain('Switched to [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.STOPPED, ticket)).toContain('Stopped [RMX-7]');
+    expect(timerUpdateText(TimerUpdate.RESUMED, ticket)).toContain('Resumed [RMX-7]');
   });
 
   it('keeps markup in a title from taking effect', () => {
-    expect(
-      timerUpdateText(TimerUpdate.STARTED, { source: 'huddle', ticketId: 'abc', title: '*a* [b](c)' }),
-    ).toBe('*Started [#abc: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/abc)*');
-  });
-
-  it('keeps a title with line breaks on one line', () => {
-    expect(ticketName('huddle', 'abc', 'Fix\r\nlogin\n\nredirect')).toBe('#abc: Fix login redirect');
-  });
-
-  it('falls back to the reference alone when a Huddle ticket has no title', () => {
-    expect(ticketName('huddle', '64f0c1a2b3c4d5e6f7a3fa2c', '  ')).toBe('#3fa2c');
-  });
-});
-
-describe('ticketPath', () => {
-  it('points at the ticket page for its source', () => {
-    expect(ticketPath('huddle', 'abc')).toBe('/app/tickets/abc');
-    expect(ticketPath('redmine', '42')).toBe('/app/tickets/redmine/42');
+    expect(timerUpdateText(TimerUpdate.STARTED, label({ title: '*a* [b](c)' }))).toBe(
+      `*Started [TH-123: \\*a\\* \\[b\\]\\(c\\)](/app/tickets/${ID})*`,
+    );
   });
 });
 

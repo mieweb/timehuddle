@@ -24,7 +24,11 @@ import {
 import { METEOR_URL } from './setup';
 
 const AUTHOR = { name: 'REST Author', email: 'wh-post-author@test.dev', password: 'Password1!' };
-const OUTSIDER = { name: 'REST Outsider', email: 'wh-post-outsider@test.dev', password: 'Password1!' };
+const OUTSIDER = {
+  name: 'REST Outsider',
+  email: 'wh-post-outsider@test.dev',
+  password: 'Password1!',
+};
 
 const TEAM_CODE = 'WHPOST01';
 const TINY_PNG_BASE64 =
@@ -163,7 +167,10 @@ describe('huddle post authoring over REST', () => {
       'huddle.createPost',
       {
         teamId,
-        content: { text: `Look:\n\n![shot](data:image/png;base64,${TINY_PNG_BASE64})`, mentions: [] },
+        content: {
+          text: `Look:\n\n![shot](data:image/png;base64,${TINY_PNG_BASE64})`,
+          mentions: [],
+        },
         postDate: todayString(),
       },
       authorJwt,
@@ -175,7 +182,12 @@ describe('huddle post authoring over REST', () => {
     expect(post!.content.text).not.toContain('data:image/');
     const [, url] = post!.content.text.match(/!\[shot\]\((\/uploads\/media\/[^)]+)\)/)!;
     const media = await db.collection('mediaitems').findOne({ url });
-    expect(media).toMatchObject({ userId: authorUserId, mimeType: 'image/png', size: 70, embedded: true });
+    expect(media).toMatchObject({
+      userId: authorUserId,
+      mimeType: 'image/png',
+      size: 70,
+      embedded: true,
+    });
     expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(200);
 
     const updated = await wormhole(
@@ -201,7 +213,9 @@ describe('huddle post authoring over REST', () => {
     expect(created.ok).toBe(true);
 
     const db = await getDb();
-    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(created.result.id) });
+    const post = await db
+      .collection('huddlePosts')
+      .findOne({ _id: new ObjectId(created.result.id) });
     const [, url] = post!.content.text.match(/!\[shot\]\((\/uploads\/media\/[^)]+)\)/)!;
     const reference = await wormhole<{ id: string }>(
       'huddle.createPost',
@@ -270,7 +284,12 @@ describe('huddle post authoring over REST', () => {
     expect(media.map((m) => m.mimeType).sort()).toEqual(['image/jpeg', 'image/png']);
     expect(media.find((m) => m.url === pngUrl)?.size).toBe(70);
     await deletePostViaDdp(res.result.id);
-    expect(await db.collection('mediaitems').find({ url: { $in: [jpgUrl, pngUrl] } }).toArray()).toHaveLength(0);
+    expect(
+      await db
+        .collection('mediaitems')
+        .find({ url: { $in: [jpgUrl, pngUrl] } })
+        .toArray(),
+    ).toHaveLength(0);
   });
 
   it('answers only hasMore when asked without posts', async () => {
@@ -387,7 +406,9 @@ describe('huddle post clockEventId ownership', () => {
     const db = await getDb();
     await db
       .collection('clockevents')
-      .deleteMany({ _id: { $in: [new ObjectId(foreignUserEventId), new ObjectId(foreignTeamEventId)] } });
+      .deleteMany({
+        _id: { $in: [new ObjectId(foreignUserEventId), new ObjectId(foreignTeamEventId)] },
+      });
   });
 
   it('rejects a create linking another user’s clock event', async () => {
@@ -477,7 +498,14 @@ describe('huddle.getMyPosts', () => {
         createdAt: now,
         updatedAt: now,
       },
-      { ...base, _id: ids.someoneElse, teamId, userId: outsiderUserId, createdAt: now, updatedAt: now },
+      {
+        ...base,
+        _id: ids.someoneElse,
+        teamId,
+        userId: outsiderUserId,
+        createdAt: now,
+        updatedAt: now,
+      },
       // A team the author isn't (or is no longer) a member of.
       {
         ...base,
@@ -541,9 +569,7 @@ describe('huddle.getMyPosts', () => {
 
   it('says whether older posts exist before the window', async () => {
     const page = async (args: Record<string, unknown>) =>
-      (
-        await wormhole<{ hasMore: boolean }>('huddle.getMyPosts', args, authorJwt)
-      ).result.hasMore;
+      (await wormhole<{ hasMore: boolean }>('huddle.getMyPosts', args, authorJwt)).result.hasMore;
     expect(await page({})).toBe(true); // the 40-day-old fixture
     const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     expect(await page({ since })).toBe(false);
@@ -647,16 +673,21 @@ describe('huddle post tickets', () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    const ticket = (title: string, ticketTeamId: string) => ({
+    const ticket = (title: string, ticketTeamId: string, extra: Record<string, unknown> = {}) => ({
       _id: new ObjectId(),
       teamId: ticketTeamId,
       title,
       createdBy: authorUserId,
       createdAt: new Date(),
+      ...extra,
     });
     const docs = [
-      ticket('Ticket A', teamId),
-      ticket('Ticket B', teamId),
+      ticket('Ticket A', teamId, { number: 7 }),
+      // Carries a Redmine issue (#736).
+      ticket('Ticket B', teamId, {
+        number: 8,
+        linkedIssue: { source: 'redmine', id: '656', host: 'redmine.example.com' },
+      }),
       ticket('Other team ticket', new ObjectId().toHexString()),
     ];
     await db.collection('tickets').insertMany(docs);
@@ -667,13 +698,20 @@ describe('huddle post tickets', () => {
     const db = await getDb();
     await db
       .collection('tickets')
-      .deleteMany({ _id: { $in: [ticketA, ticketB, foreignTicket].map((id) => new ObjectId(id)) } });
+      .deleteMany({
+        _id: { $in: [ticketA, ticketB, foreignTicket].map((id) => new ObjectId(id)) },
+      });
   });
 
   async function createWithTickets(extra: Record<string, unknown>) {
     return wormhole<{ id: string }>(
       'huddle.createPost',
-      { teamId, content: { text: `Tickets ${Date.now()}`, mentions: [] }, postDate: todayString(), ...extra },
+      {
+        teamId,
+        content: { text: `Tickets ${Date.now()}`, mentions: [] },
+        postDate: todayString(),
+        ...extra,
+      },
       authorJwt,
     );
   }
@@ -683,7 +721,7 @@ describe('huddle post tickets', () => {
     return (await db.collection('huddlePosts').findOne({ _id: new ObjectId(postId) }))!.ticketIds;
   }
 
-  it('stores several tickets once each and returns each with its title', async () => {
+  it('stores several tickets once each and returns each with its title and label', async () => {
     const res = await createWithTickets({ ticketIds: [ticketA, ticketB, ticketA] });
     expect(res.ok).toBe(true);
     expect(await storedTicketIds(res.result.id)).toEqual([ticketA, ticketB]);
@@ -694,9 +732,10 @@ describe('huddle post tickets', () => {
       authorJwt,
     );
     const post = byTicket.result.posts.find((p) => p.id === res.result.id);
+    // The label names a ticket carrying an outside issue by its ID alone (#788).
     expect(post?.tickets).toEqual([
-      { id: ticketA, title: 'Ticket A' },
-      { id: ticketB, title: 'Ticket B' },
+      { id: ticketA, title: 'Ticket A', label: 'TH-7: Ticket A' },
+      { id: ticketB, title: 'Ticket B', label: 'TH-8: Ticket B' },
     ]);
   });
 

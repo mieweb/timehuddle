@@ -2,6 +2,9 @@ import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { resolveSince } from './huddle-window-core';
+import { optionalRedmineBaseUrl } from './redmine-client';
+import { hostOf, ticketIdsForTeams } from './ticket-ids';
+import { huddleTicketLabel, ticketName } from './ticket-label';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
@@ -101,18 +104,41 @@ async function requireTeamTickets(ticketIds, teamId) {
   }
 }
 
-/** `{ id, title }` for each of a post's tickets, given a title lookup. */
-function toPostTickets(post, titlesById) {
-  return (post.ticketIds ?? []).map((id) => ({ id, title: titlesById.get(String(id)) ?? null }));
+/**
+ * `{ id, title, label }` for each of a post's tickets, given a lookup from
+ * `fetchPostTickets`. A deleted ticket has no title. `label` is how the feed
+ * names it (ticket-label.js, #788): `TH-7: Fix login`, or `RMX-656` alone.
+ */
+function toPostTickets(post, ticketsById) {
+  return (post.ticketIds ?? []).map((id) => {
+    const found = ticketsById.get(String(id));
+    return { id, title: found?.title ?? null, label: found?.label ?? null };
+  });
 }
 
-async function fetchTicketTitles(ticketIds) {
+async function fetchPostTickets(ticketIds) {
   if (!ticketIds.length) return new Map();
   const tickets = await rawDb()
     .collection('tickets')
-    .find({ _id: { $in: ticketIds.map(toId) } }, { projection: { title: 1 } })
+    .find(
+      { _id: { $in: ticketIds.map(toId) } },
+      { projection: { teamId: 1, title: 1, number: 1, github: 1, linkIsIssue: 1, linkedIssue: 1 } },
+    )
     .toArray();
-  return new Map(tickets.map((t) => [String(t._id), t.title]));
+  const idsByTeam = await ticketIdsForTeams(
+    rawDb(),
+    tickets.map((t) => t.teamId),
+  );
+  const redmineHost = hostOf(optionalRedmineBaseUrl());
+  return new Map(
+    tickets.map((t) => [
+      String(t._id),
+      {
+        title: t.title,
+        label: ticketName(huddleTicketLabel(t, idsByTeam.get(String(t.teamId)), redmineHost)),
+      },
+    ]),
+  );
 }
 
 /** The window start for a feed read, or a bad-request when `since` isn't a date. */
@@ -179,7 +205,7 @@ async function enrichPost(post) {
   const { userName, userInitials } = post.authorInfo ?? (await getUserInfo(post.userId));
 
   const tickets =
-    post.tickets ?? toPostTickets(post, await fetchTicketTitles(post.ticketIds ?? []));
+    post.tickets ?? toPostTickets(post, await fetchPostTickets(post.ticketIds ?? []));
 
   const id = post._id?.toHexString ? post._id.toHexString() : String(post._id);
 
@@ -308,19 +334,19 @@ async function attachEnrichment(posts) {
   if (!posts.length) return posts;
   const userIds = [...new Set(posts.map((p) => String(p.userId)))];
   const ticketIds = [...new Set(posts.flatMap((p) => (p.ticketIds ?? []).map(String)))];
-  const [users, titlesById, videoNames] = await Promise.all([
+  const [users, ticketsById, videoNames] = await Promise.all([
     rawDb()
       .collection('users')
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
-    fetchTicketTitles(ticketIds),
+    fetchPostTickets(ticketIds),
     videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
     post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
-    post.tickets = toPostTickets(post, titlesById);
+    post.tickets = toPostTickets(post, ticketsById);
     post.videoNames = videoNames;
   }
   return posts;

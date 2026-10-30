@@ -209,6 +209,27 @@ export async function ticketIdsFor(db, orgIds) {
 }
 
 /**
+ * Each team's ticket IDs, keyed by team id: its org's, as `ticketIdsFor`, or
+ * the defaults for a team with no org. A team's id is a string or, for older
+ * teams, an ObjectId.
+ */
+export async function ticketIdsForTeams(db, teamIds) {
+  const ids = [...new Set(teamIds.map(String))];
+  const teams = ids.length
+    ? await db
+        .collection('teams')
+        .find(
+          { _id: { $in: ids.flatMap((id) => [id, toDocId(id)]) } },
+          { projection: { orgId: 1 } },
+        )
+        .toArray()
+    : [];
+  const orgOf = new Map(teams.map((team) => [String(team._id), team.orgId && String(team.orgId)]));
+  const byOrg = await ticketIdsFor(db, [...orgOf.values()]);
+  return new Map(ids.map((id) => [id, byOrg.get(orgOf.get(id)) ?? DEFAULT_TICKET_IDS]));
+}
+
+/**
  * Number every ticket that has none, oldest first within each organization.
  * Numbers come from the same counter `tickets.create` uses, so a ticket
  * created while this runs still gets a number nobody else has.

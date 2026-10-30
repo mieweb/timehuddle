@@ -1312,8 +1312,11 @@ export interface HuddlePost {
     text: string;
     mentions: string[];
   };
-  /** Linked tickets; `title` is null when the ticket no longer exists. */
-  tickets?: { id: string; title: string | null }[];
+  /**
+   * Linked tickets; `title` is null when the ticket no longer exists. `label`
+   * is how the feed names it (#788): `TH-7: Fix login`.
+   */
+  tickets?: { id: string; title: string | null; label?: string | null }[];
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
