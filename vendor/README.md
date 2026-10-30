@@ -5,7 +5,7 @@ Code TimeHuddle builds from source instead of installing from npm.
 | Path              | What it is                                                                                         |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | `meteor-wormhole` | Submodule: Meteor package that exposes methods over REST, loaded by `meteor-backend`.              |
-| `ui`              | Submodule: our fork of [mieweb/ui](https://github.com/mieweb/ui), on a branch that becomes a PR.   |
+| `ui`              | Submodule: [mieweb/ui](https://github.com/mieweb/ui) on `timehuddle/next`, ahead of its release.  |
 | `mieweb-ui.tgz`   | `@mieweb/ui` packed from `ui`. The app installs it (`"@mieweb/ui": "file:vendor/mieweb-ui.tgz"`). |
 | `.ui-tarball-commit` | The `ui` commit the tarball was built from, so `ui:build` can skip an unchanged rebuild.        |
 
@@ -15,15 +15,17 @@ Changes TimeHuddle needs from `@mieweb/ui` (see [`docs/superchat-inbox-gaps.md`]
 are built in the library itself, on a branch that is sent upstream as a PR, rather than worked
 around in this app. Vendoring lets the app use that branch before it is released.
 
-`ui` points at the fork `priyamrmore/ui`, branch `feat/superchat-message-media-slot`, with
-`mieweb/ui` as its `upstream` remote. That branch carries the SuperChat host extension points
-(first built on `Dharp02/ui`'s `feat/superchat-host-extension-points`) and the media
-conversation work on top; both go to `mieweb/ui` `main` as their own PRs. CI and Docker never
-check the submodule out: they install the committed tarball.
+`ui` points at `mieweb/ui`, branch `timehuddle/next`: an integration branch that is `main` with
+the changes TimeHuddle needs merged in ahead of their release. Each change is its own PR to `main`:
+the SuperChat host extension points (`Dharp02/ui`'s `feat/superchat-host-extension-points`), and
+the mobile-first media work in [mieweb/ui#675](https://github.com/mieweb/ui/pull/675) (MediaFeed,
+MediaPlayer) and [#676](https://github.com/mieweb/ui/pull/676) (SuperChat). As those merge,
+`timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
+install the committed tarball.
 
 ```mermaid
 graph LR
-  Upstream[mieweb/ui main] -->|npm run ui:sync| Branch[vendor/ui<br/>PR branch on the fork]
+  Upstream[mieweb/ui main] -->|npm run ui:sync| Branch[vendor/ui<br/>timehuddle/next]
   Branch -->|npm run ui:build| Tarball[vendor/mieweb-ui.tgz]
   Tarball -->|npm install| App[TimeHuddle]
   Branch -->|git push + PR| Upstream
@@ -37,7 +39,8 @@ graph LR
 ## Working on the library
 
 1. Make the change in `vendor/ui` (it's a normal git checkout; use `pnpm`, never `npm`, there).
-2. Commit it in `vendor/ui` and push to the fork: `git -C vendor/ui push`.
+2. Make it on its own branch off `main` and open a PR to `main`; merge that branch into
+   `timehuddle/next` and push it: `git -C vendor/ui push`.
 3. `npm run ui:build` rebuilds `vendor/mieweb-ui.tgz` and refreshes `package-lock.json`.
 4. Commit the submodule pointer, the tarball, `.ui-tarball-commit` and `package-lock.json` together.
 

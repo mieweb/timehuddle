@@ -4,5 +4,5 @@
 	url = https://github.com/mieweb/meteor-wormhole
 [submodule "vendor/ui"]
 	path = vendor/ui
-	url = https://github.com/priyamrmore/ui.git
-	branch = feat/superchat-message-media-slot
+	url = https://github.com/mieweb/ui.git
+	branch = timehuddle/next

@@ -238,8 +238,8 @@ Code in TimeHuddle that exists only because of a gap above. When the gap closes 
 ## Parent PR: SuperChat Host Extension Points
 
 **Where it's built:** the `vendor/ui` submodule — first on `Dharp02/ui`'s branch
-`feat/superchat-host-extension-points`, now carried on `priyamrmore/ui`'s
-`feat/superchat-message-media-slot`. TimeHuddle runs that branch before it's released — see
+`feat/superchat-host-extension-points`, now merged into `mieweb/ui`'s `timehuddle/next`
+integration branch. TimeHuddle runs that branch before it's released — see
 [`vendor/README.md`](../vendor/README.md). Each item below is done there, then the matching
 TimeHuddle workaround is deleted.
 
