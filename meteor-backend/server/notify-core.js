@@ -8,9 +8,19 @@
  * version did is replaced by the reactive `notifications.liveForUser` pub.
  */
 import { MongoInternals } from 'meteor/mongo';
-import { rawDb, isValidId } from './collections';
+import { ClockEvents, rawDb, isValidId, isObjectIdHex } from './collections';
 import { sendToUser } from './push';
 import { findUserById } from './auth-bridge';
+import {
+  DELIVER_EVERYWHERE,
+  needsClockState,
+  orgSettingForType,
+  prefKeyForType,
+  resolveDelivery,
+} from './notification-prefs-core';
+import { getPrefs } from './notification-prefs';
+import { resolveSettings } from './settings';
+import { isViewingTeam } from './presence';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -18,8 +28,49 @@ function notifications() {
   return rawDb().collection('notifications');
 }
 
-/** Insert a notification and fire push. Mirror of notificationService.create. */
+/**
+ * The team setting that governs this notification (#784), resolved through the
+ * settings hierarchy: `{ value, locked }`, or null when none applies.
+ */
+async function orgPolicyFor(data) {
+  const setting = orgSettingForType(data.type);
+  const teamId = data.teamId ? String(data.teamId) : null;
+  if (!setting || !isValidId(teamId)) return null;
+  const team = await rawDb()
+    .collection('teams')
+    .findOne({ _id: isObjectIdHex(teamId) ? new ObjectId(teamId) : teamId });
+  return team ? (await resolveSettings(team))[setting] : null;
+}
+
+/**
+ * Where the user wants this notification (#784). Types that aren't
+ * configurable skip the preferences read entirely.
+ */
+async function deliveryFor(userId, data) {
+  if (!prefKeyForType(data?.type)) return DELIVER_EVERYWHERE;
+  const prefs = await getPrefs(userId);
+  // Only quiet time needs the clock, so most users never pay for this read.
+  const clockedIn = needsClockState(prefs)
+    ? Boolean(await ClockEvents.findOneAsync({ userId, endTime: null }, { fields: { _id: 1 } }))
+    : true;
+  return resolveDelivery(prefs, {
+    type: data.type,
+    teamId: data.teamId,
+    now: new Date(),
+    clockedIn,
+    viewingTeam: data.teamId ? isViewingTeam(userId, data.teamId) : false,
+    orgPolicy: await orgPolicyFor(data),
+  });
+}
+
+/**
+ * Insert a notification and fire push, as the user's notification preferences
+ * allow. Returns the inserted document, or null when the user has the event
+ * turned off. Mirror of notificationService.create.
+ */
 export async function createNotification({ userId, title, body, data }) {
+  const delivery = await deliveryFor(userId, data);
+  if (!delivery.inbox) return null;
   const doc = {
     _id: new ObjectId(),
     userId,
@@ -27,12 +78,23 @@ export async function createNotification({ userId, title, body, data }) {
     body,
     ...(data ? { data } : {}),
     read: false,
+    // Which pop-ups this notification was allowed (#784): an open app's own
+    // desktop alert (src/main.tsx) follows it rather than alerting on every row.
+    pushed: { desktop: delivery.desktop, phone: delivery.phone },
     createdAt: new Date(),
   };
   await notifications().insertOne(doc);
-  sendToUser(userId, { title, body, tag: data?.type, data }).catch((err) =>
-    console.error('[push] sendToUser failed:', err)
-  );
+  if (delivery.desktop || delivery.phone) {
+    // The push carries the row's id so tapping it can mark it read; the stored
+    // row doesn't need it.
+    // Tagged with its own id: a shared tag (the type) made each pop-up silently
+    // replace the last one of its kind on desktop and phone.
+    const notificationId = doc._id.toHexString();
+    const pushData = { ...data, notificationId };
+    sendToUser(userId, { title, body, tag: notificationId, data: pushData }, delivery).catch((err) =>
+      console.error('[push] sendToUser failed:', err)
+    );
+  }
   return doc;
 }
 

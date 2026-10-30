@@ -45,8 +45,9 @@ import { CommandPalette } from './CommandPalette';
 import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { NoAccessState } from './NoAccessState';
-import { matchPath, RouterProvider, useRouter } from './router';
+import { matchPath, RouterProvider, useQueryParam, useRouter } from './router';
 import { SettingsPage } from './SettingsPage';
+import { markTappedNotificationRead } from '../features/notifications/notificationEvents';
 import { TopNav } from './TopNav';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -181,6 +182,15 @@ const AppLayoutContent: React.FC = () => {
 
   const { pathname, navigate } = useRouter();
 
+  // A web push clicked while the app was closed opens it with ?notification=<id>
+  // (public/sw.js): mark that one read, then drop the param.
+  const [tappedNotificationId, clearTappedNotification] = useQueryParam('notification');
+  useEffect(() => {
+    if (!tappedNotificationId) return;
+    markTappedNotificationRead({ notificationId: tappedNotificationId });
+    clearTappedNotification(null);
+  }, [tappedNotificationId, clearTappedNotification]);
+
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
@@ -190,6 +200,7 @@ const AppLayoutContent: React.FC = () => {
   const handleNotificationData = useCallback(
     (data: Record<string, string>) => {
       console.log('[handleNotificationData] received:', JSON.stringify(data));
+      markTappedNotificationRead(data);
       if (data.type === 'shift-end-reminder') {
         window.dispatchEvent(
           new CustomEvent('timehuddle:openShiftReminder', {
@@ -287,6 +298,7 @@ const AppLayoutContent: React.FC = () => {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const handler = (event: MessageEvent) => {
+      markTappedNotificationRead(event.data ?? {});
       if (event.data?.type === 'timehuddle:openShiftReminder') {
         window.dispatchEvent(
           new CustomEvent('timehuddle:openShiftReminder', { detail: event.data }),

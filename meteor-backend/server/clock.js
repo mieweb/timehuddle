@@ -38,6 +38,7 @@ import {
   ticketSessionsForClockEvents,
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
+import { endSnoozeUntilClockIn } from './notification-prefs';
 import { emitActivity, ActivityType } from './activity-core';
 import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
 import {
@@ -843,6 +844,9 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
     created = await ClockEvents.findOneAsync(_id);
   }
   const pub = toPublicClockEvent(created, []);
+  endSnoozeUntilClockIn(userId).catch((err) =>
+    console.error('[notification-prefs] ending snooze on clock-in failed:', err)
+  );
 
   // Plan-first flow: link the just-posted plan to this session so the
   // per-session clock-out gate can find it (one post per clock session).

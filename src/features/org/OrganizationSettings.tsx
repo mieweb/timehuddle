@@ -15,6 +15,7 @@ import {
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
+import { NOTIFICATION_DEFAULT_ROWS } from '../notifications/notificationCopy';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
 import { TicketIdsCard } from './TicketIdsCard';
 
@@ -37,6 +38,7 @@ const TEAM_DEFAULT_ROWS: DefaultSettingRow[] = [
     description: 'People who join a team here are added to the organization too.',
     lockable: false,
   },
+  ...NOTIFICATION_DEFAULT_ROWS,
 ];
 
 const STRINGS = {

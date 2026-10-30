@@ -201,16 +201,19 @@ async function sendWebPush(sub, payloadStr) {
 }
 
 /**
- * Send a push notification to all of a user's devices (iOS APNs, Android FCM,
- * web VAPID). Mirrors PushService.sendToUser — best-effort, never throws.
+ * Send a push notification to a user's devices (iOS APNs, Android FCM, web
+ * VAPID). Mirrors PushService.sendToUser — best-effort, never throws.
+ *
+ * `devices` picks which kinds get it (#784): `desktop` is web push
+ * subscriptions, `phone` is native device tokens. Both by default.
  */
-export async function sendToUser(userId, payload) {
+export async function sendToUser(userId, payload, devices = { desktop: true, phone: true }) {
   ensureVapid();
   const provider = ensureApns();
 
   const [deviceDoc, webSubs] = await Promise.all([
-    deviceTokens().findOne({ userId }),
-    pushSubscriptions().find({ userId, type: 'webpush' }).toArray(),
+    devices.phone ? deviceTokens().findOne({ userId }) : null,
+    devices.desktop ? pushSubscriptions().find({ userId, type: 'webpush' }).toArray() : [],
   ]);
 
   const tokens = deviceDoc?.tokens ?? [];
