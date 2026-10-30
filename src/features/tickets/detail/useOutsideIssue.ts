@@ -56,7 +56,8 @@ function failedState(err: unknown): OutsideState {
  * The server reads whatever the ticket carries now, so a teammate's relink can
  * answer with another issue than `linkedKey`. That record is never shown: the
  * state stays `loading` (nothing editable) and `onRelinked` asks the page to
- * read the ticket again, whose new `linkedKey` reads the issue afresh.
+ * read the ticket again, whose new `linkedKey` reads the issue afresh. An
+ * unlink (`not-linked`) is the same: the reread ticket carries nothing.
  */
 export function useOutsideIssue(
   ticketId: string,
@@ -84,6 +85,11 @@ export function useOutsideIssue(
       setState({ kind: 'loaded', issue });
       return true;
     } catch (err) {
+      if (request === latest.current && err instanceof ApiError && err.code === 'not-linked') {
+        setState({ kind: 'loading' });
+        relinked.current();
+        return false;
+      }
       // An issue already shown stays shown through a failed background read.
       const failed = failedState(err);
       if (request === latest.current) {

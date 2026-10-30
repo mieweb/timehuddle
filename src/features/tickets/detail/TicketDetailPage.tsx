@@ -508,7 +508,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   // A ticket carrying an outside issue is shown only to a viewer whose own key
   // can read the issue (#788): its title is the issue's subject.
   if (ticket.linkedIssue) {
-    if (outside.state.kind === 'loading') return loadingPage;
+    // `none`: the render before the hook's effect starts reading the issue.
+    if (outside.state.kind === 'none' || outside.state.kind === 'loading') return loadingPage;
     if (outside.state.kind === 'denied') {
       return (
         <AppPage>

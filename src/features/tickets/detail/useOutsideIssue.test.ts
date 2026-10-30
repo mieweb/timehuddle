@@ -46,6 +46,21 @@ describe('useOutsideIssue', () => {
     expect(onRelinked).not.toHaveBeenCalled();
   });
 
+  it('asks for the ticket again when a teammate has unlinked the issue', async () => {
+    api.outsideIssue.mockResolvedValueOnce(issueFor('482'));
+    const onRelinked = vi.fn();
+    const { result } = renderHook(() => useOutsideIssue('t1', 'redmine:482', onRelinked));
+    await waitFor(() => expect(result.current.state.kind).toBe('loaded'));
+
+    api.outsideIssue.mockImplementation(() =>
+      Promise.reject(new ApiError('gone', 400, 'not-linked')),
+    );
+    await act(() => result.current.reload());
+
+    expect(result.current.state.kind).toBe('loading');
+    expect(onRelinked).toHaveBeenCalledOnce();
+  });
+
   it('never shows another issue after a relink, and asks for the ticket again', async () => {
     api.outsideIssue.mockResolvedValueOnce(issueFor('482'));
     const onRelinked = vi.fn();
