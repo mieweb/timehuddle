@@ -254,20 +254,32 @@ describe('scheduling a post', () => {
 });
 
 describe('scheduled post attachments', () => {
-  it("keeps a scheduled post's attachment out of the author's library for a teammate until delivery", async () => {
+  it("keeps a post's attachment out of the author's library, before and after delivery", async () => {
     const db = await getDb();
-    const media = {
+    const item = (name: string) => ({
       _id: new ObjectId(),
       userId: authorId,
       type: 'image',
       mimeType: 'image/png',
-      url: '/uploads/media/sched-attachment.png',
-      filename: 'sched-attachment.png',
+      url: `/uploads/media/${name}.png`,
+      filename: `${name}.png`,
       size: 1234,
       uploadedAt: new Date(),
-    };
-    await db.collection('mediaitems').insertOne(media);
+    });
+    // One attached to a post, one put in the library directly.
+    const media = item('sched-attachment');
+    const libraryOnly = item('library-only');
+    await db.collection('mediaitems').insertMany([media, libraryOnly]);
     const mediaId = media._id.toHexString();
+    const listed = async () => {
+      const res = await wormhole<{ items: { id: string }[] }>(
+        'media.listForUser',
+        { userId: authorId },
+        readerJwt,
+      );
+      expect(res.ok).toBe(true);
+      return res.result.items.map((entry) => entry.id);
+    };
 
     try {
       const res = await createPost({
@@ -277,26 +289,15 @@ describe('scheduled post attachments', () => {
       expect(res.ok).toBe(true);
       const postId = res.result.id;
 
-      const beforeDelivery = await wormhole<{ items: { id: string }[] }>(
-        'media.listForUser',
-        { userId: authorId },
-        readerJwt,
-      );
-      expect(beforeDelivery.ok).toBe(true);
-      expect(beforeDelivery.result.items.map((item) => item.id)).not.toContain(mediaId);
+      expect(await listed()).not.toContain(mediaId);
+      expect(await listed()).toContain(libraryOnly._id.toHexString());
 
       const sent = await wormhole('huddle.sendScheduledNow', { postId }, authorJwt);
       expect(sent.ok).toBe(true);
-
-      const afterDelivery = await wormhole<{ items: { id: string }[] }>(
-        'media.listForUser',
-        { userId: authorId },
-        readerJwt,
-      );
-      expect(afterDelivery.ok).toBe(true);
-      expect(afterDelivery.result.items.map((item) => item.id)).toContain(mediaId);
+      // Sent, it belongs to the post and its team still, not to the profile.
+      expect(await listed()).not.toContain(mediaId);
     } finally {
-      await db.collection('mediaitems').deleteOne({ _id: media._id });
+      await db.collection('mediaitems').deleteMany({ _id: { $in: [media._id, libraryOnly._id] } });
     }
   });
 });

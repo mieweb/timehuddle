@@ -5,6 +5,7 @@ import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 import { cleanVideoName, videoNameOf } from './video-names.js';
+import { videoIdOf } from './video-names-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -219,6 +220,16 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
     '.avif': 'image/avif', '.pdf': 'application/pdf',
   };
   const contentType = mimeTypes[ext] || 'application/octet-stream';
+  // Links are unguessable (a random name) but not signed, so nothing shared
+  // may keep a copy: browsers only. A picture or clip may stay a day in the
+  // viewer's own cache; a document isn't kept at all.
+  const media = contentType.startsWith('image/') || contentType.startsWith('video/');
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': contentType,
+    'Cache-Control': media ? 'private, max-age=86400' : 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  };
 
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
@@ -226,20 +237,13 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunkSize = (end - start) + 1;
     res.writeHead(206, {
+      ...headers,
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-      'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400',
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
-    res.writeHead(200, {
-      'Content-Length': fileSize,
-      'Accept-Ranges': 'bytes',
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400',
-    });
+    res.writeHead(200, { ...headers, 'Content-Length': fileSize });
     fs.createReadStream(filePath).pipe(res);
   }
 });
@@ -432,30 +436,29 @@ export async function discardMedia(docs) {
 }
 
 /**
- * mediaIds referenced by `userId`'s own still-undelivered scheduled posts —
- * the read-time mirror of `isAwaitingDelivery` (huddle-schedule-core.js),
- * applied to an attachment rather than to the post it belongs to: a
- * scheduled post's raw file must not be any more visible than the post
- * itself. Images/documents reference the library row's own `_id`; a
+ * Ids of the media `userId`'s Huddle posts carry, scheduled or sent: a post's
+ * photos, files and videos belong to the post and its team, not to everyone
+ * who may view the author's profile, so library and profile listings leave
+ * them out. Images/documents reference the library row's own `_id`; a
  * composer-staged video's `mediaId` is Pulse's `videoid` instead
- * (src/features/huddle/api.ts uploadMedia) — the row doesn't exist under its
- * own `_id` until the upload lands, so it's matched by `videoid` instead.
+ * (src/features/huddle/api.ts uploadMedia), and a Pulse video is matched by
+ * its URL's video id too, whatever its `mediaId`.
  */
-async function pendingAttachmentMediaIds(userId) {
-  const posts = await rawDb()
-    .collection('huddlePosts')
-    .find({ userId, deliverAt: { $exists: true }, deliveredAt: null }, { projection: { attachments: 1 } })
-    .toArray();
-  const mediaIds = new Set();
-  for (const post of posts) {
-    for (const att of post.attachments ?? []) {
-      if (typeof att.mediaId === 'string' && att.mediaId) mediaIds.add(att.mediaId);
-    }
+async function postAttachmentMediaIds(userId) {
+  const posts = rawDb().collection('huddlePosts');
+  const [mediaIds, urls] = await Promise.all([
+    posts.distinct('attachments.mediaId', { userId }),
+    posts.distinct('attachments.url', { userId }),
+  ]);
+  const ids = new Set(mediaIds.filter((id) => typeof id === 'string' && id));
+  for (const url of urls) {
+    const video = videoIdOf(url);
+    if (video) ids.add(video);
   }
-  return mediaIds;
+  return ids;
 }
 
-/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link pendingAttachmentMediaIds}). */
+/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link postAttachmentMediaIds}). */
 function excludingMediaIds(mediaIds) {
   if (!mediaIds.size) return {};
   const objectIds = [...mediaIds].filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
@@ -467,17 +470,15 @@ function excludingMediaIds(mediaIds) {
 }
 
 /**
- * Library and profile listings skip post-embedded media (it belongs to the
- * post's team, not to everyone who may view the author's profile) and any
- * media still attached only to one of `userId`'s own still-undelivered
- * scheduled posts — filtered at read time against `huddlePosts`, the same
- * way the post itself is hidden, rather than a hold written onto the media
- * document.
+ * Library and profile listings show only what someone put there themselves:
+ * not media embedded in a post's text, nor anything their Huddle posts carry
+ * (scheduled or sent), filtered at read time against `huddlePosts` rather
+ * than a flag written onto the media document, so older posts follow too.
  */
 async function libraryItemsFilter(userId) {
   return {
     embedded: { $ne: true },
-    ...excludingMediaIds(await pendingAttachmentMediaIds(userId)),
+    ...excludingMediaIds(await postAttachmentMediaIds(userId)),
   };
 }
 
