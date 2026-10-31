@@ -514,6 +514,50 @@ export async function requireTeamMember(userId, teamId) {
   return team;
 }
 
+/** `text` as a regular expression matching it literally. */
+const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Uploads a post no longer carries (it was deleted, or an edit took them off),
+ * deleted with their files when they're the author's and nothing else uses
+ * them: no other post carries or shows them, and no ticket has them. Pulse
+ * videos stay (they're PulseVault's). Best-effort: a failure leaves a file
+ * behind, never fails the delete or the edit.
+ */
+async function discardUnusedUploads(attachments, authorId) {
+  try {
+    const ids = attachments
+      .filter((att) => !(att?.type === 'video' && videoIdOf(att.url)))
+      .map((att) => att?.mediaId)
+      .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id));
+    if (ids.length === 0) return;
+    const db = rawDb();
+    const items = await db
+      .collection('mediaitems')
+      .find({ _id: { $in: ids.map((id) => new ObjectId(id)) }, userId: authorId })
+      .toArray();
+    const unused = [];
+    for (const item of items) {
+      const url = new RegExp(`${literally(item.url)}$`);
+      const used =
+        (await db.collection('huddlePosts').findOne(
+          {
+            $or: [
+              { 'attachments.mediaId': item._id.toHexString() },
+              { 'attachments.url': url },
+              { 'content.text': { $regex: literally(item.url) } },
+            ],
+          },
+          { projection: { _id: 1 } },
+        )) ?? (await db.collection('attachments').findOne({ url }, { projection: { _id: 1 } }));
+      if (!used) unused.push(item);
+    }
+    await discardMedia(unused);
+  } catch (err) {
+    console.error('[huddle] failed to clean up a post\'s unused uploads:', err);
+  }
+}
+
 /**
  * `attachments` checked for a post by `userId` (post-attachments-core.js):
  * their own uploads, Pulse videos, or ones the post already has (`existing`).
@@ -987,6 +1031,13 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Post not found');
     }
     await discardUnreferencedInlineImages(replacedPost.content?.text);
+    if (postAttachments) {
+      const kept = new Set(postAttachments.map((att) => att.url));
+      await discardUnusedUploads(
+        (replacedPost.attachments ?? []).filter((att) => !kept.has(att.url)),
+        replacedPost.userId,
+      );
+    }
 
     return { id: postId };
   },
@@ -1071,6 +1122,7 @@ Meteor.methods({
     if (deletedPost) {
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
+      await discardUnusedUploads(deletedPost.attachments ?? [], deletedPost.userId);
       if (isAwaitingDelivery(deletedPost)) {
         // Best-effort: the post is already gone either way — a stale job
         // will simply find no post to publish and no-op.

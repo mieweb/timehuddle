@@ -8,7 +8,7 @@ import {
   starterConversation,
   pendingPostMessage,
   shownBody,
-  stripInboxDecorations,
+  keptAttachments,
   withTodayConversation,
 } from './superChatFeed';
 
@@ -326,9 +326,9 @@ describe('postsToConversations', () => {
 
   describe('plan / wrap-up labels', () => {
     const session = { startTime: SEP_29_0858, endTime: null };
-    const textOf = (posts: HuddlePost[], id: string) =>
+    const labelOf = (posts: HuddlePost[], id: string) =>
       postsToConversations(posts, 'session', VIEWER_MEMBER, NOW)[0].thread.find((m) => m.id === id)
-        ?.text;
+        ?.label ?? '';
 
     it('labels only the earliest session post as the plan, not later inbox replies', () => {
       const posts = [
@@ -340,8 +340,8 @@ describe('postsToConversations', () => {
           createdAt: new Date(SEP_29_1032).toISOString(),
         }),
       ];
-      expect(textOf(posts, 'plan')).toContain('*Plan*');
-      expect(textOf(posts, 'reply')).not.toContain('Plan');
+      expect(labelOf(posts, 'plan')).toContain('Plan');
+      expect(labelOf(posts, 'reply')).not.toContain('Plan');
     });
 
     it('labels the wrap-up post and leaves an earlier reply unlabeled', () => {
@@ -355,8 +355,8 @@ describe('postsToConversations', () => {
           wrapUpAt: new Date(SEP_29_1032).toISOString(),
         }),
       ];
-      expect(textOf(posts, 'wrapup')).toContain('*Wrap-up*');
-      expect(textOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
+      expect(labelOf(posts, 'wrapup')).toContain('Wrap-up');
+      expect(labelOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
     });
 
     it('keeps labels and the wrap-up warning right when a search hides the plan', () => {
@@ -382,29 +382,6 @@ describe('postsToConversations', () => {
     });
   });
 
-  describe('stripInboxDecorations', () => {
-    const body = 'Checklist UI is done.';
-    const shown = `${body}\n\n![shot.png](http://x/uploads/shot.png)\n\n*Plan · Dev Team*`;
-
-    it('removes the attachment markdown and label an edit comes back with', () => {
-      const edited = shown.replace(body, 'Checklist UI is done and shipped.');
-      expect(stripInboxDecorations(edited, shown, body)).toBe('Checklist UI is done and shipped.');
-    });
-
-    it('removes decorations when text is typed after them', () => {
-      expect(stripInboxDecorations(`${shown}\n\nAlso deployed.`, shown, body)).toBe(
-        `${body}\n\nAlso deployed.`,
-      );
-      expect(stripInboxDecorations(`${shown} Also deployed.`, shown, body)).toBe(
-        `${body}\n\nAlso deployed.`,
-      );
-    });
-
-    it('leaves text alone when there were no decorations', () => {
-      expect(stripInboxDecorations('New text', body, body)).toBe('New text');
-    });
-  });
-
   describe('scheduled posts', () => {
     const OCT_1_0900 = localMs(2026, 10, 1, 9, 0);
     const scheduled = (overrides: Partial<HuddlePost> = {}) =>
@@ -421,7 +398,7 @@ describe('postsToConversations', () => {
     it('places a waiting post at its send time and says only you see it', () => {
       const message = messageOf(scheduled());
       expect(message.scheduledFor).toBe(new Date(OCT_1_0900).toISOString());
-      expect(message.text).toContain('Only you can see this until it is sent');
+      expect(message.label).toContain('Only you can see this until it is sent');
       expect(message.time).toBe(new Date(OCT_1_0900).toISOString());
     });
 
@@ -433,11 +410,10 @@ describe('postsToConversations', () => {
       expect(message.time).toBe(deliveredAt);
     });
 
-    it('strips the note off an inline edit', () => {
+    it('keeps the note out of the text an edit starts from', () => {
       const post = scheduled();
-      const shown = messageOf(post).text!;
-      const edited = shown.replace(post.content.text, 'Updated plan.');
-      expect(stripInboxDecorations(edited, shown, post.content.text)).toBe('Updated plan.');
+      expect(messageOf(post).text).toBe(post.content.text);
+      expect(messageOf(post).label).toContain('Only you can see this');
     });
 
     it('groups a post sent early under the day it actually appeared, not its original schedule', () => {
@@ -491,8 +467,8 @@ describe('postsToConversations', () => {
         VIEWER_MEMBER,
         NOW,
       );
-      const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
-      expect(text).toContain('[RMX-656: Fix login](/app/tickets/tkt-3)');
+      const label = conversation.thread.find((m) => m.id === 'p1')?.label ?? '';
+      expect(label).toContain('[RMX-656: Fix login](/app/tickets/tkt-3)');
     });
 
     it('falls back to the title when the post carries no label', () => {
@@ -502,7 +478,7 @@ describe('postsToConversations', () => {
         VIEWER_MEMBER,
         NOW,
       );
-      expect(conversation.thread[0].text).toContain('[Onboarding checklist](/app/tickets/tkt-1)');
+      expect(conversation.thread[0].label).toContain('[Onboarding checklist](/app/tickets/tkt-1)');
     });
 
     it('links each existing ticket to its page and skips deleted ones', () => {
@@ -513,11 +489,11 @@ describe('postsToConversations', () => {
           VIEWER_MEMBER,
           NOW,
         );
-        const text = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
-        expect(text).toContain('[TH-1: Onboarding checklist](/app/tickets/tkt-1)');
-        expect(text).toContain('[TH-2: Fix \\[beta\\] \\*login\\*](/app/tickets/tkt-2)');
-        expect(text).not.toContain('🎫');
-        expect(text).not.toContain('tkt-gone');
+        const label = conversation.thread.find((m) => m.id === 'p1')?.label ?? '';
+        expect(label).toContain('[TH-1: Onboarding checklist](/app/tickets/tkt-1)');
+        expect(label).toContain('[TH-2: Fix \\[beta\\] \\*login\\*](/app/tickets/tkt-2)');
+        expect(label).not.toContain('🎫');
+        expect(label).not.toContain('tkt-gone');
       }
     });
 
@@ -530,20 +506,17 @@ describe('postsToConversations', () => {
         NOW,
         () => 'Dev Team',
       );
-      const text = conversation.thread.find((m) => m.id === 'p1')?.text;
-      expect(text).toBe(
-        `${post.content.text}\n\n*Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team*`,
+      const message = conversation.thread.find((m) => m.id === 'p1');
+      expect(message?.text).toBe(post.content.text);
+      expect(message?.label).toBe(
+        'Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team',
       );
     });
 
-    it('never saves the link into the post on an inline edit', () => {
+    it('keeps the link out of the text an edit starts from', () => {
       const post = makePost({ id: 'p1', tickets });
       const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
-      const shown = conversation.thread.find((m) => m.id === 'p1')?.text ?? '';
-      const edited = shown.replace(post.content.text, 'Checklist UI is shipped.');
-      expect(stripInboxDecorations(edited, shown, post.content.text)).toBe(
-        'Checklist UI is shipped.',
-      );
+      expect(conversation.thread.find((m) => m.id === 'p1')?.text).toBe(post.content.text);
     });
   });
 
@@ -579,8 +552,8 @@ describe('the Personal ("me") scope (posts from multiple teams)', () => {
     const [conversation] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW, getTeamName);
     expect(conversation.thread).toHaveLength(2);
     const byId = new Map(conversation.thread.map((m) => [m.id, m]));
-    expect(byId.get('p1')?.text).toContain('Platform Team');
-    expect(byId.get('p2')?.text).toContain('Support Team');
+    expect(byId.get('p1')?.label).toContain('Platform Team');
+    expect(byId.get('p2')?.label).toContain('Support Team');
   });
 });
 
@@ -695,10 +668,26 @@ describe('attachments', () => {
     });
     const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
     expect(shownBody(post)).toBe('Before\n\nAfter');
-    const edited = message.text!.replace('After', 'After, edited');
-    expect(stripInboxDecorations(edited, message.text!, shownBody(post))).toBe(
-      'Before\n\nAfter, edited',
-    );
+    // What an edit starts from, and so saves.
+    expect(message.text).toBe('Before\n\nAfter');
+  });
+
+  it('takes off the attachments an edit removed, and leaves them alone otherwise', () => {
+    const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        image('a.png'),
+        { mediaId: 'm-v', type: 'video', url: `/pulsevault/artifacts/${videoId}` },
+        { mediaId: 'm-f', type: 'file', url: '/uploads/media/spec.pdf', filename: 'spec.pdf' },
+      ],
+    });
+    expect(keptAttachments(post, { removedMedia: [], removedFiles: [] })).toBeUndefined();
+    expect(
+      keptAttachments(post, { removedMedia: [videoId], removedFiles: ['m-f'] })?.map(
+        (att) => att.mediaId,
+      ),
+    ).toEqual(['m-a.png']);
   });
 
   it("makes a post's Pulse video the message's media, not text", () => {

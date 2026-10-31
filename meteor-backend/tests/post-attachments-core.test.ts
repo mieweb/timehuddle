@@ -37,6 +37,13 @@ describe('cleanPostAttachments', () => {
     ]);
   });
 
+  it("keeps an image's measured size, if it's sane", () => {
+    const [kept] = clean([{ mediaId: MINE._id, type: 'image', url: MINE.url, width: 800, height: 600 }]);
+    expect(kept).toMatchObject({ width: 800, height: 600 });
+    const [dropped] = clean([{ mediaId: MINE._id, type: 'image', url: MINE.url, width: -1, height: 'x' }]);
+    expect(dropped).not.toHaveProperty('width');
+  });
+
   it('takes a Pulse video, whoever uploaded it', () => {
     expect(clean([{ mediaId: VIDEO, type: 'video', url: `/pulsevault/artifacts/${VIDEO}`, filename: 'Demo' }])).toEqual([
       { mediaId: VIDEO, type: 'video', url: `/pulsevault/artifacts/${VIDEO}`, filename: 'Demo' },

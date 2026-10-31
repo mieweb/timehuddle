@@ -1295,6 +1295,9 @@ export interface HuddlePostAttachment {
   filename?: string;
   /** Size in bytes, from the upload's media item (absent on older posts). */
   size?: number;
+  /** An image's size in pixels, so its tile keeps its space before it loads. */
+  width?: number;
+  height?: number;
   /** A video's name, from its media item (null: unnamed). Videos only. */
   name?: string | null;
   /**

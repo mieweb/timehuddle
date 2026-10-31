@@ -115,6 +115,7 @@ function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
         kind: att.type,
         src: resolveMediaUrl(att.url),
         ...(att.thumbnailUrl ? { poster: resolveMediaUrl(att.thumbnailUrl) } : {}),
+        ...(att.width && att.height ? { width: att.width, height: att.height } : {}),
         ...(att.filename ? { title: att.filename, alt: att.filename } : {}),
         caption,
       },
@@ -124,6 +125,24 @@ function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
 
 /** User-facing file text, kept together for translation. */
 const FILE_TEXT = { untitled: 'Attachment' };
+
+/**
+ * A post's attachments after an edit took some off: `removedMedia` are the
+ * message's media ids (a Pulse video's id, else the upload's), `removedFiles`
+ * its files' ids. Undefined when nothing was taken off, so the post's
+ * attachments are left as they are.
+ */
+export function keptAttachments(
+  post: HuddlePost,
+  { removedMedia, removedFiles }: { removedMedia: string[]; removedFiles: string[] },
+): HuddlePost['attachments'] | undefined {
+  if (removedMedia.length === 0 && removedFiles.length === 0) return undefined;
+  return post.attachments.filter((att) =>
+    att.type === 'file'
+      ? !removedFiles.includes(att.mediaId)
+      : !removedMedia.includes(pulseVideoOf(att) ?? att.mediaId),
+  );
+}
 
 /** A post's other files (documents), as the message's `files`. */
 function postFiles(post: HuddlePost): SuperChatFileAttachment[] {
@@ -381,42 +400,16 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   return parts;
 }
 
-/** Message text for the inbox: body first (the sidebar preview shows the
- *  first line), then an italic plan/ticket label. Attachments are the
- *  message's media and files, not text. */
-function postToInboxMessageText(
+/** A post's label (its message's `label`, under it): who can see it yet,
+ *  plan or wrap-up, its tickets and its team, e.g. "Plan · [TH-7: …](…) ·
+ *  Dev Team". Not part of its text, so an edit or a copy leaves it out. */
+function postLabel(
   post: HuddlePost,
   isSessionPost: boolean,
   teamName?: string,
-): string {
-  const parts = [shownBody(post)];
-  const label = postLabelParts(post, isSessionPost, teamName);
-  if (label.length > 0) {
-    parts.push(`*${label.join(' · ')}*`);
-  }
-  return parts.filter(Boolean).join('\n\n');
-}
-
-/**
- * SuperChat's inline edit starts from the message text as shown, so an edit
- * comes back with the label appended above. Strip it back off (`shownText` is
- * what the inbox displayed, `body` the post's text as shown, `shownBody`) so
- * it's never saved into the post and re-appended. Each
- * decoration is removed wherever it now sits (last occurrence), not only as a
- * trailing suffix — text typed after the label must not drag it along.
- */
-export function stripInboxDecorations(editedText: string, shownText: string, body: string): string {
-  if (!shownText.startsWith(body)) return editedText;
-  let text = editedText;
-  const decorations = shownText.slice(body.length).split('\n\n').filter(Boolean);
-  for (const part of decorations) {
-    const at = text.lastIndexOf(part);
-    if (at === -1) continue;
-    const before = text.slice(0, at).replace(/[ \t]+$/, '');
-    const after = text.slice(at + part.length).replace(/^[ \t]+/, '');
-    text = /\S$/.test(before) && /^\S/.test(after) ? `${before}\n\n${after}` : before + after;
-  }
-  return text.replace(/\n{3,}/g, '\n\n').trim();
+): string | undefined {
+  const parts = postLabelParts(post, isSessionPost, teamName);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function authorName(post: HuddlePost): string {
@@ -547,7 +540,8 @@ export function postsToConversations(
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
-      text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      text: shownBody(post),
+      label: postLabel(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
       media: postMedia(post),
       files: postFiles(post),
       time: postAt(post),

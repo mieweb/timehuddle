@@ -27,6 +27,16 @@ function typeOf(item) {
   return 'file';
 }
 
+/**
+ * An image's size as the client measured it before upload, kept as given: a
+ * display hint (its tile keeps its space before it loads), so only checked to
+ * be sane, positive whole pixels.
+ */
+function sizeOf(att) {
+  const ok = (n) => Number.isInteger(n) && n > 0 && n <= 100_000;
+  return ok(att.width) && ok(att.height) ? { width: att.width, height: att.height } : {};
+}
+
 /** A refused attachment list; huddle.js reports it as a bad request. */
 export class AttachmentError extends Error {}
 
@@ -66,6 +76,7 @@ export function cleanPostAttachments({ attachments, userId, mediaById, pulseVide
       url: item.url,
       ...(filename ? { filename } : {}),
       ...(typeof item.size === 'number' ? { size: item.size } : {}),
+      ...sizeOf(att),
     };
   });
 }

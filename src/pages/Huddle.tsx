@@ -43,15 +43,14 @@ import { composerErrorMessage, composerRefusalMessage } from '../features/huddle
 import {
   dayConversationId,
   defaultConversation,
+  keptAttachments,
   isAwaitingDelivery,
   postsToConversations,
   postVideoNames,
   pendingPostMessage,
   pulseVideoOfMedia,
   searchConversations,
-  shownBody,
   starterConversation,
-  stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
   withTodayConversation,
@@ -742,15 +741,14 @@ export default function Huddle() {
       ) : null,
     [ownsVideo],
   );
-  // The conversation's media view (SuperChat's feed of its videos). ▶ on a
-  // card is a tap to watch it, so it starts with its sound, as on every other
-  // card (the player's own mute is in its bar); the card's ⋯ menu is there
-  // too, to copy a video's link or rename one of your own while you watch it.
+  // The conversation's media view (SuperChat's viewer of its photos and
+  // videos). Opening one is a tap to watch it, so a clip starts with its sound,
+  // as on every card (the player's own mute is in its bar); a Pulse video's ⋯
+  // menu is there too, to copy its link or rename one of your own.
   const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
     () => ({
-      // Mobile first: each clip edge to edge, and on a phone the media view
-      // takes the whole screen above the message box.
-      layout: 'overlay',
+      // The media view is SuperChat's viewer over the window, swiping through
+      // the conversation's photos and videos.
       muted: false,
       // A Pulse video's menu; an image or an uploaded file has none.
       renderActions: ({ attachment }) =>
@@ -1137,13 +1135,18 @@ export default function Huddle() {
   );
 
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
-  async function handleMessageEdited(messageId: string, text: string) {
+  async function handleMessageEdited(
+    messageId: string,
+    text: string,
+    edits: { removedMedia: string[]; removedFiles: string[] },
+  ) {
     const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
-    const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
-    // Images inlined in the text show under it, so the edit starts without
-    // them and saves without them; they stay the post's attachments.
-    const body = shown ? stripInboxDecorations(text, shown, shownBody(post)) : text;
+    // The edit starts from the post's text as shown (shownBody: images
+    // inlined in it show under it, and stay the post's attachments), without
+    // its label, which is the message's `label`, not its text.
+    const body = text;
+    const attachments = keptAttachments(post, edits);
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
@@ -1156,7 +1159,11 @@ export default function Huddle() {
       const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
-      await huddleApi.updatePost(messageId, { text: body, mentions: editedMentions });
+      await huddleApi.updatePost(
+        messageId,
+        { text: body, mentions: editedMentions },
+        attachments ? { attachments } : undefined,
+      );
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
       await refreshActiveScope();
@@ -1304,7 +1311,9 @@ export default function Huddle() {
                         sendOption,
                       )
                     }
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                    onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
+                      void handleMessageEdited(messageId, text, { removedMedia, removedFiles })
+                    }
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
