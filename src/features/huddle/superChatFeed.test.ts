@@ -6,6 +6,7 @@ import {
   postsToConversations,
   searchConversations,
   starterConversation,
+  shownBody,
   stripInboxDecorations,
   withTodayConversation,
 } from './superChatFeed';
@@ -583,29 +584,68 @@ describe('the Personal ("me") scope (posts from multiple teams)', () => {
 });
 
 describe('attachments', () => {
-  it('skips attachments already embedded in the post text', () => {
+  const image = (name: string) => ({
+    mediaId: `m-${name}`,
+    type: 'image' as const,
+    url: `http://localhost:3100/uploads/media/${name}`,
+    filename: name,
+  });
+
+  it("shows a post's images under its text, those inlined in it too", () => {
     const post = makePost({
       id: 'p1',
-      content: { text: 'Look ![shot](/uploads/media/a.png)', mentions: [] },
+      content: {
+        text: 'Look ![shot](/uploads/media/a.png) and ![logo](https://cdn.example/logo.png)',
+        mentions: [],
+      },
+      attachments: [image('a.png'), image('b.png')],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    // An attached image leaves the text; one that isn't attached stays.
+    expect(message.text).not.toContain('a.png');
+    expect(message.text).toContain('![logo](https://cdn.example/logo.png)');
+    expect(message.media?.map((m) => [m.id, m.kind, m.title])).toEqual([
+      ['m-a.png', 'image', 'a.png'],
+      ['m-b.png', 'image', 'b.png'],
+    ]);
+  });
+
+  it("makes an uploaded video media and a document one of the message's files", () => {
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Spec and demo', mentions: [] },
       attachments: [
-        {
-          mediaId: 'm-a',
-          type: 'image',
-          url: 'http://localhost:3100/uploads/media/a.png',
-          filename: 'a.png',
-        },
-        {
-          mediaId: 'm-b',
-          type: 'image',
-          url: 'http://localhost:3100/uploads/media/b.png',
-          filename: 'b.png',
-        },
+        { mediaId: 'm-v', type: 'video', url: '/uploads/media/demo.mp4', filename: 'demo.mp4' },
+        { mediaId: 'm-f', type: 'file', url: '/uploads/media/spec.pdf', filename: 'spec.pdf' },
       ],
     });
-    const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
-    const text = conversation.thread[0].text ?? '';
-    expect(text.match(/a\.png/g)).toHaveLength(1);
-    expect(text).toContain('![b.png]');
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(message.text).not.toContain('spec.pdf');
+    expect(message.media).toEqual([
+      expect.objectContaining({
+        id: 'm-v',
+        kind: 'video',
+        src: expect.stringMatching(/\/uploads\/media\/demo\.mp4$/),
+        caption: 'Spec and demo',
+      }),
+    ]);
+    expect(message.files).toEqual([
+      { id: 'm-f', name: 'spec.pdf', url: expect.stringMatching(/\/uploads\/media\/spec\.pdf$/) },
+    ]);
+  });
+
+  it('saves an edit without the images it showed under the text', () => {
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Before\n\n![shot](/uploads/media/a.png)\n\nAfter', mentions: [] },
+      attachments: [image('a.png')],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(shownBody(post)).toBe('Before\n\nAfter');
+    const edited = message.text!.replace('After', 'After, edited');
+    expect(stripInboxDecorations(edited, message.text!, shownBody(post))).toBe(
+      'Before\n\nAfter, edited',
+    );
   });
 
   it("makes a post's Pulse video the message's media, not text", () => {

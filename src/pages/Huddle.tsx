@@ -42,7 +42,9 @@ import {
   isAwaitingDelivery,
   postsToConversations,
   postVideoNames,
+  pulseVideoOfMedia,
   searchConversations,
+  shownBody,
   starterConversation,
   stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
@@ -688,18 +690,21 @@ export default function Huddle() {
     (videoId: string) => !!user?.id && videoOwners.current.get(videoId) === user.id,
     [user?.id],
   );
+  // A Pulse video alone is our card; an image or an uploaded video is
+  // SuperChat's own tile, and two or more pictures its gallery.
   const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
-    ({ attachment, open, launchId, maxSize }) => (
-      <PulseVideoPlayer
-        maxSize={maxSize}
-        video={attachment.id}
-        title={videoLabel(attachment.title, attachment.id)}
-        caption={attachment.title}
-        renamable={ownsVideo(attachment.id)}
-        onOpen={open && (() => open(true))}
-        launchId={launchId}
-      />
-    ),
+    ({ attachment, open, launchId, maxSize }) =>
+      pulseVideoOfMedia(attachment) ? (
+        <PulseVideoPlayer
+          maxSize={maxSize}
+          video={attachment.id}
+          title={videoLabel(attachment.title, attachment.id)}
+          caption={attachment.title}
+          renamable={ownsVideo(attachment.id)}
+          onOpen={open && (() => open(true))}
+          launchId={launchId}
+        />
+      ) : null,
     [ownsVideo],
   );
   // The conversation's media view (SuperChat's feed of its videos). ▶ on a
@@ -712,14 +717,16 @@ export default function Huddle() {
       // takes the whole screen above the message box.
       layout: 'overlay',
       muted: false,
-      renderActions: ({ attachment }) => (
-        <VideoActions
-          video={attachment.id}
-          name={attachment.title ?? null}
-          label={videoLabel(attachment.title, attachment.id)}
-          renamable={ownsVideo(attachment.id)}
-        />
-      ),
+      // A Pulse video's menu; an image or an uploaded file has none.
+      renderActions: ({ attachment }) =>
+        pulseVideoOfMedia(attachment) ? (
+          <VideoActions
+            video={attachment.id}
+            name={attachment.title ?? null}
+            label={videoLabel(attachment.title, attachment.id)}
+            renamable={ownsVideo(attachment.id)}
+          />
+        ) : null,
     }),
     [ownsVideo],
   );
@@ -1050,7 +1057,9 @@ export default function Huddle() {
     const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
     const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
-    const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
+    // Images inlined in the text show under it, so the edit starts without
+    // them and saves without them; they stay the post's attachments.
+    const body = shown ? stripInboxDecorations(text, shown, shownBody(post)) : text;
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
