@@ -1193,7 +1193,7 @@ export default function Huddle() {
         {/* Feed */}
         <div
           ref={feedRef}
-          className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto"
+          className="huddle-feed flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
           onClickCapture={openAppLinkHere}
         >
           {scope === 'team' && !selectedTeamId && (
@@ -1405,7 +1405,7 @@ export default function Huddle() {
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
-                    className={`h-full rounded-none border-0 ${styles.inbox}`}
+                    className={`min-h-0 flex-1 rounded-none border-0 ${styles.inbox}`}
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}
