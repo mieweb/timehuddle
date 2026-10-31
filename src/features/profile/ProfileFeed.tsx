@@ -8,11 +8,38 @@ import { extractVideoThumbnail } from '../../lib/videoThumbnail';
 import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
+import { pulseArtifactId } from '../pulse-upload/artifact';
+import { usePoster } from '../pulse-upload/PulseVideoPlayer';
 import { isVideoFile, uploadVideoToLibrary, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 const MEDIA_UPLOAD_ACCEPT = `image/*,.gif,${VIDEO_FILE_ACCEPT}`;
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+const VideoTileIcon: React.FC = () => (
+  <div className="video-tile-icon flex h-full w-full items-center justify-center text-neutral-400">
+    <FontAwesomeIcon icon={faFileVideo} className="text-4xl" />
+  </div>
+);
+
+/**
+ * A PulseVault video's poster, as its cards show it. Whole, not cropped: a
+ * portrait clip sits in the middle of the tile rather than losing its top and
+ * bottom. The icon while there's no poster.
+ */
+const PulseVideoTilePoster: React.FC<{ video: string; alt: string }> = ({ video, alt }) => {
+  const poster = usePoster(video);
+  if (!poster.src) return <VideoTileIcon />;
+  return (
+    <img
+      src={poster.src}
+      alt={alt}
+      loading="lazy"
+      onError={poster.onError}
+      className="absolute inset-0 h-full w-full object-contain"
+    />
+  );
+};
 
 interface MediaCardProps {
   item: MediaItem;
@@ -20,6 +47,7 @@ interface MediaCardProps {
 }
 
 const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
+  const pulseVideo = pulseArtifactId(item.url);
   return (
     <Card
       padding="none"
@@ -44,10 +72,10 @@ const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
               loading="lazy"
               className="absolute inset-0 h-full w-full object-cover"
             />
+          ) : pulseVideo ? (
+            <PulseVideoTilePoster video={pulseVideo} alt={item.title ?? 'Video thumbnail'} />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-neutral-400">
-              <FontAwesomeIcon icon={faFileVideo} className="text-4xl" />
-            </div>
+            <VideoTileIcon />
           )
         ) : (
           <img

@@ -3,6 +3,8 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
+import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { artifactBelongsTo } from './pulsevault.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -15,7 +17,6 @@ function toPublic(a) {
     url: a.url,
     type: a.type,
     title: a.title ?? null,
-    thumbnail: a.thumbnail ?? null,
     attachedTo: a.attachedTo,
     addedBy: a.addedBy,
     addedAt: a.addedAt instanceof Date ? a.addedAt.toISOString() : String(a.addedAt),
@@ -46,7 +47,7 @@ async function fetchYouTubeTitle(url) {
  * already know the owning userId from their own reservation/auth context
  * rather than the current Meteor method invocation.
  */
-export async function createAttachment({ url, type, title, thumbnail, attachedTo, addedBy }) {
+export async function createAttachment({ url, type, title, attachedTo, addedBy }) {
   if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
   if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
   if (!attachedTo?.kind || typeof attachedTo.id !== 'string' || !attachedTo.id) {
@@ -61,7 +62,6 @@ export async function createAttachment({ url, type, title, thumbnail, attachedTo
     url: url.trim(),
     type,
     ...(resolvedTitle ? { title: resolvedTitle } : {}),
-    ...(thumbnail ? { thumbnail } : {}),
     attachedTo,
     addedBy,
     addedAt: new Date(),
@@ -119,16 +119,45 @@ Meteor.methods({
       .find({ 'attachedTo.kind': kind, 'attachedTo.id': id })
       .sort({ addedAt: 1 })
       .toArray();
-    return { attachments: docs.map(toPublic) };
+    // A video's name is its media item's (video-names.js), renamed by its owner.
+    const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
+    return {
+      attachments: await Promise.all(
+        docs.map(async (a) => {
+          const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
+          const video = videoId ? videos.get(videoId) : undefined;
+          return {
+            ...toPublic(a),
+            ...(a.type === 'video'
+              ? {
+                  name: video?.name ?? null,
+                  // Its owner; or, for a video from before every video had a
+                  // media item, whoever PulseVault says uploaded it — the rule
+                  // videos.rename applies (attaching a URL proves nothing).
+                  canRename: mayRenameVideo({
+                    item: video ? { userId: video.ownerId } : null,
+                    userId,
+                    // Only worth asking PulseVault for a video this viewer attached.
+                    uploadedByUser:
+                      !video && a.addedBy === userId && !!videoId && (await artifactBelongsTo(videoId, userId)),
+                  }),
+                }
+              : {}),
+          };
+        }),
+      ),
+    };
   },
 
-  async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
+  // No `thumbnail` from clients: a Pulse video's poster comes from PulseVault
+  // (GET /pulsevault/artifacts/:videoId/poster), never from whoever attached it.
+  async 'attachments.add'({ url, type, title, attachedTo }) {
     const identity = await requireIdentity(this);
     // A string id, as `list` matches it: a numeric one would be stored where
     // no list ever finds it.
     if (typeof attachedTo?.id !== 'string') throw new Meteor.Error('bad-request', 'attachedTo is required');
     await assertCanReach(identity.userId, attachedTo);
-    const attachment = await createAttachment({ url, type, title, thumbnail, attachedTo, addedBy: identity.userId });
+    const attachment = await createAttachment({ url, type, title, attachedTo, addedBy: identity.userId });
     return { attachment };
   },
 

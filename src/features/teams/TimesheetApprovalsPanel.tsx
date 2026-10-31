@@ -36,6 +36,8 @@ import {
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
 import { formatDuration } from '../../lib/timeUtils';
+import { pulseArtifactId } from '../pulse-upload/artifact';
+import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   create: 'Add time',
@@ -151,6 +153,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   const [requests, setRequests] = useState<TimesheetChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<TimesheetChangeRequest | null>(null);
+  const walkthroughVideo = pulseArtifactId(active?.videoUrl);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -447,16 +450,24 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             </Text>
           </div>
 
-          {active?.videoUrl && (
-            // Capped so a portrait recording doesn't push the decision buttons
-            // off the bottom of a phone screen.
-            <video
-              src={resolveMediaUrl(active.videoUrl)}
-              controls
-              playsInline
-              className="max-h-[45vh] w-full rounded-lg bg-black"
-            />
-          )}
+          {active?.videoUrl &&
+            // A Pulse walkthrough gets the same card as everywhere else; any
+            // other URL plays as is, capped so a portrait recording doesn't
+            // push the decision buttons off the bottom of a phone screen.
+            (walkthroughVideo ? (
+              <PulseVideoPlayer
+                video={walkthroughVideo}
+                title={active.videoName ?? 'Walkthrough'}
+                caption={active.videoName}
+              />
+            ) : (
+              <video
+                src={resolveMediaUrl(active.videoUrl)}
+                controls
+                playsInline
+                className="max-h-[45vh] w-full rounded-lg bg-black"
+              />
+            ))}
 
           {active?.status === 'pending' && (
             <div className="space-y-1">

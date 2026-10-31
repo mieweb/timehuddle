@@ -39,6 +39,7 @@ import {
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
+import { CANONICAL_ITEM } from './video-names-core.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
@@ -84,7 +85,7 @@ export async function artifactBelongsTo(artifactId, userId) {
   if (!artifactId || !userId) return false;
   const media = await rawDb()
     .collection('mediaitems')
-    .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
+    .findOne({ videoid: artifactId }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
   if (media) return media.userId === userId;
 
   // The status describes whatever artifact the id names (a thumbnail's or
@@ -94,6 +95,17 @@ export async function artifactBelongsTo(artifactId, userId) {
   const status = await core.getStatus(artifactId).catch(() => null);
   if (!status || status.kind !== 'video' || status.context?.userId !== userId) return false;
   return status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
+}
+
+/** PulseVault's status for a video by this id (an upload under way counts), else null. */
+export async function videoArtifactStatus(artifactId) {
+  const status = await core.getStatus(artifactId).catch(() => null);
+  return status?.kind === 'video' ? status : null;
+}
+
+/** Whether PulseVault holds a video by this id (an upload under way counts). */
+export async function videoArtifactExists(artifactId) {
+  return (await videoArtifactStatus(artifactId)) !== null;
 }
 
 /**
@@ -401,7 +413,7 @@ Meteor.methods({
     if (!artifactId || typeof artifactId !== 'string') {
       throw new Meteor.Error('bad-request', 'artifactId is required');
     }
-    const doc = await rawDb().collection('mediaitems').findOne({ videoid: artifactId });
+    const doc = await rawDb().collection('mediaitems').findOne({ videoid: artifactId }, CANONICAL_ITEM);
     if (!doc) throw new Meteor.Error('not-found', 'Video not found');
     return {
       artifactId: doc.videoid,

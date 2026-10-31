@@ -97,9 +97,13 @@ test.describe('Huddle ticket detail', () => {
     await page.getByLabel('Ticket description').fill('Written by the detail spec.');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
-    await expect(page.getByText('Written by the detail spec.')).toBeVisible({ timeout: 15000 });
+    // @mieweb/ui's Textarea keeps a hidden mirror of its text; look past it.
+    const description = page
+      .getByText('Written by the detail spec.')
+      .and(page.locator(':not([data-slot="textarea-mirror"])'));
+    await expect(description).toBeVisible({ timeout: 15000 });
     await page.reload();
-    await expect(page.getByText('Written by the detail spec.')).toBeVisible({ timeout: 20000 });
+    await expect(description).toBeVisible({ timeout: 20000 });
   });
 
   test('changes status and priority from the sidebar', async ({ page }) => {

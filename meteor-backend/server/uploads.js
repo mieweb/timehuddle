@@ -4,6 +4,7 @@ import { rawDb, isValidId } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
+import { cleanVideoName, videoNameOf } from './video-names.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -601,11 +602,14 @@ function toPublicMediaItem(m) {
     videoid: m.videoid ?? null,
     filename: m.filename,
     size: m.size,
-    title: m.title ?? null,
+    // A video's title is its name (video-names.js): the old placeholder reads as none.
+    title: m.type === 'video' ? videoNameOf(m.title, m.videoid) : (m.title ?? null),
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
-    uploadedAt: m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : String(m.uploadedAt),
+    // A video named before it had a media item has no known upload time.
+    uploadedAt:
+      m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : m.uploadedAt ? String(m.uploadedAt) : null,
   };
 }
 
@@ -647,7 +651,8 @@ Meteor.methods({
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
     const $set = {};
-    if (title !== undefined) $set.title = title;
+    // A video's rename: one line, at most VIDEO_NAME_MAX characters, empty is no name.
+    if (title !== undefined) $set.title = doc.type === 'video' ? cleanVideoName(title) : title;
     if (caption !== undefined) $set.caption = caption;
     if (altText !== undefined) $set.altText = altText;
     const updated = await db.collection('mediaitems').findOneAndUpdate(

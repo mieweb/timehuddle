@@ -1,9 +1,12 @@
 /**
  * AttachmentsPanel — the videos on a ticket or a clock session. **Pulse**
  * records one on a phone and **Upload** sends a file from this device; either
- * way the server converts it when it can and attaches it here when it lands. A
- * link goes in the description (or the session's post), not here: links
- * attached before that rule are still listed, and can be removed.
+ * way the server converts it when it can and attaches it here when it lands,
+ * and it plays here inline, its name on its poster. A video has one name (the
+ * Pulse draft's, or the file's), which its owner renames here and which shows
+ * wherever else it appears. A link goes in the description (or the session's
+ * post), not here: links attached before that rule are still listed, and can
+ * be removed.
  *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
@@ -20,7 +23,9 @@ import {
   type AttachmentKind,
   type Attachment,
 } from '../../lib/api';
+import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
 import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -100,35 +105,63 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       )}
 
       <ul className="attachment-list flex flex-col gap-1" aria-label="Videos">
-        {attachments.map((a) => (
-          <li
-            key={a.id}
-            className="attachment-item flex items-center justify-between gap-2 text-sm"
-          >
-            {/* Videos are stored by path and bound to the current origin
-                here; a link attached before links moved to the description
-                passes through resolveMediaUrl untouched. */}
-            <a
-              href={resolveMediaUrl(a.url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="attachment-link min-w-0 truncate text-primary hover:underline"
+        {attachments.map((a) => {
+          // Same rule as the Huddle feed: a video that's a PulseVault artifact
+          // plays inline; anything else is a link.
+          const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
+          const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
+          return (
+            <li
+              key={a.id}
+              className="attachment-item flex items-center justify-between gap-2 text-sm"
             >
-              {a.title ?? a.url}
-            </a>
-            {currentUserId && currentUserId === a.addedBy && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRemove(a.id)}
-                isLoading={deletingId === a.id}
-                aria-label={`Remove ${a.title ?? a.url}`}
-              >
-                <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden />
-              </Button>
-            )}
-          </li>
-        ))}
+              {videoId ? (
+                // Rename and Remove live on the card's own ⋯ menu, as on
+                // every video card.
+                <figure className="attachment-video min-w-0">
+                  <PulseVideoPlayer
+                    video={videoId}
+                    title={videoLabel(a.name, videoId)}
+                    caption={a.name}
+                    renamable={a.canRename}
+                    onRenamed={(name) =>
+                      // Every row of this video: it has one name.
+                      setAttachments((prev) =>
+                        prev.map((other) => (other.url === a.url ? { ...other, name } : other)),
+                      )
+                    }
+                    onRemove={mine ? () => void handleRemove(a.id) : undefined}
+                  />
+                </figure>
+              ) : (
+                <>
+                  {/* A link attached before links moved to the description
+                      passes through resolveMediaUrl untouched; a backend path
+                      is bound to the current origin. */}
+                  <a
+                    href={resolveMediaUrl(a.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="attachment-link min-w-0 truncate text-primary hover:underline"
+                  >
+                    {a.title ?? a.url}
+                  </a>
+                  {mine && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleRemove(a.id)}
+                      isLoading={deletingId === a.id}
+                      aria-label={`Remove ${a.title ?? a.url}`}
+                    >
+                      <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden />
+                    </Button>
+                  )}
+                </>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

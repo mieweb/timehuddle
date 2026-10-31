@@ -1,8 +1,11 @@
 /**
  * superChatFeed — map huddle posts onto SuperChatInbox conversations, grouped
- * by session, day, person, or ticket (`postsToConversations`). Image
- * attachments are embedded as markdown images (rendered by createImagePlugin
- * with a lightbox); other attachments become plain links. Comments have no
+ * by session, day, person, or ticket (`postsToConversations`). A post's text
+ * is the message's bubble; its images and videos are the message's `media`
+ * (`postMedia`), which SuperChat shows under the text, two or more as one
+ * gallery, and plays in its media view (a Pulse video as Huddle's own card);
+ * its other files are the message's `files`, one list under the media.
+ * Comments have no
  * surface here — SuperChat has no per-message thread concept (see
  * .attic/huddle-superchat-inbox/README.md).
  */
@@ -10,19 +13,41 @@ import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
+import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
+import { knownVideoName } from '../pulse-upload/videoNames';
 import type {
   Participant,
   SuperChatConversation,
+  SuperChatFileAttachment,
+  SuperChatMediaAttachment,
   SuperChatMessage,
 } from '@mieweb/ui/components/SuperChat';
 
-function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
-  const name = att.filename ?? 'attachment';
-  // Posts store attachment URLs by path — bind them to the current backend
-  // origin.
-  const url = resolveMediaUrl(att.url);
-  if (att.type === 'image') return `![${name}](${url})`;
-  return `[📎 ${name}](${url})`;
+type PostAttachment = HuddlePost['attachments'][number];
+
+/** The PulseVault video an attachment is, or null (an image, a file, an outside link). */
+function pulseVideoOf(att: PostAttachment): string | null {
+  return att.type === 'video' ? pulseArtifactId(att.url) : null;
+}
+
+/**
+ * A video attachment's name as shown: the newest this tab knows (a rename made
+ * here, or a later fetch; see videoNames.ts), else the post copy's.
+ */
+function shownVideoName(att: PostAttachment): string | null {
+  const video = pulseVideoOf(att);
+  const known = video ? knownVideoName(video) : undefined;
+  return known !== undefined ? known : (att.name ?? null);
+}
+
+/** The names a fetch of `posts` brought for their videos, to note in videoNames.ts. */
+export function postVideoNames(posts: HuddlePost[]): [string, string | null][] {
+  return posts.flatMap((post) =>
+    post.attachments.flatMap((att) => {
+      const video = pulseVideoOf(att);
+      return video ? [[video, att.name ?? null] as [string, string | null]] : [];
+    }),
+  );
 }
 
 /** The `/uploads/…` path of a media URL, however it was stored. */
@@ -34,12 +59,81 @@ function mediaPathOf(url: string): string {
   }
 }
 
-/** Attachments not already embedded in the post's text (pasted/dropped images
- *  are written inline and still recorded as attachments). */
-function attachmentsNotInlined(post: HuddlePost): HuddlePost['attachments'] {
+/** A markdown image: `![alt](url)`. */
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\(([^()\s]+)\)/g;
+
+/**
+ * A post's text as its bubble shows it: without the images the composer wrote
+ * into it (pasted or dropped images are inlined and recorded as attachments),
+ * since those show under the text with the post's other media. An image
+ * that isn't one of its attachments stays where it was written.
+ */
+export function shownBody(post: HuddlePost): string {
   const text = post.content.text;
-  if (!text) return post.attachments;
-  return post.attachments.filter((att) => !text.includes(mediaPathOf(att.url)));
+  if (!text || post.attachments.length === 0) return text;
+  const attached = new Set(post.attachments.map((att) => mediaPathOf(att.url)));
+  return text
+    .replace(MARKDOWN_IMAGE, (image, url: string) => (attached.has(mediaPathOf(url)) ? '' : image))
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** A post's Pulse video in the message's media, or null (any other attachment). */
+export function pulseVideoOfMedia(attachment: SuperChatMediaAttachment): string | null {
+  return attachment.kind === 'video' ? pulseArtifactId(attachment.src) : null;
+}
+
+/**
+ * A post's images and videos, as the message's media, in the order attached.
+ * A Pulse video's id is the video's, so Huddle's card finds it, and the media
+ * view plays the artifact with its poster, titled with the video's name (the
+ * newest this tab knows). Anything else is the uploaded file itself. The
+ * caption is the post's text.
+ */
+function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
+  const caption = shownBody(post);
+  return post.attachments.flatMap((att): SuperChatMediaAttachment[] => {
+    const video = pulseVideoOf(att);
+    if (video) {
+      const name = shownVideoName(att);
+      return [
+        {
+          id: video,
+          kind: 'video',
+          src: resolveMediaUrl(artifactPath(video)),
+          poster: resolveMediaUrl(posterPath(video)),
+          ...(name ? { title: name } : {}),
+          caption,
+        },
+      ];
+    }
+    if (att.type === 'file') return [];
+    return [
+      {
+        id: att.mediaId,
+        kind: att.type,
+        src: resolveMediaUrl(att.url),
+        ...(att.thumbnailUrl ? { poster: resolveMediaUrl(att.thumbnailUrl) } : {}),
+        ...(att.filename ? { title: att.filename, alt: att.filename } : {}),
+        caption,
+      },
+    ];
+  });
+}
+
+/** User-facing file text, kept together for translation. */
+const FILE_TEXT = { untitled: 'Attachment' };
+
+/** A post's other files (documents), as the message's `files`. */
+function postFiles(post: HuddlePost): SuperChatFileAttachment[] {
+  return post.attachments
+    .filter((att) => att.type === 'file')
+    .map((att) => ({
+      id: att.mediaId,
+      name: att.filename ?? FILE_TEXT.untitled,
+      url: resolveMediaUrl(att.url),
+    }));
 }
 
 // ─── SuperChatInbox grouping (postsToConversations) ────────────────────────
@@ -287,17 +381,14 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
 }
 
 /** Message text for the inbox: body first (the sidebar preview shows the
- *  first line), then attachments, then an italic plan/ticket label. */
+ *  first line), then an italic plan/ticket label. Attachments are the
+ *  message's media and files, not text. */
 function postToInboxMessageText(
   post: HuddlePost,
   isSessionPost: boolean,
   teamName?: string,
 ): string {
-  const parts = [post.content.text];
-  const attachments = attachmentsNotInlined(post);
-  if (attachments.length > 0) {
-    parts.push(attachments.map(attachmentMarkdown).join('\n\n'));
-  }
+  const parts = [shownBody(post)];
   const label = postLabelParts(post, isSessionPost, teamName);
   if (label.length > 0) {
     parts.push(`*${label.join(' · ')}*`);
@@ -307,9 +398,9 @@ function postToInboxMessageText(
 
 /**
  * SuperChat's inline edit starts from the message text as shown, so an edit
- * comes back with the attachment markdown and label appended above. Strip
- * those back off (`shownText` is what the inbox displayed, `body` the post's
- * stored text) so they're never saved into the post and re-appended. Each
+ * comes back with the label appended above. Strip it back off (`shownText` is
+ * what the inbox displayed, `body` the post's text as shown, `shownBody`) so
+ * it's never saved into the post and re-appended. Each
  * decoration is removed wherever it now sits (last occurrence), not only as a
  * trailing suffix — text typed after the label must not drag it along.
  */
@@ -456,6 +547,8 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: postToInboxMessageText(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      media: postMedia(post),
+      files: postFiles(post),
       time: postAt(post),
       editedAt: post.updatedAt !== post.createdAt ? post.updatedAt : undefined,
       ...(isAwaitingDelivery(post) && { scheduledFor: post.deliverAt }),
@@ -491,6 +584,23 @@ function normalizeForSearch(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
+/**
+ * `text` as a reader sees it, for search: each markdown link target dropped
+ * (`[name](url)` → `[name]`), so media URLs don't match every query. One pass:
+ * once a `](` has no `)` after it, no later one can either.
+ */
+function withoutLinkTargets(text: string): string {
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf('](', from);
+    const close = open === -1 ? -1 : text.indexOf(')', open + 2);
+    if (close === -1) return out + text.slice(from);
+    out += text.slice(from, open + 1);
+    from = close + 1;
+  }
+}
+
 /** Everything a post can be found by: body, author, ticket, attachments, team
  *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
 function postSearchText(post: HuddlePost, teamName?: string): string {
@@ -503,13 +613,17 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
     year: 'numeric',
   });
   return [
-    post.content.text,
+    withoutLinkTargets(post.content.text),
     post.userName,
     ...ticketNames(post),
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
     post.clockEventId ? undefined : OFF_THE_CLOCK,
     post.session && post.session.endTime == null ? 'live' : undefined,
-    ...post.attachments.flatMap((att) => [att.filename, att.type]),
+    ...post.attachments.flatMap((att) => [
+      att.filename,
+      shownVideoName(att) ?? undefined,
+      att.type,
+    ]),
     teamName,
     dateKey,
     formatDayLabel(dateKey),
@@ -640,8 +754,7 @@ export function searchConversations(
         conversation.title,
         ...conversation.participants.map((p) => p.name),
         ...conversation.thread.map((message) => {
-          // Drop markdown link targets so media URLs don't match every query.
-          const shown = (message.text ?? '').replace(/\]\([^)]*\)/g, ']');
+          const shown = withoutLinkTargets(message.text ?? '');
           const post = postsById.get(message.id);
           return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
         }),

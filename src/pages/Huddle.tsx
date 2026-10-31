@@ -15,7 +15,12 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
+import {
+  SuperChatInbox,
+  type ComposerAttachment,
+  type SuperChatMediaFeedProps,
+  type SuperChatRenderMessageMedia,
+} from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
@@ -36,7 +41,10 @@ import {
   defaultConversation,
   isAwaitingDelivery,
   postsToConversations,
+  postVideoNames,
+  pulseVideoOfMedia,
   searchConversations,
+  shownBody,
   starterConversation,
   stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
@@ -47,6 +55,10 @@ import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
+import { PulseVideoPlayer, VIDEO_CARD_SIZE } from '../features/pulse-upload/PulseVideoPlayer';
+import { VideoActions } from '../features/pulse-upload/VideoMenu';
+import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
 import { LoadOlderSentinel } from '../features/huddle/LoadOlderSentinel';
@@ -330,7 +342,10 @@ export default function Huddle() {
   const meLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getMyPosts(meSince);
+      // The server's names as of the fetch, newer than any rename made before it.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // Answered for a window that has since moved on; the newer fetch owns the state.
       if (meSinceRef.current !== meSince) return;
       setMyPosts(page.posts);
@@ -431,7 +446,10 @@ export default function Huddle() {
   const refreshFeed = useCallback(async (): Promise<boolean> => {
     if (!selectedTeamId) return true;
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getPosts(selectedTeamId, teamSince);
+      // The server's names as of the fetch, whichever copy of a post wins below.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed; the
       // same goes for one answered for a window that has since widened.
@@ -625,6 +643,8 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
+  // A rename doesn't change the post, so the feed rebuilds on a name itself.
+  const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
     const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
     return user
@@ -636,7 +656,7 @@ export default function Huddle() {
           nowMinute,
         )
       : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope]);
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:
@@ -649,6 +669,67 @@ export default function Huddle() {
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
   }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  // A post's Pulse video (its message's media, see superChatFeed.ts) is the
+  // same card as everywhere else; ▶ opens it in the conversation's media view,
+  // which plays it and swipes through the conversation's other videos.
+  // Who owns each video in view, for Rename: its owner, not whoever posted it
+  // (a post can carry a ticket's videos). Read through a ref, so the media
+  // callbacks below keep their identity as posts change.
+  const videoOwners = useRef(new Map<string, string | null>());
+  videoOwners.current = useMemo(() => {
+    const owners = new Map<string, string | null>();
+    for (const post of activePosts) {
+      for (const att of post.attachments) {
+        const video = att.type === 'video' ? pulseArtifactId(att.url) : null;
+        if (video) owners.set(video, att.ownerId ?? null);
+      }
+    }
+    return owners;
+  }, [activePosts]);
+  const ownsVideo = useCallback(
+    (videoId: string) => !!user?.id && videoOwners.current.get(videoId) === user.id,
+    [user?.id],
+  );
+  // A Pulse video alone is our card; an image or an uploaded video is
+  // SuperChat's own tile, and two or more pictures its gallery.
+  const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
+    ({ attachment, open, launchId, maxSize }) =>
+      pulseVideoOfMedia(attachment) ? (
+        <PulseVideoPlayer
+          maxSize={maxSize}
+          video={attachment.id}
+          title={videoLabel(attachment.title, attachment.id)}
+          caption={attachment.title}
+          renamable={ownsVideo(attachment.id)}
+          onOpen={open && (() => open(true))}
+          launchId={launchId}
+        />
+      ) : null,
+    [ownsVideo],
+  );
+  // The conversation's media view (SuperChat's feed of its videos). ▶ on a
+  // card is a tap to watch it, so it starts with its sound, as on every other
+  // card (the player's own mute is in its bar); the card's ⋯ menu is there
+  // too, to copy a video's link or rename one of your own while you watch it.
+  const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
+    () => ({
+      // Mobile first: each clip edge to edge, and on a phone the media view
+      // takes the whole screen above the message box.
+      layout: 'overlay',
+      muted: false,
+      // A Pulse video's menu; an image or an uploaded file has none.
+      renderActions: ({ attachment }) =>
+        pulseVideoOfMedia(attachment) ? (
+          <VideoActions
+            video={attachment.id}
+            name={attachment.title ?? null}
+            label={videoLabel(attachment.title, attachment.id)}
+            renamable={ownsVideo(attachment.id)}
+          />
+        ) : null,
+    }),
+    [ownsVideo],
+  );
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
   // portaled into it.
@@ -976,7 +1057,9 @@ export default function Huddle() {
     const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
     const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
-    const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
+    // Images inlined in the text show under it, so the edit starts without
+    // them and saves without them; they stay the post's attachments.
+    const body = shown ? stripInboxDecorations(text, shown, shownBody(post)) : text;
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
@@ -1090,6 +1173,8 @@ export default function Huddle() {
                 !postUnavailable &&
                 user && (
                   <SuperChatInbox
+                    // One box for the thread's cards, ours and SuperChat's.
+                    mediaMaxSize={VIDEO_CARD_SIZE}
                     conversations={conversations}
                     activeConversationId={activeConversation?.id}
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
@@ -1119,6 +1204,8 @@ export default function Huddle() {
                       ) : undefined
                     }
                     renderPlugins={renderPlugins}
+                    renderMessageMedia={renderMessageMedia}
+                    mediaFeedProps={mediaFeedProps}
                     acceptedFileTypes={['image', 'video', 'pdf']}
                     onMessageSent={(text, { mentions: sentMentions, attachments, sendOption }) =>
                       handleMessageSent(text, sentMentions, attachments, sendOption)

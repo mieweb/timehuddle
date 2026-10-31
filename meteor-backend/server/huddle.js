@@ -18,6 +18,7 @@ import {
   visibleTo,
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
+import { videoIdOf, videoNamesFor } from './video-names.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -221,7 +222,12 @@ async function enrichPost(post) {
       : post.clockEventId
         ? await fetchOwnedSession(post)
         : undefined;
-  
+
+  // A video's name is its media item's (video-names.js), shown on its card
+  // here as everywhere else. A feed looked them all up at once
+  // (attachEnrichment); a single post looks up its own, none without a video.
+  const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
+
   return {
     id,
     teamId: post.teamId,
@@ -232,6 +238,15 @@ async function enrichPost(post) {
     tickets,
     attachments: (post.attachments ?? []).map((att) => ({
       ...att,
+      // Its name, and who may rename it: the video's owner, not necessarily
+      // whoever posted it (a post can carry a ticket's videos). A video from
+      // before every video had a media item has no owner here (null).
+      ...(att.type === 'video'
+        ? (() => {
+            const video = videoNames.get(videoIdOf(att.url));
+            return { name: video?.name ?? null, ownerId: video?.ownerId ?? null };
+          })()
+        : {}),
       url: att.url && /^https?:\/\//i.test(att.url)
         ? att.url
         : `${METEOR_BASE_URL}${att.url?.startsWith('/') ? '' : '/'}${att.url ?? ''}`,
@@ -303,29 +318,36 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** The ids of a post's PulseVault videos. */
+function postVideoIds(post) {
+  return (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null));
+}
+
 /**
  * Batch lookups for a list of posts — one `$in` query each for sessions,
  * authors and ticket titles instead of one per post, since
  * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
- * unbounded feed. Mutates each post with `session`, `authorInfo` and
- * `tickets`, which `enrichPost` then just passes through.
+ * unbounded feed. Mutates each post with `session`, `authorInfo`, `tickets`
+ * and `videoNames`, which `enrichPost` then just passes through.
  */
 async function attachEnrichment(posts) {
   if (!posts.length) return posts;
   const userIds = [...new Set(posts.map((p) => String(p.userId)))];
   const ticketIds = [...new Set(posts.flatMap((p) => (p.ticketIds ?? []).map(String)))];
-  const [users, ticketsById] = await Promise.all([
+  const [users, ticketsById, videoNames] = await Promise.all([
     rawDb()
       .collection('users')
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
     fetchPostTickets(ticketIds),
+    videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
     post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
     post.tickets = toPostTickets(post, ticketsById);
+    post.videoNames = videoNames;
   }
   return posts;
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
+import { noteRenamed, noteVideoNames } from '../pulse-upload/videoNames';
 import {
   defaultConversation,
   postsToConversations,
   searchConversations,
   starterConversation,
+  shownBody,
   stripInboxDecorations,
   withTodayConversation,
 } from './superChatFeed';
@@ -582,29 +584,146 @@ describe('the Personal ("me") scope (posts from multiple teams)', () => {
 });
 
 describe('attachments', () => {
-  it('skips attachments already embedded in the post text', () => {
+  const image = (name: string) => ({
+    mediaId: `m-${name}`,
+    type: 'image' as const,
+    url: `http://localhost:3100/uploads/media/${name}`,
+    filename: name,
+  });
+
+  it("shows a post's images under its text, those inlined in it too", () => {
     const post = makePost({
       id: 'p1',
-      content: { text: 'Look ![shot](/uploads/media/a.png)', mentions: [] },
+      content: {
+        text: 'Look ![shot](/uploads/media/a.png) and ![logo](https://cdn.example/logo.png)',
+        mentions: [],
+      },
+      attachments: [image('a.png'), image('b.png')],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    // An attached image leaves the text; one that isn't attached stays.
+    expect(message.text).not.toContain('a.png');
+    expect(message.text).toContain('![logo](https://cdn.example/logo.png)');
+    expect(message.media?.map((m) => [m.id, m.kind, m.title])).toEqual([
+      ['m-a.png', 'image', 'a.png'],
+      ['m-b.png', 'image', 'b.png'],
+    ]);
+  });
+
+  it("makes an uploaded video media and a document one of the message's files", () => {
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Spec and demo', mentions: [] },
+      attachments: [
+        { mediaId: 'm-v', type: 'video', url: '/uploads/media/demo.mp4', filename: 'demo.mp4' },
+        { mediaId: 'm-f', type: 'file', url: '/uploads/media/spec.pdf', filename: 'spec.pdf' },
+      ],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(message.text).not.toContain('spec.pdf');
+    expect(message.media).toEqual([
+      expect.objectContaining({
+        id: 'm-v',
+        kind: 'video',
+        src: expect.stringMatching(/\/uploads\/media\/demo\.mp4$/),
+        caption: 'Spec and demo',
+      }),
+    ]);
+    expect(message.files).toEqual([
+      { id: 'm-f', name: 'spec.pdf', url: expect.stringMatching(/\/uploads\/media\/spec\.pdf$/) },
+    ]);
+  });
+
+  it('saves an edit without the images it showed under the text', () => {
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Before\n\n![shot](/uploads/media/a.png)\n\nAfter', mentions: [] },
+      attachments: [image('a.png')],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(shownBody(post)).toBe('Before\n\nAfter');
+    const edited = message.text!.replace('After', 'After, edited');
+    expect(stripInboxDecorations(edited, message.text!, shownBody(post))).toBe(
+      'Before\n\nAfter, edited',
+    );
+  });
+
+  it("makes a post's Pulse video the message's media, not text", () => {
+    const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
+    const post = makePost({
+      id: 'p1',
+      content: { text: 'Standup', mentions: [] },
       attachments: [
         {
-          mediaId: 'm-a',
-          type: 'image',
-          url: 'http://localhost:3100/uploads/media/a.png',
-          filename: 'a.png',
-        },
-        {
-          mediaId: 'm-b',
-          type: 'image',
-          url: 'http://localhost:3100/uploads/media/b.png',
-          filename: 'b.png',
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Sprint review',
         },
       ],
     });
-    const [conversation] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW);
-    const text = conversation.thread[0].text ?? '';
-    expect(text.match(/a\.png/g)).toHaveLength(1);
-    expect(text).toContain('![b.png]');
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(message.text).not.toContain(videoId);
+    expect(message.media).toEqual([
+      {
+        id: videoId,
+        kind: 'video',
+        src: expect.stringMatching(new RegExp(`/pulsevault/artifacts/${videoId}$`)),
+        poster: expect.stringMatching(new RegExp(`/pulsevault/artifacts/${videoId}/poster$`)),
+        title: 'Sprint review',
+        caption: 'Standup',
+      },
+    ]);
+  });
+
+  it("shows a video by the name it was renamed to in this tab, over the post's", () => {
+    const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2d';
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        {
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Old name',
+        },
+      ],
+    });
+    const shownName = () =>
+      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].media?.[0]?.title;
+    expect(shownName()).toBe('Old name');
+    noteRenamed(videoId, 'New name');
+    expect(shownName()).toBe('New name');
+    noteRenamed(videoId, null);
+    expect(shownName()).toBeUndefined();
+  });
+
+  it('lets a fetch after a rename take over, but not one from before it', () => {
+    const videoId = '1c9f3d2b-4a5e-4f6b-8c7d-8e9f0a1b2c3e';
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        {
+          mediaId: 'm-v',
+          type: 'video',
+          url: `/pulsevault/artifacts/${videoId}`,
+          filename: 'clip.mp4',
+          name: 'Posted name',
+        },
+      ],
+    });
+    const shownName = () =>
+      postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread[0].media?.[0]?.title;
+    const beforeRename = Date.now() - 1000;
+    noteRenamed(videoId, 'Renamed here');
+    // A fetch that started before the rename brings older news.
+    noteVideoNames([[videoId, 'Posted name']], beforeRename);
+    expect(shownName()).toBe('Renamed here');
+    // Another tab renames it again; the next fetch brings that.
+    noteVideoNames([[videoId, 'Renamed elsewhere']], Date.now() + 1000);
+    expect(shownName()).toBe('Renamed elsewhere');
   });
 });
 
@@ -659,6 +778,62 @@ describe('searchConversations', () => {
 
   it('does not match on media URLs', () => {
     expect(titlesFor('uploads')).toEqual([]);
+  });
+
+  it('matches a Pulse video by its name and file, never its id', () => {
+    const videoId = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
+    const withVideo = [
+      makePost({
+        id: 'p4',
+        content: { text: 'Demo', mentions: [] },
+        attachments: [
+          {
+            mediaId: 'm4',
+            type: 'video',
+            url: `/pulsevault/artifacts/${videoId}`,
+            filename: 'Standup recap',
+            name: 'Sprint review',
+          },
+        ],
+      }),
+    ];
+    const grouped = postsToConversations(withVideo, 'session', VIEWER_MEMBER, NOW);
+    const hits = (query: string) => searchConversations(grouped, withVideo, query).length;
+    expect(hits('standup recap')).toBe(1);
+    expect(hits('sprint review')).toBe(1);
+    expect(hits('demo')).toBe(1);
+    for (const query of [videoId, 'pulsevault']) expect(hits(query)).toBe(0);
+  });
+
+  it('searches a post built to be slow to strip without stalling', () => {
+    const slow = [
+      makePost({
+        id: 'p7',
+        content: {
+          // Link openers with no target end, many times over.
+          text: `Slow\n\n${'](x'.repeat(40_000)}`,
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(slow, 'session', VIEWER_MEMBER, NOW);
+    const started = performance.now();
+    expect(searchConversations(grouped, slow, 'slow')).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('still matches inside other GenUI blocks, which show as code', () => {
+    const withChart = [
+      makePost({
+        id: 'p5',
+        content: {
+          text: 'Numbers\n\n```genui\n{"widget":"chart","props":{"series":"latency"}}\n```',
+          mentions: [],
+        },
+      }),
+    ];
+    const grouped = postsToConversations(withChart, 'session', VIEWER_MEMBER, NOW);
+    expect(searchConversations(grouped, withChart, 'latency')).toHaveLength(1);
   });
 
   it('finds off-the-clock and live posts the same way in every view', () => {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { videoApi } from '../../lib/api';
 
 import {
+  fileBaseName,
   filingProblem,
   isVideoFile,
   MAX_VIDEO_BYTES,
@@ -19,6 +20,18 @@ const file = (name: string, type: string, size = 1024) => {
 
 const tusError = (status: number, body: string) => ({
   originalResponse: { getStatus: () => status, getBody: () => body },
+});
+
+describe('fileBaseName', () => {
+  it("is a file's name without its extension, the name an upload starts with", () => {
+    expect(fileBaseName('Screen Recording 2026-10-29.mov')).toBe('Screen Recording 2026-10-29');
+    expect(fileBaseName('clip.final.mp4')).toBe('clip.final');
+  });
+
+  it('keeps a name with no extension, or only a leading dot, whole', () => {
+    expect(fileBaseName('README')).toBe('README');
+    expect(fileBaseName('.hidden')).toBe('.hidden');
+  });
 });
 
 describe('isVideoFile', () => {

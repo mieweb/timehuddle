@@ -1293,6 +1293,13 @@ export interface HuddlePostAttachment {
   url: string;
   thumbnailUrl?: string;
   filename?: string;
+  /** A video's name, from its media item (null: unnamed). Videos only. */
+  name?: string | null;
+  /**
+   * Who owns the video — the one who may rename it — which needn't be whoever
+   * posted it (null: a video from before every video had a media item). Videos only.
+   */
+  ownerId?: string | null;
 }
 
 export interface HuddlePost {
@@ -1711,6 +1718,8 @@ export interface TimesheetChangeRequest {
   } | null;
   description: string;
   videoUrl: string | null;
+  /** The walkthrough's name (null: unnamed). */
+  videoName?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   requestedAt: string;
   respondedAt: string | null;
@@ -1979,10 +1988,13 @@ export interface Attachment {
   url: string;
   type: AttachmentType;
   title: string | null;
-  thumbnail: string | null;
   attachedTo: { kind: AttachmentKind; id: string };
   addedBy: string;
   addedAt: string;
+  /** A video's name, from its media item (null: unnamed). Videos only. */
+  name?: string | null;
+  /** Whether the caller owns the video and so may rename it. Videos only. */
+  canRename?: boolean;
 }
 
 export const attachmentApi = {
@@ -2264,7 +2276,36 @@ async function readPulseStatus(
   return { state: 'waiting' };
 }
 
+/** What a video's watch page shows (`videos.publicInfo`). */
+export interface VideoPublicInfo {
+  videoId: string;
+  /** Its name, or null when it has none. */
+  name: string | null;
+  addedAt: string | null;
+  /** Who added it — only for someone signed in. `image` is absolute. */
+  author: { name: string | null; image: string | null } | null;
+  /** The caller added it, so they may rename it. */
+  canRename: boolean;
+}
+
 export const videoApi = {
+  /** A video's watch-page details; works signed out (see VideoPublicInfo). */
+  publicInfo: (videoId: string) =>
+    wormholeCall<VideoPublicInfo>('videos.publicInfo', { videoId }).then((info) => ({
+      ...info,
+      author: info.author && {
+        ...info.author,
+        image: toAbsoluteUrl(info.author.image),
+      },
+    })),
+
+  /**
+   * Name one of the caller's own videos by its id (empty clears it). One name
+   * per video, so it shows everywhere the video appears. Resolves the name kept.
+   */
+  rename: (videoId: string, name: string) =>
+    wormholeCall<{ name: string | null }>('videos.rename', { videoId, name }).then((r) => r.name),
+
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
 
