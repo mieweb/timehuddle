@@ -19,6 +19,7 @@ import {
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { videoIdOf, videoNamesFor } from './video-names.js';
+import { AttachmentError, cleanPostAttachments } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -514,6 +515,37 @@ export async function requireTeamMember(userId, teamId) {
 }
 
 /**
+ * `attachments` checked for a post by `userId` (post-attachments-core.js):
+ * their own uploads, Pulse videos, or ones the post already has (`existing`).
+ */
+async function checkedAttachments(userId, attachments, existing = []) {
+  const ids = Array.isArray(attachments)
+    ? attachments.map((att) => att?.mediaId).filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+    : [];
+  const items = ids.length
+    ? await rawDb()
+        .collection('mediaitems')
+        .find(
+          { _id: { $in: ids.map((id) => new ObjectId(id)) } },
+          { projection: { userId: 1, url: 1, mimeType: 1, title: 1, filename: 1, size: 1 } },
+        )
+        .toArray()
+    : [];
+  try {
+    return cleanPostAttachments({
+      attachments,
+      userId,
+      mediaById: new Map(items.map((item) => [item._id.toHexString(), item])),
+      pulseVideoOf: videoIdOf,
+      existing,
+    });
+  } catch (err) {
+    if (err instanceof AttachmentError) throw new Meteor.Error('bad-request', err.message);
+    throw err;
+  }
+}
+
+/**
  * Create a published Huddle post as `userId`, after the same checks the
  * `huddle.createPost` method makes (team membership, ticket, mentions, clock
  * session ownership). Shared with server-side callers — a Pulse upload that
@@ -535,6 +567,7 @@ export async function createHuddlePost(
     throw new Meteor.Error('bad-request', 'Plan and wrap-up posts cannot be scheduled');
   }
   const team = await requireTeamMember(userId, teamId);
+  const postAttachments = await checkedAttachments(userId, attachments ?? []);
 
   const postTicketIds = resolveTicketIds({ ticketIds, ticketId }) ?? [];
   await requireTeamTickets(postTicketIds, teamId);
@@ -577,7 +610,7 @@ export async function createHuddlePost(
       mentions: content.mentions ?? [],
     },
     ticketIds: postTicketIds,
-    attachments: attachments ?? [],
+    attachments: postAttachments,
     likes: [],
     commentCount: 0,
     ...(postDate ? { postDate } : {}),
@@ -917,6 +950,11 @@ Meteor.methods({
     // Omitted keeps the post's tickets; `[]` (or a legacy `ticketId: null`) clears them.
     const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
     await requireTeamTickets(postTicketIds, post.teamId);
+    // An edit by an admin keeps the author's uploads it already carries.
+    const postAttachments =
+      attachments === undefined || attachments === null
+        ? attachments
+        : await checkedAttachments(identity.userId, attachments, post.attachments ?? []);
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
     let replacedPost;
@@ -931,7 +969,7 @@ Meteor.methods({
             },
             // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.
-            ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
+            ...(postAttachments !== undefined ? { attachments: postAttachments ?? [] } : {}),
             ...(postTicketIds !== undefined ? { ticketIds: postTicketIds } : {}),
             ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
             updatedAt: new Date(),

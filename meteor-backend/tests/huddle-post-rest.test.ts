@@ -119,7 +119,7 @@ describe('huddle post authoring over REST', () => {
     const attachment = {
       mediaId: 'e5adf23f-4bca-4c15-b90e-25105b96f8a2',
       type: 'video',
-      url: 'https://example.test/pulsevault/artifacts/e5adf23f-4bca-4c15-b90e-25105b96f8a2',
+      url: '/pulsevault/artifacts/e5adf23f-4bca-4c15-b90e-25105b96f8a2',
       filename: 'clip.mp4',
     };
 
@@ -139,6 +139,20 @@ describe('huddle post authoring over REST', () => {
     const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
     expect(post!.attachments).toHaveLength(1);
     expect(post!.attachments[0]).toMatchObject(attachment);
+  });
+
+  it("refuses an attachment that isn't the poster's own upload or a Pulse video", async () => {
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: 'Borrowed file', mentions: [] },
+        attachments: [{ mediaId: 'x', type: 'file', url: 'https://example.test/uploads/media/report.pdf' }],
+        postDate: todayString(),
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
   });
 
   it('updates a post over REST', async () => {
