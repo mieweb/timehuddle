@@ -193,12 +193,12 @@ function PulseVideoCard({
   );
 
   return (
-    // Fixed width so the card isn't squeezed to the bubble's text width; once
-    // the shape is known the card takes it, so portrait and landscape clips
-    // each keep theirs, before and after Play.
+    // A fixed width (the box, at the clip's shape once it's known), so
+    // portrait and landscape clips each keep theirs, before and after Play.
+    // In Huddle it is its own tile, which gives it the bubble's corners.
     <div
       ref={cardRef}
-      className="pulse-video-card relative my-1 max-w-full overflow-hidden bg-neutral-900"
+      className="pulse-video-card relative max-w-full overflow-hidden bg-neutral-900"
       style={cardBox(aspect, maxSize)}
     >
       {playing ? (

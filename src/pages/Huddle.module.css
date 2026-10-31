@@ -13,25 +13,6 @@
   overflow-wrap: anywhere;
 }
 
-/* A post with a video sizes like any other post: as wide as its text needs,
-   up to the thread's usual limit, and never narrower than its video. The video
-   keeps its own size (VIDEO_CARD_SIZE, PulseVideoPlayer) at the start edge,
-   where the text starts: a short post hugs it with a thin frame, a long one
-   wraps its text beside the same card, and a narrow screen shrinks the card to
-   fit the message. */
-.inbox :global([data-slot='superchat-bubble']:has(.pulse-video-card)) {
-  padding: 0.375rem;
-}
-/* Everything else in that post keeps the bubble's usual inset. */
-.inbox
-  :global(
-    [data-slot='superchat-bubble']:has(.pulse-video-card)
-      > .prose
-      > :not(.pulse-video-card):not(:has(.pulse-video-card))
-  ) {
-  padding: 0.25rem 0.625rem;
-}
-
 /* ChatComposer draws its own + after the leadingSlot, and the slot is one
    wrapper; let the slot's children join the row so Pulse (behind its "/")
    can sit to the right of the +. Visual order only: in the DOM, and so for
