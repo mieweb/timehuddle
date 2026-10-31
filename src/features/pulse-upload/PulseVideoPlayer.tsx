@@ -272,7 +272,10 @@ function PulseVideoCard({
             setShownName(renamed);
             onRenamed?.(renamed);
           }}
-          className={`pulse-video-name absolute inset-x-0 z-20 p-1.5 ${
+          // Taps on the gradient go through to the poster's ▶ (on a short,
+          // wide card it reaches the middle); only the name itself is the
+          // editor's.
+          className={`pulse-video-name pointer-events-none absolute inset-x-0 z-20 p-1.5 *:pointer-events-auto ${
             playing
               ? 'top-0 bg-black/75'
               : 'bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-8'

@@ -1,6 +1,8 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ToastProvider } from '@mieweb/ui';
+
 import { POSTER_RETRY_MS, PulseVideoPlayer } from './PulseVideoPlayer';
 
 vi.mock('@lib/api', () => ({ resolveMediaUrl: (path: string) => path }));
@@ -110,6 +112,17 @@ describe('PulseVideoPlayer play and expand', () => {
     expect(container.querySelector('.pulse-video-player video')).not.toBeNull();
     // Playing, the player's own controls (full screen among them) take over.
     expect(container.querySelector('.pulse-video-expand')).toBeNull();
+  });
+
+  it('lets a tap on the name’s gradient through to Play; only the name is the editor’s', () => {
+    const { container } = render(
+      <ToastProvider>
+        <PulseVideoPlayer video={VIDEO} title="Demo" renamable />
+      </ToastProvider>,
+    );
+    const overlay = container.querySelector('.pulse-video-name')!;
+    expect(overlay.className).toContain('pointer-events-none');
+    expect(overlay.className).toContain('*:pointer-events-auto');
   });
 
   it('has no expand button where there is no larger view', () => {
