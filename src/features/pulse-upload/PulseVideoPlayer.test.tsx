@@ -87,3 +87,33 @@ describe('PulseVideoPlayer poster', () => {
     expect(poster(container)?.getAttribute('src')).toBe(`/pulsevault/artifacts/${OTHER}/poster`);
   });
 });
+
+describe('PulseVideoPlayer play and expand', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('plays in the card, and its expand button opens the host’s larger view', () => {
+    const onOpen = vi.fn();
+    const { container, getByRole } = render(
+      <PulseVideoPlayer video={VIDEO} title="Demo" onOpen={onOpen} launchId="launch-1" />,
+    );
+    const expand = getByRole('button', { name: 'Open Demo larger' });
+    // Back from the larger view returns focus here.
+    expect(expand.getAttribute('data-media-launch-id')).toBe('launch-1');
+    fireEvent.click(expand);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    fireEvent.click(getByRole('button', { name: 'Play Demo' }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.pulse-video-player video')).not.toBeNull();
+    // Playing, the player's own controls (full screen among them) take over.
+    expect(container.querySelector('.pulse-video-expand')).toBeNull();
+  });
+
+  it('has no expand button where there is no larger view', () => {
+    const { container } = render(<PulseVideoPlayer video={VIDEO} title="Demo" />);
+    expect(container.querySelector('.pulse-video-expand')).toBeNull();
+  });
+});

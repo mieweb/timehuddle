@@ -6,6 +6,7 @@ import {
   postsToConversations,
   searchConversations,
   starterConversation,
+  pendingPostMessage,
   shownBody,
   stripInboxDecorations,
   withTodayConversation,
@@ -631,6 +632,58 @@ describe('attachments', () => {
     ]);
     expect(message.files).toEqual([
       { id: 'm-f', name: 'spec.pdf', url: expect.stringMatching(/\/uploads\/media\/spec\.pdf$/) },
+    ]);
+  });
+
+  it("shows a document's size when the post has it", () => {
+    const post = makePost({
+      id: 'p1',
+      attachments: [
+        {
+          mediaId: 'm-f',
+          type: 'file',
+          url: '/uploads/media/spec.pdf',
+          filename: 'spec.pdf',
+          size: 2048,
+        },
+      ],
+    });
+    const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
+    expect(message.files?.[0]?.size).toBe(2048);
+  });
+
+  it('shows a post sending with files as a pending message', () => {
+    const message = pendingPostMessage({
+      id: 'pending-1',
+      userId: 'u1',
+      text: 'Prep',
+      attachments: [
+        { id: 'a', name: 'board.png', type: 'image/png', dataUrl: 'data:image/png;base64,x' },
+        {
+          id: 'b',
+          name: 'agenda.pdf',
+          type: 'application/pdf',
+          dataUrl: 'data:application/pdf;base64,x',
+        },
+      ],
+    });
+    expect(message).toMatchObject({
+      status: 'pending',
+      progress: 0,
+      participantId: 'u1',
+      text: 'Prep',
+    });
+    expect(message.media).toEqual([
+      {
+        id: 'a',
+        kind: 'image',
+        src: 'data:image/png;base64,x',
+        title: 'board.png',
+        alt: 'board.png',
+      },
+    ]);
+    expect(message.files).toEqual([
+      { id: 'b', name: 'agenda.pdf', url: 'data:application/pdf;base64,x' },
     ]);
   });
 

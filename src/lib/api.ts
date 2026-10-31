@@ -1293,6 +1293,8 @@ export interface HuddlePostAttachment {
   url: string;
   thumbnailUrl?: string;
   filename?: string;
+  /** Size in bytes, from the upload's media item (absent on older posts). */
+  size?: number;
   /** A video's name, from its media item (null: unnamed). Videos only. */
   name?: string | null;
   /**

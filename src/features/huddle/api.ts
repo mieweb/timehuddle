@@ -51,6 +51,7 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
     type,
     url: toMediaPath(media.url),
     filename: media.filename,
+    ...(typeof media.size === 'number' ? { size: media.size } : {}),
   };
 }
 

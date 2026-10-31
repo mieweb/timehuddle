@@ -11,14 +11,14 @@
  * Loads nothing until played: the poster is a plain image, and `<video>` only
  * mounts after the click, so a long list of videos costs one image each.
  */
-import { faPlay } from '@fortawesome/free-solid-svg-icons';
+import { faExpand, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, MediaControls, useMediaTransport } from '@mieweb/ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Button, MediaPlayer } from '@mieweb/ui';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
-import { VideoMenu } from './VideoMenu';
+import { CORNER_BUTTON, VideoMenu } from './VideoMenu';
 import { VideoNameEditor } from './VideoNameEditor';
 
 /**
@@ -72,6 +72,7 @@ function posterUrl(video: string, attempt: number): string {
 const PLAYER_COPY = {
   untitled: 'Pulse video',
   play: (video: string) => `Play ${video}`,
+  expand: (video: string) => `Open ${video} larger`,
 };
 
 /**
@@ -101,11 +102,6 @@ function cardBox(aspect: number | null, size: string): React.CSSProperties {
 /** The one video playing, so starting another pauses it. */
 let playingNow: HTMLVideoElement | null = null;
 
-function playAlone(event: React.SyntheticEvent<HTMLVideoElement>) {
-  if (playingNow && playingNow !== event.currentTarget) playingNow.pause();
-  playingNow = event.currentTarget;
-}
-
 interface PulseVideoPlayerProps {
   /** The video's PulseVault artifact id. */
   video: string;
@@ -123,11 +119,11 @@ interface PulseVideoPlayerProps {
   /** Where the host lets the viewer take it off (a ticket's Videos): the menu offers Remove. */
   onRemove?: () => void;
   /**
-   * Where the host plays it somewhere else (Huddle's media view): ▶ calls this
-   * instead of playing it in the card.
+   * Where the host has a larger view (Huddle's media view): an expand button
+   * in the card's top corner opens it. ▶ still plays it in the card.
    */
   onOpen?: () => void;
-  /** Marks ▶ for the host to return focus to (SuperChat's `data-media-launch-id`). */
+  /** Marks the expand button for the host to return focus to (SuperChat's `data-media-launch-id`). */
   launchId?: string;
   /** The card's box (SuperChat's `maxSize` in Huddle). @default VIDEO_CARD_SIZE */
   maxSize?: string;
@@ -167,62 +163,65 @@ function PulseVideoCard({
     if (width > 0 && height > 0) setAspect(width / height);
   };
   const name = shownName || title || PLAYER_COPY.untitled;
-  // The library's touch-first controls over the video, as in the media view.
+  // The library's player with its touch-first controls, as in the media view.
   const cardRef = useRef<HTMLDivElement>(null);
-  const transport = useMediaTransport();
-  const { setMediaElement } = transport;
-  // The play button unmounts on click: keep keyboard focus on what replaced it
-  // (the controls' Pause). Played from here, still inside the tap's commit —
-  // iOS blocks `autoPlay` with sound once the gesture is over. A card that goes
-  // away (navigating off, say) stops its video with it.
-  const attachPlayer = useCallback(
-    (el: HTMLVideoElement | null) => {
-      if (!el) return;
-      setMediaElement(el);
-      cardRef.current
-        ?.querySelector<HTMLButtonElement>('[data-slot="media-controls-bar"] button')
-        ?.focus();
-      void el.play().catch(() => {});
-      return () => {
-        el.pause();
-        if (playingNow === el) playingNow = null;
-        setMediaElement(null);
-      };
-    },
-    [setMediaElement],
-  );
+  const videoRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  // Played from here, still inside the tap's commit — iOS blocks autoplay with
+  // sound once the gesture is over — and keyboard focus kept on what replaced
+  // the play button (the controls' Pause). One video plays at a time; a card
+  // that goes away (navigating off, say) stops its video with it.
+  useLayoutEffect(() => {
+    const el = videoRef.current;
+    if (!playing || !(el instanceof HTMLVideoElement)) return;
+    const onPlay = () => {
+      if (playingNow && playingNow !== el) playingNow.pause();
+      playingNow = el;
+    };
+    const onMetadata = () => {
+      if (el.videoWidth > 0 && el.videoHeight > 0) setAspect(el.videoWidth / el.videoHeight);
+    };
+    el.addEventListener('play', onPlay);
+    el.addEventListener('loadedmetadata', onMetadata);
+    cardRef.current
+      ?.querySelector<HTMLButtonElement>('[data-slot="media-controls-bar"] button')
+      ?.focus();
+    void el.play().catch(() => {});
+    return () => {
+      el.removeEventListener('play', onPlay);
+      el.removeEventListener('loadedmetadata', onMetadata);
+      el.pause();
+      if (playingNow === el) playingNow = null;
+    };
+  }, [playing]);
 
   return (
     // A fixed width (the box, at the clip's shape once it's known), so
     // portrait and landscape clips each keep theirs, before and after Play.
-    // In Huddle it is its own tile, which gives it the bubble's corners.
+    // The chat bubble's corners, here as in Huddle's tile.
     <div
       ref={cardRef}
-      className="pulse-video-card relative max-w-full overflow-hidden bg-neutral-900"
-      style={cardBox(aspect, maxSize)}
+      className="pulse-video-card relative max-w-full overflow-hidden rounded-2xl bg-neutral-900"
+      // Playing before its shape is known (no poster): 16:9 until the clip
+      // says, so the player has a box to fill.
+      style={cardBox(aspect ?? (playing ? 16 / 9 : null), maxSize)}
     >
       {playing ? (
-        <>
-          <video
-            ref={attachPlayer}
-            className="pulse-video-player block h-full max-h-(--card-size) w-full bg-black object-contain in-[:fullscreen]:max-h-none"
-            src={resolveMediaUrl(artifactPath(video))}
-            poster={poster.src ?? undefined}
-            playsInline
-            onPlay={playAlone}
-            onLoadedMetadata={(e) =>
-              learnShape(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
-            }
-            aria-label={name}
-          />
-          <MediaControls transport={transport} fullscreenTarget={cardRef} />
-        </>
+        <MediaPlayer
+          src={resolveMediaUrl(artifactPath(video))}
+          kind="video"
+          controlsStyle="overlay"
+          poster={poster.src ?? undefined}
+          preload="metadata"
+          mediaElementRef={videoRef}
+          aria-label={name}
+          // Its own box goes full screen, so the card's cap only applies here.
+          className="pulse-video-player max-h-(--card-size)"
+        />
       ) : (
         <Button
           variant="ghost"
           className="pulse-video-poster group relative block h-full w-full rounded-none p-0 hover:bg-transparent"
-          onClick={onOpen ?? (() => setPlaying(true))}
-          data-media-launch-id={launchId}
+          onClick={() => setPlaying(true)}
           aria-label={PLAYER_COPY.play(name)}
         >
           {poster.src === null ? (
@@ -279,6 +278,22 @@ function PulseVideoCard({
               : 'bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-8'
           }`}
         />
+      )}
+      {onOpen && !playing && !editing && (
+        // Opposite the menu: the host's larger view, from the poster. Not
+        // while it plays, where the player's own full screen is beside it.
+        <div className="pulse-video-expand absolute start-2 top-2 z-10 in-[:fullscreen]:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            data-media-launch-id={launchId}
+            aria-label={PLAYER_COPY.expand(name)}
+            onClick={onOpen}
+            className={CORNER_BUTTON}
+          >
+            <FontAwesomeIcon icon={faExpand} className="text-base" />
+          </Button>
+        </div>
       )}
       {!editing && (
         // Beside the poster, not inside its Play button: a button in a button

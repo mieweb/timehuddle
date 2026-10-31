@@ -24,6 +24,14 @@ import { useCopyLink } from '@lib/useCopyLink';
 import { watchPath } from './artifact';
 import { VideoNameEditor } from './VideoNameEditor';
 
+/**
+ * A button over a corner of the card (the ⋯ menu's trigger, and the card's expand):
+ * no background, so it sits lightly on a poster, a shadow to keep it readable
+ * on a bright one, thumb-sized on a touch screen.
+ */
+export const CORNER_BUTTON =
+  'h-8 w-8 rounded-full bg-transparent pointer-coarse:h-10 pointer-coarse:w-10 [&_svg]:block! text-white/90 [filter:drop-shadow(0_0_1px_rgb(0_0_0/0.9))_drop-shadow(0_1px_3px_rgb(0_0_0/0.6))] hover:bg-transparent hover:text-white focus-visible:ring-2 focus-visible:ring-white';
+
 /** User-facing copy, kept together for translation. */
 export const VIDEO_MENU_COPY = {
   more: (video: string) => `More for ${video}`,
@@ -71,15 +79,13 @@ export function VideoMenu({
         onOpenChange={setMenuOpen}
         placement="bottom-end"
         trigger={
-          // No background, so it sits lightly on a poster; the shadow keeps it
-          // readable on a bright one. A thumb-sized 40px on a touch screen. The
-          // library's Button sets its icon inline on a text line, 1.3px low; as
-          // a block it's dead centre.
+          // The library's Button sets its icon inline on a text line, 1.3px
+          // low; CORNER_BUTTON makes it a block, dead centre.
           <Button
             variant="ghost"
             size="icon"
             aria-label={VIDEO_MENU_COPY.more(label)}
-            className="h-8 w-8 rounded-full bg-transparent pointer-coarse:h-10 pointer-coarse:w-10 [&_svg]:block! text-white/90 [filter:drop-shadow(0_0_1px_rgb(0_0_0/0.9))_drop-shadow(0_1px_3px_rgb(0_0_0/0.6))] hover:bg-transparent hover:text-white focus-visible:ring-2 focus-visible:ring-white"
+            className={CORNER_BUTTON}
           >
             <MoreHorizontalIcon className="h-5 w-5" />
           </Button>

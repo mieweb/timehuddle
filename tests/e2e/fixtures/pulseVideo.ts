@@ -4,16 +4,16 @@
  * A Pulse video shows as a card (PulseVideoPlayer) — its poster with a Play
  * button — not as a link, wherever it appears: Huddle posts, a ticket's or a
  * clock session's Videos, a timesheet walkthrough. The player only mounts on
- * Play, so its URL is read from the `<video>` it starts: the one that
- * replaces the button, or in Huddle, the conversation's media view.
+ * Play, so its URL is read from the `<video>` it starts, in the card (in
+ * Huddle too; its expand button opens the conversation's media view).
  */
 import { expect, type Locator } from '@playwright/test';
 
 /**
  * Play the Pulse video card inside `scope` and return the URL it plays, which
  * is the PulseVault artifact (`/pulsevault/artifacts/<videoid>`). Pass
- * `videoid` to require that exact artifact. The page is left as it was: in
- * Huddle, the media view the card opened is closed again.
+ * `videoid` to require that exact artifact. The page is left as it was: a
+ * media view that opened is closed again.
  */
 export async function playPulseVideoCard(
   scope: Locator,
@@ -33,8 +33,8 @@ export async function playPulseVideoCard(
     );
   await expect(player.first()).toBeVisible();
   const played = (await player.first().getAttribute('src'))!;
-  // In Huddle the card opened the conversation's media view in place of the
-  // thread: go back, so the post is there for whatever the test checks next.
+  // If a media view opened in place of the thread, go back, so the post is
+  // there for whatever the test checks next.
   const back = scope.page().getByRole('button', { name: 'Back to conversation', exact: true });
   if (await back.isVisible()) await back.click();
   return played;

@@ -133,6 +133,7 @@ function postFiles(post: HuddlePost): SuperChatFileAttachment[] {
       id: att.mediaId,
       name: att.filename ?? FILE_TEXT.untitled,
       url: resolveMediaUrl(att.url),
+      ...(typeof att.size === 'number' ? { size: att.size } : {}),
     }));
 }
 
@@ -686,9 +687,14 @@ export function starterConversation(
   return emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
 }
 
+/** Id of the Day thread for a post dated `dateKey` (YYYY-MM-DD, a post's `postDate`). */
+export function dayConversationId(dateKey: string): string {
+  return `day:${dateKey}`;
+}
+
 /** Id of the Day thread for the calendar day containing `now`. */
 function todayConversationId(now: number): string {
-  return `day:${localDateKey(now)}`;
+  return dayConversationId(localDateKey(now));
 }
 
 /**
@@ -762,4 +768,40 @@ export function searchConversations(
     );
     return words.every((word) => haystack.includes(word));
   });
+}
+
+/**
+ * A post being sent with files, as a pending message (SuperChat dims its
+ * tiles and says how far it has got): the composer's files shown from their
+ * `data:` URLs while they upload. Photos and videos are media, anything else
+ * one of its files.
+ */
+export function pendingPostMessage({
+  id,
+  userId,
+  text,
+  attachments,
+}: {
+  id: string;
+  userId: string;
+  text: string;
+  attachments: { id: string; name: string; type: string; dataUrl: string }[];
+}): SuperChatMessage {
+  const kindOf = (type: string) =>
+    type.startsWith('image/') ? 'image' : type.startsWith('video/') ? 'video' : null;
+  return {
+    id,
+    participantId: userId,
+    text,
+    time: new Date(),
+    status: 'pending',
+    progress: 0,
+    media: attachments.flatMap((att): SuperChatMediaAttachment[] => {
+      const kind = kindOf(att.type);
+      return kind ? [{ id: att.id, kind, src: att.dataUrl, title: att.name, alt: att.name }] : [];
+    }),
+    files: attachments
+      .filter((att) => !kindOf(att.type))
+      .map((att) => ({ id: att.id, name: att.name, url: att.dataUrl })),
+  };
 }
