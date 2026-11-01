@@ -61,7 +61,7 @@ import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedul
 import { PulseButton } from '../features/pulse-upload/PulseButton';
 import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
 import { PulseVideoPlayer, VIDEO_CARD_SIZE } from '../features/pulse-upload/PulseVideoPlayer';
-import { VideoActions } from '../features/pulse-upload/VideoMenu';
+import { VideoMenu } from '../features/pulse-upload/VideoMenu';
 import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { findListHeader, useInboxSlot } from '../features/huddle/useInboxSlot';
@@ -703,8 +703,7 @@ export default function Huddle() {
   }, [pendingPost, activePosts]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
-  // same card as everywhere else; it plays in place, and its expand button
-  // opens the conversation's media view, which swipes through its media.
+  // same card as everywhere else; here ▶ opens the conversation's media view.
   // Who owns each video in view, for Rename: its owner, not whoever posted it
   // (a post can carry a ticket's videos). Read through a ref, so the media
   // callbacks below keep their identity as posts change.
@@ -723,9 +722,9 @@ export default function Huddle() {
     (videoId: string) => !!user?.id && videoOwners.current.get(videoId) === user.id,
     [user?.id],
   );
-  // A Pulse video is our card (it plays in place; its expand button opens the
-  // media view), never folded into a gallery; an image is SuperChat's own
-  // tile, and two or more its gallery.
+  // A Pulse video is our card (▶ opens it in the media view), never folded
+  // into a gallery; an image is SuperChat's own tile, and two or more its
+  // gallery.
   const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
     ({ attachment, open, launchId, maxSize }) =>
       pulseVideoOfMedia(attachment) ? (
@@ -741,19 +740,20 @@ export default function Huddle() {
       ) : null,
     [ownsVideo],
   );
-  // The conversation's media view (SuperChat's viewer of its photos and
+  // The conversation's media view (SuperChat's feed of its photos and
   // videos). Opening one is a tap to watch it, so a clip starts with its sound,
   // as on every card (the player's own mute is in its bar); a Pulse video's ⋯
   // menu is there too, to copy its link or rename one of your own.
   const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
     () => ({
-      // The media view is SuperChat's viewer over the window, swiping through
-      // the conversation's photos and videos.
+      // Mobile first: each clip edge to edge, and on a phone the media view
+      // takes the whole screen above the message box.
+      layout: 'overlay',
       muted: false,
       // A Pulse video's menu; an image or an uploaded file has none.
       renderActions: ({ attachment }) =>
         pulseVideoOfMedia(attachment) ? (
-          <VideoActions
+          <VideoMenu
             video={attachment.id}
             name={attachment.title ?? null}
             label={videoLabel(attachment.title, attachment.id)}

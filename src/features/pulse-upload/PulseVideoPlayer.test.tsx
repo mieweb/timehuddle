@@ -1,7 +1,5 @@
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { ToastProvider } from '@mieweb/ui';
 
 import { POSTER_RETRY_MS, PulseVideoPlayer } from './PulseVideoPlayer';
 
@@ -90,43 +88,39 @@ describe('PulseVideoPlayer poster', () => {
   });
 });
 
-describe('PulseVideoPlayer play and expand', () => {
+describe('PulseVideoPlayer play', () => {
   beforeEach(() => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
-  it('plays in the card, and its expand button opens the host’s larger view', () => {
+  it('opens the host’s larger view on ▶ rather than playing in the card', () => {
     const onOpen = vi.fn();
     const { container, getByRole } = render(
       <PulseVideoPlayer video={VIDEO} title="Demo" onOpen={onOpen} launchId="launch-1" />,
     );
-    const expand = getByRole('button', { name: 'Open Demo larger' });
+    const play = getByRole('button', { name: 'Play Demo' });
     // Back from the larger view returns focus here.
-    expect(expand.getAttribute('data-media-launch-id')).toBe('launch-1');
-    fireEvent.click(expand);
+    expect(play.getAttribute('data-media-launch-id')).toBe('launch-1');
+    fireEvent.click(play);
     expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.pulse-video-player')).toBeNull();
+  });
+
+  it('plays in the card where there is no larger view', () => {
+    const { container, getByRole } = render(<PulseVideoPlayer video={VIDEO} title="Demo" />);
     fireEvent.click(getByRole('button', { name: 'Play Demo' }));
-    expect(onOpen).toHaveBeenCalledTimes(1);
     expect(container.querySelector('.pulse-video-player video')).not.toBeNull();
-    // Playing, the player's own controls (full screen among them) take over.
-    expect(container.querySelector('.pulse-video-expand')).toBeNull();
   });
 
-  it('lets a tap on the name’s gradient through to Play; only the name is the editor’s', () => {
+  it('shows its name on the poster, its owner’s too', () => {
     const { container } = render(
-      <ToastProvider>
-        <PulseVideoPlayer video={VIDEO} title="Demo" renamable />
-      </ToastProvider>,
+      <PulseVideoPlayer video={VIDEO} title="Demo" caption="Demo" renamable />,
     );
-    const overlay = container.querySelector('.pulse-video-name')!;
-    expect(overlay.className).toContain('pointer-events-none');
-    expect(overlay.className).toContain('*:pointer-events-auto');
-  });
-
-  it('has no expand button where there is no larger view', () => {
-    const { container } = render(<PulseVideoPlayer video={VIDEO} title="Demo" />);
-    expect(container.querySelector('.pulse-video-expand')).toBeNull();
+    expect(container.querySelector('.pulse-video-caption')?.textContent).toBe('Demo');
   });
 });

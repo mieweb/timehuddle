@@ -4,8 +4,8 @@
  * A Pulse video shows as a card (PulseVideoPlayer) — its poster with a Play
  * button — not as a link, wherever it appears: Huddle posts, a ticket's or a
  * clock session's Videos, a timesheet walkthrough. The player only mounts on
- * Play, so its URL is read from the `<video>` it starts, in the card (in
- * Huddle too; its expand button opens the conversation's media view).
+ * Play, so its URL is read from the `<video>` it starts: in the card, or in
+ * Huddle the conversation's media view, which Play opens there.
  */
 import { expect, type Locator } from '@playwright/test';
 

@@ -1,7 +1,8 @@
 /**
  * PulseVideoPlayer — how a Pulse video shows anywhere in the app (Huddle posts,
  * ticket and clock-session attachments): its poster frame with a play button,
- * swapped for an inline player on click.
+ * swapped for an inline player on click — or, where the host has a larger
+ * view (Huddle's media view), opening that instead.
  *
  * Takes the PulseVault artifact **id**, never a URL, and builds every URL
  * itself (see artifact.ts), so it can only ever point at this backend. The
@@ -11,15 +12,14 @@
  * Loads nothing until played: the poster is a plain image, and `<video>` only
  * mounts after the click, so a long list of videos costs one image each.
  */
-import { faExpand, faPlay } from '@fortawesome/free-solid-svg-icons';
+import { faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, MediaPlayer } from '@mieweb/ui';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { resolveMediaUrl } from '@lib/api';
 import { artifactPath, posterPath } from './artifact';
-import { CORNER_BUTTON, VideoMenu } from './VideoMenu';
-import { VideoNameEditor } from './VideoNameEditor';
+import { VideoMenu } from './VideoMenu';
 
 /**
  * How long to wait before each new look for a poster that wasn't there: the
@@ -72,7 +72,6 @@ function posterUrl(video: string, attempt: number): string {
 const PLAYER_COPY = {
   untitled: 'Pulse video',
   play: (video: string) => `Play ${video}`,
-  expand: (video: string) => `Open ${video} larger`,
 };
 
 /**
@@ -119,11 +118,11 @@ interface PulseVideoPlayerProps {
   /** Where the host lets the viewer take it off (a ticket's Videos): the menu offers Remove. */
   onRemove?: () => void;
   /**
-   * Where the host has a larger view (Huddle's media view): an expand button
-   * in the card's top corner opens it. ▶ still plays it in the card.
+   * Where the host has a larger view (Huddle's media view): ▶ opens it, rather
+   * than playing the video in the card.
    */
   onOpen?: () => void;
-  /** Marks the expand button for the host to return focus to (SuperChat's `data-media-launch-id`). */
+  /** Marks ▶ for the host to return focus to (SuperChat's `data-media-launch-id`). */
   launchId?: string;
   /** The card's box (SuperChat's `maxSize` in Huddle). @default VIDEO_CARD_SIZE */
   maxSize?: string;
@@ -150,8 +149,6 @@ function PulseVideoCard({
   maxSize = VIDEO_CARD_SIZE,
 }: PulseVideoPlayerProps) {
   const [playing, setPlaying] = useState(false);
-  // Its name is being edited in place (VideoNameEditor).
-  const [editing, setEditing] = useState(false);
   // The card keeps the name it shows, so a rename here shows at once.
   const [shownName, setShownName] = useState(caption ?? null);
   useEffect(() => setShownName(caption ?? null), [caption]);
@@ -221,7 +218,8 @@ function PulseVideoCard({
         <Button
           variant="ghost"
           className="pulse-video-poster group relative block h-full w-full rounded-none p-0 hover:bg-transparent"
-          onClick={() => setPlaying(true)}
+          onClick={onOpen ?? (() => setPlaying(true))}
+          data-media-launch-id={onOpen ? launchId : undefined}
           aria-label={PLAYER_COPY.play(name)}
         >
           {poster.src === null ? (
@@ -245,7 +243,7 @@ function PulseVideoCard({
             {/* ▶ points right in either reading direction, so its optical nudge does too. */}
             <FontAwesomeIcon icon={faPlay} className="translate-x-0.5 text-xl" />
           </span>
-          {shownName && !renamable && (
+          {shownName && (
             // Read out as part of the button's label, so hidden from screen
             // readers here. `text-start` follows the reading direction.
             <span
@@ -259,59 +257,22 @@ function PulseVideoCard({
           )}
         </Button>
       )}
-      {renamable && (!playing || editing) && (
-        // The owner's name is its editor (InlineEdit): click it, or ⋯ →
-        // Rename. Over the poster's foot, where the name shows, or over the
-        // top while it plays, clear of the player's controls.
-        <VideoNameEditor
+      {/* Beside the poster, not inside its Play button: a button in a button
+          is neither valid nor reachable. Over the top corner, before and
+          after Play, clear of the player's own controls along the bottom. */}
+      <div className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden">
+        <VideoMenu
           video={video}
           name={shownName}
-          editing={editing}
-          onEditingChange={setEditing}
+          label={name}
+          renamable={renamable}
           onRenamed={(renamed) => {
             setShownName(renamed);
             onRenamed?.(renamed);
           }}
-          // Taps on the gradient go through to the poster's ▶ (on a short,
-          // wide card it reaches the middle); only the name itself is the
-          // editor's.
-          className={`pulse-video-name pointer-events-none absolute inset-x-0 z-20 p-1.5 *:pointer-events-auto ${
-            playing
-              ? 'top-0 bg-black/75'
-              : 'bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-8'
-          }`}
+          onRemove={onRemove}
         />
-      )}
-      {onOpen && !playing && !editing && (
-        // Opposite the menu: the host's larger view, from the poster. Not
-        // while it plays, where the player's own full screen is beside it.
-        <div className="pulse-video-expand absolute start-2 top-2 z-10 in-[:fullscreen]:hidden">
-          <Button
-            variant="ghost"
-            size="icon"
-            data-media-launch-id={launchId}
-            aria-label={PLAYER_COPY.expand(name)}
-            onClick={onOpen}
-            className={CORNER_BUTTON}
-          >
-            <FontAwesomeIcon icon={faExpand} className="text-base" />
-          </Button>
-        </div>
-      )}
-      {!editing && (
-        // Beside the poster, not inside its Play button: a button in a button
-        // is neither valid nor reachable. Over the top corner, before and
-        // after Play, clear of the player's own controls along the bottom.
-        <div className="pulse-video-menu absolute end-2 top-2 z-10 in-[:fullscreen]:hidden">
-          <VideoMenu
-            video={video}
-            name={shownName}
-            label={name}
-            onRename={renamable ? () => setEditing(true) : undefined}
-            onRemove={onRemove}
-          />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

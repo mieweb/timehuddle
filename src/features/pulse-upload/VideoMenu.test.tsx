@@ -35,13 +35,7 @@ describe('VideoMenu', () => {
 
   it('offers Rename to its owner and Remove where the host allows it', () => {
     render(
-      <VideoMenu
-        video={VIDEO}
-        name="Standup"
-        label="Standup"
-        onRename={() => {}}
-        onRemove={() => {}}
-      />,
+      <VideoMenu video={VIDEO} name="Standup" label="Standup" renamable onRemove={() => {}} />,
     );
     open();
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([

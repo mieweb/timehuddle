@@ -1,7 +1,7 @@
 /**
  * Huddle's own message box with files: what a post's photos and documents look
- * like in the thread, the viewer that opens them, and the files the box turns
- * away. Everything goes through the real upload endpoint and `huddle.createPost`.
+ * like in the thread, the media view that opens them, and the files the box
+ * turns away. Everything goes through the real upload endpoint and `huddle.createPost`.
  *
  * The other composer specs drive the Clock tab's plan composer; these drive the
  * Huddle page's message box (SuperChat's ChatComposer), whose hidden file input
@@ -56,16 +56,15 @@ test.describe('Huddle message box — photos and documents', () => {
       post.locator('[data-slot="superchat-bubble"] [data-slot="superchat-message-gallery"]'),
     ).toHaveCount(0);
 
-    // A cell opens the viewer over the window, where it is in its message.
+    // A cell opens the conversation's media view in place of the thread, on
+    // that photo, with the message box still under it.
     await gallery.getByRole('button').first().click();
-    const viewer = page.getByRole('dialog', { name: 'Media' });
-    await expect(viewer).toBeVisible();
-    await expect(viewer.getByRole('group', { name: 'In this message' })).toContainText('1 of 2');
-    await expect(viewer.getByRole('textbox')).toHaveCount(0);
-    await viewer.getByRole('button', { name: '2 of 2' }).click();
-    await expect(viewer.getByRole('group', { name: 'In this message' })).toContainText('2 of 2');
-    await page.keyboard.press('Escape');
-    await expect(viewer).toBeHidden();
+    const mediaView = page.locator('[data-slot="superchat-media-view"]');
+    await expect(mediaView).toBeVisible();
+    await expect(mediaView.getByRole('article', { name: 'whiteboard.png' })).toBeVisible();
+    await expect(inboxComposer(page)).toBeVisible();
+    await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+    await expect(mediaView).toBeHidden();
 
     // An edit can take one off; the other is then a lone tile.
     await editInboxMessage(page, post);
