@@ -758,6 +758,7 @@ export default function Huddle() {
             name={attachment.title ?? null}
             label={videoLabel(attachment.title, attachment.id)}
             renamable={ownsVideo(attachment.id)}
+            inFeed
           />
         ) : null,
     }),

@@ -115,6 +115,7 @@ export function VideoFeedView({ videos, openId, onClose, onRenamed }: VideoFeedV
               renamable={video.renamable}
               onRenamed={(name) => onRenamed?.(video.id, name)}
               onRemove={video.onRemove}
+              inFeed
             />
           )}
           defaultActiveItemId={openId}

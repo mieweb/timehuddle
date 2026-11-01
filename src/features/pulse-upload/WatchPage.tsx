@@ -142,6 +142,7 @@ export function WatchPage({ videoId }: { videoId: string }) {
                 renamable={info?.canRename}
                 onRenamed={renamed}
                 openable={false}
+                inFeed
               />
             )}
             // One video, started by its viewer: no immersive viewer (the

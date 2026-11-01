@@ -31,6 +31,14 @@ import { VideoNameDialog } from './VideoNameDialog';
 export const CORNER_BUTTON =
   'h-8 w-8 rounded-full bg-transparent pointer-coarse:h-10 pointer-coarse:w-10 [&_svg]:block! text-white/90 [filter:drop-shadow(0_0_1px_rgb(0_0_0/0.9))_drop-shadow(0_1px_3px_rgb(0_0_0/0.6))] hover:bg-transparent hover:text-white focus-visible:ring-2 focus-visible:ring-white';
 
+/**
+ * The ⋯ in a feed's action column (Huddle's media view, VideoFeedView, a
+ * video's page): round and translucent like the feed's own Previous/Next
+ * (MediaFeed's overlay buttons), thumb-sized on a touch screen.
+ */
+const FEED_BUTTON =
+  'h-11 w-11 rounded-full bg-black/45 text-white backdrop-blur-sm hover:bg-black/65 hover:text-white active:bg-black/75 focus-visible:ring-2 focus-visible:ring-white pointer-fine:h-10 pointer-fine:w-10 [&_svg]:block!';
+
 /** User-facing copy, kept together for translation. */
 export const VIDEO_MENU_COPY = {
   more: (video: string) => `More for ${video}`,
@@ -56,6 +64,12 @@ interface VideoMenuProps {
   onRemove?: () => void;
   /** Offer Open video page (default true; not on that page itself). */
   openable?: boolean;
+  /**
+   * In a feed's action column, at the bottom of the screen: a round button
+   * like the feed's own, its menu opening upward. Otherwise over a card's
+   * corner.
+   */
+  inFeed?: boolean;
 }
 
 export function VideoMenu({
@@ -66,6 +80,7 @@ export function VideoMenu({
   onRenamed,
   onRemove,
   openable = true,
+  inFeed = false,
 }: VideoMenuProps) {
   const copyLink = useCopyLink();
   // Controlled: the library's menu doesn't close when an item is chosen.
@@ -80,7 +95,7 @@ export function VideoMenu({
       <Dropdown
         open={menuOpen}
         onOpenChange={setMenuOpen}
-        placement="bottom-end"
+        placement={inFeed ? 'top-end' : 'bottom-end'}
         trigger={
           // The library's Button sets its icon inline on a text line, 1.3px
           // low; CORNER_BUTTON makes it a block, dead centre.
@@ -88,7 +103,7 @@ export function VideoMenu({
             variant="ghost"
             size="icon"
             aria-label={VIDEO_MENU_COPY.more(label)}
-            className={CORNER_BUTTON}
+            className={inFeed ? FEED_BUTTON : CORNER_BUTTON}
           >
             <MoreHorizontalIcon className="h-5 w-5" />
           </Button>

@@ -18,6 +18,8 @@ export function useEscapeWithin(
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !ref.current?.contains(event.target as Node)) return;
+      // A menu open from a control in it (a video's ⋯) closes first, alone.
+      if ((event.target as Element).closest?.('[aria-expanded="true"]')) return;
       event.stopPropagation();
       onEscapeRef.current();
     };

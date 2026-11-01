@@ -53,6 +53,17 @@ describe('VideoFeedView', () => {
     expect(document.activeElement).toBe(play);
   });
 
+  it('leaves Escape to a video’s open ⋯ menu first', () => {
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={() => {}} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(more, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Videos' })).toBeTruthy();
+  });
+
   it('closes on Escape without it reaching a window under it', () => {
     const underneath = vi.fn();
     document.addEventListener('keydown', underneath);
