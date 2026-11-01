@@ -61,7 +61,7 @@ test.describe('Huddle message box — photos and documents', () => {
     await gallery.getByRole('button').first().click();
     const mediaView = page.locator('[data-slot="superchat-media-view"]');
     await expect(mediaView).toBeVisible();
-    await expect(mediaView.getByRole('article', { name: 'whiteboard.png' })).toBeVisible();
+    await expect(mediaView.locator('[data-active="true"] img[alt="whiteboard.png"]')).toBeVisible();
     await expect(inboxComposer(page)).toBeVisible();
     await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
     await expect(mediaView).toBeHidden();

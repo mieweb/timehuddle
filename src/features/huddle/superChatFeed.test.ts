@@ -578,9 +578,10 @@ describe('attachments', () => {
     // An attached image leaves the text; one that isn't attached stays.
     expect(message.text).not.toContain('a.png');
     expect(message.text).toContain('![logo](https://cdn.example/logo.png)');
-    expect(message.media?.map((m) => [m.id, m.kind, m.title])).toEqual([
-      ['m-a.png', 'image', 'a.png'],
-      ['m-b.png', 'image', 'b.png'],
+    // A photo's file name is its alt text, not a title the media view shows.
+    expect(message.media?.map((m) => [m.id, m.kind, m.alt, m.title])).toEqual([
+      ['m-a.png', 'image', 'a.png', undefined],
+      ['m-b.png', 'image', 'b.png', undefined],
     ]);
   });
 
@@ -651,7 +652,6 @@ describe('attachments', () => {
         id: 'a',
         kind: 'image',
         src: 'data:image/png;base64,x',
-        title: 'board.png',
         alt: 'board.png',
       },
     ]);

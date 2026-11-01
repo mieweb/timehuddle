@@ -89,7 +89,9 @@ export function pulseVideoOfMedia(attachment: SuperChatMediaAttachment): string 
  * A Pulse video's id is the video's, so Huddle's card finds it, and the media
  * view plays the artifact with its poster, titled with the video's name (the
  * newest this tab knows). Anything else is the uploaded file itself. The
- * caption is the post's text.
+ * caption is the post's text. A photo's file name is its alt text, not a
+ * title: the media view heads a photo with nothing ("IMG_2446.jpg" is noise),
+ * as Instagram does, where a video carries its name.
  */
 function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
   const caption = shownBody(post);
@@ -116,7 +118,9 @@ function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
         src: resolveMediaUrl(att.url),
         ...(att.thumbnailUrl ? { poster: resolveMediaUrl(att.thumbnailUrl) } : {}),
         ...(att.width && att.height ? { width: att.width, height: att.height } : {}),
-        ...(att.filename ? { title: att.filename, alt: att.filename } : {}),
+        ...(att.filename
+          ? { alt: att.filename, ...(att.type === 'video' ? { title: att.filename } : {}) }
+          : {}),
         caption,
       },
     ];
@@ -792,7 +796,18 @@ export function pendingPostMessage({
     progress: 0,
     media: attachments.flatMap((att): SuperChatMediaAttachment[] => {
       const kind = kindOf(att.type);
-      return kind ? [{ id: att.id, kind, src: att.dataUrl, title: att.name, alt: att.name }] : [];
+      return kind
+        ? [
+            {
+              id: att.id,
+              kind,
+              src: att.dataUrl,
+              alt: att.name,
+              // A photo shows no title (see postMedia); a video its name.
+              ...(kind === 'video' ? { title: att.name } : {}),
+            },
+          ]
+        : [];
     }),
     files: attachments
       .filter((att) => !kindOf(att.type))
