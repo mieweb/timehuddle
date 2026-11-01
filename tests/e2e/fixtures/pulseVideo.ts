@@ -3,17 +3,17 @@
  *
  * A Pulse video shows as a card (PulseVideoPlayer) — its poster with a Play
  * button — not as a link, wherever it appears: Huddle posts, a ticket's or a
- * clock session's Videos, a timesheet walkthrough. The player only mounts on
- * Play, so its URL is read from the `<video>` it starts: in the card, or in
- * Huddle the conversation's media view, which Play opens there.
+ * clock session's Videos, a timesheet walkthrough. Its Play opens a feed that
+ * plays it — Huddle's media view, or VideoFeedView over the page elsewhere —
+ * so its URL is read from the `<video>` playing there.
  */
 import { expect, type Locator } from '@playwright/test';
 
 /**
  * Play the Pulse video card inside `scope` and return the URL it plays, which
  * is the PulseVault artifact (`/pulsevault/artifacts/<videoid>`). Pass
- * `videoid` to require that exact artifact. The page is left as it was: a
- * media view that opened is closed again.
+ * `videoid` to require that exact artifact. The page is left as it was: the
+ * feed that opened is closed again.
  */
 export async function playPulseVideoCard(
   scope: Locator,
@@ -29,13 +29,18 @@ export async function playPulseVideoCard(
   const player = scope
     .page()
     .locator(
-      `.pulse-video-card video${src}, [data-slot="superchat-media-view"] [data-active="true"] video${src}`,
+      `.video-feed-view [data-active="true"] video${src}, [data-slot="superchat-media-view"] [data-active="true"] video${src}`,
     );
   await expect(player.first()).toBeVisible();
   const played = (await player.first().getAttribute('src'))!;
-  // If a media view opened in place of the thread, go back, so the post is
-  // there for whatever the test checks next.
-  const back = scope.page().getByRole('button', { name: 'Back to conversation', exact: true });
-  if (await back.isVisible()) await back.click();
+  // Back out of the feed, so the post or the list is there for whatever the
+  // test checks next.
+  const feed = scope.page().getByRole('dialog', { name: 'Videos' });
+  if (await feed.isVisible()) {
+    await feed.getByRole('button', { name: 'Back', exact: true }).click();
+  } else {
+    const back = scope.page().getByRole('button', { name: 'Back to conversation', exact: true });
+    if (await back.isVisible()) await back.click();
+  }
   return played;
 }

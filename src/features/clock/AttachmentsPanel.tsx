@@ -2,7 +2,8 @@
  * AttachmentsPanel — the videos on a ticket or a clock session. **Pulse**
  * records one on a phone and **Upload** sends a file from this device; either
  * way the server converts it when it can and attaches it here when it lands,
- * and it plays here inline, its name on its poster. A video has one name (the
+ * and it shows here with its name on its poster; ▶ plays it in a feed of
+ * this list's videos (VideoFeedView). A video has one name (the
  * Pulse draft's, or the file's), which its owner renames here and which shows
  * wherever else it appears. A link goes in the description (or the session's
  * post), not here: links attached before that rule are still listed, and can
@@ -15,7 +16,7 @@
 import { faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   attachmentApi,
@@ -26,6 +27,7 @@ import {
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
 import { PulseButton } from '../pulse-upload/PulseButton';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
+import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -44,6 +46,8 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // The video playing in the feed (null: closed).
+  const [openVideo, setOpenVideo] = useState<string | null>(null);
 
   const fetchAttachments = useCallback(async () => {
     setLoading(true);
@@ -70,6 +74,29 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       setDeletingId(null);
     }
   }, []);
+
+  // Every row of a video: it has one name.
+  const renameVideo = useCallback((url: string, name: string | null) => {
+    setAttachments((prev) => prev.map((other) => (other.url === url ? { ...other, name } : other)));
+  }, []);
+
+  // The list's videos, once each, for the feed.
+  const feedVideos = useMemo(() => {
+    const videos = new Map<string, FeedVideo & { url: string }>();
+    for (const a of attachments) {
+      const id = a.type === 'video' ? pulseArtifactId(a.url) : null;
+      if (!id || videos.has(id)) continue;
+      const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
+      videos.set(id, {
+        id,
+        url: a.url,
+        name: a.name ?? null,
+        renamable: a.canRename,
+        onRemove: mine ? () => void handleRemove(a.id) : undefined,
+      });
+    }
+    return [...videos.values()];
+  }, [attachments, currentUserId, handleRemove]);
 
   return (
     <section className="attachments-panel">
@@ -107,7 +134,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       <ul className="attachment-list flex flex-col gap-1" aria-label="Videos">
         {attachments.map((a) => {
           // Same rule as the Huddle feed: a video that's a PulseVault artifact
-          // plays inline; anything else is a link.
+          // is a card; anything else is a link.
           const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
           const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
           return (
@@ -124,13 +151,9 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
                     title={videoLabel(a.name, videoId)}
                     caption={a.name}
                     renamable={a.canRename}
-                    onRenamed={(name) =>
-                      // Every row of this video: it has one name.
-                      setAttachments((prev) =>
-                        prev.map((other) => (other.url === a.url ? { ...other, name } : other)),
-                      )
-                    }
+                    onRenamed={(name) => renameVideo(a.url, name)}
                     onRemove={mine ? () => void handleRemove(a.id) : undefined}
+                    onOpen={() => setOpenVideo(videoId)}
                   />
                 </figure>
               ) : (
@@ -163,6 +186,16 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           );
         })}
       </ul>
+
+      <VideoFeedView
+        videos={feedVideos}
+        openId={openVideo}
+        onClose={() => setOpenVideo(null)}
+        onRenamed={(id, name) => {
+          const url = feedVideos.find((video) => video.id === id)?.url;
+          if (url) renameVideo(url, name);
+        }}
+      />
     </section>
   );
 };

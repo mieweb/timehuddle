@@ -20,6 +20,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { videoApi } from '@lib/api';
+import { useEscapeWithin } from '@lib/useEscapeWithin';
 import { AppModal } from '@ui/AppModal';
 import { noteRenamed } from './videoNames';
 
@@ -65,6 +66,9 @@ export function VideoNameDialog({
   const [error, setError] = useState<string | null>(null);
   // Whether this opening has selected the name yet (on the field's first focus).
   const selectedRef = useRef(false);
+  // Escape closes it alone, not a window or media view under it.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEscapeWithin(formRef, () => !saving && onOpenChange(false), open);
 
   // Each opening starts from the name as it is, selected to type over.
   useEffect(() => {
@@ -98,11 +102,17 @@ export function VideoNameDialog({
   // menu sits inside a card or Huddle's media view (fixed, its own layer on a
   // phone), whose controls would otherwise show over the dialog.
   return createPortal(
-    <AppModal open={open} onOpenChange={(next) => !saving && onOpenChange(next)} size="md">
+    <AppModal
+      open={open}
+      onOpenChange={(next) => !saving && onOpenChange(next)}
+      size="md"
+      closeOnEscape={false}
+    >
       <ModalHeader>
         <ModalTitle>{name ? NAME_DIALOG_COPY.rename : NAME_DIALOG_COPY.addName}</ModalTitle>
       </ModalHeader>
       <form
+        ref={formRef}
         className="video-name-dialog"
         noValidate
         onSubmit={(event) => {

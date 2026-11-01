@@ -38,7 +38,7 @@ describe('PulseVideoPlayer poster', () => {
     container.querySelector('.pulse-video-poster-placeholder');
 
   it('shows a thumbnail that arrives after the card first asked for it', async () => {
-    const { container } = render(<PulseVideoPlayer video={VIDEO} />);
+    const { container } = render(<PulseVideoPlayer video={VIDEO} onOpen={() => {}} />);
     fireEvent.error(poster(container)!);
     expect(placeholder(container)).not.toBeNull();
 
@@ -59,7 +59,7 @@ describe('PulseVideoPlayer poster', () => {
   });
 
   it('keeps the plain box for a video with no thumbnail, after a bounded number of looks', async () => {
-    const { container } = render(<PulseVideoPlayer video={VIDEO} />);
+    const { container } = render(<PulseVideoPlayer video={VIDEO} onOpen={() => {}} />);
     fireEvent.error(poster(container)!);
     for (const delay of POSTER_RETRY_MS) {
       await act(() => vi.advanceTimersByTimeAsync(delay));
@@ -73,7 +73,7 @@ describe('PulseVideoPlayer poster', () => {
 
   it('starts afresh when the host swaps in another video', async () => {
     const OTHER = '1c8f8d2f-6b40-4d2e-8f3b-7a2e3d4c5b6a';
-    const { container, rerender } = render(<PulseVideoPlayer video={VIDEO} />);
+    const { container, rerender } = render(<PulseVideoPlayer video={VIDEO} onOpen={() => {}} />);
     // The first video has no thumbnail, however long it's looked for.
     fireEvent.error(poster(container)!);
     for (const delay of POSTER_RETRY_MS) {
@@ -82,44 +82,31 @@ describe('PulseVideoPlayer poster', () => {
     }
     expect(placeholder(container)).not.toBeNull();
 
-    rerender(<PulseVideoPlayer video={OTHER} />);
+    rerender(<PulseVideoPlayer video={OTHER} onOpen={() => {}} />);
 
     expect(poster(container)?.getAttribute('src')).toBe(`/pulsevault/artifacts/${OTHER}/poster`);
   });
 });
 
 describe('PulseVideoPlayer play', () => {
-  beforeEach(() => {
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-  });
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-  });
+  afterEach(cleanup);
 
-  it('opens the host’s larger view on ▶ rather than playing in the card', () => {
+  it('opens the host’s feed on ▶, marked for focus to come back to', () => {
     const onOpen = vi.fn();
     const { container, getByRole } = render(
       <PulseVideoPlayer video={VIDEO} title="Demo" onOpen={onOpen} launchId="launch-1" />,
     );
     const play = getByRole('button', { name: 'Play Demo' });
-    // Back from the larger view returns focus here.
     expect(play.getAttribute('data-media-launch-id')).toBe('launch-1');
     fireEvent.click(play);
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.pulse-video-player')).toBeNull();
-  });
-
-  it('plays in the card where there is no larger view', () => {
-    const { container, getByRole } = render(<PulseVideoPlayer video={VIDEO} title="Demo" />);
-    fireEvent.click(getByRole('button', { name: 'Play Demo' }));
-    expect(container.querySelector('.pulse-video-player video')).not.toBeNull();
+    // Nothing plays in the card itself.
+    expect(container.querySelector('video')).toBeNull();
   });
 
   it('shows its name on the poster, its owner’s too', () => {
     const { container } = render(
-      <PulseVideoPlayer video={VIDEO} title="Demo" caption="Demo" renamable />,
+      <PulseVideoPlayer video={VIDEO} title="Demo" caption="Demo" renamable onOpen={() => {}} />,
     );
     expect(container.querySelector('.pulse-video-caption')?.textContent).toBe('Demo');
   });
