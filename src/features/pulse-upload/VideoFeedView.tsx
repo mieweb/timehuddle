@@ -124,7 +124,6 @@ export function VideoFeedView({ videos, openId, onClose, onRenamed }: VideoFeedV
           muted={false}
           allowFullscreen={false}
           labels={{ feed: FEED_COPY.feed }}
-          classNames={{ details: 'ps-14' }}
         />
       </div>
     </div>,

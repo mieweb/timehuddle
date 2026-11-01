@@ -9,8 +9,8 @@
  *
  * Laid out as Huddle's media view is — it is the same MediaFeed, holding one
  * video: the clip fills the screen at its own shape, upright or sideways, its
- * name (and who added it) float over the top, and the player's controls run
- * along the bottom.
+ * name (and who added it) sit at the bottom start above the player's
+ * controls, as in short-video apps, and its ⋯ menu beside them.
  */
 import { ArrowLeftIcon, Button, MediaFeed, ToastProvider } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -152,7 +152,7 @@ export function WatchPage({ videoId }: { videoId: string }) {
             muted={false}
             error={missing ? WATCH_COPY.missing : undefined}
             labels={{ feed: WATCH_COPY.page }}
-            classNames={{ details: 'ps-14', controls: 'hidden' }}
+            classNames={{ controls: 'hidden' }}
           />
         </div>
       </main>
