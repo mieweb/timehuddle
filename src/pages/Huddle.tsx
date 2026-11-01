@@ -734,7 +734,7 @@ export default function Huddle() {
           title={videoLabel(attachment.title, attachment.id)}
           caption={attachment.title}
           renamable={ownsVideo(attachment.id)}
-          onOpen={() => open(true)}
+          onOpen={open && (() => open(true))}
           launchId={launchId}
         />
       ) : null,

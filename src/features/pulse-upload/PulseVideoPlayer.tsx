@@ -113,8 +113,11 @@ interface PulseVideoPlayerProps {
   onRenamed?: (name: string | null) => void;
   /** Where the host lets the viewer take it off (a ticket's Videos): the menu offers Remove. */
   onRemove?: () => void;
-  /** ▶: the host's feed, playing this video (Huddle's media view, VideoFeedView). */
-  onOpen: () => void;
+  /**
+   * ▶: the host's feed, playing this video (Huddle's media view, VideoFeedView).
+   * Without it ▶ is off (SuperChat while the message is being edited).
+   */
+  onOpen?: () => void;
   /** Marks ▶ for the host to return focus to (SuperChat's `data-media-launch-id`). */
   launchId?: string;
   /** The card's box (SuperChat's `maxSize` in Huddle). @default VIDEO_CARD_SIZE */
@@ -165,6 +168,7 @@ function PulseVideoCard({
         variant="ghost"
         className="pulse-video-poster group relative block h-full w-full rounded-none p-0 hover:bg-transparent"
         onClick={onOpen}
+        disabled={!onOpen}
         data-media-launch-id={launchId}
         aria-label={PLAYER_COPY.play(name)}
       >
