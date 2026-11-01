@@ -106,7 +106,13 @@ async function parseMultipart(req, allowedMimes) {
   const tmpPath = path.join(TMP_DIR, `${randomBytes(12).toString('hex')}.part`);
 
   return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE, files: 1 } });
+    // Browsers send the file's name as UTF-8; Busboy reads it as Latin-1
+    // unless told, which turns "—" or "é" in a document's name into "â€”".
+    const busboy = Busboy({
+      headers: req.headers,
+      defParamCharset: 'utf8',
+      limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+    });
 
     let fileInfo = null;
     let size = 0;
