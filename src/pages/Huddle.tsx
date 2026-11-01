@@ -1124,16 +1124,17 @@ export default function Huddle() {
   }
 
   // The composer refused a file: say which and why (composerErrors.ts).
-  const handleComposerError = useCallback(
-    (message: string, context?: ChatComposerError) =>
-      setInboxError(
-        composerRefusalMessage(context, {
-          limit: COMPOSER_MAX_FILE_LABEL,
-          maxFiles: COMPOSER_MAX_FILES,
-        }) ?? message,
-      ),
-    [],
-  );
+  const handleComposerError = useCallback((message: string, context?: ChatComposerError) => {
+    // A failed post: handleMessageSent has already said why ("too large",
+    // "no connection"); the box's generic "Failed to send" would cover it.
+    if (context?.reason === 'send-failed') return;
+    setInboxError(
+      composerRefusalMessage(context, {
+        limit: COMPOSER_MAX_FILE_LABEL,
+        maxFiles: COMPOSER_MAX_FILES,
+      }) ?? message,
+    );
+  }, []);
 
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
   async function handleMessageEdited(
