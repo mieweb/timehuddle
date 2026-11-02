@@ -1,0 +1,92 @@
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { Notification } from '../../lib/api';
+import { formatDayHeading, formatReadTime, groupByDay, useToday } from './notificationTimes';
+
+// Local times, so the tests hold in any time zone. Expected strings reuse the
+// browser formatters, so they hold in any locale; what's tested is which day
+// label and which parts are chosen.
+const NOW = new Date(2026, 10, 2, 10, 0); // Mon Nov 2 2026, 10:00
+const at = (month: number, day: number, hour: number, minute = 0, year = 2026) =>
+  new Date(year, month, day, hour, minute).toISOString();
+const time = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+const date = (iso: string, year?: 'numeric') =>
+  new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year,
+  });
+
+describe('formatDayHeading', () => {
+  it('names today and yesterday, and adds the year only when it is not this year', () => {
+    expect(formatDayHeading(at(10, 2, 9), NOW)).toBe(`Today · ${date(at(10, 2, 9))}`);
+    expect(formatDayHeading(at(10, 1, 23), NOW)).toBe(`Yesterday · ${date(at(10, 1, 23))}`);
+    expect(formatDayHeading(at(9, 24, 7), NOW)).toBe(date(at(9, 24, 7)));
+    const lastYear = at(11, 30, 7, 0, 2025);
+    expect(formatDayHeading(lastYear, NOW)).toBe(date(lastYear, 'numeric'));
+  });
+});
+
+describe('formatReadTime', () => {
+  it('shows only the time when read the day it arrived, otherwise names the day', () => {
+    const sameDay = at(10, 1, 16, 49);
+    expect(formatReadTime(at(10, 1, 16, 5), sameDay, NOW)).toBe(time(sameDay));
+    const today = at(10, 2, 8, 3);
+    expect(formatReadTime(at(10, 1, 9, 12), today, NOW)).toBe(`Today ${time(today)}`);
+    const yesterday = at(10, 1, 18, 10);
+    expect(formatReadTime(at(9, 30, 9), yesterday, NOW)).toBe(`Yesterday ${time(yesterday)}`);
+    const older = at(9, 30, 18, 10);
+    expect(formatReadTime(at(9, 28, 9), older, NOW)).toBe(
+      new Date(older).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    );
+  });
+});
+
+describe('groupByDay', () => {
+  it('groups by day, newest day first, even when rows arrive out of order', () => {
+    const n = (id: string, createdAt: string): Notification => ({
+      id,
+      userId: 'u1',
+      title: id,
+      body: '',
+      read: false,
+      readAt: null,
+      createdAt,
+    });
+    const days = groupByDay(
+      // 'd' first, like an older row the capped live feed backfilled and the page prepended.
+      [n('d', at(9, 24, 7)), n('a', at(10, 2, 9, 41)), n('b', at(10, 2, 8)), n('c', at(10, 1, 16))],
+      NOW,
+    );
+    expect(days.map((d) => d.items.map((x) => x.id))).toEqual([['a', 'b'], ['c'], ['d']]);
+    expect(days.map((d) => d.key)).toEqual(['2026-11-02', '2026-11-01', '2026-10-24']);
+    expect(groupByDay([], NOW)).toEqual([]);
+  });
+});
+
+describe('useToday', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('moves to the next day at midnight, and on return to a tab left open overnight', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 10, 2, 23, 59));
+    const { result } = renderHook(() => useToday());
+    expect(result.current.getDate()).toBe(2);
+
+    act(() => vi.advanceTimersByTime(2 * 60_000));
+    expect(result.current.getDate()).toBe(3);
+
+    // A timer can be held back while the tab or app is in the background.
+    vi.setSystemTime(new Date(2026, 10, 5, 8, 0));
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(result.current.getDate()).toBe(5);
+  });
+});

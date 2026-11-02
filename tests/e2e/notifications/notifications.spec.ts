@@ -46,8 +46,8 @@ test.describe('Notifications', () => {
         page.getByText('Team invites and new messages will show up here.'),
       ).toBeVisible();
     } else {
-      // Has notifications - verify the notification list (has role="list" in main content)
-      const notificationList = page.getByRole('main').getByRole('list');
+      // Has notifications - verify the notification list (one role="list" per day)
+      const notificationList = page.getByRole('main').getByRole('list').first();
       await expect(notificationList).toBeVisible();
     }
   });
@@ -107,5 +107,41 @@ test.describe('Notifications', () => {
       await expect(markAllBtn).not.toBeVisible({ timeout: 5000 });
     }
     // If no unread notifications, this test passes vacuously
+  });
+
+  // #804: opening a notification saves when it was read, and the inbox shows
+  // that time under today's heading, before and after a reload.
+  test('opening a notification shows when it was read', async ({ page }) => {
+    test.setTimeout(60000);
+    await loginAs(page, TEST_USERS.owner1);
+
+    // The one control that creates a notification for the signed-in user.
+    await page.goto('/app/settings?section=notifications');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('notifications_testPush') && r.ok()),
+      page.getByRole('button', { name: 'Send test notification', exact: true }).click(),
+    ]);
+
+    await page.goto('/app/notifications');
+    const today = page.getByRole('region', { name: /^Today · / });
+    const newest = today.getByRole('listitem').first();
+    await expect(newest).toContainText('Test Push', { timeout: 20000 });
+    await expect(newest.getByLabel('Unread')).toBeVisible();
+    await expect(newest).not.toContainText('Read');
+
+    await newest.getByRole('button').first().click();
+    const readLine = newest.getByText(/^Read /);
+    await expect(readLine).toBeVisible({ timeout: 10000 });
+    await expect(newest.getByLabel('Unread')).toHaveCount(0);
+    const shownAfterClick = await readLine.textContent();
+
+    // The saved time comes back from the server unchanged.
+    await page.reload();
+    await expect(
+      today
+        .getByRole('listitem')
+        .first()
+        .getByText(/^Read /),
+    ).toHaveText(shownAfterClick ?? '', { timeout: 20000 });
   });
 });

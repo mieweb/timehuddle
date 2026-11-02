@@ -802,6 +802,7 @@ export function ddpDocToNotification(doc: DdpDoc): import('./api').Notification 
     ...(doc.data ? { data: doc.data as Record<string, unknown> } : {}),
     ...(doc.pushed ? { pushed: doc.pushed as import('./api').Notification['pushed'] } : {}),
     read: Boolean(doc.read),
+    readAt: doc.readAt ? String(doc.readAt) : null,
     createdAt: String(doc.createdAt ?? ''),
   };
 }
