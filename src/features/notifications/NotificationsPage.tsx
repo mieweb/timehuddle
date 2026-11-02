@@ -204,8 +204,10 @@ export const NotificationsPage: React.FC = () => {
     setMarkAllLoading(true);
     try {
       await notificationApi.markAllRead();
-      // Reload rather than stamp one time on every row: some may have been read elsewhere first.
-      setNotifications(await notificationApi.getInbox());
+      // Take each row's stored read time (some were read elsewhere first) rather than
+      // replacing the list, which would drop a row that arrived during the request.
+      const fresh = new Map((await notificationApi.getInbox()).map((n) => [n.id, n]));
+      setNotifications((prev) => prev.map((n) => fresh.get(n.id) ?? n));
     } catch {
       /* ignore */
     } finally {

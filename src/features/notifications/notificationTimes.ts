@@ -87,10 +87,15 @@ export interface NotificationDay {
   items: Notification[];
 }
 
-/** Splits the inbox (already newest first) into one group per day it arrived. */
+/** Splits the inbox into one group per day it arrived, newest first. */
 export function groupByDay(notifications: Notification[], now = new Date()): NotificationDay[] {
+  // Sorted here because live arrivals are prepended, and one can be an older row the
+  // capped feed backfilled; unsorted, its day would appear twice.
+  const newestFirst = [...notifications].sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
   const days: NotificationDay[] = [];
-  for (const n of notifications) {
+  for (const n of newestFirst) {
     const key = dayKey(new Date(n.createdAt));
     const last = days[days.length - 1];
     if (last?.key === key) last.items.push(n);

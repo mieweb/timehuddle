@@ -51,7 +51,7 @@ describe('formatReadTime', () => {
 });
 
 describe('groupByDay', () => {
-  it('starts a new group each time the day changes, keeping the order', () => {
+  it('groups by day, newest day first, even when rows arrive out of order', () => {
     const n = (id: string, createdAt: string): Notification => ({
       id,
       userId: 'u1',
@@ -62,7 +62,8 @@ describe('groupByDay', () => {
       createdAt,
     });
     const days = groupByDay(
-      [n('a', at(10, 2, 9, 41)), n('b', at(10, 2, 8)), n('c', at(10, 1, 16)), n('d', at(9, 24, 7))],
+      // 'd' first, like an older row the capped live feed backfilled and the page prepended.
+      [n('d', at(9, 24, 7)), n('a', at(10, 2, 9, 41)), n('b', at(10, 2, 8)), n('c', at(10, 1, 16))],
       NOW,
     );
     expect(days.map((d) => d.items.map((x) => x.id))).toEqual([['a', 'b'], ['c'], ['d']]);

@@ -144,7 +144,7 @@ small `useToday` hook they're used with.
 - [x] `formatDayHeading(iso, now?)` → `Today · Mon, Nov 2`, `Yesterday · Sun, Nov 1`, `Sat, Oct 24` (year added when not this year)
 - [x] `formatReceivedTime(iso)` → `3:14 PM`
 - [x] `formatReadTime(createdAt, readAt, now?)` → `4:49 PM` (same day), `Today 8:03 AM`, `Yesterday 6:10 PM`, `Oct 30, 6:10 PM`
-- [x] `groupByDay(notifications, now?)` → `{ heading, items }[]`, keeping the existing order
+- [x] `groupByDay(notifications, now?)` → `{ heading, items }[]`, sorted newest first
 - [x] `useToday()` → today's date, replaced at midnight and on `visibilitychange`
 - [x] `notificationTimes.test.ts` covers each case above, including a different year
 - [x] Delete the old `timeAgo` from `NotificationsPage.tsx` once nothing uses it
@@ -162,7 +162,8 @@ File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notif
   const withRead = (n: Notification, readAt: string | null): Notification =>
     n.read ? n : { ...n, read: true, readAt };
   ```
-- [x] `handleMarkAllRead` → after `markAllRead()`, reload the inbox with `getInbox()`.
+- [x] `handleMarkAllRead` → after `markAllRead()`, fetch the inbox and update each row on
+      screen from it (don't replace the list, or a row that arrived meanwhile is lost).
 - [x] `const today = useToday()`, passed to `groupByDay` and `formatReadTime`, so the
       headings and read times agree on what "today" is.
 - [x] The push-tap path from #793 tells an open inbox that a row was read with the
@@ -218,6 +219,16 @@ Found in review after the milestones above were done; the milestones now describ
 - [x] **Headings kept saying "Today" after midnight** on a page left open. Fixed with
       `useToday`, covered by a unit test with fake timers.
 - [x] **`Today`, `Yesterday` and `Read` were hard-coded.** Moved to `NOTIFICATION_STRINGS`.
+- [x] **"Mark all read" could drop a notification that arrived during its reload.** It now
+      updates the read state of the rows on screen from the reloaded inbox instead of
+      replacing the list.
+- [x] **Nothing tested that the first read wins.** Added backend integration tests in
+      [`meteor-backend/tests/notifications.test.ts`](../meteor-backend/tests/notifications.test.ts):
+      opening twice keeps the first time, a row read elsewhere returns its stored time,
+      an old row stays without one, and "Mark all read" stamps only unread rows.
+      Confirmed they fail with the `read: { $ne: true }` guard removed.
+- [x] **A backfilled older row could split a day into two sections.** `groupByDay` sorts
+      newest first before grouping.
 
 ## Out of scope
 
