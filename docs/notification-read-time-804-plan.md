@@ -118,12 +118,15 @@ change the value.
 
 ## Milestone 2 — Client types
 
-- [ ] [`src/lib/api.ts`](../src/lib/api.ts) `Notification` → add
+- [x] [`src/lib/api.ts`](../src/lib/api.ts) `Notification` → add
       `readAt: string | null; // ISO, set the first time it is read`
-- [ ] `notificationApi.markOneRead` / `markAllRead` return type →
+- [x] `notificationApi.markOneRead` / `markAllRead` return type →
       `{ ok: boolean; readAt: string }`
-- [ ] [`src/lib/ddp.ts`](../src/lib/ddp.ts) `ddpDocToNotification` → add
+- [x] [`src/lib/ddp.ts`](../src/lib/ddp.ts) `ddpDocToNotification` → add
       `readAt: doc.readAt ? String(doc.readAt) : null,`
+
+- [x] [`notificationEvents.test.ts`](../src/features/notifications/notificationEvents.test.ts)
+      mocks `markOneRead`; give its resolved value a `readAt` too, or typecheck fails.
 
 **Done when:** `npm run typecheck` passes.
 

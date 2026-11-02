@@ -19,7 +19,7 @@ describe('markTappedNotificationRead', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('marks the row read and tells an open inbox', async () => {
-    markOneRead.mockResolvedValue({ ok: true });
+    markOneRead.mockResolvedValue({ ok: true, readAt: '2026-11-02T15:20:00.000Z' });
     const ids = readEvents();
     markTappedNotificationRead({ notificationId: 'n1', type: 'test' });
     await vi.waitFor(() => expect(ids).toContain('n1'));

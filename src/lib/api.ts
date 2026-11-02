@@ -1917,6 +1917,8 @@ export interface Notification {
   /** Which pop-ups the user's preferences allowed for it (#784); absent on older rows. */
   pushed?: { desktop: boolean; phone: boolean };
   read: boolean;
+  /** When the user first read it (ISO); null if unread or read before #804. */
+  readAt: string | null;
   createdAt: string; // ISO
 }
 
@@ -1940,10 +1942,12 @@ export const notificationApi = {
 
   /** Mark a single notification as read. */
   markOneRead: (id: string) =>
-    wormholeCall<{ ok: boolean }>('notifications.markOneRead', { notificationId: id }),
+    wormholeCall<{ ok: boolean; readAt: string }>('notifications.markOneRead', {
+      notificationId: id,
+    }),
 
   /** Mark all notifications as read. */
-  markAllRead: () => wormholeCall<{ ok: boolean }>('notifications.markAllRead', {}),
+  markAllRead: () => wormholeCall<{ ok: boolean; readAt: string }>('notifications.markAllRead', {}),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>
