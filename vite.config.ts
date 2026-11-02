@@ -66,9 +66,11 @@ function watchPreviews(): Plugin {
           : html;
       },
     },
-    closeBundle() {
-      const out = path.resolve(__dirname, 'dist');
-      if (!fs.existsSync(out)) return;
+    // A build's hook only, into the folder it wrote: the dev server runs
+    // closeBundle as it stops, which overwrote an earlier build's addresses
+    // with the dev server's.
+    writeBundle({ dir }) {
+      const out = dir ?? path.resolve(__dirname, 'dist');
       fs.writeFileSync(
         path.join(out, 'server-config.json'),
         JSON.stringify({ backendUrl: builtBackendUrl ?? null, appUrl: builtAppUrl ?? null }),
