@@ -107,7 +107,9 @@ export function VideoMenu({
       <Dropdown
         open={menuOpen}
         onOpenChange={setMenuOpen}
-        placement={inFeed ? 'top-end' : 'bottom-end'}
+        // Upward, as SuperChat's own message menu opens: a card low in a
+        // thread would otherwise open its menu down over the message box.
+        placement="top-end"
         trigger={
           // The library's Button sets its icon inline on a text line, 1.3px
           // low; CORNER_BUTTON makes it a block, dead centre.
