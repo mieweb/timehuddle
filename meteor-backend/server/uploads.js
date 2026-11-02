@@ -4,8 +4,8 @@ import { rawDb, isValidId } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
-import { cleanVideoName, videoNameOf } from './video-names.js';
-import { videoIdOf } from './video-names-core.js';
+// The origin-aware videoIdOf: a legacy post's full URL on this backend counts.
+import { cleanVideoName, videoIdOf, videoNameOf } from './video-names.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
