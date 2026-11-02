@@ -39,6 +39,7 @@ import {
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
+import { canManageTeam } from './organizationAccess';
 import { useSession } from './useSession';
 import {
   liveLocation,
@@ -567,13 +568,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setParams({ team: selectedTeam.id, teamId: null });
   }, [selectedTeam, pathname, params, replace, setParams]);
 
-  const isAdmin = useMemo(() => {
-    if (!userId || !selectedTeam) return false;
-    if (selectedTeam.admins.includes(userId)) return true;
-    // Org owners get full team-admin authority on every team in their org.
-    const org = organizations.find((o) => o.id === selectedTeam.orgId);
-    return org?.role === 'owner';
-  }, [userId, selectedTeam, organizations]);
+  const isAdmin = useMemo(
+    () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),
+    [userId, selectedTeam, organizations],
+  );
 
   // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
 

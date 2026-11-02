@@ -62,6 +62,7 @@ import { NotificationEventSettings } from '../features/notifications/Notificatio
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { TeamSettings, useManageableTeams } from '../features/settings/TeamSettings';
 import {
   canManageSelectedOrganization,
   getEnterpriseRole,
@@ -1206,8 +1207,10 @@ export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
   const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
+  const manageableTeams = useManageableTeams();
   const groups = settingsGroups(
     {
+      team: manageableTeams.length > 0,
       organization: canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
       enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
       usage: hasOrganizationAdminAccess(organizations),
@@ -1309,6 +1312,7 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     account: <AccountSettings />,
+    team: <TeamSettings />,
     // Keyed by org, so a slow response for the previous one can't overwrite it.
     organization: <OrganizationSettings key={selectedOrgId ?? 'none'} />,
     enterprise: <EnterpriseSettings />,
