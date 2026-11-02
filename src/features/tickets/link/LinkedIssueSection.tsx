@@ -36,6 +36,7 @@ import {
 } from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
 import { linkWarnings, type LinkChange } from './linkWarnings';
+import { outsideFieldRows, type OutsideFieldRow } from './outsideFields';
 import { TicketLinkFields } from './TicketLinkFields';
 import {
   EMPTY_LINK_FORM,
@@ -95,6 +96,32 @@ function SourceLine({ source, detail }: { source: string; detail?: string }) {
         </Text>
       )}
     </div>
+  );
+}
+
+/** The linked issue's type, labels, milestone and custom fields, as a quiet list. */
+function OutsideFields({ rows }: { rows: OutsideFieldRow[] }) {
+  if (!rows.length) return null;
+  return (
+    <dl
+      className="ticket-linked-issue-fields grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm"
+      aria-label={ticketLinkText.issueFields}
+    >
+      {rows.map((row) => (
+        <React.Fragment key={row.label}>
+          <dt className="ticket-linked-issue-field-name text-muted-foreground">{row.label}</dt>
+          <dd className="ticket-linked-issue-field-value flex min-w-0 flex-wrap gap-1 break-words">
+            {row.badges
+              ? row.values.map((value) => (
+                  <Badge key={value} variant="outline" size="sm">
+                    {value}
+                  </Badge>
+                ))
+              : row.values[0]}
+          </dd>
+        </React.Fragment>
+      ))}
+    </dl>
   );
 }
 
@@ -266,6 +293,7 @@ export function LinkedIssueSection({
                   : undefined
               }
             />
+            {record && <OutsideFields rows={outsideFieldRows(record)} />}
           </div>
         )}
 

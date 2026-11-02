@@ -24,6 +24,11 @@ export const ticketLinkText = {
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
+  /** The linked issue's own fields, listed under its source line. */
+  issueFields: 'Issue fields',
+  typeField: 'Type',
+  labelsField: 'Labels',
+  milestoneField: 'Milestone',
   goToSettings: 'Go to Settings',
 
   linkLabel: 'Link',

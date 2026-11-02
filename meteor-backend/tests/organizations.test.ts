@@ -444,4 +444,17 @@ describe('orgs.setSourcePrefixes', () => {
       (await wormhole('orgs.setTicketPrefix', { orgId, ticketPrefix: 'PM' }, ownerJwt)).ok,
     ).toBe(false);
   });
+
+  it('lets the ticket prefix take the prefix of a hidden GitHub row', async () => {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne(
+        { _id: new ObjectId(orgId) },
+        { $set: { sourcePrefixes: [{ host: 'github.com', prefix: 'GH' }] } },
+      );
+    expect(
+      (await wormhole('orgs.setTicketPrefix', { orgId, ticketPrefix: 'GH' }, ownerJwt)).ok,
+    ).toBe(true);
+  });
 });

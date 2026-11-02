@@ -9,8 +9,14 @@ import {
   restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { redmineUrlRefusal } from './redmine-client';
-import { DEFAULT_TICKET_PREFIX, normalizeSourcePrefixes, normalizeTicketPrefix } from './ticket-ids';
+import { optionalRedmineBaseUrl, redmineUrlRefusal } from './redmine-client';
+import {
+  DEFAULT_TICKET_PREFIX,
+  normalizeSourcePrefixes,
+  normalizeTicketPrefix,
+  freeOfServerPrefix,
+  typedServers,
+} from './ticket-ids';
 import {
   idOf,
   resolveEnterpriseSettings,
@@ -152,7 +158,7 @@ async function toOrgSummary(org, role) {
     name: org.name,
     slug: org.slug,
     ticketPrefix: org.ticketPrefix || DEFAULT_TICKET_PREFIX,
-    sourcePrefixes: org.sourcePrefixes ?? [],
+    sourcePrefixes: typedServers(org.sourcePrefixes ?? [], optionalRedmineBaseUrl()),
     allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
@@ -544,14 +550,15 @@ Meteor.methods({
         'A ticket prefix is a letter followed by up to five letters or digits.',
       );
     }
-    if ((org.sourcePrefixes ?? []).some((entry) => entry.prefix === prefix)) {
+    const servers = typedServers(org.sourcePrefixes ?? [], optionalRedmineBaseUrl());
+    if (servers.some((entry) => entry.prefix === prefix)) {
       throw new Meteor.Error('validation-error', `${prefix} is already used for a server.`);
     }
     // Checked again in the write, so a server named meanwhile can't take the same prefix.
     const { matchedCount } = await rawDb()
       .collection('organizations')
       .updateOne(
-        { _id: org._id, 'sourcePrefixes.prefix': { $ne: prefix } },
+        { _id: org._id, ...freeOfServerPrefix(prefix) },
         { $set: { ticketPrefix: prefix, updatedAt: new Date() } },
       );
     if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
