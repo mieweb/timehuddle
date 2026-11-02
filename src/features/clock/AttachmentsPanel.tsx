@@ -75,21 +75,26 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     }
   }, []);
 
-  // Every row of a video: it has one name.
-  const renameVideo = useCallback((url: string, name: string | null) => {
-    setAttachments((prev) => prev.map((other) => (other.url === url ? { ...other, name } : other)));
+  // Every row of a video, by its id however its URL was stored: it has one name.
+  const renameVideo = useCallback((videoId: string, name: string | null) => {
+    setAttachments((prev) =>
+      prev.map((other) =>
+        other.type === 'video' && pulseArtifactId(other.url) === videoId
+          ? { ...other, name }
+          : other,
+      ),
+    );
   }, []);
 
   // The list's videos, once each, for the feed.
   const feedVideos = useMemo(() => {
-    const videos = new Map<string, FeedVideo & { url: string }>();
+    const videos = new Map<string, FeedVideo>();
     for (const a of attachments) {
       const id = a.type === 'video' ? pulseArtifactId(a.url) : null;
       if (!id || videos.has(id)) continue;
       const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
       videos.set(id, {
         id,
-        url: a.url,
         name: a.name ?? null,
         renamable: a.canRename,
         onRemove: mine ? () => void handleRemove(a.id) : undefined,
@@ -151,7 +156,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
                     title={videoLabel(a.name, videoId)}
                     caption={a.name}
                     renamable={a.canRename}
-                    onRenamed={(name) => renameVideo(a.url, name)}
+                    onRenamed={(name) => renameVideo(videoId, name)}
                     onRemove={mine ? () => void handleRemove(a.id) : undefined}
                     onOpen={() => setOpenVideo(videoId)}
                   />
@@ -191,10 +196,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
         videos={feedVideos}
         openId={openVideo}
         onClose={() => setOpenVideo(null)}
-        onRenamed={(id, name) => {
-          const url = feedVideos.find((video) => video.id === id)?.url;
-          if (url) renameVideo(url, name);
-        }}
+        onRenamed={renameVideo}
       />
     </section>
   );
