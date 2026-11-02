@@ -5,6 +5,7 @@
  * one it already carries — never just any URL a client sends, which would let
  * a post show someone else's file as the poster's. Each is stored from what
  * the server knows about it, its size included, rather than from the client.
+ * Also where an upload a post drops may still be in use, before its file goes.
  */
 
 const ATTACHMENT_TYPES = new Set(['image', 'video', 'file']);
@@ -81,4 +82,32 @@ export function cleanPostAttachments({ attachments, userId, mediaById, pulseVide
       ...sizeOf(att),
     };
   });
+}
+
+/** `text` as a regular expression matching it literally. */
+const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Where an upload (`mediaId`, at `url`) may still be in use, as `{ collection,
+ * filter }` queries; any match keeps its file. A Huddle post carrying it or
+ * showing it in its text; an attachment (a ticket's, a session's) at its URL;
+ * a ticket description linking or embedding it, which is Markdown kept apart
+ * from the attachments.
+ */
+export function uploadUseQueries({ mediaId, url }) {
+  const atUrl = new RegExp(`${literally(url)}$`);
+  return [
+    {
+      collection: 'huddlePosts',
+      filter: {
+        $or: [
+          { 'attachments.mediaId': mediaId },
+          { 'attachments.url': atUrl },
+          { 'content.text': { $regex: literally(url) } },
+        ],
+      },
+    },
+    { collection: 'attachments', filter: { url: atUrl } },
+    { collection: 'tickets', filter: { description: { $regex: literally(url) } } },
+  ];
 }

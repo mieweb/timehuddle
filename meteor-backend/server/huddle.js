@@ -19,7 +19,7 @@ import {
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { videoIdOf, videoNamesFor } from './video-names.js';
-import { AttachmentError, cleanPostAttachments } from './post-attachments-core.js';
+import { AttachmentError, cleanPostAttachments, uploadUseQueries } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -514,13 +514,11 @@ export async function requireTeamMember(userId, teamId) {
   return team;
 }
 
-/** `text` as a regular expression matching it literally. */
-const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /**
  * Uploads a post no longer carries (it was deleted, or an edit took them off),
  * deleted with their files when they're the author's and nothing else uses
- * them: no other post carries or shows them, and no ticket has them. Pulse
+ * them (uploadUseQueries): no other post carries or shows them, and no ticket
+ * has them as an attachment or in its description. Pulse
  * videos stay (they're PulseVault's). Best-effort: a failure leaves a file
  * behind, never fails the delete or the edit.
  */
@@ -538,18 +536,11 @@ async function discardUnusedUploads(attachments, authorId) {
       .toArray();
     const unused = [];
     for (const item of items) {
-      const url = new RegExp(`${literally(item.url)}$`);
-      const used =
-        (await db.collection('huddlePosts').findOne(
-          {
-            $or: [
-              { 'attachments.mediaId': item._id.toHexString() },
-              { 'attachments.url': url },
-              { 'content.text': { $regex: literally(item.url) } },
-            ],
-          },
-          { projection: { _id: 1 } },
-        )) ?? (await db.collection('attachments').findOne({ url }, { projection: { _id: 1 } }));
+      let used = false;
+      for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+        used = !!(await db.collection(collection).findOne(filter, { projection: { _id: 1 } }));
+        if (used) break;
+      }
       if (!used) unused.push(item);
     }
     await discardMedia(unused);

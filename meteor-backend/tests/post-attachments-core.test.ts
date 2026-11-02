@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { AttachmentError, cleanPostAttachments } from '../server/post-attachments-core';
+import { AttachmentError, cleanPostAttachments, uploadUseQueries } from '../server/post-attachments-core';
 import { videoIdOf } from '../server/video-names-core';
 
 const ME = 'user-me';
@@ -67,5 +67,35 @@ describe('cleanPostAttachments', () => {
     expect(clean([{ mediaId: THEIRS._id, type: 'file', url: `http://localhost:3100${THEIRS.url}` }], existing)).toEqual(
       existing,
     );
+  });
+});
+
+describe('uploadUseQueries', () => {
+  const queries = uploadUseQueries({ mediaId: MINE._id, url: MINE.url });
+  const queryOn = (collection: string) => queries.find((q) => q.collection === collection)?.filter;
+  /** Whether a `$regex` condition matches `text`, as Mongo would. */
+  const matches = (condition: { $regex: string } | RegExp, text: string) =>
+    (condition instanceof RegExp ? condition : new RegExp(condition.$regex)).test(text);
+
+  it('looks for a Huddle post carrying the upload or showing it in its text', () => {
+    const posts = queryOn('huddlePosts') as { $or: Record<string, unknown>[] };
+    expect(posts.$or).toContainEqual({ 'attachments.mediaId': MINE._id });
+    const text = posts.$or.find((c) => 'content.text' in c)!['content.text'] as { $regex: string };
+    expect(matches(text, `Look ![shot](${MINE.url})`)).toBe(true);
+  });
+
+  it("looks for a ticket whose description links or embeds it, which isn't an attachment", () => {
+    const tickets = queryOn('tickets') as { description: { $regex: string } };
+    expect(tickets).toBeDefined();
+    expect(matches(tickets.description, `Repro: ![](http://localhost:3100${MINE.url}) then [it](${MINE.url})`)).toBe(
+      true,
+    );
+    expect(matches(tickets.description, 'Repro: /uploads/media/mineXpng')).toBe(false);
+  });
+
+  it('looks for an attachment at its URL, full or not', () => {
+    const attachments = queryOn('attachments') as { url: RegExp };
+    expect(matches(attachments.url, `http://localhost:3100${MINE.url}`)).toBe(true);
+    expect(matches(attachments.url, `${MINE.url}.bak`)).toBe(false);
   });
 });
