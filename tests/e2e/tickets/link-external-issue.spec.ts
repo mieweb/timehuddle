@@ -140,32 +140,32 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(card(page)).toContainText('Not linked.');
   });
 
-  test('takes any link, and offers to convert one that names an issue', async ({ page }) => {
+  test('takes any link, and offers to display one that names an issue', async ({ page }) => {
     const tickets = new TicketsPage(page);
     await tickets.goto();
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill(`Any link ${Date.now()}`);
     const field = page.getByLabel('Link', { exact: true });
     const create = page.getByRole('button', { name: 'Create Ticket' });
-    const convert = page.getByRole('button', { name: /^Convert to / });
+    const displayAs = page.getByRole('button', { name: /^Display as / });
 
-    // A doc is a fine link, with nothing to convert to.
+    // A doc is a fine link, with no issue to display as.
     await field.fill('https://docs.google.com/document/d/abc/edit');
     await expect(create).toBeEnabled();
-    await expect(convert).toHaveCount(0);
+    await expect(displayAs).toHaveCount(0);
 
     // A GitHub issue is offered by its repo; left alone, it stays a plain link.
     await field.fill('https://github.com/mieweb/timehuddle/issues/9999');
-    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Display as timehuddle-9999' })).toBeVisible();
     await expect(page.getByText('Or save it as a plain link.')).toBeVisible();
-    await page.getByRole('button', { name: 'Convert to timehuddle issue' }).click();
+    await page.getByRole('button', { name: 'Display as timehuddle-9999' }).click();
     await expect(page.getByText('This ticket will go by timehuddle-9999.')).toBeVisible();
     await page.getByRole('button', { name: 'Keep as a plain link' }).click();
-    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Display as timehuddle-9999' })).toBeVisible();
 
-    // An issue on this TimeHuddle's Redmine converts to a Redmine link, found at once.
+    // An issue on this TimeHuddle's Redmine becomes a Redmine link, found at once.
     await field.fill(`${BASE_URL}/issues/482`);
-    await convert.click();
+    await displayAs.click();
     await expect(page.getByLabel('Issue number or link')).toHaveValue(`${BASE_URL}/issues/482`);
     await expect(page.getByRole('group', { name: 'Issue to link' })).toContainText(
       'Export job times out',

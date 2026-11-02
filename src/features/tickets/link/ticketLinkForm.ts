@@ -16,7 +16,7 @@ export interface LinkFormState {
   kind: Exclude<LinkKind, 'none'>;
   /** The link: any https address. Empty for none. */
   github: string;
-  /** "Convert to … issue" was chosen: the ticket goes by the ID the link names. */
+  /** "Display as …" was chosen: the ticket goes by the ID the link names. */
   linkIsIssue: boolean;
   redmineMode: RedmineMode;
   /** What was typed to find an existing issue. Never stored: it may be a patient's name. */

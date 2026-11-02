@@ -28,11 +28,11 @@ export const ticketLinkText = {
 
   linkLabel: 'Link',
   linkPlaceholder: 'Paste a link to an issue, a pull request, a doc…',
-  /** "Convert to PM issue": the ticket will go by the ID the link names. */
-  convertTo: (prefix: string, pullRequest: boolean) =>
-    `Convert to ${prefix} ${pullRequest ? 'pull request' : 'issue'}`,
+  /** "Display as PM-233": the ticket will go by the ID the link names. */
+  displayAs: (name: string) => `Display as ${name}`,
+  redmineIssue: 'Redmine issue',
   orKeepAsLink: 'Or save it as a plain link.',
-  convertedTo: (id: string) => `This ticket will go by ${id}.`,
+  displayedAs: (id: string) => `This ticket will go by ${id}.`,
   keepAsLink: 'Keep as a plain link',
   useRedmine: 'Link a Redmine issue instead',
   useLink: 'Use a link instead',

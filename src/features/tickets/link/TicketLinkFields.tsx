@@ -1,10 +1,10 @@
 /**
  * The one control for a ticket's link: a single field that takes any https
  * address. When the address names an issue — a GitHub issue or pull request, or
- * an issue on one of the org's servers — a button offers to convert the ticket
- * to it, so it goes by that issue's ID (`pulse-250`, `PM-233`). Saved without
+ * an issue on one of the org's servers — a button offers to display the ticket
+ * as it, so it goes by that issue's ID (`pulse-250`, `PM-233`). Saved without
  * that, the address is just a link and the ticket keeps its own ID. An issue on
- * the connected Redmine converts to a Redmine link, with its status and history.
+ * the connected Redmine becomes a Redmine link, with its status and history.
  * "Link a Redmine issue instead" finds one by number or creates a new one.
  *
  * Used inside the create dialog and the ticket page's "Linked issue" section,
@@ -83,17 +83,17 @@ export function TicketLinkFields({
 
   const creatingNew = value.kind === 'redmine' && value.redmineMode === 'new' && !redmineMissing;
 
-  // Any https link can be saved. One that names an issue can be converted to it.
+  // Any https link can be saved. One that names an issue can be displayed as it.
   const linkText = value.github.trim();
   const notHttps = linkText !== '' && !isHttpsUrl(linkText);
   const convertId = convertibleIdOf(linkText, servers);
   const redmineIssueLink =
     redmineReady &&
     isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
-  const convertLabel = redmineIssueLink
-    ? ticketLinkText.convertTo(convertId ? prefixOf(convertId) : ticketLinkText.redmine, false)
-    : convertId
-      ? ticketLinkText.convertTo(prefixOf(convertId), /\/pull\/\d/.test(linkText))
+  const convertLabel = convertId
+    ? ticketLinkText.displayAs(convertId)
+    : redmineIssueLink
+      ? ticketLinkText.displayAs(ticketLinkText.redmineIssue)
       : null;
 
   const reducedMotion = useReducedMotion();
@@ -186,7 +186,7 @@ export function TicketLinkFields({
                   value={value.github}
                   disabled={disabled}
                   error={notHttps ? ticketLinkText.httpsOnly : undefined}
-                  // A new address is just a link until it is converted.
+                  // A new address is just a link until it is displayed as an issue.
                   onChange={(github) => onChange({ github, linkIsIssue: false })}
                 />
                 {convertLabel && !value.linkIsIssue && (
@@ -222,7 +222,7 @@ export function TicketLinkFields({
                 )}
                 {convertId && value.linkIsIssue && (
                   <div className="ticket-link-converted mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <Text size="sm">{ticketLinkText.convertedTo(convertId)}</Text>
+                    <Text size="sm">{ticketLinkText.displayedAs(convertId)}</Text>
                     <Button
                       type="button"
                       variant="ghost"
@@ -410,6 +410,3 @@ export function TicketLinkFields({
 }
 
 /** The prefix an outside ID starts with: `PM` of `PM-233`, `pulse` of `pulse-250`. */
-function prefixOf(outsideId: string): string {
-  return outsideId.replace(/-\d+$/, '');
-}
