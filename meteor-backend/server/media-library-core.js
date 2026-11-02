@@ -8,8 +8,11 @@
 
 const OBJECT_ID = /^[a-f0-9]{24}$/i;
 
-/** An upload's path (/uploads/media/<file>) in Markdown, on its own or in a full URL. */
-const MEDIA_URL = /\/uploads\/media\/[^\s)"'<>]+/g;
+/**
+ * An upload's path (/uploads/media/<file>) in Markdown, on its own or in a full
+ * URL, without a query or fragment (`#page=2` is the same upload).
+ */
+const MEDIA_URL = /\/uploads\/media\/[^\s)"'<>?#]+/g;
 
 /** Each upload path in `text`, once. */
 export function uploadUrlsIn(text) {

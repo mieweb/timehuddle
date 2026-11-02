@@ -34,6 +34,13 @@ describe('uploadUrlsIn', () => {
     expect(uploadUrlsIn(text)).toEqual(['/uploads/media/u1-ab.png', '/uploads/media/u1-cd.pdf']);
   });
 
+  it('reads the path without a query or fragment, so it matches the item', () => {
+    expect(uploadUrlsIn('See [p2](/uploads/media/u1-cd.pdf#page=2) and ![x](/uploads/media/u1-ab.png?v=3)')).toEqual([
+      '/uploads/media/u1-cd.pdf',
+      '/uploads/media/u1-ab.png',
+    ]);
+  });
+
   it('is empty for text without uploads, or no text', () => {
     expect(uploadUrlsIn('Just words /uploads/other/x.png')).toEqual([]);
     expect(uploadUrlsIn(undefined)).toEqual([]);
