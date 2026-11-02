@@ -8,6 +8,8 @@
  * here. Nothing is recorded in between — there is no reservation table.
  *
  *   library  → the uploader's media library
+ *   post     → nowhere yet: a video file added to a Huddle post, which the
+ *              composer attaches itself; its media item is embedded
  *   ticket   → an attachment on a Huddle ticket
  *   clock    → an attachment on the uploader's own clock session
  *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
@@ -28,6 +30,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { createAttachment } from './attachments.js';
 import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
+import { CANONICAL_ITEM, cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -37,6 +40,8 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const clockModule = () => import('./clock.js');
 
 const LIBRARY_NOTE = 'Added to the media library';
+const POST_NOTE = 'Ready for its post';
+const WALKTHROUGH_FILE_NOTE = 'Ready for your request';
 
 function requireId(id, what) {
   if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', `Invalid ${what} id`);
@@ -61,10 +66,12 @@ const attachment = (kind, check) => ({
     return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
   },
   async deliver(userId, { id }, video) {
+    // The video's name lives on its media item (video-names.js), not here.
+    // Embedded: a ticket's or session's video isn't for the library.
+    await addToLibrary(userId, video, { embedded: true });
     await createAttachment({
       url: video.url,
       type: 'video',
-      title: video.title,
       attachedTo: { kind, id },
       addedBy: userId,
     });
@@ -79,27 +86,65 @@ const attachment = (kind, check) => ({
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
-/** The video's media-library item, created once; returns its id. */
-async function addToLibrary(userId, video) {
+/**
+ * The video's media item, created once; returns its id. It holds the video's
+ * one name. `embedded` keeps it out of the uploader's library and profile
+ * (media.list / media.listForUser): for a video that only belongs where it
+ * was sent, such as a clock session, a timesheet walkthrough or a Huddle post
+ * — one recorded for a post stays out of the library once the post is gone.
+ */
+async function addToLibrary(userId, video, { embedded = false } = {}) {
   const media = rawDb().collection('mediaitems');
-  const existing = await media.findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-  if (existing) return existing._id.toHexString();
+  // An item made before this delivery: an earlier one, or a rename while the
+  // video was still uploading (videos.rename), which knows only the name.
+  // Fill in what the upload knows that it doesn't, and, sent somewhere it
+  // belongs in the library after all, show it there now. The finished
+  // upload's size always wins: a size recorded before it finished isn't one.
+  const finish = (item) => {
+    const known = { mimeType: video.mimeType, filename: video.filename, size: video.size, uploadedAt: new Date() };
+    const $set = Object.fromEntries(
+      Object.entries(known).filter(
+        ([field, value]) => value != null && (item[field] == null || (field === 'size' && item.size !== value)),
+      ),
+    );
+    const update = {
+      ...(Object.keys($set).length ? { $set } : {}),
+      ...(!embedded && item.embedded ? { $unset: { embedded: '' } } : {}),
+    };
+    return Object.keys(update).length ? media.updateOne({ _id: item._id }, update) : null;
+  };
+  const projection = { _id: 1, embedded: 1, mimeType: 1, filename: 1, size: 1, uploadedAt: 1 };
+  const existing = await media.findOne({ videoid: video.artifactId }, { projection, ...CANONICAL_ITEM });
+  if (existing) {
+    await finish(existing);
+    return existing._id.toHexString();
+  }
   const _id = new ObjectId();
-  await media.insertOne({
-    _id,
-    userId,
-    type: 'video',
-    mimeType: video.mimeType,
-    url: video.url,
-    videoid: video.artifactId,
-    filename: video.filename,
-    size: video.size,
-    title: video.title,
-    caption: null,
-    altText: null,
-    thumbnail: null,
-    uploadedAt: new Date(),
-  });
+  try {
+    await media.insertOne({
+      _id,
+      userId,
+      type: 'video',
+      mimeType: video.mimeType,
+      url: video.url,
+      videoid: video.artifactId,
+      filename: video.filename,
+      size: video.size,
+      // The video's one name (video-names.js): the draft's or the file's, until renamed.
+      title: cleanVideoName(video.name),
+      caption: null,
+      altText: null,
+      thumbnail: null,
+      ...(embedded ? { embedded: true } : {}),
+      uploadedAt: new Date(),
+    });
+  } catch (err) {
+    // A replayed delivery got there first (one item per video): use that one.
+    if (!isDuplicateKey(err)) throw err;
+    const winner = await media.findOne({ videoid: video.artifactId }, { projection, ...CANONICAL_ITEM });
+    await finish(winner);
+    return winner._id.toHexString();
+  }
   return _id.toHexString();
 }
 
@@ -145,7 +190,7 @@ function postAttachment(mediaId, video) {
 
 /** A new Huddle post carrying the video, with the Pulse draft's name as its text. */
 async function postVideo(userId, video, { teamId, postDate }) {
-  const mediaId = await addToLibrary(userId, video);
+  const mediaId = await addToLibrary(userId, video, { embedded: true });
   return createHuddlePost(userId, {
     teamId,
     content: { text: video.name ?? '', mentions: [] },
@@ -202,22 +247,55 @@ async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
   await clockStart(userId, { teamId, planPostId, reuseOpen: true });
 }
 
+/**
+ * A video file its form attaches once it's filed (a post, a timesheet
+ * change): embedded, so it never shows in the library, whatever becomes of
+ * the form. Nothing to look up first: addToLibrary is idempotent.
+ */
+function attachedLater(note) {
+  return {
+    async check() {
+      return {};
+    },
+    async delivered() {
+      return null;
+    },
+    async deliver(userId, _destination, video) {
+      await addToLibrary(userId, video, { embedded: true });
+      return note;
+    },
+  };
+}
+
 const DESTINATIONS = {
   library: {
     async check() {
       return {};
     },
+    // In the library: an item that isn't embedded. One a rename made while it
+    // uploaded, or a ticket's, is embedded, so this delivery still runs.
     async delivered(_userId, _destination, video) {
       const item = await rawDb()
         .collection('mediaitems')
-        .findOne({ videoid: video.artifactId }, { projection: { _id: 1 } });
-      return item ? LIBRARY_NOTE : null;
+        .findOne({ videoid: video.artifactId }, { projection: { embedded: 1 }, ...CANONICAL_ITEM });
+      return item && !item.embedded ? LIBRARY_NOTE : null;
     },
     async deliver(userId, _destination, video) {
       await addToLibrary(userId, video);
       return LIBRARY_NOTE;
     },
   },
+
+  // A video file added in Huddle's message box, scheduled posts included: the
+  // composer attaches it once it's filed. Embedded, as every post's video is,
+  // so deleting the post (or cancelling it unsent) doesn't put it in the
+  // library. Nothing to look up first: addToLibrary is idempotent.
+  post: attachedLater(POST_NOTE),
+
+  // A video file picked as a timesheet change's walkthrough, before the
+  // request exists (timesheet-request needs it): the form attaches it once it
+  // sends. Embedded, so it stays off the requester's profile, sent or not.
+  walkthrough: attachedLater(WALKTHROUGH_FILE_NOTE),
 
   huddle: {
     async check(userId, { teamId }) {
@@ -234,12 +312,7 @@ const DESTINATIONS = {
       return post ? HUDDLE_NOTE : null;
     },
     async deliver(userId, { teamId }, video) {
-      const mediaId = await addToLibrary(userId, video);
-      await createHuddlePost(userId, {
-        teamId,
-        content: { text: video.name ?? '', mentions: [] },
-        attachments: [{ mediaId, type: 'video', url: video.url, filename: video.title }],
-      });
+      await postVideo(userId, video, { teamId });
       return HUDDLE_NOTE;
     },
   },
@@ -298,7 +371,7 @@ const DESTINATIONS = {
       const teamId = String(session.teamId);
       // Not appended twice when a delivery stopped before the clock-out.
       if (!(await existingWrapUp(userId, clockEventId, video))) {
-        const mediaId = await addToLibrary(userId, video);
+        const mediaId = await addToLibrary(userId, video, { embedded: true });
         await appendWrapUp(userId, {
           teamId,
           clockEventId,
@@ -352,6 +425,9 @@ const DESTINATIONS = {
       return WALKTHROUGH_NOTE;
     },
     async deliver(userId, { id }, video) {
+      // Its name lives on its media item, as every video's does; embedded,
+      // since a walkthrough is evidence for its reviewers, not library media.
+      await addToLibrary(userId, video, { embedded: true });
       // Still pending and still without one: a walkthrough never replaces another.
       const { matchedCount } = await rawDb()
         .collection('timesheetchangerequests')

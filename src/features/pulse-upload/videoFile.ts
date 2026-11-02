@@ -23,6 +23,12 @@ const extensionOf = (name: string) => {
   return dot === -1 ? '' : name.slice(dot).toLowerCase();
 };
 
+/** A file's name without its extension: "Screen Recording.mov" → "Screen Recording". */
+export function fileBaseName(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return (dot > 0 ? name.slice(0, dot) : name).trim();
+}
+
 /** Some browsers leave `type` empty for `.mkv`/`.3gp`, so the extension counts too. */
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/') || VIDEO_EXTENSIONS.includes(extensionOf(file.name));
@@ -59,7 +65,14 @@ export function uploadVideoFile(
       // of the same file can never be resumed: don't remember it (tus would
       // probe the old URL first, and its localStorage entries pile up).
       storeFingerprintForResuming: false,
-      metadata: { filename: file.name, filetype: file.type, videoid },
+      // `name` as a Pulse draft sends its own: the video starts out called by
+      // its file's name, until someone renames it.
+      metadata: {
+        filename: file.name,
+        filetype: file.type,
+        videoid,
+        name: fileBaseName(file.name),
+      },
       headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress: (sent, total) => {
         if (total > 0) onProgress?.(sent / total);
@@ -91,18 +104,20 @@ export function filingProblem(filed: FilingResult): string | null {
 }
 
 /**
- * Send `file` into the uploader's media library and wait until it has been
- * conformed and filed, for callers that attach the video themselves (a post,
- * a timesheet change). Returns the video id; rejects with a message to show
- * unless the video is ready.
+ * Send `file` to `destination` and wait until it has been conformed and
+ * filed, for callers that attach the video themselves: `post` for one added
+ * to a Huddle post and `walkthrough` for a timesheet change's (both kept out
+ * of the library), `library` for one that belongs there. Returns the video
+ * id; rejects with a message to show unless the video is ready.
  */
-export async function uploadVideoToLibrary(
+export async function uploadVideoTo(
+  destination: { kind: 'library' } | { kind: 'post' } | { kind: 'walkthrough' },
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
   const problem = videoFileProblem(file);
   if (problem) throw new Error(problem);
-  const reservation = await videoApi.reserve({ kind: 'library' });
+  const reservation = await videoApi.reserve(destination);
   await uploadVideoFile(file, reservation, onProgress);
   const filed = await videoApi.waitUntilFiled(reservation.videoid, reservation.uploadToken);
   const notFiled = filingProblem(filed);

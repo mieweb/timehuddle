@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { playPulseVideoCard } from '../fixtures/pulseVideo';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket } from './helpers';
 
@@ -41,10 +42,11 @@ test.describe('Ticket — upload a video file', () => {
     await expect(page.getByRole('button', { name: 'Upload a video file' })).toBeVisible();
     await uploadInput(page).setInputFiles(TEST_WEBM);
 
-    const link = page.locator('ul[aria-label="Videos"] a[href*="/pulsevault/artifacts/"]');
-    await expect(link).toBeVisible({ timeout: 60000 });
+    const src = await playPulseVideoCard(page.locator('ul[aria-label="Videos"]'), {
+      timeout: 60000,
+    });
 
-    const res = await page.request.get((await link.getAttribute('href'))!);
+    const res = await page.request.get(src);
     expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toBe('video/mp4');
     expect((await res.body()).toString('latin1', 4, 8)).toBe('ftyp');

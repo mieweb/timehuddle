@@ -10,6 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type APIRequestContext, type Page, type Route } from '@playwright/test';
 
+import { playPulseVideoCard } from '../fixtures/pulseVideo';
+
 const FIXTURES_DIR = path.join(__dirname, '../fixtures');
 export const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
 
@@ -185,9 +187,8 @@ export async function uploadVideoToTicket(page: Page, ticketTitle: string): Prom
     )
     .toBe(true);
   await page.reload();
-  await expect(
-    page.locator('ul[aria-label="Videos"]').locator(`a[href*="${videoid}"]`),
-  ).toBeVisible({ timeout: 10000 });
+  // A Pulse video shows as a card that plays inline, not as a link.
+  await playPulseVideoCard(page.locator('ul[aria-label="Videos"]'), { videoid });
 }
 
 /** What a stubbed ticket call answers: a result, or a refusal the app shows. */

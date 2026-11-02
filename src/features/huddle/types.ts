@@ -14,6 +14,9 @@ export interface MediaItem {
   type: string;
   size: number;
   mimeType?: string;
+  /** An image's size in pixels, measured before upload (absent when unknown). */
+  width?: number;
+  height?: number;
 }
 
 export interface MentionNode {

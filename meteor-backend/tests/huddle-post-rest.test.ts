@@ -119,7 +119,7 @@ describe('huddle post authoring over REST', () => {
     const attachment = {
       mediaId: 'e5adf23f-4bca-4c15-b90e-25105b96f8a2',
       type: 'video',
-      url: 'https://example.test/pulsevault/artifacts/e5adf23f-4bca-4c15-b90e-25105b96f8a2',
+      url: '/pulsevault/artifacts/e5adf23f-4bca-4c15-b90e-25105b96f8a2',
       filename: 'clip.mp4',
     };
 
@@ -139,6 +139,20 @@ describe('huddle post authoring over REST', () => {
     const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
     expect(post!.attachments).toHaveLength(1);
     expect(post!.attachments[0]).toMatchObject(attachment);
+  });
+
+  it("refuses an attachment that isn't the poster's own upload or a Pulse video", async () => {
+    const res = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: 'Borrowed file', mentions: [] },
+        attachments: [{ mediaId: 'x', type: 'file', url: 'https://example.test/uploads/media/report.pdf' }],
+        postDate: todayString(),
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
   });
 
   it('updates a post over REST', async () => {
@@ -196,11 +210,11 @@ describe('huddle post authoring over REST', () => {
       authorJwt,
     );
     expect(updated.ok).toBe(true);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
-    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
+    // Marked for the sweep, which deletes it once the grace period is over.
+    expect((await db.collection('mediaitems').findOne({ url }))?.discardAt).toBeInstanceOf(Date);
   });
 
-  it('keeps embedded media while another post references it, then removes it on delete', async () => {
+  it('keeps embedded media while another post references it, then marks it to go on delete', async () => {
     const created = await wormhole<{ id: string }>(
       'huddle.createPost',
       {
@@ -230,7 +244,9 @@ describe('huddle post authoring over REST', () => {
       authorJwt,
     );
     expect(updated.ok).toBe(true);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeTruthy();
+    const kept = await db.collection('mediaitems').findOne({ url });
+    expect(kept).toBeTruthy();
+    expect(kept!.discardAt).toBeUndefined();
 
     const backup = {
       _id: new ObjectId(reference.result.id),
@@ -239,9 +255,8 @@ describe('huddle post authoring over REST', () => {
     };
     await db.collection('inlineImageBackups').insertOne(backup);
     await deletePostViaDdp(reference.result.id);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
+    expect((await db.collection('mediaitems').findOne({ url }))?.discardAt).toBeInstanceOf(Date);
     expect(await db.collection('inlineImageBackups').findOne({ _id: backup._id })).toBeNull();
-    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
   });
 
   it('stores each supported format, keeps the text around it, and leaves the rest inline', async () => {

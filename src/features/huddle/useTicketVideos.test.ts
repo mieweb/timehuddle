@@ -10,8 +10,16 @@ vi.mock('@lib/api', () => ({
 
 const mockList = vi.mocked(attachmentApi.list);
 
+/** A UUID-shaped artifact id for a readable test id, as PulseVault's are. */
+const artifactFor = (id: string) =>
+  `00000000-0000-4000-8000-${[...id]
+    .map((c) => c.charCodeAt(0).toString(16))
+    .join('')
+    .padStart(12, '0')
+    .slice(-12)}`;
+
 function videoAttachment(id: string) {
-  return { id, type: 'video', url: `/pulsevault/artifacts/${id}`, title: id };
+  return { id, type: 'video', url: `/pulsevault/artifacts/${artifactFor(id)}`, title: id };
 }
 
 /** A promise plus the handle to settle it, so a request can be held in flight. */
@@ -43,6 +51,23 @@ describe('useTicketVideos', () => {
     const { result } = renderHook(() => useTicketVideos(['ticket-a']));
 
     expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.videos.map((v) => v.id)).toEqual(['vid-a']);
+  });
+
+  it('leaves out a video that is not a Pulse video, which a post cannot carry', async () => {
+    mockList.mockResolvedValue([
+      videoAttachment('vid-a'),
+      {
+        id: 'yt-1',
+        type: 'video',
+        url: 'https://www.youtube.com/watch?v=f0PvEs5l1qs',
+        title: 'yt',
+      },
+    ] as never);
+
+    const { result } = renderHook(() => useTicketVideos(['ticket-a']));
+
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.videos.map((v) => v.id)).toEqual(['vid-a']);
   });

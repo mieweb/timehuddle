@@ -1,0 +1,108 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import React, { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { VideoFeedView, type FeedVideo } from './VideoFeedView';
+
+vi.mock('@lib/api', () => ({
+  resolveMediaUrl: (path: string) => path,
+  METEOR_BASE_URL: 'http://localhost:3100',
+}));
+
+const FIRST = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
+const SECOND = '1c8f8d2f-6b4a-4d2e-8f3b-7a2e3d4c5b6a';
+const VIDEOS: FeedVideo[] = [
+  { id: FIRST, name: 'Standup' },
+  { id: SECOND, name: 'Sprint demo' },
+];
+
+/** A card's ▶ and the feed it opens, as a host wires them. */
+function Host() {
+  const [openId, setOpenId] = useState<string | null>(null);
+  return (
+    <>
+      <button type="button" onClick={() => setOpenId(SECOND)}>
+        Play Sprint demo
+      </button>
+      <VideoFeedView videos={VIDEOS} openId={openId} onClose={() => setOpenId(null)} />
+    </>
+  );
+}
+
+describe('VideoFeedView', () => {
+  afterEach(cleanup);
+
+  it('opens over the page on the video tapped, with the others in the feed', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'Play Sprint demo' }));
+    const feed = screen.getByRole('dialog', { name: 'Videos' });
+    expect(feed.parentElement).toBe(document.body);
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(screen.getByRole('article', { name: 'Sprint demo' }).getAttribute('data-active')).toBe(
+      'true',
+    );
+  });
+
+  it('closes on Back and returns focus to the ▶ that opened it', () => {
+    render(<Host />);
+    const play = screen.getByRole('button', { name: 'Play Sprint demo' });
+    play.focus();
+    fireEvent.click(play);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(play);
+  });
+
+  it('leaves Escape to a video’s open ⋯ menu first', () => {
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={() => {}} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(more, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Videos' })).toBeTruthy();
+  });
+
+  it.each([
+    ['its ⋯', () => screen.getByRole('button', { name: 'More for Standup' })],
+    ['an item of its menu', () => screen.getByRole('menuitem', { name: 'Copy link' })],
+  ])('closes only an open ⋯ menu on Escape from %s, not a window under the feed', (_, target) => {
+    const underneath = vi.fn();
+    document.addEventListener('keydown', underneath);
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={() => {}} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    fireEvent.keyDown(target(), { key: 'Escape' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('dialog', { name: 'Videos' })).toBeTruthy();
+    expect(underneath).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', underneath);
+  });
+
+  it('closes only the ⋯ menu on Escape from another control while that menu is open', () => {
+    const onClose = vi.fn();
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={onClose} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    // Focus moved on to another control in the feed, the menu still open.
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Escape' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes on Escape without it reaching a window under it', () => {
+    const underneath = vi.fn();
+    document.addEventListener('keydown', underneath);
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'Play Sprint demo' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(underneath).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', underneath);
+  });
+});

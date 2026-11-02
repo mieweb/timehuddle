@@ -5,7 +5,7 @@ import { resolveSince } from './huddle-window-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
-import { discardMedia } from './uploads';
+import { discardMedia, discardUnusedMedia, isUploadInUse, keepReferencedUploads, removeMediaFile } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
 import { GROUP_MENTIONS, deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
@@ -18,6 +18,14 @@ import {
   visibleTo,
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
+import { videoIdOf, videoNamesFor } from './video-names.js';
+import {
+  AttachmentError,
+  cleanPostAttachments,
+  dueDiscards,
+  keepForPost,
+  sweepDiscardedUploads,
+} from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -56,6 +64,15 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
+  try {
+    // sweepUnusedUploads: only the few uploads marked to go.
+    await rawDb().collection('mediaitems').createIndex({ discardAt: 1 }, { sparse: true });
+  } catch (error) {
+    console.error('[huddle] failed to create the upload discard index:', error);
+  }
+  Meteor.setInterval(() => {
+    sweepUnusedUploads().catch((err) => console.error('[huddle] failed to sweep unused uploads:', err));
+  }, DISCARD_SWEEP_INTERVAL_MS);
   // #723: posts used to link one `ticketId`; move it into the `ticketIds` list.
   try {
     await rawDb().collection('huddlePosts').updateMany({ ticketId: { $exists: true } }, [
@@ -230,7 +247,12 @@ async function enrichPost(post) {
       : post.clockEventId
         ? await fetchOwnedSession(post)
         : undefined;
-  
+
+  // A video's name is its media item's (video-names.js), shown on its card
+  // here as everywhere else. A feed looked them all up at once
+  // (attachEnrichment); a single post looks up its own, none without a video.
+  const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
+
   return {
     id,
     teamId: post.teamId,
@@ -241,6 +263,16 @@ async function enrichPost(post) {
     tickets,
     attachments: (post.attachments ?? []).map((att) => ({
       ...att,
+      // Its name, and who may rename it: the video's owner, not necessarily
+      // whoever posted it (a post can carry a ticket's videos). A video from
+      // before every video had a media item is owned by whoever PulseVault
+      // says uploaded it (videoNamesFor); null when it doesn't know.
+      ...(att.type === 'video'
+        ? (() => {
+            const video = videoNames.get(videoIdOf(att.url));
+            return { name: video?.name ?? null, ownerId: video?.ownerId ?? null };
+          })()
+        : {}),
       url: att.url && /^https?:\/\//i.test(att.url)
         ? att.url
         : `${METEOR_BASE_URL}${att.url?.startsWith('/') ? '' : '/'}${att.url ?? ''}`,
@@ -312,29 +344,36 @@ async function attachSessions(posts) {
   return posts;
 }
 
+/** The ids of a post's PulseVault videos. */
+function postVideoIds(post) {
+  return (post.attachments ?? []).map((att) => (att.type === 'video' ? videoIdOf(att.url) : null));
+}
+
 /**
  * Batch lookups for a list of posts — one `$in` query each for sessions,
  * authors and ticket titles instead of one per post, since
  * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
- * unbounded feed. Mutates each post with `session`, `authorInfo` and
- * `tickets`, which `enrichPost` then just passes through.
+ * unbounded feed. Mutates each post with `session`, `authorInfo`, `tickets`
+ * and `videoNames`, which `enrichPost` then just passes through.
  */
 async function attachEnrichment(posts) {
   if (!posts.length) return posts;
   const userIds = [...new Set(posts.map((p) => String(p.userId)))];
   const ticketIds = [...new Set(posts.flatMap((p) => (p.ticketIds ?? []).map(String)))];
-  const [users, ticketsById] = await Promise.all([
+  const [users, ticketsById, videoNames] = await Promise.all([
     rawDb()
       .collection('users')
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
     fetchPostTickets(ticketIds),
+    videoNamesFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
   for (const post of posts) {
     post.authorInfo = toUserInfo(usersById.get(String(post.userId)));
     post.tickets = toPostTickets(post, ticketsById);
+    post.videoNames = videoNames;
   }
   return posts;
 }
@@ -501,6 +540,94 @@ export async function requireTeamMember(userId, teamId) {
 }
 
 /**
+ * Uploads a post no longer carries (it was deleted, or an edit took them off),
+ * marked to be deleted with their files (discardMark) when they're the
+ * author's and nothing else uses them (uploadUseQueries): no other post
+ * carries or shows them, and no ticket has them as an attachment or in its
+ * description. The sweep below deletes them once the grace period is over and
+ * they're still unused, so a post that checked one just before it was dropped
+ * keeps it (keepForPost). Pulse videos stay (they're PulseVault's).
+ * Best-effort: a failure leaves a file behind, never fails the delete or the edit.
+ */
+async function discardUnusedUploads(attachments, authorId) {
+  try {
+    const ids = attachments
+      .filter((att) => !(att?.type === 'video' && videoIdOf(att.url)))
+      .map((att) => att?.mediaId)
+      .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id));
+    if (ids.length === 0) return;
+    const items = await rawDb()
+      .collection('mediaitems')
+      .find({ _id: { $in: ids.map((id) => new ObjectId(id)) }, userId: authorId }, { projection: { url: 1 } })
+      .toArray();
+    await discardUnusedMedia(items);
+  } catch (err) {
+    console.error('[huddle] failed to clean up a post\'s unused uploads:', err);
+  }
+}
+
+const DISCARD_SWEEP_INTERVAL_MS = 2 * 60_000;
+const DISCARD_SWEEP_BATCH = 100; // items per pass; any remainder waits for the next one
+
+/**
+ * Delete the uploads discardUnusedUploads marked, once their grace period is
+ * over, if nothing uses them still (sweepDiscardedUploads). Safe to run on
+ * every server at once: each row's delete is conditional, and only the server
+ * whose delete removed the row removes the file.
+ */
+async function sweepUnusedUploads() {
+  const now = new Date();
+  const media = rawDb().collection('mediaitems');
+  const due = await media
+    .find(dueDiscards(now), { projection: { url: 1, filename: 1, discardAt: 1 } })
+    .limit(DISCARD_SWEEP_BATCH)
+    .toArray();
+  await sweepDiscardedUploads(due, now, {
+    isUsed: isUploadInUse,
+    keep: (filter) => media.updateOne(filter, { $unset: { discardAt: '' } }),
+    deleteRow: async (filter) => (await media.deleteOne(filter)).deletedCount,
+    removeFile: removeMediaFile,
+  });
+}
+
+/**
+ * `attachments` checked for a post by `userId` (post-attachments-core.js):
+ * their own uploads, Pulse videos, or ones the post already has (`existing`).
+ */
+async function checkedAttachments(userId, attachments, existing = []) {
+  const ids = Array.isArray(attachments)
+    ? attachments.map((att) => att?.mediaId).filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+    : [];
+  if (ids.length) {
+    // Before the check: an upload a post dropped stays for this one
+    // (keepForPost), or is already gone and fails the check.
+    const { filter, update } = keepForPost({ objectIds: ids.map((id) => new ObjectId(id)), userId });
+    await rawDb().collection('mediaitems').updateMany(filter, update);
+  }
+  const items = ids.length
+    ? await rawDb()
+        .collection('mediaitems')
+        .find(
+          { _id: { $in: ids.map((id) => new ObjectId(id)) } },
+          { projection: { userId: 1, url: 1, mimeType: 1, title: 1, filename: 1, size: 1 } },
+        )
+        .toArray()
+    : [];
+  try {
+    return cleanPostAttachments({
+      attachments,
+      userId,
+      mediaById: new Map(items.map((item) => [item._id.toHexString(), item])),
+      pulseVideoOf: videoIdOf,
+      existing,
+    });
+  } catch (err) {
+    if (err instanceof AttachmentError) throw new Meteor.Error('bad-request', err.message);
+    throw err;
+  }
+}
+
+/**
  * Create a published Huddle post as `userId`, after the same checks the
  * `huddle.createPost` method makes (team membership, ticket, mentions, clock
  * session ownership). Shared with server-side callers — a Pulse upload that
@@ -522,6 +649,7 @@ export async function createHuddlePost(
     throw new Meteor.Error('bad-request', 'Plan and wrap-up posts cannot be scheduled');
   }
   const team = await requireTeamMember(userId, teamId);
+  const postAttachments = await checkedAttachments(userId, attachments ?? []);
 
   const postTicketIds = resolveTicketIds({ ticketIds, ticketId }) ?? [];
   await requireTeamTickets(postTicketIds, teamId);
@@ -556,6 +684,8 @@ export async function createHuddlePost(
   }
   
   const { text, media } = await externalizeInlineImages(content.text, userId);
+  // An upload or image a post dropped, waiting to be deleted, stays for this text.
+  await keepReferencedUploads([text]);
   const doc = {
     _id: new ObjectId(),
     teamId,
@@ -566,7 +696,7 @@ export async function createHuddlePost(
       ...(groupMentions.length ? { groupMentions } : {}),
     },
     ticketIds: postTicketIds,
-    attachments: attachments ?? [],
+    attachments: postAttachments,
     likes: [],
     commentCount: 0,
     ...(postDate ? { postDate } : {}),
@@ -908,8 +1038,16 @@ Meteor.methods({
     // Omitted keeps the post's tickets; `[]` (or a legacy `ticketId: null`) clears them.
     const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
     await requireTeamTickets(postTicketIds, post.teamId);
+    // An edit by an admin keeps the author's uploads it already carries.
+    // Omitted keeps the post's attachments; `null` clears them, as `[]` does.
+    const postAttachments =
+      attachments === undefined
+        ? undefined
+        : await checkedAttachments(identity.userId, attachments, post.attachments ?? []);
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
+    // An upload or image a post dropped, waiting to be deleted, stays for this text.
+    await keepReferencedUploads([text]);
     let replacedPost;
     try {
       replacedPost = await rawDb().collection('huddlePosts').findOneAndUpdate(
@@ -923,7 +1061,7 @@ Meteor.methods({
             },
             // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.
-            ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
+            ...(postAttachments !== undefined ? { attachments: postAttachments } : {}),
             ...(postTicketIds !== undefined ? { ticketIds: postTicketIds } : {}),
             ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
             updatedAt: new Date(),
@@ -941,6 +1079,13 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Post not found');
     }
     await discardUnreferencedInlineImages(replacedPost.content?.text);
+    if (postAttachments) {
+      const kept = new Set(postAttachments.map((att) => att.url));
+      await discardUnusedUploads(
+        (replacedPost.attachments ?? []).filter((att) => !kept.has(att.url)),
+        replacedPost.userId,
+      );
+    }
 
     return { id: postId };
   },
@@ -1025,6 +1170,7 @@ Meteor.methods({
     if (deletedPost) {
       await rawDb().collection('inlineImageBackups').deleteOne({ _id: deletedPost._id });
       await discardUnreferencedInlineImages(deletedPost.content?.text);
+      await discardUnusedUploads(deletedPost.attachments ?? [], deletedPost.userId);
       if (isAwaitingDelivery(deletedPost)) {
         // Best-effort: the post is already gone either way — a stale job
         // will simply find no post to publish and no-op.

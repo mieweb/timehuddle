@@ -2,8 +2,9 @@
 /**
  * Build and sync the vendored @mieweb/ui (the vendor/ui submodule).
  *
- * vendor/ui tracks a branch on our fork of mieweb/ui where SuperChat changes
- * are prototyped as an upstream PR; TimeHuddle consumes it as the committed
+ * vendor/ui tracks mieweb/ui's timehuddle/next integration branch, where
+ * changes waiting on their upstream PRs are merged; TimeHuddle consumes it as
+ * the committed
  * vendor/mieweb-ui.tgz (`"@mieweb/ui": "file:vendor/mieweb-ui.tgz"`).
  *
  *   npm run ui:build   rebuild the tarball from vendor/ui's current commit
@@ -66,7 +67,7 @@ function sync() {
   if (!remotes.includes('upstream')) sh(`git remote add upstream ${UPSTREAM_URL}`, UI_DIR);
   sh('git fetch upstream main', UI_DIR);
   sh('git merge --no-edit upstream/main', UI_DIR);
-  log('merged upstream/main. Push the branch to the fork when ready: git -C vendor/ui push');
+  log('merged upstream/main. Push it when ready: git -C vendor/ui push');
 }
 
 function build({ force }) {

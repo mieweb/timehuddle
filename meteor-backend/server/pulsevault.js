@@ -39,7 +39,9 @@ import {
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
+import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
+import { libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -84,16 +86,32 @@ export async function artifactBelongsTo(artifactId, userId) {
   if (!artifactId || !userId) return false;
   const media = await rawDb()
     .collection('mediaitems')
-    .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
+    .findOne({ videoid: artifactId }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
   if (media) return media.userId === userId;
 
-  // The status describes whatever artifact the id names (a thumbnail's or
-  // captions' id carries its owner's context too), and exists from the moment
-  // the upload was created — so it must be a video, and bytes must have
-  // arrived: a reservation that was never used is not evidence.
+  return (await artifactUploader(artifactId)) === userId;
+}
+
+/**
+ * Who uploaded this video by PulseVault's own record (uploaderOf), or null.
+ * The status describes whatever artifact the id names (a thumbnail's or
+ * captions' id carries its owner's context too), and exists from the moment
+ * the upload was created — so it must be a video, and bytes must have
+ * arrived: a reservation that was never used is not evidence.
+ */
+export async function artifactUploader(artifactId) {
+  return uploaderOf(await core.getStatus(artifactId).catch(() => null));
+}
+
+/** PulseVault's status for a video by this id (an upload under way counts), else null. */
+export async function videoArtifactStatus(artifactId) {
   const status = await core.getStatus(artifactId).catch(() => null);
-  if (!status || status.kind !== 'video' || status.context?.userId !== userId) return false;
-  return status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
+  return status?.kind === 'video' ? status : null;
+}
+
+/** Whether PulseVault holds a video by this id (an upload under way counts). */
+export async function videoArtifactExists(artifactId) {
+  return (await videoArtifactStatus(artifactId)) !== null;
 }
 
 /**
@@ -401,7 +419,7 @@ Meteor.methods({
     if (!artifactId || typeof artifactId !== 'string') {
       throw new Meteor.Error('bad-request', 'artifactId is required');
     }
-    const doc = await rawDb().collection('mediaitems').findOne({ videoid: artifactId });
+    const doc = await rawDb().collection('mediaitems').findOne({ videoid: artifactId }, CANONICAL_ITEM);
     if (!doc) throw new Meteor.Error('not-found', 'Video not found');
     return {
       artifactId: doc.videoid,
@@ -417,14 +435,18 @@ Meteor.methods({
 
   /**
    * List videos from the media library for the calling user.
-   * Filters to type='video' so images are excluded.
+   * Filters to type='video' so images are excluded, and leaves out what
+   * media.list does (libraryItemsFilter): embedded ones (a ticket's, a
+   * session's, a post's, a walkthrough, one named mid-upload) and ones the
+   * user's Huddle posts carry. They belong where they were sent, not in the library.
    */
   async 'pulsevault.listVideos'({ limit } = {}) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb()
       .collection('mediaitems')
-      .find({ userId: identity.userId, type: 'video' })
+      .find({ userId, type: 'video', ...(await libraryItemsFilter(userId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();

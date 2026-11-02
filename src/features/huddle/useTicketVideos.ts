@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { attachmentApi } from '@lib/api';
+import { pulseArtifactId } from '../pulse-upload/artifact';
 import type { MediaItem } from './types';
 
 export interface TicketVideos {
@@ -43,7 +44,9 @@ export function useTicketVideos(ticketIds: string[]): TicketVideos {
           error: null,
           videos: lists
             .flat()
-            .filter((att) => att.type === 'video')
+            // Only Pulse videos: the server takes a post's video only as one
+            // (an older ticket's YouTube link would refuse the whole post).
+            .filter((att) => att.type === 'video' && pulseArtifactId(att.url))
             .map((att) => ({
               id: att.id,
               url: att.url,

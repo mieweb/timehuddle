@@ -9,6 +9,8 @@ export default defineConfig({
       'src/**/*.test.tsx',
       // Shared with the backend, so its tests run here too, and in CI (#734).
       'packages/ticket-sources/**/*.test.ts',
+      // Run by the frontend's own server, so tested with it.
+      'scripts/**/*.test.ts',
     ],
     environment: 'jsdom',
   },

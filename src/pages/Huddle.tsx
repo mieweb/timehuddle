@@ -9,13 +9,21 @@ import {
   Alert,
   Button,
   ButtonGroup,
+  type ChatComposerError,
   Dropdown,
   DropdownItem,
   Input,
   Spinner,
   Text,
 } from '@mieweb/ui';
-import { SuperChatInbox, type ComposerAttachment } from '@mieweb/ui/components/SuperChat';
+import {
+  SuperChatInbox,
+  type ComposerAttachment,
+  type SuperChatConversation,
+  type SuperChatMediaFeedProps,
+  type SuperChatMessage,
+  type SuperChatRenderMessageMedia,
+} from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
   createImagePlugin,
@@ -31,14 +39,18 @@ import {
 } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage } from '../features/huddle/composerErrors';
+import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
 import {
+  dayConversationId,
   defaultConversation,
+  keptAttachments,
   isAwaitingDelivery,
   postsToConversations,
+  postVideoNames,
+  pendingPostMessage,
+  pulseVideoOfMedia,
   searchConversations,
   starterConversation,
-  stripInboxDecorations,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
   withTodayConversation,
@@ -47,6 +59,10 @@ import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
+import { PulseVideoPlayer, VIDEO_CARD_SIZE } from '../features/pulse-upload/PulseVideoPlayer';
+import { VideoMenu } from '../features/pulse-upload/VideoMenu';
+import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
 import { HuddleNotifyMenu } from '../features/huddle/HuddleNotifyMenu';
 import { useHuddleViewing } from '../features/huddle/useHuddleViewing';
@@ -91,6 +107,10 @@ const ME_FEED_KEY = 'me';
 const LINK_SEARCH_MAX_DAYS = 360;
 // Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
 const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
+/** That cap as the composer's refusal says it. */
+const COMPOSER_MAX_FILE_LABEL = '25 MB';
+/** The composer's attachment cap (ChatComposer's default). */
+const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
@@ -295,6 +315,14 @@ export default function Huddle() {
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
+  // The post being sent with files, shown in its conversation while they
+  // upload (SuperChat's pending message: dimmed, "Sending… 45%"), until the
+  // real post (`postId`) arrives or the send fails.
+  const [pendingPost, setPendingPost] = useState<{
+    conversationId: string;
+    message: SuperChatMessage;
+    postId?: string;
+  } | null>(null);
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -342,7 +370,10 @@ export default function Huddle() {
   const meLoadedRef = useRef(false);
   const refreshMyPosts = useCallback(async () => {
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getMyPosts(meSince);
+      // The server's names as of the fetch, newer than any rename made before it.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // Answered for a window that has since moved on; the newer fetch owns the state.
       if (meSinceRef.current !== meSince) return;
       setMyPosts(page.posts);
@@ -443,7 +474,10 @@ export default function Huddle() {
   const refreshFeed = useCallback(async (): Promise<boolean> => {
     if (!selectedTeamId) return true;
     try {
+      const asOf = Date.now();
       const page = await huddleApi.getPosts(selectedTeamId, teamSince);
+      // The server's names as of the fetch, whichever copy of a post wins below.
+      noteVideoNames(postVideoNames(page.posts), asOf);
       // A refetch that outlived a team switch (e.g. the post-send retry loop)
       // must not write the old team's snapshot over the new team's feed; the
       // same goes for one answered for a window that has since widened.
@@ -637,6 +671,8 @@ export default function Huddle() {
   // linking a plan to its session, clock-out closing it). `nowMinute` keeps a
   // live session's worked duration moving without regrouping every second.
   const nowMinute = Math.floor(currentTime / 60_000) * 60_000;
+  // A rename doesn't change the post, so the feed rebuilds on a name itself.
+  const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
     const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
     return user
@@ -648,7 +684,7 @@ export default function Huddle() {
           nowMinute,
         )
       : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope]);
+  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:
@@ -660,7 +696,86 @@ export default function Huddle() {
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
   }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
+  // A post sending with files shows in the conversation it was sent from.
+  const shownConversations = useMemo<SuperChatConversation[]>(
+    () =>
+      pendingPost
+        ? conversations.map((c) =>
+            c.id === pendingPost.conversationId
+              ? { ...c, thread: [...c.thread, pendingPost.message] }
+              : c,
+          )
+        : conversations,
+    [conversations, pendingPost],
+  );
+  useEffect(() => {
+    if (pendingPost?.postId && activePosts.some((p) => p.id === pendingPost.postId)) {
+      setPendingPost(null);
+    }
+  }, [pendingPost, activePosts]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  // A post's Pulse video (its message's media, see superChatFeed.ts) is the
+  // same card as everywhere else; here ▶ opens the conversation's media view.
+  // Who owns each video in view, for Rename: its owner, not whoever posted it
+  // (a post can carry a ticket's videos). Read through a ref, so the media
+  // callbacks below keep their identity as posts change.
+  const videoOwners = useRef(new Map<string, string | null>());
+  videoOwners.current = useMemo(() => {
+    const owners = new Map<string, string | null>();
+    for (const post of activePosts) {
+      for (const att of post.attachments) {
+        const video = att.type === 'video' ? pulseArtifactId(att.url) : null;
+        if (video) owners.set(video, att.ownerId ?? null);
+      }
+    }
+    return owners;
+  }, [activePosts]);
+  const ownsVideo = useCallback(
+    (videoId: string) => !!user?.id && videoOwners.current.get(videoId) === user.id,
+    [user?.id],
+  );
+  // A Pulse video is our card (▶ opens it in the media view), never folded
+  // into a gallery; an image is SuperChat's own tile, and two or more its
+  // gallery.
+  const renderMessageMedia = useCallback<SuperChatRenderMessageMedia>(
+    ({ attachment, open, launchId, maxSize }) =>
+      pulseVideoOfMedia(attachment) ? (
+        <PulseVideoPlayer
+          maxSize={maxSize}
+          video={attachment.id}
+          title={videoLabel(attachment.title, attachment.id)}
+          caption={attachment.title}
+          renamable={ownsVideo(attachment.id)}
+          onOpen={open && (() => open(true))}
+          launchId={launchId}
+        />
+      ) : null,
+    [ownsVideo],
+  );
+  // The conversation's media view (SuperChat's feed of its photos and
+  // videos). Opening one is a tap to watch it, so a clip starts with its sound,
+  // as on every card (the player's own mute is in its bar); a Pulse video's ⋯
+  // menu is there too, to copy its link or rename one of your own.
+  const mediaFeedProps = useMemo<SuperChatMediaFeedProps>(
+    () => ({
+      // Mobile first: each clip edge to edge, and on a phone the media view
+      // takes the whole screen above the message box.
+      layout: 'overlay',
+      muted: false,
+      // A Pulse video's menu; an image or an uploaded file has none.
+      renderActions: ({ attachment }) =>
+        pulseVideoOfMedia(attachment) ? (
+          <VideoMenu
+            video={attachment.id}
+            name={attachment.title ?? null}
+            label={videoLabel(attachment.title, attachment.id)}
+            renamable={ownsVideo(attachment.id)}
+            inFeed
+          />
+        ) : null,
+    }),
+    [ownsVideo],
+  );
 
   // SuperChatInbox has no slot for its list header, so the page's filters are
   // portaled into it.
@@ -905,6 +1020,7 @@ export default function Huddle() {
     text: string,
     sentMentions: string[],
     composerAttachments: ComposerAttachment[],
+    conversationId: string,
     sendOption?: string,
   ) {
     // A Pulse video or ticket keeps the send button live with an empty box, so
@@ -929,13 +1045,40 @@ export default function Huddle() {
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
+      const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
       // One file at a time: each attachment arrives as a base64 `data:` URL, so
       // decoding and uploading them together would hold every string, blob and
       // File in memory at once — enough to kill a mobile WebView at the size
       // limit the picker accepts.
+      // Where the post will land: in Day grouping, its day's thread, which
+      // isn't necessarily the one it was sent from (an older day's). Open it,
+      // so the writer sees their post arrive.
+      const landsIn = threadBy === 'day' ? dayConversationId(postDate) : conversationId;
+      if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
+        openConversation(landsIn);
+      }
+      // Files take a while: show the post there meanwhile, and how far its
+      // files have uploaded.
+      if (composerAttachments.length > 0 && user) {
+        setPendingPost({
+          conversationId: landsIn,
+          message: pendingPostMessage({
+            id: `pending-${Date.now()}`,
+            userId: user.id,
+            text,
+            attachments: composerAttachments,
+          }),
+        });
+      }
+      const showProgress = (progress: number) =>
+        setPendingPost((prev) => prev && { ...prev, message: { ...prev.message, progress } });
       const media: MediaItem[] = [];
-      for (const attachment of composerAttachments) {
-        media.push(await uploadMedia(await composerAttachmentToFile(attachment)));
+      for (const [index, attachment] of composerAttachments.entries()) {
+        media.push(
+          await uploadMedia(await composerAttachmentToFile(attachment), (fraction) =>
+            showProgress((index + fraction) / composerAttachments.length),
+          ),
+        );
       }
       ({ id } = await huddleApi.createPost({
         teamId: postingTeamId,
@@ -952,11 +1095,15 @@ export default function Huddle() {
         },
         ticketIds,
         attachments: [...media, ...staged].map(toPostAttachment),
-        postDate: toDateString(sendSchedule?.deliverAt ?? new Date()),
+        postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
+      // The real post replaces it once it's in the feed (see the effect on
+      // `pendingPost`), so the thread doesn't blink empty in between.
+      setPendingPost((prev) => prev && { ...prev, postId: id });
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
+      setPendingPost(null);
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
     } finally {
@@ -967,34 +1114,59 @@ export default function Huddle() {
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
-    // The Personal view reads its own cross-team list, not the team feed —
-    // the post went to the Personal team, so it can never appear in `posts`.
-    if (scope === 'me') {
-      await refreshMyPosts();
-      return;
-    }
+    try {
+      // The Personal view reads its own cross-team list, not the team feed —
+      // the post went to the Personal team, so it can never appear in `posts`.
+      if (scope === 'me') {
+        await refreshMyPosts();
+        return;
+      }
 
-    // Show the new post without waiting on the live DDP socket, which may be
-    // down (dropped while the app was backgrounded for a Pulse recording):
-    // refreshFeed refetches over REST and overlays the result, and syncPosts
-    // drops the overlay once the subscription catches up. Retry until the post
-    // is in the feed by *either* route.
-    const ddp = getDdpClient();
-    const inFeed = () =>
-      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
-    for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-      await refreshFeed();
-      if (inFeed()) break;
+      // Show the new post without waiting on the live DDP socket, which may be
+      // down (dropped while the app was backgrounded for a Pulse recording):
+      // refreshFeed refetches over REST and overlays the result, and syncPosts
+      // drops the overlay once the subscription catches up. Retry until the post
+      // is in the feed by *either* route.
+      const ddp = getDdpClient();
+      const inFeed = () =>
+        restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
+        await refreshFeed();
+        if (inFeed()) break;
+      }
+    } finally {
+      // Never left behind, even if the post is slow to show.
+      setPendingPost((prev) => (prev?.postId === id ? null : prev));
     }
   }
 
+  // The composer refused a file: say which and why (composerErrors.ts).
+  const handleComposerError = useCallback((message: string, context?: ChatComposerError) => {
+    // A failed post: handleMessageSent has already said why ("too large",
+    // "no connection"); the box's generic "Failed to send" would cover it.
+    if (context?.reason === 'send-failed') return;
+    setInboxError(
+      composerRefusalMessage(context, {
+        limit: COMPOSER_MAX_FILE_LABEL,
+        maxFiles: COMPOSER_MAX_FILES,
+      }) ?? message,
+    );
+  }, []);
+
   // Inline edit from the feed (self-authored messages only) → huddle.updatePost
-  async function handleMessageEdited(messageId: string, text: string) {
+  async function handleMessageEdited(
+    messageId: string,
+    text: string,
+    edits: { removedMedia: string[]; removedFiles: string[] },
+  ) {
     const post = activePosts.find((p) => p.id === messageId);
     if (!post) return;
-    const shown = conversations.flatMap((c) => c.thread).find((m) => m.id === messageId)?.text;
-    const body = shown ? stripInboxDecorations(text, shown, post.content.text) : text;
+    // The edit starts from the post's text as shown (shownBody: images
+    // inlined in it show under it, and stay the post's attachments), without
+    // its label, which is the message's `label`, not its text.
+    const body = text;
+    const attachments = keptAttachments(post, edits);
     // Recompute from the edited text rather than keeping the original
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
@@ -1007,11 +1179,11 @@ export default function Huddle() {
       const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
-      await huddleApi.updatePost(messageId, {
-        text: body,
-        mentions: editedMentions,
-        groupMentions: detectGroupMentions(body),
-      });
+      await huddleApi.updatePost(
+        messageId,
+        { text: body, mentions: editedMentions, groupMentions: detectGroupMentions(body) },
+        attachments ? { attachments } : undefined,
+      );
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
       await refreshActiveScope();
@@ -1041,7 +1213,7 @@ export default function Huddle() {
         {/* Feed */}
         <div
           ref={feedRef}
-          className="huddle-feed min-h-0 min-w-0 flex-1 overflow-y-auto"
+          className="huddle-feed flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
           onClickCapture={openAppLinkHere}
         >
           {scope === 'team' && !selectedTeamId && (
@@ -1112,7 +1284,9 @@ export default function Huddle() {
                 !postUnavailable &&
                 user && (
                   <SuperChatInbox
-                    conversations={conversations}
+                    // One box for the thread's cards, ours and SuperChat's.
+                    mediaMaxSize={VIDEO_CARD_SIZE}
+                    conversations={shownConversations}
                     activeConversationId={activeConversation?.id}
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
                     currentParticipantId={user.id}
@@ -1141,11 +1315,25 @@ export default function Huddle() {
                       ) : undefined
                     }
                     renderPlugins={renderPlugins}
-                    acceptedFileTypes={['image', 'video', 'pdf']}
-                    onMessageSent={(text, { mentions: sentMentions, attachments, sendOption }) =>
-                      handleMessageSent(text, sentMentions, attachments, sendOption)
+                    renderMessageMedia={renderMessageMedia}
+                    mediaFeedProps={mediaFeedProps}
+                    acceptedFileTypes={['image', 'video', 'pdf', 'document']}
+                    onComposerError={handleComposerError}
+                    onMessageSent={(
+                      text,
+                      { conversation, mentions: sentMentions, attachments, sendOption },
+                    ) =>
+                      handleMessageSent(
+                        text,
+                        sentMentions,
+                        attachments,
+                        conversation.id,
+                        sendOption,
+                      )
                     }
-                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                    onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
+                      void handleMessageEdited(messageId, text, { removedMedia, removedFiles })
+                    }
                     composerProps={{
                       // Input on its own row, labelled buttons underneath.
                       layout: 'stacked',
@@ -1240,7 +1428,7 @@ export default function Huddle() {
                       ),
                     }}
                     // No outer border or rounding: the inbox sits on the page as the page.
-                    className={`h-full rounded-none border-0 ${styles.inbox}`}
+                    className={`min-h-0 flex-1 rounded-none border-0 ${styles.inbox}`}
                   />
                 )}
               {listHeaderEl && createPortal(inboxControls, listHeaderEl)}

@@ -4,6 +4,10 @@ import { rawDb, isValidId } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
+// The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
+import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
+import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from './media-library-core.js';
+import { keepForReference, markUnusedUploads, uploadUseQueries } from './post-attachments-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -54,6 +58,7 @@ const MIME_TO_EXT = {
   'application/vnd.ms-excel': 'xls',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'text/plain': 'txt',
+  'text/csv': 'csv',
 };
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map((s) => s.trim());
@@ -103,7 +108,13 @@ async function parseMultipart(req, allowedMimes) {
   const tmpPath = path.join(TMP_DIR, `${randomBytes(12).toString('hex')}.part`);
 
   return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE, files: 1 } });
+    // Browsers send the file's name as UTF-8; Busboy reads it as Latin-1
+    // unless told, which turns "—" or "é" in a document's name into "â€”".
+    const busboy = Busboy({
+      headers: req.headers,
+      defParamCharset: 'utf8',
+      limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+    });
 
     let fileInfo = null;
     let size = 0;
@@ -217,6 +228,16 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
     '.avif': 'image/avif', '.pdf': 'application/pdf',
   };
   const contentType = mimeTypes[ext] || 'application/octet-stream';
+  // Links are unguessable (a random name) but not signed, so nothing shared
+  // may keep a copy: browsers only. A picture or clip may stay a day in the
+  // viewer's own cache; a document isn't kept at all.
+  const media = contentType.startsWith('image/') || contentType.startsWith('video/');
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': contentType,
+    'Cache-Control': media ? 'private, max-age=86400' : 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  };
 
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
@@ -224,20 +245,13 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunkSize = (end - start) + 1;
     res.writeHead(206, {
+      ...headers,
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-      'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400',
     });
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
-    res.writeHead(200, {
-      'Content-Length': fileSize,
-      'Accept-Ranges': 'bytes',
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400',
-    });
+    res.writeHead(200, { ...headers, 'Content-Length': fileSize });
     fs.createReadStream(filePath).pipe(res);
   }
 });
@@ -420,62 +434,113 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   }
 }
 
+/** Remove a media document's file; its row is the caller's to delete. */
+export function removeMediaFile(doc) {
+  unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+}
+
+/**
+ * Run before saving a reference to uploads outside a post (an attachment's
+ * URL, a ticket's description; `texts` as keepForReference takes them): their
+ * discard marks go, so the sweep (huddle.js sweepUnusedUploads) keeps them.
+ * One the sweep already deleted stays gone; the reference is saved as one to
+ * any missing file is, since neither checks that what it points at exists.
+ */
+export async function keepReferencedUploads(texts) {
+  const kept = keepForReference(texts);
+  if (kept) await rawDb().collection('mediaitems').updateMany(kept.filter, kept.update);
+}
+
+/** Whether anything still uses this media item (uploadUseQueries). */
+export async function isUploadInUse(item) {
+  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+    if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
+  }
+  return false;
+}
+
+/**
+ * Mark the media `items` (`_id` and `url`) nothing uses to be deleted with
+ * their files once the grace period is over (markUnusedUploads); the sweep
+ * (huddle.js sweepUnusedUploads) deletes them then if they're still unused.
+ */
+export async function discardUnusedMedia(items) {
+  const media = rawDb().collection('mediaitems');
+  await markUnusedUploads(items, new Date(), {
+    isUsed: isUploadInUse,
+    mark: (ids, update) => media.updateMany({ _id: { $in: ids } }, update),
+  });
+}
+
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
   if (!docs.length) return;
-  for (const doc of docs) unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+  for (const doc of docs) removeMediaFile(doc);
   await rawDb()
     .collection('mediaitems')
     .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
 }
 
 /**
- * mediaIds referenced by `userId`'s own still-undelivered scheduled posts —
- * the read-time mirror of `isAwaitingDelivery` (huddle-schedule-core.js),
- * applied to an attachment rather than to the post it belongs to: a
- * scheduled post's raw file must not be any more visible than the post
- * itself. Images/documents reference the library row's own `_id`; a
- * composer-staged video's `mediaId` is Pulse's `videoid` instead
- * (src/features/huddle/api.ts uploadMedia) — the row doesn't exist under its
- * own `_id` until the upload lands, so it's matched by `videoid` instead.
+ * The media `userId`'s Huddle posts carry or show, scheduled or sent, and
+ * their uploads others' posts carry: a post's photos, files and videos belong
+ * to the post and its team, not to everyone who may view the uploader's
+ * profile, so library and profile listings leave them out (excludingPostMedia). `mediaIds`: images/documents reference the
+ * library row's own `_id`; a composer-staged video's `mediaId` is Pulse's
+ * `videoid` instead (src/features/huddle/api.ts uploadMedia), and a Pulse
+ * video is matched by its URL's video id too, whatever its `mediaId`. `urls`:
+ * uploads a post's text shows, which needn't be among its attachments (a
+ * plan's pasted screenshot stays in the text when the wrap-up's attachments
+ * replace the plan's).
  */
-async function pendingAttachmentMediaIds(userId) {
-  const posts = await rawDb()
-    .collection('huddlePosts')
-    .find({ userId, deliverAt: { $exists: true }, deliveredAt: null }, { projection: { attachments: 1 } })
+async function postMedia(userId) {
+  const db = rawDb();
+  const posts = db.collection('huddlePosts');
+  // Their uploads on someone else's post: an admin's edit checks the uploads
+  // it adds against the editor, not the post's author. By item id only: their
+  // Pulse video on someone else's post is a share, not an upload for it.
+  const own = await db
+    .collection('mediaitems')
+    .find({ userId, embedded: { $ne: true } }, { projection: { _id: 1 } })
     .toArray();
-  const mediaIds = new Set();
-  for (const post of posts) {
-    for (const att of post.attachments ?? []) {
-      if (typeof att.mediaId === 'string' && att.mediaId) mediaIds.add(att.mediaId);
-    }
+  const [mediaIds, urls, texts, onOthersPosts] = await Promise.all([
+    posts.distinct('attachments.mediaId', { userId }),
+    posts.distinct('attachments.url', { userId }),
+    posts
+      .find({ userId, 'content.text': { $regex: '/uploads/media/' } }, { projection: { 'content.text': 1 } })
+      .toArray(),
+    own.length
+      ? posts.distinct('attachments.mediaId', {
+          userId: { $ne: userId },
+          'attachments.mediaId': { $in: uploadIdsOf(own) },
+        })
+      : [],
+  ]);
+  // distinct gives every mediaId those posts carry, not just the user's.
+  const ids = new Set(
+    [...mediaIds, ...ownUploadsAmong(own, onOthersPosts)].filter((id) => typeof id === 'string' && id),
+  );
+  for (const url of urls) {
+    const video = videoIdOf(url);
+    if (video) ids.add(video);
   }
-  return mediaIds;
-}
-
-/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link pendingAttachmentMediaIds}). */
-function excludingMediaIds(mediaIds) {
-  if (!mediaIds.size) return {};
-  const objectIds = [...mediaIds].filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
-  const videoIds = [...mediaIds].filter((id) => !/^[a-f0-9]{24}$/i.test(id));
-  return {
-    ...(objectIds.length ? { _id: { $nin: objectIds } } : {}),
-    ...(videoIds.length ? { videoid: { $nin: videoIds } } : {}),
-  };
+  return { mediaIds: ids, urls: new Set(texts.flatMap((post) => uploadUrlsIn(post.content?.text))) };
 }
 
 /**
- * Library and profile listings skip post-embedded media (it belongs to the
- * post's team, not to everyone who may view the author's profile) and any
- * media still attached only to one of `userId`'s own still-undelivered
- * scheduled posts — filtered at read time against `huddlePosts`, the same
- * way the post itself is hidden, rather than a hold written onto the media
- * document.
+ * Library and profile listings (and pulsevault.listVideos, its videos) show
+ * only what someone put there themselves:
+ * not media embedded in a post's text, nor anything their Huddle posts carry
+ * or show (scheduled or sent), nor an upload waiting to be deleted, filtered at read time against `huddlePosts`
+ * rather than a flag written onto the media document, so older posts follow too.
  */
-async function libraryItemsFilter(userId) {
+export async function libraryItemsFilter(userId) {
   return {
     embedded: { $ne: true },
-    ...excludingMediaIds(await pendingAttachmentMediaIds(userId)),
+    // An upload a post dropped that nothing else uses, waiting out its grace
+    // period before it's deleted (huddle.js discardUnusedUploads).
+    discardAt: { $exists: false },
+    ...excludingPostMedia(await postMedia(userId), (id) => new ObjectId(id)),
   };
 }
 
@@ -591,7 +656,17 @@ WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
 
 import { Meteor } from 'meteor/meteor';
 
-function toPublicMediaItem(m) {
+/** Listed media items as the API returns them, each video under its one name. */
+async function toPublicMediaItems(docs) {
+  const names = await videoNamesFor(docs.map((m) => (m.type === 'video' ? m.videoid : null)));
+  return docs.map((m) => toPublicMediaItem(m, names));
+}
+
+/**
+ * A media item as the API returns it. `names` (videoNamesFor) holds its
+ * video's one name, where old data has more than one row for that video.
+ */
+function toPublicMediaItem(m, names = new Map()) {
   return {
     id: m._id.toHexString ? m._id.toHexString() : String(m._id),
     userId: m.userId,
@@ -601,11 +676,14 @@ function toPublicMediaItem(m) {
     videoid: m.videoid ?? null,
     filename: m.filename,
     size: m.size,
-    title: m.title ?? null,
+    // A video's title is its name (video-names.js): the old placeholder reads as none.
+    title: m.type === 'video' ? listedVideoName(m, names) : (m.title ?? null),
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
-    uploadedAt: m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : String(m.uploadedAt),
+    // A video named before it had a media item has no known upload time.
+    uploadedAt:
+      m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : m.uploadedAt ? String(m.uploadedAt) : null,
   };
 }
 
@@ -619,7 +697,7 @@ Meteor.methods({
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await toPublicMediaItems(docs) };
   },
 
   async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
@@ -635,7 +713,7 @@ Meteor.methods({
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await toPublicMediaItems(docs) };
   },
 
   async 'media.update'({ mediaId, title, caption, altText } = {}) {
@@ -646,16 +724,28 @@ Meteor.methods({
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    const items = db.collection('mediaitems');
+    if (title !== undefined) {
+      // A video's name lives on its canonical row (titleRowOf), which old data
+      // with duplicates may not be this one; its owner must be the caller too.
+      const canonical =
+        doc.type === 'video' && doc.videoid
+          ? await items.findOne({ videoid: doc.videoid }, CANONICAL_ITEM)
+          : null;
+      const row = titleRowOf(doc, canonical);
+      if (row.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+      // A video's rename: one line, at most VIDEO_NAME_MAX characters, empty is no name.
+      await items.updateOne(
+        { _id: row._id },
+        { $set: { title: doc.type === 'video' ? cleanVideoName(title) : title } },
+      );
+    }
     const $set = {};
-    if (title !== undefined) $set.title = title;
     if (caption !== undefined) $set.caption = caption;
     if (altText !== undefined) $set.altText = altText;
-    const updated = await db.collection('mediaitems').findOneAndUpdate(
-      { _id: doc._id },
-      { $set },
-      { returnDocument: 'after' },
-    );
-    return { item: toPublicMediaItem(updated) };
+    if (Object.keys($set).length) await items.updateOne({ _id: doc._id }, { $set });
+    const updated = await items.findOne({ _id: doc._id });
+    return { item: (await toPublicMediaItems([updated]))[0] };
   },
 
   async 'media.remove'({ mediaId } = {}) {

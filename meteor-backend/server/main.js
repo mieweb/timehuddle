@@ -2871,7 +2871,6 @@ Meteor.startup(async () => {
         url: { type: 'string' },
         type: { type: 'string', enum: ['video', 'image', 'link'] },
         title: { type: 'string' },
-        thumbnail: { type: 'string' },
         attachedTo: {
           type: 'object',
           properties: { kind: { type: 'string' }, id: { type: 'string' } },
@@ -2915,6 +2914,22 @@ Meteor.startup(async () => {
         altText: { type: 'string' },
       },
       required: ['mediaId'],
+    },
+  });
+  Wormhole.expose('videos.publicInfo', {
+    description: "A video's name and date for its watch page, to anyone with its link; its author to someone signed in",
+    inputSchema: {
+      type: 'object',
+      properties: { videoId: { type: 'string' } },
+      required: ['videoId'],
+    },
+  });
+  Wormhole.expose('videos.rename', {
+    description: "Name one of your own videos (empty clears it); shown wherever it appears",
+    inputSchema: {
+      type: 'object',
+      properties: { videoId: { type: 'string' }, name: { type: 'string' } },
+      required: ['videoId', 'name'],
     },
   });
   Wormhole.expose('media.remove', {

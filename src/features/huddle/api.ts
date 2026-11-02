@@ -1,7 +1,8 @@
 // Huddle feature API helpers
 import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
-import { isVideoFile, uploadVideoToLibrary } from '../pulse-upload/videoFile';
+import { artifactPath } from '../pulse-upload/artifact';
+import { isVideoFile, uploadVideoTo } from '../pulse-upload/videoFile';
 import type { TeamMember, MediaItem } from './types';
 
 export type PostAttachment = HuddlePost['attachments'][number];
@@ -50,6 +51,8 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
     type,
     url: toMediaPath(media.url),
     filename: media.filename,
+    ...(typeof media.size === 'number' ? { size: media.size } : {}),
+    ...(media.width && media.height ? { width: media.width, height: media.height } : {}),
   };
 }
 
@@ -155,18 +158,42 @@ export type UploadProgress = (fraction: number) => void;
  * through `onProgress` so the composer can show one progress bar regardless of
  * which path a file took.
  */
+/**
+ * An image's size in pixels, read before upload so its tile in the thread
+ * keeps its space before the picture loads; nothing for anything else (a
+ * document, or an image the browser can't decode).
+ */
+async function imageSize(
+  file: File,
+): Promise<{ width: number; height: number } | Record<string, never>> {
+  if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return {};
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return size;
+  } catch {
+    return {};
+  }
+}
+
 export async function uploadMedia(file: File, onProgress?: UploadProgress): Promise<MediaItem> {
   if (!isVideoFile(file)) {
-    const item = await mediaApi.uploadImage(file, onProgress);
+    const [item, size] = await Promise.all([
+      mediaApi.uploadImage(file, onProgress),
+      imageSize(file),
+    ]);
     onProgress?.(1);
     // `filename` off the wire is the storage name the backend generated
     // (`<userId>-<hex>.png`), which is what the composer chip and the post
     // attachment ended up showing. `title` is the name the user picked, so
     // prefer it — rebased here, at the one boundary every caller goes through.
-    return { ...item, filename: item.title ?? item.filename };
+    return { ...item, filename: item.title ?? item.filename, ...size };
   }
 
-  const videoid = await uploadVideoToLibrary(file, onProgress);
+  // The post's own: its media item stays out of the library, so deleting the
+  // post (or cancelling a scheduled one) doesn't put it there.
+  const videoid = await uploadVideoTo({ kind: 'post' }, file, onProgress);
 
   return {
     id: videoid,
@@ -174,7 +201,7 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
     size: file.size,
     mimeType: 'video/mp4',
     // Path only — the reader binds it to the current backend origin.
-    url: `/pulsevault/artifacts/${videoid}`,
+    url: artifactPath(videoid),
     filename: file.name,
   };
 }
