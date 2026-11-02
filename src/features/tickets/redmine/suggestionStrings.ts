@@ -9,9 +9,9 @@
 import type { RedmineRelevanceReason } from '../../../lib/api';
 
 export const suggestionText = {
-  searchLabel: 'Search tickets and Redmine issues',
+  searchLabel: 'Search tickets and issues',
   placeholder: 'Search, #number, @person, or paste a link',
-  menuLabel: 'Redmine suggestions',
+  menuLabel: 'Search results',
 
   ticketsHeading: 'Tickets',
   inTeam: (team: string) => `In ${team}`,

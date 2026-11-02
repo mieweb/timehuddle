@@ -54,9 +54,9 @@ export class TicketsPage extends BasePage {
     // A combobox: its results are tickets and Redmine issues in a dropdown
     // (#736c), and it no longer filters the table.
     this.searchInput = this.page.getByRole('combobox', {
-      name: 'Search tickets and Redmine issues',
+      name: 'Search tickets and issues',
     });
-    this.searchMenu = this.page.getByRole('listbox', { name: 'Redmine suggestions' });
+    this.searchMenu = this.page.getByRole('listbox', { name: 'Search results' });
     // Open/Closed sits in the list header at every width, labelled with its counts.
     this.showAllControlsButton = this.page.getByRole('button', {
       name: /^Show all sort and filter controls/,

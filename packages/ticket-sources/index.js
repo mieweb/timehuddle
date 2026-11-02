@@ -14,6 +14,21 @@ export { github, redmine, timehuddle };
 /** Every source definition, by kind. */
 export const SOURCES = Object.freeze({ timehuddle, redmine, github });
 
+/** Whether `kind` is a source outside TimeHuddle, whose issues a ticket carries. */
+export function isOutsideSource(kind) {
+  return Object.hasOwn(SOURCES, kind) && SOURCES[kind] !== timehuddle;
+}
+
+/** Whether `kind` offers the member its issues as suggestions in the search bar. */
+export function suggestsIssues(kind) {
+  return Object.hasOwn(SOURCES, kind) && Boolean(SOURCES[kind].can.suggest);
+}
+
+/** What `kind` is called in the app, or null for a kind TimeHuddle doesn't know. */
+export function sourceLabel(kind) {
+  return Object.hasOwn(SOURCES, kind) ? SOURCES[kind].label : null;
+}
+
 /**
  * The outside ID for `url` (#689): `<repo>-<number>` for a GitHub issue or
  * pull request, `<prefix>-<number>` for an issue on a server the org has

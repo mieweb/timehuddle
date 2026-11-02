@@ -64,7 +64,7 @@ async function openTickets(page: Page, overrides: Record<string, StubValue> = {}
   const tickets = new TicketsPage(page);
   await tickets.goto();
   const input = tickets.searchInput;
-  const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
+  const menu = page.getByRole('listbox', { name: 'Search results' });
   const option = (name: string | RegExp) => menu.getByRole('option', { name });
   return { rm, tickets, input, menu, option };
 }

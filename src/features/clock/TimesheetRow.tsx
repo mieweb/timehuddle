@@ -10,6 +10,7 @@
  * sub-list of those sessions. Because a ticket timer can only run while a shift
  * is running, every such session is contained by the shift it is nested under.
  */
+import { isOutsideSource, sourceLabel } from '@timehuddle/ticket-sources';
 import {
   faChevronDown,
   faChevronRight,
@@ -448,7 +449,7 @@ export const TimesheetRow: React.FC<Props> = ({
             <TableCell />
             <TableCell>
               <Badge variant="outline" size="sm">
-                {ticket.source === 'redmine' ? 'Redmine' : 'Ticket'}
+                {isOutsideSource(ticket.source) ? sourceLabel(ticket.source) : 'Ticket'}
               </Badge>
             </TableCell>
             <TableCell />

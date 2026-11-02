@@ -23,6 +23,7 @@
  * A start is plain data (`TicketStartRequest`), not a callback, so it can wait
  * out that trip to the Clock page. It lives in memory only: a reload drops it.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import {
   Button,
   ButtonGroup,
@@ -233,7 +234,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
             }));
             // A pinned issue joins the Redmine rows, which are cached per session.
             // A carried issue's ticket is new to the Redmine list's linked issues.
-            if (request.ticket.sourceId === 'redmine') invalidateRedmineCache();
+            if (isOutsideSource(request.ticket.sourceId)) invalidateRedmineCache();
           } else {
             const started = await timerApi.startSession(
               request.entryId,

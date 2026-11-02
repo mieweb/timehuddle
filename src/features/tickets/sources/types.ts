@@ -6,6 +6,7 @@
  * external issue, which stores that issue's id and nothing else (`linked`).
  * See README.md for how to add a source.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import type {
   RecordNamed,
   RecordPerson,
@@ -36,8 +37,8 @@ export interface SourceCapabilities {
 
 /** The in-app detail page for a ticket: Huddle tickets and Redmine issues each have one. */
 export function ticketDetailPath(ticket: { sourceId: TicketSourceId; id: string }): string {
-  return ticket.sourceId === 'redmine'
-    ? `/app/tickets/redmine/${ticket.id}`
+  return isOutsideSource(ticket.sourceId)
+    ? `/app/tickets/${ticket.sourceId}/${ticket.id}`
     : `/app/tickets/${ticket.id}`;
 }
 

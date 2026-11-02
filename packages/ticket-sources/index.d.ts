@@ -237,6 +237,9 @@ export interface SourceServer {
 }
 
 /** The outside ID for `url` (#689), e.g. `timehuddle-223` or `PM-233`, or null. */
+export declare function isOutsideSource(kind: string): boolean;
+export declare function suggestsIssues(kind: string): boolean;
+export declare function sourceLabel(kind: string): string | null;
 export declare function outsideIdOf(
   url: string | null | undefined,
   prefixes: readonly SourceServer[],

@@ -24,6 +24,9 @@ type Issue = { id: number; subject: string; url: string; tickets: { id: string; 
 type Answer = { host: string; prefix: string; failed: boolean; issues: Issue[] };
 type Search = { servers: Answer[] };
 
+/** What every stand-in calls its closed status; a test renames it to see the cache drop. */
+let closedWord = 'closed';
+
 /** A stand-in Redmine with issue 233, titled by `name`. `broken` answers searches with a 500. */
 function startRedmine(address: string, key: string, name: string, broken = false): Promise<Server> {
   const issue = {
@@ -34,6 +37,19 @@ function startRedmine(address: string, key: string, name: string, broken = false
     tracker: { id: 1, name: 'Bug' },
     status: { id: 1, name: 'New' },
     custom_fields: [{ id: 3, name: 'Billable', value: 'Yes' }],
+    author: { id: 7, name: 'Ada L' },
+    created_on: '2026-10-01T10:00:00Z',
+    updated_on: '2026-10-02T10:00:00Z',
+    journals: [
+      {
+        id: 1,
+        user: { id: 7, name: 'Ada L' },
+        created_on: '2026-10-02T10:00:00Z',
+        details: [{ property: 'attr', name: 'status_id', old_value: '1', new_value: '2' }],
+      },
+    ],
+    attachments: [],
+    allowed_statuses: [],
   };
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', address);
@@ -48,6 +64,19 @@ function startRedmine(address: string, key: string, name: string, broken = false
     if (broken && url.searchParams.get('q') === 'slowword') return; // never answers
     if (broken && url.pathname !== '/users/current.json') return json(500, {});
     if (url.pathname === '/issues/233.json') return json(200, { issue });
+    if (url.pathname === '/projects/1.json') return json(200, { project: { id: 1, trackers: [] } });
+    if (url.pathname === '/projects/1/memberships.json') return json(200, { memberships: [] });
+    if (url.pathname === '/enumerations/issue_priorities.json') {
+      return json(200, { issue_priorities: [] });
+    }
+    if (url.pathname === '/issue_statuses.json') {
+      return json(200, {
+        issue_statuses: [
+          { id: 1, name: `${name} opened` },
+          { id: 2, name: `${name} ${closedWord}` },
+        ],
+      });
+    }
     if (url.pathname === '/search.json') return json(200, { results: [{ id: 233, type: 'issue' }] });
     if (url.pathname === '/issues.json') return json(200, { issues: [issue], total_count: 1 });
     return json(404, {});
@@ -67,6 +96,17 @@ describe.skipIf(!MAIN || !OTHER || !FLAKY)('searching every connected server', (
   const search = (query: string) => wormhole<Search>('sources.search', { query }, jwt);
   const answerOf = (res: { result: Search }, host: string) =>
     res.result.servers.find((server) => server.host === host);
+  /** The ticket on `host` (else the main server's) as read from its server, as text. */
+  const historyOf = async (host?: string) => {
+    const db = await getDb();
+    const ticket = await db.collection('tickets').findOne({
+      teamId: team,
+      'linkedIssue.host': host ?? { $ne: otherHost },
+    });
+    const res = await wormhole('tickets.outsideRecord', { ticketId: ticket!._id.toHexString() }, jwt);
+    expect(res.error).toBeUndefined();
+    return JSON.stringify(res.result);
+  };
 
   beforeAll(async () => {
     servers = await Promise.all([
@@ -154,6 +194,24 @@ describe.skipIf(!MAIN || !OTHER || !FLAKY)('searching every connected server', (
 
     const again = await carry(otherHost);
     expect(again.result).toMatchObject({ created: false, ticket: { id: onOther.result.ticket.id } });
+  });
+
+  it("names a server's statuses from that server, not the one read first", async () => {
+    expect(await historyOf()).toContain('Main closed');
+    const onOther = await historyOf(otherHost);
+    expect(onOther).toContain('Other closed');
+    expect(onOther).not.toContain('Main closed');
+  });
+
+  it('reads the names afresh once the member reconnects', async () => {
+    closedWord = 'done';
+    try {
+      expect(await historyOf(otherHost)).toContain('Other closed'); // still cached
+      expect((await wormhole('sources.connect', { server: OTHER, apiKey: KEY.other }, jwt)).ok).toBe(true);
+      expect(await historyOf(otherHost)).toContain('Other done');
+    } finally {
+      closedWord = 'closed';
+    }
   });
 
   it('marks a result that is already a ticket', async () => {

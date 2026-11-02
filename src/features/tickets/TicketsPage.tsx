@@ -8,6 +8,7 @@
  * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
  * assignment); rows gate those controls on each source's capabilities.
  */
+import { isOutsideSource, suggestsIssues } from '@timehuddle/ticket-sources';
 import {
   Button,
   ButtonGroup,
@@ -402,7 +403,8 @@ export const TicketsPage: React.FC = () => {
   const carrierByIssueId = useMemo(() => {
     const carriers = new Map<string, UnifiedTicket>();
     for (const ticket of allTickets) {
-      const issueId = ticket.linked?.sourceId === 'redmine' ? ticket.linked.id : null;
+      const issueId =
+        ticket.linked && suggestsIssues(ticket.linked.sourceId) ? ticket.linked.id : null;
       if (!issueId || ticket.container?.id !== selectedTeamId) continue;
       const held = carriers.get(issueId);
       if (!held || (ticket.createdAt ?? '') < (held.createdAt ?? '')) carriers.set(issueId, ticket);
@@ -503,8 +505,9 @@ export const TicketsPage: React.FC = () => {
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
       const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       // A bare issue is timed as the ticket carrying it (#736).
-      const carrierKey =
-        ticket.sourceId === 'redmine' ? (carrierByIssueId.get(ticket.id)?.key ?? null) : null;
+      const carrierKey = suggestsIssues(ticket.sourceId)
+        ? (carrierByIssueId.get(ticket.id)?.key ?? null)
+        : null;
       if (
         runningTicket?.sessionId &&
         (runningTicket.key === ticket.key || runningTicket.key === carrierKey)
@@ -548,9 +551,10 @@ export const TicketsPage: React.FC = () => {
   // in the selected team: that is the ticket its Stop acts on (#736).
   const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
   const runningRedmineIssueId =
-    runningTicket?.source === 'redmine'
+    runningTicket && suggestsIssues(runningTicket.source)
       ? Number(runningTicket.id)
-      : runningLinked?.sourceId === 'redmine' &&
+      : runningLinked &&
+          suggestsIssues(runningLinked.sourceId) &&
           carrierByIssueId.get(runningLinked.id)?.key === runningTicket?.key
         ? Number(runningLinked.id)
         : null;
@@ -722,7 +726,7 @@ export const TicketsPage: React.FC = () => {
    */
   const addToBoard = useCallback(
     async (keys: string[]) => {
-      if (!selectedTeam && keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) {
+      if (!selectedTeam && keys.some((key) => isOutsideSource(ticketRefOf(key).sourceId))) {
         setShowNoTeamDialog(true);
         return null;
       }
@@ -756,7 +760,7 @@ export const TicketsPage: React.FC = () => {
       new Set([
         ...[...boardKeys]
           .map(ticketRefOf)
-          .filter((ref) => ref.sourceId === 'redmine')
+          .filter((ref) => suggestsIssues(ref.sourceId))
           .map((ref) => Number(ref.ticketId)),
         ...[...carrierByIssueId]
           .filter(([, carrier]) => isOnBoard(carrier, boardKeys))

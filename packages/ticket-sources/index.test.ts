@@ -6,6 +6,9 @@ import {
   defineSource,
   github,
   hook,
+  isOutsideSource,
+  sourceLabel,
+  suggestsIssues,
   isHook,
   matchIssueUrl,
   outsideIdOf,
@@ -14,6 +17,20 @@ import {
 } from './index.js';
 
 const minimal = { kind: 'demo', label: 'Demo', id: { show: '{prefix}-{key}' } };
+
+describe('asking about a source', () => {
+  it('knows which sources are outside TimeHuddle, and what they are called', () => {
+    expect(isOutsideSource('redmine')).toBe(true);
+    expect(isOutsideSource('github')).toBe(true);
+    expect(isOutsideSource('timehuddle')).toBe(false);
+    expect(isOutsideSource('huddle')).toBe(false);
+    expect(isOutsideSource('toString')).toBe(false);
+    expect(sourceLabel('redmine')).toBe('Redmine');
+    expect(sourceLabel('huddle')).toBeNull();
+    expect(suggestsIssues('redmine')).toBe(true);
+    expect(suggestsIssues('huddle')).toBe(false);
+  });
+});
 
 describe('the three definitions', () => {
   it.each(Object.entries(SOURCES))('%s describes only fields of the ticket record', (_, source) => {
@@ -38,6 +55,20 @@ describe('the three definitions', () => {
     expect(isHook(redmine.fields.conversation?.from)).toBe(true);
     expect(redmine.can.sendTime).toEqual({ hook: 'redmineSendTime' });
     expect(redmine.can.write).toEqual({ hook: 'redmineWrite' });
+  });
+});
+
+describe('asking about a source', () => {
+  it('knows which sources are outside TimeHuddle, and what they are called', () => {
+    expect(isOutsideSource('redmine')).toBe(true);
+    expect(isOutsideSource('github')).toBe(true);
+    expect(isOutsideSource('timehuddle')).toBe(false);
+    expect(isOutsideSource('huddle')).toBe(false);
+    expect(isOutsideSource('toString')).toBe(false);
+    expect(sourceLabel('redmine')).toBe('Redmine');
+    expect(sourceLabel('huddle')).toBeNull();
+    expect(suggestsIssues('redmine')).toBe(true);
+    expect(suggestsIssues('huddle')).toBe(false);
   });
 });
 
@@ -111,6 +142,20 @@ describe('defineSource', () => {
   });
 });
 
+describe('asking about a source', () => {
+  it('knows which sources are outside TimeHuddle, and what they are called', () => {
+    expect(isOutsideSource('redmine')).toBe(true);
+    expect(isOutsideSource('github')).toBe(true);
+    expect(isOutsideSource('timehuddle')).toBe(false);
+    expect(isOutsideSource('huddle')).toBe(false);
+    expect(isOutsideSource('toString')).toBe(false);
+    expect(sourceLabel('redmine')).toBe('Redmine');
+    expect(sourceLabel('huddle')).toBeNull();
+    expect(suggestsIssues('redmine')).toBe(true);
+    expect(suggestsIssues('huddle')).toBe(false);
+  });
+});
+
 describe('matchIssueUrl and showId', () => {
   it('reads a GitHub issue or pull request, and shows it as <repo>-<number>', () => {
     const ref = matchIssueUrl(github, 'https://github.com/mieweb/timehuddle/issues/223');
@@ -143,6 +188,20 @@ describe('matchIssueUrl and showId', () => {
 // Copied unchanged from src/features/tickets/ticketIds.test.ts: moving
 // `outsideIdOf` into the package must not change a single answer.
 const prefixes = [{ host: 'redmine.example.com', prefix: 'PM' }];
+
+describe('asking about a source', () => {
+  it('knows which sources are outside TimeHuddle, and what they are called', () => {
+    expect(isOutsideSource('redmine')).toBe(true);
+    expect(isOutsideSource('github')).toBe(true);
+    expect(isOutsideSource('timehuddle')).toBe(false);
+    expect(isOutsideSource('huddle')).toBe(false);
+    expect(isOutsideSource('toString')).toBe(false);
+    expect(sourceLabel('redmine')).toBe('Redmine');
+    expect(sourceLabel('huddle')).toBeNull();
+    expect(suggestsIssues('redmine')).toBe(true);
+    expect(suggestsIssues('huddle')).toBe(false);
+  });
+});
 
 describe('outsideIdOf', () => {
   it('names a GitHub issue or pull request by its repo and number, with no setup', () => {

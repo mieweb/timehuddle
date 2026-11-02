@@ -3,11 +3,11 @@
  * and on a post's tickets (#788): by the ID it leads with in the Tickets table
  * (#689) and its title. Pure: no Meteor, no database.
  */
-import { outsideIdOf } from '@timehuddle/ticket-sources';
+import { isOutsideSource, outsideIdOf } from '@timehuddle/ticket-sources';
 
 /** The ticket's own page in the app, where a reader with access sees the rest. */
 export function ticketPath(source, ticketId) {
-  return source === 'redmine' ? `/app/tickets/redmine/${ticketId}` : `/app/tickets/${ticketId}`;
+  return isOutsideSource(source) ? `/app/tickets/${source}/${ticketId}` : `/app/tickets/${ticketId}`;
 }
 
 /**

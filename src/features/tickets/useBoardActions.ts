@@ -9,6 +9,7 @@
  * (`useMyBoardKeys`), so a caller only updates its own state if it wants to be
  * ahead of that read.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import { useToast } from '@mieweb/ui';
 import { useCallback } from 'react';
 
@@ -25,7 +26,7 @@ import { removalText } from './ticketRemovalStrings';
  * the cached issue list is stale after either write.
  */
 function announce(keys: string[]): void {
-  if (keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) invalidateRedmineCache();
+  if (keys.some((key) => isOutsideSource(ticketRefOf(key).sourceId))) invalidateRedmineCache();
   window.dispatchEvent(new CustomEvent('tickets:refetch'));
 }
 
