@@ -79,6 +79,17 @@ export function listedVideoName(item, names) {
 }
 
 /**
+ * Who uploaded a video by PulseVault's own record of it (its status, with the
+ * capability token's context), or null: only a video's, and only once bytes
+ * arrived — a reservation never used is no one's upload.
+ */
+export function uploaderOf(status) {
+  if (status?.kind !== 'video' || typeof status.context?.userId !== 'string') return null;
+  const arrived = status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
+  return arrived ? status.context.userId : null;
+}
+
+/**
  * Whether `userId` may name a video: its media item's owner, or — for a video
  * from before every video had a media item — whoever PulseVault's own record
  * says uploaded it (`uploadedByUser`), never someone who only attached it.

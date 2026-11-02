@@ -39,7 +39,7 @@ import {
 } from '@mieweb/pulsevault/core';
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
-import { CANONICAL_ITEM } from './video-names-core.js';
+import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
@@ -88,13 +88,18 @@ export async function artifactBelongsTo(artifactId, userId) {
     .findOne({ videoid: artifactId }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
   if (media) return media.userId === userId;
 
-  // The status describes whatever artifact the id names (a thumbnail's or
-  // captions' id carries its owner's context too), and exists from the moment
-  // the upload was created — so it must be a video, and bytes must have
-  // arrived: a reservation that was never used is not evidence.
-  const status = await core.getStatus(artifactId).catch(() => null);
-  if (!status || status.kind !== 'video' || status.context?.userId !== userId) return false;
-  return status.state === 'ready' || status.state === 'processing' || (status.bytesReceived ?? 0) > 0;
+  return (await artifactUploader(artifactId)) === userId;
+}
+
+/**
+ * Who uploaded this video by PulseVault's own record (uploaderOf), or null.
+ * The status describes whatever artifact the id names (a thumbnail's or
+ * captions' id carries its owner's context too), and exists from the moment
+ * the upload was created — so it must be a video, and bytes must have
+ * arrived: a reservation that was never used is not evidence.
+ */
+export async function artifactUploader(artifactId) {
+  return uploaderOf(await core.getStatus(artifactId).catch(() => null));
 }
 
 /** PulseVault's status for a video by this id (an upload under way counts), else null. */

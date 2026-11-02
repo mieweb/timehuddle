@@ -4,7 +4,6 @@ import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
 import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
-import { artifactBelongsTo } from './pulsevault.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -122,30 +121,22 @@ Meteor.methods({
     // A video's name is its media item's (video-names.js), renamed by its owner.
     const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
     return {
-      attachments: await Promise.all(
-        docs.map(async (a) => {
-          const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
-          const video = videoId ? videos.get(videoId) : undefined;
-          return {
-            ...toPublic(a),
-            ...(a.type === 'video'
-              ? {
-                  name: video?.name ?? null,
-                  // Its owner; or, for a video from before every video had a
-                  // media item, whoever PulseVault says uploaded it — the rule
-                  // videos.rename applies (attaching a URL proves nothing).
-                  canRename: mayRenameVideo({
-                    item: video ? { userId: video.ownerId } : null,
-                    userId,
-                    // Only worth asking PulseVault for a video this viewer attached.
-                    uploadedByUser:
-                      !video && a.addedBy === userId && !!videoId && (await artifactBelongsTo(videoId, userId)),
-                  }),
-                }
-              : {}),
-          };
-        }),
-      ),
+      attachments: docs.map((a) => {
+        const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
+        const video = videoId ? videos.get(videoId) : undefined;
+        return {
+          ...toPublic(a),
+          ...(a.type === 'video'
+            ? {
+                name: video?.name ?? null,
+                // Its owner; for a video from before every video had a media
+                // item, whoever PulseVault says uploaded it (videoNamesFor) —
+                // the rule videos.rename applies (attaching a URL proves nothing).
+                canRename: mayRenameVideo({ item: video ? { userId: video.ownerId } : null, userId }),
+              }
+            : {}),
+        };
+      }),
     };
   },
 

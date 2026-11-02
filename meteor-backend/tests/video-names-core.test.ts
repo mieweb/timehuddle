@@ -10,6 +10,7 @@ import {
   listedVideoName,
   mayRenameVideo,
   publicVideoInfo,
+  uploaderOf,
   VIDEO_NAME_MAX,
   videoIdOf,
   videoNameOf,
@@ -161,5 +162,22 @@ describe('listedVideoName', () => {
   it("reads the row's own title when no lookup has the video", () => {
     expect(listedVideoName({ videoid: ID, title: 'Standup' }, new Map())).toBe('Standup');
     expect(listedVideoName({ videoid: ID, title: 'Video 0b7e7c1e' }, new Map())).toBeNull();
+  });
+});
+
+describe('uploaderOf', () => {
+  const upload = { kind: 'video', context: { userId: 'u1' } };
+
+  it("is who PulseVault's record says uploaded a video, once bytes arrived", () => {
+    expect(uploaderOf({ ...upload, state: 'ready' })).toBe('u1');
+    expect(uploaderOf({ ...upload, state: 'processing' })).toBe('u1');
+    expect(uploaderOf({ ...upload, state: 'uploading', bytesReceived: 1 })).toBe('u1');
+  });
+
+  it('is no one for a reservation never used, a thumbnail, or no record', () => {
+    expect(uploaderOf({ ...upload, state: 'uploading', bytesReceived: 0 })).toBeNull();
+    expect(uploaderOf({ ...upload, kind: 'thumbnail', state: 'ready' })).toBeNull();
+    expect(uploaderOf({ kind: 'video', state: 'ready' })).toBeNull();
+    expect(uploaderOf(null)).toBeNull();
   });
 });

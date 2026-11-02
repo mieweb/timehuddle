@@ -10,7 +10,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
-import { artifactBelongsTo, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
+import { artifactBelongsTo, artifactUploader, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
 import {
   CANONICAL_ITEM,
   cleanVideoName,
@@ -54,7 +54,12 @@ Meteor.startup(async () => {
   }
 });
 
-/** Each video's name, media item and owner, by video id (absent: no media item). */
+/**
+ * Each video's name, media item and owner, by video id. A video from before
+ * every video had a media item has no name or item (`mediaId` null), and its
+ * owner is whoever PulseVault's own record says uploaded it — never someone
+ * who only attached it; absent when there's no such record either.
+ */
 export async function videoNamesFor(videoIds) {
   const ids = [...new Set(videoIds.filter(Boolean))];
   if (ids.length === 0) return new Map();
@@ -68,6 +73,11 @@ export async function videoNamesFor(videoIds) {
     if (names.has(m.videoid)) continue;
     names.set(m.videoid, { mediaId: m._id.toHexString(), name: videoNameOf(m.title, m.videoid), ownerId: m.userId });
   }
+  const legacy = ids.filter((id) => !names.has(id));
+  const uploaders = await Promise.all(legacy.map((id) => artifactUploader(id)));
+  legacy.forEach((id, i) => {
+    if (uploaders[i]) names.set(id, { mediaId: null, name: null, ownerId: uploaders[i] });
+  });
   return names;
 }
 

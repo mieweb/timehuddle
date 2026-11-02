@@ -241,7 +241,8 @@ async function enrichPost(post) {
       ...att,
       // Its name, and who may rename it: the video's owner, not necessarily
       // whoever posted it (a post can carry a ticket's videos). A video from
-      // before every video had a media item has no owner here (null).
+      // before every video had a media item is owned by whoever PulseVault
+      // says uploaded it (videoNamesFor); null when it doesn't know.
       ...(att.type === 'video'
         ? (() => {
             const video = videoNames.get(videoIdOf(att.url));
