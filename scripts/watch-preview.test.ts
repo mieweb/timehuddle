@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { watchPreview, watchVideoId, withPreview } from './watch-preview.mjs';
 
@@ -6,11 +6,16 @@ const VIDEO = '2fe388d4-d08c-4f0c-a91d-454dc50771fe';
 const BACKEND = 'https://timecore.example.org';
 const PAGE = `https://huddle.example.org/watch/${VIDEO}`;
 
-/** A backend that knows one video, with a poster when `poster` is set. */
+/**
+ * A backend that knows one video, with a poster when `poster` is set — after
+ * `posterMisses` 404s, as PulseVault answers while it makes an older video's.
+ */
 function backend({
   name = 'Standup',
   poster = true,
-}: { name?: string | null; poster?: boolean } = {}) {
+  posterMisses = 0,
+}: { name?: string | null; poster?: boolean; posterMisses?: number } = {}) {
+  let misses = posterMisses;
   return vi.fn(async (url: string) => {
     if (url.endsWith('/api/videos_publicInfo')) {
       return new Response(
@@ -18,6 +23,10 @@ function backend({
       );
     }
     if (url.endsWith('/poster')) {
+      if (misses > 0) {
+        misses -= 1;
+        return new Response('', { status: 404 });
+      }
       return poster
         ? new Response('x', { status: 206, headers: { 'Content-Type': 'image/jpeg' } })
         : new Response('', { status: 404 });
@@ -61,11 +70,35 @@ describe('watchPreview', () => {
     expect(html).toContain('added Oct 29, 2026');
   });
 
-  it('goes without an image when the video has no poster', async () => {
-    const preview = await watchPreview(VIDEO, {
-      backendUrl: BACKEND,
-      fetchImpl: backend({ poster: false }),
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** watchPreview with the clock run past any wait for a poster. */
+  async function previewWithTime(fetchImpl: typeof fetch) {
+    vi.useFakeTimers();
+    const preview = watchPreview(VIDEO, { backendUrl: BACKEND, fetchImpl });
+    await vi.advanceTimersByTimeAsync(10_000);
+    return preview;
+  }
+
+  it('waits a moment for a poster PulseVault is still making', async () => {
+    const preview = await previewWithTime(backend({ posterMisses: 2 }));
+    expect(preview?.image).toEqual({
+      url: `${BACKEND}/pulsevault/artifacts/${VIDEO}/poster`,
+      type: 'image/jpeg',
     });
+  });
+
+  it('goes without an image when the video has no poster', async () => {
+    const fetchImpl = backend({ poster: false });
+    const preview = await previewWithTime(fetchImpl);
+    // Asked again for a while, but not for ever.
+    const posterAsks = vi
+      .mocked(fetchImpl)
+      .mock.calls.filter(([url]) => String(url).endsWith('/poster'));
+    expect(posterAsks.length).toBeGreaterThan(1);
+    expect(posterAsks.length).toBeLessThan(10);
     const html = withPreview('<title>x</title>', preview!, PAGE);
     expect(html).not.toContain('og:image');
     expect(html).toContain('<meta name="twitter:card" content="summary" />');

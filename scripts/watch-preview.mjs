@@ -19,6 +19,14 @@ const WATCH_PATH = /^\/watch\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 /** How long a preview waits on the backend before serving the plain page. */
 const BACKEND_TIMEOUT_MS = 3000;
 
+/**
+ * How long a preview keeps asking for a poster that isn't there yet, and how
+ * often: PulseVault answers 404 the first time an older video's poster is
+ * asked for while it makes one in the background (a frame, about a second).
+ */
+const POSTER_WAIT_MS = 2000;
+const POSTER_RETRY_MS = 400;
+
 /** The video id in a `/watch/:videoId` path, or null. */
 export function watchVideoId(pathname) {
   const match = WATCH_PATH.exec(pathname);
@@ -50,6 +58,19 @@ async function contentTypeAt(url, fetchImpl) {
 }
 
 /**
+ * The poster's content type, asked again for up to POSTER_WAIT_MS while it's
+ * missing: a card that goes out without it is cached that way by the chat app.
+ */
+async function posterTypeAt(url, fetchImpl) {
+  const deadline = Date.now() + POSTER_WAIT_MS;
+  for (;;) {
+    const type = await contentTypeAt(url, fetchImpl);
+    if (type || Date.now() + POSTER_RETRY_MS > deadline) return type;
+    await new Promise((resolve) => setTimeout(resolve, POSTER_RETRY_MS));
+  }
+}
+
+/**
  * What a video's preview card shows, or null when the backend has no such
  * video (or can't be reached): the page then goes out without a card.
  *
@@ -73,7 +94,7 @@ export async function watchPreview(videoId, { backendUrl, fetchImpl = fetch }) {
   const videoUrl = `${base}/pulsevault/artifacts/${videoId}`;
   const posterUrl = `${videoUrl}/poster`;
   const [posterType, videoType] = await Promise.all([
-    contentTypeAt(posterUrl, fetchImpl),
+    posterTypeAt(posterUrl, fetchImpl),
     contentTypeAt(videoUrl, fetchImpl),
   ]);
   return {
