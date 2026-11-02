@@ -40,8 +40,9 @@ export function useEscapeWithin(
   useClaimedEscape(
     (target) =>
       !!ref.current?.contains(target) &&
-      // A menu open from a control in it (a video's ⋯) closes first, alone.
-      !target.closest?.('[aria-expanded="true"]'),
+      // A menu open from a control in it (a video's ⋯) closes first, alone,
+      // wherever focus is. Only a menu: Show more's aria-expanded isn't one.
+      !ref.current.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'),
     onEscape,
     enabled,
   );

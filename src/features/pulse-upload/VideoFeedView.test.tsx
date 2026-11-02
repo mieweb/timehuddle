@@ -82,6 +82,19 @@ describe('VideoFeedView', () => {
     document.removeEventListener('keydown', underneath);
   });
 
+  it('closes only the ⋯ menu on Escape from another control while that menu is open', () => {
+    const onClose = vi.fn();
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={onClose} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    // Focus moved on to another control in the feed, the menu still open.
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Escape' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('closes on Escape without it reaching a window under it', () => {
     const underneath = vi.fn();
     document.addEventListener('keydown', underneath);
