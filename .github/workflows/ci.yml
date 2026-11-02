@@ -125,8 +125,8 @@ jobs:
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
             echo "branch: $(git branch --show-current)"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -175,12 +175,12 @@ jobs:
             git checkout development
             git reset --hard origin/development
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
-            echo "=== sudo npm install (meteor-backend) ==="
+            echo "=== sudo npm ci (meteor-backend) ==="
             cd meteor-backend
-            sudo npm install --no-audit --no-fund
+            sudo npm ci --no-audit --no-fund
 
             echo "=== run migrations (via backend dir) ==="
             cd ../backend
@@ -279,8 +279,8 @@ jobs:
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
             echo "branch: $(git branch --show-current)"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -334,12 +334,12 @@ jobs:
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
             echo "branch: $(git branch --show-current)"
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
-            echo "=== sudo npm install (backend) ==="
+            echo "=== sudo npm ci (backend) ==="
             cd backend
-            sudo npm install --no-audit --no-fund
+            sudo npm ci --no-audit --no-fund
 
             echo "=== build backend ==="
             sudo npm run build
@@ -439,8 +439,8 @@ jobs:
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
             echo "branch: $(git branch --show-current)"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist

@@ -12,6 +12,7 @@
     "start": "vite",
     "serve:dist": "node scripts/serve-frontend.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/check-ui-tarball.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "prune:legacy": "bash ./scripts/prune-legacy.sh --yes",
