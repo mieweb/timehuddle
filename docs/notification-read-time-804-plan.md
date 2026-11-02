@@ -188,10 +188,13 @@ same after a reload; "Mark all read" does the same for every unread row.
 
 ## Milestone 6 — Final checks
 
-- [ ] `npm run lint && npm run typecheck`
-- [ ] `npm run format`
-- [ ] `npm run test:all`
-- [ ] Smoke test at `http://localhost:3000/app/notifications`, desktop and phone width
+- [x] `npm run lint && npm run typecheck`
+- [x] `npm run format`
+- [x] `npm run test:all`: 821 unit tests and 447 e2e tests pass, 6 skipped. One failure is
+      unrelated: `tickets/video-upload.spec.ts` needs `ffmpeg` on the machine running the
+      backend to turn a WebM into an MP4. Install it (`brew install ffmpeg`) before
+      treating that test as a real failure.
+- [x] Smoke test at `http://localhost:3000/app/notifications`, desktop and phone width
 
 ## Out of scope
 
