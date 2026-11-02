@@ -166,7 +166,7 @@ const ISSUE_TIME_ENTRY_LIMIT = 10;
  */
 export async function loadTimeEntries(userId, account, issueId) {
   try {
-    const pushedIds = await pushedEntryIdsFor(userId, issueId);
+    const pushedIds = await pushedEntryIdsFor(userId, issueId, account.ledgerHost);
     return await collectUnpushedTimeEntries(
       (offset, limit) => listIssueTimeEntries(account, issueId, { offset, limit }),
       { issueId, pushedIds, limit: ISSUE_TIME_ENTRY_LIMIT },

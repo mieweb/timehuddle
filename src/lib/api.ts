@@ -2190,6 +2190,8 @@ export interface UnsentRedmineTime {
   ticketId: string;
   date: string;
   hours: number;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
 }
 
 export const timerApi = {
@@ -2681,6 +2683,10 @@ export interface RedmineTimeEntryRow {
   ticketId: string;
   /** The day being logged, `YYYY-MM-DD`. */
   date: string;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+  /** That server's address, for its issue links. */
+  baseUrl?: string;
   /** Seconds not yet sent to Redmine — what this push would cover. */
   seconds: number;
   /** Seconds already sent for this ticket-day by earlier pushes. */
@@ -2726,6 +2732,9 @@ export interface RedmineTimeEntryPreview {
 export interface RedmineTimeEntryPushRequest {
   ticketId: string;
   date: string;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+
   /** Optional override of the resolved activity. */
   activityId?: number;
   /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
@@ -2746,6 +2755,9 @@ export interface RedmineTimeEntryPushRequest {
 export interface RedmineTimeEntryPushOutcome {
   ticketId: string | null;
   date: string | null;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+
   hours?: number;
   ok: boolean;
   /** Present on failure: `no-log-time-permission`, `unreachable`, … */
@@ -3070,7 +3082,11 @@ export const redmineApi = {
      * What a push would send. Read-only — creates nothing in Redmine. With
      * `only`, that one ticket-day: its hours and the activities its project allows.
      */
-    preview: (only?: { ticketId: string; date: string }): Promise<RedmineTimeEntryPreview> =>
+    preview: (only?: {
+      ticketId: string;
+      date: string;
+      host?: string;
+    }): Promise<RedmineTimeEntryPreview> =>
       wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', { ...only }),
 
     /**
@@ -3099,6 +3115,7 @@ export const redmineApi = {
         activityId,
         billable,
         hours,
+        host,
       }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
@@ -3108,6 +3125,7 @@ export const redmineApi = {
         activityId,
         billable,
         hours,
+        host,
       }),
 
     /**
@@ -3115,7 +3133,15 @@ export const redmineApi = {
      * Redmine and the time stays in TimeHuddle; only time tracked on that day
      * later is offered again.
      */
-    discard: (ticketId: string, date: string): Promise<{ discardedSeconds: number }> =>
-      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', { ticketId, date }),
+    discard: (
+      ticketId: string,
+      date: string,
+      host?: string,
+    ): Promise<{ discardedSeconds: number }> =>
+      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', {
+        ticketId,
+        date,
+        host,
+      }),
   },
 };

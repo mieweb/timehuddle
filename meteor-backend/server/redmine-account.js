@@ -86,6 +86,8 @@ export async function findRedmineAccount(userId, host) {
     apiKey: secret,
     baseUrl: baseUrlOfLink(link),
     linkId: link._id,
+    // The server its sent time is recorded under: none for the main link.
+    ledgerHost: link.host ?? null,
     // Matched on the key that was read, in either form, so a key connected
     // meanwhile is never marked and one re-encrypted meanwhile still is.
     onKeyRejected: () =>

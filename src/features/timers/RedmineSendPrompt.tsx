@@ -94,7 +94,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     let current = true;
     setActivitiesRead(false);
     redmineApi.timeEntries
-      .preview({ ticketId: time.ticketId, date: time.date })
+      .preview({ ticketId: time.ticketId, date: time.date, host: time.host })
       .then((preview) => {
         if (current) setRow(preview.rows[0] ?? null);
       })
@@ -107,7 +107,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     return () => {
       current = false;
     };
-  }, [time.ticketId, time.date, time.hours, rereads]);
+  }, [time.ticketId, time.date, time.host, time.hours, rereads]);
 
   // What the server will send: its total as just read, else the one from the stop.
   const hours = row?.hours ?? time.hours;
@@ -138,6 +138,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         billable: row?.billable ?? null,
         // The hours shown, read or from the stop: the server refuses them if they moved since.
         hours,
+        host: time.host,
       });
     } catch (err) {
       // Nothing was decided (a push already running, the network): the prompt

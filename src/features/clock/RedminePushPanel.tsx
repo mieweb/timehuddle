@@ -56,8 +56,9 @@ import {
   hoursLabel,
 } from './redminePushStrings';
 
-/** Stable row identity; mirrors the server's `{ticketId, date}` grain. */
-const rowKey = (row: { ticketId: string; date: string }) => `${row.ticketId}@${row.date}`;
+/** Stable row identity; mirrors the server's `{ticketId, date}` grain, per server (#734). */
+const rowKey = (row: { ticketId: string | null; date: string | null; host?: string }) =>
+  `${row.ticketId}@${row.date}${row.host ? `@${row.host}` : ''}`;
 
 export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClockedIn }) => {
   const [preview, setPreview] = useState<RedmineTimeEntryPreview | null>(null);
@@ -120,10 +121,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   );
   const totalHours = useMemo(() => sendable.reduce((sum, row) => sum + row.hours, 0), [sendable]);
 
-  const resultByKey = useMemo(
-    () => new Map((results ?? []).map((r) => [`${r.ticketId}@${r.date}`, r])),
-    [results],
-  );
+  const resultByKey = useMemo(() => new Map((results ?? []).map((r) => [rowKey(r), r])), [results]);
 
   const handlePush = async () => {
     setPushing(true);
@@ -133,6 +131,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
         sendable.map((row) => ({
           ticketId: row.ticketId,
           date: row.date,
+          host: row.host,
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
           comment: comments[rowKey(row)]?.trim() || undefined,
           billable: row.billable,
@@ -153,7 +152,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   const discardRow = async (row: RedmineTimeEntryRow) => {
     setDiscarding(true);
     try {
-      await redmineApi.timeEntries.discard(row.ticketId, row.date);
+      await redmineApi.timeEntries.discard(row.ticketId, row.date, row.host);
       setPushedRows((prev) => prev.filter((r) => rowKey(r) !== rowKey(row)));
       setConfirmDiscard(null);
       setError(null);
@@ -267,6 +266,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                     rounding={row.rounding}
                     runSeconds={row.runSeconds}
                   >
+                    {row.host && (
+                      <Text variant="muted" size="xs" className="redmine-push-entry-server">
+                        on {row.host}
+                      </Text>
+                    )}
                     {row.alreadySentSeconds > 0 && (
                       <Text variant="muted" size="xs">
                         new time only · {hoursText(row.alreadySentSeconds / 3600)} already sent

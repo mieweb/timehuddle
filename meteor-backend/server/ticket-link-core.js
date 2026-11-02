@@ -32,6 +32,25 @@ export function redmineLinkFor(id, host) {
   return { source: 'redmine', id, ...(host ? { host } : {}) };
 }
 
+/**
+ * The server time on a carried issue is logged under (#734 step 6): the
+ * issue's host, or null for the deployment's own Redmine (`mainHost`), which
+ * is what every session and sent-time row saved without a host means. Null
+ * for no link.
+ */
+export function issueServerOf(ticket, mainHost) {
+  const host = ticket?.linkedIssue?.host ?? null;
+  return host && host !== mainHost ? host : null;
+}
+
+/**
+ * The selector for records on `host` (null for the deployment's own Redmine,
+ * stored as no host at all), on `field`.
+ */
+export function onServer(host, field) {
+  return { [field]: host ?? { $exists: false } };
+}
+
 /** The id of the issue a stored ticket is linked to, or null. */
 export function linkedIssueIdOf(ticket) {
   const id = ticket?.linkedIssue?.id;
@@ -59,15 +78,34 @@ export function linkedIssueIdOf(ticket) {
  * @param {string|null} input.previousIssueId  the issue the item itself was on,
  *   when it was a Redmine entry whose sessions carry no stamp
  * @param {string|null} input.nextIssueId  the issue the new ticket is linked to
- * @param {Map<string, {seconds: number}>} input.ledger  `pushLedgerFor`
+ * @param {string|null} [input.nextHost]  its server, when it isn't the
+ *   deployment's own Redmine (#734 step 6)
+ * @param {Map<string, {seconds: number}>} input.ledger  `pushLedgerFor`, for
+ *   the deployment's own Redmine
+ * @param {Map<string, Map<string, {seconds: number}>>} [input.otherLedgers]
+ *   `pushLedgerFor` for each other server a session is on, by host
+ * @returns {Array<{sessionId: unknown, issueId: string|null, host?: string}>}
+ *   `host` only for another server
  */
-export function sessionIssuesAfterMove({ sessions, date, previousIssueId, nextIssueId, ledger }) {
+export function sessionIssuesAfterMove({
+  sessions,
+  date,
+  previousIssueId,
+  nextIssueId,
+  nextHost = null,
+  ledger,
+  otherLedgers = new Map(),
+}) {
   return sessions.map((session) => {
     const was = session.redmineIssueId ?? previousIssueId ?? null;
+    // A bare Redmine entry (`previousIssueId`) is on the deployment's own.
+    const wasHost = session.redmineIssueId ? (session.redmineHost ?? null) : null;
     const closed = session.endTime != null;
+    const ledgerOf = wasHost ? (otherLedgers.get(wasHost) ?? new Map()) : ledger;
     const handled =
-      closed && was ? (ledger.get(ticketDayKey(was, session.date ?? date))?.seconds ?? 0) : 0;
-    return { sessionId: session._id, issueId: handled > 0 ? was : (nextIssueId ?? null) };
+      closed && was ? (ledgerOf.get(ticketDayKey(was, session.date ?? date))?.seconds ?? 0) : 0;
+    const [issueId, host] = handled > 0 ? [was, wasHost] : [nextIssueId ?? null, nextHost];
+    return { sessionId: session._id, issueId, ...(issueId && host ? { host } : {}) };
   });
 }
 
@@ -138,19 +176,27 @@ export function linkNotificationBody({ actorName, ticketTitle, action, issueId, 
  * @param {Array<{redmineIssueId?: string, date: string, endTime?: number|null, durationSeconds?: number}>} input.sessions
  *   the person's sessions on this ticket
  * @param {string|null} input.issueId  the issue the ticket is linked to now
+ * @param {string|null} [input.host]  its server, when it isn't the
+ *   deployment's own Redmine; `poolTotals` and `ledger` are that server's
  * @param {Array<{ticketId: string, date: string, seconds: number}>} [input.poolTotals]
  *   the person's issue-day totals (`redmineTicketDaysFor`)
  * @param {Map<string, {seconds: number, discardedSeconds: number}>} [input.ledger]
  *   what has been handled per issue-day (`pushLedgerFor`)
  */
-export function linkedTimeSummary({ sessions, issueId, poolTotals = [], ledger = new Map() }) {
+export function linkedTimeSummary({
+  sessions,
+  issueId,
+  host = null,
+  poolTotals = [],
+  ledger = new Map(),
+}) {
   const unlinkedSeconds = sumClosedSessions(sessions.filter((s) => !s.redmineIssueId));
   if (!issueId) return { unlinkedSeconds, unsentSeconds: 0, sentSeconds: 0 };
 
   const poolByKey = new Map(poolTotals.map((t) => [ticketDayKey(t.ticketId, t.date), t.seconds]));
   const byDate = new Map();
   for (const session of sessions) {
-    if (session.redmineIssueId !== issueId) continue;
+    if (session.redmineIssueId !== issueId || (session.redmineHost ?? null) !== host) continue;
     byDate.set(session.date, [...(byDate.get(session.date) ?? []), session]);
   }
 
