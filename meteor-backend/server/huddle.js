@@ -8,7 +8,7 @@ import { huddleTicketLabel, ticketName } from './ticket-label';
 import { discardMedia } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
-import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
+import { GROUP_MENTIONS, deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
 import {
   isAwaitingDelivery,
   isHiddenFrom,
@@ -156,6 +156,15 @@ async function hasPostsBefore(filter, sinceDate) {
 }
 
 // Permission helpers
+/** `@team` / `@here` on a post (#784): validated, deduped, never user ids. */
+function validGroupMentions(groupMentions) {
+  if (groupMentions === undefined || groupMentions === null) return [];
+  if (!Array.isArray(groupMentions) || groupMentions.some((g) => !GROUP_MENTIONS.includes(g))) {
+    throw new Meteor.Error('bad-request', `groupMentions must be a list of: ${GROUP_MENTIONS.join(', ')}`);
+  }
+  return [...new Set(groupMentions)];
+}
+
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
   let team = await rawDb().collection('teams').findOne({ _id: teamId });
@@ -526,6 +535,7 @@ export async function createHuddlePost(
       }
     }
   }
+  const groupMentions = validGroupMentions(content.groupMentions);
 
   // Validate clockEventId if provided — must be the caller's own session in
   // this team, so a spoofed id can't later surface someone else's clock-in/
@@ -553,6 +563,7 @@ export async function createHuddlePost(
     content: {
       text,
       mentions: content.mentions ?? [],
+      ...(groupMentions.length ? { groupMentions } : {}),
     },
     ticketIds: postTicketIds,
     attachments: attachments ?? [],
@@ -892,6 +903,8 @@ Meteor.methods({
       }
     }
 
+    const groupMentions = validGroupMentions(content.groupMentions);
+
     // Omitted keeps the post's tickets; `[]` (or a legacy `ticketId: null`) clears them.
     const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
     await requireTeamTickets(postTicketIds, post.teamId);
@@ -906,6 +919,7 @@ Meteor.methods({
             content: {
               text,
               mentions: content.mentions ?? [],
+              ...(groupMentions.length ? { groupMentions } : {}),
             },
             // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.
@@ -1130,36 +1144,38 @@ Meteor.methods({
     const commenterName = commenterInfo.userName;
     
     const commentData = {
-      type: 'huddle-comment',
       postId,
       teamId: String(post.teamId),
       url: huddlePostUrl(String(post.teamId), postId),
     };
+    const sends = [];
 
     // Notify post author (if not the commenter)
     if (post.userId !== this.userId) {
-      await createNotification({
+      sends.push(createNotification({
         userId: post.userId,
         title: `${commenterName} commented on your post`,
         body: text.substring(0, 100),
-        data: commentData,
-      });
+        data: { type: 'huddle-comment', ...commentData },
+      }));
     }
-    
-    // Notify mentioned users (skip commenter and post author)
-    if (mentions && Array.isArray(mentions)) {
-      const uniqueMentions = [...new Set(mentions)];
-      for (const mentionedUserId of uniqueMentions) {
-        if (mentionedUserId !== this.userId && mentionedUserId !== post.userId) {
-          await createNotification({
-            userId: mentionedUserId,
-            title: `${commenterName} mentioned you in a comment`,
-            body: text.substring(0, 100),
-            data: commentData,
-          });
-        }
-      }
+
+    // Notify mentioned users (skip commenter and post author). Their own type,
+    // so a mention and a reply to your post are separate preferences (#784).
+    const mentionedIds = [...new Set(Array.isArray(mentions) ? mentions : [])].filter(
+      (id) => id !== this.userId && id !== post.userId,
+    );
+    for (const mentionedUserId of mentionedIds) {
+      sends.push(createNotification({
+        userId: mentionedUserId,
+        title: `${commenterName} mentioned you in a comment`,
+        body: text.substring(0, 100),
+        data: { type: 'huddle-comment-mention', ...commentData },
+      }));
     }
+
+    const failed = (await Promise.allSettled(sends)).filter((r) => r.status === 'rejected');
+    for (const { reason } of failed) console.error('[huddle] comment notification failed:', reason);
     
     return { id: commentDoc._id.toHexString() };
   },

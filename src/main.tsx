@@ -90,6 +90,7 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
+import { markTappedNotificationRead } from './features/notifications/notificationEvents';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -293,16 +294,21 @@ const App: React.FC = () => {
     void checkPushNotificationStatus().then((status) => {
       if (cancelled || !status.subscribed) return;
       unsubscribe = subscribeNewNotifications((n) => {
+        // Only what the user's preferences let pop up on desktop (#784): an
+        // event set to Phone only, or held by quiet time, stays in the inbox.
+        if (n.pushed?.desktop === false) return;
         const nData = n.data;
         const notif = new Notification(n.title, {
           body: n.body,
           icon: '/logo.png',
-          tag: (nData?.type as string | undefined) ?? 'timehuddle',
+          // Same tag as the web push for this row, so the two collapse into one.
+          tag: n.id,
           silent: false,
         });
         if (nData) {
           notif.onclick = () => {
             window.focus();
+            markTappedNotificationRead({ notificationId: n.id, type: nData.type });
             const url = nData.url as string | undefined;
             if (url?.startsWith('/app/')) {
               // Keep the query string — it carries the deep-link target

@@ -108,6 +108,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 2.4 | Full title with no cut-off ("Aisha Khan's session · Tue, Sep 29")                                                                             | ⚠️ One plain-text title that gets truncated                                                           | P2       |
 | 2.5 | Close button                                                                                                                                  | ✅ Through `onConversationClosed`                                                                     | —        |
 | 2.6 | Title links to what the thread is about (the ticket page in Ticket threads, #737)                                                             | ❌ The title is a plain string; no `titleHref` or render slot                                         | P3       |
+| 2.7 | Host actions in the header, e.g. the notifications bell (#784)                                                                                | ❌ No `headerActions` slot; only the close button                                                     | P2       |
 
 ### 3. Messages
 
@@ -228,6 +229,7 @@ Code in TimeHuddle that exists only because of a gap above. When the gap closes 
 | Gap      | Workaround                                                                                               | Where                                                                            |
 | -------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | 1.7, 1.8 | Filters portaled into the list header; the "Conversations" heading hidden with CSS                       | `useInboxSlot` + `findListHeader` in `src/pages/Huddle.tsx`, `Huddle.module.css` |
+| 2.7      | Notifications bell portaled into the conversation header                                                 | `useInboxSlot` + `findConversationHeader` in `src/pages/Huddle.tsx`              |
 | 1.11     | `starterConversation()`: an on-screen-only "Today" conversation so the message box renders with no posts | `src/features/huddle/superChatFeed.ts`, `conversations` in `Huddle.tsx`          |
 | 3.17     | Bubble row capped at 100% width with `overflow-wrap: anywhere`                                           | `src/pages/Huddle.module.css`                                                    |
 | 4.8      | `composerAttachmentToFile()` turns base64 attachments back into `File`s before upload                    | `src/features/huddle/api.ts`                                                     |
@@ -278,6 +280,8 @@ Huddle first.
 - [ ] **Wrap long content in bubbles** (3.17) — `overflow-wrap: anywhere` and a capped bubble row
       in the library, so hosts don't need the CSS.
 - [ ] **List header slot and title** (1.7, 1.8) — `sidebarTitle` and `sidebarHeaderExtra`.
+- [ ] **Header actions slot** (2.7) — `headerActions?: (conversation) => ReactNode`, rendered
+      before the close button.
 - [ ] **`onEditRequest`** (3.16) — when set, Edit calls it instead of opening the plain textarea.
 - [ ] Stories: the Inbox playground uses each new prop; existing stories render unchanged.
 - [ ] Tests: one per prop, including "no props passed renders exactly as before".

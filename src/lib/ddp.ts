@@ -800,6 +800,7 @@ export function ddpDocToNotification(doc: DdpDoc): import('./api').Notification 
     title: String(doc.title ?? ''),
     body: String(doc.body ?? ''),
     ...(doc.data ? { data: doc.data as Record<string, unknown> } : {}),
+    ...(doc.pushed ? { pushed: doc.pushed as import('./api').Notification['pushed'] } : {}),
     read: Boolean(doc.read),
     createdAt: String(doc.createdAt ?? ''),
   };

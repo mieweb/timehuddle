@@ -17,6 +17,7 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, enterpriseApi, type SettingsPatch } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { NOTIFICATION_DEFAULT_ROWS } from '../notifications/notificationCopy';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
 import { ENTERPRISE_STRINGS } from './enterpriseStrings';
 import { useEnterpriseDetail } from './useEnterpriseDetail';
@@ -40,6 +41,7 @@ export const ENTERPRISE_DEFAULT_ROWS: DefaultSettingRow[] = [
     description: 'People who join a team are added to its organization too.',
     lockable: true,
   },
+  ...NOTIFICATION_DEFAULT_ROWS,
 ];
 
 const S = ENTERPRISE_STRINGS.settings;

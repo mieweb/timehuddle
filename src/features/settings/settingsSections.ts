@@ -51,7 +51,7 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    description: 'Push alerts when teammates clock in or out.',
+    description: 'Choose what notifies you, on desktop and on your phone.',
     icon: BellIcon,
   },
   {

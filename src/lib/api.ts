@@ -203,6 +203,19 @@ export function decodeJwtExp(token: string): number {
 }
 
 /**
+ * Identifies who is signed in right now: changes on sign-out and when someone
+ * else signs in. Work queued for later (e.g. preference saves) compares it so
+ * one person's change is never sent with the next person's credentials.
+ */
+export function currentSessionKey(): string | null {
+  try {
+    return localStorage.getItem('meteor_resume_token');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get a short-lived JWT access token from better-auth (`GET /api/auth/token`),
  * cached until ~60s before expiry. Falls back to Meteor resume token when no
  * Fastify session is available. Returns null when signed out.
@@ -1352,6 +1365,15 @@ export interface HuddleComment {
   updatedAt: string;
 }
 
+/** A post's text and who it addresses, as written to the server. */
+export interface HuddlePostContentInput {
+  text: string;
+  /** User ids @mentioned. */
+  mentions: string[];
+  /** `@team` (everyone on the team) / `@here` (everyone clocked in to it), #784. */
+  groupMentions?: Array<'team' | 'here'>;
+}
+
 export const huddleApi = {
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
@@ -1406,7 +1428,7 @@ export const huddleApi = {
    */
   createPost: (params: {
     teamId: string;
-    content: { text: string; mentions: string[] };
+    content: HuddlePostContentInput;
     ticketIds?: string[];
     attachments?: HuddlePostAttachment[];
     postDate?: string;
@@ -1428,7 +1450,7 @@ export const huddleApi = {
    * Pass attachments/ticketIds to edit them (omit to leave untouched; `[]` clears tickets). */
   updatePost: (
     postId: string,
-    content: { text: string; mentions: string[] },
+    content: HuddlePostContentInput,
     options?: {
       wrapUp?: boolean;
       attachments?: HuddlePostAttachment[];
@@ -1473,7 +1495,12 @@ export interface ResolvedSetting {
 export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
 
 /** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
-export type DefaultSettingKey = TeamSettingKey | 'allowAutoJoin';
+export type DefaultSettingKey =
+  | TeamSettingKey
+  | 'allowAutoJoin'
+  // Notification defaults (#784): set and locked from the org or enterprise.
+  | 'notifyAdminsOnClock'
+  | 'shiftEndReminders';
 
 /** `true`/`false` sets a value (or locks); `null` resets it to inherited (or unlocks). */
 export type SettingsPatch = Partial<Record<DefaultSettingKey, boolean | null>>;
@@ -1887,6 +1914,8 @@ export interface Notification {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  /** Which pop-ups the user's preferences allowed for it (#784); absent on older rows. */
+  pushed?: { desktop: boolean; phone: boolean };
   read: boolean;
   createdAt: string; // ISO
 }
@@ -1942,6 +1971,53 @@ export const notificationApi = {
 
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
+};
+
+/** A notification event's setting per device (#784): desktop is web push, phone is the app. */
+export interface NotificationDevices {
+  desktop: boolean;
+  phone: boolean;
+}
+
+/** How much of one team's Huddle notifies the user. Absent means 'mentions'. */
+export type HuddleTeamLevel = 'all' | 'mentions' | 'mute';
+
+/** Quiet time: holds pop-ups, while everything is still logged under the bell. */
+export interface NotificationQuiet {
+  /** Hold Huddle pop-ups (not mentions) while clocked out. */
+  holdOffShift: boolean;
+  /** ISO time the snooze ends, or null. */
+  snoozeUntil: string | null;
+  /** Snoozed until the user next clocks in. */
+  snoozeUntilClockIn: boolean;
+  /** Skip Huddle pop-ups for a team whose Huddle the user has open. */
+  skipWhileViewing: boolean;
+}
+
+/** The user's notification preferences: every configurable event's effective setting. */
+export interface NotificationPrefs {
+  events: Record<string, NotificationDevices>;
+  /** Team id → level, for teams set off the default only. */
+  teams: Record<string, HuddleTeamLevel>;
+  quiet: NotificationQuiet;
+  /** Events an organization has locked on: the user's own choice doesn't apply. */
+  locked: string[];
+}
+
+/** A change to some events, team levels and/or quiet time. */
+export interface NotificationPrefsPatch {
+  events?: Record<string, Partial<NotificationDevices>>;
+  teams?: Record<string, HuddleTeamLevel>;
+  quiet?: Partial<NotificationQuiet>;
+}
+
+export const notificationPrefsApi = {
+  /** Every event's effective setting — defaults for anything the user hasn't changed. */
+  get: () => wormholeCall<NotificationPrefs>('notificationPrefs.get', {}),
+
+  /** Apply a change; resolves to the full, updated preferences. */
+  update: (patch: NotificationPrefsPatch) =>
+    wormholeCall<NotificationPrefs>('notificationPrefs.update', { ...patch }),
 };
 
 /** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */

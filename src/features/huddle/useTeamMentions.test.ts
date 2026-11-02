@@ -2,7 +2,13 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchTeamMembers } from './api';
-import { detectMentions, useTeamMentions } from './useTeamMentions';
+import {
+  GROUP_MENTION_OPTIONS,
+  detectGroupMentions,
+  detectMentions,
+  isGroupMentionId,
+  useTeamMentions,
+} from './useTeamMentions';
 
 vi.mock('./api', () => ({ fetchTeamMembers: vi.fn() }));
 
@@ -96,5 +102,22 @@ describe('useTeamMentions', () => {
 describe('detectMentions', () => {
   it('resolves against an arbitrary roster, not just the hook’s own team', () => {
     expect(detectMentions('ping @Bob please', roster)).toEqual(['u2']);
+  });
+});
+
+describe('group mentions', () => {
+  it('finds @team and @here as whole words, any case', () => {
+    expect(detectGroupMentions('Standup in 5 @team')).toEqual(['team']);
+    expect(detectGroupMentions('@HERE anyone free?')).toEqual(['here']);
+    expect(detectGroupMentions('@team and @here')).toEqual(['team', 'here']);
+  });
+
+  it('ignores longer words and email addresses', () => {
+    expect(detectGroupMentions('@teamwork and ops@team.com')).toEqual([]);
+  });
+
+  it('keeps the group options out of the user-id mentions', () => {
+    for (const option of GROUP_MENTION_OPTIONS) expect(isGroupMentionId(option.id)).toBe(true);
+    expect(isGroupMentionId('u1')).toBe(false);
   });
 });
