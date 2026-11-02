@@ -56,6 +56,8 @@ async function sendAll(page: Page): Promise<void> {
 
 const TWO_ROWS = [previewRow({ ticketId: '15' }), previewRow({ ticketId: '23' })];
 
+// The page reads the preview once, and again as the dialog opens: both see the rows.
+
 test.describe('Redmine push results', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
@@ -64,7 +66,7 @@ test.describe('Redmine push results', () => {
 
   test('a successful push reports each row as Sent', async ({ page }) => {
     await openClock(page, {
-      'timeEntries.preview': (_p, i) => preview({ rows: i === 0 ? TWO_ROWS : [] }),
+      'timeEntries.preview': (_p, i) => preview({ rows: i < 2 ? TWO_ROWS : [] }),
       'timeEntries.push': () =>
         pushResult(pushOutcome({ ticketId: '15' }), pushOutcome({ ticketId: '23' })),
     });
@@ -83,7 +85,7 @@ test.describe('Redmine push results', () => {
     // time, because the reloaded preview is empty once everything has been sent
     // — reading from it used to unmount the dialog before it could be read.
     await openClock(page, {
-      'timeEntries.preview': (_p, i) => preview({ rows: i === 0 ? TWO_ROWS : [] }),
+      'timeEntries.preview': (_p, i) => preview({ rows: i < 2 ? TWO_ROWS : [] }),
       'timeEntries.push': () =>
         pushResult(pushOutcome({ ticketId: '15' }), pushOutcome({ ticketId: '23' })),
     });
@@ -99,7 +101,7 @@ test.describe('Redmine push results', () => {
   }) => {
     await openClock(page, {
       'timeEntries.preview': (_p, i) =>
-        preview({ rows: i === 0 ? TWO_ROWS : [previewRow({ ticketId: '23' })] }),
+        preview({ rows: i < 2 ? TWO_ROWS : [previewRow({ ticketId: '23' })] }),
       'timeEntries.push': () =>
         pushResult(
           pushOutcome({ ticketId: '15' }),
@@ -155,7 +157,7 @@ test.describe('Redmine push results', () => {
     // Deliberately delayed rather than racing real latency: entries are
     // create-only, so a second send would be a permanent duplicate.
     const rm = await openClock(page, {
-      'timeEntries.preview': (_p, i) => preview({ rows: i === 0 ? TWO_ROWS : [] }),
+      'timeEntries.preview': (_p, i) => preview({ rows: i < 2 ? TWO_ROWS : [] }),
       'timeEntries.push': delayed(
         1200,
         pushResult(pushOutcome({ ticketId: '15' }), pushOutcome({ ticketId: '23' })),
@@ -207,7 +209,7 @@ test.describe('Redmine push results', () => {
   test('closing after a push clears the results', async ({ page }) => {
     await openClock(page, {
       'timeEntries.preview': (_p, i) =>
-        preview({ rows: i === 0 ? TWO_ROWS : [previewRow({ ticketId: '23' })] }),
+        preview({ rows: i < 2 ? TWO_ROWS : [previewRow({ ticketId: '23' })] }),
       'timeEntries.push': () =>
         pushResult(
           pushOutcome({ ticketId: '15' }),

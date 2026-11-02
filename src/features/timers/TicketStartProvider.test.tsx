@@ -392,6 +392,7 @@ describe('TicketStartProvider', () => {
         comment: 'Fixed the clock',
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
       expect(screen.queryByText('Send time to Redmine')).toBeNull();
       expect(heard).toHaveBeenCalled();
@@ -413,6 +414,7 @@ describe('TicketStartProvider', () => {
         comment: undefined,
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -432,6 +434,7 @@ describe('TicketStartProvider', () => {
         comment: 'Fixed the clock',
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -450,6 +453,7 @@ describe('TicketStartProvider', () => {
         comment: undefined,
         activityId: undefined,
         billable: null,
+        hours: 0.52,
       });
     });
 
@@ -506,6 +510,7 @@ describe('TicketStartProvider', () => {
           comment: undefined,
           activityId: 9,
           billable,
+          hours: 0.52,
         }),
       );
     });
@@ -630,6 +635,8 @@ describe('TicketStartProvider', () => {
           comment: undefined,
           activityId: undefined,
           billable: null,
+          // The hours on the card, so a total that moved is refused too.
+          hours: UNSENT.hours,
         }),
       );
     });
@@ -670,7 +677,33 @@ describe('TicketStartProvider', () => {
         comment: 'Fixed the clock',
         activityId: 9,
         billable,
+        hours: 0.52,
       });
+    });
+
+    it('keeps the prompt when the rounding moved the hours, and sends the new hours on a second Send', async () => {
+      // Shown 0:31; the organization then rounds the server up to 15 minutes.
+      mockPreview.mockResolvedValueOnce(previewWith(0.52)).mockResolvedValue(previewWith(0.75));
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'hours-changed',
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+      fireEvent.click(sendButton());
+
+      expect(await screen.findByText(/rounding for this Redmine server changed/)).toBeTruthy();
+      expect(toast.error).not.toHaveBeenCalled();
+      // Read again, so the card shows the hours a second Send will use.
+      expect(await screen.findByRole('button', { name: /^0:45 on issue 15/ })).toBeTruthy();
+
+      fireEvent.click(sendButton());
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend.mock.calls[1][2]).toMatchObject({ hours: 0.75 });
     });
 
     it('does not claim an entry was sent when nothing was left to send', async () => {

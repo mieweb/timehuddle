@@ -36,6 +36,8 @@ export interface RedmineEntryCardProps {
   onToggleHours: () => void;
   /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
   billable?: RedmineBillable | null;
+  /** How `hours` was rounded up from the time worked; null or absent when exact. */
+  rounding?: { step: number; exactHours: number } | null;
   /** The seconds of each timer run `hours` adds up; a single run needs no mention. */
   runSeconds?: number[];
   /** No border or padding: for the one entry of a dialog that frames it already. */
@@ -51,6 +53,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
+  rounding = null,
   runSeconds = [],
   bare = false,
   children,
@@ -96,6 +99,18 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
             {/* The field's label is for the eye only; this names it for a screen reader. */}
             <span className="sr-only">{billable.name}: </span>
             {billableValueLabel(billable.value)}
+          </Text>
+        </RedmineEntryField>
+      )}
+      {rounding && (
+        <RedmineEntryField label={text.rounding}>
+          <Text size="sm" className="redmine-entry-rounding">
+            {text.roundedUp(
+              rounding.exactHours > 0
+                ? hoursLabel(rounding.exactHours, decimalHours)
+                : text.underAMinute,
+              rounding.step,
+            )}
           </Text>
         </RedmineEntryField>
       )}
