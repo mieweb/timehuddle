@@ -41,6 +41,7 @@ const clockModule = () => import('./clock.js');
 
 const LIBRARY_NOTE = 'Added to the media library';
 const POST_NOTE = 'Ready for its post';
+const WALKTHROUGH_FILE_NOTE = 'Ready for your request';
 
 function requireId(id, what) {
   if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', `Invalid ${what} id`);
@@ -246,6 +247,26 @@ async function clockInWithPlan(userId, teamId, planPostId, reservedAt) {
   await clockStart(userId, { teamId, planPostId, reuseOpen: true });
 }
 
+/**
+ * A video file its form attaches once it's filed (a post, a timesheet
+ * change): embedded, so it never shows in the library, whatever becomes of
+ * the form. Nothing to look up first: addToLibrary is idempotent.
+ */
+function attachedLater(note) {
+  return {
+    async check() {
+      return {};
+    },
+    async delivered() {
+      return null;
+    },
+    async deliver(userId, _destination, video) {
+      await addToLibrary(userId, video, { embedded: true });
+      return note;
+    },
+  };
+}
+
 const DESTINATIONS = {
   library: {
     async check() {
@@ -269,18 +290,12 @@ const DESTINATIONS = {
   // composer attaches it once it's filed. Embedded, as every post's video is,
   // so deleting the post (or cancelling it unsent) doesn't put it in the
   // library. Nothing to look up first: addToLibrary is idempotent.
-  post: {
-    async check() {
-      return {};
-    },
-    async delivered() {
-      return null;
-    },
-    async deliver(userId, _destination, video) {
-      await addToLibrary(userId, video, { embedded: true });
-      return POST_NOTE;
-    },
-  },
+  post: attachedLater(POST_NOTE),
+
+  // A video file picked as a timesheet change's walkthrough, before the
+  // request exists (timesheet-request needs it): the form attaches it once it
+  // sends. Embedded, so it stays off the requester's profile, sent or not.
+  walkthrough: attachedLater(WALKTHROUGH_FILE_NOTE),
 
   huddle: {
     async check(userId, { teamId }) {

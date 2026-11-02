@@ -2243,6 +2243,7 @@ export const timerApi = {
 export type PulseDestination =
   | { kind: 'library' }
   | { kind: 'post' }
+  | { kind: 'walkthrough' }
   | { kind: AttachmentKind; id: string }
   | { kind: 'huddle'; teamId: string }
   | { kind: 'clock-plan'; teamId: string; postDate: string }

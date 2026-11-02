@@ -106,12 +106,12 @@ export function filingProblem(filed: FilingResult): string | null {
 /**
  * Send `file` to `destination` and wait until it has been conformed and
  * filed, for callers that attach the video themselves: `post` for one added
- * to a Huddle post (kept out of the library), `library` for one that belongs
- * there. Returns the video id; rejects with a message to show unless the
- * video is ready.
+ * to a Huddle post and `walkthrough` for a timesheet change's (both kept out
+ * of the library), `library` for one that belongs there. Returns the video
+ * id; rejects with a message to show unless the video is ready.
  */
 export async function uploadVideoTo(
-  destination: { kind: 'library' } | { kind: 'post' },
+  destination: { kind: 'library' } | { kind: 'post' } | { kind: 'walkthrough' },
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<string> {

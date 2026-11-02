@@ -50,7 +50,8 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
     setError(null);
     setProgress(0);
     try {
-      const videoid = await uploadVideoTo({ kind: 'library' }, file, (f) =>
+      // Not the library: a walkthrough stays off the requester's profile.
+      const videoid = await uploadVideoTo({ kind: 'walkthrough' }, file, (f) =>
         setProgress(Math.round(f * 100)),
       );
       onChange({ ...value, videoUrl: artifactPath(videoid) });

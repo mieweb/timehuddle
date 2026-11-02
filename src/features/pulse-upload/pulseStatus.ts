@@ -4,6 +4,7 @@ import type { PulseDestination } from '../../lib/api';
 const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   library: 'Added to your media library',
   post: 'Added to your post',
+  walkthrough: 'Added to your request',
   ticket: 'Added to this ticket',
   clock: 'Added to this session',
   huddle: 'Posted to Huddle',
@@ -22,6 +23,7 @@ export function landedLabel(destination: PulseDestination): string {
 const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   library: "It's added to your media library as soon as it uploads.",
   post: "It's added to your post as soon as it uploads.",
+  walkthrough: "It's added to your request as soon as it uploads.",
   ticket: "It's added to this ticket as soon as it uploads.",
   clock: "It's added to this session as soon as it uploads.",
   huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",
