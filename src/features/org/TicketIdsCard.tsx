@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Select,
   Text,
   WebsiteInput,
 } from '@mieweb/ui';
@@ -33,6 +34,13 @@ export const TICKET_IDS_STRINGS = {
   serverPlaceholder: 'https://redmine.example.com',
   serverPrefixLabel: (row: number) => `Prefix, row ${row}`,
   serverPrefixPlaceholder: 'PM',
+  serverRoundingLabel: (row: number) => `Rounding for time entries, row ${row}`,
+  roundings: {
+    exact: 'Exact time',
+    up5: 'Round up to 5 min',
+    up10: 'Round up to 10 min',
+    up15: 'Round up to 15 min',
+  } satisfies Record<ServerRounding, string>,
   removeServer: (host: string) => (host ? `Remove ${host}` : 'Remove this server'),
   addServer: 'Add server',
   noServers: 'No servers named yet.',
@@ -42,13 +50,19 @@ export const TICKET_IDS_STRINGS = {
   saveFailed: 'The change could not be saved.',
 } as const;
 
+type ServerRounding = NonNullable<SourcePrefix['rounding']>;
+
 /** A server row being edited: its address as typed, with any path Redmine lives under. */
 interface ServerDraft {
   key: number;
   address: string;
   prefix: string;
   type: NonNullable<SourcePrefix['type']>;
+  /** How time entries sent to the server are rounded. */
+  rounding: ServerRounding;
 }
+
+const ROUNDINGS = Object.keys(TICKET_IDS_STRINGS.roundings) as ServerRounding[];
 
 let nextDraftKey = 0;
 const toDrafts = (entries: SourcePrefix[]): ServerDraft[] =>
@@ -58,6 +72,7 @@ const toDrafts = (entries: SourcePrefix[]): ServerDraft[] =>
     prefix: entry.prefix,
     // Saved before types existed: every server then was a Redmine one.
     type: entry.type ?? 'redmine',
+    rounding: entry.rounding ?? 'exact',
   }));
 
 /** One save at a time, with its error and a "Saved." to announce. */
@@ -144,7 +159,12 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
       const saved = await orgApi.setSourcePrefixes(
         orgId,
         // The server reads the address, path included, from `host`.
-        servers.map(({ address, prefix, type }) => ({ host: address, prefix, type })),
+        servers.map(({ address, prefix, type, rounding }) => ({
+          host: address,
+          prefix,
+          type,
+          rounding,
+        })),
       );
       setServers(toDrafts(saved));
       setServersChanged(false);
@@ -161,8 +181,8 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
     serversSave.clearStatus();
   };
 
-  const updateServer = (key: number, field: 'address' | 'prefix', value: string) =>
-    editServers(servers.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
+  const updateServer = (key: number, change: Partial<ServerDraft>) =>
+    editServers(servers.map((row) => (row.key === key ? { ...row, ...change } : row)));
 
   return (
     <Card padding="lg" className="org-ticket-ids space-y-4">
@@ -242,7 +262,7 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
                   value={row.address}
                   autoComplete="off"
                   disabled={serversSave.saving}
-                  onChange={(address) => updateServer(row.key, 'address', address)}
+                  onChange={(address) => updateServer(row.key, { address })}
                 />
               </div>
               <div className="org-ticket-server-prefix w-24">
@@ -254,7 +274,22 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
                   maxLength={6}
                   autoComplete="off"
                   disabled={serversSave.saving}
-                  onChange={(event) => updateServer(row.key, 'prefix', event.target.value)}
+                  onChange={(event) => updateServer(row.key, { prefix: event.target.value })}
+                />
+              </div>
+              <div className="org-ticket-server-rounding w-52">
+                <Select
+                  label={TICKET_IDS_STRINGS.serverRoundingLabel(index + 1)}
+                  hideLabel
+                  options={ROUNDINGS.map((value) => ({
+                    value,
+                    label: TICKET_IDS_STRINGS.roundings[value],
+                  }))}
+                  value={row.rounding}
+                  disabled={serversSave.saving}
+                  onValueChange={(value) =>
+                    updateServer(row.key, { rounding: value as ServerRounding })
+                  }
                 />
               </div>
               <Button

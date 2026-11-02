@@ -20,12 +20,13 @@ let teamId: string;
 let ticketA: string;
 let ticketB: string;
 
-async function insertTicket(title: string): Promise<string> {
+async function insertTicket(title: string, extra: Record<string, unknown> = {}): Promise<string> {
   const db = await getDb();
   const doc = {
     _id: new ObjectId(),
     teamId,
     title,
+    ...extra,
     status: 'open',
     priority: 'medium',
     createdBy: userId,
@@ -112,6 +113,24 @@ describe('timer updates in Huddle', () => {
     expect(post!.content.text).toBe(`*Started ${link('Alpha', ticketA)}*`);
     // A session's plan is its first post; an update must never be taken for one.
     expect(post!.clockEventId).toBeUndefined();
+  });
+
+  it('names a numbered ticket by its ID and title (#788)', async () => {
+    const numbered = await insertTicket('Charlie', { number: 41 });
+    await start(numbered);
+
+    expect(await updates()).toEqual([`*Started [TH-41: Charlie](/app/tickets/${numbered})*`]);
+  });
+
+  it('posts the title of a ticket carrying a Redmine issue (#788)', async () => {
+    const carried = await insertTicket('Delta', {
+      number: 42,
+      linkedIssue: { source: 'redmine', id: '656', host: 'redmine.example.com' },
+    });
+    await start(carried);
+
+    // The team's org names no Redmine server, so the ticket keeps its own ID.
+    expect(await updates()).toEqual([`*Started [TH-42: Delta](/app/tickets/${carried})*`]);
   });
 
   it('posts one "Switched to" for the ticket switched to', async () => {

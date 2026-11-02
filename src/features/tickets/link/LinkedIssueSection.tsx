@@ -21,13 +21,11 @@ import {
   Card,
   CardContent,
   ExternalLinkIcon,
-  Spinner,
   Text,
 } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
 import type { Ticket } from '../../../lib/api';
-import { useRouter } from '../../../ui/router';
 import type { OutsideState } from '../detail/useOutsideIssue';
 import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
@@ -37,7 +35,6 @@ import {
   applyTicketLink,
 } from './applyTicketLink';
 import { linkErrorMessage } from './linkErrors';
-import { settingsPath } from '../../settings/settingsSections';
 import { linkWarnings, type LinkChange } from './linkWarnings';
 import { TicketLinkFields } from './TicketLinkFields';
 import {
@@ -118,7 +115,6 @@ export function LinkedIssueSection({
   locked = false,
   outside,
 }: LinkedIssueSectionProps) {
-  const { navigate } = useRouter();
   const [mode, setMode] = useState<Mode>('view');
   const [form, setForm] = useState<LinkFormState>(EMPTY_LINK_FORM);
   const [saving, setSaving] = useState(false);
@@ -270,34 +266,6 @@ export function LinkedIssueSection({
                   : undefined
               }
             />
-
-            {outside.kind === 'loading' && (
-              <Spinner size="sm" label={ticketLinkText.loadingIssue} />
-            )}
-            {outside.kind === 'not-connected' && (
-              <>
-                <Text size="sm" variant="muted">
-                  {ticketLinkText.notConnected}
-                </Text>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate(settingsPath('integrations'))}
-                >
-                  {ticketLinkText.goToSettings}
-                </Button>
-              </>
-            )}
-            {outside.kind === 'unavailable' && (
-              <Text size="sm" variant="muted">
-                {ticketLinkText.issueUnavailable}
-              </Text>
-            )}
-            {outside.kind === 'other-server' && (
-              <Text size="sm" variant="muted">
-                {ticketLinkText.otherServer}
-              </Text>
-            )}
           </div>
         )}
 

@@ -113,14 +113,19 @@ function formatDayLabel(dateKey: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-/** A post's tickets that still exist (a deleted one comes back with no title). */
-function existingTickets(post: HuddlePost): { id: string; title: string }[] {
-  return (post.tickets ?? []).flatMap((t) => (t.title ? [{ id: t.id, title: t.title }] : []));
+/**
+ * A post's tickets that still exist (a deleted one comes back with no title),
+ * each with the name the feed shows: its `label`, e.g. `TH-7: Fix login`.
+ */
+function existingTickets(post: HuddlePost): { id: string; name: string }[] {
+  return (post.tickets ?? []).flatMap((t) =>
+    t.title ? [{ id: t.id, name: t.label ?? t.title }] : [],
+  );
 }
 
-/** Titles of a post's tickets that still exist. */
-function ticketTitles(post: HuddlePost): string[] {
-  return existingTickets(post).map((t) => t.title);
+/** Names of a post's tickets that still exist. */
+function ticketNames(post: HuddlePost): string[] {
+  return existingTickets(post).map((t) => t.name);
 }
 
 /** In-app path of a ticket's page (see src/ui/ROUTING.md). */
@@ -133,9 +138,9 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_[\]<>]/g, '\\$&');
 }
 
-/** "🎫 [Onboarding checklist](/app/tickets/…)" — the inbox opens it in the app. */
-function ticketLinkMarkdown(ticket: { id: string; title: string }): string {
-  return `🎫 [${escapeMarkdown(ticket.title)}](${ticketPath(ticket.id)})`;
+/** "[TH-7: Onboarding checklist](/app/tickets/…)" — the inbox opens it in the app. */
+function ticketLinkMarkdown(ticket: { id: string; name: string }): string {
+  return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
 }
 
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
@@ -262,7 +267,7 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
   return new Set([...bySession.values()].map((p) => p.id));
 }
 
-/** Plan/wrap-up + ticket label for a post, e.g. "Plan · 🎫 [Onboarding checklist](/app/tickets/…)". */
+/** Plan/wrap-up + ticket label for a post, e.g. "Plan · [TH-7: Onboarding checklist](/app/tickets/…)". */
 function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
@@ -345,7 +350,9 @@ function buildTitle(
     case 'person':
       return displayName(first, viewer);
     case 'ticket':
-      return first.tickets?.length ? (first.tickets[0].title ?? 'Ticket') : 'No ticket';
+      return first.tickets?.length
+        ? (first.tickets[0].label ?? first.tickets[0].title ?? 'Ticket')
+        : 'No ticket';
     case 'session': {
       const dateLabel = formatDayLabel(getPostDateKey(first));
       const name = displayName(first, viewer);
@@ -498,7 +505,7 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
   return [
     post.content.text,
     post.userName,
-    ...ticketTitles(post),
+    ...ticketNames(post),
     post.wrapUpAt ? 'wrap-up wrapup' : undefined,
     post.clockEventId ? undefined : OFF_THE_CLOCK,
     post.session && post.session.endTime == null ? 'live' : undefined,

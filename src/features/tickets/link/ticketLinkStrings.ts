@@ -19,14 +19,11 @@ export const ticketLinkText = {
   github: 'GitHub',
   /** For a link to anywhere else: the badge shows the site it points at. */
   linkSource: (host: string) => host,
-  loadingIssue: 'Loading the linked issue from Redmine',
   openIssue: (ref: string) => `Open issue ${ref} in Redmine`,
   openGithub: (url: string) => `Open link ${url}`,
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
-  notConnected: 'Connect your Redmine account in Settings to see this issue.',
-  issueUnavailable: "You can't see this issue in Redmine, or it no longer exists.",
   goToSettings: 'Go to Settings',
 
   linkLabel: 'Link',

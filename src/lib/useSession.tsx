@@ -8,7 +8,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 import { authApi, orgApi, type TimecoreUser } from './api';
-import { getDdpClient } from './ddp';
+import { DdpTimeoutError, getDdpClient } from './ddp';
 import { forgetReturnTo } from './returnTo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -122,7 +122,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (errMessage.includes('suspended') || errMessage.includes('blocked')) {
         setBlockMessage(errMessage);
       }
-      setUser(null);
+      // A timeout doesn't mean signed out; a pull-to-refresh must not drop the user.
+      if (!(err instanceof DdpTimeoutError)) setUser(null);
     } finally {
       setLoading(false);
     }

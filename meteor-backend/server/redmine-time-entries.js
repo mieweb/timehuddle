@@ -33,13 +33,26 @@ export const MAX_COMMENT_LENGTH = 1024;
  * cannot hold a finer figure than a minute.
  */
 export function toHours(seconds) {
+  return minutesToHours(wholeMinutes(seconds));
+}
+
+/**
+ * Seconds as the whole minutes Redmine holds. Any tracked time is at least one
+ * minute, the least Redmine accepts, so a short stint is never left unsendable.
+ */
+function wholeMinutes(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
-  return minutesToHours(Math.round(seconds / 60));
+  return Math.max(1, Math.round(seconds / 60));
 }
 
 /** Whole minutes as the 2-decimal hours Redmine is sent. */
 function minutesToHours(minutes) {
   return Math.round((minutes / 60) * 100) / 100;
+}
+
+/** Whole minutes rounded up to a multiple of `step`; without one they stay as they are. */
+export function roundUpMinutes(minutes, step) {
+  return step ? Math.ceil(minutes / step) * step : minutes;
 }
 
 /**
@@ -51,13 +64,12 @@ export function hoursToSend(total) {
 }
 
 /**
- * Whether a rounded total is worth sending.
+ * Whether a total has anything to send.
  *
- * Redmine rejects a zero-hour entry, so anything under 30 seconds — which
- * quantizes to zero minutes — must be withheld rather than pushed and failed. A
- * stray few-second session is a mis-click, not work, so dropping it is also the
- * honest outcome; it simply stays unsynced in Huddle. The smallest figure that
- * can be sent is one minute, `0.02h`.
+ * Redmine rejects a zero-hour entry, so a total whose time Redmine already
+ * holds — new seconds covered by what an earlier entry rounded up — is withheld
+ * rather than pushed and failed. The smallest figure that can be sent is one
+ * minute, `0.02h`.
  */
 export function isPushable(hours) {
   return Number.isFinite(hours) && hours >= 0.01;
@@ -93,26 +105,44 @@ export function hoursAgree(sent, stored) {
  * difference is what stops repeated pushes drifting — two 30-second pushes
  * would otherwise each round up, and put two minutes in Redmine for one worked.
  *
- * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
- * so short stretches accumulate until they are worth sending.
+ * A server that rounds up works the same way: the day's total is rounded up to
+ * its step, and only what Redmine does not hold yet is sent, so time already
+ * covered by a rounded-up entry sends nothing more. `rounding` then carries the
+ * step and the exact minutes, for the dialog to show both.
+ *
+ * A ticket-day with nothing new is dropped. One whose new seconds are already
+ * covered is kept with no minutes to send, so they count once the day passes
+ * what Redmine holds.
  *
  * @param {Map<string, {seconds: number, discardedSeconds: number, minutes: number}>} ledgerByKey
  *   what has been handled per `ticketId|date` — see `pushLedgerFor`
- * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number}>}
+ * @param {Map<string, number>} [stepByKey] the minutes each ticket-day rounds up to; none is exact
+ *
+ * `runSeconds` is the timer runs that difference is made of, oldest first.
+ *
+ * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number, minutes: number, runSeconds: number[], rounding?: {step: number, exactMinutes: number}}>}
  */
-export function unsentTotals(totals, ledgerByKey) {
+export function unsentTotals(totals, ledgerByKey, stepByKey = new Map()) {
   if (!Array.isArray(totals)) return [];
   return totals
     .map((total) => {
-      const held = ledgerByKey.get(ticketDayKey(total.ticketId, total.date)) ?? NOTHING_HANDLED;
+      const key = ticketDayKey(total.ticketId, total.date);
+      const held = ledgerByKey.get(key) ?? NOTHING_HANDLED;
+      const step = stepByKey.get(key);
       // Discarded time is never owed to Redmine, so it is left out of the target.
-      const owedMinutes = Math.round((total.seconds - held.discardedSeconds) / 60);
+      const owedMinutes = wholeMinutes(total.seconds - held.discardedSeconds);
+      const seconds = Math.max(0, total.seconds - held.seconds);
+      // The time worked since the last send. Not owed minutes less what was
+      // sent: an earlier entry rounded up would make the new work look shorter.
+      const exactMinutes = Math.round(seconds / 60);
       return {
         ticketId: total.ticketId,
         date: total.date,
-        seconds: Math.max(0, total.seconds - held.seconds),
+        seconds,
         alreadySentSeconds: held.seconds,
-        minutes: Math.max(0, owedMinutes - held.minutes),
+        minutes: Math.max(0, roundUpMinutes(owedMinutes, step) - held.minutes),
+        ...(step ? { rounding: { step, exactMinutes } } : {}),
+        runSeconds: unsentRuns(total.runSeconds, seconds),
       };
     })
     .filter((total) => total.seconds > 0);
@@ -121,9 +151,25 @@ export function unsentTotals(totals, ledgerByKey) {
 const NOTHING_HANDLED = { seconds: 0, discardedSeconds: 0, minutes: 0 };
 
 /**
- * What one ticket-day has left that is worth sending, out of `unsentTotals`'
- * result: `{ ticketId, date, hours }`, or null when it has nothing unsent or
- * less than a minute of it.
+ * The timer runs that make up a ticket-day's unsent seconds. The ledger holds
+ * seconds, not runs, but each send covers every run closed by then, so the unsent
+ * time is normally the newest runs: go back from the latest until they cover it.
+ * Moving or editing an entry can break that, so when no run list adds up to the
+ * unsent time there is none to show: it never contradicts the total.
+ *
+ * @param {number[]} [runSeconds] each run's seconds, oldest first
+ */
+function unsentRuns(runSeconds = [], unsentSeconds) {
+  let covered = 0;
+  let first = runSeconds.length;
+  while (first > 0 && covered < unsentSeconds) covered += runSeconds[--first];
+  return covered === unsentSeconds ? runSeconds.slice(first) : [];
+}
+
+/**
+ * What one ticket-day has left to send, out of `unsentTotals`' result:
+ * `{ ticketId, date, hours }`, or null when it has nothing unsent or only time
+ * an earlier entry already covers.
  */
 export function sendableForTicketDay(unsent, ticketId, date) {
   const key = ticketDayKey(ticketId, date);
@@ -144,7 +190,7 @@ export function sendableForTicketDay(unsent, ticketId, date) {
  * tracked time, and hiding it would silently drop work. It carries
  * `issueMissing: true` so the dialog can show it as unsendable instead.
  *
- * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number}>} totals
+ * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number, runSeconds?: number[]}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
  * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
@@ -166,6 +212,7 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         date: total.date,
         seconds: total.seconds,
         alreadySentSeconds: total.alreadySentSeconds ?? 0,
+        runSeconds: total.runSeconds ?? [],
         hours,
         subject: issue?.subject ?? null,
         trackerName: issue?.trackerName ?? null,
@@ -177,6 +224,10 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityOptions: activity.options ?? [],
         // The Billable field the entry is sent with, or null for none (#686).
         billable: issue?.billable ?? null,
+        // The step the hours were rounded up to, and the exact hours; null for exact.
+        rounding: total.rounding
+          ? { step: total.rounding.step, exactHours: minutesToHours(total.rounding.exactMinutes) }
+          : null,
         // Every reason a row cannot be sent, so the dialog explains itself
         // rather than just disabling a checkbox.
         blockedReason: !isPushable(hours)

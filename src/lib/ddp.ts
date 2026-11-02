@@ -62,6 +62,19 @@ interface DdpMessage {
   session?: string;
 }
 
+/** Longest a method call waits for its result before the socket is treated as dead. */
+const METHOD_TIMEOUT_MS = 30_000;
+/** How long a liveness ping waits for its pong before the socket is declared dead. */
+const PING_TIMEOUT_MS = 5_000;
+
+/** A method got no reply in time — the socket is likely half-open, not rejected by the server. */
+export class DdpTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DdpTimeoutError';
+  }
+}
+
 class DdpClient {
   private ws: WebSocket | null = null;
   private nextId = 1;
@@ -69,6 +82,8 @@ class DdpClient {
     string,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
+  private pongWaiters = new Map<string, () => void>();
+  private pingInFlight: Promise<void> | null = null;
   private readySubs = new Set<string>();
   private subReadyListeners = new Map<string, () => void>();
   private collections = new Map<string, CollectionStore>();
@@ -225,9 +240,9 @@ class DdpClient {
    * reset connection state, and reconnect with backoff — re-authing and
    * restoring every active subscription so live data resumes seamlessly.
    */
-  private handleDisconnect(): void {
+  private handleDisconnect(reason: Error = new Error('DDP connection lost')): void {
     for (const pending of this.pendingMethods.values()) {
-      pending.reject(new Error('DDP connection lost'));
+      pending.reject(reason);
     }
     this.pendingMethods.clear();
     this.readySubs.clear();
@@ -257,6 +272,57 @@ class DdpClient {
     }, delay);
   }
 
+  /**
+   * A socket can stay half-open after the WebView is backgrounded: `onclose`
+   * never fires, so calls wait forever. Detach its handlers (a late close must
+   * not tear down the replacement) and reconnect on the next call.
+   */
+  private dropDeadSocket(ws: WebSocket, reason: DdpTimeoutError): void {
+    if (this.ws !== ws) return;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    this.status = 'failed';
+    ws.close();
+    // Calls in flight on the dead socket are timeouts too, not a server answer.
+    this.handleDisconnect(reason);
+  }
+
+  /**
+   * Ping the server and drop the socket if it does not answer. A socket that
+   * died while the app was backgrounded never fires `onclose`, so this is how
+   * a resume finds out; the reconnect then happens before the user's next call
+   * instead of that call waiting on the dead socket.
+   */
+  public verifyConnection(): Promise<void> {
+    const ws = this.ws;
+    if (this.status !== 'connected' || !ws) return Promise.resolve();
+    this.pingInFlight ??= (async () => {
+      const id = `ping-${this.nextId++}`;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const alive = new Promise<boolean>((resolve) => {
+        this.pongWaiters.set(id, () => resolve(true));
+        timer = setTimeout(() => resolve(false), PING_TIMEOUT_MS);
+      });
+      try {
+        ws.send(JSON.stringify({ msg: 'ping', id }));
+      } catch {
+        clearTimeout(timer);
+        this.pongWaiters.delete(id);
+        this.dropDeadSocket(ws, new DdpTimeoutError('DDP ping failed to send'));
+        return;
+      }
+      const ok = await alive;
+      clearTimeout(timer);
+      this.pongWaiters.delete(id);
+      if (!ok) this.dropDeadSocket(ws, new DdpTimeoutError('DDP ping timed out'));
+    })().finally(() => {
+      this.pingInFlight = null;
+    });
+    return this.pingInFlight;
+  }
+
   public async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
@@ -264,9 +330,11 @@ class DdpClient {
       // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
       this.authPromise = this.tryResumeLogin()
         .then(() => {})
-        .catch(() => {
+        .catch((err: unknown) => {
           // Reset so next call can retry
           this.authPromise = null;
+          // Callers must not go on as authenticated when the login only timed out.
+          if (err instanceof DdpTimeoutError) throw err;
         });
     }
     return this.authPromise ?? Promise.resolve();
@@ -284,7 +352,9 @@ class DdpClient {
         localStorage.setItem('meteor_resume_token', loginResult.token);
       }
       return true;
-    } catch {
+    } catch (err) {
+      // A timeout says nothing about the token; keep it so the next call can retry.
+      if (err instanceof DdpTimeoutError) throw err;
       localStorage.removeItem('meteor_resume_token');
       return false;
     }
@@ -430,7 +500,9 @@ class DdpClient {
       // Use a timeout to prevent hanging
       const authedWithTimeout = Promise.race([
         this.ensureAuthed(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new DdpTimeoutError('Session check timed out')), 5000),
+        ),
       ]);
       await authedWithTimeout;
 
@@ -448,7 +520,9 @@ class DdpClient {
         createdAt: string | null;
         releaseNotesSeenVersion: string | null;
       } | null;
-    } catch {
+    } catch (err) {
+      // Unknown, not signed out: the caller keeps whoever it already has.
+      if (err instanceof DdpTimeoutError) throw err;
       return null;
     }
   }
@@ -471,6 +545,9 @@ class DdpClient {
     switch (data.msg) {
       case 'ping':
         this.ws?.send(JSON.stringify({ msg: 'pong', ...(data.id ? { id: data.id } : {}) }));
+        break;
+      case 'pong':
+        if (data.id) this.pongWaiters.get(data.id)?.();
         break;
       case 'result': {
         const pending = data.id ? this.pendingMethods.get(data.id) : undefined;
@@ -544,9 +621,25 @@ class DdpClient {
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
+    const ws = this.ws!;
     return new Promise((resolve, reject) => {
-      this.pendingMethods.set(id, { resolve, reject });
-      this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
+      const timer = setTimeout(() => {
+        const timeout = new DdpTimeoutError(`DDP method ${method} timed out`);
+        this.pendingMethods.delete(id);
+        reject(timeout);
+        this.dropDeadSocket(ws, timeout);
+      }, METHOD_TIMEOUT_MS);
+      this.pendingMethods.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      ws.send(JSON.stringify({ msg: 'method', id, method, params }));
     });
   }
 
@@ -555,11 +648,15 @@ class DdpClient {
     const id = String(this.nextId++);
     let stopped = false;
     this.activeSubs.set(id, { name, params });
-    void this.ensureAuthed().then(() => {
-      if (stopped) return;
-      if (onReady) this.subReadyListeners.set(id, onReady);
-      this.ws!.send(JSON.stringify({ msg: 'sub', id, name, params }));
-    });
+    if (onReady) this.subReadyListeners.set(id, onReady);
+    void this.ensureAuthed()
+      .then(() => {
+        if (stopped) return;
+        this.ws?.send(JSON.stringify({ msg: 'sub', id, name, params }));
+      })
+      .catch(() => {
+        // Auth timed out and dropped the socket; the reconnect resubscribes every active sub.
+      });
     return () => {
       stopped = true;
       this.activeSubs.delete(id);

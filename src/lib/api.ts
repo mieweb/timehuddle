@@ -937,6 +937,18 @@ export const usernameApi = {
 
 // ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
 
+/** Longest a wormhole call waits on the DDP login before sending with the token it has. */
+const DDP_AUTH_WAIT_MS = 10_000;
+
+/** Rejects after `ms` so a call on a dead socket cannot hold its caller forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Timed out')), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
  * dots→underscores>). Auth is a short-lived better-auth JWT in the
@@ -952,9 +964,9 @@ async function wormholeCall<T = unknown>(
   // Ensure DDP auth is complete before reading token
   // This guarantees tryResumeLogin has run and updated localStorage
   try {
-    await getDdpClient().ensureAuthed();
+    await withTimeout(getDdpClient().ensureAuthed(), DDP_AUTH_WAIT_MS);
   } catch {
-    // If auth fails, proceed anyway — getAccessToken will handle it
+    // If auth fails or stalls, proceed anyway — getAccessToken will handle it
   }
 
   const token = await getAccessToken();
@@ -1306,8 +1318,11 @@ export interface HuddlePost {
     text: string;
     mentions: string[];
   };
-  /** Linked tickets; `title` is null when the ticket no longer exists. */
-  tickets?: { id: string; title: string | null }[];
+  /**
+   * Linked tickets; `title` is null when the ticket no longer exists. `label`
+   * is how the feed names it (#788): `TH-7: Fix login`.
+   */
+  tickets?: { id: string; title: string | null; label?: string | null }[];
   attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
@@ -2136,7 +2151,7 @@ export interface TimerUpdateRef {
 /**
  * What a timer session that just closed left to send to Redmine: its issue-day
  * and the hours not yet sent. Null when there is nothing worth sending (not a
- * Redmine issue, no linked account, or under a minute).
+ * Redmine issue, no linked account, or time an earlier entry already covers).
  */
 export interface UnsentRedmineTime {
   ticketId: string;
@@ -2603,6 +2618,8 @@ export interface RedmineTimeEntryRow {
   seconds: number;
   /** Seconds already sent for this ticket-day by earlier pushes. */
   alreadySentSeconds: number;
+  /** The seconds of each timer run that `seconds` adds up, oldest first. */
+  runSeconds: number[];
   /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
   hours: number;
   subject: string | null;
@@ -2619,6 +2636,8 @@ export interface RedmineTimeEntryRow {
    * time entry that has one; null when Redmine has none to copy (#686).
    */
   billable: RedmineBillable | null;
+  /** The minutes `hours` was rounded up to, and the exact hours; null when sent exact. */
+  rounding?: { step: number; exactHours: number } | null;
   blockedReason: RedmineBlockedReason | null;
 }
 
@@ -2649,6 +2668,11 @@ export interface RedmineTimeEntryPushRequest {
    * own lookup, and refuses the entry if that no longer matches what was shown.
    */
   billable?: RedmineBillable | null;
+  /**
+   * The hours the user was shown. The server works them out again, and refuses
+   * the entry if its rounding has since changed them.
+   */
+  hours?: number;
 }
 
 /** Per-entry outcome — a partial failure leaves the successful rows synced. */
@@ -3007,7 +3031,8 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
-      }: { comment?: string; activityId?: number; billable?: RedmineBillable | null } = {},
+        hours,
+      }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
         ticketId,
@@ -3015,6 +3040,7 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
+        hours,
       }),
 
     /**

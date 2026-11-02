@@ -14,6 +14,9 @@ export const outsideText = {
   notStored: (source: string) =>
     `${source} didn't store every change as sent. Reload to see what it kept.`,
   reload: 'Reload',
+  unreachable: (source: string) =>
+    `Couldn't reach ${source} to check your access to this ticket. Try again in a moment.`,
+  tryAgain: 'Try again',
   draftMoved:
     "This ticket's linked issue changed or can't be read right now, so your edit wasn't saved. Copy your text, then reload the page.",
 };

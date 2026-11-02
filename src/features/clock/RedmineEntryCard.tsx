@@ -9,11 +9,12 @@
  * dialog whether to send it at all. Each of those sits in a
  * `RedmineEntryField`, which names it.
  */
-import { Button, Card, Text } from '@mieweb/ui';
+import { Accordion, Button, Card, Text } from '@mieweb/ui';
 import { ArrowLeftRight } from 'lucide-react';
 import React from 'react';
 
 import type { RedmineBillable } from '@lib/api';
+import { formatTimer } from '@lib/timeUtils';
 
 import {
   billableValueLabel,
@@ -35,6 +36,10 @@ export interface RedmineEntryCardProps {
   onToggleHours: () => void;
   /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
   billable?: RedmineBillable | null;
+  /** How `hours` was rounded up from the time worked; null or absent when exact. */
+  rounding?: { step: number; exactHours: number } | null;
+  /** The seconds of each timer run `hours` adds up; a single run needs no mention. */
+  runSeconds?: number[];
   /** No border or padding: for the one entry of a dialog that frames it already. */
   bare?: boolean;
   children?: React.ReactNode;
@@ -48,6 +53,8 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
+  rounding = null,
+  runSeconds = [],
   bare = false,
   children,
 }) => {
@@ -83,6 +90,8 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           </Text>
         </div>
       </div>
+      {/* Sessions lists each run, so show why this is one entry. */}
+      {runSeconds.length > 1 && <RedmineEntryRuns runSeconds={runSeconds} />}
       {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
       {billable && (
         <RedmineEntryField label={text.billable}>
@@ -90,6 +99,18 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
             {/* The field's label is for the eye only; this names it for a screen reader. */}
             <span className="sr-only">{billable.name}: </span>
             {billableValueLabel(billable.value)}
+          </Text>
+        </RedmineEntryField>
+      )}
+      {rounding && (
+        <RedmineEntryField label={text.rounding}>
+          <Text size="sm" className="redmine-entry-rounding">
+            {text.roundedUp(
+              rounding.exactHours > 0
+                ? hoursLabel(rounding.exactHours, decimalHours)
+                : text.underAMinute,
+              rounding.step,
+            )}
           </Text>
         </RedmineEntryField>
       )}
@@ -105,6 +126,38 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
     </Card>
   );
 };
+
+/** The timer runs an entry adds up, collapsed until asked for. */
+const RedmineEntryRuns: React.FC<{ runSeconds: number[] }> = ({ runSeconds }) => (
+  <Accordion
+    className="redmine-entry-timer-runs"
+    headingLevel="h4"
+    items={[
+      {
+        id: 'timer-runs',
+        title: (
+          <Text as="span" size="xs" variant="muted">
+            {text.addsUpRuns(runSeconds.length)}
+          </Text>
+        ),
+        content: (
+          <ol className="redmine-entry-timer-run-list flex flex-col gap-1">
+            {runSeconds.map((seconds, index) => (
+              <li key={index} className="redmine-entry-timer-run flex justify-between gap-3">
+                <Text as="span" size="xs" variant="muted">
+                  {text.runLabel(index + 1)}
+                </Text>
+                <Text as="span" size="xs" className="tabular-nums">
+                  {formatTimer(seconds)}
+                </Text>
+              </li>
+            ))}
+          </ol>
+        ),
+      },
+    ]}
+  />
+);
 
 /**
  * One thing to decide about an entry, with its name beside it. The name here

@@ -8,6 +8,9 @@
  * Used in place of the page, so a link to someone else's team never falls
  * back to showing the user's own team instead. No team name is shown: there
  * is no endpoint that can reveal one to a non-member safely.
+ *
+ * A `linked-ticket` is forbidden by the viewer's own key, not their team: the
+ * outside issue it carries is one their account can't read (#788).
  */
 import { ErrorPage } from '@mieweb/ui';
 import React from 'react';
@@ -22,7 +25,7 @@ export type NoAccessResource =
  * admin-only routes, and a post in a team the reader can't see is covered by
  * the team gate before the post is ever looked up.
  */
-export type ForbiddenResource = Exclude<NoAccessResource, 'page' | 'post'>;
+export type ForbiddenResource = Exclude<NoAccessResource, 'page' | 'post'> | 'linked-ticket';
 
 interface NoAccessCopy {
   title: string;
@@ -54,6 +57,11 @@ export const NO_ACCESS_COPY: {
     profile: {
       title: 'This profile isn’t available to you',
       description: 'You can only view profiles of people who share a team with you.',
+    },
+    'linked-ticket': {
+      title: 'You don’t have access to this ticket',
+      description:
+        'It’s linked to an issue your account in that tracker can’t see. If you haven’t connected that account yet, connect it in Settings, then open the link again.',
     },
     conversation: {
       title: 'You don’t have access to this conversation',
@@ -97,9 +105,16 @@ export const NO_ACCESS_COPY: {
   goToDashboard: 'Go to dashboard',
 };
 
-type NoAccessStateProps =
+/** A second way out, beside the dashboard, e.g. to Settings to connect an account. */
+interface NoAccessAction {
+  label: string;
+  onClick: () => void;
+}
+
+type NoAccessStateProps = { action?: NoAccessAction } & (
   | { kind: 'forbidden'; resource: ForbiddenResource }
-  | { kind: 'not-found'; resource: NoAccessResource };
+  | { kind: 'not-found'; resource: NoAccessResource }
+);
 
 export const NoAccessState: React.FC<NoAccessStateProps> = (props) => {
   const { kind } = props;
@@ -121,6 +136,7 @@ export const NoAccessState: React.FC<NoAccessStateProps> = (props) => {
           label: NO_ACCESS_COPY.goToDashboard,
           onClick: () => navigate('/app/dashboard'),
         }}
+        secondaryAction={props.action}
       />
     </section>
   );
