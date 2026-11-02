@@ -19,6 +19,7 @@ import { isHttpsUrl, linkedIssueIdOf } from './ticket-link-core';
 import { assertUnlocked, findLockHoldersFor } from './ticket-lock';
 import { nextTicketNumber } from './ticket-ids';
 import { HUDDLE } from './ticket-refs';
+import { keepReferencedUploads } from './uploads';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -307,6 +308,8 @@ Meteor.methods({
     requireLinkIsIssue(linkIsIssue);
     const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
     if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
+    // An upload a post dropped, waiting to be deleted, stays for the description.
+    await keepReferencedUploads([description]);
     const doc = await insertTicket(userId, { teamId, orgId: team.orgId }, {
       title: title.trim(),
       ...(typeof description === 'string' ? { description } : {}),
@@ -407,6 +410,8 @@ Meteor.methods({
         throw new Meteor.Error('validation-error', 'description must be a string');
       }
       $set.description = description;
+      // An upload a post dropped, waiting to be deleted, stays for it.
+      await keepReferencedUploads([description]);
     }
     // The check above read the ticket a moment ago. Writing a GitHub URL only
     // while the ticket is still unlinked keeps a link made meanwhile from

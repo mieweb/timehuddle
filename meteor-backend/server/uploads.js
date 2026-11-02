@@ -7,6 +7,7 @@ import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
+import { keepForReference } from './post-attachments-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -436,6 +437,18 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
 /** Remove a media document's file; its row is the caller's to delete. */
 export function removeMediaFile(doc) {
   unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+}
+
+/**
+ * Run before saving a reference to uploads outside a post (an attachment's
+ * URL, a ticket's description; `texts` as keepForReference takes them): their
+ * discard marks go, so the sweep (huddle.js sweepUnusedUploads) keeps them.
+ * One the sweep already deleted stays gone; the reference is saved as one to
+ * any missing file is, since neither checks that what it points at exists.
+ */
+export async function keepReferencedUploads(texts) {
+  const kept = keepForReference(texts);
+  if (kept) await rawDb().collection('mediaitems').updateMany(kept.filter, kept.update);
 }
 
 /** Undo storeMedia for documents nothing ended up referencing. */

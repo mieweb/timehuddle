@@ -11,6 +11,7 @@ import {
   discardMark,
   dueDiscards,
   keepForPost,
+  keepForReference,
   sweepDiscardedUploads,
   uploadUseQueries,
 } from '../server/post-attachments-core';
@@ -126,7 +127,7 @@ describe('uploadUseQueries', () => {
 describe('discarding an upload a post dropped', () => {
   const NOW = new Date('2026-11-02T12:00:00Z');
   const later = (ms: number) => new Date(NOW.getTime() + ms);
-  type Row = { _id: string; userId: string; filename: string; discardAt?: Date };
+  type Row = { _id: string; userId: string; filename: string; url?: string; discardAt?: Date };
 
   /** A media collection in memory, for just the filters these functions build. */
   function mediaRows(...rows: Row[]) {
@@ -141,6 +142,14 @@ describe('discarding an upload a post dropped', () => {
         for (const id of filter._id.$in) {
           const row = byId.get(id);
           if (row && row.userId === filter.userId && row.discardAt) delete row.discardAt;
+        }
+      },
+      /** keepForReference's update: clear discardAt on the marked items at those URLs. */
+      keepForReference(texts: unknown[]) {
+        const kept = keepForReference(texts);
+        if (!kept) return;
+        for (const row of byId.values()) {
+          if (row.url && kept.filter.url.$in.includes(row.url) && row.discardAt) delete row.discardAt;
         }
       },
       deps: (used: Set<string> = new Set()) => ({
@@ -236,5 +245,43 @@ describe('discarding an upload a post dropped', () => {
     await sweepDiscardedUploads([item], NOW, media.deps());
     expect(media.byId.get(MINE._id)?.discardAt).toEqual(later(DISCARD_GRACE_MS));
     expect(media.removedFiles).toEqual([]);
+  });
+
+  it('keeps the file of an upload an attachment or description referenced between the sweep reading it and deleting it', async () => {
+    for (const reference of [`http://localhost:3100${MINE.url}?download=1`, `Repro: ![](${MINE.url})`]) {
+      const item = { _id: MINE._id, userId: ME, filename: 'mine.png', url: MINE.url, discardAt: NOW };
+      const media = mediaRows(item);
+      await sweepDiscardedUploads([item], NOW, {
+        ...media.deps(),
+        // The sweep found nothing using it; then a ticket took it before the delete.
+        isUsed: async () => {
+          media.keepForReference([reference]);
+          return false;
+        },
+      });
+      expect(media.byId.has(MINE._id)).toBe(true);
+      expect(media.removedFiles).toEqual([]);
+    }
+  });
+});
+
+describe('keepForReference', () => {
+  const kept = (urls: string[]) => ({
+    filter: { url: { $in: urls }, discardAt: { $exists: true } },
+    update: { $unset: { discardAt: '' } },
+  });
+
+  it("clears the mark on the upload at an attachment's URL, full or not, with a query or fragment", () => {
+    expect(keepForReference([`http://localhost:3100${MINE.url}?download=1`])).toEqual(kept([MINE.url]));
+    expect(keepForReference([`${MINE.url}#page=2`])).toEqual(kept([MINE.url]));
+  });
+
+  it("clears the mark on every upload a ticket description links or embeds, anyone's", () => {
+    const description = `Repro ![](${MINE.url}) and [doc](http://localhost:3100${THEIRS.url}#page=2), again ${MINE.url}`;
+    expect(keepForReference([description])).toEqual(kept([MINE.url, THEIRS.url]));
+  });
+
+  it('is null when nothing referenced is an upload', () => {
+    expect(keepForReference(['https://example.com/spec', '/pulsevault/artifacts/abc', undefined, ''])).toBeNull();
   });
 });

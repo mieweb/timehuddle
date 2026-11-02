@@ -4,6 +4,7 @@ import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
 import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { keepReferencedUploads } from './uploads';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -65,6 +66,8 @@ export async function createAttachment({ url, type, title, attachedTo, addedBy }
     addedBy,
     addedAt: new Date(),
   };
+  // An upload a post dropped, waiting to be deleted, stays for this.
+  await keepReferencedUploads([doc.url]);
   await rawDb().collection('attachments').insertOne(doc);
   return toPublic(doc);
 }

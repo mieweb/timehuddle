@@ -9,6 +9,8 @@
  * nothing uses it.
  */
 
+import { uploadUrlsIn } from './media-library-core.js';
+
 const ATTACHMENT_TYPES = new Set(['image', 'video', 'file']);
 
 /** The path of a media URL (absolute or not), to compare two of them. */
@@ -142,6 +144,23 @@ export function dueDiscards(now) {
 export function keepForPost({ objectIds, userId }) {
   return {
     filter: { _id: { $in: objectIds }, userId, discardAt: { $exists: true } },
+    update: { $unset: { discardAt: '' } },
+  };
+}
+
+/**
+ * The update a ticket's or session's attachment, or a ticket's description,
+ * runs before it is saved, on the uploads it references (`texts`: URLs, full
+ * or not, or Markdown; uploadUrlsIn reads their paths, which is how a media
+ * item stores its `url`): as keepForPost does for a post, the mark goes first,
+ * so the sweep's conditional delete leaves them alone. Anyone's uploads, as
+ * uploadUseQueries counts anyone's reference. Null when none is an upload.
+ */
+export function keepForReference(texts) {
+  const urls = [...new Set(texts.flatMap(uploadUrlsIn))];
+  if (!urls.length) return null;
+  return {
+    filter: { url: { $in: urls }, discardAt: { $exists: true } },
     update: { $unset: { discardAt: '' } },
   };
 }
