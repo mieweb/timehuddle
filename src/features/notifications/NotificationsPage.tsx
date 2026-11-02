@@ -203,18 +203,22 @@ export const NotificationsPage: React.FC = () => {
   const handleMarkAllRead = useCallback(async () => {
     setMarkAllLoading(true);
     try {
+      const shown = new Set(allIds);
       const { readAt } = await notificationApi.markAllRead();
       // Take each row's stored read time (some were read elsewhere first) rather than
       // replacing the list, which would drop a row that arrived during the request.
-      // Rows past the inbox's newest 200 were stamped with this call's `readAt`.
+      // Rows shown at the click but past the inbox's newest 200 were stamped with
+      // this call's `readAt`; a row that arrived since is left as it is.
       const fresh = new Map((await notificationApi.getInbox()).map((n) => [n.id, n]));
-      setNotifications((prev) => prev.map((n) => fresh.get(n.id) ?? withRead(n, readAt)));
+      setNotifications((prev) =>
+        prev.map((n) => fresh.get(n.id) ?? (shown.has(n.id) ? withRead(n, readAt) : n)),
+      );
     } catch {
       /* ignore */
     } finally {
       setMarkAllLoading(false);
     }
-  }, []);
+  }, [allIds]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.length === 0) return;

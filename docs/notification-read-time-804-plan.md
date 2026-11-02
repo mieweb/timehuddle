@@ -166,7 +166,8 @@ File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notif
   ```
 - [x] `handleMarkAllRead` → after `markAllRead()`, fetch the inbox and update each row on
       screen from it (don't replace the list, or a row that arrived meanwhile is lost).
-      A row on screen that isn't in the inbox's newest 200 gets `markAllRead`'s `readAt`.
+      A row that was on screen at the click but isn't in the inbox's newest 200 gets
+      `markAllRead`'s `readAt`; a row that arrived after the click is left as it is.
 - [x] `const today = useToday()`, passed to `groupByDay` and `formatReadTime`, so the
       headings and read times agree on what "today" is.
 - [x] The push-tap path from #793 tells an open inbox that a row was read with the
@@ -232,6 +233,7 @@ Found in review after the milestones above were done; the milestones now describ
       Confirmed they fail with the `read: { $ne: true }` guard removed.
 - [x] **After "Mark all read", an unread row past the newest 200 stayed unread on screen.**
       `markAllRead` returns the time it stamped, and those rows take it.
+      Only rows shown at the click take it, so a notification arriving meanwhile stays unread.
 - [x] **A backfilled older row could split a day into two sections.** `groupByDay` sorts
       newest first before grouping.
 
