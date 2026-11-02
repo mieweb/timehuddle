@@ -36,7 +36,9 @@ const clean = (attachments: unknown, existing: unknown[] = []) =>
     userId: ME,
     mediaById: new Map([MINE, THEIRS].map((item) => [item._id, item])),
     pulseVideoOf: (url: string) => videoIdOf(url, ['http://localhost:3100']),
-    existing,
+    // cleanPostAttachments (plain JS) has no type for `existing`; TS infers it
+    // from its own body (an empty-array default) as `never[]`.
+    existing: existing as never[],
   });
 
 describe('cleanPostAttachments', () => {
