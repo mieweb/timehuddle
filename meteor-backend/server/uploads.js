@@ -6,7 +6,7 @@ import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
-import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
+import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from './media-library-core.js';
 import { keepForReference, markUnusedUploads, uploadUseQueries } from './post-attachments-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
@@ -497,10 +497,11 @@ async function postMedia(userId) {
   const db = rawDb();
   const posts = db.collection('huddlePosts');
   // Their uploads on someone else's post: an admin's edit checks the uploads
-  // it adds against the editor, not the post's author.
+  // it adds against the editor, not the post's author. By item id only: their
+  // Pulse video on someone else's post is a share, not an upload for it.
   const own = await db
     .collection('mediaitems')
-    .find({ userId, embedded: { $ne: true } }, { projection: { _id: 1, videoid: 1 } })
+    .find({ userId, embedded: { $ne: true } }, { projection: { _id: 1 } })
     .toArray();
   const [mediaIds, urls, texts, onOthersPosts] = await Promise.all([
     posts.distinct('attachments.mediaId', { userId }),
@@ -511,11 +512,14 @@ async function postMedia(userId) {
     own.length
       ? posts.distinct('attachments.mediaId', {
           userId: { $ne: userId },
-          'attachments.mediaId': { $in: mediaRefsOf(own) },
+          'attachments.mediaId': { $in: uploadIdsOf(own) },
         })
       : [],
   ]);
-  const ids = new Set([...mediaIds, ...onOthersPosts].filter((id) => typeof id === 'string' && id));
+  // distinct gives every mediaId those posts carry, not just the user's.
+  const ids = new Set(
+    [...mediaIds, ...ownUploadsAmong(own, onOthersPosts)].filter((id) => typeof id === 'string' && id),
+  );
   for (const url of urls) {
     const video = videoIdOf(url);
     if (video) ids.add(video);

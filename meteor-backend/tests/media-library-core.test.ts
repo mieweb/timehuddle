@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from '../server/media-library-core';
+import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from '../server/media-library-core';
 
 const ITEM = 'a'.repeat(24);
 const VIDEO = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
@@ -47,9 +47,21 @@ describe('uploadUrlsIn', () => {
   });
 });
 
-describe('mediaRefsOf', () => {
-  it("is every id a post's attachment may name a user's media by: the item's own, or its video's", () => {
-    const items = [{ _id: { toHexString: () => ITEM } }, { _id: { toHexString: () => 'b'.repeat(24) }, videoid: VIDEO }];
-    expect(mediaRefsOf(items)).toEqual([ITEM, 'b'.repeat(24), VIDEO]);
+describe("a user's media on others' posts", () => {
+  const OTHER = 'b'.repeat(24);
+  const items = [{ _id: { toHexString: () => ITEM } }, { _id: { toHexString: () => OTHER }, videoid: VIDEO }];
+
+  it("looks them up by each item's own id only, never its Pulse video's", () => {
+    expect(uploadIdsOf(items)).toEqual([ITEM, OTHER]);
+  });
+
+  it("counts an upload someone else's post carries by its own id (an admin's edit)", () => {
+    expect(ownUploadsAmong(items, [ITEM, 'c'.repeat(24)])).toEqual([ITEM]);
+  });
+
+  it("doesn't count a share of their public Pulse video, so it stays in their library", () => {
+    const ids = ownUploadsAmong(items, [VIDEO, 'c'.repeat(24)]);
+    expect(ids).toEqual([]);
+    expect(excludingPostMedia({ mediaIds: new Set(ids) })).toEqual({});
   });
 });

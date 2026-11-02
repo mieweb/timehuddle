@@ -21,11 +21,19 @@ export function uploadUrlsIn(text) {
 }
 
 /**
- * Every id a post's attachment may name these media items by (`mediaId`): the
- * item's own `_id`, or its Pulse video's `videoid`.
+ * The ids someone else's post may take a user's media items (`items`) from
+ * them by: each item's own `_id` (an upload an admin's edit added to the
+ * post). Never its Pulse video's `videoid`: a post carrying that shares a
+ * public video, which doesn't make the owner's library item the post's.
  */
-export function mediaRefsOf(items) {
-  return items.flatMap((item) => [item._id.toHexString(), ...(item.videoid ? [item.videoid] : [])]);
+export function uploadIdsOf(items) {
+  return items.map((item) => item._id.toHexString());
+}
+
+/** Which of `othersMediaIds` (others' posts' `attachments.mediaId`) are `items`' own uploads (uploadIdsOf). */
+export function ownUploadsAmong(items, othersMediaIds) {
+  const ids = new Set(uploadIdsOf(items));
+  return othersMediaIds.filter((id) => ids.has(id));
 }
 
 /**
