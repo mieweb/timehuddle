@@ -1,8 +1,9 @@
 /**
  * What a user's media library and profile Feed (media.list, media.listForUser
- * in uploads.js) leave out, with no Meteor or database: the media their Huddle
- * posts carry or show. Those belong to the post and its team, not to everyone
- * who may view the author's profile.
+ * in uploads.js) leave out, with no Meteor or database: the media Huddle posts
+ * carry or show — their own posts, and others' they added an upload to (an
+ * admin's edit). Those belong to the post and its team, not to everyone who
+ * may view the uploader's profile.
  */
 
 const OBJECT_ID = /^[a-f0-9]{24}$/i;
@@ -14,6 +15,14 @@ const MEDIA_URL = /\/uploads\/media\/[^\s)"'<>]+/g;
 export function uploadUrlsIn(text) {
   if (typeof text !== 'string') return [];
   return [...new Set(text.match(MEDIA_URL) ?? [])];
+}
+
+/**
+ * Every id a post's attachment may name these media items by (`mediaId`): the
+ * item's own `_id`, or its Pulse video's `videoid`.
+ */
+export function mediaRefsOf(items) {
+  return items.flatMap((item) => [item._id.toHexString(), ...(item.videoid ? [item.videoid] : [])]);
 }
 
 /**

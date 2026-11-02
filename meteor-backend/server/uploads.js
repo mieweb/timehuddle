@@ -6,7 +6,7 @@ import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The origin-aware videoIdOf: a legacy post's full URL on this backend counts.
 import { cleanVideoName, videoIdOf, videoNameOf } from './video-names.js';
-import { excludingPostMedia, uploadUrlsIn } from './media-library-core.js';
+import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -443,10 +443,10 @@ export async function discardMedia(docs) {
 }
 
 /**
- * The media `userId`'s Huddle posts carry or show, scheduled or sent: a post's
- * photos, files and videos belong to the post and its team, not to everyone
- * who may view the author's profile, so library and profile listings leave
- * them out (excludingPostMedia). `mediaIds`: images/documents reference the
+ * The media `userId`'s Huddle posts carry or show, scheduled or sent, and
+ * their uploads others' posts carry: a post's photos, files and videos belong
+ * to the post and its team, not to everyone who may view the uploader's
+ * profile, so library and profile listings leave them out (excludingPostMedia). `mediaIds`: images/documents reference the
  * library row's own `_id`; a composer-staged video's `mediaId` is Pulse's
  * `videoid` instead (src/features/huddle/api.ts uploadMedia), and a Pulse
  * video is matched by its URL's video id too, whatever its `mediaId`. `urls`:
@@ -455,15 +455,28 @@ export async function discardMedia(docs) {
  * replace the plan's).
  */
 async function postMedia(userId) {
-  const posts = rawDb().collection('huddlePosts');
-  const [mediaIds, urls, texts] = await Promise.all([
+  const db = rawDb();
+  const posts = db.collection('huddlePosts');
+  // Their uploads on someone else's post: an admin's edit checks the uploads
+  // it adds against the editor, not the post's author.
+  const own = await db
+    .collection('mediaitems')
+    .find({ userId, embedded: { $ne: true } }, { projection: { _id: 1, videoid: 1 } })
+    .toArray();
+  const [mediaIds, urls, texts, onOthersPosts] = await Promise.all([
     posts.distinct('attachments.mediaId', { userId }),
     posts.distinct('attachments.url', { userId }),
     posts
       .find({ userId, 'content.text': { $regex: '/uploads/media/' } }, { projection: { 'content.text': 1 } })
       .toArray(),
+    own.length
+      ? posts.distinct('attachments.mediaId', {
+          userId: { $ne: userId },
+          'attachments.mediaId': { $in: mediaRefsOf(own) },
+        })
+      : [],
   ]);
-  const ids = new Set(mediaIds.filter((id) => typeof id === 'string' && id));
+  const ids = new Set([...mediaIds, ...onOthersPosts].filter((id) => typeof id === 'string' && id));
   for (const url of urls) {
     const video = videoIdOf(url);
     if (video) ids.add(video);

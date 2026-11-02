@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { excludingPostMedia, uploadUrlsIn } from '../server/media-library-core';
+import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from '../server/media-library-core';
 
 const ITEM = 'a'.repeat(24);
 const VIDEO = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
@@ -37,5 +37,12 @@ describe('uploadUrlsIn', () => {
   it('is empty for text without uploads, or no text', () => {
     expect(uploadUrlsIn('Just words /uploads/other/x.png')).toEqual([]);
     expect(uploadUrlsIn(undefined)).toEqual([]);
+  });
+});
+
+describe('mediaRefsOf', () => {
+  it("is every id a post's attachment may name a user's media by: the item's own, or its video's", () => {
+    const items = [{ _id: { toHexString: () => ITEM } }, { _id: { toHexString: () => 'b'.repeat(24) }, videoid: VIDEO }];
+    expect(mediaRefsOf(items)).toEqual([ITEM, 'b'.repeat(24), VIDEO]);
   });
 });
