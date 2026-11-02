@@ -12,6 +12,7 @@ import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
 import { artifactBelongsTo, artifactUploader, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
 import {
+  ANY_ORIGIN,
   CANONICAL_ITEM,
   cleanVideoName,
   mayRenameVideo,
@@ -30,11 +31,13 @@ export {
   VIDEO_NAME_MAX,
 } from './video-names-core.js';
 
-/** This backend's own origin: the one a full video URL may be on. */
-const OWN_ORIGINS = [new URL(Meteor.absoluteUrl()).origin];
-
-/** The video id in a video URL: a path, or a full URL on this backend; else null. */
-export const videoIdOf = (url) => videoIdOfUrl(url, OWN_ORIGINS);
+/**
+ * The video id in a video URL: a path, or a full URL on any host; else null.
+ * The host is advisory, as playback treats it (`resolveMediaUrl` rebases any
+ * `/pulsevault/…` URL onto this backend): a URL stored under an old hostname
+ * or LAN address is still this backend's video, keeping its name and owner.
+ */
+export const videoIdOf = (url) => videoIdOfUrl(url, [ANY_ORIGIN]);
 
 /** A duplicate key: another write made this video's media item first. */
 export const isDuplicateKey = (err) => err?.code === 11000;

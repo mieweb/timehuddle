@@ -4,7 +4,7 @@ import { rawDb, isValidId } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
-// The origin-aware videoIdOf: a legacy post's full URL on this backend counts.
+// The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
 import { cleanVideoName, listedVideoName, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
 import { randomBytes } from 'crypto';

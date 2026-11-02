@@ -21,9 +21,11 @@ export const CANONICAL_ITEM = { sort: { _id: 1 } };
 /**
  * The video id in a `/pulsevault/artifacts/<id>` path, else null; a query or
  * fragment (`?t=1`) is the same video. A full URL counts only on one of
- * `trustedOrigins` (this backend's own): a video on another site is not this
- * backend's video.
+ * `trustedOrigins`, or on any host with {@link ANY_ORIGIN}.
  */
+/** For `videoIdOf`: a full URL's host doesn't matter. */
+export const ANY_ORIGIN = '*';
+
 export function videoIdOf(url, trustedOrigins = []) {
   if (typeof url !== 'string') return null;
   let path = url.replace(/[?#].*$/s, '');
@@ -34,7 +36,7 @@ export function videoIdOf(url, trustedOrigins = []) {
     } catch {
       return null;
     }
-    if (!trustedOrigins.includes(parsed.origin)) return null;
+    if (!trustedOrigins.includes(ANY_ORIGIN) && !trustedOrigins.includes(parsed.origin)) return null;
     path = parsed.pathname;
   }
   const match = path.match(ARTIFACT_PATH);

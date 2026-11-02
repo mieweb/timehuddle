@@ -13,6 +13,7 @@ import {
   uploaderOf,
   VIDEO_NAME_MAX,
   videoIdOf,
+  ANY_ORIGIN,
   videoNameOf,
   videoSizeOf,
 } from '../server/video-names-core';
@@ -23,6 +24,11 @@ describe('videoIdOf', () => {
   it('reads the id out of a PulseVault playback path, lower-cased', () => {
     expect(videoIdOf(`/pulsevault/artifacts/${ID}`)).toBe(ID);
     expect(videoIdOf(`/pulsevault/artifacts/${ID.toUpperCase()}`)).toBe(ID);
+  });
+
+  it('reads a full URL on any host with ANY_ORIGIN, as playback rebases them', () => {
+    expect(videoIdOf(`https://old-lan.example:3100/pulsevault/artifacts/${ID}`, [ANY_ORIGIN])).toBe(ID);
+    expect(videoIdOf(`https://old-lan.example/pulsevault/artifacts/${ID}/poster`, [ANY_ORIGIN])).toBeNull();
   });
 
   it("reads a full URL on this backend's own origin, never another site's", () => {
