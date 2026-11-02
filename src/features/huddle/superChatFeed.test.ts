@@ -672,6 +672,21 @@ describe('attachments', () => {
     expect(message.text).toBe('Before\n\nAfter');
   });
 
+  it('keeps an image written in code or escaped, which shows as text', () => {
+    const text = [
+      'Inline `![shot](/uploads/media/a.png)` here',
+      '```md\n![shot](/uploads/media/a.png)\n```',
+      '~~~\n![shot](/uploads/media/a.png)\n~~~',
+      'Escaped \\![shot](/uploads/media/a.png)',
+    ].join('\n\n');
+    const post = makePost({
+      id: 'p1',
+      content: { text: `${text}\n\n![shot](/uploads/media/a.png)`, mentions: [] },
+      attachments: [image('a.png')],
+    });
+    expect(shownBody(post)).toBe(text);
+  });
+
   it('takes off the attachments an edit removed, and leaves them alone otherwise', () => {
     const videoId = '0b8e2c1a-3f4d-4e5a-9b6c-7d8e9f0a1b2c';
     const post = makePost({

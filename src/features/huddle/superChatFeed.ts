@@ -59,8 +59,12 @@ function mediaPathOf(url: string): string {
   }
 }
 
-/** A markdown image: `![alt](url)`. */
-const MARKDOWN_IMAGE = /!\[[^\]]*\]\(([^()\s]+)\)/g;
+/**
+ * A markdown image, `![alt](url)` (its url captured), and what shows as text
+ * however it reads, so is passed over whole: code (a span or a fenced block)
+ * and an escaped character (`\![alt](url)`).
+ */
+const MARKDOWN_IMAGE = /(`+|~{3,})[\s\S]*?\1|\\[\s\S]|!\[[^\]]*\]\(([^()\s]+)\)/g;
 
 /**
  * A post's text as its bubble shows it: without the images the composer wrote
@@ -73,7 +77,9 @@ export function shownBody(post: HuddlePost): string {
   if (!text || post.attachments.length === 0) return text;
   const attached = new Set(post.attachments.map((att) => mediaPathOf(att.url)));
   return text
-    .replace(MARKDOWN_IMAGE, (image, url: string) => (attached.has(mediaPathOf(url)) ? '' : image))
+    .replace(MARKDOWN_IMAGE, (found, _code, url?: string) =>
+      url && attached.has(mediaPathOf(url)) ? '' : found,
+    )
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
