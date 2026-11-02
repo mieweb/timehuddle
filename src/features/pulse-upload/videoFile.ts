@@ -104,18 +104,20 @@ export function filingProblem(filed: FilingResult): string | null {
 }
 
 /**
- * Send `file` into the uploader's media library and wait until it has been
- * conformed and filed, for callers that attach the video themselves (a post,
- * a timesheet change). Returns the video id; rejects with a message to show
- * unless the video is ready.
+ * Send `file` to `destination` and wait until it has been conformed and
+ * filed, for callers that attach the video themselves: `post` for one added
+ * to a Huddle post (kept out of the library), `library` for one that belongs
+ * there. Returns the video id; rejects with a message to show unless the
+ * video is ready.
  */
-export async function uploadVideoToLibrary(
+export async function uploadVideoTo(
+  destination: { kind: 'library' } | { kind: 'post' },
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
   const problem = videoFileProblem(file);
   if (problem) throw new Error(problem);
-  const reservation = await videoApi.reserve({ kind: 'library' });
+  const reservation = await videoApi.reserve(destination);
   await uploadVideoFile(file, reservation, onProgress);
   const filed = await videoApi.waitUntilFiled(reservation.videoid, reservation.uploadToken);
   const notFiled = filingProblem(filed);

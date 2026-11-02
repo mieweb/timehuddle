@@ -41,6 +41,7 @@ import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
+import { libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -434,16 +435,18 @@ Meteor.methods({
 
   /**
    * List videos from the media library for the calling user.
-   * Filters to type='video' so images are excluded, and leaves out embedded
-   * ones (a ticket's, a session's, a walkthrough, one named mid-upload), as
-   * media.list does: they belong where they were sent, not in the library.
+   * Filters to type='video' so images are excluded, and leaves out what
+   * media.list does (libraryItemsFilter): embedded ones (a ticket's, a
+   * session's, a post's, a walkthrough, one named mid-upload) and ones the
+   * user's Huddle posts carry. They belong where they were sent, not in the library.
    */
   async 'pulsevault.listVideos'({ limit } = {}) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb()
       .collection('mediaitems')
-      .find({ userId: identity.userId, type: 'video', embedded: { $ne: true } })
+      .find({ userId, type: 'video', ...(await libraryItemsFilter(userId)) })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();

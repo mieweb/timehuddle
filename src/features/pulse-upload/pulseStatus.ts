@@ -3,6 +3,7 @@ import type { PulseDestination } from '../../lib/api';
 /** What a delivered Pulse video did, by where it was sent. */
 const LANDED_LABELS: Record<PulseDestination['kind'], string> = {
   library: 'Added to your media library',
+  post: 'Added to your post',
   ticket: 'Added to this ticket',
   clock: 'Added to this session',
   huddle: 'Posted to Huddle',
@@ -20,6 +21,7 @@ export function landedLabel(destination: PulseDestination): string {
 /** Where a Pulse video goes once it uploads, said before recording. */
 const UPLOAD_HINTS: Record<PulseDestination['kind'], string> = {
   library: "It's added to your media library as soon as it uploads.",
+  post: "It's added to your post as soon as it uploads.",
   ticket: "It's added to this ticket as soon as it uploads.",
   clock: "It's added to this session as soon as it uploads.",
   huddle: "It's posted to Huddle as soon as it uploads, with your draft's name as its text.",

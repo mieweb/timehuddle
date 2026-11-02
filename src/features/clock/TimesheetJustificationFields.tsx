@@ -15,7 +15,7 @@ import React, { useRef, useState } from 'react';
 
 import { TIMESHEET_DESCRIPTION_MIN } from '../../lib/timesheetApproval';
 import { artifactPath } from '../pulse-upload/artifact';
-import { uploadVideoToLibrary, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
+import { uploadVideoTo, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 export interface TimesheetJustificationState {
   description: string;
@@ -50,7 +50,9 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
     setError(null);
     setProgress(0);
     try {
-      const videoid = await uploadVideoToLibrary(file, (f) => setProgress(Math.round(f * 100)));
+      const videoid = await uploadVideoTo({ kind: 'library' }, file, (f) =>
+        setProgress(Math.round(f * 100)),
+      );
       onChange({ ...value, videoUrl: artifactPath(videoid) });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed. Try again.');

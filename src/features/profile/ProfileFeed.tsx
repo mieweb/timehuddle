@@ -10,7 +10,7 @@ import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
 import { pulseArtifactId } from '../pulse-upload/artifact';
 import { usePoster } from '../pulse-upload/PulseVideoPlayer';
-import { isVideoFile, uploadVideoToLibrary, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
+import { isVideoFile, uploadVideoTo, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 const MEDIA_UPLOAD_ACCEPT = `image/*,.gif,${VIDEO_FILE_ACCEPT}`;
 
@@ -159,7 +159,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
         // Start thumbnail extraction in parallel with the upload.
         const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
 
-        const videoid = await uploadVideoToLibrary(file, (f) =>
+        const videoid = await uploadVideoTo({ kind: 'library' }, file, (f) =>
           setUploadProgress(Math.round(f * 100)),
         ).catch((err: Error) => {
           throw Object.assign(err, { shown: true });

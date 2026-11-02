@@ -2,7 +2,7 @@
 import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { artifactPath } from '../pulse-upload/artifact';
-import { isVideoFile, uploadVideoToLibrary } from '../pulse-upload/videoFile';
+import { isVideoFile, uploadVideoTo } from '../pulse-upload/videoFile';
 import type { TeamMember, MediaItem } from './types';
 
 export type PostAttachment = HuddlePost['attachments'][number];
@@ -191,7 +191,9 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
     return { ...item, filename: item.title ?? item.filename, ...size };
   }
 
-  const videoid = await uploadVideoToLibrary(file, onProgress);
+  // The post's own: its media item stays out of the library, so deleting the
+  // post (or cancelling a scheduled one) doesn't put it there.
+  const videoid = await uploadVideoTo({ kind: 'post' }, file, onProgress);
 
   return {
     id: videoid,

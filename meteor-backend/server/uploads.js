@@ -485,12 +485,13 @@ async function postMedia(userId) {
 }
 
 /**
- * Library and profile listings show only what someone put there themselves:
+ * Library and profile listings (and pulsevault.listVideos, its videos) show
+ * only what someone put there themselves:
  * not media embedded in a post's text, nor anything their Huddle posts carry
  * or show (scheduled or sent), filtered at read time against `huddlePosts`
  * rather than a flag written onto the media document, so older posts follow too.
  */
-async function libraryItemsFilter(userId) {
+export async function libraryItemsFilter(userId) {
   return {
     embedded: { $ne: true },
     ...excludingPostMedia(await postMedia(userId), (id) => new ObjectId(id)),

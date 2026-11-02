@@ -8,6 +8,8 @@
  * here. Nothing is recorded in between — there is no reservation table.
  *
  *   library  → the uploader's media library
+ *   post     → nowhere yet: a video file added to a Huddle post, which the
+ *              composer attaches itself; its media item is embedded
  *   ticket   → an attachment on a Huddle ticket
  *   clock    → an attachment on the uploader's own clock session
  *   huddle   → a new Huddle post in that team, with the Pulse draft's name as its text
@@ -38,6 +40,7 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const clockModule = () => import('./clock.js');
 
 const LIBRARY_NOTE = 'Added to the media library';
+const POST_NOTE = 'Ready for its post';
 
 function requireId(id, what) {
   if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', `Invalid ${what} id`);
@@ -259,6 +262,23 @@ const DESTINATIONS = {
     async deliver(userId, _destination, video) {
       await addToLibrary(userId, video);
       return LIBRARY_NOTE;
+    },
+  },
+
+  // A video file added in Huddle's message box, scheduled posts included: the
+  // composer attaches it once it's filed. Embedded, as every post's video is,
+  // so deleting the post (or cancelling it unsent) doesn't put it in the
+  // library. Nothing to look up first: addToLibrary is idempotent.
+  post: {
+    async check() {
+      return {};
+    },
+    async delivered() {
+      return null;
+    },
+    async deliver(userId, _destination, video) {
+      await addToLibrary(userId, video, { embedded: true });
+      return POST_NOTE;
     },
   },
 

@@ -2237,10 +2237,12 @@ export const timerApi = {
  * Where a Pulse video lands: the uploader's media library, the attachments of
  * a ticket, a Redmine issue or a clock session, a new post in a team's
  * Huddle, or the walkthrough on a pending timesheet change. The server delivers it there the moment it lands (see
- * meteor-backend/server/pulse-destinations.js).
+ * meteor-backend/server/pulse-destinations.js). `post` is a video file added
+ * to a Huddle post, which the composer attaches itself; it stays out of the library.
  */
 export type PulseDestination =
   | { kind: 'library' }
+  | { kind: 'post' }
   | { kind: AttachmentKind; id: string }
   | { kind: 'huddle'; teamId: string }
   | { kind: 'clock-plan'; teamId: string; postDate: string }
