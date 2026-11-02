@@ -2960,6 +2960,30 @@ export const githubApi = {
     wormholeCall<GitHubLinkStatus>('github.disconnect', {}),
 };
 
+/** A ticket server the member's orgs registered, and their connection to it (#734). */
+export interface SourceConnection {
+  host: string;
+  baseUrl: string;
+  prefix: string;
+  type: string;
+  /** Connected through the Redmine card, not here. */
+  main: boolean;
+  connected: boolean;
+  /** The server refused the saved key, so it's no longer sent. */
+  rejected: boolean;
+  login: string | null;
+}
+
+export const sourcesApi = {
+  list: (): Promise<{ servers: SourceConnection[] }> => wormholeCall('sources.list', {}),
+  check: (server: string): Promise<{ host: string; connected: boolean; login: string | null }> =>
+    wormholeCall('sources.check', { server }),
+  connect: (server: string, apiKey: string): Promise<{ host: string; connected: boolean }> =>
+    wormholeCall('sources.connect', { server, apiKey }),
+  disconnect: (server: string): Promise<{ host: string; connected: boolean }> =>
+    wormholeCall('sources.disconnect', { server }),
+};
+
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 

@@ -116,6 +116,14 @@ describe.skipIf(!SERVER || !PORT)('accounts on other registered servers', () => 
     expect(res.ok).toBe(true);
   });
 
+  it('lists the server with no key, and not yet connected', async () => {
+    const res = await wormhole<{ servers: Record<string, unknown>[] }>('sources.list', {}, jwt);
+    expect(res.ok).toBe(true);
+    expect(res.result.servers).toEqual([
+      expect.objectContaining({ host, prefix: 'OT', main: false, connected: false, rejected: false }),
+    ]);
+  });
+
   it('refuses a key the server rejects', async () => {
     const res = await wormhole('sources.connect', { server: SERVER, apiKey: 'wrong' }, jwt);
     expect(res.ok).toBe(false);
@@ -152,6 +160,24 @@ describe.skipIf(!SERVER || !PORT)('accounts on other registered servers', () => 
     expect(res.error).toBeUndefined();
     expect(res.result.record.title).toBe(ISSUE.subject);
     expect(res.result.record.extra).toContainEqual({ label: 'Billable', value: 'Yes' });
+  });
+
+  it('lists the connection, and checks the saved key without returning it', async () => {
+    const list = await wormhole<{ servers: Record<string, unknown>[] }>('sources.list', {}, jwt);
+    expect(list.result.servers[0]).toMatchObject({ host, connected: true });
+    expect(JSON.stringify(list.result)).not.toContain(GOOD_KEY);
+    const check = await wormhole('sources.check', { server: SERVER }, jwt);
+    expect(check.ok).toBe(true);
+    expect(check.result).toMatchObject({ host, connected: true });
+  });
+
+  it('shows a key the server now refuses as rejected', async () => {
+    const db = await getDb();
+    const link = await db.collection('redmine_links').findOne({ userId, host });
+    await db.collection('redmine_links').updateOne({ _id: link!._id }, { $set: { rejectedAt: new Date() } });
+    const list = await wormhole<{ servers: Record<string, unknown>[] }>('sources.list', {}, jwt);
+    expect(list.result.servers[0]).toMatchObject({ connected: false, rejected: true });
+    await db.collection('redmine_links').updateOne({ _id: link!._id }, { $unset: { rejectedAt: '' } });
   });
 
   it('disconnects that server only', async () => {

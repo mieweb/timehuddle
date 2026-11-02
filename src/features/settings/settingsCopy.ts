@@ -59,3 +59,34 @@ export function describeSetting(
       return S.systemDefault;
   }
 }
+
+export const SOURCES_STRINGS = {
+  description:
+    'Connect each server with your own API key, found on your account page on that server.',
+  empty: 'No servers are set up yet. An organization owner can register one in its settings.',
+  loading: 'Loading…',
+  mainServerName: 'Redmine',
+  connected: 'Connected',
+  notConnected: 'Not connected',
+  rejected: "Couldn't reach",
+  rejectedHelp:
+    'This server rejected your API key. It may have been reset: paste your current key to reconnect.',
+  keyPlaceholder: 'API key',
+  keyLabel: (host: string) => `API key for ${host}`,
+  connect: 'Connect',
+  connecting: 'Connecting…',
+  connectLabel: (host: string) => `Connect to ${host}`,
+  check: 'Check',
+  checkLabel: (host: string) => `Check your key on ${host}`,
+  keyWorks: 'Your key works.',
+  disconnect: 'Disconnect',
+  disconnectLabel: (host: string) => `Disconnect from ${host}`,
+  urlLabel: 'Server URL',
+  urlPlaceholder: 'https://redmine.example.com',
+  urlHelp: 'The server your API key belongs to. Test deployments only.',
+  urlLocked: 'Clock out to connect to a different server.',
+  loadFailed: 'Failed to load your servers.',
+  connectFailed: 'Failed to connect.',
+  checkFailed: 'Failed to check your key.',
+  disconnectFailed: 'Failed to disconnect.',
+};

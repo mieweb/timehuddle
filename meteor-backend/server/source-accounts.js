@@ -12,9 +12,9 @@ import { Meteor } from 'meteor/meteor';
 import { requireIdentity } from './auth-bridge';
 import { DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Teams, rawDb } from './collections';
 import { getAccessibleOrgIds } from './org-helpers';
-import { enforceRedmineLimit } from './redmine';
+import { enforceRedmineLimit, toRedmineMeteorError } from './redmine';
 import { bustUserCaches } from './redmine-cache';
-import { keyOwnerOf, mainLinkOf } from './redmine-account';
+import { keyOwnerOf, mainLinkOf, requireRedmineAccount } from './redmine-account';
 import { getCurrentUser, linkedRedmineBaseUrl, optionalRedmineBaseUrl } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
 import { createRateLimiter } from './rate-limit';
@@ -22,10 +22,8 @@ import { hostOf, ticketIdsFor } from './ticket-ids';
 
 const connectLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
-/** The server at `address` if one of `userId`'s orgs registered it, else null. */
-async function registeredServer(userId, address) {
-  const host = hostOf(address);
-  if (!host) return null;
+/** Every server `userId`'s orgs registered, each host once. */
+async function registeredServers(userId) {
   const db = rawDb();
   const [orgIds, teams, user] = await Promise.all([
     getAccessibleOrgIds(userId),
@@ -39,11 +37,20 @@ async function registeredServer(userId, address) {
       (id) => !blockedOrgIds.has(id),
     ),
   );
+  const byHost = new Map();
   for (const { sourcePrefixes } of idsByOrg.values()) {
-    const entry = sourcePrefixes.find((server) => server.host === host);
-    if (entry) return entry;
+    for (const server of sourcePrefixes) {
+      if (!byHost.has(server.host)) byHost.set(server.host, server);
+    }
   }
-  return null;
+  return [...byHost.values()];
+}
+
+/** The server at `address` if one of `userId`'s orgs registered it, else null. */
+async function registeredServer(userId, address) {
+  const host = hostOf(address);
+  if (!host) return null;
+  return (await registeredServers(userId)).find((server) => server.host === host) ?? null;
 }
 
 /** The host `userId`'s main link talks to: the deployment's Redmine unless they linked elsewhere. */
@@ -54,10 +61,55 @@ async function mainHost(userId) {
 
 Meteor.methods({
   /**
+   * The servers the caller's orgs registered, each with their connection to it.
+   * Never includes a key. `main` is the server connected through `redmine.connect`.
+   */
+  async 'sources.list'() {
+    const { userId } = await requireIdentity(this);
+    const [servers, main, links] = await Promise.all([
+      registeredServers(userId),
+      mainHost(userId),
+      RedmineLinks.find({ userId }, { fields: { host: 1, baseUrl: 1, rejectedAt: 1, redmineLogin: 1 } }).fetchAsync(),
+    ]);
+    const linkOn = (host) =>
+      links.find((link) => (link.host ? link.host === host : host === main));
+    return {
+      servers: servers.map(({ host, baseUrl, prefix, type }) => {
+        const link = linkOn(host);
+        return {
+          host,
+          baseUrl,
+          prefix,
+          type,
+          main: host === main,
+          connected: Boolean(link && !link.rejectedAt),
+          rejected: Boolean(link?.rejectedAt),
+          login: link?.redmineLogin ?? null,
+        };
+      }),
+    };
+  },
+
+  /** Ask `server` whether the caller's saved key still works. A rejected key is marked as such. */
+  async 'sources.check'({ server } = {}) {
+    const { userId } = await requireIdentity(this);
+    enforceRedmineLimit(connectLimiter, userId);
+    const host = hostOf(server);
+    if (!host) throw new Meteor.Error('bad-request', 'A server address is required.');
+    const account = await requireRedmineAccount(userId, host);
+    try {
+      const user = await getCurrentUser(account);
+      return { host, connected: true, login: user?.login ?? null };
+    } catch (err) {
+      throw toRedmineMeteorError(err);
+    }
+  },
+
+  /**
    * Connect the caller to `server`, a registered server's address, with their
    * own `apiKey`. Validated with Redmine first; reconnecting replaces the key
-   * and clears a rejected one's mark. The main server is connected in Settings
-   * → Redmine instead.
+   * and clears a rejected one's mark. The main server goes through
+   * `redmine.connect`, from the same list.
    */
   async 'sources.connect'({ server, apiKey } = {}) {
     const { userId } = await requireIdentity(this);
@@ -71,7 +123,7 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'No organization of yours registered that server.');
     }
     if (entry.host === (await mainHost(userId))) {
-      throw new Meteor.Error('main-server', 'Connect this server in Settings → Redmine.');
+      throw new Meteor.Error('main-server', 'Connect this server through its own row in Settings → Sources.');
     }
 
     let user;

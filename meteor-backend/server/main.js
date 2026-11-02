@@ -1243,6 +1243,21 @@ Meteor.startup(async () => {
     inputSchema: { type: 'object', properties: {} },
   });
 
+  Wormhole.expose('sources.list', {
+    description:
+      "The ticket servers the caller's organizations registered, with their connection to each (never returns a key)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.check', {
+    description: "Ask a ticket server whether the caller's saved API key still works",
+    inputSchema: {
+      type: 'object',
+      properties: { server: { type: 'string', description: "The server's address" } },
+      required: ['server'],
+    },
+  });
+
   Wormhole.expose('sources.connect', {
     description:
       "Connect the caller to another ticket server their organization registered, with their own API key",

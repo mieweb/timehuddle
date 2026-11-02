@@ -7,7 +7,6 @@
  * and their copy are in features/settings/settingsSections.ts.
  */
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -39,15 +38,7 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { useRefresh } from '../lib/RefreshContext';
-import {
-  userApi,
-  notificationApi,
-  teamApi,
-  tokenApi,
-  redmineApi,
-  type PersonalAccessToken,
-  type RedmineStatus,
-} from '../lib/api';
+import { userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import {
   PERSONAL_SECTIONS,
@@ -69,14 +60,11 @@ import {
 } from '../lib/organizationAccess';
 import { EnterpriseSettings } from '../features/enterprise/EnterpriseSettings';
 import { ActivityLog } from '../features/activity/ActivityLog';
-import { ticketLinkText } from '../features/tickets/link/ticketLinkStrings';
-import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
-import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
+import { SourcesCard } from '../features/settings/SourcesCard';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
-import { notifyRedmineChanged } from '../lib/useRedmineStatus';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
@@ -723,210 +711,6 @@ const ApiTokensManager: React.FC = () => {
   );
 };
 
-// ─── Redmine connection ─────────────────────────────────────────────────────
-
-const RedmineConnection: React.FC = () => {
-  const [status, setStatus] = useState<RedmineStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const next = await redmineApi.status();
-      setStatus(next);
-      setBaseUrl(next.defaultBaseUrl ?? '');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load Redmine status');
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Issue ids mean nothing across Redmine instances, so the URL can only change
-  // between shifts. The server enforces this too; locking the field says so up front.
-  const isClockedIn = Boolean(useTeam().activeClockEvent);
-  const showUrlField = Boolean(status?.customUrlAllowed);
-
-  const handleConnect = async () => {
-    const key = apiKey.trim();
-    if (!key) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Locked while clocked in: send nothing, so the server keeps its default.
-      const url = showUrlField && !isClockedIn ? baseUrl.trim() : undefined;
-      const next = await redmineApi.connect(key, url);
-      setStatus(next);
-      setApiKey('');
-      // The search bar caches its suggestions (or "not connected") for the
-      // session; the link just changed what they should be.
-      invalidateSuggestionsCache();
-      // The tickets page stays mounted behind this route and will not refetch
-      // on its own, so tell it the link changed (#562).
-      notifyRedmineChanged(next);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to connect to Redmine');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await redmineApi.disconnect();
-      setStatus(next);
-      // Drop the cached suggestions too, so their issue titles go with the link.
-      invalidateSuggestionsCache();
-      setBaseUrl(next.defaultBaseUrl ?? '');
-      notifyRedmineChanged(next);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to disconnect');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="px-5 py-4">
-        <Text variant="muted" size="xs">
-          Loading…
-        </Text>
-      </div>
-    );
-  }
-
-  if (status?.connected) {
-    return (
-      <div className="flex flex-col gap-3 px-5 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <Badge variant="success">Connected</Badge>
-            <div className="min-w-0">
-              <Text size="sm" weight="medium" className="truncate">
-                {status.redmineName || status.redmineLogin}
-              </Text>
-              {status.redmineLogin && (
-                <Text variant="muted" size="xs" className="truncate">
-                  @{status.redmineLogin}
-                  {status.baseUrl ? ` · ${status.baseUrl}` : ''}
-                </Text>
-              )}
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleDisconnect()}
-            disabled={busy}
-            isLoading={busy}
-            loadingText="Disconnecting…"
-          >
-            Disconnect
-          </Button>
-        </div>
-
-        <RedmineHiddenSuggestions />
-
-        {error && (
-          <Text size="xs" variant="destructive" role="alert">
-            {error}
-          </Text>
-        )}
-      </div>
-    );
-  }
-
-  // No server to link to: a key could only be refused, so say why up front.
-  // Only on an answer: a failed status read shows its error below instead.
-  if (status && !status.defaultBaseUrl && !showUrlField) {
-    return (
-      <div className="redmine-not-configured px-5 py-4">
-        <Text variant="muted" size="xs" role="status">
-          This TimeHuddle has no Redmine server set up yet. Whoever runs it sets one with{' '}
-          <code className="text-xs">REDMINE_BASE_URL</code>.
-        </Text>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      {status?.rejected && (
-        <div className="redmine-key-rejected flex flex-wrap items-center gap-2" role="alert">
-          <Badge variant="danger">{ticketLinkText.keyRejectedTitle}</Badge>
-          <Text size="xs">{ticketLinkText.keyRejectedSettings}</Text>
-        </div>
-      )}
-      <Text variant="muted" size="xs">
-        Paste your personal Redmine API key (found on your Redmine account page under{' '}
-        <code className="text-xs">My account</code>) to link your account
-        {status?.defaultBaseUrl && !showUrlField ? ` on ${status.defaultBaseUrl}` : ''}.
-      </Text>
-      <div className="flex gap-2">
-        <Input
-          type="password"
-          placeholder="Redmine API key"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          onKeyDown={(e) => {
-            // Guard against key-repeat launching concurrent validate/upsert
-            // requests while one is already in flight.
-            if (e.key === 'Enter' && !busy) void handleConnect();
-          }}
-          disabled={busy}
-          className="flex-1 h-8 text-sm"
-          size="sm"
-          aria-label="Redmine API key"
-        />
-        <Button
-          size="sm"
-          onClick={() => void handleConnect()}
-          disabled={!apiKey.trim() || busy}
-          isLoading={busy}
-          loadingText="Connecting…"
-          className="h-8"
-        >
-          Connect
-        </Button>
-      </div>
-      {showUrlField && (
-        <Input
-          type="url"
-          label="Redmine URL"
-          placeholder="https://redmine.example.com"
-          value={isClockedIn ? (status?.defaultBaseUrl ?? '') : baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !busy) void handleConnect();
-          }}
-          disabled={busy || isClockedIn}
-          helperText={
-            isClockedIn
-              ? 'Clock out to connect to a different Redmine instance.'
-              : 'The Redmine instance your API key belongs to. Test deployments only.'
-          }
-          className="redmine-base-url h-8 text-sm"
-          size="sm"
-        />
-      )}
-      {error && (
-        <Text size="xs" variant="destructive" role="alert">
-          {error}
-        </Text>
-      )}
-    </div>
-  );
-};
-
 // ─── Account and privacy ──────────────────────────────────────────────────────
 
 const AccountSettings: React.FC = () => {
@@ -1305,11 +1089,7 @@ export const SettingsPage: React.FC = () => {
         <ApiTokensManager />
       </Section>
     ),
-    integrations: (
-      <Section title="Redmine" description="Link your personal Redmine account with your API key.">
-        <RedmineConnection />
-      </Section>
-    ),
+    integrations: <SourcesCard />,
     activity: (
       <Section>
         <ActivityLog />
