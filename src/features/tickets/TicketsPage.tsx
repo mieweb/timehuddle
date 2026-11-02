@@ -61,7 +61,7 @@ import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
-import { RedmineSuggestions } from './redmine/RedmineSuggestions';
+import { TicketSearchBar } from './redmine/TicketSearchBar';
 import {
   boardEntryKeys,
   huddleSource,
@@ -779,6 +779,17 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, carrierByIssueId, addToBoard, removeFromBoard],
   );
 
+  // A search result on another server, which acts through its ticket.
+  const handleFoundTicketBoard = useCallback(
+    (ticket: Ticket) => {
+      const key = ticketKey('huddle', ticket.id);
+      return boardKeys.has(key)
+        ? removeFromBoard([key], timerLabel('huddle', ticket.id, ticket.title))
+        : addToBoard([key]);
+    },
+    [boardKeys, addToBoard, removeFromBoard],
+  );
+
   // One row's board button: on puts it there, off takes it away again.
   const [boardLoadingKey, setBoardLoadingKey] = useState<string | null>(null);
   const handleToggleBoard = useCallback(
@@ -969,7 +980,7 @@ export const TicketsPage: React.FC = () => {
             <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
               {newTicketButton}
 
-              <RedmineSuggestions
+              <TicketSearchBar
                 userId={userId}
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
@@ -982,6 +993,8 @@ export const TicketsPage: React.FC = () => {
                 boardIssueIds={boardRedmineIssueIds}
                 boardKnown={boardKnown}
                 onToggleBoard={handleSuggestionBoard}
+                boardKeys={boardKeys}
+                onToggleTicketBoard={handleFoundTicketBoard}
                 inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
               />
             </div>

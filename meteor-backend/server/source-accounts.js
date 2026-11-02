@@ -23,7 +23,7 @@ import { hostOf, ticketIdsFor } from './ticket-ids';
 const connectLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
 /** Every server `userId`'s orgs registered, each host once. */
-async function registeredServers(userId) {
+export async function registeredServers(userId) {
   const db = rawDb();
   const [orgIds, teams, user] = await Promise.all([
     getAccessibleOrgIds(userId),
@@ -54,7 +54,7 @@ async function registeredServer(userId, address) {
 }
 
 /** The host `userId`'s main link talks to: the deployment's Redmine unless they linked elsewhere. */
-async function mainHost(userId) {
+export async function mainHost(userId) {
   const main = await RedmineLinks.findOneAsync(mainLinkOf(userId), { fields: { baseUrl: 1 } });
   return hostOf(linkedRedmineBaseUrl(main?.baseUrl) ?? optionalRedmineBaseUrl());
 }

@@ -29,8 +29,13 @@ type Row = { ticketId: string; date: string; hours: number; host?: string; block
 type Created = { issue_id: number; hours: number };
 
 /** A stand-in Redmine that accepts `key` and records the entries it is sent. */
-function startRedmine(address: string, key: string, created: Created[]): Promise<Server> {
-  let lastEntryId = 100;
+function startRedmine(
+  address: string,
+  key: string,
+  created: Created[],
+  firstEntryId = 100,
+): Promise<Server> {
+  let lastEntryId = firstEntryId;
   const hours = new Map<number, number>();
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', address);
@@ -50,7 +55,42 @@ function startRedmine(address: string, key: string, created: Created[]): Promise
       }
       const readBack = url.pathname.match(/^\/time_entries\/(\d+)\.json$/);
       if (readBack) return json(200, { time_entry: { id: Number(readBack[1]), hours: hours.get(Number(readBack[1])) } });
-      if (url.pathname === '/time_entries.json') return json(200, { time_entries: [] });
+      if (url.pathname === '/time_entries.json') {
+        // One entry someone logged in Redmine, whose id main's first send also gets.
+        const foreign = url.searchParams.get('issue_id') && firstEntryId !== 100;
+        const entry = (id: number, comments: string) => ({
+          id,
+          issue: { id: 233 },
+          hours: 1,
+          comments,
+          spent_on: today,
+          user: { id: 2, name: 'Grace' },
+          activity: { id: 9, name: 'Development' },
+        });
+        return json(200, {
+          time_entries: foreign
+            ? [...hours.keys()]
+                .map((id) => entry(id, 'sent from TimeHuddle'))
+                .concat(entry(101, 'logged in Redmine'))
+            : [],
+          total_count: foreign ? hours.size + 1 : 0,
+        });
+      }
+      if (url.pathname === '/issues/233.json') {
+        return json(200, {
+          issue: {
+            id: 233,
+            subject: 'Issue 233',
+            status: { id: 1, name: 'New' },
+            project: { id: 1, name: 'Ops' },
+            tracker: { id: 1, name: 'Bug' },
+            author: { id: 2, name: 'Grace' },
+            journals: [],
+            attachments: [],
+            allowed_statuses: [],
+          },
+        });
+      }
       if (url.pathname === '/issues.json') {
         const ids = (url.searchParams.get('issue_id') ?? '').split(',').filter(Boolean);
         return json(200, {
@@ -80,6 +120,7 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
   let userId: string;
   const orgId = new ObjectId();
   const teamId = new ObjectId();
+  const shiftId = new ObjectId();
   const otherHost = OTHER ? new URL(OTHER).hostname : '';
 
   /** `minutes` of closed time on issue 233, on `host` (none for the deployment's own). */
@@ -101,7 +142,7 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
 
   beforeAll(async () => {
     main = await startRedmine(MAIN!, KEY.main, sentToMain);
-    other = await startRedmine(OTHER!, KEY.other, sentToOther);
+    other = await startRedmine(OTHER!, KEY.other, sentToOther, 200);
     await purgeUser(USER.email);
     ({ jwt, userId } = await createUserAndGetJwt(USER));
     const db = await getDb();
@@ -125,6 +166,8 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
   afterAll(async () => {
     const db = await getDb();
     await db.collection('redmine_links').deleteMany({ userId });
+    await db.collection('tickets').deleteMany({ teamId: teamId.toHexString() });
+    await db.collection('clockevents').deleteOne({ _id: shiftId });
     await db.collection('redmine_time_syncs').deleteMany({ userId });
     await db.collection('timers').deleteMany({ userId });
     await db.collection('teams').deleteOne({ _id: teamId });
@@ -171,5 +214,53 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
   it('offers nothing again on either server', async () => {
     const res = await wormhole<{ rows: Row[] }>('redmine.timeEntries.preview', {}, jwt);
     expect(res.result.rows).toEqual([]);
+  });
+
+  it("shows a second server's activity without what was sent there, or hiding what wasn't", async () => {
+    const db = await getDb();
+    const ticketId = new ObjectId();
+    await db.collection('tickets').insertOne({
+      _id: ticketId,
+      teamId: teamId.toHexString(),
+      title: 'on the other server',
+      createdAt: new Date(),
+      linkedIssue: { source: 'redmine', id: '233', host: otherHost },
+    });
+    const res = await wormhole<unknown>('tickets.outsideRecord', { ticketId: ticketId.toHexString() }, jwt);
+    expect(res.error).toBeUndefined();
+    const text = JSON.stringify(res.result);
+    // Entry 101 is also what main's send was numbered: it's not the same entry.
+    expect(text).toContain('logged in Redmine');
+    expect(text).not.toContain('sent from TimeHuddle');
+  });
+
+  it("rounds a second server's time by that server's rule, and counts its timer runs", async () => {
+    const db = await getDb();
+    await db.collection('organizations').updateOne(
+      { _id: orgId },
+      { $set: { sourcePrefixes: [{ host: otherHost, prefix: 'OT', type: 'redmine', baseUrl: OTHER, rounding: 'up15' }] } },
+    );
+    await db.collection('clockevents').insertOne({ _id: shiftId, userId, teamId: teamId.toHexString() });
+    const end = Date.now() - MINUTE;
+    for (const [minutes, gap] of [[3, 0], [4, 10]]) {
+      await db.collection('timers').insertOne({
+        _id: new ObjectId(),
+        workItemId: new ObjectId().toHexString(),
+        userId,
+        date: today,
+        startTime: end - (gap + minutes) * MINUTE,
+        endTime: end - gap * MINUTE,
+        durationSeconds: minutes * 60,
+        redmineIssueId: '240',
+        redmineHost: otherHost,
+        clockEventId: shiftId.toHexString(),
+        createdAt: new Date(),
+      });
+    }
+    const res = await wormhole<{ rows: (Row & { runSeconds: number[] })[] }>('redmine.timeEntries.preview', {}, jwt);
+    expect(res.error).toBeUndefined();
+    expect(res.result.rows).toHaveLength(1);
+    expect(res.result.rows[0]).toMatchObject({ ticketId: '240', host: otherHost, hours: 0.25 });
+    expect([...res.result.rows[0].runSeconds].sort()).toEqual([180, 240]);
   });
 });

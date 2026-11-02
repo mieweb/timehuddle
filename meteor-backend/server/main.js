@@ -30,6 +30,7 @@ import './ticket-outside';
 import './redmine-suggestions';
 import './redmine';
 import './source-accounts';
+import './source-search';
 import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
@@ -1068,6 +1069,7 @@ Meteor.startup(async () => {
       properties: {
         teamId: { type: 'string' },
         issueId: { type: 'integer', description: 'The Redmine issue number' },
+        host: { type: 'string', description: "The issue's server, when it isn't the main one" },
       },
       required: ['teamId', 'issueId'],
     },
@@ -1255,6 +1257,16 @@ Meteor.startup(async () => {
       type: 'object',
       properties: { server: { type: 'string', description: "The server's address" } },
       required: ['server'],
+    },
+  });
+
+  Wormhole.expose('sources.search', {
+    description:
+      "Find issues on every other ticket server the caller has connected, grouped by server. Results carry no description, history or custom fields",
+    inputSchema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'An issue number, link, @name or words' } },
+      required: ['query'],
     },
   });
 

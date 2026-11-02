@@ -1242,10 +1242,11 @@ export const ticketApi = {
    * The team's ticket carrying Redmine issue `issueId`, created from the issue
    * and linked when there is none (#736). `created` says which.
    */
-  carryIssue: (teamId: string, issueId: string) =>
+  carryIssue: (teamId: string, issueId: string, host?: string) =>
     wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
       teamId,
       issueId: Number(issueId),
+      ...(host ? { host } : {}),
     }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
 
   /**
@@ -2974,7 +2975,24 @@ export interface SourceConnection {
   login: string | null;
 }
 
+/** An issue found on another connected server, with the member's tickets carrying it. */
+export interface SourceSearchIssue extends RedmineIssue {
+  url: string;
+  tickets: { id: string; teamId: string }[];
+}
+
+export interface SourceSearchAnswer {
+  host: string;
+  prefix: string;
+  type: string;
+  /** The server was slow or refused: it found nothing, rather than nothing to find. */
+  failed: boolean;
+  issues: SourceSearchIssue[];
+}
+
 export const sourcesApi = {
+  search: (query: string): Promise<{ servers: SourceSearchAnswer[] }> =>
+    wormholeCall('sources.search', { query }),
   list: (): Promise<{ servers: SourceConnection[] }> => wormholeCall('sources.list', {}),
   check: (server: string): Promise<{ host: string; connected: boolean; login: string | null }> =>
     wormholeCall('sources.check', { server }),

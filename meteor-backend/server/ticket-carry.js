@@ -27,17 +27,18 @@ import { insertTicket, toPublicTicket } from './tickets';
 const carryLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
 
 /**
- * The oldest live ticket in `teamId` linked to Redmine issue `issueId`, or null.
- * Several can exist from before carrying (#736b cleans them up); the oldest is
- * the one an action lands on. Links name the deployment's own Redmine, with or
- * without a stored host, so the host is not compared.
+ * The oldest live ticket in `teamId` linked to Redmine issue `issueId` on `host`,
+ * or null. Several can exist from before carrying (#736b cleans them up); the
+ * oldest is the one an action lands on. No `host` is the deployment's own
+ * Redmine, whose links may or may not store theirs (`mainHost`).
  */
-function findCarrier(teamId, issueId) {
+function findCarrier(teamId, issueId, host, mainHost) {
   return Tickets.findOneAsync(
     {
       teamId,
       'linkedIssue.source': REDMINE,
       'linkedIssue.id': issueId,
+      'linkedIssue.host': host ?? { $in: [null, ...(mainHost ? [mainHost] : [])] },
       status: { $ne: 'deleted' },
     },
     { sort: { createdAt: 1 } },
@@ -50,9 +51,10 @@ Meteor.methods({
    * if there is none. Any team member may ask. Creating one needs the caller's
    * Redmine account on the deployment's own server, and reads the issue with
    * their key; the new ticket is theirs and assigned to them.
-   * Returns `{ ticket, created }`.
+   * `host` names the issue's server when it isn't the main one (#734), read
+   * with the caller's key there. Returns `{ ticket, created }`.
    */
-  async 'tickets.carryIssue'({ teamId, issueId } = {}) {
+  async 'tickets.carryIssue'({ teamId, issueId, host: rawHost } = {}) {
     const { userId } = await requireIdentity(this);
     const team = await requireTeamMembership(userId, teamId);
     if (!isRedmineIssueId(issueId)) {
@@ -62,21 +64,26 @@ Meteor.methods({
     // Checked before the lookup: an issue number from another Redmine server
     // would otherwise land on this server's unrelated ticket with the same
     // number. A caller with no account can still reach an existing carrier.
-    const account = await findRedmineAccount(userId);
-    if (account) assertOnDefaultRedmine(account);
+    const mainHost = hostOf(optionalRedmineBaseUrl());
+    const host = rawHost && rawHost !== mainHost ? rawHost : null;
+    if (host !== null && hostOf(host) !== host) {
+      throw new Meteor.Error('bad-request', 'Not a server.');
+    }
+    const account = await findRedmineAccount(userId, host ?? undefined);
+    if (account && !host) assertOnDefaultRedmine(account);
 
     let result;
     try {
-      result = await withCarryLock(rawDb().collection('carry_locks'), carryLockId(teamId, id), () =>
+      result = await withCarryLock(rawDb().collection('carry_locks'), carryLockId(teamId, host ? `${host}:${id}` : id), () =>
         findOrCarry({
           findCarrier: async () => {
-            const doc = await findCarrier(teamId, id);
+            const doc = await findCarrier(teamId, id, host, mainHost);
             return doc ? toPublicTicket(doc) : null;
           },
           // Only creating a ticket asks Redmine, so only that counts against the limit.
           readIssue: () => {
             enforceRedmineLimit(carryLimiter, userId);
-            return readLinkableIssue(userId, id);
+            return readLinkableIssue(userId, id, host);
           },
           // Inserted already linked, in one write: a failure after it leaves a
           // ticket the next carry finds, never an unlinked one beside it. Not
@@ -90,7 +97,7 @@ Meteor.methods({
               {
                 title: carriedTitle(issue, id),
                 assignedTo: [userId],
-                linkedIssue: redmineLinkFor(id, hostOf(optionalRedmineBaseUrl())),
+                linkedIssue: redmineLinkFor(id, host ?? mainHost),
               },
               { addToBoard: false },
             );

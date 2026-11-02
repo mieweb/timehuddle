@@ -65,7 +65,7 @@ export const redmine = defineSource({
     extra: { path: 'custom_fields', name: 'name', value: 'value' },
   },
   can: {
-    search: true,
+    search: hook('redmineSearch'),
     suggest: true,
     write: hook('redmineWrite'),
     sendTime: hook('redmineSendTime'),

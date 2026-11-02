@@ -1,0 +1,185 @@
+/**
+ * Searching every connected server (#734 step 8), end to end against stand-in
+ * Redmines: each is asked with the member's key for it, one slow or failing
+ * server doesn't hold up the others, results stay slim, and an issue's number
+ * means a different issue on each server.
+ *
+ * The test backend's REDMINE_BASE_URL must be TIME_TEST_MAIN, and it must reach
+ * TIME_TEST_OTHER and SOURCES_TEST_SERVER, as in time-servers.test.ts. Without
+ * all three the suite is skipped.
+ */
+import { createServer, type Server } from 'node:http';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { closeDb, createUserAndGetJwt, getDb, ObjectId, purgeUser, wormhole } from './helpers';
+
+const MAIN = process.env.TIME_TEST_MAIN;
+const OTHER = process.env.TIME_TEST_OTHER;
+const FLAKY = process.env.SOURCES_TEST_SERVER;
+const USER = { name: 'Source Search User', email: 'wh-source-search@test.dev', password: 'Password1!' };
+const KEY = { main: 'main-key', other: 'other-key', flaky: 'flaky-key' };
+
+type Issue = { id: number; subject: string; url: string; tickets: { id: string; teamId: string }[] };
+type Answer = { host: string; prefix: string; failed: boolean; issues: Issue[] };
+type Search = { servers: Answer[] };
+
+/** A stand-in Redmine with issue 233, titled by `name`. `broken` answers searches with a 500. */
+function startRedmine(address: string, key: string, name: string, broken = false): Promise<Server> {
+  const issue = {
+    id: 233,
+    subject: `${name} printer jams`,
+    description: 'SECRET DESCRIPTION',
+    project: { id: 1, name },
+    tracker: { id: 1, name: 'Bug' },
+    status: { id: 1, name: 'New' },
+    custom_fields: [{ id: 3, name: 'Billable', value: 'Yes' }],
+  };
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', address);
+    const json = (status: number, body: unknown) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.headers['x-redmine-api-key'] !== key) return json(401, {});
+    if (url.pathname === '/users/current.json') {
+      return json(200, { user: { id: 7, login: 'ada', firstname: 'Ada', lastname: 'L' } });
+    }
+    if (broken && url.searchParams.get('q') === 'slowword') return; // never answers
+    if (broken && url.pathname !== '/users/current.json') return json(500, {});
+    if (url.pathname === '/issues/233.json') return json(200, { issue });
+    if (url.pathname === '/search.json') return json(200, { results: [{ id: 233, type: 'issue' }] });
+    if (url.pathname === '/issues.json') return json(200, { issues: [issue], total_count: 1 });
+    return json(404, {});
+  });
+  return new Promise((resolve) => server.listen(Number(new URL(address).port), () => resolve(server)));
+}
+
+describe.skipIf(!MAIN || !OTHER || !FLAKY)('searching every connected server', () => {
+  let servers: Server[];
+  let jwt: string;
+  let userId: string;
+  const orgId = new ObjectId();
+  const teamId = new ObjectId();
+  const otherHost = OTHER ? new URL(OTHER).hostname : '';
+  const flakyHost = FLAKY ? new URL(FLAKY).hostname : '';
+  const team = teamId.toHexString();
+  const search = (query: string) => wormhole<Search>('sources.search', { query }, jwt);
+  const answerOf = (res: { result: Search }, host: string) =>
+    res.result.servers.find((server) => server.host === host);
+
+  beforeAll(async () => {
+    servers = await Promise.all([
+      startRedmine(MAIN!, KEY.main, 'Main'),
+      startRedmine(OTHER!, KEY.other, 'Other'),
+      startRedmine(FLAKY!, KEY.flaky, 'Flaky', true),
+    ]);
+    await purgeUser(USER.email);
+    ({ jwt, userId } = await createUserAndGetJwt(USER));
+    const db = await getDb();
+    await db.collection('organizations').insertOne({
+      _id: orgId,
+      name: 'source-search-org',
+      slug: `source-search-${orgId}`,
+      sourcePrefixes: [
+        { host: otherHost, prefix: 'OT', type: 'redmine', baseUrl: OTHER },
+        { host: flakyHost, prefix: 'FL', type: 'redmine', baseUrl: FLAKY },
+      ],
+    });
+    await db.collection('teams').insertOne({
+      _id: teamId,
+      orgId: orgId.toHexString(),
+      name: 'source-search-team',
+      members: [userId],
+      admins: [userId],
+    });
+    expect((await wormhole('redmine.connect', { apiKey: KEY.main }, jwt)).ok).toBe(true);
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('redmine_links').deleteMany({ userId });
+    await db.collection('tickets').deleteMany({ teamId: team });
+    await db.collection('teams').deleteOne({ _id: teamId });
+    await db.collection('organizations').deleteOne({ _id: orgId });
+    await purgeUser(USER.email);
+    await closeDb();
+    await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))));
+  });
+
+  it('asks no server the member has not connected', async () => {
+    const res = await search('233');
+    expect(res.ok).toBe(true);
+    expect(res.result.servers).toEqual([]);
+  });
+
+  it('finds an issue by number on a connected server, slim, with a link to it', async () => {
+    const connected = await wormhole('sources.connect', { server: OTHER, apiKey: KEY.other }, jwt);
+    expect(connected.ok).toBe(true);
+    const res = await search('233');
+    const answer = answerOf(res, otherHost)!;
+    expect(answer).toMatchObject({ prefix: 'OT', failed: false });
+    expect(answer.issues).toEqual([
+      expect.objectContaining({
+        id: 233,
+        subject: 'Other printer jams',
+        url: `${OTHER}/issues/233`,
+        tickets: [],
+      }),
+    ]);
+    expect(JSON.stringify(res.result)).not.toContain('SECRET DESCRIPTION');
+    expect(JSON.stringify(res.result)).not.toContain('Billable');
+  });
+
+  it('finds an issue by words too', async () => {
+    expect(answerOf(await search('printer'), otherHost)!.issues[0].id).toBe(233);
+  });
+
+  it('keeps the same number on two servers apart when it becomes a ticket', async () => {
+    const carry = (host?: string) =>
+      wormhole<{ ticket: { id: string; linkedIssue: { host?: string } }; created: boolean }>(
+        'tickets.carryIssue',
+        { teamId: team, issueId: 233, ...(host ? { host } : {}) },
+        jwt,
+      );
+    const onOther = await carry(otherHost);
+    expect(onOther.error).toBeUndefined();
+    expect(onOther.result.created).toBe(true);
+    expect(onOther.result.ticket.linkedIssue.host).toBe(otherHost);
+
+    const onMain = await carry();
+    expect(onMain.error).toBeUndefined();
+    expect(onMain.result.created).toBe(true);
+    expect(onMain.result.ticket.id).not.toBe(onOther.result.ticket.id);
+
+    const again = await carry(otherHost);
+    expect(again.result).toMatchObject({ created: false, ticket: { id: onOther.result.ticket.id } });
+  });
+
+  it('marks a result that is already a ticket', async () => {
+    const [issue] = answerOf(await search('233'), otherHost)!.issues;
+    expect(issue.tickets).toEqual([{ id: expect.any(String), teamId: team }]);
+  });
+
+  it('answers from the others when one server fails', async () => {
+    const connected = await wormhole('sources.connect', { server: FLAKY, apiKey: KEY.flaky }, jwt);
+    expect(connected.ok).toBe(true);
+    const res = await search('233');
+    expect(answerOf(res, flakyHost)).toMatchObject({ failed: true, issues: [] });
+    expect(answerOf(res, otherHost)!.issues).toHaveLength(1);
+  });
+
+  it('answers from the others when one server is slow', async () => {
+    const started = Date.now();
+    const res = await search('slowword');
+    expect(answerOf(res, flakyHost)).toMatchObject({ failed: true, issues: [] });
+    expect(answerOf(res, otherHost)!.issues).toHaveLength(1);
+    expect(Date.now() - started).toBeLessThan(12000);
+  }, 20000);
+
+  it('stops asking a server once disconnected', async () => {
+    await wormhole('sources.disconnect', { server: FLAKY }, jwt);
+    const res = await search('233');
+    expect(answerOf(res, flakyHost)).toBeUndefined();
+  });
+});

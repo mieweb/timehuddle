@@ -9,6 +9,7 @@
  * backend in Docker), and this process must listen on SOURCES_TEST_PORT
  * (3997). Without them the suite is skipped.
  */
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -178,6 +179,28 @@ describe.skipIf(!SERVER || !PORT)('accounts on other registered servers', () => 
     const list = await wormhole<{ servers: Record<string, unknown>[] }>('sources.list', {}, jwt);
     expect(list.result.servers[0]).toMatchObject({ connected: false, rejected: true });
     await db.collection('redmine_links').updateOne({ _id: link!._id }, { $unset: { rejectedAt: '' } });
+  });
+
+  it('marks a key rejected even while it was being re-encrypted', async () => {
+    const secret = process.env.SOURCE_KEYS_SECRET;
+    if (!secret) return;
+    const db = await getDb();
+    // An old-format key the server no longer accepts: reading it rewrites it,
+    // so what's stored has changed by the time the 401 comes back.
+    const aesKey = createHash('sha256').update(secret, 'utf8').digest();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', aesKey, iv);
+    const body = Buffer.concat([cipher.update('stale-key', 'utf8'), cipher.final()]);
+    const v1 = ['v1', iv.toString('base64'), cipher.getAuthTag().toString('base64'), body.toString('base64')].join(':');
+    await db.collection('redmine_links').updateOne({ userId, host }, { $set: { apiKey: v1 } });
+
+    const check = await wormhole('sources.check', { server: SERVER }, jwt);
+    expect(check.ok).toBe(false);
+    const link = await db.collection('redmine_links').findOne({ userId, host });
+    expect(link?.apiKey).not.toBe(v1);
+    expect(link?.rejectedAt).toBeTruthy();
+    const back = await wormhole('sources.connect', { server: SERVER, apiKey: GOOD_KEY }, jwt);
+    expect(back.ok).toBe(true);
   });
 
   it('disconnects that server only', async () => {

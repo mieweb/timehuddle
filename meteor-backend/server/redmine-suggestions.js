@@ -126,7 +126,7 @@ Meteor.startup(async () => {
  * thing the user would be told if that colleague had left.
  */
 function projectMembersFor(userId, account) {
-  return projectMembersCache.get(userId, 'members', async () => {
+  return projectMembersCache.get(userId, `${account.baseUrl}|members`, async () => {
     const projects = (await listProjects(account)).slice(0, MAX_PROJECTS_FOR_MEMBERS);
     const memberships = await mapInChunks(projects, MEMBERSHIP_CONCURRENCY, (project) =>
       listProjectMemberships(account, project.id).catch(() => []),
@@ -146,7 +146,7 @@ function projectMembersFor(userId, account) {
  * same as a number that does not exist. Telling those two apart would confirm the
  * existence of an issue to someone Redmine has decided must not see it.
  */
-async function runSearch(userId, account, kind, value) {
+export async function runSearch(userId, account, kind, value) {
   if (value === null) return [];
 
   if (kind === 'id' || kind === 'url') {

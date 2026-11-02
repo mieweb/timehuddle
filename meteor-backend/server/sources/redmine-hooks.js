@@ -7,6 +7,9 @@
  * `redmine.push` in redmine.js, and moves onto the engine in #734 step 6.
  */
 import { bustUserCaches } from '../redmine-cache';
+import { parseRedmineQuery } from '../redmine-query';
+import { runSearch } from '../redmine-suggestions';
+import { redminePrefixesFor } from '../ticket-search';
 import { updateIssue } from '../redmine-client';
 import { loadJournals, loadTimeEntries, toWriteMeteorError } from '../redmine-issue-methods';
 import { toConversation, toIssueDetail } from '../redmine-issues';
@@ -22,6 +25,16 @@ export const redmineHooks = {
   redmineIsClosed: (status) => status?.is_closed === true,
 
   /** The issue's history and the time logged on it in Redmine, as one conversation. */
+  /** What the search bar's text finds on this server, as slim issues. */
+  async redmineSearch(query, { userId, account }) {
+    const { kind, value } = parseRedmineQuery(
+      query,
+      account.baseUrl,
+      await redminePrefixesFor(userId, account.baseUrl),
+    );
+    return runSearch(userId, account, kind, value);
+  },
+
   async redmineJournals(raw, { userId, account }) {
     const [journals, timeEntries] = await Promise.all([
       loadJournals(userId, account, raw),

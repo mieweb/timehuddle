@@ -42,6 +42,11 @@ export const suggestionText = {
 
   loadingSuggestions: 'Loading your Redmine issues…',
   searching: 'Searching Redmine…',
+  searchingServers: 'Searching your servers…',
+  fromServer: (host: string) => `From ${host}`,
+  serversFailed: (hosts: string[]) => `${hosts.join(', ')} didn't respond.`,
+  noTeam: 'Select a team first.',
+  carryFailed: "Couldn't make a ticket for that issue.",
   partial: 'Some Redmine results are still unavailable.',
   unreachable: "Redmine didn't respond.",
   retry: 'Try again',

@@ -174,9 +174,9 @@ export function assertOnDefaultRedmine(account) {
  * linked to it. Refused unless the caller has connected Redmine on the
  * deployment's own server, and the issue exists for them. Returns the issue.
  */
-export async function readLinkableIssue(userId, issueId) {
-  const account = await requireRedmineAccount(userId);
-  assertOnDefaultRedmine(account);
+export async function readLinkableIssue(userId, issueId, host = null) {
+  const account = await requireRedmineAccount(userId, host ?? undefined);
+  if (!host) assertOnDefaultRedmine(account);
   let issue;
   try {
     issue = await getIssue(account, Number(issueId));
