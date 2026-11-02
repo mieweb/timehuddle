@@ -81,7 +81,7 @@ import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 import { UserAvatar } from './UserAvatar';
-import { useQueryParam, useRouter } from './router';
+import { useQueryParams, useRouter } from './router';
 
 // Loaded when opened: Usage carries the data grid, and Seeder the YAML parser
 // and presets, which production never shows.
@@ -1217,7 +1217,14 @@ export const SettingsPage: React.FC = () => {
     },
     import.meta.env.MODE !== 'production',
   );
-  const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
+  const { params, setParams } = useQueryParams();
+  const sectionParam = params.get('section');
+  // `?team=` belongs to the Team section only; any other section drops it.
+  const setSectionParam = useCallback(
+    (id: SettingsSectionId | null) =>
+      setParams(id === 'team' ? { section: id } : { section: id, team: null }, 'push'),
+    [setParams],
+  );
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
   const section =

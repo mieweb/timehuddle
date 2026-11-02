@@ -49,6 +49,11 @@ export const SETTINGS_STRINGS = {
   teamPicker: 'Team',
   teamPickerHint: 'Which team’s settings to change.',
   editingTeam: (name: string) => `Settings for ${name}`,
+  teamPickerPlaceholder: 'Choose a team',
+  notManagedTeam: (name?: string) =>
+    name
+      ? `You don’t manage ${name}, so it has no settings you can change here. Choose a team you manage.`
+      : 'Choose a team you manage.',
   manageTeam: 'Rename or delete this team',
 } as const;
 
