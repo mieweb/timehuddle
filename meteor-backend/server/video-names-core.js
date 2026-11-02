@@ -72,6 +72,16 @@ export function videoNameOf(title, videoId) {
 }
 
 /**
+ * The row a media item's title edit goes to: for a video, its CANONICAL_ITEM
+ * (`canonical`), the row every list and card reads its name from, so renaming
+ * a duplicate from old data sticks; for anything else, the row asked for. A
+ * caption or alt text always stays on the row asked for.
+ */
+export function titleRowOf(item, canonical) {
+  return item.type === 'video' && item.videoid && canonical ? canonical : item;
+}
+
+/**
  * The name a listed media item shows for its video: the one in `names`
  * (videoNamesFor, the CANONICAL_ITEM's), so a duplicate row from old data
  * shows what a rename named the video, not its own stale title; else its own.

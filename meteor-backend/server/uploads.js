@@ -5,7 +5,7 @@ import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
-import { cleanVideoName, listedVideoName, videoIdOf, videoNamesFor } from './video-names.js';
+import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
@@ -677,17 +677,28 @@ Meteor.methods({
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    const items = db.collection('mediaitems');
+    if (title !== undefined) {
+      // A video's name lives on its canonical row (titleRowOf), which old data
+      // with duplicates may not be this one; its owner must be the caller too.
+      const canonical =
+        doc.type === 'video' && doc.videoid
+          ? await items.findOne({ videoid: doc.videoid }, CANONICAL_ITEM)
+          : null;
+      const row = titleRowOf(doc, canonical);
+      if (row.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+      // A video's rename: one line, at most VIDEO_NAME_MAX characters, empty is no name.
+      await items.updateOne(
+        { _id: row._id },
+        { $set: { title: doc.type === 'video' ? cleanVideoName(title) : title } },
+      );
+    }
     const $set = {};
-    // A video's rename: one line, at most VIDEO_NAME_MAX characters, empty is no name.
-    if (title !== undefined) $set.title = doc.type === 'video' ? cleanVideoName(title) : title;
     if (caption !== undefined) $set.caption = caption;
     if (altText !== undefined) $set.altText = altText;
-    const updated = await db.collection('mediaitems').findOneAndUpdate(
-      { _id: doc._id },
-      { $set },
-      { returnDocument: 'after' },
-    );
-    return { item: toPublicMediaItem(updated) };
+    if (Object.keys($set).length) await items.updateOne({ _id: doc._id }, { $set });
+    const updated = await items.findOne({ _id: doc._id });
+    return { item: (await toPublicMediaItems([updated]))[0] };
   },
 
   async 'media.remove'({ mediaId } = {}) {

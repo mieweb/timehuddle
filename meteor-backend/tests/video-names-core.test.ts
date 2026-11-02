@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   cleanVideoName,
   listedVideoName,
+  titleRowOf,
   mayRenameVideo,
   publicVideoInfo,
   uploaderOf,
@@ -154,6 +155,21 @@ describe('videoSizeOf', () => {
   it('is null while the length is unknown, never the bytes so far', () => {
     expect(videoSizeOf({ state: 'uploading', bytesReceived: 4_000_000 })).toBeNull();
     expect(videoSizeOf(null)).toBeNull();
+  });
+});
+
+describe('titleRowOf', () => {
+  it("renames a video on its canonical row, the one every list reads its name from", () => {
+    const canonical = { _id: 'old', videoid: ID, type: 'video', title: 'Name' };
+    const duplicate = { _id: 'new', videoid: ID, type: 'video', title: 'Stale' };
+    expect(titleRowOf(duplicate, canonical)).toBe(canonical);
+  });
+
+  it("keeps a picture's title, or a video with no canonical row, on the row asked for", () => {
+    const photo = { _id: 'p', type: 'image', title: 'Board' };
+    expect(titleRowOf(photo, null)).toBe(photo);
+    const video = { _id: 'v', videoid: ID, type: 'video' };
+    expect(titleRowOf(video, null)).toBe(video);
   });
 });
 

@@ -27,6 +27,7 @@ export {
   cleanVideoName,
   listedVideoName,
   mayRenameVideo,
+  titleRowOf,
   videoNameOf,
   VIDEO_NAME_MAX,
 } from './video-names-core.js';
