@@ -163,6 +163,8 @@ function PulseVideoCard({
     <div
       className="pulse-video-card relative max-w-full overflow-hidden rounded-2xl bg-neutral-900"
       style={cardBox(aspect, maxSize)}
+      // Which video: a page with several cards can be told apart (e2e).
+      data-video-id={video}
     >
       <Button
         variant="ghost"

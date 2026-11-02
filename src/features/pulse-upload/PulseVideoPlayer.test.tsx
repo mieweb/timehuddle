@@ -37,6 +37,11 @@ describe('PulseVideoPlayer poster', () => {
   const placeholder = (container: HTMLElement) =>
     container.querySelector('.pulse-video-poster-placeholder');
 
+  it('says which video it is, so one card among several can be found', () => {
+    const { container } = render(<PulseVideoPlayer video={VIDEO} onOpen={() => {}} />);
+    expect(container.querySelector('.pulse-video-card')?.getAttribute('data-video-id')).toBe(VIDEO);
+  });
+
   it('shows a thumbnail that arrives after the card first asked for it', async () => {
     const { container } = render(<PulseVideoPlayer video={VIDEO} onOpen={() => {}} />);
     fireEvent.error(poster(container)!);

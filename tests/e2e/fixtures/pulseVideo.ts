@@ -19,10 +19,11 @@ export async function playPulseVideoCard(
   scope: Locator,
   { videoid, timeout = 10000 }: { videoid?: string; timeout?: number } = {},
 ): Promise<string> {
-  const play = scope
-    .locator('.pulse-video-card')
-    .getByRole('button', { name: /^Play / })
-    .first();
+  // The card for `videoid` when given (it carries its id), else the first.
+  const card = scope.locator(
+    videoid ? `.pulse-video-card[data-video-id="${videoid}"]` : '.pulse-video-card',
+  );
+  const play = card.getByRole('button', { name: /^Play / }).first();
   await expect(play).toBeVisible({ timeout });
   await play.click();
   const src = `[src*="/pulsevault/artifacts/${videoid ?? ''}"]`;
