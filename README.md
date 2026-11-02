@@ -189,7 +189,7 @@ VAPID_PRIVATE_KEY=your_vapid_private_key
 
 # Redmine integration (optional — see below)
 REDMINE_BASE_URL=https://redmine.example.org
-REDMINE_ENCRYPTION_KEY=generate_with_openssl_rand_base64_32
+SOURCE_KEYS_SECRET=generate_with_openssl_rand_base64_32
 # Dev/test only: let each user link their own Redmine URL in Settings. The server
 # fetches whatever URL is linked, so never enable this in production.
 # REDMINE_ALLOW_CUSTOM_URL=true
@@ -216,10 +216,10 @@ Connect your Redmine account once, and you shouldn't need to open Redmine to do 
 Requires Redmine 5.0+ with the REST API enabled. Configure the instance once, server-side, in
 `meteor-backend/.env.local`:
 
-| Variable                 | Purpose                                                                                                                                                                           |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REDMINE_BASE_URL`       | The Redmine instance every user connects to. Without it, Redmine is simply absent — not an error.                                                                                 |
-| `REDMINE_ENCRYPTION_KEY` | Secret used to encrypt each user's personal API key at rest (AES-256-GCM). Must be random (`openssl rand -base64 32`), not a passphrase. Required when `REDMINE_BASE_URL` is set. |
+| Variable             | Purpose                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDMINE_BASE_URL`   | The Redmine instance every user connects to. Without it, Redmine is simply absent — not an error.                                                                                                                                                                                                                                               |
+| `SOURCE_KEYS_SECRET` | Secret used to encrypt each user's personal API keys at rest (AES-256-GCM). Must be random (`openssl rand -base64 32`), not a passphrase. Required when `REDMINE_BASE_URL` is set; `REDMINE_ENCRYPTION_KEY` is still read in its place. Checking and rotating it: [docs/redmine-integration.md](docs/redmine-integration.md#keeping-keys-safe). |
 
 Each user then connects their own account in **Settings → Redmine**.
 

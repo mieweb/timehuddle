@@ -29,6 +29,12 @@ export const ticketLinkText = {
   typeField: 'Type',
   labelsField: 'Labels',
   milestoneField: 'Milestone',
+  /** Redmine refused the saved key, so TimeHuddle stopped sending it (#734). */
+  keyRejectedTitle: "Couldn't reach Redmine",
+  keyRejected: 'Your Redmine API key was rejected. It may have been reset in Redmine.',
+  keyRejectedSettings:
+    'Your API key was rejected. It may have been reset in Redmine: paste your current key to reconnect.',
+  openSettings: 'Open Settings',
   goToSettings: 'Go to Settings',
 
   linkLabel: 'Link',

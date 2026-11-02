@@ -32,7 +32,7 @@ async function openOutside(userId, ticketId) {
   const link = ticket.linkedIssue;
   const driver = link?.id ? driverFor(link.source) : null;
   if (!driver) throw new Meteor.Error('not-linked', 'This ticket carries no outside issue.');
-  const session = await driver.open(userId);
+  const session = await driver.open(userId, link.host);
   if (link.host && link.host !== session.server) {
     throw new Meteor.Error('other-server', 'This issue is on a server your account is not on.');
   }

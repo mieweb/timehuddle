@@ -58,8 +58,8 @@ docker run -d --name "$MAILPIT_CONTAINER" --network host "$MAILPIT_IMAGE" > /dev
 
 echo "=== Starting backend from $IMAGE ==="
 # The PR-preview image bakes DEV_QUICK_LOGIN_ENABLED=true for reviewers;
-# tests run against the normal sign-in surface. REDMINE_ENCRYPTION_KEY is a
-# throwaway — the Redmine specs mock the Redmine API in the browser, but
+# tests run against the normal sign-in surface. SOURCE_KEYS_SECRET is random
+# per run (its database is new each run) — the Redmine specs mock the Redmine API in the browser, but
 # redmine-crypto.js throws when the key is unset.
 docker run -d --name "$APP_CONTAINER" --network host \
   -e MONGO_URL="$MONGO_URL" \
@@ -72,7 +72,7 @@ docker run -d --name "$APP_CONTAINER" --network host \
   -e SMTP_SECURE=false \
   -e EMAIL_FROM="TimeHuddle <noreply@timehuddle.local>" \
   -e REDMINE_BASE_URL="https://redmine0.os.mieweb.org" \
-  -e REDMINE_ENCRYPTION_KEY="e2e-only-throwaway-key" \
+  -e SOURCE_KEYS_SECRET="$(openssl rand -base64 32)" \
   "$IMAGE" > /dev/null || exit 1
 
 deadline=$((SECONDS + 180))
