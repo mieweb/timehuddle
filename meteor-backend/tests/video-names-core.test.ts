@@ -12,6 +12,7 @@ import {
   VIDEO_NAME_MAX,
   videoIdOf,
   videoNameOf,
+  videoSizeOf,
 } from '../server/video-names-core';
 
 const ID = '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59';
@@ -121,5 +122,17 @@ describe('publicVideoInfo', () => {
       addedAt: null,
       author: null,
     });
+  });
+});
+
+describe('videoSizeOf', () => {
+  it("is the upload's whole length, even while its bytes are still arriving", () => {
+    expect(videoSizeOf({ state: 'uploading', bytesReceived: 4_000_000, size: 100_000_000 })).toBe(100_000_000);
+    expect(videoSizeOf({ state: 'ready', bytesReceived: 100_000_000, size: 100_000_000 })).toBe(100_000_000);
+  });
+
+  it('is null while the length is unknown, never the bytes so far', () => {
+    expect(videoSizeOf({ state: 'uploading', bytesReceived: 4_000_000 })).toBeNull();
+    expect(videoSizeOf(null)).toBeNull();
   });
 });

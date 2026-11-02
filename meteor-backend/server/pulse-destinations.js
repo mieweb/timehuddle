@@ -93,11 +93,14 @@ async function addToLibrary(userId, video, { embedded = false } = {}) {
   // An item made before this delivery: an earlier one, or a rename while the
   // video was still uploading (videos.rename), which knows only the name.
   // Fill in what the upload knows that it doesn't, and, sent somewhere it
-  // belongs in the library after all, show it there now.
+  // belongs in the library after all, show it there now. The finished
+  // upload's size always wins: a size recorded before it finished isn't one.
   const finish = (item) => {
     const known = { mimeType: video.mimeType, filename: video.filename, size: video.size, uploadedAt: new Date() };
     const $set = Object.fromEntries(
-      Object.entries(known).filter(([field, value]) => item[field] == null && value != null),
+      Object.entries(known).filter(
+        ([field, value]) => value != null && (item[field] == null || (field === 'size' && item.size !== value)),
+      ),
     );
     const update = {
       ...(Object.keys($set).length ? { $set } : {}),

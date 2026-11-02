@@ -40,6 +40,15 @@ export function videoIdOf(url, trustedOrigins = []) {
   return match ? match[1].toLowerCase() : null;
 }
 
+/**
+ * A video's size from PulseVault's status (videoArtifactStatus): the upload's
+ * whole length, known from its start, or null — never the bytes received so
+ * far, which a rename mid-upload would keep as the video's size.
+ */
+export function videoSizeOf(status) {
+  return typeof status?.size === 'number' ? status.size : null;
+}
+
 /** A name as stored: trimmed, one line, at most VIDEO_NAME_MAX characters; null for none. */
 export function cleanVideoName(name) {
   if (typeof name !== 'string') return null;

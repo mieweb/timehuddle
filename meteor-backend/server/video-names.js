@@ -18,6 +18,7 @@ import {
   publicVideoInfo,
   videoIdOf as videoIdOfUrl,
   videoNameOf,
+  videoSizeOf,
 } from './video-names-core.js';
 
 export {
@@ -148,7 +149,7 @@ Meteor.methods({
             url: `/pulsevault/artifacts/${id}`,
             videoid: id,
             filename: null,
-            size: status?.bytesReceived ?? status?.size ?? null,
+            size: videoSizeOf(status),
             caption: null,
             altText: null,
             thumbnail: null,
