@@ -53,6 +53,13 @@ export class AttachmentError extends Error {}
  *   id) belongs to them and is at that URL. It's stored with the item's URL,
  *   type, name and size.
  * Throws an AttachmentError for anything else.
+ * @param {{
+ *   attachments: any,
+ *   userId: any,
+ *   mediaById: any,
+ *   pulseVideoOf: any,
+ *   existing?: any[],
+ * }} params
  */
 export function cleanPostAttachments({ attachments, userId, mediaById, pulseVideoOf, existing = [] }) {
   if (attachments === null) return [];
