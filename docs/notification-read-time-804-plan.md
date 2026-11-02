@@ -30,10 +30,11 @@ sequenceDiagram
     participant Mongo as notifications collection
 
     User->>InboxPage: Tap row / Mark all read
-    InboxPage->>InboxPage: Mark row read locally (readAt = now)
     InboxPage->>Api: markOneRead / markAllRead
     Api->>Methods: Meteor method over REST
     Methods->>Mongo: Only unread docs → $set read, readAt
+    Methods-->>InboxPage: { ok, readAt }
+    InboxPage->>InboxPage: Mark unread rows read with that readAt
     User->>InboxPage: Reload later
     InboxPage->>Api: getInbox
     Methods-->>InboxPage: … readAt (ISO or null)
@@ -65,8 +66,18 @@ Rules for the read line:
 - **No "mark unread"** exists, so nothing ever clears `readAt`. (The issue mentions
   clearing it; that step is dropped.)
 - **No backfill.** Old read notifications have no read time and say just `Read`.
-- **Client stamps its own time** for the instant UI update; the server's time is what
-  is saved and shows after the next load. They differ by milliseconds.
+- **The server's clock is the only source of `readAt`.** The mark-read methods return
+  the time they saved, and the page shows that value. The page never stamps its own
+  time, because a phone with a wrong clock would show a read time that changes on reload.
+- **Only a person reading sets `readAt`.** The auto clock-out job in
+  [`agenda.js`](../meteor-backend/server/agenda.js) also sets `read: true` when it
+  rewrites an unanswered shift reminder. Nobody read that one, so it gets no `readAt`
+  and shows plain `Read`.
+- **Every way of reading counts:** tapping the row, "Mark all read", answering a team
+  invite, and tapping the notification's push pop-up (added in #793). They all go
+  through `markRead` on the server.
+- **Received time is `createdAt`**, when the notification was sent. Times stored inside a
+  notification's `data` (a shift's start, for example) are not used.
 - **Times use the browser's locale** via `toLocaleTimeString` / `toLocaleDateString`.
   There is no translation framework yet, so new strings go in one `LABELS` constant.
 
@@ -76,20 +87,27 @@ Rules for the read line:
 
 File: [`meteor-backend/server/notifications.js`](../meteor-backend/server/notifications.js)
 
-- [ ] Add one helper above `Meteor.methods` so all three "mark read" paths behave the same:
+- [x] Add one helper above `Meteor.methods` so all three "mark read" paths behave the same.
+      The `read: { $ne: true }` filter is what makes the first read win; it also catches
+      old docs with no `read` field, which the inbox already shows as unread.
   ```js
   // Stamps readAt only on the first read, so reopening a notification keeps its read time.
-  function markRead(filter) {
-    return rawDb()
+  async function markRead(filter) {
+    const readAt = new Date();
+    await rawDb()
       .collection('notifications')
-      .updateMany({ ...filter, read: { $ne: true } }, { $set: { read: true, readAt: new Date() } });
+      .updateMany({ ...filter, read: { $ne: true } }, { $set: { read: true, readAt } });
+    return readAt;
   }
   ```
-- [ ] `notifications.markOneRead` → `await markRead({ _id: toId(notificationId), userId });`
-- [ ] `notifications.markAllRead` → `await markRead({ userId });`
-- [ ] `notifications.respondToInvite` → replace its `updateOne(... { read: true })` with
-      `await markRead({ _id: toId(notificationId) });`
-- [ ] `notifications.getInbox` mapping → add
+- [x] `notifications.markOneRead` and `notifications.markAllRead` → call `markRead` with
+      their existing filter (minus `read: false`) and return
+      `{ ok: true, readAt: readAt.toISOString() }`.
+- [x] `notifications.respondToInvite` → replace its `updateOne(... { read: true })` with
+      `await markRead({ _id: toId(notificationId) });`. In the inbox the row is already
+      read by then, so this does nothing; it matters when the invite is answered without
+      opening the row first, and it must not move an existing read time.
+- [x] `notifications.getInbox` mapping → add
       `readAt: n.readAt instanceof Date ? n.readAt.toISOString() : null,`
 
 No Wormhole changes: these methods are already exposed in `main.js`.
@@ -102,6 +120,8 @@ change the value.
 
 - [ ] [`src/lib/api.ts`](../src/lib/api.ts) `Notification` → add
       `readAt: string | null; // ISO, set the first time it is read`
+- [ ] `notificationApi.markOneRead` / `markAllRead` return type →
+      `{ ok: boolean; readAt: string }`
 - [ ] [`src/lib/ddp.ts`](../src/lib/ddp.ts) `ddpDocToNotification` → add
       `readAt: doc.readAt ? String(doc.readAt) : null,`
 
@@ -124,12 +144,18 @@ New file: `src/features/notifications/notificationTimes.ts` — pure functions, 
 
 File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notifications/NotificationsPage.tsx)
 
-- [ ] Replace the five copies of `{ ...n, read: true }` with one helper that also sets
-      `readAt` (only if the row was unread):
+- [ ] Replace the four copies of "mark this row read" in `handleRowClick` and the one in
+      `handleMarkAllRead` with one helper that uses the server's `readAt` and leaves
+      already-read rows alone:
   ```ts
-  const withReadNow = (n: Notification): Notification =>
-    n.read ? n : { ...n, read: true, readAt: new Date().toISOString() };
+  const withRead = (n: Notification, readAt: string): Notification =>
+    n.read ? n : { ...n, read: true, readAt };
   ```
+- [ ] The push-tap path from #793 tells an open inbox that a row was read with the
+      `NOTIFICATION_READ_EVENT` window event. Add `readAt` from `markOneRead`'s reply
+      to its `detail` in
+      [`notificationEvents.ts`](../src/features/notifications/notificationEvents.ts), and
+      use `withRead` in the page's listener for that event.
 - [ ] Render one `<section>` per day: an `<h2>` heading, then the existing `<ul>` of rows.
       Don't change the row markup otherwise (select mode, `data-notification-id`, click
       handling stay as they are).
