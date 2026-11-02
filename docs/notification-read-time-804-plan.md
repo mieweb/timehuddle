@@ -181,8 +181,8 @@ same after a reload; "Mark all read" does the same for every unread row.
 - [x] Add a short section to [`release-notes/1.2.0.md`](../release-notes/1.2.0.md) (not tagged yet,
       so we add to it — see [`release-notes/README.md`](../release-notes/README.md)).
 
-- [ ] When the PR is opened, change the `#804` issue link in the note's
-      **Pull requests in this release** list to the PR's number.
+- [x] When the PR is opened, change the `#804` issue link in the note's
+      **Pull requests in this release** list to the PR's number (#805).
 
 **Done when:** the new e2e test passes locally and the note renders at `/app/release-notes`.
 
