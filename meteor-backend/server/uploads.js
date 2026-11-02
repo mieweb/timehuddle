@@ -6,6 +6,7 @@ import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The origin-aware videoIdOf: a legacy post's full URL on this backend counts.
 import { cleanVideoName, videoIdOf, videoNameOf } from './video-names.js';
+import { excludingPostMedia, uploadUrlsIn } from './media-library-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -442,49 +443,44 @@ export async function discardMedia(docs) {
 }
 
 /**
- * Ids of the media `userId`'s Huddle posts carry, scheduled or sent: a post's
+ * The media `userId`'s Huddle posts carry or show, scheduled or sent: a post's
  * photos, files and videos belong to the post and its team, not to everyone
  * who may view the author's profile, so library and profile listings leave
- * them out. Images/documents reference the library row's own `_id`; a
- * composer-staged video's `mediaId` is Pulse's `videoid` instead
- * (src/features/huddle/api.ts uploadMedia), and a Pulse video is matched by
- * its URL's video id too, whatever its `mediaId`.
+ * them out (excludingPostMedia). `mediaIds`: images/documents reference the
+ * library row's own `_id`; a composer-staged video's `mediaId` is Pulse's
+ * `videoid` instead (src/features/huddle/api.ts uploadMedia), and a Pulse
+ * video is matched by its URL's video id too, whatever its `mediaId`. `urls`:
+ * uploads a post's text shows, which needn't be among its attachments (a
+ * plan's pasted screenshot stays in the text when the wrap-up's attachments
+ * replace the plan's).
  */
-async function postAttachmentMediaIds(userId) {
+async function postMedia(userId) {
   const posts = rawDb().collection('huddlePosts');
-  const [mediaIds, urls] = await Promise.all([
+  const [mediaIds, urls, texts] = await Promise.all([
     posts.distinct('attachments.mediaId', { userId }),
     posts.distinct('attachments.url', { userId }),
+    posts
+      .find({ userId, 'content.text': { $regex: '/uploads/media/' } }, { projection: { 'content.text': 1 } })
+      .toArray(),
   ]);
   const ids = new Set(mediaIds.filter((id) => typeof id === 'string' && id));
   for (const url of urls) {
     const video = videoIdOf(url);
     if (video) ids.add(video);
   }
-  return ids;
-}
-
-/** Mongo filter excluding the `mediaitems` referenced in `mediaIds` (see {@link postAttachmentMediaIds}). */
-function excludingMediaIds(mediaIds) {
-  if (!mediaIds.size) return {};
-  const objectIds = [...mediaIds].filter((id) => /^[a-f0-9]{24}$/i.test(id)).map((id) => new ObjectId(id));
-  const videoIds = [...mediaIds].filter((id) => !/^[a-f0-9]{24}$/i.test(id));
-  return {
-    ...(objectIds.length ? { _id: { $nin: objectIds } } : {}),
-    ...(videoIds.length ? { videoid: { $nin: videoIds } } : {}),
-  };
+  return { mediaIds: ids, urls: new Set(texts.flatMap((post) => uploadUrlsIn(post.content?.text))) };
 }
 
 /**
  * Library and profile listings show only what someone put there themselves:
  * not media embedded in a post's text, nor anything their Huddle posts carry
- * (scheduled or sent), filtered at read time against `huddlePosts` rather
- * than a flag written onto the media document, so older posts follow too.
+ * or show (scheduled or sent), filtered at read time against `huddlePosts`
+ * rather than a flag written onto the media document, so older posts follow too.
  */
 async function libraryItemsFilter(userId) {
   return {
     embedded: { $ne: true },
-    ...excludingMediaIds(await postAttachmentMediaIds(userId)),
+    ...excludingPostMedia(await postMedia(userId), (id) => new ObjectId(id)),
   };
 }
 

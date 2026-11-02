@@ -16,6 +16,7 @@ import fsp from 'fs/promises';
 import { rawDb } from './collections';
 import { MEDIA_DIR, discardMedia, storeMedia } from './uploads';
 import { isInsideMeteorBuild } from './storage-paths';
+import { uploadUrlsIn } from './media-library-core.js';
 
 // Same raster set MarkdownContent renders inline. Anything else (SVG, which can
 // carry markup; HEIC, BMP, TIFF, which browsers don't show inline) is left as is.
@@ -30,7 +31,6 @@ const INLINE_IMAGE = new RegExp(
   `(?<=\\]\\(\\s*|\\bsrc\\s*=\\s*["'])data:(image/(?:${FORMATS}));base64,([A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*?)(?=\\s*(?:[)"']|$))`,
   'gi',
 );
-const INLINE_MEDIA_URL = /\/uploads\/media\/[^\s)"'<>]+/g;
 
 /** True when `text` carries an inline base64 image this module can store. */
 export function hasInlineImages(text) {
@@ -83,7 +83,7 @@ export async function externalizeInlineImages(text, userId) {
 /** Remove embedded media no longer referenced by any post. */
 export async function discardUnreferencedInlineImages(text) {
   if (typeof text !== 'string') return;
-  const urls = [...new Set([...text.matchAll(INLINE_MEDIA_URL)].map(([url]) => url))];
+  const urls = uploadUrlsIn(text);
   if (urls.length === 0) return;
 
   try {
