@@ -429,14 +429,16 @@ Meteor.methods({
 
   /**
    * List videos from the media library for the calling user.
-   * Filters to type='video' so images are excluded.
+   * Filters to type='video' so images are excluded, and leaves out embedded
+   * ones (a ticket's, a session's, a walkthrough, one named mid-upload), as
+   * media.list does: they belong where they were sent, not in the library.
    */
   async 'pulsevault.listVideos'({ limit } = {}) {
     const identity = await requireIdentity(this);
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb()
       .collection('mediaitems')
-      .find({ userId: identity.userId, type: 'video' })
+      .find({ userId: identity.userId, type: 'video', embedded: { $ne: true } })
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
