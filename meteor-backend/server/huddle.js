@@ -995,9 +995,10 @@ Meteor.methods({
     const postTicketIds = resolveTicketIds({ ticketIds, ticketId });
     await requireTeamTickets(postTicketIds, post.teamId);
     // An edit by an admin keeps the author's uploads it already carries.
+    // Omitted keeps the post's attachments; `null` clears them, as `[]` does.
     const postAttachments =
-      attachments === undefined || attachments === null
-        ? attachments
+      attachments === undefined
+        ? undefined
         : await checkedAttachments(identity.userId, attachments, post.attachments ?? []);
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
@@ -1013,7 +1014,7 @@ Meteor.methods({
             },
             // Only touch attachments/tickets when the editor sends them, so the
             // plan-first clock flow (which omits them) leaves them untouched.
-            ...(postAttachments !== undefined ? { attachments: postAttachments ?? [] } : {}),
+            ...(postAttachments !== undefined ? { attachments: postAttachments } : {}),
             ...(postTicketIds !== undefined ? { ticketIds: postTicketIds } : {}),
             ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
             updatedAt: new Date(),

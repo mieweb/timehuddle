@@ -58,6 +58,10 @@ describe('cleanPostAttachments', () => {
     expect(() => clean('nope')).toThrow(AttachmentError);
   });
 
+  it('reads no list (`null`) as none, so clearing takes the same path as `[]`', () => {
+    expect(clean(null)).toEqual([]);
+  });
+
   it('keeps an attachment the post already carries, as it is', () => {
     const existing = [{ mediaId: THEIRS._id, type: 'file', url: THEIRS.url, filename: 'theirs.pdf' }];
     expect(clean([{ mediaId: THEIRS._id, type: 'file', url: `http://localhost:3100${THEIRS.url}` }], existing)).toEqual(

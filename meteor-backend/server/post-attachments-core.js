@@ -41,7 +41,8 @@ function sizeOf(att) {
 export class AttachmentError extends Error {}
 
 /**
- * `attachments` as a post stores them, each checked:
+ * `attachments` as a post stores them, each checked (`null` is none: an edit
+ * that clears the list, which then cleans up after it as `[]` does):
  * - one the post already carries (`existing`, kept as it is by an edit);
  * - a Pulse video (`pulseVideoOf(url)` is its id);
  * - else the poster's (`userId`) own upload: its media item (`mediaById`, by
@@ -50,6 +51,7 @@ export class AttachmentError extends Error {}
  * Throws an AttachmentError for anything else.
  */
 export function cleanPostAttachments({ attachments, userId, mediaById, pulseVideoOf, existing = [] }) {
+  if (attachments === null) return [];
   if (!Array.isArray(attachments)) throw new AttachmentError('attachments must be a list');
   const kept = new Map(existing.map((att) => [pathOf(att.url), att]));
   return attachments.map((att) => {
