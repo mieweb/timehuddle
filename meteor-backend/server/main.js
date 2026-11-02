@@ -1417,6 +1417,10 @@ Meteor.startup(async () => {
           description:
             "Optional override of the resolved activity; must be one the issue's project allows",
         },
+        hours: {
+          type: 'number',
+          description: 'The hours shown; refused as hours-changed if the server now works out others',
+        },
       },
       required: ['ticketId', 'date'],
     },
@@ -1442,6 +1446,10 @@ Meteor.startup(async () => {
                 description: 'Optional override of the resolved activity',
               },
               comment: { type: 'string', description: "The entry's comment; optional" },
+              hours: {
+                type: 'number',
+                description: 'The hours shown; refused as hours-changed if they moved',
+              },
             },
             required: ['ticketId', 'date'],
           },
@@ -2534,7 +2542,15 @@ Meteor.startup(async () => {
           type: 'array',
           items: {
             type: 'object',
-            properties: { host: { type: 'string' }, prefix: { type: 'string' } },
+            properties: {
+              host: { type: 'string' },
+              prefix: { type: 'string' },
+              rounding: {
+                type: 'string',
+                enum: ['exact', 'up5', 'up10', 'up15'],
+                description: "How the server's time entries are rounded; exact when left out",
+              },
+            },
             required: ['host', 'prefix'],
           },
         },

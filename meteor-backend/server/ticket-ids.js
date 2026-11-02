@@ -44,6 +44,12 @@ export const MAX_SOURCE_PREFIXES = 20;
  */
 export const SERVER_TYPES = Object.freeze(['redmine']);
 
+/**
+ * How a Redmine server's time entries are rounded: up to this many minutes.
+ * A server with none set sends exact minutes.
+ */
+export const ROUNDING_STEPS = Object.freeze({ up5: 5, up10: 10, up15: 15 });
+
 /** The bare lowercase hostname of a pasted URL or hostname, or null. */
 export function hostOf(input) {
   if (typeof input !== 'string' || !input.trim()) return null;
@@ -100,9 +106,15 @@ export function normalizeSourcePrefixes(input, ticketPrefix) {
     }
     if (hosts.has(host)) throw new Error(`${host} is listed twice`);
     if (prefixes.has(prefix)) throw new Error(`${prefix} is already in use`);
+    const rounding = entry?.rounding ?? 'exact';
+    // `hasOwn`, so `constructor` and the like are not mistaken for a step.
+    if (rounding !== 'exact' && !Object.hasOwn(ROUNDING_STEPS, rounding)) {
+      throw new Error(`${host}: not a rounding: ${rounding}`);
+    }
     hosts.add(host);
     prefixes.add(prefix);
-    return { host, prefix, type, baseUrl };
+    // Exact is stored as nothing, so a server saved before rounding is unchanged.
+    return { host, prefix, type, baseUrl, ...(rounding === 'exact' ? {} : { rounding }) };
   });
 }
 

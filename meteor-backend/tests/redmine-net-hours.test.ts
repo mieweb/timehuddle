@@ -87,7 +87,7 @@ describe('ticketDayTotals', () => {
         : (keyByWorkItem.get(session.workItemId ?? '') ?? null),
     );
     expect(totals).toEqual([
-      { ticketId: '482', date: '2026-10-04', seconds: 1800, runSeconds: [1200, 600] },
+      { ticketId: '482', date: '2026-10-04', seconds: 1800, clockEventId: null, runSeconds: [1200, 600] },
     ]);
   });
 
@@ -98,9 +98,18 @@ describe('ticketDayTotals', () => {
     ];
     const totals = ticketDayTotals(sessions, (s) => ticketDayKey(s.redmineIssueId, s.date));
     expect(totals).toEqual([
-      { ticketId: '482', date: '2026-10-04', seconds: 900, runSeconds: [900] },
-      { ticketId: '500', date: '2026-10-04', seconds: 300, runSeconds: [300] },
+      { ticketId: '482', date: '2026-10-04', seconds: 900, clockEventId: null, runSeconds: [900] },
+      { ticketId: '500', date: '2026-10-04', seconds: 300, clockEventId: null, runSeconds: [300] },
     ]);
+  });
+
+  it("names the shift of the day's latest session, whose team's rounding applies", () => {
+    const sessions = [
+      { key: 'x|2026-10-04', endTime: 2, durationSeconds: 600, clockEventId: 'late' },
+      { key: 'x|2026-10-04', endTime: 1, durationSeconds: 600, clockEventId: 'early' },
+      { key: 'x|2026-10-04', endTime: 3, durationSeconds: 600 },
+    ];
+    expect(ticketDayTotals(sessions, (s) => s.key)[0].clockEventId).toBe('late');
   });
 
   it('lists each closed run oldest first, leaving out open and empty ones', () => {
