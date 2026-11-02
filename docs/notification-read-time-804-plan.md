@@ -66,9 +66,14 @@ Rules for the read line:
 - **No "mark unread"** exists, so nothing ever clears `readAt`. (The issue mentions
   clearing it; that step is dropped.)
 - **No backfill.** Old read notifications have no read time and say just `Read`.
-- **The server's clock is the only source of `readAt`.** The mark-read methods return
-  the time they saved, and the page shows that value. The page never stamps its own
-  time, because a phone with a wrong clock would show a read time that changes on reload.
+- **The page only ever shows the stored `readAt`.** `markOneRead` returns the time that
+  is in the database, which is earlier than the click if another device read it first,
+  or null for a read before #804. "Mark all read" reloads the inbox instead of stamping
+  one time on every row. The page never uses its own clock for a read time, so the time
+  shown never changes on reload.
+- **Day labels follow the calendar.** "Today" and "Yesterday" move on at midnight and when
+  the tab or app comes back, so a page left open overnight doesn't keep yesterday's rows
+  under "Today".
 - **Only a person reading sets `readAt`.** The auto clock-out job in
   [`agenda.js`](../meteor-backend/server/agenda.js) also sets `read: true` when it
   rewrites an unanswered shift reminder. Nobody read that one, so it gets no `readAt`
@@ -79,7 +84,10 @@ Rules for the read line:
 - **Received time is `createdAt`**, when the notification was sent. Times stored inside a
   notification's `data` (a shift's start, for example) are not used.
 - **Times use the browser's locale** via `toLocaleTimeString` / `toLocaleDateString`.
-  There is no translation framework yet, so new strings go in one `LABELS` constant.
+  There is no translation framework yet, so new strings (`Today`, `Yesterday`, `Read`) go
+  in `NOTIFICATION_STRINGS` in
+  [`notificationCopy.ts`](../src/features/notifications/notificationCopy.ts), with the
+  other notification text from #784.
 
 ---
 
@@ -92,17 +100,16 @@ File: [`meteor-backend/server/notifications.js`](../meteor-backend/server/notifi
       old docs with no `read` field, which the inbox already shows as unread.
   ```js
   // Stamps readAt only on the first read, so reopening a notification keeps its read time.
-  async function markRead(filter) {
-    const readAt = new Date();
-    await rawDb()
+  function markRead(filter) {
+    return rawDb()
       .collection('notifications')
-      .updateMany({ ...filter, read: { $ne: true } }, { $set: { read: true, readAt } });
-    return readAt;
+      .updateMany({ ...filter, read: { $ne: true } }, { $set: { read: true, readAt: new Date() } });
   }
   ```
-- [x] `notifications.markOneRead` and `notifications.markAllRead` → call `markRead` with
-      their existing filter (minus `read: false`) and return
-      `{ ok: true, readAt: readAt.toISOString() }`.
+- [x] `notifications.markOneRead` → `markRead` its row, then read the row back and return
+      `{ ok: true, readAt }` with the **stored** time (ISO, or null). Don't return the time
+      you just tried to write: if another device read it first, nothing was written.
+- [x] `notifications.markAllRead` → `await markRead({ userId })` and return `{ ok: true }`.
 - [x] `notifications.respondToInvite` → replace its `updateOne(... { read: true })` with
       `await markRead({ _id: toId(notificationId) });`. In the inbox the row is already
       read by then, so this does nothing; it matters when the invite is answered without
@@ -120,8 +127,7 @@ change the value.
 
 - [x] [`src/lib/api.ts`](../src/lib/api.ts) `Notification` → add
       `readAt: string | null; // ISO, set the first time it is read`
-- [x] `notificationApi.markOneRead` / `markAllRead` return type →
-      `{ ok: boolean; readAt: string }`
+- [x] `notificationApi.markOneRead` return type → `{ ok: boolean; readAt: string | null }`
 - [x] [`src/lib/ddp.ts`](../src/lib/ddp.ts) `ddpDocToNotification` → add
       `readAt: doc.readAt ? String(doc.readAt) : null,`
 
@@ -132,12 +138,14 @@ change the value.
 
 ## Milestone 3 — Time formatting helpers (with unit tests)
 
-New file: `src/features/notifications/notificationTimes.ts` — pure functions, no React.
+New file: `src/features/notifications/notificationTimes.ts` — pure functions, plus the
+small `useToday` hook they're used with.
 
 - [x] `formatDayHeading(iso, now?)` → `Today · Mon, Nov 2`, `Yesterday · Sun, Nov 1`, `Sat, Oct 24` (year added when not this year)
 - [x] `formatReceivedTime(iso)` → `3:14 PM`
 - [x] `formatReadTime(createdAt, readAt, now?)` → `4:49 PM` (same day), `Today 8:03 AM`, `Yesterday 6:10 PM`, `Oct 30, 6:10 PM`
 - [x] `groupByDay(notifications, now?)` → `{ heading, items }[]`, keeping the existing order
+- [x] `useToday()` → today's date, replaced at midnight and on `visibilitychange`
 - [x] `notificationTimes.test.ts` covers each case above, including a different year
 - [x] Delete the old `timeAgo` from `NotificationsPage.tsx` once nothing uses it
 
@@ -147,13 +155,16 @@ New file: `src/features/notifications/notificationTimes.ts` — pure functions, 
 
 File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notifications/NotificationsPage.tsx)
 
-- [x] Replace the four copies of "mark this row read" in `handleRowClick` and the one in
-      `handleMarkAllRead` with one helper that uses the server's `readAt` and leaves
+- [x] Replace the four copies of "mark this row read" in `handleRowClick` with one call
+      before the branching, and one helper that uses the stored `readAt` and leaves
       already-read rows alone:
   ```ts
-  const withRead = (n: Notification, readAt: string): Notification =>
+  const withRead = (n: Notification, readAt: string | null): Notification =>
     n.read ? n : { ...n, read: true, readAt };
   ```
+- [x] `handleMarkAllRead` → after `markAllRead()`, reload the inbox with `getInbox()`.
+- [x] `const today = useToday()`, passed to `groupByDay` and `formatReadTime`, so the
+      headings and read times agree on what "today" is.
 - [x] The push-tap path from #793 tells an open inbox that a row was read with the
       `NOTIFICATION_READ_EVENT` window event. Add `readAt` from `markOneRead`'s reply
       to its `detail` in
@@ -195,6 +206,18 @@ same after a reload; "Mark all read" does the same for every unread row.
       backend to turn a WebM into an MP4. Install it (`brew install ffmpeg`) before
       treating that test as a real failure.
 - [x] Smoke test at `http://localhost:3000/app/notifications`, desktop and phone width
+
+## Review follow-ups (#805)
+
+Found in review after the milestones above were done; the milestones now describe the fixed code.
+
+- [x] **A row read on another device showed the click time, then a different time after
+      reload.** `markOneRead` now returns the stored `readAt`, and "Mark all read" reloads
+      the inbox. Checked by reading rows "on another device" in Mongo while the inbox was
+      open, then clicking them: each showed the stored time, or plain `Read`.
+- [x] **Headings kept saying "Today" after midnight** on a page left open. Fixed with
+      `useToday`, covered by a unit test with fake timers.
+- [x] **`Today`, `Yesterday` and `Read` were hard-coded.** Moved to `NOTIFICATION_STRINGS`.
 
 ## Out of scope
 

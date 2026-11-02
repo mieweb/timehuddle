@@ -145,6 +145,10 @@ export const NOTIFICATION_STRINGS = {
   snoozeStatusUntil: (when: string) => `Paused until ${when}.`,
   snoozeStatusClockIn: 'Paused until you next clock in.',
   lockedByOrg: 'Set by your organization',
+  // Inbox times (#804)
+  today: 'Today',
+  yesterday: 'Yesterday',
+  read: 'Read',
   loadFailed: 'Could not load your notification settings.',
   saveFailed: 'Could not save that change. Please try again.',
 } as const;

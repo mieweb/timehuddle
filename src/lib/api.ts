@@ -1940,14 +1940,14 @@ export const notificationApi = {
       (r) => r.notifications,
     ),
 
-  /** Mark a single notification as read. */
+  /** Mark a single notification as read; returns its stored read time (null if read before #804). */
   markOneRead: (id: string) =>
-    wormholeCall<{ ok: boolean; readAt: string }>('notifications.markOneRead', {
+    wormholeCall<{ ok: boolean; readAt: string | null }>('notifications.markOneRead', {
       notificationId: id,
     }),
 
   /** Mark all notifications as read. */
-  markAllRead: () => wormholeCall<{ ok: boolean; readAt: string }>('notifications.markAllRead', {}),
+  markAllRead: () => wormholeCall<{ ok: boolean }>('notifications.markAllRead', {}),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>

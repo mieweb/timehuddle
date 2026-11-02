@@ -27,7 +27,8 @@ import {
 } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
 import { NOTIFICATION_READ_EVENT } from './notificationEvents';
-import { formatReadTime, formatReceivedTime, groupByDay } from './notificationTimes';
+import { NOTIFICATION_STRINGS } from './notificationCopy';
+import { formatReadTime, formatReceivedTime, groupByDay, useToday } from './notificationTimes';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -36,7 +37,7 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { useShiftReminder } from './ShiftReminderContext';
 
 /** Marks a row read with the server's read time; a row already read keeps its own. */
-function withRead(n: Notification, readAt: string): Notification {
+function withRead(n: Notification, readAt: string | null): Notification {
   return n.read ? n : { ...n, read: true, readAt };
 }
 
@@ -115,7 +116,7 @@ export const NotificationsPage: React.FC = () => {
   // A push tapped elsewhere in the app marks its row read (AppLayout's markPushRead).
   useEffect(() => {
     const handler = (e: Event) => {
-      const { id, readAt } = (e as CustomEvent<{ id: string; readAt: string }>).detail;
+      const { id, readAt } = (e as CustomEvent<{ id: string; readAt: string | null }>).detail;
       setNotifications((prev) => prev.map((n) => (n.id === id ? withRead(n, readAt) : n)));
     };
     window.addEventListener(NOTIFICATION_READ_EVENT, handler);
@@ -150,7 +151,8 @@ export const NotificationsPage: React.FC = () => {
   const [joinRequestError, setJoinRequestError] = useState<string | null>(null);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
-  const days = useMemo(() => groupByDay(notifications), [notifications]);
+  const today = useToday();
+  const days = useMemo(() => groupByDay(notifications, today), [notifications, today]);
   const allIds = useMemo(() => notifications.map((n) => n.id), [notifications]);
   const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
 
@@ -201,8 +203,9 @@ export const NotificationsPage: React.FC = () => {
   const handleMarkAllRead = useCallback(async () => {
     setMarkAllLoading(true);
     try {
-      const { readAt } = await notificationApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => withRead(n, readAt)));
+      await notificationApi.markAllRead();
+      // Reload rather than stamp one time on every row: some may have been read elsewhere first.
+      setNotifications(await notificationApi.getInbox());
     } catch {
       /* ignore */
     } finally {
@@ -426,13 +429,15 @@ export const NotificationsPage: React.FC = () => {
                               (n.readAt ? (
                                 <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
                                   <CheckIcon className="h-3 w-3" aria-hidden="true" />
-                                  Read{' '}
+                                  {NOTIFICATION_STRINGS.read}{' '}
                                   <time dateTime={n.readAt}>
-                                    {formatReadTime(n.createdAt, n.readAt)}
+                                    {formatReadTime(n.createdAt, n.readAt, today)}
                                   </time>
                                 </span>
                               ) : (
-                                <span className="text-neutral-400 dark:text-neutral-500">Read</span>
+                                <span className="text-neutral-400 dark:text-neutral-500">
+                                  {NOTIFICATION_STRINGS.read}
+                                </span>
                               ))}
                           </div>
                           {n.read ? (

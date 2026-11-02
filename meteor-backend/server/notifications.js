@@ -28,13 +28,11 @@ function toId(id) {
 const INBOX_LIMIT = 200;
 
 // Stamps readAt only on the first read, so reopening a notification keeps its read time.
-async function markRead(filter) {
-  const readAt = new Date();
-  await rawDb().collection('notifications').updateMany(
+function markRead(filter) {
+  return rawDb().collection('notifications').updateMany(
     { ...filter, read: { $ne: true } },
-    { $set: { read: true, readAt } }
+    { $set: { read: true, readAt: new Date() } }
   );
-  return readAt;
 }
 
 Meteor.publish('notifications.liveForUser', function () {
@@ -76,15 +74,18 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!notificationId) throw new Meteor.Error('bad-request', 'notificationId required');
-    const readAt = await markRead({ _id: toId(notificationId), userId });
-    return { ok: true, readAt: readAt.toISOString() };
+    const filter = { _id: toId(notificationId), userId };
+    await markRead(filter);
+    // Return what is stored: if another device read it first, that earlier time stands.
+    const doc = await rawDb().collection('notifications').findOne(filter, { projection: { readAt: 1 } });
+    return { ok: true, readAt: doc?.readAt instanceof Date ? doc.readAt.toISOString() : null };
   },
 
   async 'notifications.markAllRead'() {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    const readAt = await markRead({ userId });
-    return { ok: true, readAt: readAt.toISOString() };
+    await markRead({ userId });
+    return { ok: true };
   },
 
   async 'notifications.deleteMany'({ ids }) {

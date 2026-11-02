@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Notification } from '../../lib/api';
-import { formatDayHeading, formatReadTime, groupByDay } from './notificationTimes';
+import { formatDayHeading, formatReadTime, groupByDay, useToday } from './notificationTimes';
 
 // Local times, so the tests hold in any time zone. Expected strings reuse the
 // browser formatters, so they hold in any locale; what's tested is which day
@@ -67,5 +68,24 @@ describe('groupByDay', () => {
     expect(days.map((d) => d.items.map((x) => x.id))).toEqual([['a', 'b'], ['c'], ['d']]);
     expect(days.map((d) => d.key)).toEqual(['2026-11-02', '2026-11-01', '2026-10-24']);
     expect(groupByDay([], NOW)).toEqual([]);
+  });
+});
+
+describe('useToday', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('moves to the next day at midnight, and on return to a tab left open overnight', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 10, 2, 23, 59));
+    const { result } = renderHook(() => useToday());
+    expect(result.current.getDate()).toBe(2);
+
+    act(() => vi.advanceTimersByTime(2 * 60_000));
+    expect(result.current.getDate()).toBe(3);
+
+    // A timer can be held back while the tab or app is in the background.
+    vi.setSystemTime(new Date(2026, 10, 5, 8, 0));
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(result.current.getDate()).toBe(5);
   });
 });
