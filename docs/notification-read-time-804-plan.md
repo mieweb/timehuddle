@@ -134,11 +134,11 @@ change the value.
 
 New file: `src/features/notifications/notificationTimes.ts` — pure functions, no React.
 
-- [ ] `formatDayHeading(iso, now?)` → `Today · Mon, Nov 2`, `Yesterday · Sun, Nov 1`, `Sat, Oct 24` (year added when not this year)
-- [ ] `formatReceivedTime(iso)` → `3:14 PM`
-- [ ] `formatReadTime(createdAt, readAt, now?)` → `4:49 PM` (same day), `Today 8:03 AM`, `Yesterday 6:10 PM`, `Oct 30, 6:10 PM`
-- [ ] `groupByDay(notifications, now?)` → `{ heading, items }[]`, keeping the existing order
-- [ ] `notificationTimes.test.ts` covers each case above, including a different year
+- [x] `formatDayHeading(iso, now?)` → `Today · Mon, Nov 2`, `Yesterday · Sun, Nov 1`, `Sat, Oct 24` (year added when not this year)
+- [x] `formatReceivedTime(iso)` → `3:14 PM`
+- [x] `formatReadTime(createdAt, readAt, now?)` → `4:49 PM` (same day), `Today 8:03 AM`, `Yesterday 6:10 PM`, `Oct 30, 6:10 PM`
+- [x] `groupByDay(notifications, now?)` → `{ heading, items }[]`, keeping the existing order
+- [x] `notificationTimes.test.ts` covers each case above, including a different year
 - [ ] Delete the old `timeAgo` from `NotificationsPage.tsx` once nothing uses it
 
 **Done when:** `npm run test:unit -- notificationTimes` passes.
