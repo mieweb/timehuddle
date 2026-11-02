@@ -203,11 +203,12 @@ export const NotificationsPage: React.FC = () => {
   const handleMarkAllRead = useCallback(async () => {
     setMarkAllLoading(true);
     try {
-      await notificationApi.markAllRead();
+      const { readAt } = await notificationApi.markAllRead();
       // Take each row's stored read time (some were read elsewhere first) rather than
       // replacing the list, which would drop a row that arrived during the request.
+      // Rows past the inbox's newest 200 were stamped with this call's `readAt`.
       const fresh = new Map((await notificationApi.getInbox()).map((n) => [n.id, n]));
-      setNotifications((prev) => prev.map((n) => fresh.get(n.id) ?? n));
+      setNotifications((prev) => prev.map((n) => fresh.get(n.id) ?? withRead(n, readAt)));
     } catch {
       /* ignore */
     } finally {

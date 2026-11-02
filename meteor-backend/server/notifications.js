@@ -28,11 +28,14 @@ function toId(id) {
 const INBOX_LIMIT = 200;
 
 // Stamps readAt only on the first read, so reopening a notification keeps its read time.
-function markRead(filter) {
-  return rawDb().collection('notifications').updateMany(
+// Returns the time stamped on the rows that were still unread.
+async function markRead(filter) {
+  const readAt = new Date();
+  await rawDb().collection('notifications').updateMany(
     { ...filter, read: { $ne: true } },
-    { $set: { read: true, readAt: new Date() } }
+    { $set: { read: true, readAt } }
   );
+  return readAt;
 }
 
 Meteor.publish('notifications.liveForUser', function () {
@@ -84,8 +87,8 @@ Meteor.methods({
   async 'notifications.markAllRead'() {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    await markRead({ userId });
-    return { ok: true };
+    const readAt = await markRead({ userId });
+    return { ok: true, readAt: readAt.toISOString() };
   },
 
   async 'notifications.deleteMany'({ ids }) {

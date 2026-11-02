@@ -1947,7 +1947,7 @@ export const notificationApi = {
     }),
 
   /** Mark all notifications as read. */
-  markAllRead: () => wormholeCall<{ ok: boolean }>('notifications.markAllRead', {}),
+  markAllRead: () => wormholeCall<{ ok: boolean; readAt: string }>('notifications.markAllRead', {}),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>

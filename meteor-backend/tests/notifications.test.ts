@@ -181,8 +181,8 @@ describe('notification read time', () => {
       { title: 'read on phone', read: true, readAt: FIRST_READ },
       { title: 'read before #804', read: true },
     ]);
-    await wormhole('notifications.markAllRead', {}, userJwt);
-    expect(await readAtOf(unread)).toBeInstanceOf(Date);
+    const res = await wormhole<{ readAt: string }>('notifications.markAllRead', {}, userJwt);
+    expect((await readAtOf(unread)).toISOString()).toBe(res.result.readAt);
     expect(await readAtOf(readElsewhere)).toEqual(FIRST_READ);
     expect(await readAtOf(legacy)).toBeUndefined();
   });

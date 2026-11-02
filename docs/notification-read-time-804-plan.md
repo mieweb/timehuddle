@@ -109,7 +109,8 @@ File: [`meteor-backend/server/notifications.js`](../meteor-backend/server/notifi
 - [x] `notifications.markOneRead` → `markRead` its row, then read the row back and return
       `{ ok: true, readAt }` with the **stored** time (ISO, or null). Don't return the time
       you just tried to write: if another device read it first, nothing was written.
-- [x] `notifications.markAllRead` → `await markRead({ userId })` and return `{ ok: true }`.
+- [x] `notifications.markAllRead` → `markRead({ userId })` and return `{ ok: true, readAt }`,
+      the time it stamped on the rows that were unread.
 - [x] `notifications.respondToInvite` → replace its `updateOne(... { read: true })` with
       `await markRead({ _id: toId(notificationId) });`. In the inbox the row is already
       read by then, so this does nothing; it matters when the invite is answered without
@@ -127,7 +128,8 @@ change the value.
 
 - [x] [`src/lib/api.ts`](../src/lib/api.ts) `Notification` → add
       `readAt: string | null; // ISO, set the first time it is read`
-- [x] `notificationApi.markOneRead` return type → `{ ok: boolean; readAt: string | null }`
+- [x] `notificationApi.markOneRead` return type → `{ ok: boolean; readAt: string | null }`;
+      `markAllRead` → `{ ok: boolean; readAt: string }`
 - [x] [`src/lib/ddp.ts`](../src/lib/ddp.ts) `ddpDocToNotification` → add
       `readAt: doc.readAt ? String(doc.readAt) : null,`
 
@@ -164,6 +166,7 @@ File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notif
   ```
 - [x] `handleMarkAllRead` → after `markAllRead()`, fetch the inbox and update each row on
       screen from it (don't replace the list, or a row that arrived meanwhile is lost).
+      A row on screen that isn't in the inbox's newest 200 gets `markAllRead`'s `readAt`.
 - [x] `const today = useToday()`, passed to `groupByDay` and `formatReadTime`, so the
       headings and read times agree on what "today" is.
 - [x] The push-tap path from #793 tells an open inbox that a row was read with the
@@ -227,6 +230,8 @@ Found in review after the milestones above were done; the milestones now describ
       opening twice keeps the first time, a row read elsewhere returns its stored time,
       an old row stays without one, and "Mark all read" stamps only unread rows.
       Confirmed they fail with the `read: { $ne: true }` guard removed.
+- [x] **After "Mark all read", an unread row past the newest 200 stayed unread on screen.**
+      `markAllRead` returns the time it stamped, and those rows take it.
 - [x] **A backfilled older row could split a day into two sections.** `groupByDay` sorts
       newest first before grouping.
 
