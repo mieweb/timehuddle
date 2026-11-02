@@ -8,6 +8,7 @@ import { faCheckDouble, faCircleInfo, faTrash, faXmark } from '@fortawesome/free
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
+  CheckIcon,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -26,6 +27,7 @@ import {
 } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
 import { NOTIFICATION_READ_EVENT } from './notificationEvents';
+import { formatReadTime, formatReceivedTime, groupByDay } from './notificationTimes';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -33,22 +35,9 @@ import { EmptyState } from '../../ui/EmptyState';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useShiftReminder } from './ShiftReminderContext';
 
-function timeAgo(date: Date | string | undefined): string {
-  if (!date) return '';
-  const d = date instanceof Date ? date : new Date(date);
-  const diffMs = Date.now() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-  });
+/** Marks a row read with the server's read time; a row already read keeps its own. */
+function withRead(n: Notification, readAt: string): Notification {
+  return n.read ? n : { ...n, read: true, readAt };
 }
 
 /** Map legacy Time Harbor paths to TimeHuddle /app routes */
@@ -126,8 +115,8 @@ export const NotificationsPage: React.FC = () => {
   // A push tapped elsewhere in the app marks its row read (AppLayout's markPushRead).
   useEffect(() => {
     const handler = (e: Event) => {
-      const { id } = (e as CustomEvent<{ id: string }>).detail;
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      const { id, readAt } = (e as CustomEvent<{ id: string; readAt: string }>).detail;
+      setNotifications((prev) => prev.map((n) => (n.id === id ? withRead(n, readAt) : n)));
     };
     window.addEventListener(NOTIFICATION_READ_EVENT, handler);
     return () => window.removeEventListener(NOTIFICATION_READ_EVENT, handler);
@@ -161,6 +150,7 @@ export const NotificationsPage: React.FC = () => {
   const [joinRequestError, setJoinRequestError] = useState<string | null>(null);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
+  const days = useMemo(() => groupByDay(notifications), [notifications]);
   const allIds = useMemo(() => notifications.map((n) => n.id), [notifications]);
   const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
 
@@ -182,30 +172,24 @@ export const NotificationsPage: React.FC = () => {
       try {
         const data = (doc.data ?? {}) as Record<string, unknown>;
         console.log('[NotificationsPage] Notification clicked:', data);
+        const { readAt } = await notificationApi.markOneRead(doc.id);
+        setNotifications((prev) => prev.map((n) => (n.id === doc.id ? withRead(n, readAt) : n)));
         if (data.type === 'team-invite') {
-          await notificationApi.markOneRead(doc.id);
-          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
           const preview = await notificationApi.getInvitePreview(doc.id);
           setInvitePreview(preview);
           setInviteError(null);
           return;
         }
         if (data.type === 'team-join-request') {
-          await notificationApi.markOneRead(doc.id);
-          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
           const preview = await notificationApi.getJoinRequestPreview(doc.id);
           setJoinRequestPreview(preview);
           setJoinRequestError(null);
           return;
         }
         if (data.type === 'shift-end-reminder') {
-          await notificationApi.markOneRead(doc.id);
-          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
           openShiftReminderModal(doc);
           return;
         }
-        await notificationApi.markOneRead(doc.id);
-        setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
       } catch (err) {
         console.error('[NotificationsPage] Error handling notification click:', err);
@@ -217,8 +201,8 @@ export const NotificationsPage: React.FC = () => {
   const handleMarkAllRead = useCallback(async () => {
     setMarkAllLoading(true);
     try {
-      await notificationApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      const { readAt } = await notificationApi.markAllRead();
+      setNotifications((prev) => prev.map((n) => withRead(n, readAt)));
     } catch {
       /* ignore */
     } finally {
@@ -371,72 +355,104 @@ export const NotificationsPage: React.FC = () => {
       </div>
 
       {notifications.length > 0 ? (
-        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/80" role="list">
-          {notifications.map((n) => {
-            const selected = selectedIds.includes(n.id);
-            return (
-              <li key={n.id}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleRowClick(n)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleRowClick(n);
-                    }
-                  }}
-                  className={[
-                    'flex items-center gap-3 py-3.5 pl-1 pr-1',
-                    selectMode ? '' : 'cursor-pointer',
-                  ].join(' ')}
-                >
-                  {selectMode && (
-                    <button
-                      type="button"
-                      className={[
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-2 shadow-sm transition-all',
-                        selected
-                          ? 'border-blue-500 bg-blue-500 text-white'
-                          : 'border-neutral-400 bg-white dark:border-neutral-500 dark:bg-neutral-800',
-                      ].join(' ')}
-                      data-notification-id={n.id}
-                      aria-label={selected ? 'Deselect' : 'Select'}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSelect(n.id);
-                      }}
-                    >
-                      {selected && <span className="text-xs font-bold">✓</span>}
-                    </button>
-                  )}
-                  <div className="shrink-0 rounded-full bg-neutral-100 p-2 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
-                    <FontAwesomeIcon icon={faCircleInfo} className="h-5 w-5" aria-hidden />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold leading-tight text-neutral-900 dark:text-neutral-50 md:text-base">
-                      {n.title}
-                    </p>
-                    <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
-                      {n.body}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="whitespace-nowrap text-xs text-neutral-400 dark:text-neutral-500">
-                      {timeAgo(n.createdAt)}
-                    </span>
-                    {!n.read && (
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500"
-                        aria-label="Unread"
-                      />
-                    )}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="notification-days">
+          {days.map((day) => (
+            <section key={day.key} aria-labelledby={`notification-day-${day.key}`}>
+              <h2
+                id={`notification-day-${day.key}`}
+                className="px-1 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500"
+              >
+                {day.heading}
+              </h2>
+              <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/80" role="list">
+                {day.items.map((n) => {
+                  const selected = selectedIds.includes(n.id);
+                  return (
+                    <li key={n.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleRowClick(n)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleRowClick(n);
+                          }
+                        }}
+                        className={[
+                          'flex items-center gap-3 py-3.5 pl-1 pr-1',
+                          selectMode ? '' : 'cursor-pointer',
+                        ].join(' ')}
+                      >
+                        {selectMode && (
+                          <button
+                            type="button"
+                            className={[
+                              'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-2 shadow-sm transition-all',
+                              selected
+                                ? 'border-blue-500 bg-blue-500 text-white'
+                                : 'border-neutral-400 bg-white dark:border-neutral-500 dark:bg-neutral-800',
+                            ].join(' ')}
+                            data-notification-id={n.id}
+                            aria-label={selected ? 'Deselect' : 'Select'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSelect(n.id);
+                            }}
+                          >
+                            {selected && <span className="text-xs font-bold">✓</span>}
+                          </button>
+                        )}
+                        <div className="shrink-0 rounded-full bg-neutral-100 p-2 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                          <FontAwesomeIcon icon={faCircleInfo} className="h-5 w-5" aria-hidden />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold leading-tight text-neutral-900 dark:text-neutral-50 md:text-base">
+                            {n.title}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+                            {n.body}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="notification-times flex flex-col items-end gap-0.5 whitespace-nowrap text-xs">
+                            <time
+                              dateTime={n.createdAt}
+                              className="text-neutral-400 dark:text-neutral-500"
+                            >
+                              {formatReceivedTime(n.createdAt)}
+                            </time>
+                            {n.read &&
+                              (n.readAt ? (
+                                <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
+                                  <CheckIcon className="h-3 w-3" aria-hidden="true" />
+                                  Read{' '}
+                                  <time dateTime={n.readAt}>
+                                    {formatReadTime(n.createdAt, n.readAt)}
+                                  </time>
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400 dark:text-neutral-500">Read</span>
+                              ))}
+                          </div>
+                          {n.read ? (
+                            // Keeps read and unread times lined up in one column.
+                            <span className="w-2.5 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500"
+                              aria-label="Unread"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       ) : (
         <EmptyState
           icon="🔔"

@@ -85,6 +85,7 @@ describe('groupByDay', () => {
       NOW,
     );
     expect(days.map((d) => d.items.map((n) => n.id))).toEqual([['a', 'b'], ['c'], ['d']]);
+    expect(days.map((d) => d.key)).toEqual(['2026-11-02', '2026-11-01', '2026-10-24']);
     expect(days[0].heading).toBe(formatDayHeading(at(10, 2, 9, 41), NOW));
   });
 

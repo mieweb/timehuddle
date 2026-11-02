@@ -64,6 +64,7 @@ export function formatReadTime(createdAt: string, readAt: string, now = new Date
 }
 
 export interface NotificationDay {
+  /** Local calendar day, "2026-11-02"; safe to use in an element id. */
   key: string;
   heading: string;
   items: Notification[];
@@ -73,7 +74,12 @@ export interface NotificationDay {
 export function groupByDay(notifications: Notification[], now = new Date()): NotificationDay[] {
   const days: NotificationDay[] = [];
   for (const n of notifications) {
-    const key = startOfDay(new Date(n.createdAt)).toDateString();
+    const created = new Date(n.createdAt);
+    const key = [
+      created.getFullYear(),
+      String(created.getMonth() + 1).padStart(2, '0'),
+      String(created.getDate()).padStart(2, '0'),
+    ].join('-');
     const last = days[days.length - 1];
     if (last?.key === key) last.items.push(n);
     else days.push({ key, heading: formatDayHeading(n.createdAt, now), items: [n] });

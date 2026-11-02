@@ -139,7 +139,7 @@ New file: `src/features/notifications/notificationTimes.ts` — pure functions, 
 - [x] `formatReadTime(createdAt, readAt, now?)` → `4:49 PM` (same day), `Today 8:03 AM`, `Yesterday 6:10 PM`, `Oct 30, 6:10 PM`
 - [x] `groupByDay(notifications, now?)` → `{ heading, items }[]`, keeping the existing order
 - [x] `notificationTimes.test.ts` covers each case above, including a different year
-- [ ] Delete the old `timeAgo` from `NotificationsPage.tsx` once nothing uses it
+- [x] Delete the old `timeAgo` from `NotificationsPage.tsx` once nothing uses it
 
 **Done when:** `npm run test:unit -- notificationTimes` passes.
 
@@ -147,26 +147,29 @@ New file: `src/features/notifications/notificationTimes.ts` — pure functions, 
 
 File: [`src/features/notifications/NotificationsPage.tsx`](../src/features/notifications/NotificationsPage.tsx)
 
-- [ ] Replace the four copies of "mark this row read" in `handleRowClick` and the one in
+- [x] Replace the four copies of "mark this row read" in `handleRowClick` and the one in
       `handleMarkAllRead` with one helper that uses the server's `readAt` and leaves
       already-read rows alone:
   ```ts
   const withRead = (n: Notification, readAt: string): Notification =>
     n.read ? n : { ...n, read: true, readAt };
   ```
-- [ ] The push-tap path from #793 tells an open inbox that a row was read with the
+- [x] The push-tap path from #793 tells an open inbox that a row was read with the
       `NOTIFICATION_READ_EVENT` window event. Add `readAt` from `markOneRead`'s reply
       to its `detail` in
       [`notificationEvents.ts`](../src/features/notifications/notificationEvents.ts), and
       use `withRead` in the page's listener for that event.
-- [ ] Render one `<section>` per day: an `<h2>` heading, then the existing `<ul>` of rows.
+- [x] Render one `<section>` per day: an `<h2>` heading, then the existing `<ul>` of rows.
       Don't change the row markup otherwise (select mode, `data-notification-id`, click
       handling stay as they are).
-- [ ] Right side of each row: received time, and under it the read line with
+- [x] Right side of each row: received time, and under it the read line with
       `CheckIcon` from `@mieweb/ui` (not FontAwesome).
-- [ ] Unread rows keep the blue dot; read rows don't get one.
-- [ ] Give each time a `<time dateTime={iso}>` so screen readers and tests get the exact value.
-- [ ] Check the phone width (375px): times stay on the right and don't wrap.
+- [x] Unread rows keep the blue dot; read rows get a blank spacer the same width, so
+      every row's times line up in one column.
+- [x] Give each time a `<time dateTime={iso}>` so screen readers and tests get the exact value.
+- [x] Check the phone width (375px): times stay on the right and don't wrap.
+- [x] Fix the existing e2e check `getByRole('main').getByRole('list')`: there is now
+      one list per day, so it needs `.first()` or Playwright's strict mode fails.
 
 **Done when:** in the browser, tapping a row shows `✓ Read <time>` immediately and the
 same after a reload; "Mark all read" does the same for every unread row.
