@@ -2,9 +2,18 @@
  * Unit tests for post-attachments-core (server/post-attachments-core.js): what
  * a Huddle post may carry.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-import { AttachmentError, cleanPostAttachments, uploadUseQueries } from '../server/post-attachments-core';
+import {
+  AttachmentError,
+  cleanPostAttachments,
+  DISCARD_GRACE_MS,
+  discardMark,
+  dueDiscards,
+  keepForPost,
+  sweepDiscardedUploads,
+  uploadUseQueries,
+} from '../server/post-attachments-core';
 import { videoIdOf } from '../server/video-names-core';
 
 const ME = 'user-me';
@@ -111,5 +120,121 @@ describe('uploadUseQueries', () => {
     expect(matches(attachments.url, `${MINE.url}#page=2`)).toBe(true);
     expect(matches(attachments.url, `${MINE.url}?download=1`)).toBe(true);
     expect(matches(attachments.url, `${MINE.url}x?download=1`)).toBe(false);
+  });
+});
+
+describe('discarding an upload a post dropped', () => {
+  const NOW = new Date('2026-11-02T12:00:00Z');
+  const later = (ms: number) => new Date(NOW.getTime() + ms);
+  type Row = { _id: string; userId: string; filename: string; discardAt?: Date };
+
+  /** A media collection in memory, for just the filters these functions build. */
+  function mediaRows(...rows: Row[]) {
+    const byId = new Map(rows.map((row) => [row._id, { ...row }]));
+    const removedFiles: string[] = [];
+    return {
+      byId,
+      removedFiles,
+      /** keepForPost's update: clear discardAt on the poster's marked items. */
+      keepForPost(objectIds: string[], userId: string) {
+        const { filter } = keepForPost({ objectIds, userId });
+        for (const id of filter._id.$in) {
+          const row = byId.get(id);
+          if (row && row.userId === filter.userId && row.discardAt) delete row.discardAt;
+        }
+      },
+      deps: (used: Set<string> = new Set()) => ({
+        isUsed: async (item: Row) => used.has(item._id),
+        keep: async (filter: { _id: string; discardAt: Date }) => {
+          const row = byId.get(filter._id);
+          if (row?.discardAt?.getTime() === filter.discardAt.getTime()) delete row.discardAt;
+        },
+        deleteRow: async (filter: { _id: string; discardAt: { $lte: Date } }) => {
+          const row = byId.get(filter._id);
+          if (!row?.discardAt || row.discardAt > filter.discardAt.$lte) return 0;
+          byId.delete(filter._id);
+          return 1;
+        },
+        removeFile: async (item: Row) => {
+          removedFiles.push(item.filename);
+        },
+      }),
+    };
+  }
+
+  it('marks it to go after a grace period of a few minutes, not at once', () => {
+    expect(DISCARD_GRACE_MS).toBeGreaterThanOrEqual(60_000);
+    expect(discardMark(NOW)).toEqual({ $set: { discardAt: later(DISCARD_GRACE_MS) } });
+  });
+
+  it('sweeps only items whose grace period is over', () => {
+    expect(dueDiscards(NOW)).toEqual({ discardAt: { $lte: NOW } });
+  });
+
+  it("clears the mark on the poster's own items a post is about to take", () => {
+    expect(keepForPost({ objectIds: [MINE._id], userId: ME })).toEqual({
+      filter: { _id: { $in: [MINE._id] }, userId: ME, discardAt: { $exists: true } },
+      update: { $unset: { discardAt: '' } },
+    });
+  });
+
+  it('deletes an unused item, and its file, only with a delete conditional on its mark', async () => {
+    const item = { _id: MINE._id, userId: ME, filename: 'mine.png', discardAt: NOW };
+    const media = mediaRows(item);
+    const deleteRow = vi.fn(media.deps().deleteRow);
+    await sweepDiscardedUploads([item], NOW, { ...media.deps(), deleteRow });
+    expect(deleteRow).toHaveBeenCalledWith({ _id: MINE._id, discardAt: { $lte: NOW } });
+    expect(media.byId.has(MINE._id)).toBe(false);
+    expect(media.removedFiles).toEqual(['mine.png']);
+  });
+
+  it('keeps an item something uses after all, clearing only the mark it read', async () => {
+    const item = { _id: MINE._id, userId: ME, filename: 'mine.png', discardAt: NOW };
+    const media = mediaRows(item);
+    const keep = vi.fn(media.deps().keep);
+    await sweepDiscardedUploads([item], NOW, { ...media.deps(new Set([MINE._id])), keep });
+    expect(keep).toHaveBeenCalledWith({ _id: MINE._id, discardAt: NOW });
+    expect(media.byId.get(MINE._id)?.discardAt).toBeUndefined();
+    expect(media.removedFiles).toEqual([]);
+  });
+
+  it('keeps the file of an item a post claimed between the sweep reading it and deleting it', async () => {
+    const item = { _id: MINE._id, userId: ME, filename: 'mine.png', discardAt: NOW };
+    const media = mediaRows(item);
+    const deps = media.deps();
+    await sweepDiscardedUploads([item], NOW, {
+      ...deps,
+      // The sweep found nothing using it; then a new post took it before the delete.
+      isUsed: async () => {
+        media.keepForPost([MINE._id], ME);
+        return false;
+      },
+    });
+    expect(media.byId.has(MINE._id)).toBe(true);
+    expect(media.removedFiles).toEqual([]);
+  });
+
+  it('refuses a post whose upload the sweep deleted before the post claimed it', async () => {
+    const item = { _id: MINE._id, userId: ME, filename: 'mine.png', discardAt: NOW };
+    const media = mediaRows(item);
+    await sweepDiscardedUploads([item], NOW, media.deps());
+    media.keepForPost([MINE._id], ME);
+    expect(() =>
+      cleanPostAttachments({
+        attachments: [{ mediaId: MINE._id, type: 'image', url: MINE.url }],
+        userId: ME,
+        mediaById: new Map([...media.byId].map(([id]) => [id, MINE])),
+        pulseVideoOf: () => null,
+      }),
+    ).toThrow(AttachmentError);
+  });
+
+  it("leaves an item marked again since it was read for a later sweep", async () => {
+    const item = { _id: MINE._id, userId: ME, filename: 'mine.png', discardAt: NOW };
+    const media = mediaRows({ ...item, discardAt: later(DISCARD_GRACE_MS) });
+    await sweepDiscardedUploads([item], NOW, media.deps(new Set([MINE._id])));
+    await sweepDiscardedUploads([item], NOW, media.deps());
+    expect(media.byId.get(MINE._id)?.discardAt).toEqual(later(DISCARD_GRACE_MS));
+    expect(media.removedFiles).toEqual([]);
   });
 });

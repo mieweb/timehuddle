@@ -433,10 +433,15 @@ export async function storeMedia({ userId, mimeType, size, title, embedded }, wr
   }
 }
 
+/** Remove a media document's file; its row is the caller's to delete. */
+export function removeMediaFile(doc) {
+  unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+}
+
 /** Undo storeMedia for documents nothing ended up referencing. */
 export async function discardMedia(docs) {
   if (!docs.length) return;
-  for (const doc of docs) unlinkSafe(path.join(MEDIA_DIR, doc.filename));
+  for (const doc of docs) removeMediaFile(doc);
   await rawDb()
     .collection('mediaitems')
     .deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
@@ -488,12 +493,15 @@ async function postMedia(userId) {
  * Library and profile listings (and pulsevault.listVideos, its videos) show
  * only what someone put there themselves:
  * not media embedded in a post's text, nor anything their Huddle posts carry
- * or show (scheduled or sent), filtered at read time against `huddlePosts`
+ * or show (scheduled or sent), nor an upload waiting to be deleted, filtered at read time against `huddlePosts`
  * rather than a flag written onto the media document, so older posts follow too.
  */
 export async function libraryItemsFilter(userId) {
   return {
     embedded: { $ne: true },
+    // An upload a post dropped that nothing else uses, waiting out its grace
+    // period before it's deleted (huddle.js discardUnusedUploads).
+    discardAt: { $exists: false },
     ...excludingPostMedia(await postMedia(userId), (id) => new ObjectId(id)),
   };
 }

@@ -5,7 +5,7 @@ import { resolveSince } from './huddle-window-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
-import { discardMedia } from './uploads';
+import { discardMedia, removeMediaFile } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
 import { deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
@@ -19,7 +19,15 @@ import {
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { videoIdOf, videoNamesFor } from './video-names.js';
-import { AttachmentError, cleanPostAttachments, uploadUseQueries } from './post-attachments-core.js';
+import {
+  AttachmentError,
+  cleanPostAttachments,
+  discardMark,
+  dueDiscards,
+  keepForPost,
+  sweepDiscardedUploads,
+  uploadUseQueries,
+} from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
 /**
@@ -58,6 +66,15 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[huddle] failed to create feed indexes:', error);
   }
+  try {
+    // sweepUnusedUploads: only the few uploads marked to go.
+    await rawDb().collection('mediaitems').createIndex({ discardAt: 1 }, { sparse: true });
+  } catch (error) {
+    console.error('[huddle] failed to create the upload discard index:', error);
+  }
+  Meteor.setInterval(() => {
+    sweepUnusedUploads().catch((err) => console.error('[huddle] failed to sweep unused uploads:', err));
+  }, DISCARD_SWEEP_INTERVAL_MS);
   // #723: posts used to link one `ticketId`; move it into the `ticketIds` list.
   try {
     await rawDb().collection('huddlePosts').updateMany({ ticketId: { $exists: true } }, [
@@ -515,13 +532,23 @@ export async function requireTeamMember(userId, teamId) {
   return team;
 }
 
+/** Whether anything still uses this media item (uploadUseQueries). */
+async function isUploadInUse(item) {
+  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+    if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
+  }
+  return false;
+}
+
 /**
  * Uploads a post no longer carries (it was deleted, or an edit took them off),
- * deleted with their files when they're the author's and nothing else uses
- * them (uploadUseQueries): no other post carries or shows them, and no ticket
- * has them as an attachment or in its description. Pulse
- * videos stay (they're PulseVault's). Best-effort: a failure leaves a file
- * behind, never fails the delete or the edit.
+ * marked to be deleted with their files (discardMark) when they're the
+ * author's and nothing else uses them (uploadUseQueries): no other post
+ * carries or shows them, and no ticket has them as an attachment or in its
+ * description. The sweep below deletes them once the grace period is over and
+ * they're still unused, so a post that checked one just before it was dropped
+ * keeps it (keepForPost). Pulse videos stay (they're PulseVault's).
+ * Best-effort: a failure leaves a file behind, never fails the delete or the edit.
  */
 async function discardUnusedUploads(attachments, authorId) {
   try {
@@ -530,24 +557,42 @@ async function discardUnusedUploads(attachments, authorId) {
       .map((att) => att?.mediaId)
       .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id));
     if (ids.length === 0) return;
-    const db = rawDb();
-    const items = await db
-      .collection('mediaitems')
-      .find({ _id: { $in: ids.map((id) => new ObjectId(id)) }, userId: authorId })
+    const media = rawDb().collection('mediaitems');
+    const items = await media
+      .find({ _id: { $in: ids.map((id) => new ObjectId(id)) }, userId: authorId }, { projection: { url: 1 } })
       .toArray();
     const unused = [];
     for (const item of items) {
-      let used = false;
-      for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
-        used = !!(await db.collection(collection).findOne(filter, { projection: { _id: 1 } }));
-        if (used) break;
-      }
-      if (!used) unused.push(item);
+      if (!(await isUploadInUse(item))) unused.push(item._id);
     }
-    await discardMedia(unused);
+    if (unused.length) await media.updateMany({ _id: { $in: unused } }, discardMark(new Date()));
   } catch (err) {
     console.error('[huddle] failed to clean up a post\'s unused uploads:', err);
   }
+}
+
+const DISCARD_SWEEP_INTERVAL_MS = 2 * 60_000;
+const DISCARD_SWEEP_BATCH = 100; // items per pass; any remainder waits for the next one
+
+/**
+ * Delete the uploads discardUnusedUploads marked, once their grace period is
+ * over, if nothing uses them still (sweepDiscardedUploads). Safe to run on
+ * every server at once: each row's delete is conditional, and only the server
+ * whose delete removed the row removes the file.
+ */
+async function sweepUnusedUploads() {
+  const now = new Date();
+  const media = rawDb().collection('mediaitems');
+  const due = await media
+    .find(dueDiscards(now), { projection: { url: 1, filename: 1, discardAt: 1 } })
+    .limit(DISCARD_SWEEP_BATCH)
+    .toArray();
+  await sweepDiscardedUploads(due, now, {
+    isUsed: isUploadInUse,
+    keep: (filter) => media.updateOne(filter, { $unset: { discardAt: '' } }),
+    deleteRow: async (filter) => (await media.deleteOne(filter)).deletedCount,
+    removeFile: removeMediaFile,
+  });
 }
 
 /**
@@ -558,6 +603,12 @@ async function checkedAttachments(userId, attachments, existing = []) {
   const ids = Array.isArray(attachments)
     ? attachments.map((att) => att?.mediaId).filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
     : [];
+  if (ids.length) {
+    // Before the check: an upload a post dropped stays for this one
+    // (keepForPost), or is already gone and fails the check.
+    const { filter, update } = keepForPost({ objectIds: ids.map((id) => new ObjectId(id)), userId });
+    await rawDb().collection('mediaitems').updateMany(filter, update);
+  }
   const items = ids.length
     ? await rawDb()
         .collection('mediaitems')

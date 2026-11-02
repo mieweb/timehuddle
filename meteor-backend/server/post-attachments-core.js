@@ -5,7 +5,8 @@
  * one it already carries — never just any URL a client sends, which would let
  * a post show someone else's file as the poster's. Each is stored from what
  * the server knows about it, its size included, rather than from the client.
- * Also where an upload a post drops may still be in use, before its file goes.
+ * Also where an upload a post drops may still be in use, and how it goes once
+ * nothing uses it.
  */
 
 const ATTACHMENT_TYPES = new Set(['image', 'video', 'file']);
@@ -113,4 +114,53 @@ export function uploadUseQueries({ mediaId, url }) {
     { collection: 'attachments', filter: { url: atUrl } },
     { collection: 'tickets', filter: { description: { $regex: literally(url) } } },
   ];
+}
+
+/**
+ * How long an upload a post dropped waits before the sweep may delete it. A
+ * post that checked it just before it was dropped has long been written by
+ * then, so the sweep's own look at what uses it (uploadUseQueries) sees that post.
+ */
+export const DISCARD_GRACE_MS = 5 * 60_000;
+
+/** The update marking dropped uploads nothing uses to go once the grace period is over. */
+export function discardMark(now) {
+  return { $set: { discardAt: new Date(now.getTime() + DISCARD_GRACE_MS) } };
+}
+
+/** The uploads whose grace period is over, for the sweep. */
+export function dueDiscards(now) {
+  return { discardAt: { $lte: now } };
+}
+
+/**
+ * The update a post runs on the poster's own items (`objectIds`) before it
+ * checks them, so a discard can't take one it is about to carry: with the mark
+ * gone first, the sweep's conditional delete leaves the item alone, and an
+ * item the sweep already deleted fails the check.
+ */
+export function keepForPost({ objectIds, userId }) {
+  return {
+    filter: { _id: { $in: objectIds }, userId, discardAt: { $exists: true } },
+    update: { $unset: { discardAt: '' } },
+  };
+}
+
+/**
+ * One pass over `due` items (dueDiscards at `now`), with the database and
+ * files passed in: `isUsed(item)` runs uploadUseQueries; `keep(filter)`
+ * clears the mark of an item in use after all, only the mark it was read with
+ * (a later drop's mark stays); `deleteRow(filter)` deletes one row and
+ * resolves to how many it deleted; `removeFile(item)` removes its file. The
+ * delete holds only while the item is still marked and due, so a post that
+ * took it meanwhile keeps it, and a file goes only with its row.
+ */
+export async function sweepDiscardedUploads(due, now, { isUsed, keep, deleteRow, removeFile }) {
+  for (const item of due) {
+    if (await isUsed(item)) {
+      await keep({ _id: item._id, discardAt: item.discardAt });
+      continue;
+    }
+    if (await deleteRow({ _id: item._id, discardAt: { $lte: now } })) await removeFile(item);
+  }
 }
