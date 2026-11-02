@@ -6,8 +6,8 @@
  * video, and what its public page may show.
  */
 
-/** A Pulse video's playback path. */
-const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+/** A Pulse video's playback path, with or without a trailing slash. */
+const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
 /** Longest name kept. */
 export const VIDEO_NAME_MAX = 120;
 
@@ -19,13 +19,14 @@ export const VIDEO_NAME_MAX = 120;
 export const CANONICAL_ITEM = { sort: { _id: 1 } };
 
 /**
- * The video id in a `/pulsevault/artifacts/<id>` path, else null. A full URL
- * counts only on one of `trustedOrigins` (this backend's own): a video on
- * another site is not this backend's video.
+ * The video id in a `/pulsevault/artifacts/<id>` path, else null; a query or
+ * fragment (`?t=1`) is the same video. A full URL counts only on one of
+ * `trustedOrigins` (this backend's own): a video on another site is not this
+ * backend's video.
  */
 export function videoIdOf(url, trustedOrigins = []) {
   if (typeof url !== 'string') return null;
-  let path = url;
+  let path = url.replace(/[?#].*$/s, '');
   if (/^https?:\/\//i.test(url)) {
     let parsed;
     try {

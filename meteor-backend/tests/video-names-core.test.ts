@@ -30,9 +30,21 @@ describe('videoIdOf', () => {
     expect(videoIdOf(`https://timehuddle.example/pulsevault/artifacts/${ID}`)).toBeNull();
   });
 
+  it('reads a playback path with a query, a fragment or a trailing slash', () => {
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}?t=1`)).toBe(ID);
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}#t=12`)).toBe(ID);
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}/`)).toBe(ID);
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}/?t=1`)).toBe(ID);
+    const own = ['https://timehuddle.example'];
+    expect(videoIdOf(`https://timehuddle.example/pulsevault/artifacts/${ID}/?t=1`, own)).toBe(ID);
+    expect(videoIdOf(`https://example.com/pulsevault/artifacts/${ID}?t=1`, own)).toBeNull();
+  });
+
   it('is null for anything else', () => {
     expect(videoIdOf(`https://example.com/pulsevault/artifacts/${ID}`)).toBeNull();
     expect(videoIdOf(`/pulsevault/artifacts/${ID}/poster`)).toBeNull();
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}//`)).toBeNull();
+    expect(videoIdOf(`/pulsevault/artifacts/${ID}x?t=1`)).toBeNull();
     expect(videoIdOf('/pulsevault/artifacts/not-a-uuid')).toBeNull();
     expect(videoIdOf(undefined)).toBeNull();
   });
