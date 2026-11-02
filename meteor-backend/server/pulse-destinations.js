@@ -86,7 +86,8 @@ const attachment = (kind, check) => ({
  * The video's media item, created once; returns its id. It holds the video's
  * one name. `embedded` keeps it out of the uploader's library and profile
  * (media.list / media.listForUser): for a video that only belongs where it
- * was sent, such as a clock session or a timesheet walkthrough.
+ * was sent, such as a clock session, a timesheet walkthrough or a Huddle post
+ * — one recorded for a post stays out of the library once the post is gone.
  */
 async function addToLibrary(userId, video, { embedded = false } = {}) {
   const media = rawDb().collection('mediaitems');
@@ -185,7 +186,7 @@ function postAttachment(mediaId, video) {
 
 /** A new Huddle post carrying the video, with the Pulse draft's name as its text. */
 async function postVideo(userId, video, { teamId, postDate }) {
-  const mediaId = await addToLibrary(userId, video);
+  const mediaId = await addToLibrary(userId, video, { embedded: true });
   return createHuddlePost(userId, {
     teamId,
     content: { text: video.name ?? '', mentions: [] },
@@ -276,12 +277,7 @@ const DESTINATIONS = {
       return post ? HUDDLE_NOTE : null;
     },
     async deliver(userId, { teamId }, video) {
-      const mediaId = await addToLibrary(userId, video);
-      await createHuddlePost(userId, {
-        teamId,
-        content: { text: video.name ?? '', mentions: [] },
-        attachments: [{ mediaId, type: 'video', url: video.url, filename: video.title }],
-      });
+      await postVideo(userId, video, { teamId });
       return HUDDLE_NOTE;
     },
   },
@@ -340,7 +336,7 @@ const DESTINATIONS = {
       const teamId = String(session.teamId);
       // Not appended twice when a delivery stopped before the clock-out.
       if (!(await existingWrapUp(userId, clockEventId, video))) {
-        const mediaId = await addToLibrary(userId, video);
+        const mediaId = await addToLibrary(userId, video, { embedded: true });
         await appendWrapUp(userId, {
           teamId,
           clockEventId,
