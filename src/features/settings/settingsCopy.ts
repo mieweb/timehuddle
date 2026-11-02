@@ -48,6 +48,7 @@ export const SETTINGS_STRINGS = {
   },
   teamPicker: 'Team',
   teamPickerHint: 'Which team’s settings to change.',
+  editingTeam: (name: string) => `Settings for ${name}`,
   manageTeam: 'Rename or delete this team',
 } as const;
 

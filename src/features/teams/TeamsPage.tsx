@@ -828,6 +828,11 @@ export const TeamsPage: React.FC = () => {
                       <FontAwesomeIcon icon={faTrash} className="text-xs" />
                     </Button>
                   </div>
+                  {formError && (
+                    <Text variant="destructive" size="xs" className="-mt-4 mb-6" role="alert">
+                      {formError}
+                    </Text>
+                  )}
                   {selectedTeam && <TeamSettingsRows team={selectedTeam} />}
                 </TabsContent>
               </>
