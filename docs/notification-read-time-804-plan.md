@@ -176,10 +176,13 @@ same after a reload; "Mark all read" does the same for every unread row.
 
 ## Milestone 5 — e2e test and release note
 
-- [ ] [`tests/e2e/notifications/notifications.spec.ts`](../tests/e2e/notifications/notifications.spec.ts):
+- [x] [`tests/e2e/notifications/notifications.spec.ts`](../tests/e2e/notifications/notifications.spec.ts):
       seed an unread notification, open it, assert its row shows `Read` and a day heading is visible.
-- [ ] Add a short section to [`release-notes/1.2.0.md`](../release-notes/1.2.0.md) (not tagged yet,
+- [x] Add a short section to [`release-notes/1.2.0.md`](../release-notes/1.2.0.md) (not tagged yet,
       so we add to it — see [`release-notes/README.md`](../release-notes/README.md)).
+
+- [ ] When the PR is opened, change the `#804` issue link in the note's
+      **Pull requests in this release** list to the PR's number.
 
 **Done when:** the new e2e test passes locally and the note renders at `/app/release-notes`.
 
