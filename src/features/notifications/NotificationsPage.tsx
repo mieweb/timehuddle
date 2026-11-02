@@ -25,6 +25,7 @@ import {
   type TeamJoinRequestPreview,
 } from '../../lib/api';
 import { subscribeNewNotifications } from '../../lib/ddp';
+import { NOTIFICATION_READ_EVENT } from './notificationEvents';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -121,6 +122,16 @@ export const NotificationsPage: React.FC = () => {
       setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
     });
   }, [user]);
+
+  // A push tapped elsewhere in the app marks its row read (AppLayout's markPushRead).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    };
+    window.addEventListener(NOTIFICATION_READ_EVENT, handler);
+    return () => window.removeEventListener(NOTIFICATION_READ_EVENT, handler);
+  }, []);
 
   // Remove notifications handled by the global ShiftReminderModal
   useEffect(() => {

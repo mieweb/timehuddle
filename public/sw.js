@@ -55,6 +55,18 @@ self.addEventListener('push', function (event) {
   }
 });
 
+/**
+ * The app URL to open for a clicked push, carrying ?notification=<id> so the
+ * app can mark it read when it loads (AppLayout reads and removes it).
+ */
+function withNotificationId(path, notificationData) {
+  const url = new URL(path, self.location.origin);
+  if (notificationData.notificationId) {
+    url.searchParams.set('notification', notificationData.notificationId);
+  }
+  return url.href;
+}
+
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
@@ -78,6 +90,7 @@ self.addEventListener('notificationclick', function (event) {
           }
           // No open window — open the app; ShiftReminderContext will hydrate from inbox on load
           if (clients.openWindow) {
+            // No ?notification=: the prompt marks the reminder read once answered.
             return clients.openWindow('/app/dashboard');
           }
         })
@@ -101,12 +114,16 @@ self.addEventListener('notificationclick', function (event) {
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (windowClients) {
-        const abs = new URL(urlToOpen, self.location.origin).href;
+        const abs = withNotificationId(urlToOpen, notificationData);
 
         if (windowClients.length > 0) {
           // App is open (foreground) — post message so React router handles navigation
           // without a full page reload
-          windowClients[0].postMessage({ type: 'timehuddle:navigate', url: urlToOpen });
+          windowClients[0].postMessage({
+            type: 'timehuddle:navigate',
+            url: urlToOpen,
+            notificationId: notificationData.notificationId,
+          });
           return windowClients[0].focus();
         }
 

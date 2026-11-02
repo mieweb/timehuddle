@@ -126,11 +126,17 @@ export async function initAgenda() {
       return;
     }
 
-    await notifyUser(userId, {
+    const reminder = await notifyUser(userId, {
       title: 'Huddle',
       body: 'You are approaching 8 hours. Would you like to continue working or clock out?',
       data: { type: 'shift-end-reminder', clockEventId, teamId, url: '/app/clock' },
     });
+    // No reminder means the organization turned shift-end reminders off (#784).
+    // Without a prompt there is nothing to miss, so no automatic clock-out either.
+    if (!reminder) {
+      await job.remove();
+      return;
+    }
 
     await ClockEvents.updateAsync(
       { _id: event._id, endTime: null },

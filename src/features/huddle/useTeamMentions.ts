@@ -16,6 +16,33 @@ import type { TeamMember } from './types';
 export interface MentionOption {
   id: string;
   label: string;
+  /** Text inserted after `@`; defaults to the label's first word. */
+  value?: string;
+  /** Shown beside the label in the suggestion list. */
+  description?: string;
+}
+
+/** `@team` and `@here` (#784): a post addressed to the whole team, or to everyone clocked in to it. */
+export type GroupMention = 'team' | 'here';
+
+/** The group mentions as composer suggestions, offered before the roster in a team's Huddle. */
+export const GROUP_MENTION_OPTIONS: MentionOption[] = [
+  { id: '@team', label: 'team', value: 'team', description: 'Everyone in this team' },
+  { id: '@here', label: 'here', value: 'here', description: 'Everyone clocked in now' },
+];
+
+const GROUP_MENTION_IDS = new Set(GROUP_MENTION_OPTIONS.map((option) => option.id));
+
+/** Whether a composer mention id is a group, not a person. */
+export function isGroupMentionId(id: string): boolean {
+  return GROUP_MENTION_IDS.has(id);
+}
+
+/** The group mentions written in `text`, by the same word-boundary rule as a person's. */
+export function detectGroupMentions(text: string): GroupMention[] {
+  return (['team', 'here'] as const).filter((group) =>
+    new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(text),
+  );
 }
 
 export interface TeamMentions {

@@ -6,6 +6,7 @@
 import { ObjectId } from 'mongodb';
 import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
+import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
@@ -79,7 +80,84 @@ export async function notifyPostRecipients(post, team) {
   const recipients = [...new Set(post.content?.mentions ?? [])].filter(
     (userId) => userId !== post.userId && onTeam.has(String(userId)),
   );
-  return sendMentionNotifications(post, recipients);
+  const failed = await sendMentionNotifications(post, recipients);
+  // Each person hears about a post once: a direct mention, else a group
+  // mention, else (if they follow the team) the new post itself.
+  const notified = new Set(recipients.map(String));
+  try {
+    for (const userId of await notifyGroupMentions(post, team, notified)) notified.add(userId);
+    await notifyTeamFollowers(post, team, notified);
+  } catch (err) {
+    console.error('[huddle] group or new-post notifications failed:', err);
+  }
+  return failed;
+}
+
+/** The group mentions a post can carry (#784). */
+export const GROUP_MENTIONS = ['team', 'here'];
+
+/** Ids of the team's members clocked in to this team right now — who `@here` reaches. */
+async function clockedInMemberIds(team, teamId) {
+  const onTeam = teamMemberIds(team);
+  const open = await rawDb()
+    .collection('clockevents')
+    .find({ teamId, endTime: null }, { projection: { userId: 1 } })
+    .toArray();
+  return [...new Set(open.map((event) => String(event.userId)))].filter((id) => onTeam.has(id));
+}
+
+/** Send one kind of post notification to each of `userIds`; failures are logged, not retried. */
+async function sendPostNotifications(userIds, { title, body, data }) {
+  const results = await Promise.allSettled(
+    userIds.map((userId) => createNotification({ userId, title, body, data })),
+  );
+  for (const r of results) {
+    if (r.status === 'rejected')
+      console.error(`[huddle] ${data.type} notification failed:`, r.reason);
+  }
+}
+
+/**
+ * Tell everyone a post's `@team` or `@here` addresses (#784), except its author
+ * and anyone in `alreadyNotified`. Returns who it addressed.
+ */
+async function notifyGroupMentions(post, team, alreadyNotified) {
+  const groups = post.content?.groupMentions ?? [];
+  if (!groups.length) return [];
+  const teamId = String(post.teamId);
+  const addressed = groups.includes('team')
+    ? [...teamMemberIds(team)]
+    : await clockedInMemberIds(team, teamId);
+  const userIds = addressed.filter((id) => id !== String(post.userId) && !alreadyNotified.has(id));
+  if (!userIds.length) return [];
+  const postId = String(post._id);
+  const group = groups.includes('team') ? 'team' : 'here';
+  await sendPostNotifications(userIds, {
+    title: `${await userDisplayName(post.userId)} mentioned @${group} in ${team.name ?? 'Huddle'}`,
+    body: (post.content?.text ?? '').substring(0, 100),
+    data: { type: 'huddle-group-mention', postId, teamId, url: huddlePostUrl(teamId, postId) },
+  });
+  return userIds;
+}
+
+/**
+ * Tell teammates who set this team's Huddle to All posts (#784) about a new
+ * post — not its author, and not anyone it already @mentions. Best-effort: a
+ * miss here isn't retried, since the post is in the feed either way.
+ */
+async function notifyTeamFollowers(post, team, alreadyNotified) {
+  const teamId = String(post.teamId);
+  const candidates = [...teamMemberIds(team)].filter(
+    (userId) => userId !== String(post.userId) && !alreadyNotified.has(userId),
+  );
+  const followers = await usersFollowingTeam(teamId, candidates);
+  if (!followers.length) return;
+  const postId = String(post._id);
+  await sendPostNotifications(followers, {
+    title: `${await userDisplayName(post.userId)} posted in ${team.name ?? 'Huddle'}`,
+    body: (post.content?.text ?? '').substring(0, 100),
+    data: { type: 'huddle-post', postId, teamId, url: huddlePostUrl(teamId, postId) },
+  });
 }
 
 /**

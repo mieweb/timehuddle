@@ -157,8 +157,9 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     // Insert a test notification for the current user
+    const notificationId = new ObjectId();
     await rawDb().collection('notifications').insertOne({
-      _id: new ObjectId(),
+      _id: notificationId,
       userId,
       title: 'Test Push',
       body: 'This is a test push notification',
@@ -170,7 +171,7 @@ Meteor.methods({
     await sendToUser(userId, {
       title: 'Test Push',
       body: 'This is a test push notification',
-      data: { type: 'test' },
+      data: { type: 'test', notificationId: notificationId.toHexString() },
     });
     return { ok: true };
   },

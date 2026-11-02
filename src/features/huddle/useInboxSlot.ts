@@ -1,6 +1,7 @@
 /**
  * useInboxSlot — find an element inside SuperChatInbox to portal page content
- * into, for spots the inbox has no slot prop for yet (its list header).
+ * into, for spots the inbox has no slot prop for yet (its list header, the
+ * conversation header).
  * Re-queried on every DOM change under `root`, since the inbox mounts,
  * unmounts and re-renders those elements on its own.
  *
@@ -18,6 +19,10 @@ import { useEffect, useState, type RefObject } from 'react';
 /** The conversation list's header row: holds the Team / Group by filters. */
 export const findListHeader = (root: HTMLElement) =>
   root.querySelector<HTMLElement>('[data-slot="superchat-conversations"] > div:first-child');
+
+/** The open conversation's header: holds the notifications bell (#784). */
+export const findConversationHeader = (root: HTMLElement) =>
+  root.querySelector<HTMLElement>('[data-slot="superchat-header"]');
 
 export function useInboxSlot(
   root: RefObject<HTMLElement | null>,
