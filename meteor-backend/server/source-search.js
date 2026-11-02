@@ -4,7 +4,8 @@
  *
  * Each server is asked with the member's own key for it, through what its source
  * definition names (`can.search`), so a new source joins with its definition.
- * One slow or failing server doesn't hold up the others: it comes back `failed`.
+ * One slow or failing server doesn't hold up the others: it comes back `failed`,
+ * and `rateLimited` too when that's why.
  * Results are slim, with no description, history or custom fields, and nothing
  * is stored. The query is never logged: a user may type a patient's name.
  */
@@ -12,6 +13,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge';
 import { RedmineLinks, Teams, Tickets } from './collections';
+import { GITHUB_HOST } from './github-client';
 import { createRateLimiter } from './rate-limit';
 import { enforceRedmineLimit } from './redmine';
 import { mainHost, registeredServers } from './source-accounts';
@@ -19,6 +21,7 @@ import { driverFor } from './sources/registry';
 
 const searchLimiter = createRateLimiter({ limit: 60, windowMs: 60 * 1000 });
 const SERVER_SEARCH_MS = 8000;
+const GITHUB_SERVER = { host: GITHUB_HOST, prefix: '', type: 'github' };
 
 /** The registered servers, besides the main one, the member holds a working key for and can search. */
 async function searchableServers(userId) {
@@ -31,7 +34,8 @@ async function searchableServers(userId) {
     ).fetchAsync(),
   ]);
   const connected = new Set(links.map((link) => link.host));
-  return servers.filter(
+  // GitHub is built in, with no server for an owner to register.
+  return [...servers, GITHUB_SERVER].filter(
     (server) =>
       server.host !== main &&
       connected.has(server.host) &&
@@ -53,15 +57,25 @@ async function searchServer(userId, server, query) {
   try {
     const driver = driverFor(server.type);
     const session = await driver.open(userId, server.host);
-    const search = driver.hooks[driver.definition.can.search.hook];
-    const issues = await withinTime(search(query, session.ctx), SERVER_SEARCH_MS);
+    const { search, assigned } = driver.definition.can;
+    // No text: what the source offers before the member types, if anything.
+    const work = query
+      ? driver.hooks[search.hook](query, session.ctx)
+      : assigned?.hook
+        ? driver.hooks[assigned.hook](session.ctx)
+        : Promise.resolve([]);
+    const issues = await withinTime(work, SERVER_SEARCH_MS);
     return {
       ...base,
       failed: false,
-      issues: issues.map((issue) => ({ ...issue, url: session.urlOf({ key: String(issue.id) }) })),
+      issues: issues.map((issue) => ({
+        ...issue,
+        url: issue.url ?? session.urlOf({ key: String(issue.id) }),
+      })),
     };
-  } catch {
-    return { ...base, failed: true, issues: [] };
+  } catch (err) {
+    // A rate limit is said as one: the server is fine, it's asked too often.
+    return { ...base, failed: true, ...(err?.rateLimited ? { rateLimited: true } : {}), issues: [] };
   }
 }
 
@@ -71,6 +85,7 @@ const idText = (id) => (typeof id?.toHexString === 'function' ? id.toHexString()
 async function withTickets(userId, answers) {
   const issueIds = answers.flatMap((answer) => answer.issues.map((issue) => String(issue.id)));
   if (!issueIds.length) return answers;
+  const urls = answers.flatMap((answer) => answer.issues.map((issue) => issue.url));
   const teams = await Teams.find(
     { $or: [{ members: userId }, { admins: userId }] },
     { fields: { _id: 1 } },
@@ -78,11 +93,16 @@ async function withTickets(userId, answers) {
   const carriers = await Tickets.find(
     {
       teamId: { $in: teams.map((team) => idText(team._id)) },
-      'linkedIssue.host': { $in: answers.map((answer) => answer.host) },
-      'linkedIssue.id': { $in: issueIds },
       status: { $ne: 'deleted' },
+      $or: [
+        {
+          'linkedIssue.host': { $in: answers.map((answer) => answer.host) },
+          'linkedIssue.id': { $in: issueIds },
+        },
+        { github: { $in: urls }, linkIsIssue: { $ne: false } },
+      ],
     },
-    { fields: { teamId: 1, linkedIssue: 1 } },
+    { fields: { teamId: 1, linkedIssue: 1, github: 1 } },
   ).fetchAsync();
   return answers.map((answer) => ({
     ...answer,
@@ -90,8 +110,9 @@ async function withTickets(userId, answers) {
       ...issue,
       tickets: carriers
         .filter(
-          ({ linkedIssue }) =>
-            linkedIssue.host === answer.host && linkedIssue.id === String(issue.id),
+          ({ linkedIssue, github }) =>
+            github === issue.url ||
+            (linkedIssue?.host === answer.host && linkedIssue?.id === String(issue.id)),
         )
         .map((ticket) => ({ id: idText(ticket._id), teamId: ticket.teamId })),
     })),
@@ -106,7 +127,6 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'A search query is required.');
     }
     const text = query.trim();
-    if (!text) return { servers: [] };
     enforceRedmineLimit(searchLimiter, userId);
     const servers = await searchableServers(userId);
     const answers = await Promise.all(

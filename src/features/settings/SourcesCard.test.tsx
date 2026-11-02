@@ -6,10 +6,14 @@ const sources = vi.hoisted(() => ({
   check: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
+  githubConnectUrl: vi.fn(),
+  confirmGithub: vi.fn(),
 }));
 const redmine = vi.hoisted(() => ({ status: vi.fn(), connect: vi.fn(), disconnect: vi.fn() }));
 vi.mock('../../lib/api', () => ({ sourcesApi: sources, redmineApi: redmine }));
 vi.mock('../../lib/TeamContext', () => ({ useTeam: () => ({ activeClockEvent: null }) }));
+const search = vi.hoisted(() => ({ params: new URLSearchParams(), setParams: vi.fn() }));
+vi.mock('../../ui/router', () => ({ useQueryParams: () => search }));
 vi.mock('../../lib/useRedmineStatus', () => ({ notifyRedmineChanged: vi.fn() }));
 vi.mock('../tickets/redmine/RedmineHiddenSuggestions', () => ({
   RedmineHiddenSuggestions: () => <div>Hidden suggestions</div>,
@@ -20,6 +24,13 @@ vi.mock('../tickets/redmine/useRedmineSuggestions', () => ({
 
 const { SourcesCard } = await import('./SourcesCard');
 
+const GITHUB = {
+  host: 'github.com',
+  configured: true,
+  connected: false,
+  rejected: false,
+  login: null,
+};
 const MAIN = 'https://main.example.com';
 const unlinked = { connected: false, defaultBaseUrl: MAIN };
 const linked = { connected: true, baseUrl: MAIN, redmineLogin: 'ada' };
@@ -39,8 +50,56 @@ describe('SourcesCard', () => {
     vi.resetAllMocks();
     redmine.status.mockResolvedValue(unlinked);
     sources.list.mockResolvedValue({ servers: [] });
+    search.params = new URLSearchParams();
   });
   afterEach(cleanup);
+
+  it('offers one click to connect GitHub, with what it asks for', async () => {
+    sources.list.mockResolvedValue({ servers: [], github: GITHUB });
+    render(<SourcesCard />);
+    expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeTruthy();
+    expect(screen.getByText(/only option for private repos/)).toBeTruthy();
+    expect(screen.queryByLabelText('API key for github.com')).toBeNull();
+  });
+
+  it('puts GitHub first, in its own card', async () => {
+    sources.list.mockResolvedValue({ servers: [other], github: GITHUB });
+    const { container } = render(<SourcesCard />);
+    await screen.findByRole('button', { name: 'Connect GitHub' });
+    const cards = [...container.querySelector('.sources-cards')!.children];
+    expect(cards).toHaveLength(2);
+    expect(cards[0].textContent).toContain('github.com');
+    expect(cards[0].textContent).not.toContain('other.example.com');
+    expect(cards[1].textContent).toContain('other.example.com');
+  });
+
+  it('offers Check and Disconnect once GitHub is connected', async () => {
+    sources.list.mockResolvedValue({
+      servers: [],
+      github: { ...GITHUB, connected: true, login: 'octo' },
+    });
+    render(<SourcesCard />);
+    expect(await screen.findByRole('button', { name: /Check your key on github/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Disconnect from github/ })).toBeTruthy();
+    expect(screen.getByText('@octo')).toBeTruthy();
+  });
+
+  it('says when this TimeHuddle has no GitHub set up', async () => {
+    sources.list.mockResolvedValue({ servers: [], github: { ...GITHUB, configured: false } });
+    render(<SourcesCard />);
+    expect(await screen.findByText(/GitHub isn't set up/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Connect GitHub' })).toBeNull();
+  });
+
+  it('finishes the connection when GitHub sends the member back', async () => {
+    search.params = new URLSearchParams({ github_connect: 'code-1' });
+    sources.confirmGithub.mockResolvedValue({ login: 'octo' });
+    sources.list.mockResolvedValue({ servers: [], github: GITHUB });
+    render(<SourcesCard />);
+    await screen.findByText('GitHub connected.');
+    expect(sources.confirmGithub).toHaveBeenCalledWith('code-1');
+    expect(search.setParams).toHaveBeenCalledWith({ github_connect: null, github_failed: null });
+  });
 
   it('says so when there is no server at all', async () => {
     redmine.status.mockResolvedValue({ connected: false, defaultBaseUrl: null });

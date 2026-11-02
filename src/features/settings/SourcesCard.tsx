@@ -7,9 +7,16 @@
 import { Badge, Button, ButtonGroup, Card, CardContent, Input, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { redmineApi, sourcesApi, type RedmineStatus, type SourceConnection } from '../../lib/api';
+import {
+  redmineApi,
+  sourcesApi,
+  type GitHubSourceConnection,
+  type RedmineStatus,
+  type SourceConnection,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { notifyRedmineChanged } from '../../lib/useRedmineStatus';
+import { useQueryParams } from '../../ui/router';
 import { RedmineHiddenSuggestions } from '../tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../tickets/redmine/useRedmineSuggestions';
 
@@ -32,7 +39,9 @@ interface ServerRowProps {
   login?: string | null;
   connected: boolean;
   rejected: boolean;
-  onConnect: (apiKey: string) => Promise<void>;
+  /** Connects with a typed key. Without it, `oneClick` connects instead. */
+  onConnect?: (apiKey: string) => Promise<void>;
+  oneClick?: { label: string; start: () => Promise<void> };
   onCheck: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   /** After any action: a failed one may still have changed this server's state. */
@@ -49,6 +58,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
   connected,
   rejected,
   onConnect,
+  oneClick,
   onCheck,
   onDisconnect,
   onSettled,
@@ -77,7 +87,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
 
   const connect = () =>
     run(async () => {
-      await onConnect(apiKey.trim());
+      await onConnect?.(apiKey.trim());
       setApiKey('');
       return null;
     }, text.connectFailed);
@@ -146,7 +156,24 @@ const ServerRow: React.FC<ServerRowProps> = ({
         </Text>
       )}
 
-      {!connected && (
+      {!connected && oneClick && (
+        <ButtonGroup>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await oneClick.start();
+                return null;
+              }, text.connectFailed)
+            }
+          >
+            {oneClick.label}
+          </Button>
+        </ButtonGroup>
+      )}
+
+      {!connected && onConnect && (
         <>
           <div className="sources-server-connect flex gap-2">
             <Input
@@ -200,6 +227,11 @@ const ServerRow: React.FC<ServerRowProps> = ({
 export const SourcesCard: React.FC = () => {
   const [status, setStatus] = useState<RedmineStatus | null>(null);
   const [servers, setServers] = useState<SourceConnection[]>([]);
+  const [github, setGithub] = useState<GitHubSourceConnection | null>(null);
+  const [githubNotice, setGithubNotice] = useState<{ error: boolean; text: string } | null>(null);
+  const { params, setParams } = useQueryParams();
+  const connectCode = params.get('github_connect');
+  const connectFailed = params.get('github_failed');
   const [baseUrl, setBaseUrl] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,7 +246,10 @@ export const SourcesCard: React.FC = () => {
       setStatus(nextStatus.value);
       setBaseUrl(nextStatus.value.defaultBaseUrl ?? '');
     }
-    if (list.status === 'fulfilled') setServers(list.value.servers);
+    if (list.status === 'fulfilled') {
+      setServers(list.value.servers);
+      setGithub(list.value.github);
+    }
     const failed = [nextStatus, list].find((result) => result.status === 'rejected');
     setError(failed?.status === 'rejected' ? messageOf(failed.reason, text.loadFailed) : null);
     setLoaded(true);
@@ -223,6 +258,23 @@ export const SourcesCard: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Back from GitHub: finish the connection as whoever is signed in here.
+  useEffect(() => {
+    if (!connectCode && !connectFailed) return;
+    setParams({ github_connect: null, github_failed: null });
+    if (connectFailed) {
+      setGithubNotice({ error: true, text: text.githubFailed });
+      return;
+    }
+    void sourcesApi
+      .confirmGithub(connectCode!)
+      .then(() => setGithubNotice({ error: false, text: text.githubConnected }))
+      .catch((err: unknown) =>
+        setGithubNotice({ error: true, text: messageOf(err, text.githubFailed) }),
+      )
+      .finally(() => void load());
+  }, [connectCode, connectFailed, setParams, load]);
 
   if (!loaded) {
     return (
@@ -251,91 +303,147 @@ export const SourcesCard: React.FC = () => {
   };
 
   return (
-    <Card padding="none" className="sources-card">
-      <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
-        <div className="sources-intro px-5 py-4">
-          <Text variant="muted" size="xs">
-            {text.description}
-          </Text>
-        </div>
-
-        {hasMain && (
-          <ServerRow
-            host={hostOfUrl(mainAddress) ?? text.mainServerName}
-            prefix={mainServer?.prefix}
-            login={status?.redmineLogin}
-            connected={Boolean(status?.connected)}
-            rejected={Boolean(status?.rejected)}
-            onConnect={async (apiKey) => {
-              // Locked while clocked in: send nothing, so the server keeps its default.
-              const url = showUrlField && !isClockedIn ? baseUrl.trim() : undefined;
-              afterMainChange(await redmineApi.connect(apiKey, url));
-            }}
-            onCheck={async () => {
-              await sourcesApi.check(mainAddress ?? '');
-            }}
-            onDisconnect={async () => afterMainChange(await redmineApi.disconnect())}
-            // A success already set the status it answered with.
-            onSettled={async (failed) => {
-              if (failed) await load();
-            }}
-            connectExtra={
-              showUrlField && (
-                <Input
-                  type="url"
-                  label={text.urlLabel}
-                  placeholder={text.urlPlaceholder}
-                  value={isClockedIn ? (status?.defaultBaseUrl ?? '') : baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  disabled={isClockedIn}
-                  helperText={isClockedIn ? text.urlLocked : text.urlHelp}
-                  className="redmine-base-url h-8 text-sm"
-                  size="sm"
-                />
-              )
-            }
-          >
-            {status?.connected && <RedmineHiddenSuggestions />}
-          </ServerRow>
-        )}
-
-        {otherServers.map((server) => (
-          <ServerRow
-            key={server.host}
-            host={server.host}
-            prefix={server.prefix}
-            login={server.login}
-            connected={server.connected}
-            rejected={server.rejected}
-            onConnect={async (apiKey) => {
-              await sourcesApi.connect(server.baseUrl, apiKey);
-            }}
-            onCheck={async () => {
-              await sourcesApi.check(server.baseUrl);
-            }}
-            onDisconnect={async () => {
-              await sourcesApi.disconnect(server.baseUrl);
-            }}
-            onSettled={() => load()}
-          />
-        ))}
-
-        {!hasMain && otherServers.length === 0 && !error && (
-          <div className="sources-empty px-5 py-4">
-            <Text variant="muted" size="xs" role="status">
-              {text.empty}
+    <div className="sources-cards flex flex-col gap-4">
+      {github && (
+        <Card padding="none" className="sources-github-card">
+          <CardContent className="p-0">
+            {github &&
+              (github.configured || github.connected ? (
+                <ServerRow
+                  host={github.host}
+                  login={github.login}
+                  connected={github.connected}
+                  rejected={github.rejected}
+                  oneClick={{
+                    label: text.connectGithub,
+                    start: async () => {
+                      window.location.assign(await sourcesApi.githubConnectUrl());
+                    },
+                  }}
+                  onCheck={async () => {
+                    await sourcesApi.check(`https://${github.host}`);
+                  }}
+                  onDisconnect={async () => {
+                    await sourcesApi.disconnect(`https://${github.host}`);
+                  }}
+                  onSettled={() => load()}
+                >
+                  {!github.connected && (
+                    <Text variant="muted" size="xs">
+                      {text.githubAccess}
+                    </Text>
+                  )}
+                  {github.connected && (
+                    <Text variant="muted" size="xs">
+                      {text.githubOrgs}
+                    </Text>
+                  )}
+                  {githubNotice && (
+                    <Text
+                      size="xs"
+                      variant={githubNotice.error ? 'destructive' : 'muted'}
+                      role={githubNotice.error ? 'alert' : 'status'}
+                    >
+                      {githubNotice.text}
+                    </Text>
+                  )}
+                </ServerRow>
+              ) : (
+                <div className="sources-github-unavailable px-5 py-4">
+                  <Text variant="muted" size="xs" role="status">
+                    {text.githubNotSetUp}
+                  </Text>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      )}
+      <Card padding="none" className="sources-card">
+        <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
+          <div className="sources-intro px-5 py-4">
+            <Text variant="muted" size="xs">
+              {text.description}
             </Text>
           </div>
-        )}
 
-        {error && (
-          <div className="sources-error px-5 py-4">
-            <Text size="xs" variant="destructive" role="alert">
-              {error}
-            </Text>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          {hasMain && (
+            <ServerRow
+              host={hostOfUrl(mainAddress) ?? text.mainServerName}
+              prefix={mainServer?.prefix}
+              login={status?.redmineLogin}
+              connected={Boolean(status?.connected)}
+              rejected={Boolean(status?.rejected)}
+              onConnect={async (apiKey) => {
+                // Locked while clocked in: send nothing, so the server keeps its default.
+                const url = showUrlField && !isClockedIn ? baseUrl.trim() : undefined;
+                afterMainChange(await redmineApi.connect(apiKey, url));
+              }}
+              onCheck={async () => {
+                await sourcesApi.check(mainAddress ?? '');
+              }}
+              onDisconnect={async () => afterMainChange(await redmineApi.disconnect())}
+              // A success already set the status it answered with.
+              onSettled={async (failed) => {
+                if (failed) await load();
+              }}
+              connectExtra={
+                showUrlField && (
+                  <Input
+                    type="url"
+                    label={text.urlLabel}
+                    placeholder={text.urlPlaceholder}
+                    value={isClockedIn ? (status?.defaultBaseUrl ?? '') : baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    disabled={isClockedIn}
+                    helperText={isClockedIn ? text.urlLocked : text.urlHelp}
+                    className="redmine-base-url h-8 text-sm"
+                    size="sm"
+                  />
+                )
+              }
+            >
+              {status?.connected && <RedmineHiddenSuggestions />}
+            </ServerRow>
+          )}
+
+          {otherServers.map((server) => (
+            <ServerRow
+              key={server.host}
+              host={server.host}
+              prefix={server.prefix}
+              login={server.login}
+              connected={server.connected}
+              rejected={server.rejected}
+              onConnect={async (apiKey) => {
+                await sourcesApi.connect(server.baseUrl, apiKey);
+              }}
+              onCheck={async () => {
+                await sourcesApi.check(server.baseUrl);
+              }}
+              onDisconnect={async () => {
+                await sourcesApi.disconnect(server.baseUrl);
+              }}
+              onSettled={() => load()}
+            />
+          ))}
+
+          {!hasMain && otherServers.length === 0 && !error && (
+            <div className="sources-empty px-5 py-4">
+              <Text variant="muted" size="xs" role="status">
+                {text.empty}
+              </Text>
+            </div>
+          )}
+
+          {error && (
+            <div className="sources-error px-5 py-4">
+              <Text size="xs" variant="destructive" role="alert">
+                {error}
+              </Text>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 };

@@ -785,18 +785,26 @@ Meteor.methods({
     }
     enforceRedmineLimit(accountLimiter, userId);
     const idle = await isIdleForPush(userId);
+    // A server that refuses the key drops out on its own, named in `refusedHosts`:
+    // every other server's time still shows.
+    const refusedHosts = [];
+    const rowsOf = (forAccount, options) =>
+      buildPreviewRows(userId, forAccount, options).catch((err) => {
+        if (err?.error !== 'invalid-key') throw err;
+        refusedHosts.push(options?.host ?? hostOf(forAccount.baseUrl));
+        return [];
+      });
     const rows = [
-      ...(account ? await buildPreviewRows(userId, account) : []),
+      ...(account ? await rowsOf(account) : []),
       ...(
-        await Promise.all(
-          others.map((other) => buildPreviewRows(userId, other.account, { host: other.host })),
-        )
+        await Promise.all(others.map((other) => rowsOf(other.account, { host: other.host })))
       ).flat(),
     ];
     return {
       connected: true,
       idle,
       rows,
+      refusedHosts,
       baseUrl: account?.baseUrl ?? optionalRedmineBaseUrl(),
     };
   },

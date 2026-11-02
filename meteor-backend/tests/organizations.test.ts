@@ -423,6 +423,115 @@ describe('orgs.setSourcePrefixes', () => {
     expect(org.result.organization.sourcePrefixes).toEqual([pm]);
   });
 
+  /** A stored key for `userId` on `host`, as Connect saves one. */
+  const keyOn = async (userId: string, host: string) =>
+    (await getDb()).collection('redmine_links').insertOne({
+      _id: new ObjectId().toHexString() as never,
+      userId,
+      host,
+      baseUrl: `https://${host}`,
+      apiKey: 'stored',
+      linkedAt: new Date(),
+    });
+  const keyHosts = async (userId: string) =>
+    (await (await getDb()).collection('redmine_links').find({ userId }).toArray())
+      .map((link) => link.host)
+      .sort();
+  const toldOf = async (userId: string) =>
+    (await getDb())
+      .collection('notifications')
+      .find({ userId, 'data.type': 'source-server-removed' })
+      .toArray();
+  const forgetKeys = async () => {
+    const db = await getDb();
+    await db.collection('redmine_links').deleteMany({ userId: { $in: [memberId, peerId] } });
+    await db.collection('notifications').deleteMany({ 'data.type': 'source-server-removed' });
+  };
+
+  it("removes a member's keys for the org's servers when they're removed from it, and tells them", async () => {
+    await addMembership(memberId, 'member');
+    expect((await setSources(ownerJwt, [{ host: 'https://redmine.example.com', prefix: 'pm' }])).ok).toBe(true);
+    await keyOn(memberId, pm.host);
+    await keyOn(memberId, 'github.com');
+    try {
+      expect((await removeMember(orgId, memberId)).ok).toBe(true);
+      // GitHub isn't the org's to take away.
+      expect(await keyHosts(memberId)).toEqual(['github.com']);
+      const told = await toldOf(memberId);
+      expect(told.map((note) => note.body)).toEqual([
+        "Your API key for the source server redmine.example.com was removed, as you're no longer in an organization that uses it.",
+      ]);
+    } finally {
+      await forgetKeys();
+    }
+  });
+
+  it("removes a member's key when the only team that gave them the server drops them", async () => {
+    expect((await setSources(ownerJwt, [{ host: 'https://redmine.example.com', prefix: 'pm' }])).ok).toBe(true);
+    const teamId = await addTeam({ name: 'Key Team', members: [ownerId, memberId], admins: [ownerId] });
+    await keyOn(memberId, pm.host);
+    try {
+      const res = await wormhole('teams.removeMember', { teamId: teamId.toHexString(), userId: memberId }, ownerJwt);
+      expect(res.ok).toBe(true);
+      expect(await keyHosts(memberId)).toEqual([]);
+      expect(await toldOf(memberId)).toHaveLength(1);
+    } finally {
+      await forgetKeys();
+    }
+  });
+
+  it("removes members' keys for a server the owner drops, tells them, and keeps one another org still lists", async () => {
+    const db = await getDb();
+    await addMembership(memberId, 'member');
+    expect((await setSources(ownerJwt, [{ host: 'https://redmine.example.com', prefix: 'pm' }])).ok).toBe(true);
+    // The peer reaches the same server through an org of their own.
+    const peerOrg = new ObjectId();
+    await db.collection('organizations').insertOne({
+      _id: peerOrg,
+      name: 'Peer Org',
+      slug: `peer-${peerOrg}`,
+      owners: [],
+      sourcePrefixes: [pm],
+    });
+    await db.collection('org_members').insertOne({
+      _id: new ObjectId(),
+      orgId: peerOrg.toHexString(),
+      userId: peerId,
+      role: 'member',
+      auto: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.collection('redmine_links').insertMany(
+      [memberId, peerId].map((userId) => ({
+        _id: new ObjectId().toHexString() as never,
+        userId,
+        host: pm.host,
+        baseUrl: pm.baseUrl,
+        apiKey: 'stored',
+        linkedAt: new Date(),
+      })),
+    );
+    try {
+      expect((await setSources(ownerJwt, [])).ok).toBe(true);
+      const left = await db.collection('redmine_links').find({ host: pm.host }).toArray();
+      expect(left.map((link) => link.userId)).toEqual([peerId]);
+      const told = await db
+        .collection('notifications')
+        .find({ 'data.type': 'source-server-removed', userId: { $in: [memberId, peerId] } })
+        .toArray();
+      expect(told.map((note) => note.userId)).toEqual([memberId]);
+      expect(told[0].body).toBe(
+        'The source server redmine.example.com was deleted and your API key for it was removed by Remove Member Org.',
+      );
+    } finally {
+      await db.collection('redmine_links').deleteMany({ host: pm.host });
+      await db.collection('notifications').deleteMany({ 'data.type': 'source-server-removed' });
+      await db.collection('org_members').deleteMany({ orgId: peerOrg.toHexString() });
+      await db.collection('organizations').deleteOne({ _id: peerOrg });
+    }
+  });
+
   it('refuses an admin and a member', async () => {
     const entries = [{ host: 'redmine.example.com', prefix: 'PM' }];
     await addMembership(memberId, 'admin');

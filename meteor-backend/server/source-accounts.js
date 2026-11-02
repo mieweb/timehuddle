@@ -11,10 +11,12 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge';
 import { DUPLICATE_KEY_ERROR_CODE, RedmineLinks, Teams, rawDb } from './collections';
+import { createNotification } from './notify-core';
 import { getAccessibleOrgIds } from './org-helpers';
 import { enforceRedmineLimit, toRedmineMeteorError } from './redmine';
 import { bustUserCaches } from './redmine-cache';
-import { keyOwnerOf, mainLinkOf, requireRedmineAccount } from './redmine-account';
+import { GITHUB_HOST, githubConfigured, githubRequest, revokeGithubToken } from './github-client';
+import { findRedmineAccount, keyOwnerOf, mainLinkOf, requireRedmineAccount } from './redmine-account';
 import { getCurrentUser, linkedRedmineBaseUrl, optionalRedmineBaseUrl } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
 import { createRateLimiter } from './rate-limit';
@@ -53,6 +55,71 @@ async function registeredServer(userId, address) {
   return (await registeredServers(userId)).find((server) => server.host === host) ?? null;
 }
 
+/**
+ * Remove `userId`'s keys for servers none of their orgs list any more, of
+ * `hosts` when given; returns the hosts removed. A key follows the member's
+ * access: once no org of theirs registers a server, its key goes. GitHub and
+ * the main server aren't registered by orgs, and are never touched here.
+ */
+async function removeUnlistedKeys(userId, hosts) {
+  const links = await RedmineLinks.find(
+    { userId, host: hosts ? { $in: hosts } : { $type: 'string', $ne: GITHUB_HOST } },
+    { fields: { host: 1 } },
+  ).fetchAsync();
+  if (!links.length) return [];
+  const listed = new Set((await registeredServers(userId)).map((server) => server.host));
+  const removed = [];
+  for (const link of links) {
+    if (link.host === GITHUB_HOST || listed.has(link.host)) continue;
+    await RedmineLinks.removeAsync({ _id: link._id, host: link.host });
+    removed.push(link.host);
+  }
+  if (removed.length) bustUserCaches(userId);
+  return removed;
+}
+
+const KEY_REMOVED_TITLE = 'Source server removed';
+const KEYS_SETTINGS = { type: 'source-server-removed', url: '/app/settings?section=integrations' };
+
+/**
+ * After an owner drops servers from their org's list (`orgs.setSourcePrefixes`),
+ * remove each member's key for a dropped server, and tell them so. A member
+ * whose other org still registers that server keeps theirs.
+ */
+export async function removeKeysForDroppedServers(orgName, droppedHosts) {
+  if (!droppedHosts.length) return;
+  const userIds = await RedmineLinks.rawCollection().distinct('userId', {
+    host: { $in: droppedHosts },
+  });
+  for (const userId of userIds) {
+    for (const host of await removeUnlistedKeys(userId, droppedHosts)) {
+      await createNotification({
+        userId,
+        title: KEY_REMOVED_TITLE,
+        body: `The source server ${host} was deleted and your API key for it was removed by ${orgName}.`,
+        data: KEYS_SETTINGS,
+      });
+    }
+  }
+}
+
+/**
+ * After `userIds` leave an org or team, or are blocked from one, remove their
+ * keys for servers no org of theirs lists now, and tell them so.
+ */
+export async function removeKeysAfterLeaving(userIds) {
+  for (const userId of userIds) {
+    for (const host of await removeUnlistedKeys(userId)) {
+      await createNotification({
+        userId,
+        title: KEY_REMOVED_TITLE,
+        body: `Your API key for the source server ${host} was removed, as you're no longer in an organization that uses it.`,
+        data: KEYS_SETTINGS,
+      });
+    }
+  }
+}
+
 /** The host `userId`'s main link talks to: the deployment's Redmine unless they linked elsewhere. */
 export async function mainHost(userId) {
   const main = await RedmineLinks.findOneAsync(mainLinkOf(userId), { fields: { baseUrl: 1 } });
@@ -73,7 +140,16 @@ Meteor.methods({
     ]);
     const linkOn = (host) =>
       links.find((link) => (link.host ? link.host === host : host === main));
+    const githubLink = linkOn(GITHUB_HOST);
     return {
+      // Built in for every member, connected in one click rather than with a key.
+      github: {
+        host: GITHUB_HOST,
+        configured: githubConfigured(),
+        connected: Boolean(githubLink && !githubLink.rejectedAt),
+        rejected: Boolean(githubLink?.rejectedAt),
+        login: githubLink?.redmineLogin ?? null,
+      },
       servers: servers.map(({ host, baseUrl, prefix, type }) => {
         const link = linkOn(host);
         return {
@@ -98,7 +174,10 @@ Meteor.methods({
     if (!host) throw new Meteor.Error('bad-request', 'A server address is required.');
     const account = await requireRedmineAccount(userId, host);
     try {
-      const user = await getCurrentUser(account);
+      const user =
+        host === GITHUB_HOST
+          ? await githubRequest('/user', account)
+          : await getCurrentUser(account);
       return { host, connected: true, login: user?.login ?? null };
     } catch (err) {
       throw toRedmineMeteorError(err);
@@ -170,6 +249,10 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const host = hostOf(server);
     if (!host) throw new Meteor.Error('bad-request', 'A server address is required.');
+    if (host === GITHUB_HOST) {
+      const account = await findRedmineAccount(userId, host);
+      if (account) await revokeGithubToken(account.apiKey);
+    }
     await RedmineLinks.removeAsync({ userId, host });
     bustUserCaches(userId);
     return { host, connected: false };

@@ -74,6 +74,30 @@ describe('convertibleIdOf', () => {
     expect(convertibleIdOf('https://other.example.com/issues/233', servers)).toBeNull();
     expect(convertibleIdOf('http://github.com/mieweb/pulse/issues/250', servers)).toBeNull();
   });
+
+  it('offers nothing for a YouTube short either: any https link saves as a plain link', () => {
+    expect(convertibleIdOf('https://www.youtube.com/shorts/aBcD123', servers)).toBeNull();
+    expect(convertibleIdOf('https://youtu.be/aBcD123', servers)).toBeNull();
+  });
+
+  it('reads www., mixed-case hosts, trailing paths and fragments the same way', () => {
+    for (const link of [
+      'https://www.github.com/mieweb/pulse/issues/250',
+      'https://GitHub.com/mieweb/pulse/issues/250',
+      'https://github.com/mieweb/pulse/issues/250/',
+      'https://github.com/mieweb/pulse/issues/250#issuecomment-1',
+      'https://github.com/mieweb/pulse/issues/250?tab=timeline',
+    ]) {
+      expect(convertibleIdOf(link, servers), link).toBe('pulse-250');
+    }
+    for (const link of [
+      'https://Redmine.Example.com/issues/233',
+      'https://redmine.example.com/issues/233/',
+      'https://redmine.example.com/issues/233#note-4',
+    ]) {
+      expect(convertibleIdOf(link, servers), link).toBe('PM-233');
+    }
+  });
 });
 
 describe('linkFormReady', () => {

@@ -26,6 +26,8 @@ import {
 import React, { useEffect, useState } from 'react';
 
 import type { Ticket } from '../../../lib/api';
+import { useRouter } from '../../../ui/router';
+import { settingsPath } from '../../settings/settingsSections';
 import type { OutsideState } from '../detail/useOutsideIssue';
 import { fetchGithubIssueTitle, isGithubIssueUrl, parseGithubIssueUrl } from '../githubIssue';
 
@@ -78,6 +80,21 @@ function linkSourceName(url: string): string {
 function githubLabel(url: string): string {
   const parts = parseGithubIssueUrl(url);
   return parts ? `${parts.owner}/${parts.repo}#${parts.number}` : url;
+}
+
+/** Why a link shown as an issue has none of its source's details here, or null when it has them. */
+function outsideNote(outside: OutsideState, source: string): string | null {
+  if (outside.kind === 'plain') {
+    return outside.reason === 'connect'
+      ? ticketLinkText.plainConnect(source)
+      : ticketLinkText.plainNoAccess(source);
+  }
+  if (outside.kind === 'unreachable') {
+    return outside.rateLimited
+      ? ticketLinkText.sourceRateLimited(source)
+      : ticketLinkText.sourceUnreachable(source);
+  }
+  return null;
 }
 
 /** Which system the link points at, as a filled badge so it does not read as a button. */
@@ -155,6 +172,7 @@ export function LinkedIssueSection({
   const status = useLinkStatus(ticket.id, mode !== 'view');
 
   const record = outside.kind === 'loaded' ? outside.issue.record : null;
+  const { navigate } = useRouter();
 
   // A GitHub issue's title is read from GitHub when the section is shown, like
   // a Redmine issue's: only the link is stored. Private repositories answer
@@ -213,6 +231,11 @@ export function LinkedIssueSection({
     status && change ? linkWarnings(status, change, linkedId ? `#${linkedId}` : '') : [];
 
   const ref = linked ? `#${linked.id}` : '';
+  // Why a link shown as an issue has no details from its source, if it hasn't.
+  const note =
+    currentKind === 'github' && isWebUrl(ticket.github)
+      ? outsideNote(outside, linkSourceName(ticket.github))
+      : null;
 
   return (
     <Card>
@@ -243,10 +266,12 @@ export function LinkedIssueSection({
               aria-label={ticketLinkText.openGithub(ticket.github)}
               className={LINK_CLASS}
             >
-              {githubTitle && githubParts ? (
+              {(record?.title || githubTitle) && githubParts ? (
                 <>
-                  <span className="ticket-linked-issue-ref font-mono">#{githubParts.number}</span>
-                  <span className="ticket-linked-issue-title">{githubTitle}</span>
+                  <span className="ticket-linked-issue-ref font-mono">
+                    {githubLabel(ticket.github)}
+                  </span>
+                  <span className="ticket-linked-issue-title">{record?.title || githubTitle}</span>
                 </>
               ) : (
                 <span className="ticket-linked-issue-title break-all">
@@ -257,8 +282,32 @@ export function LinkedIssueSection({
             </a>
             <SourceLine
               source={linkSourceName(ticket.github)}
-              detail={githubParts ? `${githubParts.owner}/${githubParts.repo}` : undefined}
+              detail={
+                record
+                  ? ticketLinkText.statusAndAssignee(
+                      record.status.native || null,
+                      record.assignees[0]?.name ?? null,
+                    )
+                  : undefined
+              }
             />
+            {record && <OutsideFields rows={outsideFieldRows(record)} />}
+            {note && (
+              <Alert variant="info" className="ticket-linked-issue-note">
+                <AlertDescription>{note}</AlertDescription>
+                {outside.kind === 'plain' && outside.reason === 'connect' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => navigate(settingsPath('integrations'))}
+                  >
+                    {ticketLinkText.goToSettings}
+                  </Button>
+                )}
+              </Alert>
+            )}
           </div>
         )}
 

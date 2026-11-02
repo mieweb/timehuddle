@@ -10,6 +10,7 @@ import {
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
 import { optionalRedmineBaseUrl, redmineUrlRefusal } from './redmine-client';
+import { removeKeysAfterLeaving, removeKeysForDroppedServers } from './source-accounts';
 import {
   DEFAULT_TICKET_PREFIX,
   normalizeSourcePrefixes,
@@ -598,6 +599,12 @@ Meteor.methods({
     if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
     // Live team subscriptions republish the servers, so open ticket lists relabel.
     announceSettingsChanged();
+    // Members' keys for a server no longer listed go, and they're told.
+    const kept = new Set(entries.map((entry) => entry.host));
+    const dropped = [...known].filter((host) => host && !kept.has(host));
+    await removeKeysForDroppedServers(org.name, dropped).catch((error) =>
+      console.error('[sources] failed to remove keys for dropped servers:', error),
+    );
     return { sourcePrefixes: entries };
   },
 
@@ -778,6 +785,10 @@ Meteor.methods({
         throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
       }
     }
+    // Keys for servers only this org listed go with the membership.
+    await removeKeysAfterLeaving([userId]).catch((error) =>
+      console.error('[sources] failed to remove keys after leaving:', error),
+    );
     return { user: { userId } };
   },
 
@@ -1070,6 +1081,10 @@ Meteor.methods({
         reason: reason ?? null,
       },
     });
+    // Blocked is out: keys for servers only this org listed go.
+    await removeKeysAfterLeaving([targetUserId]).catch((error) =>
+      console.error('[sources] failed to remove keys after leaving:', error),
+    );
 
     return {
       user: {

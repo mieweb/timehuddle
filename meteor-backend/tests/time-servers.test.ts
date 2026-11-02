@@ -28,12 +28,25 @@ const DEVELOPMENT = { id: 9, name: 'Development', is_default: true, active: true
 type Row = { ticketId: string; date: string; hours: number; host?: string; blockedReason?: string | null };
 type Created = { issue_id: number; hours: number };
 
+/**
+ * What a stand-in is doing now: refusing every key, failing every send, taking
+ * another key too, or holding issue reads until `held` is answered.
+ */
+type Trouble = {
+  refuseKey: boolean;
+  failSends: boolean;
+  keys?: string[];
+  hold?: boolean;
+  held?: () => void;
+};
+
 /** A stand-in Redmine that accepts `key` and records the entries it is sent. */
 function startRedmine(
   address: string,
   key: string,
   created: Created[],
   firstEntryId = 100,
+  trouble: Trouble = { refuseKey: false, failSends: false },
 ): Promise<Server> {
   let lastEntryId = firstEntryId;
   const hours = new Map<number, number>();
@@ -43,11 +56,19 @@ function startRedmine(
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
     };
-    if (req.headers['x-redmine-api-key'] !== key) return json(401, {});
+    const sent = String(req.headers['x-redmine-api-key']);
+    const accepted = () => !trouble.refuseKey && (trouble.keys ?? [key]).includes(sent);
+    if (trouble.hold && url.pathname === '/issues/233.json') {
+      // Answered later, with whatever the key is worth by then.
+      trouble.held = () => json(accepted() ? 200 : 401, {});
+      return;
+    }
+    if (!accepted()) return json(401, {});
     let raw = '';
     req.on('data', (chunk) => (raw += chunk));
     req.on('end', () => {
       if (req.method === 'POST' && url.pathname === '/time_entries.json') {
+        if (trouble.failSends) return json(500, {});
         const entry = JSON.parse(raw).time_entry as Created;
         created.push(entry);
         hours.set(++lastEntryId, entry.hours);
@@ -114,6 +135,7 @@ function startRedmine(
 describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
   const sentToMain: Created[] = [];
   const sentToOther: Created[] = [];
+  const otherTrouble: Trouble = { refuseKey: false, failSends: false };
   let main: Server;
   let other: Server;
   let jwt: string;
@@ -142,7 +164,7 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
 
   beforeAll(async () => {
     main = await startRedmine(MAIN!, KEY.main, sentToMain);
-    other = await startRedmine(OTHER!, KEY.other, sentToOther, 200);
+    other = await startRedmine(OTHER!, KEY.other, sentToOther, 200, otherTrouble);
     await purgeUser(USER.email);
     ({ jwt, userId } = await createUserAndGetJwt(USER));
     const db = await getDb();
@@ -262,5 +284,114 @@ describe.skipIf(!MAIN || !OTHER)('time on two servers', () => {
     expect(res.result.rows).toHaveLength(1);
     expect(res.result.rows[0]).toMatchObject({ ticketId: '240', host: otherHost, hours: 0.25 });
     expect([...res.result.rows[0].runSeconds].sort()).toEqual([180, 240]);
+  });
+
+  const preview = () => wormhole<{ rows: Row[] }>('redmine.timeEntries.preview', {}, jwt);
+  const unsent = async () =>
+    (await preview()).result.rows.map(({ ticketId, host }) => ({ ticketId, host }));
+  const send = (entries: { ticketId: string; date: string; host?: string }[]) =>
+    wormhole<{ results: { ok: boolean }[] }>('redmine.timeEntries.push', { entries }, jwt);
+
+  it('sends what one server takes when the other fails, and a retry sends only the rest', async () => {
+    const db = await getDb();
+    // Clear the last test's time on 240 and its shift: sending all unsent time waits for clock-out.
+    await db.collection('timers').deleteMany({ userId, redmineIssueId: '240' });
+    await db.collection('clockevents').deleteOne({ _id: shiftId });
+    await loggedOn233(10);
+    await loggedOn233(15, otherHost);
+    sentToMain.length = 0;
+    sentToOther.length = 0;
+
+    otherTrouble.failSends = true;
+    const first = await send([
+      { ticketId: '233', date: today },
+      { ticketId: '233', date: today, host: otherHost },
+    ]);
+    otherTrouble.failSends = false;
+    expect(first.error).toBeUndefined();
+    expect(first.result.results.map((r) => r.ok)).toEqual([true, false]);
+    expect(await unsent()).toEqual([{ ticketId: '233', host: otherHost }]);
+
+    const retry = await send([{ ticketId: '233', date: today, host: otherHost }]);
+    expect(retry.result.results.map((r) => r.ok)).toEqual([true]);
+    expect(sentToMain).toHaveLength(1);
+    expect(sentToOther).toMatchObject([{ issue_id: 233, hours: 0.25 }]);
+    expect(await unsent()).toEqual([]);
+  });
+
+  it('keeps time unsent when the server refuses the key, until the member reconnects', async () => {
+    await loggedOn233(20, otherHost);
+    otherTrouble.refuseKey = true;
+    try {
+      await loggedOn233(5);
+      // The refusing server drops out on its own; the main server's time still shows.
+      const refused = await wormhole<{ rows: Row[]; refusedHosts: string[] }>(
+        'redmine.timeEntries.preview',
+        {},
+        jwt,
+      );
+      expect(refused.error).toBeUndefined();
+      expect(refused.result.refusedHosts).toEqual([otherHost]);
+      expect(refused.result.rows.map(({ ticketId, host }) => ({ ticketId, host }))).toEqual([
+        { ticketId: '233', host: undefined },
+      ]);
+      // Rejected now: not asked again, and nothing of its time is lost.
+      expect((await preview()).error).toBeUndefined();
+    } finally {
+      otherTrouble.refuseKey = false;
+    }
+    expect(await unsent()).toEqual([{ ticketId: '233', host: undefined }]);
+    expect((await wormhole('sources.connect', { server: OTHER, apiKey: KEY.other }, jwt)).ok).toBe(true);
+    expect(await unsent()).toContainEqual({ ticketId: '233', host: otherHost });
+    expect((await send([{ ticketId: '233', date: today }])).result.results[0].ok).toBe(true);
+  });
+
+  it('keeps time unsent while the member is disconnected from its server', async () => {
+    expect((await wormhole('sources.disconnect', { server: OTHER }, jwt)).ok).toBe(true);
+    expect(await unsent()).toEqual([]);
+    expect((await wormhole('sources.connect', { server: OTHER, apiKey: KEY.other }, jwt)).ok).toBe(true);
+    expect(await unsent()).toEqual([{ ticketId: '233', host: otherHost }]);
+    const sent = await send([{ ticketId: '233', date: today, host: otherHost }]);
+    expect(sent.result.results.map((r) => r.ok)).toEqual([true]);
+    expect(await unsent()).toEqual([]);
+  });
+
+  it('keeps a key connected meanwhile good when an older request with the old key is refused', async () => {
+    const db = await getDb();
+    const ticketId = new ObjectId();
+    await db.collection('tickets').insertOne({
+      _id: ticketId,
+      teamId: teamId.toHexString(),
+      title: 'read while reconnecting',
+      createdAt: new Date(),
+      linkedIssue: { source: 'redmine', id: '233', host: otherHost },
+    });
+    otherTrouble.hold = true;
+    try {
+      const reading = wormhole('tickets.outsideRecord', { ticketId: ticketId.toHexString() }, jwt);
+      await expect.poll(() => Boolean(otherTrouble.held)).toBe(true);
+      // The old key stops working, and the member connects a new one.
+      otherTrouble.keys = ['other-key-2'];
+      otherTrouble.hold = false;
+      expect((await wormhole('sources.connect', { server: OTHER, apiKey: 'other-key-2' }, jwt)).ok).toBe(true);
+      otherTrouble.held!();
+      // The old key is refused, and so is asking whose it is.
+      expect((await reading).error).toMatch(/key was rejected/);
+    } finally {
+      otherTrouble.hold = false;
+      otherTrouble.held = undefined;
+    }
+    const link = await db.collection('redmine_links').findOne({ userId, host: otherHost });
+    expect(link?.rejectedAt).toBeUndefined();
+    expect(await unsent()).toEqual([]); // still connected: asked, and nothing waiting
+    const status = await wormhole<{ servers: { host: string; connected: boolean; rejected?: boolean }[] }>(
+      'sources.list',
+      {},
+      jwt,
+    );
+    expect(status.result.servers.find((server) => server.host === otherHost)).toMatchObject({
+      connected: true,
+    });
+    expect(status.result.servers.find((server) => server.host === otherHost)?.rejected).toBeFalsy();
   });
 });

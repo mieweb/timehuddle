@@ -81,6 +81,14 @@ export const SOURCES_STRINGS = {
   keyWorks: 'Your key works.',
   disconnect: 'Disconnect',
   disconnectLabel: (host: string) => `Disconnect from ${host}`,
+  connectGithub: 'Connect GitHub',
+  githubAccess:
+    "GitHub will ask for repo access. It's GitHub's only option for private repos and also covers code; TimeHuddle reads and updates only issues and pull requests.",
+  githubOrgs:
+    "An org's private repos show once its owner approves TimeHuddle. You can request that on GitHub, under your authorized apps.",
+  githubConnected: 'GitHub connected.',
+  githubFailed: "Couldn't connect GitHub. Try again.",
+  githubNotSetUp: "GitHub isn't set up on this TimeHuddle yet. Whoever runs it can add it.",
   urlLabel: 'Server URL',
   urlPlaceholder: 'https://redmine.example.com',
   urlHelp: 'The server your API key belongs to. Test deployments only.',

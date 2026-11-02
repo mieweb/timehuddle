@@ -1,5 +1,5 @@
 /**
- * Every user-facing string in the Redmine search suggestions, in one place.
+ * Every user-facing string in the ticket search bar, in one place.
  *
  * The app has no translation library yet, so this module is the seam one will
  * plug into: components read text only from here, never inline. Anything built
@@ -16,7 +16,8 @@ export const suggestionText = {
   ticketsHeading: 'Tickets',
   inTeam: (team: string) => `In ${team}`,
   suggestedHeading: 'Suggested for you',
-  moreHeading: 'More from Redmine',
+  /** The main server's results, when its address isn't known. */
+  moreHeading: 'More issues',
   showAll: (count: number) => `Show all ${count} suggestions`,
 
   reason: {
@@ -40,25 +41,29 @@ export const suggestionText = {
   searchRowShortcuts:
     'Press Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
 
-  loadingSuggestions: 'Loading your Redmine issues…',
-  searching: 'Searching Redmine…',
+  loadingSuggestions: 'Loading your issues…',
+  pullRequest: 'Pull request',
   searchingServers: 'Searching your servers…',
   fromServer: (host: string) => `From ${host}`,
   serversFailed: (hosts: string[]) => `${hosts.join(', ')} didn't respond.`,
+  /** `sources` are names, e.g. "GitHub". */
+  serversRateLimited: (sources: string[]) =>
+    `Rate limit reached on ${sources.join(', ')}. Try again in a few minutes.`,
   noTeam: 'Select a team first.',
   carryFailed: "Couldn't make a ticket for that issue.",
-  partial: 'Some Redmine results are still unavailable.',
-  unreachable: "Redmine didn't respond.",
+  partial: 'Some results are still unavailable.',
+  unreachable: "Your server didn't respond.",
   retry: 'Try again',
-  connect: 'Connect Redmine to see your issues',
-  noSuggestions: 'No suggestions right now. Type to search Redmine.',
+  connect: 'Connect your servers in Settings to see your issues',
+  noSuggestions: 'No suggestions right now. Type to search your tickets and servers.',
 
   emptyById: (ref: string) => `No issue ${ref}, or you can't see it.`,
   emptyByRef: (ref: string) => `No tickets or issues match ${ref}.`,
   emptyByUrl: 'No tickets or issues match that link.',
   emptyByAssignee: (name: string) =>
     `No single person matches “@${name}”. Type more of their name — names work, logins don't.`,
-  emptyByText: (text: string) => `No tickets or open Redmine issues with “${text}” in the title.`,
+  emptyByText: (text: string) =>
+    `Nothing found with “${text}” in the title, in your tickets or on any of your servers.`,
 
   hidden: (id: number) => `Hidden #${id}`,
   undo: 'Undo',

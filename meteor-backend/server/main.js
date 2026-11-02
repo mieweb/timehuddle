@@ -21,6 +21,8 @@ import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
+import { requestGithubToken } from './github-client';
+import { stageGithubConnect } from './github-connect';
 import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
@@ -31,6 +33,7 @@ import './redmine-suggestions';
 import './redmine';
 import './source-accounts';
 import './source-search';
+import './github-connect';
 import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
@@ -398,9 +401,10 @@ function sendNativeAuthRedirect(res, token, resumeToken, extraParams = {}) {
 // OAuth `state` round-trips through the third-party IdP unmodified, so it's
 // the only place to smuggle context (native flag + pending team/org join
 // links) through the redirect-away-and-back flow. Encoded as base64url JSON.
-function encodeOAuthState({ isNative, join, invite, orgInvite, link } = {}) {
+function encodeOAuthState({ isNative, join, invite, orgInvite, link, connect } = {}) {
   const payload = { n: !!isNative, r: Random.secret() };
   if (link) payload.l = link;
+  if (connect) payload.c = connect;
   if (join) payload.j = join;
   if (invite) payload.i = invite;
   if (orgInvite) payload.o = orgInvite;
@@ -416,6 +420,7 @@ function decodeOAuthState(state) {
       invite: payload.i || null,
       orgInvite: payload.o || null,
       link: payload.l || null,
+      connect: payload.c || null,
     };
   } catch {
     // Legacy format (plain 'native_' prefix) — no join/invite context available.
@@ -425,6 +430,7 @@ function decodeOAuthState(state) {
       invite: null,
       orgInvite: null,
       link: null,
+      connect: null,
     };
   }
 }
@@ -450,8 +456,10 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     orgInvite: reqParams.get('org_invite'),
     // Settings → Connect GitHub: a single-use token naming the signed-in user (#725).
     link: reqParams.get('link'),
+    // Settings → Sources → Connect GitHub: a separate ask for repo access (#734).
+    connect: reqParams.get('connect'),
   });
-  const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
+  const callbackUrl = `${process.env.ROOT_URL.replace(/\/+$/, '')}/auth/github/callback`;
 
   console.log('[github-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[github-oauth] Client ID:', process.env.GITHUB_CLIENT_ID);
@@ -461,7 +469,7 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     'https://github.com/login/oauth/authorize' +
     `?client_id=${process.env.GITHUB_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
-    `&scope=user:email` +
+    `&scope=${reqParams.get('connect') ? 'repo' : 'user:email'}` +
     `&state=${credentialToken}`;
 
   res.writeHead(302, { Location: githubAuthUrl });
@@ -478,6 +486,18 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
   }
 
   try {
+    // Connect GitHub keeps a token, so it never joins sign-in's path below.
+    const { connect } = decodeOAuthState(state);
+    if (connect) {
+      const tokens = await requestGithubToken({ code });
+      const { code: confirm, error } = await stageGithubConnect(connect, tokens);
+      const frontend = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+      const params = { section: 'integrations', ...(confirm ? { github_connect: confirm } : { github_failed: error }) };
+      res.writeHead(302, { Location: `${frontend}/app/settings?${new URLSearchParams(params)}` });
+      res.end();
+      return;
+    }
+
     // Exchange code for token
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -1257,6 +1277,30 @@ Meteor.startup(async () => {
       type: 'object',
       properties: { server: { type: 'string', description: "The server's address" } },
       required: ['server'],
+    },
+  });
+
+  Wormhole.expose('sources.githubConnectToken', {
+    description: 'A single-use token that starts connecting the caller\'s GitHub repos',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.confirmGithub', {
+    description: 'Finish the GitHub connection the OAuth callback staged, as the caller',
+    inputSchema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+    },
+  });
+
+  Wormhole.expose('tickets.carryLink', {
+    description:
+      "The team's ticket displayed as a GitHub issue or pull request, created from it if there is none",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, url: { type: 'string' } },
+      required: ['teamId', 'url'],
     },
   });
 

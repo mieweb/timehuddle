@@ -3,9 +3,9 @@
  * main Redmine's suggestions, and each other connected server's issues (#734).
  *
  * The parent owns `query`, but the Tickets table no longer filters on it: all
- * results live in the dropdown. It offers Redmine issues — "Suggested for you"
- * on focus, narrowed as they type, then "More from Redmine" from a server
- * search. Above them, "Tickets" lists the tickets the query finds in any of
+ * results live in the dropdown. It offers issues — "Suggested for you" on
+ * focus, narrowed as they type, then each server's search results under its
+ * address. Above them, "Tickets" lists the tickets the query finds in any of
  * the user's teams (#736c), current team first.
  *
  * Built on downshift's `useCombobox` rather than `@mieweb/ui`'s `Autocomplete`,
@@ -28,6 +28,7 @@ import {
   useAnchoredPosition,
   useToast,
 } from '@mieweb/ui';
+import { sourceLabel } from '@timehuddle/ticket-sources';
 import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions } from 'downshift';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -115,7 +116,7 @@ const rowKey = (row: Row | null): string =>
     : row.kind === 'issue'
       ? `${row.section}:${row.issue.id}`
       : row.kind === 'source'
-        ? `source:${row.server.host}:${row.issue.id}`
+        ? `source:${row.server.host}:${row.issue.url}`
         : row.kind === 'ticket'
           ? `ticket:${row.ticket.id}`
           : row.kind;
@@ -322,12 +323,10 @@ export function TicketSearchBar({
         return null;
       }
       try {
-        const { ticket, created } = await ticketApi.carryIssue(
-          selectedTeamId,
-          String(row.issue.id),
-          row.server.host,
-        );
-        if (created) sourceSearch.noteTicket(row.server.host, row.issue.id, ticket);
+        const { ticket, created } = row.issue.ref
+          ? await ticketApi.carryLink(selectedTeamId, row.issue.url)
+          : await ticketApi.carryIssue(selectedTeamId, String(row.issue.id), row.server.host);
+        if (created) sourceSearch.noteTicket(row.server.host, row.issue.url, ticket);
         return ticket;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : text.carryFailed);
@@ -407,9 +406,15 @@ export function TicketSearchBar({
       else if (row.kind === 'issue')
         navigate(ticketDetailPath({ sourceId: 'redmine', id: String(row.issue.id) }));
       else if (row.kind === 'source') {
-        const ticket = ticketHere(row.issue) ?? row.issue.tickets[0];
-        if (ticket) navigate(ticketDetailPath({ sourceId: 'huddle', id: ticket.id }));
-        else window.open(row.issue.url, '_blank', 'noopener,noreferrer');
+        // Opening acts on its ticket, made now if the issue has none (#736), as
+        // opening a main-server issue does.
+        const existing = ticketHere(row.issue) ?? row.issue.tickets[0];
+        if (existing) navigate(ticketDetailPath({ sourceId: 'huddle', id: existing.id }));
+        else {
+          void carrierOf(row).then((ticket) => {
+            if (ticket) navigate(ticketDetailPath({ sourceId: 'huddle', id: ticket.id }));
+          });
+        }
       } else if (row.kind === 'show-all') setShowAll(true);
       else if (row.kind === 'connect') navigate(settingsPath('integrations'));
       else {
@@ -418,7 +423,15 @@ export function TicketSearchBar({
         if (search.status === 'error') retrySearch();
       }
     },
-    [navigate, ticketHere, suggestions.status, search.status, retrySuggestions, retrySearch],
+    [
+      navigate,
+      ticketHere,
+      carrierOf,
+      suggestions.status,
+      search.status,
+      retrySuggestions,
+      retrySearch,
+    ],
   );
 
   const {
@@ -494,9 +507,13 @@ export function TicketSearchBar({
   const statusMessage = (() => {
     if (suggestions.status === 'loading' && !suggestions.issues.length)
       return text.loadingSuggestions;
-    if (search.status === 'loading' && !moreResults.length) return text.searching;
-    if (trimmed && !sourceSearch.settled && !rows.length) return text.searchingServers;
-    if (suggestions.status === 'error' || search.status === 'error') return text.unreachable;
+    const mainSearching = search.status === 'loading' && !moreResults.length;
+    if (mainSearching || (trimmed && !sourceSearch.settled && !rows.length)) {
+      return text.searchingServers;
+    }
+    if (suggestions.status === 'error' || search.status === 'error') {
+      return redmineHost ? text.serversFailed([redmineHost]) : text.unreachable;
+    }
     // Nothing anywhere: said once both searches have answered, or once the
     // ticket search has when there is no Redmine to ask.
     const redmineAnswered =
@@ -521,14 +538,18 @@ export function TicketSearchBar({
   })();
 
   // Placeholders while the list is still on its way, so the panel never sits
-  // empty: rows for the first suggestions load, and a "More from Redmine"
+  // empty: rows for the first suggestions load, and the main server's
   // section while a search is out.
   const loadingSuggested = suggestions.status === 'loading' && !suggestions.issues.length;
   const loadingMore = search.status === 'loading' && !moreResults.length;
+  // The main server's results are headed like every other server's.
+  const moreHeading = redmineHost ? text.fromServer(redmineHost) : text.moreHeading;
 
   const firstTicketIndex = rows.findIndex((row) => row.kind === 'ticket');
   const firstMoreIndex = rows.findIndex((row) => row.kind === 'issue' && row.section === 'more');
   const failedServers = sourceSearch.servers.filter((server) => server.failed);
+  const downServers = failedServers.filter((server) => !server.rateLimited);
+  const limitedServers = failedServers.filter((server) => server.rateLimited);
   const firstSuggestedIndex = rows.findIndex(
     (row) => row.kind === 'issue' && row.section === 'suggested',
   );
@@ -595,9 +616,7 @@ export function TicketSearchBar({
                     {index === firstSuggestedIndex && (
                       <SectionHeading>{text.suggestedHeading}</SectionHeading>
                     )}
-                    {index === firstMoreIndex && (
-                      <SectionHeading>{text.moreHeading}</SectionHeading>
-                    )}
+                    {index === firstMoreIndex && <SectionHeading>{moreHeading}</SectionHeading>}
                     {row.kind === 'source' &&
                       rows.findIndex(
                         (other) => other.kind === 'source' && other.server.host === row.server.host,
@@ -634,8 +653,8 @@ export function TicketSearchBar({
                       ) : row.kind === 'source' ? (
                         <IssueRow
                           issue={row.issue}
-                          issueRef={`${row.server.prefix}-${row.issue.id}`}
-                          reason={null}
+                          issueRef={row.issue.ref ?? `${row.server.prefix}-${row.issue.id}`}
+                          reason={row.issue.pull ? text.pullRequest : null}
                           running={Boolean(
                             ticketHere(row.issue) &&
                             runningTicketKey === ticketKey('huddle', ticketHere(row.issue)!.id),
@@ -702,7 +721,7 @@ export function TicketSearchBar({
               )}
               {showPanel && loadingMore && (
                 <>
-                  <SectionHeading>{text.moreHeading}</SectionHeading>
+                  <SectionHeading>{moreHeading}</SectionHeading>
                   <SuggestionSkeletons count={2} />
                 </>
               )}
@@ -710,10 +729,19 @@ export function TicketSearchBar({
           </ScrollArea>
 
           <div className="redmine-suggestions-status empty:hidden" role="status" aria-live="polite">
-            {showPanel && failedServers.length > 0 && (
+            {showPanel && downServers.length > 0 && (
               <div className="redmine-suggestions-failed border-t border-border px-3 py-2">
                 <Text as="span" size="xs" variant="muted">
-                  {text.serversFailed(failedServers.map((server) => server.host))}
+                  {text.serversFailed(downServers.map((server) => server.host))}
+                </Text>
+              </div>
+            )}
+            {showPanel && limitedServers.length > 0 && (
+              <div className="redmine-suggestions-limited border-t border-border px-3 py-2">
+                <Text as="span" size="xs" variant="muted">
+                  {text.serversRateLimited(
+                    limitedServers.map((server) => sourceLabel(server.type) ?? server.host),
+                  )}
                 </Text>
               </div>
             )}

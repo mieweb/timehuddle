@@ -22,7 +22,8 @@ export function useSourceSearch(userId: string | null, query: string) {
     const current = ++seq.current;
     setServers(NONE);
     setSettled(false);
-    if (!userId || !shouldSearchServer(text)) return;
+    // With no text yet, a source may offer what's assigned to the member.
+    if (!userId || (text && !shouldSearchServer(text))) return;
     const timer = window.setTimeout(
       () => {
         sourcesApi
@@ -36,14 +37,14 @@ export function useSourceSearch(userId: string | null, query: string) {
             if (current === seq.current) setSettled(true);
           });
       },
-      isCompleteQuery(text) ? 0 : SEARCH_DEBOUNCE_MS,
+      !text || isCompleteQuery(text) ? 0 : SEARCH_DEBOUNCE_MS,
     );
     return () => window.clearTimeout(timer);
   }, [userId, query]);
 
   /** Remember the ticket an action just made, so the row acts on it from now on. */
   const noteTicket = useCallback(
-    (host: string, issueId: number, ticket: { id: string; teamId: string }) => {
+    (host: string, url: string, ticket: { id: string; teamId: string }) => {
       setServers((prev) =>
         prev.map((server) =>
           server.host !== host
@@ -51,7 +52,7 @@ export function useSourceSearch(userId: string | null, query: string) {
             : {
                 ...server,
                 issues: server.issues.map((issue) =>
-                  issue.id === issueId ? { ...issue, tickets: [...issue.tickets, ticket] } : issue,
+                  issue.url === url ? { ...issue, tickets: [...issue.tickets, ticket] } : issue,
                 ),
               },
         ),

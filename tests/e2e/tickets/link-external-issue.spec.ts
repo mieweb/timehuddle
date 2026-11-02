@@ -226,10 +226,47 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await page.goto(`/app/tickets/${result.id}`);
     // The link reads as the issue, not as a raw URL, and still goes to GitHub.
     const link = card(page).getByRole('link', { name: `Open link ${url}` });
-    await expect(link).toContainText(`#638`, { timeout: 20000 });
+    // Named in full, with its owner and repo, as GitHub writes it.
+    await expect(link).toContainText('mieweb/timehuddle#638', { timeout: 20000 });
     await expect(link).toContainText(githubTitle);
     await expect(link).toHaveAttribute('href', url);
-    await expect(card(page)).toContainText('mieweb/timehuddle');
+  });
+
+  test('says why a GitHub issue shows as a plain link: no connection, or no access', async ({
+    page,
+  }) => {
+    const url = 'https://github.com/mieweb/timehuddle/issues/9998';
+    let code = 'plain-link-connect';
+    await page.route('**/api/tickets_outsideRecord', (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: code, reason: 'Shown as a plain link.' }),
+      }),
+    );
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(`Plain for me ${Date.now()}`);
+    await page.getByLabel('Link', { exact: true }).fill(url);
+    await page.getByRole('button', { name: 'Display as timehuddle-9998' }).click();
+    const created = page.waitForResponse('**/api/tickets_create');
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    const { result } = (await (await created).json()) as { result: { id: string } };
+
+    await page.goto(`/app/tickets/${result.id}`);
+    await expect(card(page)).toContainText('Connect GitHub in Settings', { timeout: 20000 });
+    // It goes by its GitHub ID, beside its own.
+    await expect(page.locator('.ticket-outside-id')).toHaveText('timehuddle-9998');
+    await expect(page.locator('.ticket-id')).toContainText(/[A-Z][A-Z0-9]*-\d+|#\w{5}/);
+    await expect(card(page).getByRole('button', { name: 'Go to Settings' })).toBeVisible();
+
+    code = 'plain-link';
+    await page.reload();
+    await expect(card(page)).toContainText("Your GitHub account can't open this issue", {
+      timeout: 20000,
+    });
+    await expect(card(page).getByRole('button', { name: 'Go to Settings' })).toHaveCount(0);
   });
 
   test('says what happens to logged time before the link is removed', async ({ page }) => {

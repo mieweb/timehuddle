@@ -240,4 +240,40 @@ describe.skipIf(!MAIN || !OTHER || !FLAKY)('searching every connected server', (
     const res = await search('233');
     expect(answerOf(res, flakyHost)).toBeUndefined();
   });
+
+  it('stops listing and searching a server its org no longer registers', async () => {
+    const db = await getDb();
+    await db
+      .collection('organizations')
+      .updateOne({ _id: orgId }, { $pull: { sourcePrefixes: { host: otherHost } } as never });
+    try {
+      const listed = await wormhole<{ servers: { host: string }[] }>('sources.list', {}, jwt);
+      expect(listed.result.servers.map((server) => server.host)).not.toContain(otherHost);
+      expect(answerOf(await search('233'), otherHost)).toBeUndefined();
+      // Reconnecting is refused too.
+      const again = await wormhole('sources.connect', { server: OTHER, apiKey: KEY.other }, jwt);
+      expect(again.ok).toBe(false);
+    } finally {
+      await db.collection('organizations').updateOne(
+        { _id: orgId },
+        { $push: { sourcePrefixes: { host: otherHost, prefix: 'OT', type: 'redmine', baseUrl: OTHER } } as never },
+      );
+    }
+  });
+
+  it("follows the member's membership: out of the team, none of its servers are listed or asked", async () => {
+    const db = await getDb();
+    await db.collection('teams').updateOne({ _id: teamId }, { $pull: { members: userId, admins: userId } as never });
+    try {
+      const listed = await wormhole<{ servers: { host: string }[] }>('sources.list', {}, jwt);
+      expect(listed.result.servers.map((server) => server.host)).not.toContain(otherHost);
+      expect(answerOf(await search('233'), otherHost)).toBeUndefined();
+      // The team's tickets are closed to them, so are the issues behind them.
+      const ticket = await db.collection('tickets').findOne({ teamId: team, 'linkedIssue.host': otherHost });
+      const read = await wormhole('tickets.outsideRecord', { ticketId: ticket!._id.toHexString() }, jwt);
+      expect(read.ok).toBe(false);
+    } finally {
+      await db.collection('teams').updateOne({ _id: teamId }, { $set: { members: [userId], admins: [userId] } });
+    }
+  });
 });
