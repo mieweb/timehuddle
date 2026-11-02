@@ -43,6 +43,22 @@ describe('VideoNameDialog', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it.each([
+    ['Cancel', () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))],
+    ['Escape', () => fireEvent.keyDown(field(), { key: 'Escape' })],
+    ['Save', () => fireEvent.click(screen.getByRole('button', { name: 'Save' }))],
+  ])('returns focus to the ⋯ that opened it, on %s', async (_, close) => {
+    render(<VideoMenu video={VIDEO} name="Standup" label="Standup" renamable />);
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    field().focus();
+    fireEvent.change(field(), { target: { value: 'Morning standup' } });
+    await act(async () => close());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
   it('adds a name to a video without one', () => {
     render(<VideoNameDialog video={VIDEO} name={null} open onOpenChange={() => {}} />);
     expect(screen.getByRole('dialog').textContent).toContain('Add a name');

@@ -17,7 +17,7 @@ import {
   PencilIcon,
   TrashIcon,
 } from '@mieweb/ui';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { useCopyLink } from '@lib/useCopyLink';
 import { useEscapeOnTop } from '@lib/useEscapeWithin';
@@ -87,6 +87,14 @@ export function VideoMenu({
   // Controlled: the library's menu doesn't close when an item is chosen.
   const [menuOpen, setMenuOpen] = useState(false);
   const [naming, setNaming] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // The library's Modal doesn't hand focus back as it closes: the rename,
+  // saved or left, returns it to the ⋯, so it isn't left on the body (and Tab
+  // into the page under an open feed).
+  const setNamingOpen = (open: boolean) => {
+    setNaming(open);
+    if (!open) triggerRef.current?.focus();
+  };
   // Open, it's the top layer: Escape, on its ⋯ or in its menu (on the body),
   // closes only the menu, not a feed or window under it.
   useEscapeOnTop(() => setMenuOpen(false), menuOpen);
@@ -104,6 +112,7 @@ export function VideoMenu({
           // The library's Button sets its icon inline on a text line, 1.3px
           // low; CORNER_BUTTON makes it a block, dead centre.
           <Button
+            ref={triggerRef}
             variant="ghost"
             size="icon"
             aria-label={VIDEO_MENU_COPY.more(label)}
@@ -151,7 +160,7 @@ export function VideoMenu({
           video={video}
           name={name}
           open={naming}
-          onOpenChange={setNaming}
+          onOpenChange={setNamingOpen}
           onRenamed={onRenamed}
         />
       )}
