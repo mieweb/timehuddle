@@ -70,6 +70,15 @@ export function videoNameOf(title, videoId) {
 }
 
 /**
+ * The name a listed media item shows for its video: the one in `names`
+ * (videoNamesFor, the CANONICAL_ITEM's), so a duplicate row from old data
+ * shows what a rename named the video, not its own stale title; else its own.
+ */
+export function listedVideoName(item, names) {
+  return names.has(item.videoid) ? names.get(item.videoid).name : videoNameOf(item.title, item.videoid);
+}
+
+/**
  * Whether `userId` may name a video: its media item's owner, or — for a video
  * from before every video had a media item — whoever PulseVault's own record
  * says uploaded it (`uploadedByUser`), never someone who only attached it.

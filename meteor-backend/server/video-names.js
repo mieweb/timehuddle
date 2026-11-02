@@ -24,6 +24,7 @@ import {
 export {
   CANONICAL_ITEM,
   cleanVideoName,
+  listedVideoName,
   mayRenameVideo,
   videoNameOf,
   VIDEO_NAME_MAX,

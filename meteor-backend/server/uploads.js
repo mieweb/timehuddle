@@ -5,7 +5,7 @@ import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The origin-aware videoIdOf: a legacy post's full URL on this backend counts.
-import { cleanVideoName, videoIdOf, videoNameOf } from './video-names.js';
+import { cleanVideoName, listedVideoName, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
@@ -609,7 +609,17 @@ WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
 
 import { Meteor } from 'meteor/meteor';
 
-function toPublicMediaItem(m) {
+/** Listed media items as the API returns them, each video under its one name. */
+async function toPublicMediaItems(docs) {
+  const names = await videoNamesFor(docs.map((m) => (m.type === 'video' ? m.videoid : null)));
+  return docs.map((m) => toPublicMediaItem(m, names));
+}
+
+/**
+ * A media item as the API returns it. `names` (videoNamesFor) holds its
+ * video's one name, where old data has more than one row for that video.
+ */
+function toPublicMediaItem(m, names = new Map()) {
   return {
     id: m._id.toHexString ? m._id.toHexString() : String(m._id),
     userId: m.userId,
@@ -620,7 +630,7 @@ function toPublicMediaItem(m) {
     filename: m.filename,
     size: m.size,
     // A video's title is its name (video-names.js): the old placeholder reads as none.
-    title: m.type === 'video' ? videoNameOf(m.title, m.videoid) : (m.title ?? null),
+    title: m.type === 'video' ? listedVideoName(m, names) : (m.title ?? null),
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
@@ -640,7 +650,7 @@ Meteor.methods({
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await toPublicMediaItems(docs) };
   },
 
   async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
@@ -656,7 +666,7 @@ Meteor.methods({
       .sort({ uploadedAt: -1 })
       .limit(safeLimit)
       .toArray();
-    return { items: docs.map(toPublicMediaItem) };
+    return { items: await toPublicMediaItems(docs) };
   },
 
   async 'media.update'({ mediaId, title, caption, altText } = {}) {

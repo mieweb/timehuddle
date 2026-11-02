@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   cleanVideoName,
+  listedVideoName,
   mayRenameVideo,
   publicVideoInfo,
   VIDEO_NAME_MAX,
@@ -146,5 +147,19 @@ describe('videoSizeOf', () => {
   it('is null while the length is unknown, never the bytes so far', () => {
     expect(videoSizeOf({ state: 'uploading', bytesReceived: 4_000_000 })).toBeNull();
     expect(videoSizeOf(null)).toBeNull();
+  });
+});
+
+describe('listedVideoName', () => {
+  it("shows the video's one name, not a duplicate row's own stale title", () => {
+    const duplicate = { videoid: ID, title: 'Old name' };
+    expect(listedVideoName(duplicate, new Map([[ID, { name: 'Renamed' }]]))).toBe('Renamed');
+    // A rename that cleared the name clears it here too.
+    expect(listedVideoName(duplicate, new Map([[ID, { name: null }]]))).toBeNull();
+  });
+
+  it("reads the row's own title when no lookup has the video", () => {
+    expect(listedVideoName({ videoid: ID, title: 'Standup' }, new Map())).toBe('Standup');
+    expect(listedVideoName({ videoid: ID, title: 'Video 0b7e7c1e' }, new Map())).toBeNull();
   });
 });
