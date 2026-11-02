@@ -114,7 +114,7 @@
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.1",
-    "@capacitor/assets": "^3.0.5",
+    "@capacitor/assets": "^4.0.0",
     "@capacitor/cli": "^8.5.1",
     "@capacitor/ios": "^8.5.1",
     "@eslint/js": "^9.35.0",
@@ -166,6 +166,9 @@
     "prosemirror-view": "1.42.3",
     "serve": {
       "compression": "^1.8.2"
+    },
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "6.1.5"
     }
   },
   "lint-staged": {
