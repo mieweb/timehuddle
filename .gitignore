@@ -53,7 +53,7 @@ current.md
 pollenate-test-*.png
 
 # Meteor build output and local packages
-meteor-backend/prod-build/
+meteor-backend/prod-build*/
 meteor-backend/packages/
 meteor-backend/.meteor/local/
 meteor-backend/.meteor/local-test/

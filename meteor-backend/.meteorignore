@@ -3,7 +3,7 @@ uploads/
 data/
 
 # Generated bundles and crash dumps are not application source.
-prod-build/
+prod-build*/
 core.*
 
 # Test configuration files
