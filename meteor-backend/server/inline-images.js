@@ -14,7 +14,7 @@
 import { Meteor } from 'meteor/meteor';
 import fsp from 'fs/promises';
 import { rawDb } from './collections';
-import { MEDIA_DIR, discardMedia, storeMedia } from './uploads';
+import { MEDIA_DIR, discardMedia, discardUnusedMedia, storeMedia } from './uploads';
 import { isInsideMeteorBuild } from './storage-paths';
 import { uploadUrlsIn } from './media-library-core.js';
 
@@ -80,31 +80,24 @@ export async function externalizeInlineImages(text, userId) {
   };
 }
 
-/** Remove embedded media no longer referenced by any post. */
+/**
+ * Embedded media a post's old `text` showed, marked to be deleted with their
+ * files once nothing uses them (discardUnusedMedia, uploadUseQueries: a
+ * post's text or attachments, an attachment, a ticket description). The sweep
+ * deletes them after the grace period if they're still unused, so a post
+ * saved meanwhile that shows one keeps it.
+ */
 export async function discardUnreferencedInlineImages(text) {
   if (typeof text !== 'string') return;
   const urls = uploadUrlsIn(text);
   if (urls.length === 0) return;
 
   try {
-    const db = rawDb();
-    const posts = db.collection('huddlePosts');
-    const candidates = await db
+    const candidates = await rawDb()
       .collection('mediaitems')
-      .find({ embedded: true, url: { $in: urls } })
+      .find({ embedded: true, url: { $in: urls } }, { projection: { url: 1 } })
       .toArray();
-    const unreferenced = [];
-
-    for (const media of candidates) {
-      const escapedUrl = media.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const reference = await posts.findOne(
-        { 'content.text': { $regex: escapedUrl } },
-        { projection: { _id: 1 } },
-      );
-      if (!reference) unreferenced.push(media);
-    }
-
-    await discardMedia(unreferenced);
+    await discardUnusedMedia(candidates);
   } catch (err) {
     console.error('[inline-images] failed to clean up unreferenced media:', err);
   }

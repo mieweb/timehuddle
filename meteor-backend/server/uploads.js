@@ -7,7 +7,7 @@ import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 // The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, mediaRefsOf, uploadUrlsIn } from './media-library-core.js';
-import { keepForReference } from './post-attachments-core.js';
+import { keepForReference, markUnusedUploads, uploadUseQueries } from './post-attachments-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -449,6 +449,27 @@ export function removeMediaFile(doc) {
 export async function keepReferencedUploads(texts) {
   const kept = keepForReference(texts);
   if (kept) await rawDb().collection('mediaitems').updateMany(kept.filter, kept.update);
+}
+
+/** Whether anything still uses this media item (uploadUseQueries). */
+export async function isUploadInUse(item) {
+  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+    if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
+  }
+  return false;
+}
+
+/**
+ * Mark the media `items` (`_id` and `url`) nothing uses to be deleted with
+ * their files once the grace period is over (markUnusedUploads); the sweep
+ * (huddle.js sweepUnusedUploads) deletes them then if they're still unused.
+ */
+export async function discardUnusedMedia(items) {
+  const media = rawDb().collection('mediaitems');
+  await markUnusedUploads(items, new Date(), {
+    isUsed: isUploadInUse,
+    mark: (ids, update) => media.updateMany({ _id: { $in: ids } }, update),
+  });
 }
 
 /** Undo storeMedia for documents nothing ended up referencing. */

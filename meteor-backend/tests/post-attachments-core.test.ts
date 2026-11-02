@@ -12,6 +12,7 @@ import {
   dueDiscards,
   keepForPost,
   keepForReference,
+  markUnusedUploads,
   sweepDiscardedUploads,
   uploadUseQueries,
 } from '../server/post-attachments-core';
@@ -262,6 +263,83 @@ describe('discarding an upload a post dropped', () => {
       expect(media.byId.has(MINE._id)).toBe(true);
       expect(media.removedFiles).toEqual([]);
     }
+  });
+});
+
+describe('discarding an inline image a post dropped from its text', () => {
+  const NOW = new Date('2026-11-02T12:00:00Z');
+  const IMAGE = { _id: 'c'.repeat(24), userId: ME, filename: 'pasted.png', url: '/uploads/media/pasted.png' };
+  type Row = typeof IMAGE & { discardAt?: Date };
+
+  /** Posts' text in memory, and the media rows; isUsed asks uploadUseQueries' text match. */
+  function world(texts: string[]) {
+    const rows = new Map<string, Row>([[IMAGE._id, { ...IMAGE }]]);
+    const removedFiles: string[] = [];
+    const isUsed = async (item: Row) => {
+      const posts = uploadUseQueries({ mediaId: item._id, url: item.url }).find((q) => q.collection === 'huddlePosts')!
+        .filter as { $or: Record<string, unknown>[] };
+      const text = posts.$or.find((c) => 'content.text' in c)!['content.text'] as { $regex: string };
+      return texts.some((t) => new RegExp(text.$regex).test(t));
+    };
+    const mark = async (ids: string[], update: { $set: { discardAt: Date } }) => {
+      for (const id of ids) Object.assign(rows.get(id)!, update.$set);
+    };
+    const sweepDeps = {
+      isUsed,
+      keep: async () => {},
+      deleteRow: async (filter: { _id: string; discardAt: { $lte: Date } }) => {
+        const row = rows.get(filter._id);
+        if (!row?.discardAt || row.discardAt > filter.discardAt.$lte) return 0;
+        rows.delete(filter._id);
+        return 1;
+      },
+      removeFile: async (item: Row) => {
+        removedFiles.push(item.filename);
+      },
+    };
+    return { rows, removedFiles, isUsed, mark, sweepDeps };
+  }
+
+  it('marks an image no post shows any more, and deletes nothing itself', async () => {
+    const w = world(['Plan without the screenshot']);
+    await markUnusedUploads([IMAGE], NOW, { isUsed: w.isUsed, mark: w.mark });
+    expect(w.rows.get(IMAGE._id)?.discardAt).toEqual(new Date(NOW.getTime() + DISCARD_GRACE_MS));
+    expect(w.removedFiles).toEqual([]);
+  });
+
+  it("leaves an image another post's text still shows unmarked", async () => {
+    const w = world([`Wrap-up ![shot](http://localhost:3100${IMAGE.url})`]);
+    await markUnusedUploads([IMAGE], NOW, { isUsed: w.isUsed, mark: w.mark });
+    expect(w.rows.get(IMAGE._id)?.discardAt).toBeUndefined();
+  });
+
+  it('keeps the file of an image a post showed between the sweep reading it and deleting it', async () => {
+    const w = world([]);
+    await markUnusedUploads([IMAGE], NOW, { isUsed: w.isUsed, mark: w.mark });
+    const due = new Date(NOW.getTime() + DISCARD_GRACE_MS);
+    const item = { ...w.rows.get(IMAGE._id)! };
+    await sweepDiscardedUploads([item], due, {
+      ...w.sweepDeps,
+      // The sweep found nothing showing it; then a post's text took it before the delete.
+      isUsed: async () => {
+        const kept = keepForReference([`Again ![shot](${IMAGE.url})`])!;
+        for (const row of w.rows.values()) if (kept.filter.url.$in.includes(row.url)) delete row.discardAt;
+        return false;
+      },
+    });
+    expect(w.rows.has(IMAGE._id)).toBe(true);
+    expect(w.removedFiles).toEqual([]);
+  });
+
+  it('deletes it, file and all, once its grace period is over and nothing shows it', async () => {
+    const w = world([]);
+    await markUnusedUploads([IMAGE], NOW, { isUsed: w.isUsed, mark: w.mark });
+    const item = { ...w.rows.get(IMAGE._id)! };
+    await sweepDiscardedUploads([item], NOW, w.sweepDeps);
+    expect(w.rows.has(IMAGE._id)).toBe(true);
+    await sweepDiscardedUploads([item], new Date(NOW.getTime() + DISCARD_GRACE_MS), w.sweepDeps);
+    expect(w.rows.has(IMAGE._id)).toBe(false);
+    expect(w.removedFiles).toEqual(['pasted.png']);
   });
 });
 

@@ -210,11 +210,11 @@ describe('huddle post authoring over REST', () => {
       authorJwt,
     );
     expect(updated.ok).toBe(true);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
-    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
+    // Marked for the sweep, which deletes it once the grace period is over.
+    expect((await db.collection('mediaitems').findOne({ url }))?.discardAt).toBeInstanceOf(Date);
   });
 
-  it('keeps embedded media while another post references it, then removes it on delete', async () => {
+  it('keeps embedded media while another post references it, then marks it to go on delete', async () => {
     const created = await wormhole<{ id: string }>(
       'huddle.createPost',
       {
@@ -244,7 +244,9 @@ describe('huddle post authoring over REST', () => {
       authorJwt,
     );
     expect(updated.ok).toBe(true);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeTruthy();
+    const kept = await db.collection('mediaitems').findOne({ url });
+    expect(kept).toBeTruthy();
+    expect(kept!.discardAt).toBeUndefined();
 
     const backup = {
       _id: new ObjectId(reference.result.id),
@@ -253,9 +255,8 @@ describe('huddle post authoring over REST', () => {
     };
     await db.collection('inlineImageBackups').insertOne(backup);
     await deletePostViaDdp(reference.result.id);
-    expect(await db.collection('mediaitems').findOne({ url })).toBeNull();
+    expect((await db.collection('mediaitems').findOne({ url }))?.discardAt).toBeInstanceOf(Date);
     expect(await db.collection('inlineImageBackups').findOne({ _id: backup._id })).toBeNull();
-    expect((await fetch(`${METEOR_URL}${url}`)).status).toBe(404);
   });
 
   it('stores each supported format, keeps the text around it, and leaves the rest inline', async () => {

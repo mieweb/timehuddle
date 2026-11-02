@@ -5,7 +5,7 @@ import { resolveSince } from './huddle-window-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
-import { discardMedia, removeMediaFile } from './uploads';
+import { discardMedia, discardUnusedMedia, isUploadInUse, keepReferencedUploads, removeMediaFile } from './uploads';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
 import { GROUP_MENTIONS, deliverScheduledPost, huddlePostUrl, notifyPostRecipients } from './huddle-delivery';
@@ -22,11 +22,9 @@ import { videoIdOf, videoNamesFor } from './video-names.js';
 import {
   AttachmentError,
   cleanPostAttachments,
-  discardMark,
   dueDiscards,
   keepForPost,
   sweepDiscardedUploads,
-  uploadUseQueries,
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 
@@ -541,14 +539,6 @@ export async function requireTeamMember(userId, teamId) {
   return team;
 }
 
-/** Whether anything still uses this media item (uploadUseQueries). */
-async function isUploadInUse(item) {
-  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
-    if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
-  }
-  return false;
-}
-
 /**
  * Uploads a post no longer carries (it was deleted, or an edit took them off),
  * marked to be deleted with their files (discardMark) when they're the
@@ -566,15 +556,11 @@ async function discardUnusedUploads(attachments, authorId) {
       .map((att) => att?.mediaId)
       .filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id));
     if (ids.length === 0) return;
-    const media = rawDb().collection('mediaitems');
-    const items = await media
+    const items = await rawDb()
+      .collection('mediaitems')
       .find({ _id: { $in: ids.map((id) => new ObjectId(id)) }, userId: authorId }, { projection: { url: 1 } })
       .toArray();
-    const unused = [];
-    for (const item of items) {
-      if (!(await isUploadInUse(item))) unused.push(item._id);
-    }
-    if (unused.length) await media.updateMany({ _id: { $in: unused } }, discardMark(new Date()));
+    await discardUnusedMedia(items);
   } catch (err) {
     console.error('[huddle] failed to clean up a post\'s unused uploads:', err);
   }
@@ -698,6 +684,8 @@ export async function createHuddlePost(
   }
   
   const { text, media } = await externalizeInlineImages(content.text, userId);
+  // An upload or image a post dropped, waiting to be deleted, stays for this text.
+  await keepReferencedUploads([text]);
   const doc = {
     _id: new ObjectId(),
     teamId,
@@ -1058,6 +1046,8 @@ Meteor.methods({
         : await checkedAttachments(identity.userId, attachments, post.attachments ?? []);
 
     const { text, media } = await externalizeInlineImages(content.text, identity.userId);
+    // An upload or image a post dropped, waiting to be deleted, stays for this text.
+    await keepReferencedUploads([text]);
     let replacedPost;
     try {
       replacedPost = await rawDb().collection('huddlePosts').findOneAndUpdate(

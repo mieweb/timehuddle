@@ -130,6 +130,18 @@ export function discardMark(now) {
   return { $set: { discardAt: new Date(now.getTime() + DISCARD_GRACE_MS) } };
 }
 
+/**
+ * Mark the `items` nothing uses (`isUsed(item)` runs uploadUseQueries) to go
+ * once the grace period from `now` is over: `mark(ids, update)` applies
+ * discardMark to their ids. Deletes nothing itself; sweepDiscardedUploads
+ * does, once they're due and still unused.
+ */
+export async function markUnusedUploads(items, now, { isUsed, mark }) {
+  const unused = [];
+  for (const item of items) if (!(await isUsed(item))) unused.push(item._id);
+  if (unused.length) await mark(unused, discardMark(now));
+}
+
 /** The uploads whose grace period is over, for the sweep. */
 export function dueDiscards(now) {
   return { discardAt: { $lte: now } };
