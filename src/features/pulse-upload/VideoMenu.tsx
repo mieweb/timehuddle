@@ -95,11 +95,18 @@ export function VideoMenu({
     setNaming(open);
     if (!open) triggerRef.current?.focus();
   };
+  // Closing by a choice or Escape hands focus back to the ⋯: the focused item
+  // goes with the menu, which would leave it on the body. (A click elsewhere
+  // closes it through onOpenChange, leaving focus where that click put it.)
+  const closeMenu = () => {
+    setMenuOpen(false);
+    triggerRef.current?.focus();
+  };
   // Open, it's the top layer: Escape, on its ⋯ or in its menu (on the body),
   // closes only the menu, not a feed or window under it.
-  useEscapeOnTop(() => setMenuOpen(false), menuOpen);
+  useEscapeOnTop(closeMenu, menuOpen);
   const choose = (action: () => void) => () => {
-    setMenuOpen(false);
+    closeMenu();
     action();
   };
   return (

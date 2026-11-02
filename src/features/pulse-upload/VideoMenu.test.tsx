@@ -33,6 +33,24 @@ describe('VideoMenu', () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/watch/${VIDEO}`);
   });
 
+  it('returns focus to the ⋯ as its menu closes, by a choice or by Escape', async () => {
+    render(<VideoMenu video={VIDEO} name="Standup" label="Standup" />);
+    const trigger = screen.getByRole('button', { name: 'More for Standup' });
+    open();
+    const copy = screen.getByRole('menuitem', { name: 'Copy link' });
+    copy.focus();
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(document.activeElement).toBe(trigger);
+
+    open();
+    screen.getByRole('menuitem', { name: 'Copy link' }).focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: 'Copy link' })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('offers Rename to its owner and Remove where the host allows it', () => {
     render(
       <VideoMenu video={VIDEO} name="Standup" label="Standup" renamable onRemove={() => {}} />,
