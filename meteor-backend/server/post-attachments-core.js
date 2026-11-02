@@ -45,7 +45,7 @@ export class AttachmentError extends Error {}
  * `attachments` as a post stores them, each checked (`null` is none: an edit
  * that clears the list, which then cleans up after it as `[]` does):
  * - one the post already carries (`existing`, kept as it is by an edit);
- * - a Pulse video (`pulseVideoOf(url)` is its id);
+ * - a Pulse video (`pulseVideoOf(url)` is its id, and its `mediaId`);
  * - else the poster's (`userId`) own upload: its media item (`mediaById`, by
  *   id) belongs to them and is at that URL. It's stored with the item's URL,
  *   type, name and size.
@@ -62,7 +62,9 @@ export function cleanPostAttachments({ attachments, userId, mediaById, pulseVide
     const video = pulseVideoOf(att.url);
     if (video) {
       return {
-        mediaId: String(att.mediaId ?? video),
+        // Its own id, never the client's: another user's item id here would
+        // read as that item carried by a post, hiding it from its owner.
+        mediaId: video,
         type: 'video',
         url: `/pulsevault/artifacts/${video}`,
         ...(typeof att.filename === 'string' ? { filename: att.filename } : {}),
@@ -95,7 +97,8 @@ const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * from the attachments.
  */
 export function uploadUseQueries({ mediaId, url }) {
-  const atUrl = new RegExp(`${literally(url)}$`);
+  // A query or fragment (`#page=2`) is the same upload.
+  const atUrl = new RegExp(`${literally(url)}(?:[?#].*)?$`);
   return [
     {
       collection: 'huddlePosts',

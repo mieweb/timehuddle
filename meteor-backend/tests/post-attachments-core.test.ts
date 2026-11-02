@@ -44,6 +44,13 @@ describe('cleanPostAttachments', () => {
     expect(dropped).not.toHaveProperty('width');
   });
 
+  it("keys a Pulse video by its own id, never a media id the client sent", () => {
+    // Someone else's photo id paired with a Pulse URL would hide that photo
+    // from its owner's library, as an item another post carries.
+    const [video] = clean([{ mediaId: THEIRS._id, type: 'video', url: `/pulsevault/artifacts/${VIDEO}` }]);
+    expect(video.mediaId).toBe(VIDEO);
+  });
+
   it('takes a Pulse video, whoever uploaded it', () => {
     expect(clean([{ mediaId: VIDEO, type: 'video', url: `/pulsevault/artifacts/${VIDEO}`, filename: 'Demo' }])).toEqual([
       { mediaId: VIDEO, type: 'video', url: `/pulsevault/artifacts/${VIDEO}`, filename: 'Demo' },
@@ -97,5 +104,12 @@ describe('uploadUseQueries', () => {
     const attachments = queryOn('attachments') as { url: RegExp };
     expect(matches(attachments.url, `http://localhost:3100${MINE.url}`)).toBe(true);
     expect(matches(attachments.url, `${MINE.url}.bak`)).toBe(false);
+  });
+
+  it('counts its URL with a query or fragment as the same upload', () => {
+    const attachments = queryOn('attachments') as { url: RegExp };
+    expect(matches(attachments.url, `${MINE.url}#page=2`)).toBe(true);
+    expect(matches(attachments.url, `${MINE.url}?download=1`)).toBe(true);
+    expect(matches(attachments.url, `${MINE.url}x?download=1`)).toBe(false);
   });
 });
