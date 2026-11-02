@@ -64,6 +64,24 @@ describe('VideoFeedView', () => {
     expect(screen.getByRole('dialog', { name: 'Videos' })).toBeTruthy();
   });
 
+  it.each([
+    ['its ⋯', () => screen.getByRole('button', { name: 'More for Standup' })],
+    ['an item of its menu', () => screen.getByRole('menuitem', { name: 'Copy link' })],
+  ])('closes only an open ⋯ menu on Escape from %s, not a window under the feed', (_, target) => {
+    const underneath = vi.fn();
+    document.addEventListener('keydown', underneath);
+    render(
+      <VideoFeedView videos={[{ id: FIRST, name: 'Standup' }]} openId={FIRST} onClose={() => {}} />,
+    );
+    const more = screen.getByRole('button', { name: 'More for Standup' });
+    fireEvent.click(more);
+    fireEvent.keyDown(target(), { key: 'Escape' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByRole('dialog', { name: 'Videos' })).toBeTruthy();
+    expect(underneath).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', underneath);
+  });
+
   it('closes on Escape without it reaching a window under it', () => {
     const underneath = vi.fn();
     document.addEventListener('keydown', underneath);

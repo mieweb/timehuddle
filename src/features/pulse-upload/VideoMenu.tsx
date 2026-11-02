@@ -20,6 +20,7 @@ import {
 import React, { useState } from 'react';
 
 import { useCopyLink } from '@lib/useCopyLink';
+import { useEscapeOnTop } from '@lib/useEscapeWithin';
 import { watchPath } from './artifact';
 import { VideoNameDialog } from './VideoNameDialog';
 
@@ -86,6 +87,9 @@ export function VideoMenu({
   // Controlled: the library's menu doesn't close when an item is chosen.
   const [menuOpen, setMenuOpen] = useState(false);
   const [naming, setNaming] = useState(false);
+  // Open, it's the top layer: Escape, on its ⋯ or in its menu (on the body),
+  // closes only the menu, not a feed or window under it.
+  useEscapeOnTop(() => setMenuOpen(false), menuOpen);
   const choose = (action: () => void) => () => {
     setMenuOpen(false);
     action();
