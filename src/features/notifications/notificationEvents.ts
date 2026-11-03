@@ -3,7 +3,7 @@ import { notificationApi } from '../../lib/api';
 /**
  * Window event fired when a notification is marked read outside the
  * Notifications page (tapping its pop-up), so an open inbox can update the row.
- * `detail` is `{ id }`.
+ * `detail` is `{ id, readAt }`, where `readAt` is the time the server saved.
  */
 export const NOTIFICATION_READ_EVENT = 'timehuddle:notificationRead';
 
@@ -21,7 +21,9 @@ export function markTappedNotificationRead(data: { notificationId?: unknown; typ
   notificationApi
     .markOneRead(id)
     // An open Notifications page only hears about new rows; tell it this one is read.
-    .then(() => window.dispatchEvent(new CustomEvent(NOTIFICATION_READ_EVENT, { detail: { id } })))
+    .then(({ readAt }) =>
+      window.dispatchEvent(new CustomEvent(NOTIFICATION_READ_EVENT, { detail: { id, readAt } })),
+    )
     .catch((err) =>
       console.error('[notifications] marking the tapped notification read failed:', err),
     );

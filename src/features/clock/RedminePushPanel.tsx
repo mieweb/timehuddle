@@ -27,7 +27,6 @@ import {
   Card,
   CardContent,
   Input,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -36,6 +35,7 @@ import {
   Select,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
@@ -225,7 +225,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
         </div>
       </CardContent>
 
-      <Modal open={open} onOpenChange={(next) => (next ? setOpen(true) : closeModal())} size="lg">
+      <AppModal
+        open={open}
+        onOpenChange={(next) => (next ? setOpen(true) : closeModal())}
+        size="lg"
+      >
         <ModalHeader>
           <ModalTitle>{results ? 'Sent to Redmine' : 'Send work entries to Redmine'}</ModalTitle>
           <ModalClose />
@@ -435,7 +439,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
             </ButtonGroup>
           )}
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </Card>
   );
 };

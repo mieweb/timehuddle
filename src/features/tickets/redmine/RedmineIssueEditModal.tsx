@@ -11,7 +11,6 @@ import {
   Alert,
   AlertDescription,
   Button,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -22,6 +21,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { redmineApi, type RedmineFormOptions, type RedmineIssueDetail } from '../../../lib/api';
@@ -145,7 +145,7 @@ export function RedmineIssueEditModal({ issueId, onClose, onSaved }: RedmineIssu
   }));
 
   return (
-    <Modal open={issueId != null} onOpenChange={(open) => !open && onClose()} size="lg">
+    <AppModal open={issueId != null} onOpenChange={(open) => !open && onClose()} size="lg">
       <ModalHeader>
         <ModalTitle>{issue ? `Edit Redmine issue #${issue.id}` : 'Edit Redmine issue'}</ModalTitle>
         <ModalClose />
@@ -246,6 +246,6 @@ export function RedmineIssueEditModal({ issueId, onClose, onSaved }: RedmineIssu
           {saving ? 'Saving…' : 'Save to Redmine'}
         </Button>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 }

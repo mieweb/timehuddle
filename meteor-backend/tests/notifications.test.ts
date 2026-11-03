@@ -1,7 +1,7 @@
 /**
  * Notifications — wormhole REST integration tests.
  *
- * Focus: notifications.testPush
+ * Focus: notifications.testPush, and the read time saved on first read (#804)
  * Tests push notification creation and delivery.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -11,6 +11,7 @@ import {
   getDb,
   closeDb,
   purgeUser,
+  ObjectId,
 } from './helpers';
 
 const TEST_USER = { name: 'Push Test User', email: 'wh-push@test.dev', password: 'Password1!' };
@@ -124,5 +125,65 @@ describe('notifications.testPush', () => {
       title: 'Test Push',
     });
     expect(count).toBe(2);
+  });
+});
+
+// ─── Read time (#804) ─────────────────────────────────────────────────────────
+
+describe('notification read time', () => {
+  const FIRST_READ = new Date('2026-11-01T16:49:00.000Z');
+
+  // Inserts rows for the test user, cleared before each test that uses them.
+  async function seed(rows: Array<{ title: string; read: boolean; readAt?: Date }>) {
+    const db = await getDb();
+    await db.collection('notifications').deleteMany({ userId, 'data.type': 'read-time-test' });
+    const docs = rows.map((r) => ({
+      ...r,
+      _id: new ObjectId(),
+      userId,
+      body: '',
+      data: { type: 'read-time-test' },
+      createdAt: new Date(),
+    }));
+    await db.collection('notifications').insertMany(docs);
+    return docs.map((d) => String(d._id));
+  }
+  const readAtOf = async (id: string) =>
+    (await (await getDb()).collection('notifications').findOne({ _id: new ObjectId(id) }))!.readAt;
+
+  it('markOneRead saves the first read time and keeps it when opened again', async () => {
+    const [id] = await seed([{ title: 'unread', read: false }]);
+    const first = await wormhole<{ readAt: string }>('notifications.markOneRead', { notificationId: id }, userJwt);
+    const saved = await readAtOf(id);
+    expect(saved).toBeInstanceOf(Date);
+    expect(first.result.readAt).toBe(saved.toISOString());
+
+    const again = await wormhole<{ readAt: string }>('notifications.markOneRead', { notificationId: id }, userJwt);
+    expect(await readAtOf(id)).toEqual(saved);
+    expect(again.result.readAt).toBe(saved.toISOString());
+  });
+
+  it('markOneRead returns the stored time for a row already read elsewhere, or null if none', async () => {
+    const [readElsewhere, legacy] = await seed([
+      { title: 'read on phone', read: true, readAt: FIRST_READ },
+      { title: 'read before #804', read: true },
+    ]);
+    const a = await wormhole<{ readAt: string | null }>('notifications.markOneRead', { notificationId: readElsewhere }, userJwt);
+    expect(a.result.readAt).toBe(FIRST_READ.toISOString());
+    const b = await wormhole<{ readAt: string | null }>('notifications.markOneRead', { notificationId: legacy }, userJwt);
+    expect(b.result.readAt).toBeNull();
+    expect(await readAtOf(legacy)).toBeUndefined();
+  });
+
+  it('markAllRead stamps only unread rows', async () => {
+    const [unread, readElsewhere, legacy] = await seed([
+      { title: 'unread', read: false },
+      { title: 'read on phone', read: true, readAt: FIRST_READ },
+      { title: 'read before #804', read: true },
+    ]);
+    const res = await wormhole<{ readAt: string }>('notifications.markAllRead', {}, userJwt);
+    expect((await readAtOf(unread)).toISOString()).toBe(res.result.readAt);
+    expect(await readAtOf(readElsewhere)).toEqual(FIRST_READ);
+    expect(await readAtOf(legacy)).toBeUndefined();
   });
 });
