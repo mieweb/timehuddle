@@ -26,7 +26,6 @@
 import {
   Button,
   ButtonGroup,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -35,6 +34,7 @@ import {
   Text,
   useToast,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { timerApi, type TimerUpdateRef, type UnsentRedmineTime } from '../../lib/api';
@@ -352,7 +352,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
     <TicketStartContext.Provider value={{ start, stop, busyKey, pending, cancelPending }}>
       {children}
 
-      <Modal
+      <AppModal
         open={prompt !== null}
         onOpenChange={(open) => {
           if (!open) closePrompt();
@@ -396,9 +396,9 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
             )}
           </ButtonGroup>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={stintQuestion !== null}
         onOpenChange={(open) => {
           // Closing it any other way backs out: the timer stays as it was.
@@ -429,7 +429,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
             </Button>
           </ButtonGroup>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {sendQueue[0] && (
         <RedmineSendPrompt
