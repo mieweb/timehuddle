@@ -34,18 +34,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
       - name: Lint
         run: npm run lint
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm test
-        continue-on-error: true
+      # E2E coverage happens in PR Preview Environment's sharded Playwright run
+      # against a real Docker-built backend + Mongo, before merge to main. A
+      # "Test" step here had no backend to test against (Playwright's
+      # webServer defaults to http://localhost:3101, which nothing starts in
+      # this job) and was always failing, masked by continue-on-error — a
+      # green checkmark that tested nothing. Removed rather than left stale.
 
       - name: Build
         run: npm run build
@@ -149,8 +149,8 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -221,12 +221,12 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
-            echo "=== sudo npm install (meteor-backend) ==="
+            echo "=== sudo npm ci (meteor-backend) ==="
             cd meteor-backend
-            sudo npm install --no-audit --no-fund
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo pm2 restart timehuddle-meteor ==="
             sudo pm2 restart timehuddle-meteor
@@ -345,8 +345,8 @@ jobs:
             git clean -fd
             echo "✓ Now at: $(git log -1 --oneline)"
 
-            echo "=== npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== npm run build ==="
             sudo rm -rf dist
@@ -453,8 +453,8 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -526,12 +526,12 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
-            echo "=== sudo npm install (meteor-backend) ==="
+            echo "=== sudo npm ci (meteor-backend) ==="
             cd meteor-backend
-            sudo npm install --no-audit --no-fund
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo pm2 restart timehuddle-meteor ==="
             sudo pm2 restart timehuddle-meteor
