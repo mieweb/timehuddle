@@ -19,7 +19,6 @@ import {
   Badge,
   Button,
   ButtonGroup,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -30,6 +29,7 @@ import {
   Text,
   useToast,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useEffect, useRef, useState } from 'react';
 
 import {
@@ -197,7 +197,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   }));
 
   return (
-    <Modal
+    <AppModal
       open
       onOpenChange={(open) => {
         if (!open && !sending) finish();
@@ -304,6 +304,6 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
           </Button>
         </ButtonGroup>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 };

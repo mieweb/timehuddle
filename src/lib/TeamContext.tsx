@@ -39,6 +39,7 @@ import {
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
+import { canManageTeam } from './organizationAccess';
 import { useSession } from './useSession';
 import {
   liveLocation,
@@ -74,8 +75,12 @@ const TEAM_SCOPED_PATHS = new Set([
   '/app/tickets',
 ]);
 
-/** Whether the selected team belongs in this path's `?team=`. */
-export function carriesTeamScope(pathname: string): boolean {
+/**
+ * Whether the selected team belongs in this page's `?team=`. Settings carries
+ * it only on its Team section, the one Settings page about a single team.
+ */
+export function carriesTeamScope(pathname: string, params: URLSearchParams): boolean {
+  if (pathname === '/app/settings') return params.get('section') === 'team';
   return TEAM_SCOPED_PATHS.has(pathname);
 }
 
@@ -392,7 +397,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const pathTeamId = matchPath(TEAM_PAGE, pathname)?.teamId ?? null;
   const urlTeamId =
     pathTeamId ??
-    (carriesTeamScope(pathname) ? params.get('team') || params.get('teamId') || null : null);
+    (carriesTeamScope(pathname, params)
+      ? params.get('team') || params.get('teamId') || null
+      : null);
   const urlOrgId = params.get('org') || null;
   const teamsLoaded = teamsReady && teams.length > 0;
   const urlTeam = urlTeamId ? (teams.find((t) => t.id === urlTeamId) ?? null) : null;
@@ -439,13 +446,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // overriding it. An `?org=` that no longer matches the team is dropped.
       if (pathTeamId) {
         replace(withQuery(`/app/teams/${id}`, liveLocation().search, {}));
-      } else if (urlTeamId || urlOrgId || carriesTeamScope(pathname)) {
+      } else if (urlTeamId || urlOrgId || carriesTeamScope(pathname, params)) {
         const patch: QueryPatch = { team: id, teamId: null };
         if (urlOrgId && orgId !== urlOrgId) patch.org = null;
         setParams(patch);
       }
     },
-    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, replace, setParams],
+    [teams, rememberTeam, pathTeamId, urlTeamId, urlOrgId, pathname, params, replace, setParams],
   );
 
   // A team opened from a link becomes the remembered one too, so following a
@@ -562,18 +569,15 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
       return;
     }
-    if (!carriesTeamScope(pathname)) return;
+    if (!carriesTeamScope(pathname, params)) return;
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
   }, [selectedTeam, pathname, params, replace, setParams]);
 
-  const isAdmin = useMemo(() => {
-    if (!userId || !selectedTeam) return false;
-    if (selectedTeam.admins.includes(userId)) return true;
-    // Org owners get full team-admin authority on every team in their org.
-    const org = organizations.find((o) => o.id === selectedTeam.orgId);
-    return org?.role === 'owner';
-  }, [userId, selectedTeam, organizations]);
+  const isAdmin = useMemo(
+    () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),
+    [userId, selectedTeam, organizations],
+  );
 
   // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
 

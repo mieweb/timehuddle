@@ -11,6 +11,7 @@ import {
   ShieldIcon,
   WrenchIcon,
   UserIcon,
+  UsersIcon,
   type LucideIcon,
 } from '@mieweb/ui';
 
@@ -22,6 +23,7 @@ export type SettingsSectionId =
   | 'integrations'
   | 'activity'
   | 'account'
+  | 'team'
   | 'organization'
   | 'enterprise'
   | 'usage'
@@ -83,6 +85,12 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
 /** The Administration group, for people who manage that scope. */
 export const ADMIN_SECTIONS: readonly SettingsSection[] = [
   {
+    id: 'team',
+    label: 'Team',
+    description: 'Its clock and membership rules, unless its organization locks them.',
+    icon: UsersIcon,
+  },
+  {
     id: 'organization',
     label: 'Organization',
     description: 'The defaults its teams inherit, and its ticket ID prefixes.',
@@ -122,7 +130,7 @@ export interface SettingsGroup {
  * they manage, and Developers outside production.
  */
 export function settingsGroups(
-  manages: { organization: boolean; enterprise: boolean; usage: boolean },
+  manages: { team: boolean; organization: boolean; enterprise: boolean; usage: boolean },
   developer: boolean,
 ): SettingsGroup[] {
   const groups: SettingsGroup[] = [

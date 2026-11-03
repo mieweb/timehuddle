@@ -84,3 +84,18 @@ export function canManageSelectedOrganization(
   // TeamContext's enterprise list holds only those the user owns or administers.
   return !!org.enterpriseId && enterprises.some((enterprise) => enterprise.id === org.enterpriseId);
 }
+
+/**
+ * Whether this user can change a team's settings: its admins, and owners of
+ * its organization, who get full team-admin authority on every team in it.
+ * Display only; the server checks every action.
+ */
+export function canManageTeam(
+  team: { admins: readonly string[]; orgId?: string | null },
+  userId: string | null,
+  organizations: ReadonlyArray<{ id: string; role: OrganizationRole | 'member' | null }>,
+): boolean {
+  if (!userId) return false;
+  if (team.admins.includes(userId)) return true;
+  return organizations.find((o) => o.id === team.orgId)?.role === 'owner';
+}
