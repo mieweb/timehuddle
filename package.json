@@ -54,7 +54,7 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/browser": "^8.0.4",
-    "@capacitor/core": "^8.4.2",
+    "@capacitor/core": "^8.5.1",
     "@capacitor/device": "^8.0.3",
     "@capacitor/filesystem": "^8.1.4",
     "@capacitor/haptics": "^8.0.2",
@@ -110,13 +110,13 @@
     "y-protocols": "^1.0.7",
     "yaml": "^2.9.0",
     "yjs": "^13.6.30",
-    "zod": "^4.3.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.1",
-    "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/ios": "^8.3.1",
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@eslint/js": "^9.35.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/oxide": "4.1.13",
@@ -158,6 +158,18 @@
     "vitest": "^5.0.3",
     "wait-on": "^9.0.5",
     "ws": "^8.21.0"
+  },
+  "overrides": {
+    "@mieweb/templit": {
+      "js-yaml": "^4.3.2"
+    },
+    "prosemirror-view": "1.42.3",
+    "serve": {
+      "compression": "^1.8.2"
+    },
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "6.1.5"
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
