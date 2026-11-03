@@ -39,6 +39,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Needs dist/ from the build step: cap sync copies it into the native projects.
+      - name: Native projects match Capacitor plugins
+        run: scripts/check-native-sync.sh
+
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
         with:

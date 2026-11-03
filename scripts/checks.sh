@@ -56,6 +56,7 @@ run_frontend() {
   npm run test:release-scripts
   CI=1 npm test
   npm run build
+  scripts/check-native-sync.sh
   echo "==> Frontend: PASSED"
 }
 
