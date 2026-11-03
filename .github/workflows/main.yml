@@ -221,6 +221,10 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
+            echo "=== pinned ffmpeg (PulseVault conform) ==="
+            # Never blocks a deploy: on a failure PulseVault keeps the ffmpeg already on PATH.
+            sudo bash scripts/install-ffmpeg.sh || echo "⚠ Warning: pinned ffmpeg not installed — keeping the current one"
+
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
 
@@ -525,6 +529,10 @@ jobs:
             
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
+
+            echo "=== pinned ffmpeg (PulseVault conform) ==="
+            # Never blocks a deploy: on a failure PulseVault keeps the ffmpeg already on PATH.
+            sudo bash scripts/install-ffmpeg.sh || echo "⚠ Warning: pinned ffmpeg not installed — keeping the current one"
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
