@@ -14,7 +14,6 @@ import {
   AlertDescription,
   Button,
   Input,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -24,6 +23,7 @@ import {
   Textarea,
   useToast,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { teamApi, ticketApi, type TeamMember } from '../../lib/api';
@@ -203,7 +203,7 @@ export function TicketCreateModal({
   ];
 
   return (
-    <Modal open={open} onOpenChange={(next) => !next && onClose()} size="lg">
+    <AppModal open={open} onOpenChange={(next) => !next && onClose()} size="lg">
       <ModalHeader>
         <ModalTitle>New ticket</ModalTitle>
         <ModalClose />
@@ -301,6 +301,6 @@ export function TicketCreateModal({
           {saving ? 'Creating…' : 'Create Ticket'}
         </Button>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 }

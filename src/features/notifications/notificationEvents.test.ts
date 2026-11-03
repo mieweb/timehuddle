@@ -8,21 +8,22 @@ vi.mock('../../lib/api', () => ({ notificationApi: { markOneRead: vi.fn() } }));
 const markOneRead = vi.mocked(notificationApi.markOneRead);
 
 function readEvents() {
-  const ids: string[] = [];
+  const details: { id: string; readAt: string }[] = [];
   window.addEventListener(NOTIFICATION_READ_EVENT, (e) =>
-    ids.push((e as CustomEvent<{ id: string }>).detail.id),
+    details.push((e as CustomEvent<{ id: string; readAt: string }>).detail),
   );
-  return ids;
+  return details;
 }
 
 describe('markTappedNotificationRead', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('marks the row read and tells an open inbox', async () => {
-    markOneRead.mockResolvedValue({ ok: true });
-    const ids = readEvents();
+  it('marks the row read and tells an open inbox the time the server saved', async () => {
+    const readAt = '2026-11-02T15:20:00.000Z';
+    markOneRead.mockResolvedValue({ ok: true, readAt });
+    const details = readEvents();
     markTappedNotificationRead({ notificationId: 'n1', type: 'test' });
-    await vi.waitFor(() => expect(ids).toContain('n1'));
+    await vi.waitFor(() => expect(details).toContainEqual({ id: 'n1', readAt }));
     expect(markOneRead).toHaveBeenCalledWith('n1');
   });
 

@@ -54,7 +54,7 @@ vi.mock('./ddp', () => ({
 }));
 
 import { RouterProvider } from '../ui/router';
-import { TeamProvider, useTeam } from './TeamContext';
+import { TeamProvider, carriesTeamScope, useTeam } from './TeamContext';
 
 // ── Test helper ───────────────────────────────────────────────────────────────
 
@@ -378,5 +378,20 @@ describe('TeamContext active clock read', () => {
     renderAt('/app/dashboard');
     await waitFor(() => expect(getActiveMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(ctx.activeClockEvent).toEqual(active));
+  });
+});
+
+describe('carriesTeamScope', () => {
+  const scoped = (path: string, query = '') => carriesTeamScope(path, new URLSearchParams(query));
+
+  it('is true on team-scoped pages and false elsewhere', () => {
+    expect(scoped('/app/dashboard')).toBe(true);
+    expect(scoped('/app/release-notes')).toBe(false);
+  });
+
+  it('is true on Settings only for its Team section', () => {
+    expect(scoped('/app/settings', 'section=team')).toBe(true);
+    expect(scoped('/app/settings', 'section=profile')).toBe(false);
+    expect(scoped('/app/settings')).toBe(false);
   });
 });

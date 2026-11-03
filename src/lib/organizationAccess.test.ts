@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canManageSelectedOrganization,
+  canManageTeam,
   hasDefaultOrganizationAdminAccess,
   hasOrganizationAdminAccess,
 } from './organizationAccess';
@@ -73,5 +74,24 @@ describe('canManageSelectedOrganization', () => {
 
   it('is false with no selected organization', () => {
     expect(canManageSelectedOrganization(orgs, [{ id: 'e1' }], null)).toBe(false);
+  });
+});
+
+describe('canManageTeam', () => {
+  const team = { admins: ['admin-1'], orgId: 'org-1' };
+
+  it('is true for the team’s admins', () => {
+    expect(canManageTeam(team, 'admin-1', [])).toBe(true);
+  });
+
+  it('is true for owners of the team’s organization', () => {
+    expect(canManageTeam(team, 'owner-1', [{ id: 'org-1', role: 'owner' }])).toBe(true);
+  });
+
+  it('is false for org admins, owners of another org, plain members and no user', () => {
+    expect(canManageTeam(team, 'u', [{ id: 'org-1', role: 'admin' }])).toBe(false);
+    expect(canManageTeam(team, 'u', [{ id: 'org-2', role: 'owner' }])).toBe(false);
+    expect(canManageTeam(team, 'u', [{ id: 'org-1', role: 'member' }])).toBe(false);
+    expect(canManageTeam(team, null, [{ id: 'org-1', role: 'owner' }])).toBe(false);
   });
 });

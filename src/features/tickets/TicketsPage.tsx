@@ -14,7 +14,6 @@ import {
   Alert,
   AlertDescription,
   Input,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -26,6 +25,7 @@ import {
   Textarea,
   useToast,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import { Binoculars, CheckCheck, Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -1147,7 +1147,7 @@ export const TicketsPage: React.FC = () => {
         </div>
 
         {/* Edit ticket modal (creator only) */}
-        <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
+        <AppModal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
           <ModalHeader>
             <ModalTitle>Edit Ticket</ModalTitle>
             <ModalClose />
@@ -1217,10 +1217,10 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         {/* Change Status modal */}
-        <Modal
+        <AppModal
           open={!!changeStatusTicket}
           onOpenChange={(open) => !open && setChangeStatusTicket(null)}
           size="sm"
@@ -1250,10 +1250,10 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
-        <Modal
+        <AppModal
           open={deleteRequest !== null}
           onOpenChange={(open) => !open && closeDeleteDialog()}
           size="sm"
@@ -1282,9 +1282,9 @@ export const TicketsPage: React.FC = () => {
               Delete
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
-        <Modal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+        <AppModal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
           <ModalHeader>
             <ModalTitle>No team available</ModalTitle>
             <ModalClose />
@@ -1312,7 +1312,7 @@ export const TicketsPage: React.FC = () => {
               Go to Teams
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         <TicketCreateModal
           open={showCreate}

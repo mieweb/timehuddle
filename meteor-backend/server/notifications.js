@@ -27,6 +27,17 @@ function toId(id) {
 
 const INBOX_LIMIT = 200;
 
+// Stamps readAt only on the first read, so reopening a notification keeps its read time.
+// Returns the time stamped on the rows that were still unread.
+async function markRead(filter) {
+  const readAt = new Date();
+  await rawDb().collection('notifications').updateMany(
+    { ...filter, read: { $ne: true } },
+    { $set: { read: true, readAt } }
+  );
+  return readAt;
+}
+
 Meteor.publish('notifications.liveForUser', function () {
   if (!this.userId) return this.ready();
   const userId = this.userId;
@@ -55,6 +66,7 @@ Meteor.methods({
         body: n.body,
         data: n.data ?? n.notificationData ?? {},
         read: n.read ?? false,
+        readAt: n.readAt instanceof Date ? n.readAt.toISOString() : null,
         createdAt: n.createdAt instanceof Date
           ? n.createdAt.toISOString() : String(n.createdAt),
       }))
@@ -65,21 +77,18 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!notificationId) throw new Meteor.Error('bad-request', 'notificationId required');
-    await rawDb().collection('notifications').updateOne(
-      { _id: toId(notificationId), userId },
-      { $set: { read: true } }
-    );
-    return { ok: true };
+    const filter = { _id: toId(notificationId), userId };
+    await markRead(filter);
+    // Return what is stored: if another device read it first, that earlier time stands.
+    const doc = await rawDb().collection('notifications').findOne(filter, { projection: { readAt: 1 } });
+    return { ok: true, readAt: doc?.readAt instanceof Date ? doc.readAt.toISOString() : null };
   },
 
   async 'notifications.markAllRead'() {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    await rawDb().collection('notifications').updateMany(
-      { userId, read: false },
-      { $set: { read: true } }
-    );
-    return { ok: true };
+    const readAt = await markRead({ userId });
+    return { ok: true, readAt: readAt.toISOString() };
   },
 
   async 'notifications.deleteMany'({ ids }) {
@@ -146,10 +155,7 @@ Meteor.methods({
         { $addToSet: { members: userId } }
       );
     }
-    await rawDb().collection('notifications').updateOne(
-      { _id: toId(notificationId) },
-      { $set: { read: true } }
-    );
+    await markRead({ _id: toId(notificationId) });
     return { ok: true };
   },
 
