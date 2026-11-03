@@ -269,14 +269,19 @@ export const OrgUsage: React.FC = () => {
       {report && totals && (
         <>
           <section
-            className="usage-summary grid grid-cols-2 gap-3 lg:grid-cols-4"
+            className="usage-summary grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
             aria-label="Usage summary"
           >
             <SummaryCard label="Members" value={String(totals.members)} note={scopeLabel(report)} />
             <SummaryCard
               label={`Active — ${PERIOD_LABEL[report.periodDays].toLowerCase()}`}
               value={`${totals.activeMembers}/${totals.members}`}
-              note="did something in this period"
+              note="did something in this period, or is online or clocked in"
+            />
+            <SummaryCard
+              label="Online now"
+              value={String(totals.onlineNow)}
+              note={`${totals.clockedIn} clocked in`}
             />
             <SummaryCard
               label="Daily users"

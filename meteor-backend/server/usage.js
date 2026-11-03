@@ -28,6 +28,7 @@ import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isValidId } from './collections';
 import { loadOrgMembers } from './organizations';
+import { isOnline } from './presence';
 import {
   CADENCE_WINDOW_DAYS,
   DEFAULT_PERIOD_DAYS,
@@ -127,6 +128,28 @@ async function bucketsForSource(source, memberIds, windowStart, timezone) {
   }));
 }
 
+/**
+ * When each member's still-open clock session began, keyed by userId.
+ *
+ * Someone clocked in since before the period started has no clock event inside
+ * it, yet is plainly working; this is what lets the report say so. A member
+ * clocked in on several teams gets their earliest open session.
+ */
+async function openClockSessions(memberIds) {
+  const events = await rawDb()
+    .collection('clockevents')
+    .find({ userId: { $in: memberIds }, endTime: null }, { projection: { userId: 1, startTime: 1 } })
+    .toArray();
+
+  const since = new Map();
+  for (const event of events) {
+    const startedAt = new Date(event.startTime).toISOString();
+    const existing = since.get(event.userId);
+    if (!existing || startedAt < existing) since.set(event.userId, startedAt);
+  }
+  return since;
+}
+
 // Each source is read as `userField in members, timeField since the window start`.
 Meteor.startup(async () => {
   for (const source of FEATURE_SOURCES) {
@@ -194,10 +217,23 @@ Meteor.methods({
             )
           ).flat();
 
+    const clockedInSince =
+      memberIds.length === 0
+        ? new Map()
+        : await openClockSessions(memberIds).catch((error) => {
+            console.error('[usage] open clock session lookup failed:', error);
+            return new Map();
+          });
+    // Presence is held in memory per server process — one instance per app
+    // today. Several instances would need it moved to Mongo (see presence.js).
+    const onlineIds = new Set(memberIds.filter((id) => isOnline(id)));
+    const generatedAt = new Date().toISOString();
+
     const rows = summarizeUsage({
       members,
       buckets,
       startDay: periodStartDay(period, zone),
+      live: { onlineIds, clockedInSince, now: generatedAt },
     });
 
     return {
@@ -209,7 +245,7 @@ Meteor.methods({
       periodDays: period,
       cadenceWindowDays: CADENCE_WINDOW_DAYS,
       timezone: zone,
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       totals: summarizeTotals(rows),
       users: rows,
     };

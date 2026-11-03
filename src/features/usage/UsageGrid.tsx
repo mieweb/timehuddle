@@ -31,6 +31,8 @@ interface UsageRow extends Record<string, unknown> {
   organization: string;
   role: string;
   status: UsageStatus;
+  online: string;
+  clockedInSince: string | null;
   cadence: UsageCadence;
   activeDays: number;
   totalActions: number;
@@ -44,6 +46,8 @@ const BASE_COLUMNS = [
   { field: 'organization', header: 'Organization', type: 'string', width: 180 },
   { field: 'role', header: 'Role', type: 'string', width: 110 },
   { field: 'status', header: 'Status', type: 'string', width: 110 },
+  { field: 'online', header: 'Online', type: 'string', width: 100 },
+  { field: 'clockedInSince', header: 'Clocked in', type: 'date', width: 130 },
   { field: 'cadence', header: 'Cadence', type: 'string', width: 120 },
   { field: 'lastActiveAt', header: 'Last active', type: 'date', width: 130 },
   { field: 'activeDays', header: 'Active days', type: 'number', width: 120 },
@@ -78,6 +82,9 @@ function toRow(user: OrgUsageUser): UsageRow {
     organization: user.organizations.map((organization) => organization.name).join(', '),
     role: ROLE_LABEL[user.role] ?? user.role,
     status: user.status,
+    // A string, not a boolean, so it sorts and filters like the other labels.
+    online: user.online ? 'Online' : '',
+    clockedInSince: user.clockedInSince,
     cadence: user.cadence,
     activeDays: user.activeDays,
     totalActions: user.totalActions,
@@ -107,6 +114,18 @@ function formatUsageCell(value: unknown, _row: unknown, column: { field: string 
   if (column.field === 'cadence' && typeof value === 'string') {
     const meta = CADENCE_META[value as UsageCadence];
     return meta ? <Badge variant={meta.variant}>{meta.label}</Badge> : <>{value}</>;
+  }
+
+  if (column.field === 'online') {
+    return value ? <Badge variant="success">Online</Badge> : <></>;
+  }
+
+  if (column.field === 'clockedInSince') {
+    return typeof value === 'string' && value ? (
+      <Badge variant="default">{timeAgo(value)}</Badge>
+    ) : (
+      <></>
+    );
   }
 
   if (column.field === 'lastActiveAt') {

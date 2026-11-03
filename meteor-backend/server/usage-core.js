@@ -219,8 +219,17 @@ function pickTopFeature(featureCounts) {
  * @param {UsageMember[]} options.members
  * @param {UsageBucket[]} options.buckets
  * @param {string} options.startDay - first day of the selected period (YYYY-MM-DD)
+ * @param {object} [options.live] - what is true right now, not in the buckets
+ * @param {Set<string>} [options.live.onlineIds] - members with a live session
+ * @param {Map<string, string>} [options.live.clockedInSince] - userId → ISO start of their open clock session
+ * @param {string} [options.live.now] - ISO time of the report, the last-active time for anyone online
+ *
+ * Someone online or clocked in counts as active even with no recorded action
+ * in the period — they are using TimeHuddle as we speak.
  */
-export function summarizeUsage({ members, buckets, startDay }) {
+export function summarizeUsage({ members, buckets, startDay, live = {} }) {
+  const onlineIds = live.onlineIds ?? new Set();
+  const clockedInSince = live.clockedInSince ?? new Map();
   const byUser = new Map(
     members.map((member) => [
       member.id,
@@ -255,16 +264,21 @@ export function summarizeUsage({ members, buckets, startDay }) {
   return [...byUser.values()]
     .map(({ member, features, totalActions, periodDays, windowDays, lastActiveAt }) => {
       const cadenceActiveDays = windowDays.size;
+      const online = onlineIds.has(member.id);
+      const clockedInAt = clockedInSince.get(member.id) ?? null;
+      const activeNow = online || clockedInAt !== null;
       return {
         ...member,
-        status: member.blocked ? 'blocked' : totalActions > 0 ? 'active' : 'idle',
+        status: member.blocked ? 'blocked' : totalActions > 0 || activeNow ? 'active' : 'idle',
+        online,
+        clockedInSince: clockedInAt,
         features,
         totalActions,
         activeDays: periodDays.size,
         cadence: classifyCadence(cadenceActiveDays),
         cadenceActiveDays,
         topFeature: pickTopFeature(features),
-        lastActiveAt,
+        lastActiveAt: online && live.now ? live.now : lastActiveAt,
       };
     })
     .sort(
@@ -280,16 +294,22 @@ export function summarizeTotals(rows) {
   const cadenceCounts = { daily: 0, weekly: 0, biweekly: 0, monthly: 0, dormant: 0 };
   const featureTotals = emptyFeatureCounts();
   let activeMembers = 0;
+  let onlineNow = 0;
+  let clockedIn = 0;
 
   for (const row of rows) {
     cadenceCounts[row.cadence] += 1;
-    if (row.totalActions > 0) activeMembers += 1;
+    if (row.totalActions > 0 || row.online || row.clockedInSince) activeMembers += 1;
+    if (row.online) onlineNow += 1;
+    if (row.clockedInSince) clockedIn += 1;
     for (const key of FEATURE_KEYS) featureTotals[key] += row.features[key];
   }
 
   return {
     members: rows.length,
     activeMembers,
+    onlineNow,
+    clockedIn,
     cadenceCounts,
     featureTotals,
     topFeature: pickTopFeature(featureTotals),
