@@ -161,4 +161,25 @@ export default [
     ],
     rules: { 'no-restricted-syntax': 'off' },
   },
+  {
+    // The library Modal is full-screen on phones; AppModal is TimeHuddle's
+    // centered popup at every width (#822, #826). Only `Modal` itself is
+    // blocked: the ModalHeader/Body/Footer/Title/Close parts go inside AppModal.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/ui/AppModal.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@mieweb/ui',
+              importNames: ['Modal'],
+              message: "Use AppModal from '@ui/AppModal' instead of Modal from '@mieweb/ui'.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
