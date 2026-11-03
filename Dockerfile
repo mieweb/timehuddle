@@ -76,14 +76,14 @@ RUN HOME=/root \
 # Only Node.js + MongoDB + pre-built artifacts. No Meteor, no build tools.
 FROM node:22-slim
 
-# MongoDB + minimal runtime deps. ffmpeg: PulseVault conforms every uploaded
-# video to faststart H.264/AAC MP4 with it, and serves uploads as-is without.
+# MongoDB + minimal runtime deps. xz-utils unpacks the pinned ffmpeg build
+# (installed below with the scripts).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     ca-certificates \
     procps \
-    ffmpeg \
+    xz-utils \
     && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
        | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
     && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" \
@@ -107,6 +107,10 @@ ENV DEV_QUICK_LOGIN_ENABLED=${DEV_QUICK_LOGIN_ENABLED}
 # Root production deps (serve, etc.)
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+# ffmpeg: PulseVault conforms every uploaded video to faststart H.264/AAC MP4
+# with it, and serves uploads as-is without. The same pinned build as the
+# DEV/BETA/PROD backends (scripts/install-ffmpeg.sh).
+RUN bash scripts/install-ffmpeg.sh
 # Install still resolves @mieweb/ui's file: dependency (it's already bundled
 # into dist/, but npm needs the tarball present to satisfy the manifest).
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
