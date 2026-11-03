@@ -58,6 +58,7 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 | People `/app/organization`      | `tab=members\|invitations\|chart` (admins; Members when absent), `q`, `role`                 |
 | Settings → Usage                | `period`, `usageOrg` — not `org`, which is the app-wide scope                                |
 | Settings                        | `section`; `github=taken\|expired`, `github_confirm=<code>` (Connect GitHub, read once)      |
+| Settings → Team                 | `team` — the one Settings section that carries the team scope; other sections drop it        |
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 

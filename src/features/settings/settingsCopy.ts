@@ -30,6 +30,31 @@ export const SETTINGS_STRINGS = {
   lockForTeams: 'Lock for all teams',
   lockForOrgsAndTeams: 'Lock for all organizations and teams',
   failedToSave: 'Failed to update setting',
+  teamSettings: {
+    clockGroup: 'Clock',
+    membershipGroup: 'Membership',
+    requirePlanForClock: {
+      title: 'Require a plan for every clock-in/out',
+      description:
+        'Members post a plan to start each session, and add a wrap-up to it before clocking out — one Huddle post per session.',
+      switchLabel: 'Toggle requiring a plan for every clock-in and out',
+    },
+    autoAcceptJoins: {
+      title: 'Auto-accept join requests',
+      description:
+        'Anyone joining with the team code is added immediately — no pending approval from an admin.',
+      switchLabel: 'Toggle auto-accepting join requests',
+    },
+  },
+  teamPicker: 'Team',
+  teamPickerHint: 'Which team’s settings to change.',
+  editingTeam: (name: string) => `Settings for ${name}`,
+  teamPickerPlaceholder: 'Choose a team',
+  notManagedTeam: (name?: string) =>
+    name
+      ? `You don’t manage ${name}, so it has no settings you can change here. Choose a team you manage.`
+      : 'Choose a team you manage.',
+  manageTeam: 'Rename or delete this team',
 } as const;
 
 /** One line saying where a setting's value comes from, as seen from `level`. */

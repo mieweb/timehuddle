@@ -62,6 +62,7 @@ import { NotificationEventSettings } from '../features/notifications/Notificatio
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { TeamSettings, useManageableTeams } from '../features/settings/TeamSettings';
 import {
   canManageSelectedOrganization,
   getEnterpriseRole,
@@ -80,7 +81,7 @@ import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 import { UserAvatar } from './UserAvatar';
-import { useQueryParam, useRouter } from './router';
+import { useQueryParams, useRouter } from './router';
 
 // Loaded when opened: Usage carries the data grid, and Seeder the YAML parser
 // and presets, which production never shows.
@@ -1206,15 +1207,24 @@ export const SettingsPage: React.FC = () => {
   const { refetch } = useSession();
   const { navigate } = useRouter();
   const { organizations, selectedOrgId, enterprises, selectedEnterpriseId } = useTeam();
+  const manageableTeams = useManageableTeams();
   const groups = settingsGroups(
     {
+      team: manageableTeams.length > 0,
       organization: canManageSelectedOrganization(organizations, enterprises, selectedOrgId),
       enterprise: getEnterpriseRole(enterprises, selectedEnterpriseId) !== null,
       usage: hasOrganizationAdminAccess(organizations),
     },
     import.meta.env.MODE !== 'production',
   );
-  const [sectionParam, setSectionParam] = useQueryParam('section', { mode: 'push' });
+  const { params, setParams } = useQueryParams();
+  const sectionParam = params.get('section');
+  // `?team=` belongs to the Team section only; any other section drops it.
+  const setSectionParam = useCallback(
+    (id: SettingsSectionId | null) =>
+      setParams(id === 'team' ? { section: id } : { section: id, team: null }, 'push'),
+    [setParams],
+  );
   const phone = useMediaQuery('(max-width: 767px)');
   // A side nav needs something beside it, so desktop opens on Profile; a phone opens on the menu.
   const section =
@@ -1309,6 +1319,7 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     account: <AccountSettings />,
+    team: <TeamSettings />,
     // Keyed by org, so a slow response for the previous one can't overwrite it.
     organization: <OrganizationSettings key={selectedOrgId ?? 'none'} />,
     enterprise: <EnterpriseSettings />,
