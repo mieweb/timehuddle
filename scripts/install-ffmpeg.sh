@@ -7,8 +7,9 @@
 # A static BtbN build (https://github.com/BtbN/FFmpeg-Builds), pinned to a month-end autobuild
 # (those releases are kept; the daily ones are pruned) and checked against its sha256. It goes to
 # /opt/ffmpeg/<build>, with ffmpeg and ffprobe linked into /usr/local/bin, ahead of a distro
-# package in /usr/bin on PATH. Does nothing when that build is already linked, so every deploy can
-# run it. Bump all three pins together.
+# package in /usr/bin on PATH. Does nothing when both links already run that build, so every
+# deploy can run it; a build that won't run here leaves the current one in place. Bump all three
+# pins together.
 #
 # Requirements: curl, xz-utils, amd64 or arm64.
 set -euo pipefail
@@ -32,8 +33,16 @@ case "$(uname -m)" in
 esac
 
 DEST="/opt/ffmpeg/${BUILD}"
-if [ "$(readlink /usr/local/bin/ffmpeg 2>/dev/null || true)" = "${DEST}/bin/ffmpeg" ] &&
-  [ -x "${DEST}/bin/ffmpeg" ]; then
+
+# Both links point at this build and both binaries run (PulseVault needs ffprobe too).
+installed() {
+  [ "$(readlink /usr/local/bin/ffmpeg 2>/dev/null || true)" = "${DEST}/bin/ffmpeg" ] &&
+    [ "$(readlink /usr/local/bin/ffprobe 2>/dev/null || true)" = "${DEST}/bin/ffprobe" ] &&
+    "${DEST}/bin/ffmpeg" -version >/dev/null 2>&1 &&
+    "${DEST}/bin/ffprobe" -version >/dev/null 2>&1
+}
+
+if installed; then
   echo "install-ffmpeg: ${BUILD} already installed"
   exit 0
 fi
@@ -45,9 +54,19 @@ curl -fsSL -o "$TMP/ffmpeg.tar.xz" \
 echo "${SHA256}  $TMP/ffmpeg.tar.xz" | sha256sum -c - >/dev/null
 tar -xJf "$TMP/ffmpeg.tar.xz" -C "$TMP"
 
+# Both must run on this host before anything already installed is touched: a failure here exits
+# non-zero with the current ffmpeg and ffprobe still in place.
+"$TMP/${BUILD}/bin/ffmpeg" -version >/dev/null
+"$TMP/${BUILD}/bin/ffprobe" -version >/dev/null
+
 mkdir -p /opt/ffmpeg
 rm -rf "$DEST"
 mv "$TMP/${BUILD}" "$DEST"
 ln -sfn "${DEST}/bin/ffmpeg" /usr/local/bin/ffmpeg
 ln -sfn "${DEST}/bin/ffprobe" /usr/local/bin/ffprobe
-echo "install-ffmpeg: installed $(/usr/local/bin/ffmpeg -version | head -1)"
+if ! installed; then
+  echo "install-ffmpeg: ffmpeg/ffprobe in /usr/local/bin don't run ${BUILD}" >&2
+  exit 1
+fi
+version="$(/usr/local/bin/ffmpeg -version)"
+echo "install-ffmpeg: installed ${version%%$'\n'*}"
