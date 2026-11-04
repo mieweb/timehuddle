@@ -249,9 +249,15 @@ Meteor.publish('teams.byUser', async function () {
     stopListening();
   });
 
-  // Observes the teams the user can see right now. Returns nothing once the
-  // subscription has stopped, and never leaves an observer running after it.
+  // Observes the teams the user can see right now, in place of any earlier
+  // observation. The old observer is stopped first: the two share callbacks, so
+  // overlapping would let the old one remove a team the new one just added. What
+  // it already queued runs before the new one's updates, and the new one starts
+  // from the current teams. Returns nothing once the subscription has stopped,
+  // and never leaves an observer running after it.
   const observeVisibleTeams = async () => {
+    handle?.stop();
+    handle = null;
     const selector = await visibleTeamsSelector(this.userId);
     if (stopped) return null;
     const observer = await Teams.find(selector).observeChangesAsync(teamCallbacks);
@@ -259,7 +265,6 @@ Meteor.publish('teams.byUser', async function () {
       observer.stop();
       return null;
     }
-    handle?.stop();
     handle = observer;
     return selector;
   };
