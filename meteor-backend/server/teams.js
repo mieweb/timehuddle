@@ -238,21 +238,42 @@ Meteor.publish('teams.byUser', async function () {
         this.removed('teams', id);
       }),
   };
-  let handle = await Teams.find(await visibleTeamsSelector(this.userId)).observeChangesAsync(
-    teamCallbacks,
-  );
+  let handle = null;
+  let ownershipHandle = null;
+  let stopListening = () => {};
+  let stopped = false;
+  this.onStop(() => {
+    stopped = true;
+    handle?.stop();
+    ownershipHandle?.stop();
+    stopListening();
+  });
+
+  // Observes the teams the user can see right now. Returns nothing once the
+  // subscription has stopped, and never leaves an observer running after it.
+  const observeVisibleTeams = async () => {
+    const selector = await visibleTeamsSelector(this.userId);
+    if (stopped) return null;
+    const observer = await Teams.find(selector).observeChangesAsync(teamCallbacks);
+    if (stopped) {
+      observer.stop();
+      return null;
+    }
+    handle?.stop();
+    handle = observer;
+    return selector;
+  };
 
   // Owning an organization decides which of its teams are visible. When that
   // changes (an owner is demoted, blocked or removed, or made one), observe the
   // teams again and drop what the user can no longer see, so their join codes
   // and member lists stop reaching a client that lost the access. Runs beside
   // the update queue, not in it: observing awaits the queued `added` updates.
-  let watchingOwnership = false;
   const refreshVisibleTeams = async () => {
-    handle.stop();
-    const selector = await visibleTeamsSelector(this.userId);
-    handle = await Teams.find(selector).observeChangesAsync(teamCallbacks);
+    const selector = await observeVisibleTeams();
+    if (!selector) return;
     await enqueue(async () => {
+      if (stopped) return;
       const visible = new Set(
         (await Teams.find(selector, { fields: { _id: 1 } }).fetchAsync()).map((team) =>
           hexOf(team._id),
@@ -266,25 +287,35 @@ Meteor.publish('teams.byUser', async function () {
       }
     });
   };
+  // The first observation and every later one go through this one chain, so a
+  // refresh never overlaps another.
   let refreshing = Promise.resolve();
-  const onOwnershipChanged = () => {
-    if (watchingOwnership) refreshing = refreshing.then(refreshVisibleTeams).catch(fail);
+  const refresh = () => {
+    refreshing = refreshing.then(() => !stopped && refreshVisibleTeams()).catch(fail);
+    return refreshing;
   };
-  const ownershipHandle = await Organizations.find(
+
+  // Watching starts before the teams are first observed, so an ownership change
+  // while they are being set up is not missed: it queues a refresh behind the
+  // first observation. Only the initial batch of `added` events is ignored.
+  let watchingOwnership = false;
+  ownershipHandle = await Organizations.find(
     { owners: this.userId },
     { fields: { _id: 1 } },
   ).observeChangesAsync({
-    added: () => onOwnershipChanged(),
-    removed: () => onOwnershipChanged(),
+    added: () => {
+      if (watchingOwnership) refresh();
+    },
+    removed: () => {
+      if (watchingOwnership) refresh();
+    },
   });
   watchingOwnership = true;
+  if (stopped) ownershipHandle.stop();
 
-  const stopListening = onSettingsChanged(() => void enqueue(resendAll));
-  this.onStop(() => {
-    handle.stop();
-    ownershipHandle.stop();
-    stopListening();
-  });
+  await refresh();
+  stopListening = onSettingsChanged(() => void enqueue(resendAll));
+  if (stopped) stopListening();
   this.ready();
 });
 
