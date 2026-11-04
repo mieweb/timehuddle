@@ -188,6 +188,17 @@ export async function setOrgMemberRole(orgId, userId, role) {
 }
 
 /**
+ * Put back the org `owners`/`admins` entry `orgs.blockMember` pulled out. The
+ * membership row keeps the role through a block, and team-owner checks read
+ * the legacy arrays, so without this an unblocked owner would show as Owner
+ * but could no longer manage the org's teams.
+ */
+export async function restoreLegacyRoleArrays(orgId, userId) {
+  const membership = await rawDb().collection('org_members').findOne({ orgId, userId });
+  if (membership) await syncLegacyRoleArrays(orgId, userId, membership.role);
+}
+
+/**
  * Put `userId` back in the teams `orgs.blockMember` pulled them out of, with
  * the admin flag each membership had at the time. Takes the recorded block
  * entries, so it works for one org or for every block a user carries.

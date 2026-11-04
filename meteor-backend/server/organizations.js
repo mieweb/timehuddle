@@ -5,8 +5,10 @@ import { requireIdentity, findUserById } from './auth-bridge';
 import {
   ensureDefaultOrganization,
   addOrgMember,
+  setOrgMemberRole,
   getAccessibleOrgIds,
   restoreBlockedMemberships,
+  restoreLegacyRoleArrays,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
 import { redmineUrlRefusal } from './redmine-client';
@@ -678,7 +680,8 @@ Meteor.methods({
       throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
     }
 
-    await addOrgMember(orgId, userId, role, false);
+    // Sets the role outright: addOrgMember only ever raises it, so it can't demote.
+    await setOrgMemberRole(orgId, userId, role);
     return { user: { userId, role } };
   },
 
@@ -1105,6 +1108,7 @@ Meteor.methods({
 
     // Restore membership in whichever teams blockMember removed them from.
     await restoreBlockedMemberships(targetUserId, [blockRecord]);
+    await restoreLegacyRoleArrays(orgId, targetUserId);
 
     // Fire-and-forget activity
     void emitActivity({

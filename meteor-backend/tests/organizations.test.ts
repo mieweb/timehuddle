@@ -445,3 +445,36 @@ describe('orgs.setSourcePrefixes', () => {
     ).toBe(false);
   });
 });
+
+describe('an owner whose role changes or who is blocked', () => {
+  async function orgOwners() {
+    const db = await getDb();
+    return (await db.collection('organizations').findOne({ _id: new ObjectId(orgId) }))!.owners ?? [];
+  }
+
+  it('can be demoted to member, which also drops the owners entry', async () => {
+    await addMembership(memberId, 'owner');
+    await (await getDb())
+      .collection('organizations')
+      .updateOne({ _id: new ObjectId(orgId) }, { $addToSet: { owners: memberId } });
+
+    const res = await wormhole('orgs.setMemberRole', { orgId, userId: memberId, role: 'member' }, ownerJwt);
+    expect(res.ok).toBe(true);
+    expect((await listedMember())?.role).toBe('member');
+    expect(await orgOwners()).not.toContain(memberId);
+  });
+
+  it('is an owner of the org again once unblocked', async () => {
+    await addMembership(memberId, 'owner');
+    await (await getDb())
+      .collection('organizations')
+      .updateOne({ _id: new ObjectId(orgId) }, { $addToSet: { owners: memberId } });
+
+    expect((await wormhole('orgs.blockMember', { orgId, targetUserId: memberId }, ownerJwt)).ok).toBe(true);
+    expect(await orgOwners()).not.toContain(memberId);
+
+    expect((await wormhole('orgs.unblockMember', { orgId, targetUserId: memberId }, ownerJwt)).ok).toBe(true);
+    expect(await orgOwners()).toContain(memberId);
+    expect((await listedMember())?.role).toBe('owner');
+  });
+});
