@@ -620,7 +620,23 @@ Meteor.methods({
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
-    return { users: await loadOrgMembers(orgId) };
+    const [users, teams] = await Promise.all([
+      loadOrgMembers(orgId),
+      rawDb()
+        .collection('teams')
+        .find({ orgId, isPersonal: { $ne: true } }, { projection: { name: 1, members: 1 } })
+        .toArray(),
+    ]);
+    // Each member's shared teams in this org, for the People roster's Teams column and filter.
+    return {
+      users: users.map((member) => ({
+        ...member,
+        teams: teams
+          .filter((team) => team.members.includes(member.id))
+          .map((team) => ({ id: team._id.toHexString(), name: team.name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      })),
+    };
   },
 
   async 'orgs.listUsers'({ orgId }) {

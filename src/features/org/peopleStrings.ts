@@ -26,7 +26,10 @@ export const PEOPLE_STRINGS = {
       DefaultOrganizationRole,
       string
     >,
-    columns: { member: 'Member', role: 'Role', reportsTo: 'Reports to' },
+    columns: { member: 'Member', role: 'Role', teams: 'Teams', reportsTo: 'Reports to' },
+    teamFilter: 'Filter by team',
+    allTeams: 'All teams',
+    noTeams: 'No teams',
     actionsColumn: 'Actions',
     unassigned: 'Unassigned',
     you: 'You',

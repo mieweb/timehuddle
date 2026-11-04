@@ -69,6 +69,8 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useSearchParam('q');
   const [roleParam, setRoleParam] = useQueryParam('role');
+  // Not `team`: that param scopes the whole app to one team.
+  const [teamFilter, setTeamFilter] = useQueryParam('teamFilter');
   const roleFilter = ROLES.includes(roleParam as DefaultOrganizationRole)
     ? (roleParam as DefaultOrganizationRole)
     : null;
@@ -206,15 +208,29 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
     return byRole;
   }, [users]);
 
+  // The teams anyone on the roster is in; a team nobody is in has nothing to filter by.
+  const teamOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    users.forEach((u) => u.teams?.forEach((t) => byId.set(t.id, t.name)));
+    return [
+      { value: '', label: S.allTeams },
+      ...[...byId]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+  }, [users]);
+  const activeTeamFilter = teamOptions.some((o) => o.value === teamFilter) ? teamFilter : null;
+
   const visibleUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
     return users.filter(
       (u) =>
         (!roleFilter || u.role === roleFilter) &&
+        (!activeTeamFilter || u.teams?.some((t) => t.id === activeTeamFilter)) &&
         (!query ||
           [u.name, u.email, u.username ?? ''].some((v) => v.toLowerCase().includes(query))),
     );
-  }, [roleFilter, search, users]);
+  }, [activeTeamFilter, roleFilter, search, users]);
 
   // An empty value shows the placeholder, so "Unassigned" is both that and the option to clear it.
   const managerOptions = useMemo(
@@ -263,6 +279,17 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
             </Button>
           ))}
         </ButtonGroup>
+        <Select
+          label={S.teamFilter}
+          hideLabel
+          size="sm"
+          value={activeTeamFilter ?? ''}
+          placeholder={S.allTeams}
+          options={teamOptions}
+          aria-label={S.teamFilter}
+          onValueChange={(value) => setTeamFilter(value || null)}
+          className="members-team-filter w-52"
+        />
       </div>
 
       {error && <Alert variant="danger">{error}</Alert>}
@@ -277,6 +304,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
             <TableRow>
               <TableHead>{S.columns.member}</TableHead>
               <TableHead className="w-40">{S.columns.role}</TableHead>
+              <TableHead className="w-56">{S.columns.teams}</TableHead>
               <TableHead className="w-52">{S.columns.reportsTo}</TableHead>
               <TableHead className="w-14">
                 <span className="sr-only">{S.actionsColumn}</span>
@@ -343,6 +371,21 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
                       />
                       {isSaving && <Spinner size="sm" label="Saving" />}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {member.teams?.length ? (
+                      <div className="member-teams flex flex-wrap gap-1">
+                        {member.teams.map((team) => (
+                          <Badge key={team.id} variant="secondary" size="sm">
+                            {team.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <Text size="sm" variant="muted">
+                        {S.noTeams}
+                      </Text>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Select
@@ -421,7 +464,7 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
             })}
             {visibleUsers.length === 0 && !loading && (
               <TableRow>
-                <TableCell colSpan={4}>
+                <TableCell colSpan={5}>
                   <Text size="sm" variant="muted" className="py-2">
                     {S.noMatch}
                   </Text>
