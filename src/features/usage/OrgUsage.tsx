@@ -278,7 +278,7 @@ export const OrgUsage: React.FC = () => {
       {report && totals && (
         <>
           <section
-            className="usage-summary grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+            className="usage-summary grid grid-cols-2 gap-3 sm:grid-cols-3"
             aria-label="Usage summary"
           >
             <SummaryCard label="Members" value={String(totals.members)} note={scopeLabel(report)} />
@@ -291,6 +291,11 @@ export const OrgUsage: React.FC = () => {
               label="Online now"
               value={String(totals.onlineNow)}
               note={`${totals.clockedIn} clocked in`}
+            />
+            <SummaryCard
+              label="Integrations connected"
+              value={`${totals.redmineConnected} Redmine`}
+              note={`${totals.githubConnected} GitHub`}
             />
             <SummaryCard
               label="Daily users"

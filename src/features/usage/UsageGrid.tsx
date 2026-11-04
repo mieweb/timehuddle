@@ -35,6 +35,8 @@ interface UsageRow extends Record<string, unknown> {
   status: UsageStatus;
   online: string;
   clockedInSince: string | null;
+  redmine: string;
+  github: string;
   cadence: UsageCadence;
   activeDays: number;
   totalActions: number;
@@ -55,6 +57,8 @@ const BASE_COLUMNS = [
   { field: 'activeDays', header: 'Active days', type: 'number', width: 120 },
   { field: 'totalActions', header: 'Actions', type: 'number', width: 100 },
   { field: 'topFeature', header: 'Top feature', type: 'string', width: 140 },
+  { field: 'redmine', header: 'Redmine', type: 'string', width: 120 },
+  { field: 'github', header: 'GitHub', type: 'string', width: 120 },
 ] as const;
 
 const FEATURE_COLUMNS = USAGE_FEATURES.map((feature) => ({
@@ -65,6 +69,9 @@ const FEATURE_COLUMNS = USAGE_FEATURES.map((feature) => ({
 }));
 
 const ALL_COLUMNS = [...BASE_COLUMNS, ...FEATURE_COLUMNS];
+
+/** Label for a linked integration — in the row data too, so it filters as text. */
+const CONNECTED = 'Connected';
 
 const COLUMNS = ALL_COLUMNS.map(({ field, header, width }) => ({ field, header, width }));
 
@@ -87,6 +94,9 @@ function toRow(user: OrgUsageUser): UsageRow {
     // A string, not a boolean, so it sorts and filters like the other labels.
     online: user.online ? 'Online' : '',
     clockedInSince: user.clockedInSince,
+    // Strings, like `online`, so they sort and filter as labels.
+    redmine: user.redmineConnected ? CONNECTED : '',
+    github: user.githubConnected ? CONNECTED : '',
     cadence: user.cadence,
     activeDays: user.activeDays,
     totalActions: user.totalActions,
@@ -155,6 +165,10 @@ function formatUsageCell(value: unknown, _row: unknown, column: { field: string 
 
   if (column.field === 'online') {
     return value ? <Badge variant="success">Online</Badge> : <></>;
+  }
+
+  if ((column.field === 'redmine' || column.field === 'github') && value) {
+    return <Badge variant="secondary">{CONNECTED}</Badge>;
   }
 
   if (column.field === 'clockedInSince') {

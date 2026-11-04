@@ -235,6 +235,45 @@ describe('summarizeUsage live status (#832)', () => {
   });
 });
 
+describe('summarizeUsage integrations', () => {
+  it('flags who has linked Redmine and GitHub, and totals them', () => {
+    const rows = summarizeUsage({
+      members: [member('a'), member('b'), member('c')],
+      buckets: [],
+      startDay: '2026-09-15',
+      connections: { redmineIds: new Set(['a', 'b']), githubIds: new Set(['b']) },
+    });
+    const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+
+    expect(byId.a).toMatchObject({ redmineConnected: true, githubConnected: false });
+    expect(byId.b).toMatchObject({ redmineConnected: true, githubConnected: true });
+    expect(byId.c).toMatchObject({ redmineConnected: false, githubConnected: false });
+
+    const totals = summarizeTotals(rows);
+    expect(totals.redmineConnected).toBe(2);
+    expect(totals.githubConnected).toBe(1);
+  });
+
+  it('does not count a linked integration as activity', () => {
+    const [row] = summarizeUsage({
+      members: [member('a')],
+      buckets: [],
+      startDay: '2026-09-15',
+      connections: { redmineIds: new Set(['a']), githubIds: new Set(['a']) },
+    });
+
+    expect(row.status).toBe('idle');
+    expect(summarizeTotals([row]).activeMembers).toBe(0);
+  });
+
+  it('defaults to nothing connected without connection data', () => {
+    const [row] = summarizeUsage({ members: [member('a')], buckets: [], startDay: '2026-09-15' });
+
+    expect(row.redmineConnected).toBe(false);
+    expect(row.githubConnected).toBe(false);
+  });
+});
+
 describe('summarizeTotals', () => {
   it('rolls the rows up into the headline counts', () => {
     const rows = summarizeUsage({

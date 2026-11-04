@@ -588,6 +588,10 @@ export interface OrgUsageUser {
   online: boolean;
   /** Start of their open clock session (ISO), or null when clocked out. */
   clockedInSince: string | null;
+  /** Has linked a Redmine account. */
+  redmineConnected: boolean;
+  /** Has linked a GitHub account. */
+  githubConnected: boolean;
 }
 
 export interface OrgUsageReport {
@@ -607,6 +611,10 @@ export interface OrgUsageReport {
     activeMembers: number;
     onlineNow: number;
     clockedIn: number;
+    /** Members with a Redmine account linked. */
+    redmineConnected: number;
+    /** Members with a GitHub account linked. */
+    githubConnected: number;
     cadenceCounts: Record<UsageCadence, number>;
     featureTotals: Record<UsageFeature, number>;
     topFeature: UsageFeature | null;

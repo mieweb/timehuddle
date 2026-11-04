@@ -183,6 +183,30 @@ async function membersOf(scoped) {
   return mergeOrgMembers(rosters);
 }
 
+/**
+ * Which members have linked each integration: a Redmine account (a row in
+ * redmine_links) or a GitHub account (services.github on the user). Owners
+ * read these as adoption — who has TimeHuddle wired into the tools they use.
+ */
+async function connectedIntegrations(memberIds) {
+  const [redmineLinks, githubUsers] = await Promise.all([
+    rawDb()
+      .collection('redmine_links')
+      .find({ userId: { $in: memberIds } }, { projection: { userId: 1 } })
+      .toArray(),
+    Meteor.users
+      .find(
+        { _id: { $in: memberIds }, 'services.github.id': { $exists: true } },
+        { fields: { _id: 1 } },
+      )
+      .fetchAsync(),
+  ]);
+  return {
+    redmineIds: new Set(redmineLinks.map((link) => link.userId)),
+    githubIds: new Set(githubUsers.map((user) => user._id)),
+  };
+}
+
 // Each source is read as `userField in members, timeField since the window start`.
 Meteor.startup(async () => {
   for (const source of FEATURE_SOURCES) {
@@ -245,6 +269,13 @@ Meteor.methods({
             console.error('[usage] open clock session lookup failed:', error);
             return new Map();
           });
+    const connections =
+      memberIds.length === 0
+        ? {}
+        : await connectedIntegrations(memberIds).catch((error) => {
+            console.error('[usage] integration lookup failed:', error);
+            return {};
+          });
     // Presence is held in memory per server process — one instance per app
     // today. Several instances would need it moved to Mongo (see presence.js).
     const onlineIds = new Set(memberIds.filter((id) => isOnline(id)));
@@ -255,6 +286,7 @@ Meteor.methods({
       buckets,
       startDay: periodStartDay(period, zone),
       live: { onlineIds, clockedInSince, now: generatedAt },
+      connections,
     });
 
     return {
