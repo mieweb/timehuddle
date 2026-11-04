@@ -23,12 +23,12 @@
  * meaning: how much this person uses TimeHuddle.
  */
 import { Meteor } from 'meteor/meteor';
-import { MongoInternals } from 'meteor/mongo';
-import { rawDb } from './collections';
+import { Mongo, MongoInternals } from 'meteor/mongo';
+import { ClockEvents, HuddlePosts, Tickets, Timers, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isValidId } from './collections';
 import { loadOrgMembers } from './organizations';
-import { isOnline } from './presence';
+import { isOnline, onPresenceChange } from './presence';
 import {
   CADENCE_WINDOW_DAYS,
   DEFAULT_PERIOD_DAYS,
@@ -150,6 +150,32 @@ async function openClockSessions(memberIds) {
   return since;
 }
 
+/**
+ * The organizations `userId` may report on, and those this report covers:
+ * `orgId`, or all of them when it is omitted. Owner/admin only.
+ */
+async function reportScope(userId, orgId) {
+  const available = await adminOrganizationsFor(userId);
+  // An orgId the caller does not administer is a permission failure, not an
+  // empty report — otherwise probing ids would confirm which ones exist.
+  const scoped = orgId ? available.filter((org) => org.id === orgId) : available;
+  if (scoped.length === 0) {
+    throw new Meteor.Error('forbidden', 'Requires organization owner or admin');
+  }
+  return { available, scoped };
+}
+
+/** Everyone in the scoped organizations, merged into one list. */
+async function membersOf(scoped) {
+  const rosters = await Promise.all(
+    scoped.map(async (organization) => ({
+      organization,
+      members: await loadOrgMembers(organization.id),
+    })),
+  );
+  return mergeOrgMembers(rosters);
+}
+
 // Each source is read as `userField in members, timeField since the window start`.
 Meteor.startup(async () => {
   for (const source of FEATURE_SOURCES) {
@@ -172,29 +198,12 @@ Meteor.methods({
    */
   async 'usage.orgUsage'({ orgId, periodDays, timezone } = {}) {
     const identity = await requireIdentity(this);
-
-    const available = await adminOrganizationsFor(identity.userId);
-    if (available.length === 0) {
-      throw new Meteor.Error('forbidden', 'Requires organization owner or admin');
-    }
-
-    // An orgId the caller does not administer is a permission failure, not an
-    // empty report — otherwise probing ids would confirm which ones exist.
-    const scoped = orgId ? available.filter((org) => org.id === orgId) : available;
-    if (scoped.length === 0) {
-      throw new Meteor.Error('forbidden', 'Requires organization owner or admin');
-    }
+    const { available, scoped } = await reportScope(identity.userId, orgId);
 
     const period = USAGE_PERIOD_DAYS.includes(periodDays) ? periodDays : DEFAULT_PERIOD_DAYS;
     const zone = isValidTimezone(timezone) ? timezone : 'UTC';
 
-    const rosters = await Promise.all(
-      scoped.map(async (organization) => ({
-        organization,
-        members: await loadOrgMembers(organization.id),
-      })),
-    );
-    const members = mergeOrgMembers(rosters);
+    const members = await membersOf(scoped);
 
     const memberIds = members.map((member) => member.id);
     // Cadence always reads 30 days; a longer period widens the window to match.
@@ -250,4 +259,88 @@ Meteor.methods({
       users: rows,
     };
   },
+});
+
+// ─── Live updates ─────────────────────────────────────────────────────────────
+//
+// The report itself stays a method: it is a set of aggregations, not documents
+// a cursor can follow. What this publication adds is a signal — one document in
+// the client-only `usageLive` collection whose `changedAt` moves whenever
+// something the report shows changes for a member in scope:
+//
+//   • they come online or go offline (presence.js),
+//   • they clock in or out (open clockevents),
+//   • they do something one of FEATURE_SOURCES counts.
+//
+// The page refetches `usage.orgUsage` on that signal, so the numbers are always
+// computed in one place and still reach the page without a reload.
+
+const LIVE_COLLECTION = 'usageLive';
+const SIGNAL_ID = 'signal';
+
+/**
+ * A cursor-capable handle per FEATURE_SOURCES collection. Two of them are only
+ * ever touched through the raw driver, so they get a read-only Meteor handle
+ * here — no mutation methods, purely so their new documents can be observed.
+ */
+const OBSERVABLE_SOURCES = {
+  clockevents: ClockEvents,
+  huddlePosts: HuddlePosts,
+  tickets: Tickets,
+  timers: Timers,
+  huddleComments: new Mongo.Collection('huddleComments', { defineMutationMethods: false }),
+  mediaitems: new Mongo.Collection('mediaitems', { defineMutationMethods: false }),
+};
+
+Meteor.publish('usage.live', async function ({ orgId } = {}) {
+  if (!this.userId) return this.ready();
+
+  let members;
+  try {
+    members = await membersOf((await reportScope(this.userId, orgId)).scoped);
+  } catch {
+    return this.ready();
+  }
+  const memberIds = members.map((member) => member.id);
+  const memberSet = new Set(memberIds);
+
+  // Observers replay every existing document as `added` before they return;
+  // those are the state the report already shows, not changes to it.
+  let initializing = true;
+  const signal = () => {
+    if (!initializing) this.changed(LIVE_COLLECTION, SIGNAL_ID, { changedAt: Date.now() });
+  };
+
+  const handles = [];
+  const stopAll = () => handles.forEach((handle) => handle.stop());
+  this.onStop(stopAll);
+
+  handles.push({ stop: onPresenceChange((userId) => memberSet.has(userId) && signal()) });
+
+  if (memberIds.length > 0) {
+    const onEvent = { added: signal, removed: signal };
+    handles.push(
+      await ClockEvents.find(
+        { userId: { $in: memberIds }, endTime: null },
+        { fields: { _id: 1 } },
+      ).observeChangesAsync(onEvent),
+    );
+
+    const now = new Date();
+    for (const source of FEATURE_SOURCES) {
+      const since = source.timeType === 'ms' ? now.getTime() : now;
+      handles.push(
+        await OBSERVABLE_SOURCES[source.collection]
+          .find(
+            { [source.userField]: { $in: memberIds }, [source.timeField]: { $gte: since } },
+            { fields: { _id: 1 } },
+          )
+          .observeChangesAsync({ added: signal }),
+      );
+    }
+  }
+
+  initializing = false;
+  this.added(LIVE_COLLECTION, SIGNAL_ID, { changedAt: Date.now() });
+  this.ready();
 });

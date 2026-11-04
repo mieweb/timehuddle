@@ -33,6 +33,15 @@ function markOffline(userId) {
   broadcast(userId, false);
 }
 
+/**
+ * Call `fn(userId, isOnline)` whenever anyone comes online or goes offline.
+ * Returns the function that stops listening.
+ */
+export function onPresenceChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
 /** Whether `userId` holds a live presence subscription on this process right now. */
 export function isOnline(userId) {
   return onlineTimers.has(userId);

@@ -6,13 +6,15 @@
  * (and with it @mieweb/datavis + datavis-ace), and an admin-only page has no
  * business sitting in the entry chunk everyone downloads.
  *
- * NITRO reads its rows from a source rather than a prop, so the rows go in
- * through a blob URL — the same trick the library's own grids use for
- * in-memory data.
+ * NITRO reads its rows from a source rather than a prop. They go in through a
+ * `local` source — a window variable it re-reads on every refresh — so a new
+ * report reloads the same view in place and keeps the viewer's sort, filter
+ * and scroll. (An `http` source on a blob URL can't: a new URL builds a new
+ * view, and the library never loads data into it.)
  */
 import { Badge, Text } from '@mieweb/ui';
-import { DataVisNitroGrid, DataVisNitroSource } from '@mieweb/ui/datavis';
-import React, { useEffect, useMemo } from 'react';
+import { DataVisNitroContext, DataVisNitroGrid, DataVisNitroSource } from '@mieweb/ui/datavis';
+import React, { useContext, useEffect, useMemo, useRef } from 'react';
 
 import {
   USAGE_FEATURES,
@@ -94,16 +96,34 @@ function toRow(user: OrgUsageUser): UsageRow {
   };
 }
 
-/** Rows into a blob URL NITRO can source, revoked when they change. */
-function useRowsUrl(users: OrgUsageUser[]): string {
-  const url = useMemo(() => {
-    const payload = { typeInfo: TYPE_INFO, data: users.map(toRow) };
-    return URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-  }, [users]);
+/** The window variable NITRO's `local` source reads the rows from. */
+const ROWS_VAR = 'timehuddleUsageRows';
 
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
-  return url;
+type RowsWindow = Window & { [ROWS_VAR]?: { typeInfo: typeof TYPE_INFO; data: UsageRow[] } };
+
+/**
+ * Publish the rows where the `local` source reads them. Runs during render,
+ * because the source copies the variable as soon as it is constructed. Never
+ * cleared: the view may re-read it at any time, and it is one small object.
+ */
+function publishRows(users: OrgUsageUser[]): void {
+  (window as RowsWindow)[ROWS_VAR] = { typeInfo: TYPE_INFO, data: users.map(toRow) };
 }
+
+/** Reload the grid's view when the rows change — after the first load, which
+ *  the source does on its own. Must render inside DataVisNitroSource. */
+const ReloadOnChange: React.FC<{ users: OrgUsageUser[] }> = ({ users }) => {
+  const view = useContext(DataVisNitroContext);
+  const firstRows = useRef(users);
+  useEffect(() => {
+    if (!view || users === firstRows.current) return;
+    // refresh() re-reads the variable and clears the view's cache, but only
+    // marks it loading — getData() is what recomputes it, sort and filter kept.
+    view.refresh();
+    view.getData();
+  }, [users, view]);
+  return null;
+};
 
 function formatUsageCell(value: unknown, _row: unknown, column: { field: string }) {
   if (column.field === 'status' && typeof value === 'string') {
@@ -152,7 +172,7 @@ interface UsageGridProps {
 }
 
 const UsageGrid: React.FC<UsageGridProps> = ({ users, periodDays, showOrganization }) => {
-  const url = useRowsUrl(users);
+  publishRows(users);
   const columns = useMemo(
     () =>
       showOrganization ? COLUMNS : COLUMNS.filter((column) => column.field !== 'organization'),
@@ -164,7 +184,12 @@ const UsageGrid: React.FC<UsageGridProps> = ({ users, periodDays, showOrganizati
       {/* NITRO takes ownership of its column state on mount, so changing
           `columns` alone does not add or drop one. Keying the source on the
           visible set remounts it when the org scope changes. */}
-      <DataVisNitroSource key={showOrganization ? 'with-org' : 'no-org'} type="http" url={url}>
+      <DataVisNitroSource
+        key={showOrganization ? 'with-org' : 'no-org'}
+        type="local"
+        varName={ROWS_VAR}
+      >
+        <ReloadOnChange users={users} />
         <DataVisNitroGrid
           title={`Member usage — ${PERIOD_LABEL[periodDays]}`}
           helpText="Counts cover the selected period. Cadence always reads the last 30 days."

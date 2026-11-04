@@ -43,6 +43,7 @@ import {
   PERIOD_TAB_LABEL,
   featureLabel,
 } from './usageDisplay';
+import { useUsageLiveUpdates } from './useUsageLiveUpdates';
 
 const UsageGrid = lazy(() => import('./UsageGrid'));
 
@@ -194,6 +195,7 @@ export const OrgUsage: React.FC = () => {
   }, [loadReport]);
 
   useRefresh(loadReport, canAccess);
+  useUsageLiveUpdates(orgId === ALL_ORGS ? undefined : orgId, canAccess, loadReport);
 
   if (!rolesLoaded) {
     return (
