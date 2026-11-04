@@ -23,11 +23,16 @@ export const LIVE_REFETCH_MIN_INTERVAL_MS = 5_000;
  * Call `onChange` whenever the server signals that something the report shows
  * has changed — someone comes online or goes offline, clocks in or out, or
  * does something the report counts. See `usage.live` in meteor-backend.
+ *
+ * Refetches never overlap: while one is in flight (`onChange`'s promise is
+ * pending), further changes queue a single follow-up instead of starting
+ * another. Otherwise, with a report slower than the interval, each request
+ * would supersede the last before it landed and the page would never update.
  */
 export function useUsageLiveUpdates(
   orgId: string | undefined,
   enabled: boolean,
-  onChange: () => void,
+  onChange: () => void | Promise<unknown>,
 ) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -38,18 +43,38 @@ export function useUsageLiveUpdates(
     let ready = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastRefetchAt = 0;
+    let inFlight = false;
+    let changedDuringFetch = false;
+    let disposed = false;
     /** Refetch soon, but no sooner than the interval allows. A refetch already
-     *  scheduled picks up any further change too. */
+     *  scheduled picks up any further change too; one in flight is followed by
+     *  one more when it lands. */
     const scheduleRefetch = () => {
+      if (inFlight) {
+        changedDuringFetch = true;
+        return;
+      }
       if (timer) return;
       const wait = Math.max(
         LIVE_REFETCH_DELAY_MS,
         lastRefetchAt + LIVE_REFETCH_MIN_INTERVAL_MS - Date.now(),
       );
-      timer = setTimeout(() => {
+      timer = setTimeout(async () => {
         timer = undefined;
         lastRefetchAt = Date.now();
-        onChangeRef.current();
+        inFlight = true;
+        try {
+          await onChangeRef.current();
+        } catch {
+          // The page reports its own load errors; a failed refetch must not
+          // stop the next one.
+        } finally {
+          inFlight = false;
+          if (changedDuringFetch && !disposed) {
+            changedDuringFetch = false;
+            scheduleRefetch();
+          }
+        }
       }, wait);
     };
     const offChange = ddp.onCollectionChange('usageLive', () => {
@@ -65,6 +90,7 @@ export function useUsageLiveUpdates(
       scheduleRefetch();
     });
     return () => {
+      disposed = true;
       clearTimeout(timer);
       offChange();
       unsubscribe();

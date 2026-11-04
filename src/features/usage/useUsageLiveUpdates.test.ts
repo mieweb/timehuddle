@@ -96,22 +96,53 @@ describe('useUsageLiveUpdates', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('spaces refetches at least the minimum interval apart', () => {
+  it('spaces refetches at least the minimum interval apart', async () => {
     const ddp = setupDdp();
     const onChange = vi.fn();
     renderHook(() => useUsageLiveUpdates(undefined, true, onChange));
     ddp.ready();
 
     ddp.signal();
-    vi.advanceTimersByTime(LIVE_REFETCH_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(LIVE_REFETCH_DELAY_MS);
     expect(onChange).toHaveBeenCalledTimes(1);
 
     // A change right after a refetch waits out the rest of the interval.
     ddp.signal();
-    vi.advanceTimersByTime(LIVE_REFETCH_MIN_INTERVAL_MS - 1);
+    await vi.advanceTimersByTimeAsync(LIVE_REFETCH_MIN_INTERVAL_MS - 1);
     expect(onChange).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('never overlaps refetches: changes during a slow one queue a single follow-up', async () => {
+    const ddp = setupDdp();
+    let finish: () => void = () => {};
+    const onChange = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderHook(() => useUsageLiveUpdates(undefined, true, onChange));
+    ddp.ready();
+    vi.advanceTimersByTime(LIVE_REFETCH_DELAY_MS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // The report is slower than the interval; changes keep arriving meanwhile.
+    for (let i = 0; i < 3; i++) {
+      ddp.signal();
+      vi.advanceTimersByTime(LIVE_REFETCH_MIN_INTERVAL_MS);
+    }
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // When it lands, exactly one follow-up runs for everything that changed.
+    finish();
+    await vi.advanceTimersByTimeAsync(LIVE_REFETCH_DELAY_MS);
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    finish();
+    await vi.advanceTimersByTimeAsync(LIVE_REFETCH_MIN_INTERVAL_MS * 2);
     expect(onChange).toHaveBeenCalledTimes(2);
   });
 
