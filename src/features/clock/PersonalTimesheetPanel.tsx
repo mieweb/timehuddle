@@ -490,14 +490,20 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
   }, [activeSession, editJustification, editNeedsApproval, fetchData]);
 
+  // Where an entry can be added: shared teams the user has joined.
+  const memberTeams = useMemo(
+    () => teams.filter((t) => !t.isPersonal && isTeamMember(t, userId)),
+    [teams, userId],
+  );
+
   const openAddEntry = useCallback(() => {
     setNewClockIn('');
     setNewClockOut('');
-    setNewTeamId(selectedTeamId ?? teams[0]?.id ?? '');
+    setNewTeamId(memberTeams.find((t) => t.id === selectedTeamId)?.id ?? memberTeams[0]?.id ?? '');
     setAddEntryError(null);
     setAddJustification(emptyJustification);
     setAddEntryOpen(true);
-  }, [selectedTeamId, teams]);
+  }, [selectedTeamId, memberTeams]);
 
   const handleAddEntry = useCallback(async () => {
     const parsedStart = fromLocalDateTimeInputValue(newClockIn);
@@ -605,11 +611,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
 
   // Team options for new entry (exclude personal workspace)
   const teamOptions = useMemo(
-    () =>
-      teams
-        .filter((t) => !t.isPersonal && isTeamMember(t, user?.id ?? null))
-        .map((t) => ({ value: t.id, label: t.name })),
-    [teams, user?.id],
+    () => memberTeams.map((t) => ({ value: t.id, label: t.name })),
+    [memberTeams],
   );
 
   const presets = PRESETS;

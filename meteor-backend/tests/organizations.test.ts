@@ -464,6 +464,53 @@ describe('an owner whose role changes or who is blocked', () => {
     expect(await orgOwners()).not.toContain(memberId);
   });
 
+  it('never leaves the organization with no owner or admin when its two are demoted at once', async () => {
+    // The caller manages the org as enterprise owner, without an org role of
+    // its own, so the only two owners/admins are the ones being demoted.
+    const db = await getDb();
+    const enterpriseId = new ObjectId();
+    await db.collection('enterprises').insertOne({
+      _id: enterpriseId,
+      name: 'Demote Enterprise',
+      slug: `demote-${enterpriseId.toHexString()}`,
+      owners: [ownerId],
+      admins: [],
+      settings: {},
+      settingsLocks: {},
+    });
+    await db.collection('org_members').deleteMany({ orgId, userId: ownerId });
+    await db.collection('organizations').updateOne(
+      { _id: new ObjectId(orgId) },
+      { $set: { enterpriseId: enterpriseId.toHexString(), owners: [memberId], admins: [peerId] } },
+    );
+    await addMembership(memberId, 'owner');
+    await addMembership(peerId, 'admin');
+
+    try {
+      const demote = (userId: string) =>
+        wormhole('orgs.setMemberRole', { orgId, userId, role: 'member' }, ownerJwt);
+      const results = await Promise.all([demote(memberId), demote(peerId)]);
+      expect(results.filter((r) => r.ok).length).toBeLessThanOrEqual(1);
+      for (const r of results.filter((r) => !r.ok)) {
+        expect(r.error).toMatch(/at least one owner or admin/i);
+      }
+
+      const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+      const elevated = await db
+        .collection('org_members')
+        .find({ orgId, role: { $in: ['owner', 'admin'] } })
+        .toArray();
+      expect(elevated.length).toBeGreaterThanOrEqual(1);
+      // Whoever is still elevated keeps their legacy array entry.
+      for (const m of elevated) {
+        expect([...(org!.owners ?? []), ...(org!.admins ?? [])]).toContain(m.userId);
+      }
+    } finally {
+      await db.collection('enterprises').deleteOne({ _id: enterpriseId });
+      await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $unset: { enterpriseId: '' } });
+    }
+  });
+
   it('is an owner of the org again once unblocked', async () => {
     await addMembership(memberId, 'owner');
     await (await getDb())

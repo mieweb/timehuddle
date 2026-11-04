@@ -1,7 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
-import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
+import { Teams, Organizations, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { DEFAULT_TICKET_IDS, ticketIdsFor } from './ticket-ids';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import {
@@ -217,7 +217,7 @@ Meteor.publish('teams.byUser', async function () {
     return queue;
   };
 
-  const handle = await Teams.find(await visibleTeamsSelector(this.userId)).observeChangesAsync({
+  const teamCallbacks = {
     added: (id, fields) =>
       enqueue(async () => {
         docs.set(hexOf(id), { _id: id, ...fields });
@@ -237,10 +237,52 @@ Meteor.publish('teams.byUser', async function () {
         sent.delete(hexOf(id));
         this.removed('teams', id);
       }),
+  };
+  let handle = await Teams.find(await visibleTeamsSelector(this.userId)).observeChangesAsync(
+    teamCallbacks,
+  );
+
+  // Owning an organization decides which of its teams are visible. When that
+  // changes (an owner is demoted, blocked or removed, or made one), observe the
+  // teams again and drop what the user can no longer see, so their join codes
+  // and member lists stop reaching a client that lost the access. Runs beside
+  // the update queue, not in it: observing awaits the queued `added` updates.
+  let watchingOwnership = false;
+  const refreshVisibleTeams = async () => {
+    handle.stop();
+    const selector = await visibleTeamsSelector(this.userId);
+    handle = await Teams.find(selector).observeChangesAsync(teamCallbacks);
+    await enqueue(async () => {
+      const visible = new Set(
+        (await Teams.find(selector, { fields: { _id: 1 } }).fetchAsync()).map((team) =>
+          hexOf(team._id),
+        ),
+      );
+      for (const [key, doc] of [...docs]) {
+        if (visible.has(key)) continue;
+        docs.delete(key);
+        sent.delete(key);
+        this.removed('teams', doc._id);
+      }
+    });
+  };
+  let refreshing = Promise.resolve();
+  const onOwnershipChanged = () => {
+    if (watchingOwnership) refreshing = refreshing.then(refreshVisibleTeams).catch(fail);
+  };
+  const ownershipHandle = await Organizations.find(
+    { owners: this.userId },
+    { fields: { _id: 1 } },
+  ).observeChangesAsync({
+    added: () => onOwnershipChanged(),
+    removed: () => onOwnershipChanged(),
   });
+  watchingOwnership = true;
+
   const stopListening = onSettingsChanged(() => void enqueue(resendAll));
   this.onStop(() => {
     handle.stop();
+    ownershipHandle.stop();
     stopListening();
   });
   this.ready();

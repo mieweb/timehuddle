@@ -551,11 +551,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userId || restoredForUser !== userId || scopedTeams.length === 0) return;
     if (urlTeamId) return;
 
+    // A remembered team the user has since left no longer counts, even though an
+    // organization owner still sees it: only a joined team is a default scope.
     const hasSelected = selectedTeamId
-      ? scopedTeams.some((team) => team.id === selectedTeamId)
+      ? scopedTeams.some((team) => team.id === selectedTeamId && isTeamMember(team, userId))
       : false;
 
-    // Never defaults to a team the user only manages as an organization owner.
     const firstOwnTeam = scopedTeams.find((team) => isTeamMember(team, userId));
     if (!hasSelected && firstOwnTeam) {
       setSelectedTeamId(firstOwnTeam.id);
@@ -575,6 +576,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Only a team that's in scope: right after an org switch the stored team
     // still belongs to the old org until "pick first available" replaces it.
     if (!selectedTeam) return;
+    // Without a team in the URL the selection is the remembered default, which
+    // must not put a team the user hasn't joined into member-only URLs. Explicit
+    // links to a team they manage (`?team=`, `/app/teams/:id`) are kept.
+    if (!urlTeamId && !isTeamMember(selectedTeam, userId)) return;
     if (pathname === '/app/teams') {
       replace(
         withQuery(`/app/teams/${selectedTeam.id}`, liveLocation().search, {
@@ -587,7 +592,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!carriesTeamScope(pathname, params)) return;
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
-  }, [selectedTeam, pathname, params, replace, setParams]);
+  }, [selectedTeam, urlTeamId, userId, pathname, params, replace, setParams]);
 
   const isSelectedTeamMember = !!selectedTeam && isTeamMember(selectedTeam, userId);
 

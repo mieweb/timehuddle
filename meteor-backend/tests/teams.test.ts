@@ -791,6 +791,8 @@ describe('organization owner who has not joined the team', () => {
     sharedTeamId = (
       await wormhole<{ team: { id: string } }>('teams.create', { name: 'Owner Visible Team' }, ownerJwt)
     ).result.team.id;
+    // The Personal-team privacy test below looks this team up.
+    await wormhole('teams.ensurePersonal', {}, ownerJwt);
 
     orgId = new ObjectId();
     await db.collection('organizations').insertOne({
@@ -803,6 +805,16 @@ describe('organization owner who has not joined the team', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    // orgs.listMembers reads the membership row, not just the legacy owners array.
+    await db.collection('org_members').insertOne({
+      _id: new ObjectId(),
+      orgId: orgId.toHexString(),
+      userId: orgOwnerId,
+      role: 'owner',
+      auto: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     await db
       .collection('teams')
       .updateOne({ _id: new ObjectId(sharedTeamId) }, { $set: { orgId: orgId.toHexString() } });
@@ -811,6 +823,7 @@ describe('organization owner who has not joined the team', () => {
   afterAll(async () => {
     const db = await getDb();
     await wormhole('teams.delete', { teamId: sharedTeamId }, ownerJwt).catch(() => {});
+    await db.collection('org_members').deleteMany({ orgId: orgId.toHexString() });
     await db.collection('organizations').deleteMany({ _id: orgId });
     await purgeUser(ORG_OWNER.email);
   });

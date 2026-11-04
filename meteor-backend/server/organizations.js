@@ -680,8 +680,32 @@ Meteor.methods({
       throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
     }
 
+    const previousRole =
+      current && ELEVATED_ROLES.includes(current.role)
+        ? current.role
+        : (org.owners ?? []).includes(userId)
+          ? 'owner'
+          : (org.admins ?? []).includes(userId)
+            ? 'admin'
+            : 'member';
+
     // Sets the role outright: addOrgMember only ever raises it, so it can't demote.
     await setOrgMemberRole(orgId, userId, role);
+
+    // The last-elevated check above ran on a snapshot, so two owners or admins
+    // demoted at once can both pass it. Count again now that this demotion is
+    // written: the later of two racing demotions always sees the earlier one,
+    // so if nobody is left it is undone and refused (as in orgs.removeMember).
+    if (role === 'member' && elevatedIds.has(userId)) {
+      const [orgNow, membershipsNow] = await Promise.all([
+        db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
+        db.collection('org_members').find({ orgId }).toArray(),
+      ]);
+      if (elevatedIdsOf(orgNow, membershipsNow).size === 0) {
+        await setOrgMemberRole(orgId, userId, previousRole);
+        throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+      }
+    }
     return { user: { userId, role } };
   },
 
