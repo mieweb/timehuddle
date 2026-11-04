@@ -46,6 +46,13 @@ const ELEVATED_ROLES = ['owner', 'admin'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Start of the window a report over `periodDays` reads: cadence always needs
+ *  30 days, so a shorter period still reads (and watches) all 30. */
+function windowStartFor(periodDays, now = Date.now()) {
+  const windowDays = Math.max(periodDays, CADENCE_WINDOW_DAYS);
+  return new Date(now - (windowDays - 1) * DAY_MS);
+}
+
 /**
  * Every organization `userId` owns or administers, newest role model first
  * (org_members) plus the legacy owners/admins arrays the older orgs still use.
@@ -187,6 +194,13 @@ Meteor.startup(async () => {
       console.error(`[usage] failed to create ${source.collection} index:`, error);
     }
   }
+  // Open clock sessions (`endTime: null`) for a set of members — read by every
+  // report and watched by usage.live — without scanning their whole history.
+  try {
+    await rawDb().collection('clockevents').createIndex({ userId: 1, endTime: 1 });
+  } catch (error) {
+    console.error('[usage] failed to create clockevents open-session index:', error);
+  }
 });
 
 Meteor.methods({
@@ -206,9 +220,7 @@ Meteor.methods({
     const members = await membersOf(scoped);
 
     const memberIds = members.map((member) => member.id);
-    // Cadence always reads 30 days; a longer period widens the window to match.
-    const windowDays = Math.max(period, CADENCE_WINDOW_DAYS);
-    const windowStart = new Date(Date.now() - (windowDays - 1) * DAY_MS);
+    const windowStart = windowStartFor(period);
 
     const buckets =
       memberIds.length === 0
@@ -270,7 +282,7 @@ Meteor.methods({
 //
 //   • they come online or go offline (presence.js),
 //   • they clock in or out (open clockevents),
-//   • they do something one of FEATURE_SOURCES counts.
+//   • a record one of FEATURE_SOURCES counts is added or removed in the window.
 //
 // The page refetches `usage.orgUsage` on that signal, so the numbers are always
 // computed in one place and still reach the page without a reload.
@@ -295,12 +307,28 @@ const OBSERVABLE_SOURCES = {
 Meteor.publish('usage.live', async function ({ orgId } = {}) {
   if (!this.userId) return this.ready();
 
+  // Setup awaits several times; the viewer can leave (or switch organization)
+  // in between. Anything started after that must be stopped on the spot, or
+  // its observer outlives the subscription.
+  let stopped = false;
+  const handles = [];
+  this.onStop(() => {
+    stopped = true;
+    handles.forEach((handle) => handle.stop());
+  });
+  const keep = (handle) => {
+    if (stopped) handle.stop();
+    else handles.push(handle);
+    return !stopped;
+  };
+
   let members;
   try {
     members = await membersOf((await reportScope(this.userId, orgId)).scoped);
   } catch {
     return this.ready();
   }
+  if (stopped) return undefined;
   const memberIds = members.map((member) => member.id);
   const memberSet = new Set(memberIds);
 
@@ -308,39 +336,37 @@ Meteor.publish('usage.live', async function ({ orgId } = {}) {
   // those are the state the report already shows, not changes to it.
   let initializing = true;
   const signal = () => {
-    if (!initializing) this.changed(LIVE_COLLECTION, SIGNAL_ID, { changedAt: Date.now() });
+    if (!initializing && !stopped) {
+      this.changed(LIVE_COLLECTION, SIGNAL_ID, { changedAt: Date.now() });
+    }
   };
+  const onEvent = { added: signal, removed: signal };
 
-  const handles = [];
-  const stopAll = () => handles.forEach((handle) => handle.stop());
-  this.onStop(stopAll);
-
-  handles.push({ stop: onPresenceChange((userId) => memberSet.has(userId) && signal()) });
+  keep({ stop: onPresenceChange((userId) => memberSet.has(userId) && signal()) });
 
   if (memberIds.length > 0) {
-    const onEvent = { added: signal, removed: signal };
-    handles.push(
-      await ClockEvents.find(
-        { userId: { $in: memberIds }, endTime: null },
-        { fields: { _id: 1 } },
-      ).observeChangesAsync(onEvent),
+    const openSessions = ClockEvents.find(
+      { userId: { $in: memberIds }, endTime: null },
+      { fields: { _id: 1 } },
     );
+    if (!keep(await openSessions.observeChangesAsync(onEvent))) return undefined;
 
-    const now = new Date();
+    // The whole window any period reads, adds and removals both: a backdated
+    // manual clock entry or a deleted post changes the report as much as a
+    // new one does.
+    const windowStart = windowStartFor(Math.max(...USAGE_PERIOD_DAYS));
     for (const source of FEATURE_SOURCES) {
-      const since = source.timeType === 'ms' ? now.getTime() : now;
-      handles.push(
-        await OBSERVABLE_SOURCES[source.collection]
-          .find(
-            { [source.userField]: { $in: memberIds }, [source.timeField]: { $gte: since } },
-            { fields: { _id: 1 } },
-          )
-          .observeChangesAsync({ added: signal }),
+      const since = source.timeType === 'ms' ? windowStart.getTime() : windowStart;
+      const cursor = OBSERVABLE_SOURCES[source.collection].find(
+        { [source.userField]: { $in: memberIds }, [source.timeField]: { $gte: since } },
+        { fields: { _id: 1 } },
       );
+      if (!keep(await cursor.observeChangesAsync(onEvent))) return undefined;
     }
   }
 
   initializing = false;
   this.added(LIVE_COLLECTION, SIGNAL_ID, { changedAt: Date.now() });
   this.ready();
+  return undefined;
 });

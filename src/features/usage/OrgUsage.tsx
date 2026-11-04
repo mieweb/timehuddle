@@ -22,7 +22,7 @@ import {
   TabsTrigger,
   Text,
 } from '@mieweb/ui';
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -173,20 +173,27 @@ export const OrgUsage: React.FC = () => {
     [administeredOrgs],
   );
 
+  // Live updates, period and org changes can overlap requests; only the latest
+  // one may land, or a slow older report overwrites a newer one.
+  const latestRequest = useRef(0);
   const loadReport = useCallback(async () => {
     if (!canAccess) return;
+    const request = ++latestRequest.current;
+    const isLatest = () => request === latestRequest.current;
     setLoading(true);
     setError(null);
     try {
-      setReport(await usageApi.getOrgUsage(periodDays, orgId === ALL_ORGS ? undefined : orgId));
+      const next = await usageApi.getOrgUsage(periodDays, orgId === ALL_ORGS ? undefined : orgId);
+      if (isLatest()) setReport(next);
     } catch (err) {
+      if (!isLatest()) return;
       if (err instanceof ApiError && err.code === 'forbidden') {
         setDenied(true);
         return;
       }
       setError(err instanceof ApiError ? err.message : 'Failed to load usage.');
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, [canAccess, orgId, periodDays]);
 

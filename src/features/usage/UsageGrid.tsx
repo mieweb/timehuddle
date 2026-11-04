@@ -103,11 +103,28 @@ type RowsWindow = Window & { [ROWS_VAR]?: { typeInfo: typeof TYPE_INFO; data: Us
 
 /**
  * Publish the rows where the `local` source reads them. Runs during render,
- * because the source copies the variable as soon as it is constructed. Never
- * cleared: the view may re-read it at any time, and it is one small object.
+ * because the source copies the variable as soon as it is constructed.
  */
 function publishRows(users: OrgUsageUser[]): void {
   (window as RowsWindow)[ROWS_VAR] = { typeInfo: TYPE_INFO, data: users.map(toRow) };
+}
+
+/**
+ * Hold the rows on `window` only while the grid is mounted. Signing out swaps
+ * React state without reloading the page, so rows left behind would hand the
+ * next session in this tab the last report's member emails and activity.
+ * Cleared to an empty payload rather than deleted, so a late read by the view
+ * gets no rows instead of throwing. Re-published on mount, because StrictMode
+ * runs this cleanup once while the grid is still on screen.
+ */
+function useRowsOnWindow(users: OrgUsageUser[]): void {
+  publishRows(users);
+  const latestUsers = useRef(users);
+  latestUsers.current = users;
+  useEffect(() => {
+    publishRows(latestUsers.current);
+    return () => publishRows([]);
+  }, []);
 }
 
 /** Reload the grid's view when the rows change — after the first load, which
@@ -172,7 +189,7 @@ interface UsageGridProps {
 }
 
 const UsageGrid: React.FC<UsageGridProps> = ({ users, periodDays, showOrganization }) => {
-  publishRows(users);
+  useRowsOnWindow(users);
   const columns = useMemo(
     () =>
       showOrganization ? COLUMNS : COLUMNS.filter((column) => column.field !== 'organization'),

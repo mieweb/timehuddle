@@ -62,16 +62,22 @@ describe('useUsageLiveUpdates', () => {
     expect(ddp.subscribe).not.toHaveBeenCalled();
   });
 
-  it('ignores the initial signal that arrives before the subscription is ready', () => {
+  it('refetches once when the subscription is ready, to cover changes since the first fetch', () => {
     const ddp = setupDdp();
     const onChange = vi.fn();
     renderHook(() => useUsageLiveUpdates(undefined, true, onChange));
 
+    // The signal document's first arrival, before ready, adds nothing extra.
     ddp.signal();
-    ddp.ready();
-    vi.advanceTimersByTime(LIVE_REFETCH_MIN_INTERVAL_MS * 2);
-
+    vi.advanceTimersByTime(LIVE_REFETCH_MIN_INTERVAL_MS);
     expect(onChange).not.toHaveBeenCalled();
+
+    ddp.ready();
+    vi.advanceTimersByTime(LIVE_REFETCH_DELAY_MS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(LIVE_REFETCH_MIN_INTERVAL_MS * 2);
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it('refetches once for a burst of changes, after the settle delay', () => {

@@ -38,11 +38,10 @@ export function useUsageLiveUpdates(
     let ready = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastRefetchAt = 0;
-    const offChange = ddp.onCollectionChange('usageLive', () => {
-      // The signal document arrives once before `ready`; that is the state the
-      // report was just fetched in, not a change to it.
-      // A refetch already scheduled will pick this change up too.
-      if (!ready || timer) return;
+    /** Refetch soon, but no sooner than the interval allows. A refetch already
+     *  scheduled picks up any further change too. */
+    const scheduleRefetch = () => {
+      if (timer) return;
       const wait = Math.max(
         LIVE_REFETCH_DELAY_MS,
         lastRefetchAt + LIVE_REFETCH_MIN_INTERVAL_MS - Date.now(),
@@ -52,9 +51,18 @@ export function useUsageLiveUpdates(
         lastRefetchAt = Date.now();
         onChangeRef.current();
       }, wait);
+    };
+    const offChange = ddp.onCollectionChange('usageLive', () => {
+      // The signal document arrives once before `ready`; the refetch on ready
+      // below covers it.
+      if (ready) scheduleRefetch();
     });
     const unsubscribe = ddp.subscribe('usage.live', [orgId ? { orgId } : {}], () => {
       ready = true;
+      // The page fetched its report independently of this subscription, so a
+      // change between that fetch and now reached neither. Refetch once to
+      // close the gap (and again after a reconnect, which re-readies the sub).
+      scheduleRefetch();
     });
     return () => {
       clearTimeout(timer);
