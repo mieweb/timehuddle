@@ -9,6 +9,11 @@ import {
   addOrgMember,
   getAccessibleOrgIds,
   isTeamAdminOrOrgOwner,
+  isTeamMemberOrOrgOwner,
+  isOrgOwnerOfTeam,
+  addMemberUpdate,
+  getOwnedOrgIds,
+  visibleTeamsSelector,
   autoJoinOrgUnlessRemoved,
 } from './org-helpers';
 import { createNotification } from './notify-core';
@@ -212,7 +217,7 @@ Meteor.publish('teams.byUser', async function () {
     return queue;
   };
 
-  const handle = await Teams.find({ members: this.userId }).observeChangesAsync({
+  const handle = await Teams.find(await visibleTeamsSelector(this.userId)).observeChangesAsync({
     added: (id, fields) =>
       enqueue(async () => {
         docs.set(hexOf(id), { _id: id, ...fields });
@@ -244,17 +249,18 @@ Meteor.publish('teams.byUser', async function () {
 Meteor.methods({
   async 'teams.list'() {
     const identity = await requireIdentity(this);
-    const teams = await Teams.find({ members: identity.userId }).fetchAsync();
+    const teams = await Teams.find(await visibleTeamsSelector(identity.userId)).fetchAsync();
 
     const userPending = await TeamJoinRequests.rawCollection()
       .find({ userId: identity.userId, status: 'pending' })
       .sort({ requestedAt: -1 })
       .toArray();
 
-    const adminTeamIds = teams.filter((t) => t.admins?.includes(identity.userId)).map((t) => {
-      const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
-      return id;
-    });
+    // Org owners see every shared team of theirs, so they also handle its join requests.
+    const ownedOrgIds = new Set(await getOwnedOrgIds(identity.userId));
+    const adminTeamIds = teams
+      .filter((t) => t.admins?.includes(identity.userId) || ownedOrgIds.has(t.orgId))
+      .map((t) => (t._id?.toHexString ? t._id.toHexString() : String(t._id)));
 
     let adminPending = [];
     if (adminTeamIds.length > 0) {
@@ -358,22 +364,17 @@ Meteor.methods({
       throw new Meteor.Error('already-member', 'Already a member');
     }
 
-    // Check if user is an organization owner - owners can join any team directly
-    if (team.orgId && isValidId(team.orgId)) {
-      const membership = await rawDb().collection('org_members').findOne({
-        orgId: team.orgId,
+    // Organization owners join any team in their organization directly, as its admin.
+    if (await isOrgOwnerOfTeam(team, identity.userId)) {
+      await Teams.updateAsync(new Mongo.ObjectID(teamId), await addMemberUpdate(team, identity.userId));
+      // Like the other join paths: an earlier request no longer awaits approval.
+      await TeamJoinRequests.rawCollection().deleteMany({
+        teamId,
         userId: identity.userId,
+        status: 'pending',
       });
-      if (membership && membership.role === 'owner') {
-        // Add owner directly to team without approval
-        await Teams.updateAsync(new Mongo.ObjectID(teamId), {
-          $addToSet: { members: identity.userId },
-          $set: { updatedAt: new Date() },
-        });
-
-        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-        return { status: 'joined', team: await toPublicTeam(updatedTeam) };
-      }
+      const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+      return { status: 'joined', team: await toPublicTeam(updatedTeam) };
     }
 
     // Team setting: auto-accept join requests — add the member immediately
@@ -498,10 +499,7 @@ Meteor.methods({
       return { ok: true, team: await toPublicTeam(team) };
     }
 
-    await Teams.updateAsync(team._id, {
-      $addToSet: { members: identity.userId },
-      $set: { updatedAt: new Date() },
-    });
+    await Teams.updateAsync(team._id, await addMemberUpdate(team, identity.userId));
     await addMemberToTeamOrgIfAllowed(team, identity.userId);
 
     // Clear any stale pending request for this user/team now that they're a
@@ -523,7 +521,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const parent = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!parent) throw new Meteor.Error('not-found', 'Team not found');
-    if (!parent.members.includes(userId)) {
+    if (!(await isTeamMemberOrOrgOwner(parent, userId))) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
     const subs = await Teams.find(
@@ -597,7 +595,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.members.includes(userId)) {
+    if (!(await isTeamMemberOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 

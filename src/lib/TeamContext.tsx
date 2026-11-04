@@ -39,7 +39,7 @@ import {
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
-import { canManageTeam } from './organizationAccess';
+import { canManageTeam, isTeamMember } from './organizationAccess';
 import { useSession } from './useSession';
 import {
   liveLocation,
@@ -112,8 +112,12 @@ type EnterpriseSummary = {
 };
 
 export interface TeamContextValue {
+  /**
+   * The selected org's teams the user can see: the ones they belong to, plus the
+   * rest of an organization they own. Member-only views filter with `isTeamMember`.
+   */
   teams: Team[];
-  /** All teams the user belongs to, across every org (not scoped to selectedOrgId). */
+  /** Every such team across every org (not scoped to selectedOrgId). */
   allTeams: Team[];
   pendingRequests: TeamJoinRequest[];
   enterprises: EnterpriseSummary[];
@@ -148,6 +152,8 @@ export interface TeamContextValue {
   /** 'forbidden' when `?org=` names an organization the user isn't in. */
   orgAccess: TeamAccess;
   isAdmin: boolean;
+  /** False for a team shown only because the user owns its organization. */
+  isSelectedTeamMember: boolean;
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
   refetchClock: () => void;
@@ -175,6 +181,7 @@ const TeamCtx = createContext<TeamContextValue>({
   teamAccess: 'ok',
   orgAccess: 'ok',
   isAdmin: false,
+  isSelectedTeamMember: false,
   activeClockEvent: null,
   clockReady: false,
   refetchClock: () => {},
@@ -422,9 +429,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? 'forbidden'
         : 'pending';
 
-  /** Makes `id` (and its org) the persisted fallback for URLs without `?team=`. */
+  /**
+   * Makes `id` (and its org) the persisted fallback for URLs without `?team=`.
+   * A team the user only manages as an organization owner is never remembered:
+   * pages without a team in the URL would then act on a team they haven't joined.
+   */
   const rememberTeam = useCallback(
-    (id: string, orgId: string | undefined) => {
+    (id: string, orgId: string | undefined, team?: Team) => {
+      if (team && !isTeamMember(team, userId)) return;
       setStoredTeamId(id);
       if (orgId) setStoredOrgId(orgId);
       if (!userId || typeof window === 'undefined') return;
@@ -439,8 +451,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // A just-created or just-joined team isn't in the list until the next
       // fetch; without this its URL would read as forbidden in the meantime.
       if (team && !teams.some((t) => t.id === team.id)) setTeams((prev) => [...prev, team]);
-      const orgId = team?.orgId ?? teams.find((t) => t.id === id)?.orgId;
-      rememberTeam(id, orgId);
+      const target = team ?? teams.find((t) => t.id === id);
+      const orgId = target?.orgId;
+      rememberTeam(id, orgId, target);
 
       // A URL that names the scope must follow the pick, or the URL would keep
       // overriding it. An `?org=` that no longer matches the team is dropped.
@@ -459,7 +472,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // sidebar link (which carries no `?team=`) stays on it.
   useEffect(() => {
     if (!urlTeam || restoredForUser !== userId || urlTeam.id === storedTeamId) return;
-    rememberTeam(urlTeam.id, urlTeam.orgId);
+    rememberTeam(urlTeam.id, urlTeam.orgId, urlTeam);
   }, [urlTeam, restoredForUser, userId, storedTeamId, rememberTeam]);
 
   const setSelectedEnterpriseId = useCallback(
@@ -542,8 +555,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? scopedTeams.some((team) => team.id === selectedTeamId)
       : false;
 
-    if (!hasSelected) {
-      setSelectedTeamId(scopedTeams[0].id);
+    // Never defaults to a team the user only manages as an organization owner.
+    const firstOwnTeam = scopedTeams.find((team) => isTeamMember(team, userId));
+    if (!hasSelected && firstOwnTeam) {
+      setSelectedTeamId(firstOwnTeam.id);
     }
   }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId, restoredForUser, urlTeamId]);
 
@@ -573,6 +588,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
   }, [selectedTeam, pathname, params, replace, setParams]);
+
+  const isSelectedTeamMember = !!selectedTeam && isTeamMember(selectedTeam, userId);
 
   const isAdmin = useMemo(
     () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),
@@ -716,6 +733,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       teamAccess,
       orgAccess,
       isAdmin,
+      isSelectedTeamMember,
       activeClockEvent,
       clockReady,
       refetchClock,
@@ -742,6 +760,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       teamAccess,
       orgAccess,
       isAdmin,
+      isSelectedTeamMember,
       activeClockEvent,
       clockReady,
       refetchClock,

@@ -92,7 +92,14 @@ const MarkdownEditor = lazy(() =>
 );
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
+  const {
+    selectedTeamId,
+    isSelectedTeamMember,
+    activeClockEvent,
+    currentTime,
+    teamsReady,
+    refetchClock,
+  } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -220,7 +227,13 @@ export const ClockPage: React.FC = () => {
   const [submittingMode, setSubmittingMode] = useState<ComposerMode | null>(null);
   const composerMode: ComposerMode | null =
     submittingMode ??
-    (!isClockedIn ? (planMissing ? 'plan' : null) : wrapUpMissing ? 'wrapup' : null);
+    (!isClockedIn
+      ? planMissing && isSelectedTeamMember
+        ? 'plan'
+        : null
+      : wrapUpMissing
+        ? 'wrapup'
+        : null);
 
   // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
   // Its initial subscription sync is slow over a mobile/LAN connection, so the
@@ -440,7 +453,11 @@ export const ClockPage: React.FC = () => {
   }, [planBusy, gateTeamId, planTeamId]);
   // The one the Pulse section offers now: clock in with a plan, or out with a
   // wrap-up. Null without a team to clock in to.
-  const clockPulse = isClockedIn ? wrapUpPulse : gateTeamId ? planPulse : null;
+  const clockPulse = isClockedIn
+    ? wrapUpPulse
+    : gateTeamId && isSelectedTeamMember
+      ? planPulse
+      : null;
   const clockPulseLabel = clockText.pulse(isClockedIn);
 
   // Clear attach/ticket/mention selections whenever the composer opens fresh
@@ -916,7 +933,7 @@ export const ClockPage: React.FC = () => {
                 variant="primary"
                 onClick={() => void clockIn()}
                 isLoading={clockInLoading}
-                disabled={!selectedTeamId}
+                disabled={!selectedTeamId || !isSelectedTeamMember}
                 aria-label={clockText.clockIn}
                 leftIcon={<FontAwesomeIcon icon={faPlay} />}
                 className={COMPACT_PILL}
@@ -937,6 +954,13 @@ export const ClockPage: React.FC = () => {
             )}
             <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
           </div>
+        )}
+
+        {/* An organization owner can open a team they haven't joined; clocking in needs membership. */}
+        {!isClockedIn && !!selectedTeamId && !isSelectedTeamMember && (
+          <Text variant="muted" size="sm" className="clock-join-hint shrink-0">
+            {clockText.joinToClockIn}
+          </Text>
         )}
 
         {/* Clocking out closes every ticket timer (clock.stop), so say so first. */}

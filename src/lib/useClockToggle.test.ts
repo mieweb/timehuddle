@@ -42,6 +42,7 @@ function setupTeam(
     activeClockEvent?: { id: string; teamId: string } | null;
     selectedTeamId?: string | null;
     requirePlan?: boolean;
+    isSelectedTeamMember?: boolean;
   } = {},
 ) {
   mockUseTeam.mockReturnValue({
@@ -78,6 +79,7 @@ function setupTeam(
     teamAccess: 'ok',
     orgAccess: 'ok',
     isAdmin: false,
+    isSelectedTeamMember: opts.isSelectedTeamMember ?? true,
     activeClockEvent: (opts.activeClockEvent ?? null) as any,
     clockReady: true,
     refetchClock: mockRefetchClock,
@@ -143,6 +145,15 @@ describe('useClockToggle', () => {
 
       expect(mockStart).toHaveBeenCalledWith('team-abc', undefined);
       expect(mockRefetchClock).toHaveBeenCalledOnce();
+    });
+
+    it('does nothing for a team the user only manages as an organization owner', async () => {
+      setupTeam({ activeClockEvent: null, isSelectedTeamMember: false });
+      const { result } = renderHook(() => useClockToggle());
+
+      await act(() => result.current.clockIn());
+
+      expect(mockStart).not.toHaveBeenCalled();
     });
 
     it('does nothing if selectedTeamId is null', async () => {

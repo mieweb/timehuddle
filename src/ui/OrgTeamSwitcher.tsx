@@ -19,8 +19,12 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { CreateTeamModal } from '../features/teams/CreateTeamModal';
+import { TEAMS_STRINGS } from '../features/teams/teamsStrings';
+import { isTeamMember } from '../lib/organizationAccess';
 import { useTeam } from '../lib/TeamContext';
+import { useSession } from '../lib/useSession';
 import { Logo } from './Logo';
+import { useRouter } from './router';
 
 type OrganizationRole = 'owner' | 'admin' | 'member';
 
@@ -41,6 +45,9 @@ export const OrgTeamSwitcher: React.FC = () => {
     teamsReady,
     pendingRequests,
   } = useTeam();
+  const { user } = useSession();
+  const { navigate } = useRouter();
+  const userId = user?.id ?? null;
   const [open, setOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -66,12 +73,15 @@ export const OrgTeamSwitcher: React.FC = () => {
     return counts;
   }, [pendingRequests]);
 
+  // A team the user only owns the organization of has no member views to scope,
+  // so it opens on its own page instead of becoming the app-wide selection.
   const handleSelectTeam = useCallback(
-    (teamId: string) => {
-      setSelectedTeamId(teamId);
+    (team: (typeof teams)[number]) => {
+      if (isTeamMember(team, userId)) setSelectedTeamId(team.id);
+      else navigate(`/app/teams/${team.id}`);
       setOpen(false);
     },
-    [setSelectedTeamId],
+    [setSelectedTeamId, navigate, userId],
   );
 
   const handleNewTeam = useCallback(() => {
@@ -182,7 +192,7 @@ export const OrgTeamSwitcher: React.FC = () => {
                   <button
                     key={team.id}
                     type="button"
-                    onClick={() => handleSelectTeam(team.id)}
+                    onClick={() => handleSelectTeam(team)}
                     aria-current={selected ? 'true' : undefined}
                     className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                       selected
@@ -194,6 +204,11 @@ export const OrgTeamSwitcher: React.FC = () => {
                       {team.name}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
+                      {!isTeamMember(team, userId) && (
+                        <Badge variant="secondary" size="sm">
+                          {TEAMS_STRINGS.notJoined}
+                        </Badge>
+                      )}
                       {pendingCount > 0 && (
                         <Badge variant="default" size="sm">
                           {pendingCount}

@@ -56,6 +56,7 @@ import {
   timesheetApproversFor,
   timesheetVideoRequired,
 } from '../../lib/timesheetApproval';
+import { isTeamMember } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
@@ -604,8 +605,11 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
 
   // Team options for new entry (exclude personal workspace)
   const teamOptions = useMemo(
-    () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
-    [teams],
+    () =>
+      teams
+        .filter((t) => !t.isPersonal && isTeamMember(t, user?.id ?? null))
+        .map((t) => ({ value: t.id, label: t.name })),
+    [teams, user?.id],
   );
 
   const presets = PRESETS;

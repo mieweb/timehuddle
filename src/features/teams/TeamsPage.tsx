@@ -30,8 +30,10 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { QRCodeSVG } from 'qrcode.react';
 import {
+  Alert,
   Badge,
   Button,
+  ButtonGroup,
   CardTitle,
   Dropdown,
   DropdownItem,
@@ -59,6 +61,7 @@ import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { teamApi, type Team, type TeamMember, type TeamInvitation } from '../../lib/api';
+import { isTeamMember } from '../../lib/organizationAccess';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -411,6 +414,26 @@ export const TeamsPage: React.FC = () => {
     [selectedTeamId, refetchTeams, fetchMembers],
   );
 
+  // An organization owner can open any team in the organization; joining is their choice.
+  const isOwnerOnlyTeam = !!selectedTeam && !isTeamMember(selectedTeam, userId);
+  const [ownerJoinLoading, setOwnerJoinLoading] = useState(false);
+  const [ownerJoinError, setOwnerJoinError] = useState<string | null>(null);
+  useEffect(() => setOwnerJoinError(null), [selectedTeamId]);
+  const handleOwnerJoin = useCallback(async () => {
+    if (!selectedTeam) return;
+    setOwnerJoinLoading(true);
+    setOwnerJoinError(null);
+    try {
+      const result = await teamApi.joinTeam(selectedTeam.code);
+      if (result.status === 'joined') setSelectedTeamId(result.team.id, result.team);
+      refetchTeams();
+    } catch (e: any) {
+      setOwnerJoinError(e.message || TEAMS_STRINGS.joinFailed);
+    } finally {
+      setOwnerJoinLoading(false);
+    }
+  }, [selectedTeam, setSelectedTeamId, refetchTeams]);
+
   const copyCode = useCallback(() => {
     if (selectedTeam?.code) {
       navigator.clipboard.writeText(selectedTeam.code);
@@ -481,7 +504,7 @@ export const TeamsPage: React.FC = () => {
       {/* Personal always leads; the currently selected team comes right
           after it so switching teams doesn't require scrolling back to find
           "where you are" — the rest keep their original order. */}
-      {teams.length > 1 && (
+      {(teams.length > 1 || (teams.length > 0 && !selectedTeam)) && (
         <div
           className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
           role="tablist"
@@ -556,6 +579,30 @@ export const TeamsPage: React.FC = () => {
               )}
             </div>
           </div>
+
+          {isOwnerOnlyTeam && (
+            <div className="team-not-joined mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-neutral-100 p-3 dark:border-neutral-800">
+              <Text variant="muted" size="sm" className="min-w-0 flex-1">
+                {TEAMS_STRINGS.notJoinedHint}
+              </Text>
+              <ButtonGroup>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleOwnerJoin()}
+                  isLoading={ownerJoinLoading}
+                  leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
+                >
+                  {TEAMS_STRINGS.joinTeam}
+                </Button>
+              </ButtonGroup>
+              {ownerJoinError && (
+                <Alert variant="danger" className="w-full">
+                  {ownerJoinError}
+                </Alert>
+              )}
+            </div>
+          )}
 
           {/* ── Members · Requests · Invitations · Settings ─────────────────── */}
           <Tabs

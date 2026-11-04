@@ -88,6 +88,7 @@ import { NoAccessState } from '../ui/NoAccessState';
 import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
+import { isTeamMember } from '@lib/organizationAccess';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
@@ -336,7 +337,7 @@ export default function Huddle() {
     setSelectedTickets([]);
   }, [postingTeamId, setSelectedTickets]);
 
-  const teamOptions = teams.filter((t) => !t.isPersonal);
+  const teamOptions = teams.filter((t) => !t.isPersonal && isTeamMember(t, user?.id ?? null));
   const teamPickerValue = scope === 'me' ? PERSONAL_VIEW : (selectedTeamId ?? '');
   const teamPickerLabel =
     scope === 'me'
