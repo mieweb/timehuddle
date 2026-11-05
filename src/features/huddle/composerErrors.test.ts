@@ -4,7 +4,10 @@ vi.mock('@lib/api', () => ({ ApiError: class extends Error {}, videoApi: {} }));
 
 import { composerRefusalMessage } from './composerErrors';
 
-const caps = { limit: '25 MB', maxFiles: 10 };
+const caps = {
+  limitOf: (f: File) => (f.type.startsWith('video/') ? '500 MB' : '100 MB'),
+  maxFiles: 10,
+};
 const file = (name: string, type: string) => new File(['x'], name, { type });
 
 describe('composerRefusalMessage', () => {
@@ -23,19 +26,19 @@ describe('composerRefusalMessage', () => {
     ).toBe("app.exe can't be attached. Photos, videos, PDFs, and Word, Excel or text files can.");
   });
 
-  it('points a long video to Pulse, and says the cap for anything else', () => {
+  it("says each file's own size cap", () => {
     expect(
       composerRefusalMessage(
         { reason: 'file-size', file: file('demo.mov', 'video/quicktime') },
         caps,
       ),
-    ).toBe('demo.mov is over 25 MB. Post a longer video with Pulse, which takes up to 500 MB.');
+    ).toBe('demo.mov is over 500 MB.');
     expect(
       composerRefusalMessage(
         { reason: 'file-size', file: file('scan.pdf', 'application/pdf') },
         caps,
       ),
-    ).toBe('scan.pdf is over 25 MB.');
+    ).toBe('scan.pdf is over 100 MB.');
   });
 
   it('says the attachment cap, and leaves a failed send to its own message', () => {

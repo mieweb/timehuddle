@@ -1,5 +1,6 @@
 // Huddle feature API helpers
 import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
+import type { ComposerAttachment } from '@mieweb/ui/components/SuperChat';
 import type { HuddlePost } from '@lib/api';
 import { artifactPath } from '../pulse-upload/artifact';
 import { isVideoFile, uploadVideoTo } from '../pulse-upload/videoFile';
@@ -57,17 +58,14 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
 }
 
 /**
- * Turn a file staged in SuperChat's chat input back into a `File`. The input
- * hands attachments over as base64 `data:` URLs; uploading goes through
- * {@link uploadMedia}, which takes a `File`.
+ * The `File` behind a file staged in SuperChat's chat input, for
+ * {@link uploadMedia}. SuperChat hands it over as picked; Huddle turns its
+ * base64 copy off (`attachmentDataUrls={false}`), which a large video would
+ * overflow.
  */
-export async function composerAttachmentToFile(attachment: {
-  name: string;
-  type: string;
-  dataUrl: string;
-}): Promise<File> {
-  const blob = await (await fetch(attachment.dataUrl)).blob();
-  return new File([blob], attachment.name, { type: attachment.type });
+export function composerAttachmentFile(attachment: ComposerAttachment): File {
+  if (!attachment.file) throw new Error(`${attachment.name} couldn't be read. Attach it again.`);
+  return attachment.file;
 }
 
 /**
