@@ -5,7 +5,8 @@
  *
  * The other composer specs drive the Clock tab's plan composer; these drive the
  * Huddle page's message box (SuperChat's ChatComposer), whose hidden file input
- * is the one that accepts listed image formats (not `image/*`).
+ * is the one that accepts listed image formats (not `image/*`). Files are only
+ * staged in the size tests, never sent.
  */
 import fs from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
@@ -82,13 +83,27 @@ test.describe('Huddle message box — photos and documents', () => {
     await expect(page.getByText(/IMG_0042\.HEIC is a HEIC photo/)).toBeVisible();
     await expect(page.getByLabel('Remove kept.png')).toBeVisible();
 
+    // Each file has its own cap: 500 MB for a video, 100 MB for anything else.
+    // Over Playwright's 50 MB in-memory limit, so these are (sparse) files.
+    const overCap = (name: string, megabytes: number) => {
+      const path = test.info().outputPath(name);
+      fs.writeFileSync(path, '');
+      fs.truncateSync(path, megabytes * 1024 * 1024 + 1);
+      return path;
+    };
+    await fileInput(page).setInputFiles(overCap('scan.pdf', 100));
+    await expect(page.getByText('scan.pdf is over 100 MB.')).toBeVisible();
+    await fileInput(page).setInputFiles(overCap('too-long.mp4', 500));
+    await expect(page.getByText('too-long.mp4 is over 500 MB.')).toBeVisible();
+  });
+
+  test('takes a video over the old 25 MB cap', async ({ page }) => {
     await fileInput(page).setInputFiles({
       name: 'long-demo.mov',
       mimeType: 'video/quicktime',
       buffer: Buffer.alloc(26 * 1024 * 1024),
     });
-    await expect(
-      page.getByText(/long-demo\.mov is over 25 MB\. Post a longer video with Pulse/),
-    ).toBeVisible();
+    await expect(page.getByLabel('Remove long-demo.mov')).toBeVisible();
+    await expect(page.getByText(/long-demo\.mov is over/)).toHaveCount(0);
   });
 });

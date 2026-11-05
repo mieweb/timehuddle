@@ -10,7 +10,6 @@
  */
 import type { ChatComposerError } from '@mieweb/ui';
 import { ApiError } from '@lib/api';
-import { isVideoFile } from '../pulse-upload/videoFile';
 
 /**
  * A post whose body exceeded the API's 1 MB limit. The backend answers this
@@ -45,8 +44,6 @@ const REFUSALS = {
     `${name} is a HEIC photo, which most browsers can't show. Save it as JPEG, or pick it from your photo library, which converts it.`,
   type: (name: string) =>
     `${name} can't be attached. Photos, videos, PDFs, and Word, Excel or text files can.`,
-  videoSize: (name: string, limit: string) =>
-    `${name} is over ${limit}. Post a longer video with Pulse, which takes up to 500 MB.`,
   size: (name: string, limit: string) => `${name} is over ${limit}.`,
   limit: (max: number) => `A post takes up to ${max} files.`,
 } as const;
@@ -55,23 +52,20 @@ const isHeic = (file: File) => /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$
 
 /**
  * The composer's refusal (`onComposerError`) as the writer should read it:
- * which file, why, and what to do instead. `limit` is the size cap as said
- * ("100 MB"), `maxFiles` the attachment cap. Null for a reason this doesn't
+ * which file, why, and what to do instead. `limitOf` says a file's size cap
+ * ("100 MB"), `maxFiles` is the attachment cap. Null for a reason this doesn't
  * word (a failed send has its own message).
  */
 export function composerRefusalMessage(
   context: ChatComposerError | undefined,
-  { limit, maxFiles }: { limit: string; maxFiles: number },
+  { limitOf, maxFiles }: { limitOf: (file: File) => string; maxFiles: number },
 ): string | null {
   const file = context?.file;
   switch (context?.reason) {
     case 'file-type':
       return file ? (isHeic(file) ? REFUSALS.heic(file.name) : REFUSALS.type(file.name)) : null;
     case 'file-size':
-      if (!file) return null;
-      return isVideoFile(file)
-        ? REFUSALS.videoSize(file.name, limit)
-        : REFUSALS.size(file.name, limit);
+      return file ? REFUSALS.size(file.name, limitOf(file)) : null;
     case 'attachment-limit':
       return REFUSALS.limit(maxFiles);
     default:

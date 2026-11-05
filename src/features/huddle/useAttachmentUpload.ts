@@ -13,15 +13,19 @@ import type { MediaItem } from './types';
 /**
  * Largest photo or document accepted, matching the backend's own MAX_FILE_MB.
  * A video goes to PulseVault instead, which takes up to {@link MAX_VIDEO_BYTES}.
- * Checked here so an oversize pick fails instantly with a message naming the
- * file, instead of after however long it takes to push the bytes up and be
- * rejected.
+ * Checked before upload so an oversize pick fails instantly with a message
+ * naming the file, instead of after however long it takes to push the bytes up
+ * and be rejected.
  */
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
-const sizeLimit = (file: File) => (isVideoFile(file) ? MAX_VIDEO_BYTES : MAX_ATTACHMENT_BYTES);
+/** Largest this file may be to attach: every composer's cap, Clock's and Huddle's. */
+export const attachmentSizeLimit = (file: File) =>
+  isVideoFile(file) ? MAX_VIDEO_BYTES : MAX_ATTACHMENT_BYTES;
 
-const formatMb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
+/** {@link attachmentSizeLimit} as the refusals say it: "500 MB". */
+export const attachmentLimitLabel = (file: File) =>
+  `${Math.round(attachmentSizeLimit(file) / 1048576)} MB`;
 
 interface UseAttachmentUploadOptions {
   onAttachmentAdd: (media: MediaItem) => void;
@@ -61,15 +65,15 @@ export function useAttachmentUpload({
       if (files.length === 0) return;
       onError?.(null);
 
-      const oversize = files.filter((file) => file.size > sizeLimit(file));
+      const oversize = files.filter((file) => file.size > attachmentSizeLimit(file));
       if (oversize.length > 0) {
         onError?.(
           oversize
-            .map((f) => `${f.name} — too large to attach (limit ${formatMb(sizeLimit(f))}).`)
+            .map((f) => `${f.name} — too large to attach (limit ${attachmentLimitLabel(f)}).`)
             .join(' '),
         );
       }
-      const accepted = files.filter((file) => file.size <= sizeLimit(file));
+      const accepted = files.filter((file) => file.size <= attachmentSizeLimit(file));
       if (accepted.length === 0) return;
 
       setUploading(true);

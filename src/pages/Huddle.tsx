@@ -32,7 +32,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  composerAttachmentToFile,
+  composerAttachmentFile,
   fetchTeamMembers,
   toPostAttachment,
   uploadMedia,
@@ -40,6 +40,7 @@ import {
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
+import { attachmentLimitLabel, attachmentSizeLimit } from '../features/huddle/useAttachmentUpload';
 import {
   dayConversationId,
   defaultConversation,
@@ -107,10 +108,6 @@ const VIEW_PARAMS = ['conversation', 'post', 'postId', 'view', 'q'];
 const ME_FEED_KEY = 'me';
 // How far back a link that can't be dated (a post, a session) is chased before it reads as not found.
 const LINK_SEARCH_MAX_DAYS = 360;
-// Below the backend's 100 MB: the composer hands files over as base64, which a mobile WebView can't hold at that size.
-const COMPOSER_MAX_FILE_BYTES = 25 * 1024 * 1024;
-/** That cap as the composer's refusal says it. */
-const COMPOSER_MAX_FILE_LABEL = '25 MB';
 /** The composer's attachment cap (ChatComposer's default). */
 const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
@@ -1052,6 +1049,9 @@ export default function Huddle() {
     setSending(true);
     setInboxError(null);
     let id: string;
+    // The pending post's previews of the picked files, freed once it's gone.
+    let previewUrls: string[] = [];
+    const revokePreviews = () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
     // Snapshot what's staged now: the uploads below take time, and anything
     // picked meanwhile belongs to the *next* post, not this one.
     const ticketIds = selectedTicketIds;
@@ -1063,10 +1063,6 @@ export default function Huddle() {
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
       const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
-      // One file at a time: each attachment arrives as a base64 `data:` URL, so
-      // decoding and uploading them together would hold every string, blob and
-      // File in memory at once — enough to kill a mobile WebView at the size
-      // limit the picker accepts.
       // Where the post will land: in Day grouping, its day's thread, which
       // isn't necessarily the one it was sent from (an older day's). Open it,
       // so the writer sees their post arrive.
@@ -1074,27 +1070,31 @@ export default function Huddle() {
       if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
         openConversation(landsIn);
       }
+      const files = composerAttachments.map(composerAttachmentFile);
       // Files take a while: show the post there meanwhile, and how far its
       // files have uploaded.
-      if (composerAttachments.length > 0 && user) {
+      if (files.length > 0 && user) {
+        previewUrls = files.map((file) => URL.createObjectURL(file));
         setPendingPost({
           conversationId: landsIn,
           message: pendingPostMessage({
             id: `pending-${Date.now()}`,
             userId: user.id,
             text,
-            attachments: composerAttachments,
+            attachments: composerAttachments.map((attachment, index) => ({
+              ...attachment,
+              url: previewUrls[index],
+            })),
           }),
         });
       }
       const showProgress = (progress: number) =>
         setPendingPost((prev) => prev && { ...prev, message: { ...prev.message, progress } });
+      // One file at a time, so the progress shown is the post's as a whole.
       const media: MediaItem[] = [];
-      for (const [index, attachment] of composerAttachments.entries()) {
+      for (const [index, file] of files.entries()) {
         media.push(
-          await uploadMedia(await composerAttachmentToFile(attachment), (fraction) =>
-            showProgress((index + fraction) / composerAttachments.length),
-          ),
+          await uploadMedia(file, (fraction) => showProgress((index + fraction) / files.length)),
         );
       }
       ({ id } = await huddleApi.createPost({
@@ -1121,6 +1121,7 @@ export default function Huddle() {
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
       setPendingPost(null);
+      revokePreviews();
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
     } finally {
@@ -1155,6 +1156,7 @@ export default function Huddle() {
     } finally {
       // Never left behind, even if the post is slow to show.
       setPendingPost((prev) => (prev?.postId === id ? null : prev));
+      revokePreviews();
     }
   }
 
@@ -1165,7 +1167,7 @@ export default function Huddle() {
     if (context?.reason === 'send-failed') return;
     setInboxError(
       composerRefusalMessage(context, {
-        limit: COMPOSER_MAX_FILE_LABEL,
+        limitOf: attachmentLimitLabel,
         maxFiles: COMPOSER_MAX_FILES,
       }) ?? message,
     );
@@ -1316,6 +1318,9 @@ export default function Huddle() {
                   <SuperChatInbox
                     // One box for the thread's cards, ours and SuperChat's.
                     mediaMaxSize={VIDEO_CARD_SIZE}
+                    // Posting uploads each picked File; a base64 copy of a large
+                    // video is more than a browser string, or a phone, can hold.
+                    attachmentDataUrls={false}
                     conversations={shownConversations}
                     activeConversationId={activeConversation?.id}
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
@@ -1371,7 +1376,8 @@ export default function Huddle() {
                       placeholder: postingTeamId
                         ? 'Share an update, or post a Pulse…'
                         : 'Share an update…',
-                      maxFileSize: COMPOSER_MAX_FILE_BYTES,
+                      // 500 MB for a video (PulseVault), 100 MB for anything else.
+                      maxFileSize: attachmentSizeLimit,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: selectedTicketIds.length > 0,
                       // Also busy while staged content is still settling: a send

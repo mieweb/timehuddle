@@ -26,6 +26,13 @@ window.matchMedia ??= (query: string) =>
 // Nor CSS.escape, which @mieweb/ui's Textarea uses.
 globalThis.CSS ??= { escape: (value: string) => value.replace(/[^\w-]/g, '\\$&') } as typeof CSS;
 
+// Nor ResizeObserver, which the Textarea's Kerebron surface measures its toolbar with.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
+
 describe('TimesheetJustificationFields', () => {
   it("uploads a walkthrough file as the request's own, not into the library", async () => {
     const onChange = vi.fn();
