@@ -15,8 +15,15 @@
  */
 import { faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, DropzoneOverlay, Spinner, Text, useDropzone } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  DropzoneOverlay,
+  Spinner,
+  Text,
+  useAttachmentUploads,
+  useDropzone,
+} from '@mieweb/ui';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   attachmentApi,
@@ -27,13 +34,13 @@ import {
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
 import { PendingVideoCard } from '../pulse-upload/PendingVideoCard';
 import { PulseControls } from '../pulse-upload/PulseButton';
-import { VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
+import { VIDEO_FILE_ACCEPT, uploadVideoTo } from '../pulse-upload/videoFile';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
 
 /** What the Videos card says while a video is dragged over it. */
-const DROP_VIDEO_TEXT = 'Drop a video to upload it here';
+const DROP_VIDEO_TEXT = 'Drop videos to upload them here';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -109,20 +116,38 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     return [...videos.values()];
   }, [attachments, currentUserId, handleRemove]);
 
-  // Held here (not inside the buttons) so the list can show the file on its
-  // way up, in place, until it lands and the refetch brings its card.
+  // Pulse (the phone app): its own link, never held up by a file upload here.
   const pulse = usePulseUpload(
     { kind, id: entityId },
     { onSettled: (status) => status.state === 'done' && void fetchAttachments() },
   );
-  const sending = pulse.file;
-  // Dropping a video file anywhere on the card uploads it, as Upload does.
-  const { upload } = pulse;
+
+  // Video files from this device: each uploads at once, shown in place as a
+  // pending card, several at a time. The server attaches each one when it
+  // lands, so an upload keeps going if the page is left, and a landed one
+  // just makes way for its card.
+  const fileUploads = useAttachmentUploads<string>({
+    upload: (file, { signal, onProgress }) =>
+      uploadVideoTo({ kind, id: entityId }, file, onProgress, signal),
+    keepUploadingOnUnmount: true,
+  });
+  const { add: addFiles, remove: removeFile } = fileUploads;
+  const landedRef = useRef(new Set<string>());
+  useEffect(() => {
+    const landed = fileUploads.items.filter(
+      (item) => item.state === 'uploaded' && !landedRef.current.has(item.id),
+    );
+    if (landed.length === 0) return;
+    for (const item of landed) landedRef.current.add(item.id);
+    void fetchAttachments().then(() => landed.forEach((item) => removeFile(item.id)));
+  }, [fileUploads.items, fetchAttachments, removeFile]);
+  const pending = fileUploads.items.filter((item) => item.state !== 'uploaded');
+
+  // Dropping video files anywhere on the card uploads them, as Upload does.
   const dropzone = useDropzone({
-    onDrop: (files) => void (files[0] && upload(files[0])),
+    onDrop: (files) => void addFiles(files),
     accept: VIDEO_FILE_ACCEPT.split(','),
-    multiple: false,
-    disabled: Boolean(sending),
+    multiple: true,
   });
 
   return (
@@ -150,6 +175,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
         )}
         <PulseControls
           pulse={pulse}
+          onFiles={addFiles}
           ariaLabel="Add a video with Pulse"
           allowFile
           card={showHeading ? 'end' : 'start'}
@@ -158,7 +184,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
 
       {loading && <Spinner size="sm" />}
 
-      {!loading && attachments.length === 0 && !sending && (
+      {!loading && attachments.length === 0 && pending.length === 0 && (
         <Text size="xs" variant="muted">
           No videos yet.
         </Text>
@@ -218,19 +244,16 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             </li>
           );
         })}
-        {sending && (
-          // The video on its way up, in place and drawn like the card it
-          // becomes: cancellable while its bytes go up; once they're in, it
-          // lands here by itself.
-          <li className="attachment-item attachment-sending">
+        {pending.map((upload) => (
+          // A video on its way up, in place and drawn like the card it becomes.
+          <li key={upload.id} className="attachment-item attachment-sending">
             <PendingVideoCard
-              file={sending}
-              progress={pulse.progress ?? 1}
-              processing={pulse.processing}
-              onCancel={pulse.processing ? undefined : pulse.cancel}
+              upload={upload}
+              onRemove={() => removeFile(upload.id)}
+              onRetry={() => fileUploads.retry(upload.id)}
             />
           </li>
-        )}
+        ))}
       </ul>
 
       <VideoFeedView

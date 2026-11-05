@@ -7,7 +7,7 @@
  */
 import * as tus from 'tus-js-client';
 
-import { mediaApi, videoApi } from '../../lib/api';
+import { mediaApi, videoApi, type PulseDestination } from '../../lib/api';
 
 /** Containers the server accepts; mirrors VIDEO_CONTENT_TYPES in meteor-backend/server/pulsevault.js. */
 export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.3gp', '.avi'];
@@ -149,13 +149,14 @@ export function filingProblem(filed: FilingResult): string | null {
 
 /**
  * Send `file` to `destination` and wait until it has been conformed and
- * filed, for callers that attach the video themselves: `post` for one added
- * to a Huddle post and `walkthrough` for a timesheet change's (both kept out
- * of the library), `library` for one that belongs there. Returns the video
- * id; rejects with a message to show unless the video is ready.
+ * filed: `post` for one added to a Huddle post and `walkthrough` for a
+ * timesheet change's (both kept out of the library, attached by the caller),
+ * `library` for one that belongs there, a `ticket` or `clock` session the
+ * server attaches it to itself. Returns the video id; rejects with a message
+ * to show unless the video is ready.
  */
 export async function uploadVideoTo(
-  destination: { kind: 'library' } | { kind: 'post' } | { kind: 'walkthrough' },
+  destination: PulseDestination,
   file: File,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,

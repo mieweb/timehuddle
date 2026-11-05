@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
 import { isMobileBrowser, isNativeApp, openExternalUrl } from '../../lib/device';
 import { buildPulseLink } from './pulseLinks';
-import { isUploadCancelled, uploadVideoFile, videoFileProblem } from './videoFile';
+import { uploadVideoFile, videoFileProblem } from './videoFile';
 
 /** How often to ask whether the upload landed, while the page is visible. */
 const STATUS_POLL_MS = 3000;
@@ -46,17 +46,6 @@ export interface PulseUpload {
   start: () => Promise<void>;
   /** Send a video file from this device through a new link instead of the Pulse app. */
   upload: (file: File) => Promise<void>;
-  /**
-   * The file `upload` is sending, until it lands (or fails, or is cancelled);
-   * null otherwise. Its progress is `progress`, then `processing`.
-   */
-  file: File | null;
-  /**
-   * Stop sending `file` while its bytes are still going up: the upload is
-   * deleted and nothing lands. Once every byte is in, the server delivers it
-   * where it was reserved for, so there's nothing left to cancel.
-   */
-  cancel: () => void;
   reserving: boolean;
   /** Sent fraction (0–1) of a file on its way up; null otherwise. */
   progress: number | null;
@@ -127,9 +116,6 @@ export function usePulseUpload(
   // host moves on, an earlier upload keeps going to where it was reserved, but
   // its progress, failure and cleanup no longer touch these buttons.
   const activeFile = useRef<string | null>(null);
-  // Stops the file upload in flight (cancel).
-  const fileUpload = useRef<AbortController | null>(null);
-  const [file, setFile] = useState<File | null>(null);
 
   // In a phone's browser the link is ready before the tap, so the tap opens
   // Pulse itself: a Universal Link / App Link opens the app only from a tap,
@@ -337,21 +323,16 @@ export function usePulseUpload(
       if (!next) return;
       const isActive = () => mounted.current && activeFile.current === next.videoid;
       activeFile.current = next.videoid;
-      const controller = new AbortController();
-      fileUpload.current = controller;
-      setFile(file);
       setProgress(0);
       try {
-        await uploadVideoFile(file, next, (f) => isActive() && setProgress(f), controller.signal);
+        await uploadVideoFile(file, next, (f) => isActive() && setProgress(f));
       } catch (e) {
         if (!isActive()) return;
         // Nothing landed: drop the link so the chips are free again.
         setLink((live) => (live?.videoid === next.videoid ? null : live));
         setStatus(null);
-        setFile(null);
-        if (!isUploadCancelled(e)) setError((e as Error).message);
+        setError((e as Error).message);
       } finally {
-        if (fileUpload.current === controller) fileUpload.current = null;
         if (isActive()) {
           setProgress(null);
           activeFile.current = null;
@@ -360,8 +341,6 @@ export function usePulseUpload(
     },
     [reserve],
   );
-
-  const cancel = useCallback(() => fileUpload.current?.abort(), []);
 
   const closeModal = useCallback(() => setModalOpen(false), []);
 
@@ -372,9 +351,6 @@ export function usePulseUpload(
     reserving,
     progress,
     processing: Boolean(current?.fromFile) && status?.state === 'waiting' && progress === null,
-    // Shown until it lands: while its bytes go up, then while it's processed.
-    file: file && (progress !== null || status?.state === 'waiting') ? file : null,
-    cancel,
     error,
     link: current,
     status: current ? status : null,
