@@ -270,9 +270,24 @@ WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
   if (req.method === 'DELETE') {
     const db = rawDb();
     const userId = identity.userId;
-    // Remove user from teams, orgs, and profiles, then delete the account.
+    // Remove the user's profile pictures, every membership (rows and the
+    // members/admins/owners arrays on teams, orgs and enterprises), the
+    // profile, then the account itself — what docs/privacy.html promises.
+    const profile = await db.collection('profiles').findOne({ userId, app: 'timeharbor' });
+    unlinkSafe(resolveUploadPath(profile?.avatarUrl, '/uploads/profile/', PROFILE_DIR));
+    unlinkSafe(resolveUploadPath(profile?.backgroundUrl, '/uploads/profile/', PROFILE_DIR));
     await db.collection('team_members').deleteMany({ userId });
     await db.collection('org_members').deleteMany({ userId });
+    await db.collection('teams').updateMany(
+      { $or: [{ members: userId }, { admins: userId }] },
+      { $pull: { members: userId, admins: userId } },
+    );
+    for (const name of ['organizations', 'enterprises']) {
+      await db.collection(name).updateMany(
+        { $or: [{ owners: userId }, { admins: userId }] },
+        { $pull: { owners: userId, admins: userId } },
+      );
+    }
     await db.collection('profiles').deleteMany({ userId, app: 'timeharbor' });
     await Meteor.users.removeAsync({ _id: userId });
     return sendJson(res, 200, { ok: true });
