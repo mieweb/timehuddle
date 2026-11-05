@@ -103,7 +103,8 @@ test.describe('Huddle message box — photos and documents', () => {
       mimeType: 'video/quicktime',
       buffer: Buffer.alloc(26 * 1024 * 1024),
     });
-    await expect(page.getByLabel('Remove long-demo.mov')).toBeVisible();
+    // Staged and uploading at once ("Cancel upload of …"), then "Remove …".
+    await expect(page.getByLabel(/^(Cancel upload of|Remove) long-demo\.mov$/)).toBeVisible();
     await expect(page.getByText(/long-demo\.mov is over/)).toHaveCount(0);
   });
 });

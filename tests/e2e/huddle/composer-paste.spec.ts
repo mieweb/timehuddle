@@ -132,26 +132,24 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
   });
 
-  test('shows upload progress and blocks posting while a pasted image is in flight', async ({
+  test('shows a pasted image uploading on its own tile, and keeps posting available', async ({
     page,
   }) => {
     await holdUploadResponses(page);
 
     await composerEditor(page).fill(`Paste progress ${Date.now()}`);
-
-    const progressBar = page.locator('[data-testid="post-progress-bar"]');
-    const progressVisible = progressBar.waitFor({ state: 'visible', timeout: 15000 });
-
     await pasteFiles(page, [SCREENSHOT]);
-    await progressVisible;
 
-    // Same bar and labelling as a picker-driven upload — a paste is not a
-    // second, quieter upload path.
-    await expect(progressBar).toHaveAttribute('aria-label', 'Uploading attachment');
-    await expect(postButton(page)).toBeDisabled();
+    // Its tile appears at once and says how far it has got; a paste is not a
+    // second, quieter upload path. Posting stays available: pressed now, it
+    // would wait for the upload instead of being refused.
+    await expect(page.getByRole('progressbar', { name: /^Uploading / })).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(postButton(page)).toBeEnabled();
 
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
-    await expect(postButton(page)).toBeEnabled();
+    await expect(page.getByRole('progressbar', { name: /^Uploading / })).toHaveCount(0);
   });
 
   test('dropping a screenshot uploads it as an attachment instead of inlining base64', async ({
