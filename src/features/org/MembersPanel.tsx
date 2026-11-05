@@ -111,15 +111,15 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
 
   useRefresh(loadUsers);
 
-  // The Teams column reads team rosters, which `org_members` doesn't announce.
+  // The Teams column reads team rosters and names, which `org_members` doesn't announce.
   // The team list is live, so reload when a shared team of this organization the
-  // viewer can see gains or loses someone. (An admin sees only the teams they are
+  // viewer can see is renamed or gains or loses someone. (An admin sees only the teams they are
   // in; the rest show on the next reload or pull-to-refresh.)
   const teamRostersKey = useMemo(
     () =>
       allTeams
         .filter((team) => team.orgId === selectedOrgId && !team.isPersonal)
-        .map((team) => `${team.id}:${[...team.members].sort().join(',')}`)
+        .map((team) => `${team.id}:${team.name}:${[...team.members].sort().join(',')}`)
         .sort()
         .join('|'),
     [allTeams, selectedOrgId],
