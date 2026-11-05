@@ -18,9 +18,6 @@ name: Play Store Build
 #   ANDROID_KEY_PASSWORD, GOOGLE_PLAY_JSON_KEY_BASE64
 
 on:
-  # TEMPORARY: test run from the PR branch (draft to internal). Remove before merge.
-  push:
-    branches: [ci/play-store-release]
   workflow_dispatch:
     inputs:
       track:
@@ -46,7 +43,7 @@ concurrency:
 
 jobs:
   play_store:
-    name: Play Store - ${{ github.event.inputs.track || 'internal' }}
+    name: Play Store - ${{ github.event.inputs.track }}
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -113,5 +110,5 @@ jobs:
           signed_artifact_path: ${{ steps.build.outputs.signed_artifact_path }}
           play_json_key_base64: ${{ secrets.GOOGLE_PLAY_JSON_KEY_BASE64 }}
           package_name: com.mieweb.timehuddle
-          track: ${{ github.event.inputs.track || 'internal' }}
-          release_status: ${{ github.event.inputs.release_status || 'draft' }}
+          track: ${{ github.event.inputs.track }}
+          release_status: ${{ github.event.inputs.release_status }}
