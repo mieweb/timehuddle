@@ -7,8 +7,12 @@ android {
         applicationId "com.mieweb.timehuddle"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.2.0"
+        // Play rejects a versionCode it has already seen, so CI passes a fresh
+        // one (ANDROID_VERSION_CODE); local builds fall back to 1.
+        versionCode((System.getenv('ANDROID_VERSION_CODE') ?: '1') as Integer)
+        // OTA bundles must be newer than this to install, so it tracks the
+        // app version in package.json instead of being bumped by hand.
+        versionName new groovy.json.JsonSlurper().parse(file('../../package.json')).version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
