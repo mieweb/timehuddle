@@ -632,8 +632,8 @@ Meteor.methods({
       users: users.map((member) => ({
         ...member,
         teams: teams
-          .filter((team) => team.members.includes(member.id))
-          .map((team) => ({ id: team._id.toHexString(), name: team.name }))
+          .filter((team) => (team.members ?? []).includes(member.id))
+          .map((team) => ({ id: idOf(team._id), name: team.name }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       })),
     };

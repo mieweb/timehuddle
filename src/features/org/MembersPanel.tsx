@@ -60,7 +60,7 @@ const errorText = (err: unknown, fallback: string) =>
 
 export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => {
   const { user } = useSession();
-  const { selectedOrgId } = useTeam();
+  const { selectedOrgId, allTeams } = useTeam();
   const { navigate } = useRouter();
   const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
   const [organizationName, setOrganizationName] = useState<string | null>(null);
@@ -110,6 +110,26 @@ export const MembersPanel: React.FC<{ reloadKey: number }> = ({ reloadKey }) => 
   }, [loadUsers, reloadKey]);
 
   useRefresh(loadUsers);
+
+  // The Teams column reads team rosters, which `org_members` doesn't announce.
+  // The team list is live, so reload when a shared team of this organization the
+  // viewer can see gains or loses someone. (An admin sees only the teams they are
+  // in; the rest show on the next reload or pull-to-refresh.)
+  const teamRostersKey = useMemo(
+    () =>
+      allTeams
+        .filter((team) => team.orgId === selectedOrgId && !team.isPersonal)
+        .map((team) => `${team.id}:${[...team.members].sort().join(',')}`)
+        .sort()
+        .join('|'),
+    [allTeams, selectedOrgId],
+  );
+  const seenTeamRostersKey = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = seenTeamRostersKey.current;
+    seenTeamRostersKey.current = teamRostersKey;
+    if (previous !== null && previous !== teamRostersKey) void loadUsers();
+  }, [teamRostersKey, loadUsers]);
 
   // Real-time: another admin's role change or removal reloads the roster. The
   // subscription's first batch is the roster just loaded, so only later changes count.
