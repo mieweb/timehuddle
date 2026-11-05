@@ -2540,7 +2540,15 @@ export const mediaApi = {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total);
         };
-        const onAbort = () => xhr.abort();
+        // Stopped only while bytes are going up: once they're all in, the
+        // server makes the item anyway, so the caller takes it back instead.
+        let sent = false;
+        xhr.upload.onload = () => {
+          sent = true;
+        };
+        const onAbort = () => {
+          if (!sent) xhr.abort();
+        };
         const settled = () => signal?.removeEventListener('abort', onAbort);
         xhr.onload = () => {
           settled();

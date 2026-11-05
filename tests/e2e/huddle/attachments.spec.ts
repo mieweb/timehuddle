@@ -69,7 +69,7 @@ test.describe('Huddle message box — photos and documents', () => {
 
     // An edit can take one off; the other is then a lone tile.
     await editInboxMessage(page, post);
-    await page.getByRole('button', { name: 'Remove whiteboard.png' }).click();
+    await page.getByRole('button', { name: 'Remove attachment whiteboard.png' }).click();
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(post.locator('[data-slot="superchat-message-gallery"]')).toHaveCount(0);
     await expect(post.locator('[data-slot="superchat-message-media"]')).toHaveCount(1);
@@ -81,7 +81,7 @@ test.describe('Huddle message box — photos and documents', () => {
       image('kept.png'),
     ]);
     await expect(page.getByText(/IMG_0042\.HEIC is a HEIC photo/)).toBeVisible();
-    await expect(page.getByLabel('Remove kept.png')).toBeVisible();
+    await expect(page.getByLabel(/^(Cancel upload of|Remove attachment) kept\.png$/)).toBeVisible();
 
     // Each file has its own cap: 500 MB for a video, 100 MB for anything else.
     // Over Playwright's 50 MB in-memory limit, so these are (sparse) files.
@@ -103,8 +103,10 @@ test.describe('Huddle message box — photos and documents', () => {
       mimeType: 'video/quicktime',
       buffer: Buffer.alloc(26 * 1024 * 1024),
     });
-    // Staged and uploading at once ("Cancel upload of …"), then "Remove …".
-    await expect(page.getByLabel(/^(Cancel upload of|Remove) long-demo\.mov$/)).toBeVisible();
+    // Uploading as soon as it's added ("Cancel upload of …"), then "Remove attachment …".
+    await expect(
+      page.getByLabel(/^(Cancel upload of|Remove attachment) long-demo\.mov$/),
+    ).toBeVisible();
     await expect(page.getByText(/long-demo\.mov is over/)).toHaveCount(0);
   });
 });

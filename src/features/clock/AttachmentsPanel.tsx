@@ -20,6 +20,7 @@ import {
   DropzoneOverlay,
   Spinner,
   Text,
+  UploadAnnouncer,
   useAttachmentUploads,
   useDropzone,
 } from '@mieweb/ui';
@@ -34,13 +35,11 @@ import {
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
 import { PendingVideoCard } from '../pulse-upload/PendingVideoCard';
 import { PulseControls } from '../pulse-upload/PulseButton';
-import { VIDEO_FILE_ACCEPT, uploadVideoTo } from '../pulse-upload/videoFile';
+import { VIDEO_FILE_ACCEPT, uploadVideoTo, videoFileProblem } from '../pulse-upload/videoFile';
+import { UPLOAD_TEXT } from '../huddle/uploadText';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
-
-/** What the Videos card says while a video is dragged over it. */
-const DROP_VIDEO_TEXT = 'Drop videos to upload them here';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -62,11 +61,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   // The video playing in the feed (null: closed).
   const [openVideo, setOpenVideo] = useState<string | null>(null);
 
+  // Only the newest fetch lands: two videos landing close together each
+  // fetch, and an older answer must not replace a newer one.
+  const fetchSeq = useRef(0);
   const fetchAttachments = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     try {
       const data = await attachmentApi.list(kind, entityId);
-      setAttachments(data);
+      if (seq === fetchSeq.current) setAttachments(data);
     } catch {
       // silent
     } finally {
@@ -125,27 +128,50 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   // Video files from this device: each uploads at once, shown in place as a
   // pending card, several at a time. The server attaches each one when it
   // lands, so an upload keeps going if the page is left, and a landed one
-  // just makes way for its card.
+  // makes way for its card once that's in the list.
   const fileUploads = useAttachmentUploads<string>({
     upload: (file, { signal, onProgress }) =>
       uploadVideoTo({ kind, id: entityId }, file, onProgress, signal),
     keepUploadingOnUnmount: true,
   });
-  const { add: addFiles, remove: removeFile } = fileUploads;
-  const landedRef = useRef(new Set<string>());
+  const { add, remove: removeFile } = fileUploads;
+  // A file that isn't a video, or is too large, is turned away with the
+  // reason, as the composers do — not left as a card whose Retry can't work.
+  const [fileError, setFileError] = useState<string | null>(null);
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const refused = files
+        .map((file) => {
+          const problem = videoFileProblem(file);
+          return problem && `${file.name}: ${problem}`;
+        })
+        .filter(Boolean);
+      setFileError(refused.length ? refused.join(' ') : null);
+      add(files.filter((file) => !videoFileProblem(file)));
+    },
+    [add],
+  );
+  const listedVideos = useMemo(
+    () => new Set(attachments.map((a) => (a.type === 'video' ? pulseArtifactId(a.url) : null))),
+    [attachments],
+  );
+  const fetchedFor = useRef(new Set<string>());
   useEffect(() => {
-    const landed = fileUploads.items.filter(
-      (item) => item.state === 'uploaded' && !landedRef.current.has(item.id),
-    );
-    if (landed.length === 0) return;
-    for (const item of landed) landedRef.current.add(item.id);
-    void fetchAttachments().then(() => landed.forEach((item) => removeFile(item.id)));
-  }, [fileUploads.items, fetchAttachments, removeFile]);
-  const pending = fileUploads.items.filter((item) => item.state !== 'uploaded');
+    for (const item of fileUploads.items) {
+      if (item.state !== 'uploaded') continue;
+      if (listedVideos.has(item.result ?? null)) removeFile(item.id);
+      else if (!fetchedFor.current.has(item.id)) {
+        fetchedFor.current.add(item.id);
+        void fetchAttachments();
+      }
+    }
+  }, [fileUploads.items, listedVideos, fetchAttachments, removeFile]);
+  // Landed but not in the list yet: still shown, as Processing.
+  const pending = fileUploads.items;
 
   // Dropping video files anywhere on the card uploads them, as Upload does.
   const dropzone = useDropzone({
-    onDrop: (files) => void addFiles(files),
+    onDrop: (files) => addFiles(files),
     accept: VIDEO_FILE_ACCEPT.split(','),
     multiple: true,
   });
@@ -154,7 +180,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     <section className="attachments-panel relative" {...dropzone.getRootProps()}>
       <DropzoneOverlay
         isVisible={dropzone.isDragging}
-        message={DROP_VIDEO_TEXT}
+        message={UPLOAD_TEXT.dropVideos}
         size="compact"
         variant="primary"
         className="rounded-xl"
@@ -180,6 +206,16 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           allowFile
           card={showHeading ? 'end' : 'start'}
         />
+      </div>
+
+      {/* Said as videos upload; a file turned away says why. */}
+      <UploadAnnouncer items={fileUploads.items} labels={UPLOAD_TEXT} />
+      <div role="alert" className="attachments-file-error">
+        {fileError && (
+          <Text size="xs" variant="destructive" className="mb-2">
+            {fileError}
+          </Text>
+        )}
       </div>
 
       {loading && <Spinner size="sm" />}

@@ -5,19 +5,9 @@
  * its bytes are still going up. A failed one says why, with Retry.
  */
 import { Button, CircularProgress, type AttachmentUpload } from '@mieweb/ui';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { UPLOAD_TEXT } from '../huddle/uploadText';
 import { VIDEO_CARD_SIZE, cardBox } from './PulseVideoPlayer';
-
-/** User-facing text, kept in one place for translation. */
-export const PENDING_VIDEO_TEXT = {
-  uploading: (name: string) => `Uploading ${name}`,
-  percent: (percent: number) => `${percent}%`,
-  processing: 'Processing…',
-  failed: "Didn't upload",
-  retry: 'Retry',
-  cancel: (name: string) => `Cancel upload of ${name}`,
-  remove: (name: string) => `Remove ${name}`,
-};
 
 interface PendingVideoCardProps {
   /** The upload (useAttachmentUploads): its file, state, progress and error. */
@@ -33,17 +23,6 @@ interface PendingVideoCardProps {
   maxSize?: string;
 }
 
-/** An object URL for `file` while it's shown, revoked after. */
-function useObjectUrl(file: File): string | undefined {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    const next = URL.createObjectURL(file);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [file]);
-  return url;
-}
-
 export function PendingVideoCard({
   upload,
   onRemove,
@@ -51,13 +30,15 @@ export function PendingVideoCard({
   maxSize = VIDEO_CARD_SIZE,
 }: PendingVideoCardProps) {
   const { file, state, error } = upload;
-  const preview = useObjectUrl(file);
+  // The hook's own preview of the file (revoked when the upload goes).
+  const preview = upload.previewUrl;
   // The shape, from the file itself, as the real card learns it from its poster.
   const [aspect, setAspect] = useState<number | null>(null);
   const failed = state === 'failed';
-  const processing = state === 'processing';
+  // Landed but not in the list yet reads as Processing too, till its card shows.
+  const processing = state === 'processing' || state === 'uploaded';
   const percent = Math.round(Math.min(1, Math.max(0, upload.progress)) * 100);
-  const status = processing ? PENDING_VIDEO_TEXT.processing : PENDING_VIDEO_TEXT.percent(percent);
+  const status = processing ? UPLOAD_TEXT.processing : UPLOAD_TEXT.percent(percent);
 
   return (
     // The × sits over the corner, outside the clipped frame.
@@ -84,11 +65,16 @@ export function PendingVideoCard({
           {failed ? (
             <>
               <span role="alert" className="text-sm font-medium">
-                {PENDING_VIDEO_TEXT.failed}
+                {UPLOAD_TEXT.failed(file.name)}
                 {error && <span className="block text-xs font-normal opacity-90">{error}</span>}
               </span>
-              <Button size="sm" variant="secondary" onClick={onRetry}>
-                {PENDING_VIDEO_TEXT.retry}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={onRetry}
+                aria-label={`${UPLOAD_TEXT.retry} ${file.name}`}
+              >
+                {UPLOAD_TEXT.retry}
               </Button>
             </>
           ) : (
@@ -96,7 +82,11 @@ export function PendingVideoCard({
               <CircularProgress
                 value={percent}
                 indeterminate={processing}
-                srLabel={PENDING_VIDEO_TEXT.uploading(file.name)}
+                srLabel={
+                  processing
+                    ? `${UPLOAD_TEXT.uploading(file.name)}: ${UPLOAD_TEXT.processing}`
+                    : UPLOAD_TEXT.uploading(file.name)
+                }
                 valueText={status}
               />
               <span className="text-sm font-medium" aria-hidden="true">
@@ -117,9 +107,7 @@ export function PendingVideoCard({
           variant="secondary"
           size="icon"
           onClick={onRemove}
-          aria-label={
-            failed ? PENDING_VIDEO_TEXT.remove(file.name) : PENDING_VIDEO_TEXT.cancel(file.name)
-          }
+          aria-label={failed ? UPLOAD_TEXT.remove(file.name) : UPLOAD_TEXT.cancel(file.name)}
           className="pending-video-remove absolute -end-2 -top-2 z-10 h-7 w-7 rounded-full shadow"
         >
           <svg

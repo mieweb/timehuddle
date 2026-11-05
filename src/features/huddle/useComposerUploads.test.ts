@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { discardMedia, uploadMedia } from './api';
-import { useComposerUploads } from './useAttachmentUpload';
+import { useComposerUploads } from './useComposerUploads';
 
 vi.mock('./api', () => ({ uploadMedia: vi.fn(), discardMedia: vi.fn(async () => {}) }));
 
@@ -63,6 +63,18 @@ describe('useComposerUploads', () => {
     expect(onError).toHaveBeenCalledWith(
       'long.mp4 — too large to attach (limit 500 MB). ' +
         'scan.pdf — too large to attach (limit 100 MB).',
+    );
+  });
+
+  it('turns away a type the composer does not take, worded as Huddle says it', () => {
+    const { result, onError } = setup();
+
+    act(() => void result.current.attach([sizedFile('archive.zip', 'application/zip', MB)]));
+
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+    expect(result.current.items).toEqual([]);
+    expect(onError).toHaveBeenCalledWith(
+      "archive.zip can't be attached. Photos, videos, PDFs, and Word, Excel or text files can.",
     );
   });
 

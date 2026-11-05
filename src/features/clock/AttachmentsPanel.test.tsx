@@ -99,24 +99,34 @@ describe('AttachmentsPanel', () => {
     expect(screen.queryByRole('progressbar', { name: 'Uploading demo.mov' })).toBeNull();
   });
 
-  it('says Processing once its bytes are in, then makes way for its card when it lands', async () => {
+  it('says Processing once its bytes are in, and keeps it until its card is in the list', async () => {
+    const LANDED = '7d4e1c2a-9b3f-4e5d-8a6b-1c2d3e4f5a6b';
     await renderPanel();
     await pickDemo();
     act(() => uploads[0].onProgress(1));
     expect(screen.getByText('Processing…')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Cancel upload of demo.mov' })).toBeNull();
-    await act(async () => uploads[0].resolve('v-new'));
-    // The list is fetched again for the landed video's card, and the pending one goes.
+    // Landed, and the list fetched again still without it: still Processing.
+    await act(async () => uploads[0].resolve(LANDED));
     expect(listAttachments).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText('Processing…')).toBeNull();
+    expect(screen.getByText('Processing…')).toBeTruthy();
+  });
+
+  it('turns away a file that is not a video, saying why', async () => {
+    await renderPanel();
+    picked.files = [new File(['x'], 'notes.pdf', { type: 'application/pdf' })];
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'pick' })));
+    expect(uploads).toHaveLength(0);
+    expect(screen.getByText(/notes\.pdf: That file isn't a video\./)).toBeTruthy();
   });
 
   it('says why a video did not upload, and sends it again on Retry', async () => {
     await renderPanel();
     await pickDemo();
-    await act(async () => uploads[0].reject(new Error("That file isn't a video.")));
-    expect(screen.getByRole('alert').textContent).toContain("That file isn't a video.");
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await act(async () => uploads[0].reject(new Error('The server said no.')));
+    expect(screen.getByText("demo.mov didn't upload")).toBeTruthy();
+    expect(screen.getByText('The server said no.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry demo.mov' }));
     expect(uploads).toHaveLength(2);
   });
 

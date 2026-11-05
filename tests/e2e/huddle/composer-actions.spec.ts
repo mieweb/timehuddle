@@ -299,47 +299,58 @@ test.describe('Huddle composer — upload progress', () => {
     await openComposer(page);
   });
 
-  test('shows a progress bar while a video uploads and blocks posting until it lands', async ({
+  test.afterEach(async ({ page }) => {
+    await clockOut(page);
+  });
+
+  test('a file uploads on its own tile as soon as it is added, and posting stays available', async ({
     page,
   }) => {
-    // Without this the fixture lands before the bar can be inspected.
+    // Without this the fixture lands before the tile can be inspected.
     await holdUploadResponses(page);
 
     await composerEditor(page).fill(`Upload progress ${Date.now()}`);
-
-    const progressBar = page.locator('[data-testid="post-progress-bar"]');
-    const progressVisible = progressBar.waitFor({ state: 'visible', timeout: 20000 });
-
     await page
       .locator('input[type="file"][aria-label="Choose a video to attach"]')
       .setInputFiles(FIXTURE.video);
-    await progressVisible;
 
-    // Upload phase is determinate and labelled distinctly from the post phase.
-    await expect(progressBar).toHaveAttribute('aria-label', 'Uploading attachment');
-    await expect(progressBar).toHaveAttribute('aria-valuenow', /\d+/);
-
-    // Submitting mid-upload would strand the half-uploaded attachment.
-    await expect(postButton(page)).toBeDisabled();
-
-    await expect(page.locator('button[aria-label^="Remove attachment"]')).toHaveCount(1, {
-      timeout: 60000,
-    });
+    // The tile says how far it has got; the × cancels it while it's going up.
+    await expect(page.getByRole('progressbar', { name: /^Uploading test-video\.mp4/ })).toBeVisible(
+      {
+        timeout: 20000,
+      },
+    );
+    await expect(
+      page.getByRole('button', { name: 'Cancel upload of test-video.mp4' }),
+    ).toBeVisible();
+    // Never disabled by an upload: pressed now, it would wait for it.
     await expect(postButton(page)).toBeEnabled();
+
+    await expect.poll(() => attachmentChipCount(page), { timeout: 60000 }).toBe(1);
+    await expect(page.getByRole('progressbar', { name: /^Uploading / })).toHaveCount(0);
   });
 
-  test('the Video button reports its own upload state', async ({ page }) => {
-    await composerEditor(page).fill(`Video button state ${Date.now()}`);
-    await page
-      .locator('input[type="file"][aria-label="Choose a video to attach"]')
-      .setInputFiles(FIXTURE.video);
+  test('pressed mid-upload, it waits for the file and then posts with it', async ({ page }) => {
+    await holdUploadResponses(page, 4000);
 
-    // The pressed button becomes the busy one, so it's clear *which* attachment
-    // is in flight when several kinds are available.
-    const busy = page.locator('button[aria-busy="true"]');
-    await expect(busy).toHaveText(/Uploading/, { timeout: 20000 });
-    await expect(page.locator('button[aria-label^="Remove attachment"]')).toHaveCount(1, {
-      timeout: 60000,
+    const postText = `Posted mid-upload ${Date.now()}`;
+    await composerEditor(page).fill(postText);
+    await page
+      .locator('input[type="file"][aria-label="Choose a document to attach"]')
+      .setInputFiles(FIXTURE.doc);
+    await expect(page.getByRole('progressbar', { name: /^Uploading test-doc\.txt/ })).toBeVisible({
+      timeout: 15000,
     });
+
+    await postButton(page).click();
+    // While it waits, the button says how far the files have got, instead of
+    // a spinner — and is still the same button.
+    await expect(page.locator('.clock-plan-composer button[aria-busy="true"]')).toHaveText(
+      /Uploading \d+%…|Processing…/,
+    );
+    await page.getByRole('heading', { name: 'What did you work on?' }).waitFor({ timeout: 30000 });
+
+    const post = await openPostInInbox(page, postText);
+    await expect(post.locator('a[href*="/uploads/media/"]')).toBeVisible({ timeout: 10000 });
   });
 });

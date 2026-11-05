@@ -42,7 +42,8 @@ import {
   attachmentLimitLabel,
   attachmentSizeLimit,
   uploadAttachment,
-} from '../features/huddle/useAttachmentUpload';
+} from '../features/huddle/useComposerUploads';
+import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
   dayConversationId,
   defaultConversation,
@@ -999,11 +1000,13 @@ export default function Huddle() {
     // A Pulse video or ticket keeps the send button live with an empty box, so
     // a second click during the upload would post the same thing again. The
     // composer's own `isSending` covers this a render later; the ref covers
-    // the click that lands before that render.
-    if (sendingRef.current) return;
+    // the click that lands before that render. Refused out loud (a rejection),
+    // so SuperChat puts this draft and its files back rather than dropping them.
+    const alreadySending = () => new Error('A post is already on its way. Send again in a moment.');
+    if (sendingRef.current) throw alreadySending();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
-    if (sendingRef.current) return;
+    if (sendingRef.current) throw alreadySending();
     sendingRef.current = true;
     setSending(true);
     setInboxError(null);
@@ -1019,13 +1022,6 @@ export default function Huddle() {
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
       const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
-      // Where the post will land: in Day grouping, its day's thread, which
-      // isn't necessarily the one it was sent from (an older day's). Open it,
-      // so the writer sees their post arrive.
-      const landsIn = threadBy === 'day' ? dayConversationId(postDate) : conversationId;
-      if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
-        openConversation(landsIn);
-      }
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
@@ -1054,6 +1050,16 @@ export default function Huddle() {
     } finally {
       sendingRef.current = false;
       setSending(false);
+    }
+    // Where the post landed: in Day grouping, its day's thread, which isn't
+    // necessarily the one it was sent from (an older day's). Opened only now
+    // it's posted, so a failed send restores its draft where it was written.
+    const landsIn =
+      threadBy === 'day'
+        ? dayConversationId(toDateString(sendSchedule?.deliverAt ?? new Date()))
+        : conversationId;
+    if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
+      openConversation(landsIn);
     }
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
@@ -1293,6 +1299,7 @@ export default function Huddle() {
                       // it before sending takes it back.
                       uploadAttachment: uploadAttachment,
                       discardAttachment: discardAttachment,
+                      uploadLabels: UPLOAD_TEXT,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: selectedTicketIds.length > 0,
                       // Also busy while staged content is still settling: a send

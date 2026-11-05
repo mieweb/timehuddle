@@ -5,7 +5,8 @@
  * a composer attachment: a Pulse video is delivered by the server to where its
  * link was reserved for (see PulseButton), so it has its own button.
  */
-import { AttachmentPreviewItem, Badge, type AttachmentUpload } from '@mieweb/ui';
+import { AttachmentPreviewItem, Badge, UploadAnnouncer, type AttachmentUpload } from '@mieweb/ui';
+import { UPLOAD_TEXT } from './uploadText';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
@@ -18,15 +19,6 @@ export type MentionRef = { userId: string; name: string };
 /** User-facing text for the ticket chips, kept in one place for translation. */
 export const TICKET_CHIP_TEXT = {
   remove: (label: string) => `Remove ticket ${label}`,
-};
-
-/** User-facing text for the attachment tiles, kept in one place for translation. */
-export const ATTACHMENT_TILE_TEXT = {
-  uploading: (name: string) => `Uploading ${name}`,
-  processing: 'Processing…',
-  retry: 'Retry',
-  cancel: (name: string) => `Cancel upload of ${name}`,
-  remove: (name: string) => `Remove attachment ${name}`,
 };
 
 interface ComposerAttachButtonsProps {
@@ -165,6 +157,8 @@ export function ComposerChips({
         </div>
       )}
 
+      {/* Said as files upload, as Huddle's message box says it. */}
+      <UploadAnnouncer items={attachments} labels={UPLOAD_TEXT} />
       {attachments.length > 0 && (
         <div className="composer-attachments mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
           {attachments.map((upload) => {
@@ -177,16 +171,20 @@ export function ComposerChips({
                   ...upload,
                   // Processing (the server finishing) is still a busy tile.
                   state: busy ? 'uploading' : (upload.state as 'pending' | 'uploaded' | 'failed'),
-                  progress: busy ? Math.round(upload.progress * 100) : undefined,
+                  // Processing is the state's, not a rounded 100%.
+                  progress:
+                    upload.state === 'processing'
+                      ? 100
+                      : busy
+                        ? Math.min(99, Math.round(upload.progress * 100))
+                        : undefined,
                 }}
                 onRemove={() => onAttachmentRemove(upload.id)}
                 onRetry={onAttachmentRetry && (() => onAttachmentRetry(upload.id))}
-                progressLabel={ATTACHMENT_TILE_TEXT.uploading(name)}
-                processingLabel={ATTACHMENT_TILE_TEXT.processing}
-                retryLabel={ATTACHMENT_TILE_TEXT.retry}
-                removeLabel={
-                  busy ? ATTACHMENT_TILE_TEXT.cancel(name) : ATTACHMENT_TILE_TEXT.remove(name)
-                }
+                progressLabel={UPLOAD_TEXT.uploading(name)}
+                processingLabel={UPLOAD_TEXT.processing}
+                retryLabel={UPLOAD_TEXT.retry}
+                removeLabel={busy ? UPLOAD_TEXT.cancel(name) : UPLOAD_TEXT.remove(name)}
               />
             );
           })}

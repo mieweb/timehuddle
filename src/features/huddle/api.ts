@@ -189,6 +189,11 @@ export async function uploadMedia(
       mediaApi.uploadImage(file, onProgress, signal),
       imageSize(file),
     ]);
+    // Cancelled once its bytes were in: the server made it, so take it back.
+    if (signal?.aborted) {
+      void mediaApi.discardUpload({ mediaId: item.id }).catch(() => {});
+      throw new DOMException('Upload cancelled', 'AbortError');
+    }
     onProgress?.(1);
     // `filename` off the wire is the storage name the backend generated
     // (`<userId>-<hex>.png`), which is what the composer chip and the post

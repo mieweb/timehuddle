@@ -20,8 +20,6 @@ export function AttachmentBar({ onFiles }: AttachmentBarProps) {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (file: File) => onFiles([file]);
-
   const buttons: Array<{
     kind: FileKind;
     label: string;
@@ -54,37 +52,40 @@ export function AttachmentBar({ onFiles }: AttachmentBarProps) {
       <input
         ref={photoInputRef}
         type="file"
+        multiple
         accept="image/*"
         className="hidden"
         aria-label="Choose a photo to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file);
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
       <input
         ref={videoInputRef}
         type="file"
+        multiple
         accept={VIDEO_FILE_ACCEPT}
         className="hidden"
         aria-label="Choose a video to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file);
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
       <input
         ref={docInputRef}
         type="file"
+        multiple
         accept=".pdf,.doc,.docx,.txt"
         className="hidden"
         aria-label="Choose a document to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file);
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
 

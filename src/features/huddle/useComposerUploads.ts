@@ -9,7 +9,36 @@ import { useAttachmentUploads, type AttachmentUpload, type AttachmentUploads } f
 import { useCallback, useMemo } from 'react';
 import { isVideoFile, MAX_VIDEO_BYTES } from '../pulse-upload/videoFile';
 import { discardMedia, uploadMedia } from './api';
+import { composerRefusalMessage } from './composerErrors';
 import type { MediaItem } from './types';
+
+/**
+ * What a composer takes, matching what the backend stores (MIME_TO_EXT in
+ * meteor-backend/server/uploads.js) and Huddle's message box: photos, videos,
+ * PDFs, and Word, Excel or text files.
+ */
+const ACCEPTED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'text/csv',
+]);
+const ACCEPTED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+]);
+
+/** Whether a composer takes this file at all (its size is checked apart). */
+export const isAcceptedAttachment = (file: File) =>
+  isVideoFile(file) ||
+  ACCEPTED_IMAGE_TYPES.has(file.type) ||
+  ACCEPTED_DOCUMENT_TYPES.has(file.type);
 
 /**
  * Largest photo or document accepted, matching the backend's own MAX_FILE_MB.
@@ -61,15 +90,25 @@ export function useComposerUploads({
     (files: File[]) => {
       if (files.length === 0) return [];
       onError?.(null);
-      const oversize = files.filter((file) => file.size > attachmentSizeLimit(file));
-      if (oversize.length > 0) {
-        onError?.(
-          oversize
-            .map((f) => `${f.name} — too large to attach (limit ${attachmentLimitLabel(f)}).`)
-            .join(' '),
+      // A type the composer doesn't take, worded as Huddle's message box says it.
+      const refused = files
+        .filter((file) => !isAcceptedAttachment(file))
+        .map((file) =>
+          composerRefusalMessage(
+            { reason: 'file-type', file },
+            { limitOf: attachmentLimitLabel, maxFiles: Infinity },
+          ),
         );
-      }
-      return add(files.filter((file) => file.size <= attachmentSizeLimit(file)));
+      const takeable = files.filter(isAcceptedAttachment);
+      const oversize = takeable.filter((file) => file.size > attachmentSizeLimit(file));
+      const said = [
+        ...refused,
+        ...oversize.map(
+          (f) => `${f.name} — too large to attach (limit ${attachmentLimitLabel(f)}).`,
+        ),
+      ];
+      if (said.length > 0) onError?.(said.join(' '));
+      return add(takeable.filter((file) => file.size <= attachmentSizeLimit(file)));
     },
     [add, onError],
   );

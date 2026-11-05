@@ -173,6 +173,8 @@ export async function uploadVideoTo(
       FILING_WAIT_MS,
       signal,
     );
+    // A cancel during the last status check: still taken back (below).
+    if (signal?.aborted) throw uploadCancelled();
     const notFiled = filingProblem(filed);
     if (notFiled) throw new Error(notFiled);
     return reservation.videoid;
