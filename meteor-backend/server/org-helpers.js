@@ -287,7 +287,11 @@ export async function getOwnedOrgIds(userId) {
  * having joined. Personal teams stay private to their member.
  */
 export async function visibleTeamsSelector(userId) {
-  const ownedOrgIds = await getOwnedOrgIds(userId);
+  return teamsSelectorFor(userId, await getOwnedOrgIds(userId));
+}
+
+/** The visible-teams selector for orgs already known to be owned (see `visibleTeamsSelector`). */
+export function teamsSelectorFor(userId, ownedOrgIds) {
   if (!ownedOrgIds.length) return { members: userId };
   return { $or: [{ members: userId }, { orgId: { $in: ownedOrgIds }, isPersonal: { $ne: true } }] };
 }

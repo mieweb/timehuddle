@@ -287,6 +287,21 @@ export async function loadOrgMembers(orgId) {
 }
 
 // Everyone holding an owner or admin role, from memberships and the legacy arrays.
+/**
+ * Of `ids`, those who could still run the organization: real users who aren't
+ * blocked from it. A block keeps the person's `org_members` row, so a blocked
+ * owner still counts in `elevatedIdsOf` while being unable to sign in to use it.
+ */
+async function usableIds(db, orgId, ids) {
+  const users = await db
+    .collection('users')
+    .find({ _id: { $in: [...ids].map(String) } }, { projection: { blocked: 1 } })
+    .toArray();
+  return new Set(
+    users.filter((u) => !(u.blocked ?? []).some((b) => b.orgId === orgId)).map((u) => String(u._id)),
+  );
+}
+
 function elevatedIdsOf(org, membershipDocs) {
   return new Set([
     ...(org?.owners ?? []),
@@ -676,8 +691,12 @@ Meteor.methods({
 
     const elevatedIds = elevatedIdsOf(org, membershipDocs);
     const current = await getOrgMembership(orgId, userId);
-    if (current && ELEVATED_ROLES.includes(current.role) && role === 'member' && elevatedIds.size === 1 && elevatedIds.has(userId)) {
-      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    if (current && ELEVATED_ROLES.includes(current.role) && role === 'member') {
+      // Only owners and admins who can still use the org count: a blocked one can't recover it.
+      const usable = await usableIds(db, orgId, elevatedIds);
+      if (usable.size === 1 && usable.has(userId)) {
+        throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+      }
     }
 
     const previousRole =
@@ -701,7 +720,7 @@ Meteor.methods({
         db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
         db.collection('org_members').find({ orgId }).toArray(),
       ]);
-      if (elevatedIdsOf(orgNow, membershipsNow).size === 0) {
+      if ((await usableIds(db, orgId, elevatedIdsOf(orgNow, membershipsNow))).size === 0) {
         await setOrgMemberRole(orgId, userId, previousRole);
         throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
       }
