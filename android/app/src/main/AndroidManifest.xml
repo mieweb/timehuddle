@@ -22,6 +22,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- timehuddle:// deep links (OAuth sign-in return, password reset,
+                 in-app links). Mirrors CFBundleURLSchemes in ios/App/App/Info.plist;
+                 without it Chrome cannot hand the OAuth callback back to the app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="timehuddle" />
+            </intent-filter>
+
         </activity>
 
         <provider
