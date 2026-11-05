@@ -866,7 +866,7 @@ describe('organization owner who has not joined the team', () => {
     }
   });
 
-  it('joins directly as an admin of the team', async () => {
+  it('joins directly as an admin of the team, and the People roster lists the team', async () => {
     const list = await wormhole<{ teams: Array<{ id: string; code: string }> }>(
       'teams.list',
       {},
@@ -882,6 +882,13 @@ describe('organization owner who has not joined the team', () => {
     expect(joined.result.status).toBe('joined');
     expect(joined.result.team.members).toContain(orgOwnerId);
     expect(joined.result.team.admins).toContain(orgOwnerId);
+
+    const roster = await wormhole<{
+      users: Array<{ id: string; teams: Array<{ id: string; name: string }> }>;
+    }>('orgs.listMembers', { orgId: orgId.toHexString() }, orgOwnerJwt);
+    expect(roster.ok).toBe(true);
+    const me = roster.result.users.find((u) => u.id === orgOwnerId);
+    expect(me?.teams).toEqual([{ id: sharedTeamId, name: 'Owner Visible Team' }]);
   });
 
   it('is still forbidden for a user outside the organization', async () => {

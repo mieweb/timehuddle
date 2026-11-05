@@ -481,6 +481,8 @@ export interface OrganizationAdminUser {
   role: DefaultOrganizationRole;
   reportsToUserId?: string | null;
   blocked?: Array<{ orgId: string; blockedBy: string; blockedAt: string; reason?: string }>;
+  /** The org's shared teams this person is in; sent by `orgs.listMembers` only. */
+  teams?: Array<{ id: string; name: string }>;
 }
 
 export interface AdminOrganization {
