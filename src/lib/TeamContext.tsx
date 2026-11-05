@@ -154,6 +154,13 @@ export interface TeamContextValue {
   isAdmin: boolean;
   /** False for a team shown only because the user owns its organization. */
   isSelectedTeamMember: boolean;
+  /**
+   * The selected team, except one the user manages without having joined. What
+   * actions that create or carry work (tickets, the board, timers) act on: the
+   * server lets an owner write to any team in their organization, but work put
+   * there would be hidden from every board they use.
+   */
+  memberTeamId: string | null;
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
   refetchClock: () => void;
@@ -182,6 +189,7 @@ const TeamCtx = createContext<TeamContextValue>({
   orgAccess: 'ok',
   isAdmin: false,
   isSelectedTeamMember: false,
+  memberTeamId: null,
   activeClockEvent: null,
   clockReady: false,
   refetchClock: () => {},
@@ -619,6 +627,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [selectedTeam, urlTeamId, userId, pathname, params, replace, setParams]);
 
   const isSelectedTeamMember = !!selectedTeam && isTeamMember(selectedTeam, userId);
+  // Known to be unjoined only once the team is in the list; until then the id stands.
+  const memberTeamId = selectedTeam && !isSelectedTeamMember ? null : selectedTeamId;
 
   const isAdmin = useMemo(
     () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),
@@ -763,6 +773,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       orgAccess,
       isAdmin,
       isSelectedTeamMember,
+      memberTeamId,
       activeClockEvent,
       clockReady,
       refetchClock,
@@ -790,6 +801,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       orgAccess,
       isAdmin,
       isSelectedTeamMember,
+      memberTeamId,
       activeClockEvent,
       clockReady,
       refetchClock,

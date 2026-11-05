@@ -80,6 +80,7 @@ function setupTeam(
     orgAccess: 'ok',
     isAdmin: false,
     isSelectedTeamMember: opts.isSelectedTeamMember ?? true,
+    memberTeamId: null,
     activeClockEvent: (opts.activeClockEvent ?? null) as any,
     clockReady: true,
     refetchClock: mockRefetchClock,

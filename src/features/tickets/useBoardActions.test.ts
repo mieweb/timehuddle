@@ -30,7 +30,7 @@ vi.mock('./sources', () => ({
   },
 }));
 
-const team = vi.hoisted(() => ({ selectedTeamId: 'team1' as string | null }));
+const team = vi.hoisted(() => ({ memberTeamId: 'team1' as string | null }));
 vi.mock('../../lib/TeamContext', () => ({ useTeam: () => team }));
 
 // A Redmine issue goes on as its carrier, `huddle:carrier-<n>` (#736).
@@ -50,7 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.addMany.mockResolvedValue({ addedCount: 1 });
   api.removeMany.mockResolvedValue({ removedCount: 1 });
-  team.selectedTeamId = 'team1';
+  team.memberTeamId = 'team1';
   carry.carriedKey.mockImplementation(async (key: string, teamId: string | null) => {
     if (!key.startsWith('redmine:')) return key;
     if (!teamId) throw new carry.NoTeamError();
@@ -93,7 +93,7 @@ describe('useBoardActions', () => {
   });
 
   it('adds nothing, and says why, when no team is selected for a Redmine issue', async () => {
-    team.selectedTeamId = null;
+    team.memberTeamId = null;
     const { result } = renderHook(() => useBoardActions());
 
     await expect(result.current.add(['redmine:482'])).resolves.toBeNull();

@@ -125,7 +125,7 @@ function refreshTimerViews() {
 export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const toast = useToast();
   const { pathname, navigate } = useRouter();
-  const { selectedTeamId } = useTeam();
+  const { memberTeamId } = useTeam();
   const { isClockedIn, clockIn, clockInLoading, planGate } = useClockToggle();
   const runningTicket = useRunningTicket(isClockedIn);
 
@@ -228,7 +228,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (request.kind === 'ticket') {
             ({ outcome, update, unsentRedmine } = await startTicketTimer(request.ticket, {
               ...request,
-              teamId: selectedTeamId,
+              teamId: memberTeamId,
               discardSessionId,
             }));
             // A pinned issue joins the Redmine rows, which are cached per session.
@@ -258,7 +258,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return outcome;
       });
     },
-    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend, selectedTeamId],
+    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend, memberTeamId],
   );
 
   const start = useCallback(
@@ -307,7 +307,7 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const clockInAndStart = async () => {
     if (!prompt) return;
-    if (!selectedTeamId) {
+    if (!memberTeamId) {
       setPromptError(text.selectTeamFirst);
       return;
     }

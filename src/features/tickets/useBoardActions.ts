@@ -52,11 +52,11 @@ export interface BoardActions {
 
 export function useBoardActions(): BoardActions {
   const toast = useToast();
-  const { selectedTeamId } = useTeam();
+  const { memberTeamId } = useTeam();
 
   const add = useCallback(
     async (keys: string[]): Promise<BoardAdd | null> => {
-      const settled = await Promise.allSettled(keys.map((key) => carriedKey(key, selectedTeamId)));
+      const settled = await Promise.allSettled(keys.map((key) => carriedKey(key, memberTeamId)));
       if (settled.some((r) => r.status === 'rejected' && r.reason instanceof NoTeamError)) {
         toast.error(boardText.noTeam);
         return null;
@@ -84,7 +84,7 @@ export function useBoardActions(): BoardActions {
         },
       );
     },
-    [toast, selectedTeamId],
+    [toast, memberTeamId],
   );
 
   const remove = useCallback(
