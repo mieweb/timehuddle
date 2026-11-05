@@ -582,7 +582,16 @@ export interface OrgUsageUser {
   /** Distinct active days across the full cadence window, whatever the period. */
   cadenceActiveDays: number;
   topFeature: UsageFeature | null;
+  /** Latest action in the cadence window — or the report time, when online. */
   lastActiveAt: string | null;
+  /** Holds a live session right now. */
+  online: boolean;
+  /** Start of their open clock session (ISO), or null when clocked out. */
+  clockedInSince: string | null;
+  /** Has linked a Redmine account. */
+  redmineConnected: boolean;
+  /** Has linked a GitHub account. */
+  githubConnected: boolean;
 }
 
 export interface OrgUsageReport {
@@ -598,7 +607,14 @@ export interface OrgUsageReport {
   generatedAt: string;
   totals: {
     members: number;
+    /** Did something in the period, or is online or clocked in now. */
     activeMembers: number;
+    onlineNow: number;
+    clockedIn: number;
+    /** Members with a Redmine account linked. */
+    redmineConnected: number;
+    /** Members with a GitHub account linked. */
+    githubConnected: number;
     cadenceCounts: Record<UsageCadence, number>;
     featureTotals: Record<UsageFeature, number>;
     topFeature: UsageFeature | null;

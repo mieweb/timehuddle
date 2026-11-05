@@ -55,8 +55,8 @@ describe('useAttachmentUpload', () => {
 
     expect(mockUploadMedia).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(
-      'long.mp4 — too large to attach (limit 500.0 MB). ' +
-        'scan.pdf — too large to attach (limit 100.0 MB).',
+      'long.mp4 — too large to attach (limit 500 MB). ' +
+        'scan.pdf — too large to attach (limit 100 MB).',
     );
   });
 });
