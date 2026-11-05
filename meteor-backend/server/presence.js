@@ -4,6 +4,9 @@ import { requireTeamMembership } from './permissions';
 const TIMEOUT_MS = 75_000;
 
 const onlineTimers = new Map();
+/** userId → open presence.watch subscriptions (tabs, pages), so closing one
+ *  of several does not mark someone offline who is still connected. */
+const openSubscriptions = new Map();
 const listeners = new Set();
 
 function broadcast(userId, isOnline) {
@@ -30,13 +33,24 @@ function markOffline(userId) {
   broadcast(userId, false);
 }
 
-function isOnline(userId) {
+/**
+ * Call `fn(userId, isOnline)` whenever anyone comes online or goes offline.
+ * Returns the function that stops listening.
+ */
+export function onPresenceChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+/** Whether `userId` holds a live presence subscription on this process right now. */
+export function isOnline(userId) {
   return onlineTimers.has(userId);
 }
 
 Meteor.publish('presence.watch', function (watchIds) {
   if (!this.userId) return this.ready();
   const userId = this.userId;
+  openSubscriptions.set(userId, (openSubscriptions.get(userId) ?? 0) + 1);
   markOnline(userId);
 
   for (const id of watchIds) {
@@ -57,6 +71,12 @@ Meteor.publish('presence.watch', function (watchIds) {
   this.onStop(() => {
     listeners.delete(onChange);
     clearInterval(heartbeat);
+    const remaining = (openSubscriptions.get(userId) ?? 1) - 1;
+    if (remaining > 0) {
+      openSubscriptions.set(userId, remaining);
+      return;
+    }
+    openSubscriptions.delete(userId);
     markOffline(userId);
   });
 });

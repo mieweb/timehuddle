@@ -34,6 +34,7 @@ import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { AppToasts } from './AppToasts';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
+import { useOwnPresence } from '../lib/usePresence';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
@@ -360,6 +361,7 @@ const AppLayoutContent: React.FC = () => {
             ? 'Page not found'
             : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
+  useOwnPresence();
 
   // A linked team the user isn't in replaces the page — never shows another team.
   const teamForbidden = teamAccess === 'forbidden';

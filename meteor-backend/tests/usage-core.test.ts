@@ -163,6 +163,117 @@ describe('summarizeUsage', () => {
   });
 });
 
+describe('summarizeUsage live status (#832)', () => {
+  const now = '2026-09-21T15:00:00.000Z';
+
+  it('counts someone clocked in since before the period as active', () => {
+    const [row] = summarizeUsage({
+      members: [member('a')],
+      buckets: [bucket('a', '2026-09-10', 'clock')],
+      startDay: '2026-09-21',
+      live: { clockedInSince: new Map([['a', '2026-09-20T22:00:00.000Z']]), now },
+    });
+
+    expect(row.totalActions).toBe(0);
+    expect(row.status).toBe('active');
+    expect(row.clockedInSince).toBe('2026-09-20T22:00:00.000Z');
+    expect(row.online).toBe(false);
+  });
+
+  it('counts an online member as active and last active now', () => {
+    const [row] = summarizeUsage({
+      members: [member('a')],
+      buckets: [bucket('a', '2026-09-01')],
+      startDay: '2026-09-15',
+      live: { onlineIds: new Set(['a']), now },
+    });
+
+    expect(row.status).toBe('active');
+    expect(row.online).toBe(true);
+    expect(row.lastActiveAt).toBe(now);
+  });
+
+  it('keeps a blocked member blocked even when online', () => {
+    const [row] = summarizeUsage({
+      members: [member('a', { blocked: true })],
+      buckets: [],
+      startDay: '2026-09-15',
+      live: { onlineIds: new Set(['a']), now },
+    });
+
+    expect(row.status).toBe('blocked');
+  });
+
+  it('defaults to offline and clocked out without live data', () => {
+    const [row] = summarizeUsage({ members: [member('a')], buckets: [], startDay: '2026-09-15' });
+
+    expect(row.status).toBe('idle');
+    expect(row.online).toBe(false);
+    expect(row.clockedInSince).toBeNull();
+  });
+
+  it('totals online and clocked-in members into the headline counts', () => {
+    const rows = summarizeUsage({
+      members: [member('a'), member('b'), member('c')],
+      buckets: [],
+      startDay: '2026-09-15',
+      live: {
+        onlineIds: new Set(['a']),
+        clockedInSince: new Map([
+          ['a', now],
+          ['b', now],
+        ]),
+        now,
+      },
+    });
+
+    const totals = summarizeTotals(rows);
+
+    expect(totals.activeMembers).toBe(2);
+    expect(totals.onlineNow).toBe(1);
+    expect(totals.clockedIn).toBe(2);
+  });
+});
+
+describe('summarizeUsage integrations', () => {
+  it('flags who has linked Redmine and GitHub, and totals them', () => {
+    const rows = summarizeUsage({
+      members: [member('a'), member('b'), member('c')],
+      buckets: [],
+      startDay: '2026-09-15',
+      connections: { redmineIds: new Set(['a', 'b']), githubIds: new Set(['b']) },
+    });
+    const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+
+    expect(byId.a).toMatchObject({ redmineConnected: true, githubConnected: false });
+    expect(byId.b).toMatchObject({ redmineConnected: true, githubConnected: true });
+    expect(byId.c).toMatchObject({ redmineConnected: false, githubConnected: false });
+
+    const totals = summarizeTotals(rows);
+    expect(totals.redmineConnected).toBe(2);
+    expect(totals.githubConnected).toBe(1);
+  });
+
+  it('does not count a linked integration as activity', () => {
+    const [row] = summarizeUsage({
+      members: [member('a')],
+      buckets: [],
+      startDay: '2026-09-15',
+      connections: { redmineIds: new Set(['a']), githubIds: new Set(['a']) },
+    });
+
+    expect(row.status).toBe('idle');
+    expect(summarizeTotals([row]).activeMembers).toBe(0);
+  });
+
+  it('defaults to nothing connected without connection data', () => {
+    const [row] = summarizeUsage({ members: [member('a')], buckets: [], startDay: '2026-09-15' });
+
+    expect(row.redmineConnected).toBe(false);
+    expect(row.githubConnected).toBe(false);
+  });
+});
+
 describe('summarizeTotals', () => {
   it('rolls the rows up into the headline counts', () => {
     const rows = summarizeUsage({
