@@ -299,12 +299,14 @@ export default function Huddle() {
   // A team change from anywhere (header switcher, org switch) leaves the
   // Personal view. Compared with the previous value so loading a `?view=me`
   // link, which also settles the team, doesn't immediately clear it.
-  const personalScopeTeamRef = useRef(selectedTeamId);
+  // The context's team, not the feed's: a team opened without being joined has no
+  // feed, but selecting it is not the reader moving, so it must not leave the view.
+  const personalScopeTeamRef = useRef(contextTeamId);
   useEffect(() => {
-    if (personalScopeTeamRef.current === selectedTeamId) return;
-    personalScopeTeamRef.current = selectedTeamId;
+    if (personalScopeTeamRef.current === contextTeamId) return;
+    personalScopeTeamRef.current = contextTeamId;
     if (showMe) setParams({ view: null });
-  }, [selectedTeamId, showMe, setParams]);
+  }, [contextTeamId, showMe, setParams]);
   const personalTeamId = allTeams.find((t) => t.isPersonal)?.id ?? null;
   const scope: 'team' | 'me' =
     showMe || (selectedTeamId !== null && selectedTeamId === personalTeamId) ? 'me' : 'team';
@@ -938,7 +940,7 @@ export default function Huddle() {
   // Skipped until the teams are in: `scope` can only be trusted once
   // `personalTeamId` is known, and the flip it makes on arrival is the app
   // settling, not the reader moving.
-  const scopeKey = `${selectedTeamId}|${scope}`;
+  const scopeKey = `${contextTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
   useEffect(() => {
     if (!teamsReady) {
