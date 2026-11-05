@@ -632,12 +632,12 @@ describe('attachments', () => {
       userId: 'u1',
       text: 'Prep',
       attachments: [
-        { id: 'a', name: 'board.png', type: 'image/png', dataUrl: 'data:image/png;base64,x' },
+        { id: 'a', name: 'board.png', type: 'image/png', url: 'blob:board' },
         {
           id: 'b',
           name: 'agenda.pdf',
           type: 'application/pdf',
-          dataUrl: 'data:application/pdf;base64,x',
+          url: 'blob:agenda',
         },
       ],
     });
@@ -651,13 +651,11 @@ describe('attachments', () => {
       {
         id: 'a',
         kind: 'image',
-        src: 'data:image/png;base64,x',
+        src: 'blob:board',
         alt: 'board.png',
       },
     ]);
-    expect(message.files).toEqual([
-      { id: 'b', name: 'agenda.pdf', url: 'data:application/pdf;base64,x' },
-    ]);
+    expect(message.files).toEqual([{ id: 'b', name: 'agenda.pdf', url: 'blob:agenda' }]);
   });
 
   it('saves an edit without the images it showed under the text', () => {

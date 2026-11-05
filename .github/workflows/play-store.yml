@@ -1,0 +1,116 @@
+name: Play Store Build
+
+# Manual dispatch only. Builds the production Android app (timecore-prod),
+# signs it with the Play upload key and uploads it to a Google Play track.
+# Web-only changes ship through OTA (ota-publish.yml) instead; use this for
+# native changes (manifest, plugins, Capacitor upgrades).
+#
+# Local equivalent of the build: `npm run build:android:prod`, then
+# Android Studio → Generate Signed App Bundle.
+#
+# versionCode: Play rejects any code it has seen, so each run uses
+# run_number + 1 (the first bundle, versionCode 1, was uploaded by hand).
+# Override with the version_code input if a run ever needs to skip ahead.
+#
+# Uses mieweb/actions build-sign-android + publish-android-to-play.
+# Required secrets (environment: production):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+#   ANDROID_KEY_PASSWORD, GOOGLE_PLAY_JSON_KEY_BASE64
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Google Play track'
+        required: true
+        type: choice
+        default: internal
+        options: [internal, alpha, beta, production]
+      release_status:
+        description: 'completed = live on the track; draft = review in Play Console first'
+        required: true
+        type: choice
+        default: completed
+        options: [completed, draft]
+      version_code:
+        description: 'versionCode override (defaults to run number + 1)'
+        required: false
+        type: string
+
+concurrency:
+  group: play-store
+  cancel-in-progress: false
+
+jobs:
+  play_store:
+    name: Play Store - ${{ github.event.inputs.track }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick versionCode
+        env:
+          OVERRIDE: ${{ github.event.inputs.version_code }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          CODE="${OVERRIDE:-$((RUN_NUMBER + 1))}"
+          [[ "$CODE" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "::error::version_code must be a positive whole number, got '$CODE'"; exit 1; }
+          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "versionCode $CODE"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21' # Capacitor 8 compiles with Java 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web bundle and sync Android (production)
+        run: npm run build:android:prod
+        env:
+          # .env.production is gitignored and absent in CI; without this the
+          # bundle falls back to localhost and cannot reach any backend.
+          VITE_TIMECORE_URL: https://timecore-prod.os.mieweb.org
+
+      - name: Check the bundle targets production
+        run: |
+          grep -rqF "timecore-prod.os.mieweb.org" android/app/src/main/assets/public \
+            || { echo "FAIL: timecore-prod missing from the Android bundle"; exit 1; }
+
+      - name: Build & sign AAB
+        id: build
+        uses: mieweb/actions/build-sign-android@v2
+        with:
+          app_identifier: com.mieweb.timehuddle
+          project_dir: ${{ github.workspace }}/android
+          build_type: bundle
+          keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          key_alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          key_password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Keep the AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: timehuddle-${{ env.ANDROID_VERSION_CODE }}.aab
+          path: ${{ steps.build.outputs.signed_artifact_path }}
+          retention-days: 30
+
+      - name: Upload to Google Play
+        uses: mieweb/actions/publish-android-to-play@v2
+        with:
+          signed_artifact_path: ${{ steps.build.outputs.signed_artifact_path }}
+          play_json_key_base64: ${{ secrets.GOOGLE_PLAY_JSON_KEY_BASE64 }}
+          package_name: com.mieweb.timehuddle
+          track: ${{ github.event.inputs.track }}
+          release_status: ${{ github.event.inputs.release_status }}

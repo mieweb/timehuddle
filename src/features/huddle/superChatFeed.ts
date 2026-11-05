@@ -776,9 +776,9 @@ export function searchConversations(
 
 /**
  * A post being sent with files, as a pending message (SuperChat dims its
- * tiles and says how far it has got): the composer's files shown from their
- * `data:` URLs while they upload. Photos and videos are media, anything else
- * one of its files.
+ * tiles and says how far it has got): the composer's files shown from local
+ * `url`s (object URLs of the picked files) while they upload. Photos and
+ * videos are media, anything else one of its files.
  */
 export function pendingPostMessage({
   id,
@@ -789,7 +789,7 @@ export function pendingPostMessage({
   id: string;
   userId: string;
   text: string;
-  attachments: { id: string; name: string; type: string; dataUrl: string }[];
+  attachments: { id: string; name: string; type: string; url: string }[];
 }): SuperChatMessage {
   const kindOf = (type: string) =>
     type.startsWith('image/') ? 'image' : type.startsWith('video/') ? 'video' : null;
@@ -807,7 +807,7 @@ export function pendingPostMessage({
             {
               id: att.id,
               kind,
-              src: att.dataUrl,
+              src: att.url,
               alt: att.name,
               // A photo shows no title (see postMedia); a video its name.
               ...(kind === 'video' ? { title: att.name } : {}),
@@ -817,6 +817,6 @@ export function pendingPostMessage({
     }),
     files: attachments
       .filter((att) => !kindOf(att.type))
-      .map((att) => ({ id: att.id, name: att.name, url: att.dataUrl })),
+      .map((att) => ({ id: att.id, name: att.name, url: att.url })),
   };
 }
