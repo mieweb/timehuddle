@@ -993,7 +993,9 @@ export const ClockPage: React.FC = () => {
                       // While it waits for attachments, its label says how far
                       // they've got instead of a spinner; never disabled by them.
                       isLoading={!awaitingUploads && (posting || clockInLoading || clockOutLoading)}
-                      aria-busy={awaitingUploads || undefined}
+                      // Set only while waiting: Button spreads props after its
+                      // own aria-busy, so an undefined here would clear it.
+                      {...(awaitingUploads ? { 'aria-busy': true } : {})}
                       disabled={!text.trim()}
                       className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
                     >

@@ -113,6 +113,9 @@ const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
 const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
+/** Kept stable so the inbox's rows don't re-render for it. */
+const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
+
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   session: 'Session',
   day: 'Day',
@@ -1235,6 +1238,8 @@ export default function Huddle() {
                   <SuperChatInbox
                     // One box for the thread's cards, ours and SuperChat's.
                     mediaMaxSize={VIDEO_CARD_SIZE}
+                    // An edited message's × says what the message box's does.
+                    mediaLabels={EDIT_MEDIA_LABELS}
                     // Posting uploads each picked File; a base64 copy of a large
                     // video is more than a browser string, or a phone, can hold.
                     attachmentDataUrls={false}
