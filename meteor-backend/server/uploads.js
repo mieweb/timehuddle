@@ -481,6 +481,22 @@ export function removeMediaFile(doc) {
 export async function keepReferencedUploads(texts) {
   const kept = keepForReference(texts);
   if (kept) await rawDb().collection('mediaitems').updateMany(kept.filter, kept.update);
+  await keepReferencedVideos(texts);
+}
+
+const ARTIFACT_IDS = /\/pulsevault\/artifacts\/([0-9a-f-]{36})/gi;
+
+/**
+ * The same for videos (by their PulseVault id) the `texts` reference: a video
+ * someone took back (media.discardUpload) and then posted or attached after
+ * all keeps its files, as an upload does (keepForReference).
+ */
+export async function keepReferencedVideos(texts) {
+  const ids = [...new Set(texts.flatMap((text) => [...String(text ?? '').matchAll(ARTIFACT_IDS)].map((m) => m[1])))];
+  if (!ids.length) return;
+  await rawDb()
+    .collection('mediaitems')
+    .updateMany({ videoid: { $in: ids }, discardAt: { $exists: true } }, { $unset: { discardAt: '' } });
 }
 
 /** Whether anything still uses this media item (uploadUseQueries). */
@@ -802,7 +818,10 @@ Meteor.methods({
 
     unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
     unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
-    if (doc.videoid) void removeVideoArtifacts(doc.videoid);
+    // A video's files go only when nothing else shows it (a post, an
+    // attachment, a timesheet walkthrough): the item is the library's entry,
+    // the video may be in use elsewhere.
+    if (doc.videoid && !(await isUploadInUse(doc))) void removeVideoArtifacts(doc.videoid);
     return { ok: true };
   },
 
@@ -819,10 +838,9 @@ Meteor.methods({
     const doc = isValidId(mediaId) ? await items.findOne({ _id: new ObjectId(mediaId) }) : null;
     const video = typeof videoid === 'string' && videoid ? videoid : doc?.videoid;
     if (video) {
-      if (await artifactIsEvidenceUnderReview(video)) {
-        throw new Meteor.Error('evidence-in-review', 'This video backs a timesheet change awaiting review.');
-      }
-      await discardVideo(userId, video);
+      await discardVideo(userId, video, {
+        isEvidenceUnderReview: () => artifactIsEvidenceUnderReview(video),
+      });
       return { ok: true };
     }
     if (!doc) return { ok: true };

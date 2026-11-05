@@ -40,6 +40,7 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
+import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
@@ -138,32 +139,40 @@ export async function removeVideoArtifacts(videoid) {
  * it after the grace period unless a post took it meanwhile. Nothing left:
  * nothing to do.
  */
-export async function discardVideo(userId, videoid) {
+export async function discardVideo(userId, videoid, { isEvidenceUnderReview = async () => false } = {}) {
   const media = rawDb().collection('mediaitems');
   const item = await media.findOne({ videoid }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
   const status = await videoArtifactStatus(videoid);
   const owner = item?.userId ?? (typeof status?.context?.userId === 'string' ? status.context.userId : null);
   if (!owner) return;
   if (owner !== userId) throw new Meteor.Error('forbidden', 'Not your video');
+  if (await isEvidenceUnderReview()) {
+    throw new Meteor.Error('evidence-in-review', 'This video backs a timesheet change awaiting review.');
+  }
   if (status?.state === 'uploading') {
     await removeVideoArtifacts(videoid);
     await media.deleteMany({ videoid, userId });
     return;
   }
-  await media.updateOne(
-    { videoid },
-    {
-      $setOnInsert: {
-        userId,
-        type: 'video',
-        videoid,
-        url: artifactPath(videoid),
-        embedded: true,
-        uploadedAt: new Date(),
+  try {
+    await media.updateOne(
+      { videoid },
+      {
+        $setOnInsert: {
+          userId,
+          type: 'video',
+          videoid,
+          url: artifactPath(videoid),
+          embedded: true,
+          uploadedAt: new Date(),
+        },
       },
-    },
-    { upsert: true }
-  );
+      { upsert: true }
+    );
+  } catch (err) {
+    // Delivery inserted its item at the same moment: mark that one.
+    if (!isDuplicateKey(err)) throw err;
+  }
   await discardUnusedMedia([await media.findOne({ videoid }, { projection: { url: 1 }, ...CANONICAL_ITEM })]);
 }
 

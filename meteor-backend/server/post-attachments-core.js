@@ -122,6 +122,8 @@ export function uploadUseQueries({ mediaId, url }) {
     },
     { collection: 'attachments', filter: { url: atUrl } },
     { collection: 'tickets', filter: { description: { $regex: literally(url) } } },
+    // A timesheet change's walkthrough video, whatever the request's state.
+    { collection: 'timesheetchangerequests', filter: { videoUrl: atUrl } },
   ];
 }
 

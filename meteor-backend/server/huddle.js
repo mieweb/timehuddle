@@ -5,7 +5,14 @@ import { resolveSince } from './huddle-window-core';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, ticketName } from './ticket-label';
-import { discardMedia, discardUnusedMedia, isUploadInUse, keepReferencedUploads, removeMediaFile } from './uploads';
+import {
+  discardMedia,
+  discardUnusedMedia,
+  isUploadInUse,
+  keepReferencedUploads,
+  keepReferencedVideos,
+  removeMediaFile,
+} from './uploads';
 import { removeVideoArtifacts } from './pulsevault';
 import { discardUnreferencedInlineImages, externalizeInlineImages } from './inline-images';
 import { createNotification } from './notify-core';
@@ -597,6 +604,8 @@ async function sweepUnusedUploads() {
  * their own uploads, Pulse videos, or ones the post already has (`existing`).
  */
 async function checkedAttachments(userId, attachments, existing = []) {
+  // A video the post carries keeps its files, even one taken back meanwhile.
+  if (Array.isArray(attachments)) await keepReferencedVideos(attachments.map((att) => att?.url));
   const ids = Array.isArray(attachments)
     ? attachments.map((att) => att?.mediaId).filter((id) => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
     : [];

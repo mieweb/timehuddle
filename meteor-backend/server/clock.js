@@ -11,7 +11,7 @@
  * `clock.liveForTeams` / `timers.liveForUser` / `notifications.liveForUser`
  * publications fan out automatically — no WebSocket/SSE broadcast needed.
  */
-import { clientTimeOrNow } from './client-time-core.js';
+import { clockStartTime, clockStopTime } from './client-time-core.js';
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
@@ -810,7 +810,19 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
   const team = await findUserTeam(userId, teamId);
   if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
-  const now = clientTimeOrNow(at, Date.now());
+  // When it was pressed, but never overlapping the team's last session, nor
+  // before an open one it closes (clockStartTime).
+  const [lastClosed, open] = await Promise.all([
+    ClockEvents.findOneAsync(
+      { userId, teamId, endTime: { $ne: null } },
+      { sort: { endTime: -1 }, fields: { endTime: 1 } }
+    ),
+    ClockEvents.find({ userId, teamId, endTime: null }, { fields: { startTime: 1 } }).fetchAsync(),
+  ]);
+  const now = clockStartTime(at, Date.now(), {
+    lastEndTime: lastClosed?.endTime ?? 0,
+    openStartTimes: open.map((event) => event.startTime),
+  });
   let created;
   if (reuseOpen) {
     // A plan that lands while this team's shift is already open (clocked in by
@@ -958,9 +970,17 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const eventId = event._id.toHexString();
   const breaks = await findBreaksForEvent(eventId);
   const openBreak = breaks.find((b) => b.endTime === null);
-  // When Clock out was pressed, but never before the session (or its open
-  // break) began, so no duration comes out negative.
-  const now = Math.max(clientTimeOrNow(at, Date.now()), event.startTime, openBreak?.startTime ?? 0);
+  const runningTimers = await rawDb()
+    .collection('timers')
+    .find({ userId, endTime: null }, { projection: { startTime: 1 } })
+    .toArray();
+  // When Clock out was pressed, but never before what it closes began or what
+  // already ended in it (clockStopTime), so no duration comes out negative.
+  const now = clockStopTime(at, Date.now(), {
+    startTime: event.startTime,
+    breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
+    timerStartTimes: runningTimers.map((timer) => timer.startTime),
+  });
 
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)

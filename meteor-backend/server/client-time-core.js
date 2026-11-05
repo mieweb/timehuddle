@@ -19,3 +19,24 @@ export function clientTimeOrNow(at, now, maxAgeMs = MAX_CLIENT_TIME_AGE_MS) {
   if (at > now + MAX_CLIENT_CLOCK_SKEW_MS || at < now - maxAgeMs) return now;
   return Math.min(at, now);
 }
+
+/**
+ * When a clock-in pressed at `at` starts: the press time (clientTimeOrNow),
+ * but never before the team's last clock-out (`lastEndTime`), so a backdated
+ * start can't overlap the session before it, nor before a session still open
+ * (`openStartTimes`), which it closes at that time.
+ */
+export function clockStartTime(at, now, { lastEndTime = 0, openStartTimes = [] } = {}) {
+  return Math.max(clientTimeOrNow(at, now), lastEndTime, ...openStartTimes);
+}
+
+/**
+ * When a clock-out pressed at `at` ends the session: the press time, but never
+ * before what it closes began or what already ended in it — the session
+ * (`startTime`), its breaks (`breakTimes`: an open one's start, a closed one's
+ * end) and running timers (`timerStartTimes`) — so nothing ends before it
+ * started and no break outlasts the shift.
+ */
+export function clockStopTime(at, now, { startTime, breakTimes = [], timerStartTimes = [] }) {
+  return Math.max(clientTimeOrNow(at, now), startTime, ...breakTimes, ...timerStartTimes);
+}
