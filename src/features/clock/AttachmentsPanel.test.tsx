@@ -33,10 +33,50 @@ vi.mock('@lib/api', () => ({
   },
   videoApi: { rename: (_video: string, name: string) => Promise.resolve(name.trim() || null) },
 }));
-vi.mock('../pulse-upload/PulseButton', () => ({ PulseButton: () => null }));
+vi.mock('../pulse-upload/PulseButton', () => ({ PulseControls: () => null }));
+// The Pulse upload the panel holds; a test sets what it's sending.
+const pulse = vi.hoisted(() => ({
+  file: null as File | null,
+  progress: null as number | null,
+  processing: false,
+  cancel: vi.fn(),
+}));
+vi.mock('../pulse-upload/usePulseUpload', () => ({ usePulseUpload: () => pulse }));
 
 describe('AttachmentsPanel', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    pulse.file = null;
+    pulse.progress = null;
+    pulse.processing = false;
+    pulse.cancel.mockClear();
+  });
+
+  it('shows the video on its way up in the list, with its progress, and cancels it', async () => {
+    pulse.file = new File(['x'], 'demo.mov', { type: 'video/quicktime' });
+    pulse.progress = 0.42;
+    await act(async () => {
+      render(<AttachmentsPanel kind="ticket" entityId="t1" currentUserId="u1" />);
+    });
+    expect(
+      screen.getByRole('progressbar', { name: 'Uploading demo.mov' }).getAttribute('aria-valuenow'),
+    ).toBe('42');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel upload of demo.mov' }));
+    expect(pulse.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('says Processing once its bytes are in, with nothing left to cancel', async () => {
+    pulse.file = new File(['x'], 'demo.mov', { type: 'video/quicktime' });
+    pulse.processing = true;
+    await act(async () => {
+      render(<AttachmentsPanel kind="ticket" entityId="t1" currentUserId="u1" />);
+    });
+    expect(screen.getByText('Processing…')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Cancel upload of demo.mov' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
 
   it("renames every card of a video, however each row's URL was stored", async () => {
     await act(async () => {

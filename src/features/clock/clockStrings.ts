@@ -67,6 +67,12 @@ export const clockText = {
   or: 'or',
   loadingPlan: 'Loading your plan…',
   postFailed: 'Failed to post. Please try again.',
+  /** The submit button while it waits for attachments still uploading. */
+  uploading: (percent: number) => `Uploading ${percent}%…`,
+  /** …once every byte is in and the server is finishing (a video converting). */
+  processing: 'Processing…',
+  /** Why it stopped: a file didn't upload. */
+  uploadFailed: (name: string) => `${name} didn't upload. Retry it or remove it.`,
   noWrapUpTeam: 'No team for this session — cannot post a wrap-up.',
   shortcutHint: (mode: ComposerMode, empty: boolean) => {
     const action = mode === 'plan' ? 'clock in' : 'clock out';

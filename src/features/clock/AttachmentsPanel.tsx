@@ -15,7 +15,7 @@
  */
 import { faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
+import { AttachmentPreviewItem, Button, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -25,9 +25,17 @@ import {
   type Attachment,
 } from '../../lib/api';
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
-import { PulseButton } from '../pulse-upload/PulseButton';
+import { PulseControls } from '../pulse-upload/PulseButton';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
+
+/** User-facing text for the video on its way up, kept in one place for translation. */
+const VIDEO_TILE_TEXT = {
+  uploading: (name: string) => `Uploading ${name}`,
+  processing: 'Processing…',
+  cancel: (name: string) => `Cancel upload of ${name}`,
+};
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -103,6 +111,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     return [...videos.values()];
   }, [attachments, currentUserId, handleRemove]);
 
+  // Held here (not inside the buttons) so the list can show the file on its
+  // way up, in place, until it lands and the refetch brings its card.
+  const pulse = usePulseUpload(
+    { kind, id: entityId },
+    { onSettled: (status) => status.state === 'done' && void fetchAttachments() },
+  );
+  const sending = pulse.file;
+  const sendingPercent = pulse.processing ? 100 : Math.round((pulse.progress ?? 0) * 100);
+
   return (
     <section className="attachments-panel">
       {/* Wraps instead of squeezing: on a phone the chips drop under the
@@ -119,18 +136,17 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             Videos
           </Text>
         )}
-        <PulseButton
-          destination={{ kind, id: entityId }}
+        <PulseControls
+          pulse={pulse}
           ariaLabel="Add a video with Pulse"
           allowFile
           card={showHeading ? 'end' : 'start'}
-          onSettled={(status) => status.state === 'done' && void fetchAttachments()}
         />
       </div>
 
       {loading && <Spinner size="sm" />}
 
-      {!loading && attachments.length === 0 && (
+      {!loading && attachments.length === 0 && !sending && (
         <Text size="xs" variant="muted">
           No videos yet.
         </Text>
@@ -190,6 +206,26 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             </li>
           );
         })}
+        {sending && (
+          // The video on its way up, in place: cancellable while its bytes
+          // go up; once they're in, it lands here by itself.
+          <li className="attachment-item attachment-sending text-sm">
+            <AttachmentPreviewItem
+              attachment={{
+                id: 'sending',
+                file: sending,
+                type: 'video',
+                state: 'uploading',
+                progress: sendingPercent,
+              }}
+              onRemove={pulse.cancel}
+              disabled={pulse.processing}
+              progressLabel={VIDEO_TILE_TEXT.uploading(sending.name)}
+              processingLabel={VIDEO_TILE_TEXT.processing}
+              removeLabel={VIDEO_TILE_TEXT.cancel(sending.name)}
+            />
+          </li>
+        )}
       </ul>
 
       <VideoFeedView

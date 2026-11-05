@@ -7,7 +7,7 @@
  */
 import * as tus from 'tus-js-client';
 
-import { videoApi } from '../../lib/api';
+import { mediaApi, videoApi } from '../../lib/api';
 
 /** Containers the server accepts; mirrors VIDEO_CONTENT_TYPES in meteor-backend/server/pulsevault.js. */
 export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.3gp', '.avi'];
@@ -50,17 +50,45 @@ export function uploadErrorMessage(err: unknown): string {
   return "The upload didn't finish. Check your connection and try again.";
 }
 
-/** Send `file` to a reserved upload; resolves once every byte is in. Rejects with a message to show. */
+/** What a cancelled upload rejects with, so callers can tell it from a failure. */
+export const uploadCancelled = () => new DOMException('Upload cancelled', 'AbortError');
+
+/** Whether `err` is a cancelled upload (uploadCancelled) rather than a failure. */
+export const isUploadCancelled = (err: unknown) =>
+  err instanceof DOMException && err.name === 'AbortError';
+
+/**
+ * Send `file` to a reserved upload; resolves once every byte is in. Rejects
+ * with a message to show, or with uploadCancelled once `signal` aborts: the
+ * upload stops and tus deletes what arrived (a finished one is locked, so
+ * callers discard it with `mediaApi.discardUpload`).
+ */
 export function uploadVideoFile(
   file: File,
   { videoid, uploadToken }: { videoid: string; uploadToken: string },
   onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    new tus.Upload(file, {
+    if (signal?.aborted) {
+      reject(uploadCancelled());
+      return;
+    }
+    // A cancel deletes the upload (tus terminate). Not retried: a 403 (finished,
+    // so locked) or 404 (gone) is the answer.
+    const terminate = () => void upload.abort(true).catch(() => {});
+    const onAbort = () => {
+      terminate();
+      reject(uploadCancelled());
+    };
+    const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
       retryDelays: videoApi.uploadRetryDelays,
-      onShouldRetry: videoApi.shouldRetryUpload,
+      onShouldRetry: (err) => !signal?.aborted && videoApi.shouldRetryUpload(err),
+      // Created after a cancel (the POST was already on its way): delete it too.
+      onUploadUrlAvailable: () => {
+        if (signal?.aborted) terminate();
+      },
       // Every upload has its own reservation and token, so an earlier upload
       // of the same file can never be resumed: don't remember it (tus would
       // probe the old URL first, and its localStorage entries pile up).
@@ -77,13 +105,29 @@ export function uploadVideoFile(
       onProgress: (sent, total) => {
         if (total > 0) onProgress?.(sent / total);
       },
-      onSuccess: () => resolve(),
-      onError: (err) => reject(new Error(uploadErrorMessage(err))),
-    }).start();
+      onSuccess: () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      },
+      onError: (err) => {
+        signal?.removeEventListener('abort', onAbort);
+        reject(new Error(uploadErrorMessage(err)));
+      },
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    upload.start();
   });
 }
 
 type FilingResult = Awaited<ReturnType<typeof videoApi.waitUntilFiled>>;
+
+/**
+ * How long uploadVideoTo waits for a video to be converted and filed: as long
+ * as its upload token lives (30 minutes) less the time to send it, since a
+ * 4K HDR clip can take minutes to convert and a conversion can queue behind
+ * others. A cancel (its signal) stops the wait at any time.
+ */
+const FILING_WAIT_MS = 25 * 60_000;
 
 /**
  * Why a finished upload can't be attached; null once it's filed. Only `done`
@@ -114,13 +158,29 @@ export async function uploadVideoTo(
   destination: { kind: 'library' } | { kind: 'post' } | { kind: 'walkthrough' },
   file: File,
   onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   const problem = videoFileProblem(file);
   if (problem) throw new Error(problem);
   const reservation = await videoApi.reserve(destination);
-  await uploadVideoFile(file, reservation, onProgress);
-  const filed = await videoApi.waitUntilFiled(reservation.videoid, reservation.uploadToken);
-  const notFiled = filingProblem(filed);
-  if (notFiled) throw new Error(notFiled);
-  return reservation.videoid;
+  try {
+    if (signal?.aborted) throw uploadCancelled();
+    await uploadVideoFile(file, reservation, onProgress, signal);
+    const filed = await videoApi.waitUntilFiled(
+      reservation.videoid,
+      reservation.uploadToken,
+      FILING_WAIT_MS,
+      signal,
+    );
+    const notFiled = filingProblem(filed);
+    if (notFiled) throw new Error(notFiled);
+    return reservation.videoid;
+  } catch (err) {
+    // Cancelled at any stage: take back whatever arrived (converting, or
+    // already filed). Idempotent, so a terminated upload costs a no-op.
+    if (isUploadCancelled(err)) {
+      void mediaApi.discardUpload({ videoid: reservation.videoid }).catch(() => {});
+    }
+    throw err;
+  }
 }

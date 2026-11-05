@@ -2,7 +2,7 @@
 import { teamApi, ticketApi, mediaApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { ComposerAttachment } from '@mieweb/ui/components/SuperChat';
 import type { HuddlePost } from '@lib/api';
-import { artifactPath } from '../pulse-upload/artifact';
+import { artifactPath, pulseArtifactId } from '../pulse-upload/artifact';
 import { isVideoFile, uploadVideoTo } from '../pulse-upload/videoFile';
 import type { TeamMember, MediaItem } from './types';
 
@@ -58,14 +58,13 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
 }
 
 /**
- * The `File` behind a file staged in SuperChat's chat input, for
- * {@link uploadMedia}. SuperChat hands it over as picked; Huddle turns its
- * base64 copy off (`attachmentDataUrls={false}`), which a large video would
- * overflow.
+ * The media item a file attached in SuperChat's chat input uploaded to: the
+ * composer uploads each one as it's attached (`composerProps.uploadAttachment`
+ * runs uploadMedia) and waits for the rest before sending, so it's there.
  */
-export function composerAttachmentFile(attachment: ComposerAttachment): File {
-  if (!attachment.file) throw new Error(`${attachment.name} couldn't be read. Attach it again.`);
-  return attachment.file;
+export function uploadedMedia(attachment: ComposerAttachment): MediaItem {
+  if (!attachment.result) throw new Error(`${attachment.name} didn't upload. Attach it again.`);
+  return attachment.result as MediaItem;
 }
 
 /**
@@ -175,10 +174,19 @@ async function imageSize(
   }
 }
 
-export async function uploadMedia(file: File, onProgress?: UploadProgress): Promise<MediaItem> {
+/**
+ * Upload a file a composer attached: a photo or document to the media
+ * library, a video to PulseVault (resolving once it's filed). Rejects with an
+ * AbortError once `signal` aborts (uploadCancelled).
+ */
+export async function uploadMedia(
+  file: File,
+  onProgress?: UploadProgress,
+  signal?: AbortSignal,
+): Promise<MediaItem> {
   if (!isVideoFile(file)) {
     const [item, size] = await Promise.all([
-      mediaApi.uploadImage(file, onProgress),
+      mediaApi.uploadImage(file, onProgress, signal),
       imageSize(file),
     ]);
     onProgress?.(1);
@@ -191,7 +199,7 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
 
   // The post's own: its media item stays out of the library, so deleting the
   // post (or cancelling a scheduled one) doesn't put it there.
-  const videoid = await uploadVideoTo({ kind: 'post' }, file, onProgress);
+  const videoid = await uploadVideoTo({ kind: 'post' }, file, onProgress, signal);
 
   return {
     id: videoid,
@@ -202,4 +210,14 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
     url: artifactPath(videoid),
     filename: file.name,
   };
+}
+
+/**
+ * Take back an upload (uploadMedia) the user removed before sending: a video
+ * by its id (the PulseVault id), a photo or document by its media item.
+ */
+export function discardMedia(item: MediaItem): Promise<void> {
+  return item.type === 'video' && pulseArtifactId(item.url)
+    ? mediaApi.discardUpload({ videoid: item.id })
+    : mediaApi.discardUpload({ mediaId: item.id });
 }

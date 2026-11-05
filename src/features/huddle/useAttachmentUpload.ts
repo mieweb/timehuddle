@@ -1,13 +1,14 @@
 /**
- * One upload path for everything the composer can attach — the Photo/Video/Doc
- * pickers and screenshots pasted or dropped straight into the editor — so all
- * of them report progress, surface failures, and hand back a {@link MediaItem}
- * identically.
+ * One upload path for everything a composer can attach — the Photo/Video/Doc
+ * pickers and screenshots pasted or dropped straight into the editor: each
+ * file is staged as a tile and uploads in place at once (`useAttachmentUploads`
+ * from `@mieweb/ui`, the lifecycle Huddle's message box runs too), removing it
+ * takes the upload back, and posting waits for whatever is still uploading.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useAttachmentUploads, type AttachmentUpload, type AttachmentUploads } from '@mieweb/ui';
+import { useCallback, useMemo } from 'react';
 import { isVideoFile, MAX_VIDEO_BYTES } from '../pulse-upload/videoFile';
-import { uploadMedia } from './api';
-import { composerErrorMessage } from './composerErrors';
+import { discardMedia, uploadMedia } from './api';
 import type { MediaItem } from './types';
 
 /**
@@ -27,44 +28,39 @@ export const attachmentSizeLimit = (file: File) =>
 export const attachmentLimitLabel = (file: File) =>
   `${Math.round(attachmentSizeLimit(file) / 1048576)} MB`;
 
-interface UseAttachmentUploadOptions {
-  onAttachmentAdd: (media: MediaItem) => void;
-  /**
-   * Called with the in-flight upload's completed fraction (0–1), then `null`
-   * once it settles (success or failure).
-   */
-  onUploadProgress?: (fraction: number | null) => void;
-  /**
-   * Called with a human-readable reason an attachment didn't make it, and with
-   * `null` when a fresh upload clears the last one.
-   *
-   * Reported to the host rather than held here for the same reason progress is:
-   * a composer runs several instances of this hook (the pickers, paste/drop),
-   * and one `role="alert"` region owned by the composer is what the user should
-   * see — not one per source, and not an `alert()`. Pass a stable callback
-   * (a `useState` setter is ideal); its identity feeds `upload`'s, which
-   * MarkdownEditor uses to decide whether to re-register its native listeners.
-   */
-  onError?: (message: string | null) => void;
+/** A composer's staged files, plus `attach`: add files, turning away oversize ones. */
+export interface ComposerUploads extends AttachmentUploads<MediaItem> {
+  /** Stages and uploads `files`, turning away oversize ones; returns what was staged. */
+  attach: (files: File[]) => AttachmentUpload<MediaItem>[];
 }
 
-export function useAttachmentUpload({
-  onAttachmentAdd,
-  onUploadProgress,
+/** Uploads a staged file: photos and documents to the media library, videos to PulseVault. */
+export const uploadAttachment = (
+  file: File,
+  { signal, onProgress }: { signal: AbortSignal; onProgress: (fraction: number) => void },
+) => uploadMedia(file, onProgress, signal);
+
+/**
+ * The files a composer attached, each uploading as soon as it's added. `attach`
+ * turns away a file over its size limit with a message naming it (`onError`),
+ * and clears the last message when a fresh pick goes up. Removing a file
+ * aborts its upload, or takes a finished one back (discardMedia).
+ */
+export function useComposerUploads({
   onError,
-}: UseAttachmentUploadOptions) {
-  const [uploading, setUploading] = useState(false);
-
-  /**
-   * Uploads all files at once and reports one byte-weighted fraction across
-   * them, so a batch of photos costs about as long as its largest file rather
-   * than the sum of every file.
-   */
-  const upload = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+}: {
+  /** The reason a pick didn't attach, or null when a fresh pick clears it. */
+  onError?: (message: string | null) => void;
+} = {}): ComposerUploads {
+  const uploads = useAttachmentUploads<MediaItem>({
+    upload: uploadAttachment,
+    discard: discardMedia,
+  });
+  const { add } = uploads;
+  const attach = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return [];
       onError?.(null);
-
       const oversize = files.filter((file) => file.size > attachmentSizeLimit(file));
       if (oversize.length > 0) {
         onError?.(
@@ -73,96 +69,9 @@ export function useAttachmentUpload({
             .join(' '),
         );
       }
-      const accepted = files.filter((file) => file.size <= attachmentSizeLimit(file));
-      if (accepted.length === 0) return;
-
-      setUploading(true);
-      onUploadProgress?.(0);
-
-      const totalBytes = accepted.reduce((sum, file) => sum + file.size, 0) || 1;
-      const sentBytes = new Array<number>(accepted.length).fill(0);
-      const reportProgress = () => {
-        const sent = sentBytes.reduce((sum, bytes) => sum + bytes, 0);
-        onUploadProgress?.(Math.min(1, sent / totalBytes));
-      };
-
-      const results = await Promise.allSettled(
-        accepted.map((file, index) =>
-          uploadMedia(file, (fraction) => {
-            sentBytes[index] = fraction * file.size;
-            reportProgress();
-          }),
-        ),
-      );
-
-      setUploading(false);
-      onUploadProgress?.(null);
-
-      // Added in pick order, not completion order, so the composer's attachment
-      // strip matches what the user selected.
-      const failures: Array<{ name: string; reason: unknown }> = [];
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') onAttachmentAdd(result.value);
-        else failures.push({ name: accepted[index].name, reason: result.reason });
-      });
-
-      if (failures.length > 0) {
-        console.error('[useAttachmentUpload] Upload failed:', failures);
-        // Named, because a partial batch is the confusing case: three files go
-        // in, two chips come out, and without the name there is no telling
-        // which one is missing.
-        const [first] = failures;
-        const reason = composerErrorMessage(first.reason, 'Upload failed. Please try again.');
-        const others =
-          failures.length > 1 ? ` (and ${failures.length - 1} more didn't attach)` : '';
-        onError?.(`${first.name} — ${reason}${others}`);
-      }
+      return add(files.filter((file) => file.size <= attachmentSizeLimit(file)));
     },
-    [onAttachmentAdd, onUploadProgress, onError],
+    [add, onError],
   );
-
-  return { upload, uploading };
-}
-
-/** Independent upload sources within one composer. */
-export type UploadProgressSource = 'picker' | 'paste';
-
-/**
- * One progress fraction across every upload source in a composer.
- *
- * The file pickers and pasted screenshots each own their own {@link
- * useAttachmentUpload} instance, and a paste can start while a picker upload is
- * still on the wire. Reporting straight to the composer let whichever settled
- * first clear the bar and re-enable Post, dropping the attachment still in
- * flight — so every source reports here instead, and the composer only reads
- * idle once all of them have settled.
- */
-export function useUploadProgress() {
-  const [fraction, setFraction] = useState<number | null>(null);
-  // Latest fraction per in-flight source; a source is removed when it settles.
-  const activeRef = useRef(new Map<UploadProgressSource, number>());
-  // Reporters are cached so each source keeps one stable callback identity —
-  // the paste reporter flows into a memoized handler whose identity decides
-  // whether MarkdownEditor re-registers its native paste listener.
-  const reportersRef = useRef(new Map<UploadProgressSource, (value: number | null) => void>());
-
-  const reporterFor = useCallback((source: UploadProgressSource) => {
-    const cached = reportersRef.current.get(source);
-    if (cached) return cached;
-
-    const reporter = (value: number | null) => {
-      const active = activeRef.current;
-      if (value === null) active.delete(source);
-      else active.set(source, value);
-      // The least-complete source drives the bar: byte weighting across sources
-      // isn't available here, and taking the max would jump the bar to nearly
-      // done while a second upload had barely started.
-      setFraction(active.size === 0 ? null : Math.min(...active.values()));
-    };
-
-    reportersRef.current.set(source, reporter);
-    return reporter;
-  }, []);
-
-  return { fraction, reporterFor };
+  return useMemo(() => ({ ...uploads, attach }), [uploads, attach]);
 }

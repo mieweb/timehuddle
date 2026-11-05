@@ -19,9 +19,7 @@ import {
 import {
   SuperChatInbox,
   type ComposerAttachment,
-  type SuperChatConversation,
   type SuperChatMediaFeedProps,
-  type SuperChatMessage,
   type SuperChatRenderMessageMedia,
 } from '@mieweb/ui/components/SuperChat';
 import {
@@ -32,15 +30,19 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  composerAttachmentFile,
+  discardMedia,
   fetchTeamMembers,
+  uploadedMedia,
   toPostAttachment,
-  uploadMedia,
 } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
-import { attachmentLimitLabel, attachmentSizeLimit } from '../features/huddle/useAttachmentUpload';
+import {
+  attachmentLimitLabel,
+  attachmentSizeLimit,
+  uploadAttachment,
+} from '../features/huddle/useAttachmentUpload';
 import {
   dayConversationId,
   defaultConversation,
@@ -48,7 +50,6 @@ import {
   isAwaitingDelivery,
   postsToConversations,
   postVideoNames,
-  pendingPostMessage,
   pulseVideoOfMedia,
   searchConversations,
   starterConversation,
@@ -312,14 +313,6 @@ export default function Huddle() {
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
-  // The post being sent with files, shown in its conversation while they
-  // upload (SuperChat's pending message: dimmed, "Sending… 45%"), until the
-  // real post (`postId`) arrives or the send fails.
-  const [pendingPost, setPendingPost] = useState<{
-    conversationId: string;
-    message: SuperChatMessage;
-    postId?: string;
-  } | null>(null);
   // The open "Send later…" dialog: settles the send that is waiting on it.
   const [schedulePrompt, setSchedulePrompt] = useState<{
     resolve: (schedule: PostSchedule) => void;
@@ -693,23 +686,6 @@ export default function Huddle() {
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
   }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
-  // A post sending with files shows in the conversation it was sent from.
-  const shownConversations = useMemo<SuperChatConversation[]>(
-    () =>
-      pendingPost
-        ? conversations.map((c) =>
-            c.id === pendingPost.conversationId
-              ? { ...c, thread: [...c.thread, pendingPost.message] }
-              : c,
-          )
-        : conversations,
-    [conversations, pendingPost],
-  );
-  useEffect(() => {
-    if (pendingPost?.postId && activePosts.some((p) => p.id === pendingPost.postId)) {
-      setPendingPost(null);
-    }
-  }, [pendingPost, activePosts]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
@@ -1032,11 +1008,8 @@ export default function Huddle() {
     setSending(true);
     setInboxError(null);
     let id: string;
-    // The pending post's previews of the picked files, freed once it's gone.
-    let previewUrls: string[] = [];
-    const revokePreviews = () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
-    // Snapshot what's staged now: the uploads below take time, and anything
-    // picked meanwhile belongs to the *next* post, not this one.
+    // Snapshot what's staged now: anything picked while this posts belongs to
+    // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
@@ -1053,33 +1026,9 @@ export default function Huddle() {
       if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
         openConversation(landsIn);
       }
-      const files = composerAttachments.map(composerAttachmentFile);
-      // Files take a while: show the post there meanwhile, and how far its
-      // files have uploaded.
-      if (files.length > 0 && user) {
-        previewUrls = files.map((file) => URL.createObjectURL(file));
-        setPendingPost({
-          conversationId: landsIn,
-          message: pendingPostMessage({
-            id: `pending-${Date.now()}`,
-            userId: user.id,
-            text,
-            attachments: composerAttachments.map((attachment, index) => ({
-              ...attachment,
-              url: previewUrls[index],
-            })),
-          }),
-        });
-      }
-      const showProgress = (progress: number) =>
-        setPendingPost((prev) => prev && { ...prev, message: { ...prev.message, progress } });
-      // One file at a time, so the progress shown is the post's as a whole.
-      const media: MediaItem[] = [];
-      for (const [index, file] of files.entries()) {
-        media.push(
-          await uploadMedia(file, (fraction) => showProgress((index + fraction) / files.length)),
-        );
-      }
+      // Every file was uploaded as it was attached (composerProps.uploadAttachment),
+      // and the composer waited for the rest before calling this.
+      const media = composerAttachments.map(uploadedMedia);
       ({ id } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
@@ -1098,13 +1047,8 @@ export default function Huddle() {
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
-      // The real post replaces it once it's in the feed (see the effect on
-      // `pendingPost`), so the thread doesn't blink empty in between.
-      setPendingPost((prev) => prev && { ...prev, postId: id });
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
-      setPendingPost(null);
-      revokePreviews();
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
       throw err;
     } finally {
@@ -1115,33 +1059,30 @@ export default function Huddle() {
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
-    try {
-      // The Personal view reads its own cross-team list, not the team feed —
-      // the post went to the Personal team, so it can never appear in `posts`.
-      if (scope === 'me') {
-        await refreshMyPosts();
-        return;
-      }
+    // The Personal view reads its own cross-team list, not the team feed —
+    // the post went to the Personal team, so it can never appear in `posts`.
+    if (scope === 'me') {
+      await refreshMyPosts();
+      return;
+    }
 
-      // Show the new post without waiting on the live DDP socket, which may be
-      // down (dropped while the app was backgrounded for a Pulse recording):
-      // refreshFeed refetches over REST and overlays the result, and syncPosts
-      // drops the overlay once the subscription catches up. Retry until the post
-      // is in the feed by *either* route.
-      const ddp = getDdpClient();
-      const inFeed = () =>
-        restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
-      for (let attempt = 0; attempt < 4; attempt++) {
-        if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
-        await refreshFeed();
-        if (inFeed()) break;
-      }
-    } finally {
-      // Never left behind, even if the post is slow to show.
-      setPendingPost((prev) => (prev?.postId === id ? null : prev));
-      revokePreviews();
+    // Show the new post without waiting on the live DDP socket, which may be
+    // down (dropped while the app was backgrounded for a Pulse recording):
+    // refreshFeed refetches over REST and overlays the result, and syncPosts
+    // drops the overlay once the subscription catches up. Retry until the post
+    // is in the feed by *either* route.
+    const ddp = getDdpClient();
+    const inFeed = () =>
+      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
+      await refreshFeed();
+      if (inFeed()) break;
     }
   }
+
+  // Taking back a file removed from the message box after it uploaded.
+  const discardAttachment = useCallback((result: unknown) => discardMedia(result as MediaItem), []);
 
   // The composer refused a file: say which and why (composerErrors.ts).
   const handleComposerError = useCallback((message: string, context?: ChatComposerError) => {
@@ -1291,7 +1232,7 @@ export default function Huddle() {
                     // Posting uploads each picked File; a base64 copy of a large
                     // video is more than a browser string, or a phone, can hold.
                     attachmentDataUrls={false}
-                    conversations={shownConversations}
+                    conversations={conversations}
                     activeConversationId={activeConversation?.id}
                     onConversationOpened={(conversation) => openConversation(conversation.id)}
                     currentParticipantId={user.id}
@@ -1348,6 +1289,10 @@ export default function Huddle() {
                         : 'Share an update…',
                       // 500 MB for a video (PulseVault), 100 MB for anything else.
                       maxFileSize: attachmentSizeLimit,
+                      // Each file uploads as it's attached, in place; removing
+                      // it before sending takes it back.
+                      uploadAttachment: uploadAttachment,
+                      discardAttachment: discardAttachment,
                       // A ticket is a post on its own.
                       canSendWhenEmpty: selectedTicketIds.length > 0,
                       // Also busy while staged content is still settling: a send

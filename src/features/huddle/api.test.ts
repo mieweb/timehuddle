@@ -15,7 +15,7 @@ describe('uploadMedia', () => {
 
     const item = await uploadMedia(file);
 
-    expect(uploadVideoTo).toHaveBeenCalledWith({ kind: 'post' }, file, undefined);
+    expect(uploadVideoTo).toHaveBeenCalledWith({ kind: 'post' }, file, undefined, undefined);
     expect(item).toMatchObject({
       id: 'video-1',
       type: 'video',
