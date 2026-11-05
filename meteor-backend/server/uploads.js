@@ -278,14 +278,10 @@ WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
     unlinkSafe(resolveUploadPath(profile?.backgroundUrl, '/uploads/profile/', PROFILE_DIR));
     await db.collection('team_members').deleteMany({ userId });
     await db.collection('org_members').deleteMany({ userId });
-    await db.collection('teams').updateMany(
-      { $or: [{ members: userId }, { admins: userId }] },
-      { $pull: { members: userId, admins: userId } },
-    );
-    for (const name of ['organizations', 'enterprises']) {
+    for (const name of ['teams', 'organizations', 'enterprises']) {
       await db.collection(name).updateMany(
-        { $or: [{ owners: userId }, { admins: userId }] },
-        { $pull: { owners: userId, admins: userId } },
+        { $or: [{ members: userId }, { admins: userId }, { owners: userId }] },
+        { $pull: { members: userId, admins: userId, owners: userId } },
       );
     }
     await db.collection('profiles').deleteMany({ userId, app: 'timeharbor' });

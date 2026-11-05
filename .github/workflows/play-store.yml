@@ -55,6 +55,8 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           CODE="${OVERRIDE:-$((RUN_NUMBER + 1))}"
+          [[ "$CODE" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "::error::version_code must be a positive whole number, got '$CODE'"; exit 1; }
           echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
           echo "versionCode $CODE"
 

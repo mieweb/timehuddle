@@ -12,7 +12,7 @@ android {
         versionCode((System.getenv('ANDROID_VERSION_CODE') ?: '1') as Integer)
         // OTA bundles must be newer than this to install, so it tracks the
         // app version in package.json instead of being bumped by hand.
-        versionName new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+        versionName(new groovy.json.JsonSlurper().parse(file('../../package.json')).version as String)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
