@@ -351,6 +351,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subReady = false;
     });
     const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
+    // The server announces which organizations the user owns, and again when that
+    // changes (promoted, demoted, blocked or removed). The role snapshot is read
+    // once, so read it again then; the first announcement is just the current state.
+    const offOwnership = ddp.onCollectionChange('orgOwnership', () => {
+      if (subReady) void refetchOrganizations();
+    });
     const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
       subReady = true;
       applyLiveDocs();
@@ -360,33 +366,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       offDisconnect();
       offChange();
+      offOwnership();
       unsubscribe();
     };
-  }, [userId, liveTeamsEpoch]);
-
-  // The team list follows organization ownership live (a user promoted to or
-  // demoted from owner gains or loses the teams they only own), but the role
-  // snapshot above is read once. When those teams change, read the roles again
-  // so management access matches what is now visible, without a reload.
-  const ownerOnlyTeamsKey = useMemo(
-    () =>
-      teams
-        .filter((team) => !isTeamMember(team, userId))
-        .map((team) => team.id)
-        .sort()
-        .join(','),
-    [teams, userId],
-  );
-  const seenOwnerOnlyTeamsKey = useRef<string | null>(null);
-  useEffect(() => {
-    seenOwnerOnlyTeamsKey.current = null;
-  }, [userId]);
-  useEffect(() => {
-    if (!teamsReady) return;
-    const previous = seenOwnerOnlyTeamsKey.current;
-    seenOwnerOnlyTeamsKey.current = ownerOnlyTeamsKey;
-    if (previous !== null && previous !== ownerOnlyTeamsKey) void refetchOrganizations();
-  }, [teamsReady, ownerOnlyTeamsKey, refetchOrganizations]);
+  }, [userId, liveTeamsEpoch, refetchOrganizations]);
 
   // ── Selected team ───────────────────────────────────────────────────────────
 
@@ -627,8 +610,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [selectedTeam, urlTeamId, userId, pathname, params, replace, setParams]);
 
   const isSelectedTeamMember = !!selectedTeam && isTeamMember(selectedTeam, userId);
-  // Known to be unjoined only once the team is in the list; until then the id stands.
-  const memberTeamId = selectedTeam && !isSelectedTeamMember ? null : selectedTeamId;
+  // Only a confirmed membership: a remembered id whose team isn't in the current
+  // organization's list (right after an org switch) must not stand in for it.
+  const memberTeamId = isSelectedTeamMember ? selectedTeamId : null;
 
   const isAdmin = useMemo(
     () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),

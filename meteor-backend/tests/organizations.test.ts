@@ -511,6 +511,43 @@ describe('an owner whose role changes or who is blocked', () => {
     }
   });
 
+  it('refuses to demote the only owner who can still use the org, even if a blocked owner remains', async () => {
+    // The caller manages the org as enterprise owner, so it is the target and the
+    // blocked peer who are the org's owners. A block keeps the peer's membership row.
+    const db = await getDb();
+    const enterpriseId = new ObjectId();
+    await db.collection('enterprises').insertOne({
+      _id: enterpriseId,
+      name: 'Blocked Owner Enterprise',
+      slug: `blocked-owner-${enterpriseId.toHexString()}`,
+      owners: [ownerId],
+      admins: [],
+      settings: {},
+      settingsLocks: {},
+    });
+    await db.collection('org_members').deleteMany({ orgId, userId: ownerId });
+    await db.collection('organizations').updateOne(
+      { _id: new ObjectId(orgId) },
+      { $set: { enterpriseId: enterpriseId.toHexString(), owners: [memberId], admins: [] } },
+    );
+    await addMembership(memberId, 'owner');
+    await addMembership(peerId, 'owner');
+    await db
+      .collection('users')
+      .updateOne({ _id: peerId as never }, { $push: { blocked: { orgId, blockedAt: new Date() } } as never });
+
+    try {
+      const res = await wormhole('orgs.setMemberRole', { orgId, userId: memberId, role: 'member' }, ownerJwt);
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/at least one owner or admin/i);
+      expect((await listedMember())?.role).toBe('owner');
+    } finally {
+      await db.collection('users').updateOne({ _id: peerId as never }, { $unset: { blocked: '' } });
+      await db.collection('enterprises').deleteOne({ _id: enterpriseId });
+      await db.collection('organizations').updateOne({ _id: new ObjectId(orgId) }, { $unset: { enterpriseId: '' } });
+    }
+  });
+
   it('is an owner of the org again once unblocked', async () => {
     await addMembership(memberId, 'owner');
     await (await getDb())

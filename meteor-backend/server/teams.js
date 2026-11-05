@@ -13,6 +13,7 @@ import {
   isOrgOwnerOfTeam,
   addMemberUpdate,
   getOwnedOrgIds,
+  teamsSelectorFor,
   visibleTeamsSelector,
   autoJoinOrgUnlessRemoved,
 } from './org-helpers';
@@ -238,6 +239,19 @@ Meteor.publish('teams.byUser', async function () {
         this.removed('teams', id);
       }),
   };
+  // Which organizations the user owns, for the client's role snapshot: the team
+  // list can look the same before and after an ownership change (an owner who has
+  // joined every team), so this is what tells the client to read its roles again.
+  let publishedOwnership = null;
+  const publishOwnership = (orgIds) => {
+    const key = [...orgIds].sort().join(',');
+    if (key === publishedOwnership) return;
+    const fields = { orgIds: [...orgIds].sort() };
+    if (publishedOwnership === null) this.added('orgOwnership', 'self', fields);
+    else this.changed('orgOwnership', 'self', fields);
+    publishedOwnership = key;
+  };
+
   let handle = null;
   let ownershipHandle = null;
   let stopListening = () => {};
@@ -258,8 +272,10 @@ Meteor.publish('teams.byUser', async function () {
   const observeVisibleTeams = async () => {
     handle?.stop();
     handle = null;
-    const selector = await visibleTeamsSelector(this.userId);
+    const ownedOrgIds = await getOwnedOrgIds(this.userId);
     if (stopped) return null;
+    publishOwnership(ownedOrgIds);
+    const selector = teamsSelectorFor(this.userId, ownedOrgIds);
     const observer = await Teams.find(selector).observeChangesAsync(teamCallbacks);
     if (stopped) {
       observer.stop();
