@@ -41,7 +41,7 @@ import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
-import { libraryItemsFilter } from './uploads.js';
+import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
@@ -112,6 +112,59 @@ export async function videoArtifactStatus(artifactId) {
 /** Whether PulseVault holds a video by this id (an upload under way counts). */
 export async function videoArtifactExists(artifactId) {
   return (await videoArtifactStatus(artifactId)) !== null;
+}
+
+/**
+ * Delete a video from PulseVault on the host's own terms (`storage.remove`;
+ * `lockWhenReady` only guards the client's routes): what belongs to it
+ * (thumbnail, captions, a generated poster), then the video. Idempotent and
+ * best-effort.
+ */
+export async function removeVideoArtifacts(videoid) {
+  try {
+    for await (const related of storage.listRelated(videoid)) await storage.remove(related.artifactId);
+    await storage.remove(videoid);
+  } catch (err) {
+    console.error(`[pulsevault] removing video ${videoid} failed:`, err);
+  }
+}
+
+/**
+ * Take back a video `userId` uploaded but didn't send (removed from a
+ * composer). Still uploading: deleted now. Converting or filed: its media item
+ * — made now when delivery hasn't made it yet, and left with the mark when it
+ * does (addToLibrary only fills in what's missing) — is marked like a dropped
+ * upload (discardUnusedMedia), so the library hides it and the sweep deletes
+ * it after the grace period unless a post took it meanwhile. Nothing left:
+ * nothing to do.
+ */
+export async function discardVideo(userId, videoid) {
+  const media = rawDb().collection('mediaitems');
+  const item = await media.findOne({ videoid }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
+  const status = await videoArtifactStatus(videoid);
+  const owner = item?.userId ?? (typeof status?.context?.userId === 'string' ? status.context.userId : null);
+  if (!owner) return;
+  if (owner !== userId) throw new Meteor.Error('forbidden', 'Not your video');
+  if (status?.state === 'uploading') {
+    await removeVideoArtifacts(videoid);
+    await media.deleteMany({ videoid, userId });
+    return;
+  }
+  await media.updateOne(
+    { videoid },
+    {
+      $setOnInsert: {
+        userId,
+        type: 'video',
+        videoid,
+        url: artifactPath(videoid),
+        embedded: true,
+        uploadedAt: new Date(),
+      },
+    },
+    { upsert: true }
+  );
+  await discardUnusedMedia([await media.findOne({ videoid }, { projection: { url: 1 }, ...CANONICAL_ITEM })]);
 }
 
 /**

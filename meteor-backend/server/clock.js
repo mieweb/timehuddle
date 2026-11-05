@@ -11,6 +11,7 @@
  * `clock.liveForTeams` / `timers.liveForUser` / `notifications.liveForUser`
  * publications fan out automatically — no WebSocket/SSE broadcast needed.
  */
+import { clientTimeOrNow } from './client-time-core.js';
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
@@ -315,16 +316,22 @@ Meteor.methods({
     );
   },
 
-  /** Clock in: close any dangling open events, open a new one, fire side-effects. */
-  async 'clock.start'({ teamId, planPostId } = {}) {
+  /**
+   * Clock in: close any dangling open events, open a new one, fire
+   * side-effects. `at`: when Clock in was pressed (clientTimeOrNow).
+   */
+  async 'clock.start'({ teamId, planPostId, at } = {}) {
     const identity = await requireIdentity(this);
-    return clockStart(identity.userId, { teamId, planPostId });
+    return clockStart(identity.userId, { teamId, planPostId, at });
   },
 
-  /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
-  async 'clock.stop'({ teamId } = {}) {
+  /**
+   * Clock out: cancel jobs, close timers + open break, recompute, notify,
+   * log. `at`: when Clock out was pressed (clientTimeOrNow).
+   */
+  async 'clock.stop'({ teamId, at } = {}) {
     const identity = await requireIdentity(this);
-    return clockStop(identity.userId, { teamId });
+    return clockStop(identity.userId, { teamId, at });
   },
 
   /** Pause (break start): close running timer, open a break. */
@@ -799,11 +806,11 @@ Meteor.publish('clock.liveForUser', async function (targetUserId) {
  * one, link the just-posted plan (plan-first flow), fire side-effects. Shared
  * by the `clock.start` method and server-side callers (a Pulse plan video).
  */
-export async function clockStart(userId, { teamId, planPostId, reuseOpen = false } = {}) {
+export async function clockStart(userId, { teamId, planPostId, reuseOpen = false, at } = {}) {
   const team = await findUserTeam(userId, teamId);
   if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
-  const now = Date.now();
+  const now = clientTimeOrNow(at, Date.now());
   let created;
   if (reuseOpen) {
     // A plan that lands while this team's shift is already open (clocked in by
@@ -917,7 +924,7 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
  * jobs, close timers and any open break, recompute, notify, log. Shared by the
  * `clock.stop` method and server-side callers (a Pulse wrap-up video).
  */
-export async function clockStop(userId, { teamId, clockEventId } = {}) {
+export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   // With `clockEventId`, only that session, and only while it is still open:
   // a wrap-up that lands after the person ended it by hand and started another
   // must not end the new one.
@@ -948,8 +955,12 @@ export async function clockStop(userId, { teamId, clockEventId } = {}) {
     throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
   }
 
-  const now = Date.now();
   const eventId = event._id.toHexString();
+  const breaks = await findBreaksForEvent(eventId);
+  const openBreak = breaks.find((b) => b.endTime === null);
+  // When Clock out was pressed, but never before the session (or its open
+  // break) began, so no duration comes out negative.
+  const now = Math.max(clientTimeOrNow(at, Date.now()), event.startTime, openBreak?.startTime ?? 0);
 
   cancelClockJobs(eventId).catch((err) =>
     console.error('[agenda] cancelClockJobs failed:', err)
@@ -959,8 +970,6 @@ export async function clockStop(userId, { teamId, clockEventId } = {}) {
   await closeAllForUser(userId, now);
 
   // Close any open break with auto-classification.
-  const breaks = await findBreaksForEvent(eventId);
-  const openBreak = breaks.find((b) => b.endTime === null);
   if (openBreak) {
     const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
     await ClockBreaks.updateAsync(openBreak._id, {
