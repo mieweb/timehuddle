@@ -12,5 +12,8 @@ export const TEAMS_STRINGS = {
   notJoinedHint:
     'You manage this team as an owner of the organization. Join it to clock in, post to its Huddle and track its work.',
   joinTeam: 'Join team',
+  huddleNotJoined:
+    'You manage this team as an owner of the organization, but haven’t joined it, so its Huddle isn’t shown. Join the team to read and post.',
+  openTeamToJoin: 'Open team to join',
   joinFailed: 'Failed to join team',
 };

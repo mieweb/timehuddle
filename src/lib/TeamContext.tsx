@@ -356,6 +356,30 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [userId, liveTeamsEpoch]);
 
+  // The team list follows organization ownership live (a user promoted to or
+  // demoted from owner gains or loses the teams they only own), but the role
+  // snapshot above is read once. When those teams change, read the roles again
+  // so management access matches what is now visible, without a reload.
+  const ownerOnlyTeamsKey = useMemo(
+    () =>
+      teams
+        .filter((team) => !isTeamMember(team, userId))
+        .map((team) => team.id)
+        .sort()
+        .join(','),
+    [teams, userId],
+  );
+  const seenOwnerOnlyTeamsKey = useRef<string | null>(null);
+  useEffect(() => {
+    seenOwnerOnlyTeamsKey.current = null;
+  }, [userId]);
+  useEffect(() => {
+    if (!teamsReady) return;
+    const previous = seenOwnerOnlyTeamsKey.current;
+    seenOwnerOnlyTeamsKey.current = ownerOnlyTeamsKey;
+    if (previous !== null && previous !== ownerOnlyTeamsKey) void refetchOrganizations();
+  }, [teamsReady, ownerOnlyTeamsKey, refetchOrganizations]);
+
   // ── Selected team ───────────────────────────────────────────────────────────
 
   // The last pick, persisted per user. Only a fallback: the URL wins.

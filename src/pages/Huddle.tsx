@@ -89,6 +89,7 @@ import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { isTeamMember } from '@lib/organizationAccess';
+import { TEAMS_STRINGS } from '../features/teams/teamsStrings';
 import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
@@ -269,8 +270,21 @@ export default function Huddle() {
   );
   const { user } = useSession();
   const [sidebarWidth, setSidebarWidth] = useStoredSidebarWidth(user?.id);
-  const { selectedTeamId, setSelectedTeamId, teams, allTeams, isAdmin, currentTime, teamsReady } =
-    useTeam();
+  const {
+    selectedTeamId: contextTeamId,
+    selectedTeam,
+    isSelectedTeamMember,
+    setSelectedTeamId,
+    teams,
+    allTeams,
+    isAdmin,
+    currentTime,
+    teamsReady,
+  } = useTeam();
+  // An organization owner can open a team they haven't joined, but its feed is
+  // members-only: the team has no Huddle here until they join it.
+  const unjoinedTeam = selectedTeam && !isSelectedTeamMember ? selectedTeam : null;
+  const selectedTeamId = unjoinedTeam ? null : contextTeamId;
 
   // Personal is a view, not a team selection: entering it leaves the selected
   // team and org alone, so the team picker stays put. It shows the caller's own
@@ -1217,7 +1231,20 @@ export default function Huddle() {
           className="huddle-feed flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
           onClickCapture={openAppLinkHere}
         >
-          {scope === 'team' && !selectedTeamId && (
+          {scope === 'team' && unjoinedTeam && (
+            <div className="huddle-not-joined flex flex-col items-center justify-center gap-4 py-16 px-4 text-center">
+              <p className="max-w-md text-sm text-gray-500 dark:text-neutral-400">
+                {TEAMS_STRINGS.huddleNotJoined}
+              </p>
+              <ButtonGroup>
+                <Button size="sm" onClick={() => navigate(`/app/teams/${unjoinedTeam.id}`)}>
+                  {TEAMS_STRINGS.openTeamToJoin}
+                </Button>
+              </ButtonGroup>
+            </div>
+          )}
+
+          {scope === 'team' && !unjoinedTeam && !selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
               <p className="text-sm text-gray-500 dark:text-neutral-400">
                 Please select a team to view the huddle feed
