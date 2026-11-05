@@ -772,3 +772,120 @@ describe('teams.delete', () => {
     expect(res.ok).toBe(false);
   });
 });
+
+// ─── Organization owner without membership ────────────────────────────────────
+
+describe('organization owner who has not joined the team', () => {
+  const ORG_OWNER = { name: 'Org Owner', email: 'wh-team-org-owner@test.dev', password: 'Password1!' };
+  let orgOwnerJwt: string;
+  let orgOwnerId: string;
+  let orgId: ObjectId;
+  let sharedTeamId: string;
+
+  beforeAll(async () => {
+    await purgeUser(ORG_OWNER.email);
+    orgOwnerJwt = (await createUserAndGetJwt(ORG_OWNER)).jwt;
+    const db = await getDb();
+    orgOwnerId = String((await db.collection('users').findOne({ 'emails.address': ORG_OWNER.email }))!._id);
+
+    sharedTeamId = (
+      await wormhole<{ team: { id: string } }>('teams.create', { name: 'Owner Visible Team' }, ownerJwt)
+    ).result.team.id;
+    // The Personal-team privacy test below looks this team up.
+    await wormhole('teams.ensurePersonal', {}, ownerJwt);
+
+    orgId = new ObjectId();
+    await db.collection('organizations').insertOne({
+      _id: orgId,
+      name: 'Owner Visibility Org',
+      slug: `owner-visibility-org-${orgId.toHexString()}`,
+      owners: [orgOwnerId],
+      admins: [],
+      settings: { allowAutoJoin: false },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    // orgs.listMembers reads the membership row, not just the legacy owners array.
+    await db.collection('org_members').insertOne({
+      _id: new ObjectId(),
+      orgId: orgId.toHexString(),
+      userId: orgOwnerId,
+      role: 'owner',
+      auto: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(sharedTeamId) }, { $set: { orgId: orgId.toHexString() } });
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await wormhole('teams.delete', { teamId: sharedTeamId }, ownerJwt).catch(() => {});
+    await db.collection('org_members').deleteMany({ orgId: orgId.toHexString() });
+    await db.collection('organizations').deleteMany({ _id: orgId });
+    await purgeUser(ORG_OWNER.email);
+  });
+
+  it('lists the team without being a member of it', async () => {
+    const res = await wormhole<{ teams: Array<{ id: string; members: string[] }> }>(
+      'teams.list',
+      {},
+      orgOwnerJwt,
+    );
+    const team = res.result.teams.find((t) => t.id === sharedTeamId);
+    expect(team).toBeDefined();
+    expect(team!.members).not.toContain(orgOwnerId);
+  });
+
+  it('can read its members', async () => {
+    const res = await wormhole<{ members: Array<{ id: string }> }>(
+      'teams.getMembers',
+      { teamId: sharedTeamId },
+      orgOwnerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.members.map((m) => m.id)).toContain(ownerId);
+  });
+
+  it('does not see other members\' Personal teams in the organization', async () => {
+    const db = await getDb();
+    const personal = await db.collection('teams').findOne({ isPersonal: true, members: ownerId });
+    const originalOrgId = personal!.orgId;
+    await db
+      .collection('teams')
+      .updateOne({ _id: personal!._id }, { $set: { orgId: orgId.toHexString() } });
+    try {
+      const res = await wormhole<{ teams: Array<{ id: string }> }>('teams.list', {}, orgOwnerJwt);
+      expect(res.result.teams.find((t) => t.id === personal!._id.toHexString())).toBeUndefined();
+      const members = await wormhole('teams.getMembers', { teamId: personal!._id.toHexString() }, orgOwnerJwt);
+      expect(members.ok).toBe(false);
+    } finally {
+      await db.collection('teams').updateOne({ _id: personal!._id }, { $set: { orgId: originalOrgId } });
+    }
+  });
+
+  it('joins directly as an admin of the team', async () => {
+    const list = await wormhole<{ teams: Array<{ id: string; code: string }> }>(
+      'teams.list',
+      {},
+      orgOwnerJwt,
+    );
+    const code = list.result.teams.find((t) => t.id === sharedTeamId)!.code;
+
+    const joined = await wormhole<{ status: string; team: { members: string[]; admins: string[] } }>(
+      'teams.join',
+      { teamCode: code },
+      orgOwnerJwt,
+    );
+    expect(joined.result.status).toBe('joined');
+    expect(joined.result.team.members).toContain(orgOwnerId);
+    expect(joined.result.team.admins).toContain(orgOwnerId);
+  });
+
+  it('is still forbidden for a user outside the organization', async () => {
+    const res = await wormhole('teams.getMembers', { teamId: sharedTeamId }, outsiderJwt);
+    expect(res.ok).toBe(false);
+  });
+});

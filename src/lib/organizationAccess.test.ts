@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canManageSelectedOrganization,
   canManageTeam,
+  isTeamMember,
   hasDefaultOrganizationAdminAccess,
   hasOrganizationAdminAccess,
 } from './organizationAccess';
@@ -93,5 +94,18 @@ describe('canManageTeam', () => {
     expect(canManageTeam(team, 'u', [{ id: 'org-2', role: 'owner' }])).toBe(false);
     expect(canManageTeam(team, 'u', [{ id: 'org-1', role: 'member' }])).toBe(false);
     expect(canManageTeam(team, null, [{ id: 'org-1', role: 'owner' }])).toBe(false);
+  });
+});
+
+describe('isTeamMember', () => {
+  const team = { members: ['member-1'] };
+
+  it('is true for a listed member', () => {
+    expect(isTeamMember(team, 'member-1')).toBe(true);
+  });
+
+  it('is false for anyone else, including an organization owner, and for no user', () => {
+    expect(isTeamMember(team, 'owner-1')).toBe(false);
+    expect(isTeamMember(team, null)).toBe(false);
   });
 });

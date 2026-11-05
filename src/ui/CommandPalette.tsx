@@ -121,7 +121,7 @@ export const CommandPalette: React.FC = () => {
   const [search, setSearch] = useState('');
   const [preview, setPreview] = useState<PreviewState>({ status: 'idle' });
   const { navigate } = useRouter();
-  const { selectedTeamId, selectedTeam, teamsReady } = useTeam();
+  const { memberTeamId, teamsReady } = useTeam();
   const { user } = useSession();
   const { theme, setTheme } = useTheme();
   const fetchControllerRef = useRef<AbortController | null>(null);
@@ -167,26 +167,26 @@ export const CommandPalette: React.FC = () => {
   }, [open, resetState]);
 
   useEffect(() => {
-    if (!open || !selectedTeamId) {
+    if (!open || !memberTeamId) {
       setTickets([]);
       return;
     }
     ticketApi
-      .getTickets(selectedTeamId)
+      .getTickets(memberTeamId)
       .then(setTickets)
       .catch(() => setTickets([]));
-  }, [open, selectedTeamId]);
+  }, [open, memberTeamId]);
 
   useEffect(() => {
-    if (!open || !selectedTeamId) {
+    if (!open || !memberTeamId) {
       setMembers([]);
       return;
     }
     teamApi
-      .getMembers(selectedTeamId)
+      .getMembers(memberTeamId)
       .then(setMembers)
       .catch(() => setMembers([]));
-  }, [open, selectedTeamId]);
+  }, [open, memberTeamId]);
 
   useEffect(() => {
     if (debounceRef.current) {
@@ -240,14 +240,14 @@ export const CommandPalette: React.FC = () => {
   );
 
   const handleCreateTicket = useCallback(async () => {
-    if (preview.status !== 'ready' || !selectedTeam) return;
+    if (preview.status !== 'ready' || !memberTeamId) return;
 
     const { url, issue } = preview;
     setPreview({ status: 'creating', url, issue });
 
     try {
       await createTicketFromGithub({
-        teamId: selectedTeam.id,
+        teamId: memberTeamId,
         url,
         title: issue.title,
         description: issue.body,
@@ -258,21 +258,21 @@ export const CommandPalette: React.FC = () => {
     } catch {
       setPreview({ status: 'error', url, message: 'Failed to create ticket' });
     }
-  }, [preview, selectedTeam, navigate]);
+  }, [preview, memberTeamId, navigate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && preview.status === 'ready' && selectedTeam) {
+      if (e.key === 'Enter' && preview.status === 'ready' && memberTeamId) {
         e.preventDefault();
         void handleCreateTicket();
         return;
       }
     },
-    [preview.status, selectedTeam, handleCreateTicket],
+    [preview.status, memberTeamId, handleCreateTicket],
   );
 
   const isGithubMode = preview.status !== 'idle';
-  const canCreate = preview.status === 'ready' && !!selectedTeam;
+  const canCreate = preview.status === 'ready' && !!memberTeamId;
 
   return (
     <Command.Dialog
@@ -336,7 +336,7 @@ export const CommandPalette: React.FC = () => {
                       {stripMarkdown(preview.issue.body)}
                     </p>
                   )}
-                  {!selectedTeam && teamsReady && (
+                  {!memberTeamId && teamsReady && (
                     <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                       Select a team first to create a ticket
                     </p>

@@ -1,7 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
-import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
+import { Teams, Organizations, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { DEFAULT_TICKET_IDS, ticketIdsFor } from './ticket-ids';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import {
@@ -9,6 +9,12 @@ import {
   addOrgMember,
   getAccessibleOrgIds,
   isTeamAdminOrOrgOwner,
+  isTeamMemberOrOrgOwner,
+  isOrgOwnerOfTeam,
+  addMemberUpdate,
+  getOwnedOrgIds,
+  teamsSelectorFor,
+  visibleTeamsSelector,
   autoJoinOrgUnlessRemoved,
 } from './org-helpers';
 import { createNotification } from './notify-core';
@@ -212,7 +218,7 @@ Meteor.publish('teams.byUser', async function () {
     return queue;
   };
 
-  const handle = await Teams.find({ members: this.userId }).observeChangesAsync({
+  const teamCallbacks = {
     added: (id, fields) =>
       enqueue(async () => {
         docs.set(hexOf(id), { _id: id, ...fields });
@@ -232,29 +238,123 @@ Meteor.publish('teams.byUser', async function () {
         sent.delete(hexOf(id));
         this.removed('teams', id);
       }),
-  });
-  const stopListening = onSettingsChanged(() => void enqueue(resendAll));
+  };
+  // Which organizations the user owns, for the client's role snapshot: the team
+  // list can look the same before and after an ownership change (an owner who has
+  // joined every team), so this is what tells the client to read its roles again.
+  let publishedOwnership = null;
+  const publishOwnership = (orgIds) => {
+    const key = [...orgIds].sort().join(',');
+    if (key === publishedOwnership) return;
+    const fields = { orgIds: [...orgIds].sort() };
+    if (publishedOwnership === null) this.added('orgOwnership', 'self', fields);
+    else this.changed('orgOwnership', 'self', fields);
+    publishedOwnership = key;
+  };
+
+  let handle = null;
+  let ownershipHandle = null;
+  let stopListening = () => {};
+  let stopped = false;
   this.onStop(() => {
-    handle.stop();
+    stopped = true;
+    handle?.stop();
+    ownershipHandle?.stop();
     stopListening();
   });
+
+  // Observes the teams the user can see right now, in place of any earlier
+  // observation. The old observer is stopped first: the two share callbacks, so
+  // overlapping would let the old one remove a team the new one just added. What
+  // it already queued runs before the new one's updates, and the new one starts
+  // from the current teams. Returns nothing once the subscription has stopped,
+  // and never leaves an observer running after it.
+  const observeVisibleTeams = async () => {
+    handle?.stop();
+    handle = null;
+    const ownedOrgIds = await getOwnedOrgIds(this.userId);
+    if (stopped) return null;
+    publishOwnership(ownedOrgIds);
+    const selector = teamsSelectorFor(this.userId, ownedOrgIds);
+    const observer = await Teams.find(selector).observeChangesAsync(teamCallbacks);
+    if (stopped) {
+      observer.stop();
+      return null;
+    }
+    handle = observer;
+    return selector;
+  };
+
+  // Owning an organization decides which of its teams are visible. When that
+  // changes (an owner is demoted, blocked or removed, or made one), observe the
+  // teams again and drop what the user can no longer see, so their join codes
+  // and member lists stop reaching a client that lost the access. Runs beside
+  // the update queue, not in it: observing awaits the queued `added` updates.
+  const refreshVisibleTeams = async () => {
+    const selector = await observeVisibleTeams();
+    if (!selector) return;
+    await enqueue(async () => {
+      if (stopped) return;
+      const visible = new Set(
+        (await Teams.find(selector, { fields: { _id: 1 } }).fetchAsync()).map((team) =>
+          hexOf(team._id),
+        ),
+      );
+      for (const [key, doc] of [...docs]) {
+        if (visible.has(key)) continue;
+        docs.delete(key);
+        sent.delete(key);
+        this.removed('teams', doc._id);
+      }
+    });
+  };
+  // The first observation and every later one go through this one chain, so a
+  // refresh never overlaps another.
+  let refreshing = Promise.resolve();
+  const refresh = () => {
+    refreshing = refreshing.then(() => !stopped && refreshVisibleTeams()).catch(fail);
+    return refreshing;
+  };
+
+  // Watching starts before the teams are first observed, so an ownership change
+  // while they are being set up is not missed: it queues a refresh behind the
+  // first observation. Only the initial batch of `added` events is ignored.
+  let watchingOwnership = false;
+  ownershipHandle = await Organizations.find(
+    { owners: this.userId },
+    { fields: { _id: 1 } },
+  ).observeChangesAsync({
+    added: () => {
+      if (watchingOwnership) refresh();
+    },
+    removed: () => {
+      if (watchingOwnership) refresh();
+    },
+  });
+  watchingOwnership = true;
+  if (stopped) ownershipHandle.stop();
+
+  await refresh();
+  stopListening = onSettingsChanged(() => void enqueue(resendAll));
+  if (stopped) stopListening();
   this.ready();
 });
 
 Meteor.methods({
   async 'teams.list'() {
     const identity = await requireIdentity(this);
-    const teams = await Teams.find({ members: identity.userId }).fetchAsync();
+    const teams = await Teams.find(await visibleTeamsSelector(identity.userId)).fetchAsync();
 
     const userPending = await TeamJoinRequests.rawCollection()
       .find({ userId: identity.userId, status: 'pending' })
       .sort({ requestedAt: -1 })
       .toArray();
 
-    const adminTeamIds = teams.filter((t) => t.admins?.includes(identity.userId)).map((t) => {
-      const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
-      return id;
-    });
+    // Org owners see every shared team of theirs, so they also handle its join requests.
+    const ownedOrgIds = new Set(await getOwnedOrgIds(identity.userId));
+    const adminTeamIds = teams
+      .filter((t) => t.admins?.includes(identity.userId) || ownedOrgIds.has(t.orgId))
+      .map((t) => (t._id?.toHexString ? t._id.toHexString() : String(t._id)));
 
     let adminPending = [];
     if (adminTeamIds.length > 0) {
@@ -358,22 +458,17 @@ Meteor.methods({
       throw new Meteor.Error('already-member', 'Already a member');
     }
 
-    // Check if user is an organization owner - owners can join any team directly
-    if (team.orgId && isValidId(team.orgId)) {
-      const membership = await rawDb().collection('org_members').findOne({
-        orgId: team.orgId,
+    // Organization owners join any team in their organization directly, as its admin.
+    if (await isOrgOwnerOfTeam(team, identity.userId)) {
+      await Teams.updateAsync(new Mongo.ObjectID(teamId), await addMemberUpdate(team, identity.userId));
+      // Like the other join paths: an earlier request no longer awaits approval.
+      await TeamJoinRequests.rawCollection().deleteMany({
+        teamId,
         userId: identity.userId,
+        status: 'pending',
       });
-      if (membership && membership.role === 'owner') {
-        // Add owner directly to team without approval
-        await Teams.updateAsync(new Mongo.ObjectID(teamId), {
-          $addToSet: { members: identity.userId },
-          $set: { updatedAt: new Date() },
-        });
-
-        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-        return { status: 'joined', team: await toPublicTeam(updatedTeam) };
-      }
+      const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+      return { status: 'joined', team: await toPublicTeam(updatedTeam) };
     }
 
     // Team setting: auto-accept join requests — add the member immediately
@@ -498,10 +593,7 @@ Meteor.methods({
       return { ok: true, team: await toPublicTeam(team) };
     }
 
-    await Teams.updateAsync(team._id, {
-      $addToSet: { members: identity.userId },
-      $set: { updatedAt: new Date() },
-    });
+    await Teams.updateAsync(team._id, await addMemberUpdate(team, identity.userId));
     await addMemberToTeamOrgIfAllowed(team, identity.userId);
 
     // Clear any stale pending request for this user/team now that they're a
@@ -523,7 +615,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const parent = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!parent) throw new Meteor.Error('not-found', 'Team not found');
-    if (!parent.members.includes(userId)) {
+    if (!(await isTeamMemberOrOrgOwner(parent, userId))) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
     const subs = await Teams.find(
@@ -597,7 +689,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.members.includes(userId)) {
+    if (!(await isTeamMemberOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 

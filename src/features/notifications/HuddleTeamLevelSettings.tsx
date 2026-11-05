@@ -6,15 +6,19 @@
 import { Button, ButtonGroup, Text } from '@mieweb/ui';
 import React from 'react';
 
+import { isTeamMember } from '../../lib/organizationAccess';
 import { useTeam } from '../../lib/TeamContext';
+import { useSession } from '../../lib/useSession';
 import { HUDDLE_TEAM_LEVELS, NOTIFICATION_STRINGS as S } from './notificationCopy';
 import { PrefsStatus } from './PrefsStatus';
 import { useNotificationPrefs } from './useNotificationPrefs';
 
 export const HuddleTeamLevelSettings: React.FC = () => {
+  const { user } = useSession();
   const { allTeams } = useTeam();
   const { prefs, error, teamLevel, setTeamLevel } = useNotificationPrefs();
-  const teams = allTeams.filter((team) => !team.isPersonal);
+  // Only teams the user has joined post to them; an owner also sees the rest.
+  const teams = allTeams.filter((team) => !team.isPersonal && isTeamMember(team, user?.id ?? null));
 
   return (
     <div className="huddle-team-level-settings">

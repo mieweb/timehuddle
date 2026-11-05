@@ -15,7 +15,14 @@ import { useSessionPost } from './useSessionPost';
 import { useTeam } from './TeamContext';
 
 export function useClockToggle() {
-  const { teams, activeClockEvent, selectedTeamId, selectedTeam, refetchClock } = useTeam();
+  const {
+    teams,
+    activeClockEvent,
+    selectedTeamId,
+    selectedTeam,
+    isSelectedTeamMember,
+    refetchClock,
+  } = useTeam();
 
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
@@ -53,7 +60,9 @@ export function useClockToggle() {
       // planMissing: the per-session gate refuses a bare clock-in until a plan
       // is posted for this session. The combined "post plan and clock in" flow
       // passes planJustPosted (+ planPostId to link the plan to the session).
-      if (!selectedTeamId || (planMissing && !opts?.planJustPosted)) return false;
+      if (!selectedTeamId || !isSelectedTeamMember || (planMissing && !opts?.planJustPosted)) {
+        return false;
+      }
       setClockInLoading(true);
       try {
         await clockApi.start(selectedTeamId, opts?.planPostId);
@@ -63,7 +72,7 @@ export function useClockToggle() {
         setClockInLoading(false);
       }
     },
-    [selectedTeamId, planMissing, refetchClock],
+    [selectedTeamId, isSelectedTeamMember, planMissing, refetchClock],
   );
 
   const clockOut = useCallback(async () => {

@@ -39,7 +39,7 @@ import {
   type TeamJoinRequest,
 } from './api';
 import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
-import { canManageTeam } from './organizationAccess';
+import { canManageTeam, isTeamMember } from './organizationAccess';
 import { useSession } from './useSession';
 import {
   liveLocation,
@@ -112,8 +112,12 @@ type EnterpriseSummary = {
 };
 
 export interface TeamContextValue {
+  /**
+   * The selected org's teams the user can see: the ones they belong to, plus the
+   * rest of an organization they own. Member-only views filter with `isTeamMember`.
+   */
   teams: Team[];
-  /** All teams the user belongs to, across every org (not scoped to selectedOrgId). */
+  /** Every such team across every org (not scoped to selectedOrgId). */
   allTeams: Team[];
   pendingRequests: TeamJoinRequest[];
   enterprises: EnterpriseSummary[];
@@ -148,6 +152,15 @@ export interface TeamContextValue {
   /** 'forbidden' when `?org=` names an organization the user isn't in. */
   orgAccess: TeamAccess;
   isAdmin: boolean;
+  /** False for a team shown only because the user owns its organization. */
+  isSelectedTeamMember: boolean;
+  /**
+   * The selected team, except one the user manages without having joined. What
+   * actions that create or carry work (tickets, the board, timers) act on: the
+   * server lets an owner write to any team in their organization, but work put
+   * there would be hidden from every board they use.
+   */
+  memberTeamId: string | null;
   activeClockEvent: ClockEvent | null;
   clockReady: boolean;
   refetchClock: () => void;
@@ -175,6 +188,8 @@ const TeamCtx = createContext<TeamContextValue>({
   teamAccess: 'ok',
   orgAccess: 'ok',
   isAdmin: false,
+  isSelectedTeamMember: false,
+  memberTeamId: null,
   activeClockEvent: null,
   clockReady: false,
   refetchClock: () => {},
@@ -336,6 +351,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subReady = false;
     });
     const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
+    // The server announces which organizations the user owns, and again when that
+    // changes (promoted, demoted, blocked or removed). The role snapshot is read
+    // once, so read it again then; the first announcement is just the current state.
+    const offOwnership = ddp.onCollectionChange('orgOwnership', () => {
+      if (subReady) void refetchOrganizations();
+    });
     const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
       subReady = true;
       applyLiveDocs();
@@ -345,9 +366,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       offDisconnect();
       offChange();
+      offOwnership();
       unsubscribe();
     };
-  }, [userId, liveTeamsEpoch]);
+  }, [userId, liveTeamsEpoch, refetchOrganizations]);
 
   // ── Selected team ───────────────────────────────────────────────────────────
 
@@ -422,9 +444,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? 'forbidden'
         : 'pending';
 
-  /** Makes `id` (and its org) the persisted fallback for URLs without `?team=`. */
+  /**
+   * Makes `id` (and its org) the persisted fallback for URLs without `?team=`.
+   * A team the user only manages as an organization owner is never remembered:
+   * pages without a team in the URL would then act on a team they haven't joined.
+   */
   const rememberTeam = useCallback(
-    (id: string, orgId: string | undefined) => {
+    (id: string, orgId: string | undefined, team?: Team) => {
+      if (team && !isTeamMember(team, userId)) return;
       setStoredTeamId(id);
       if (orgId) setStoredOrgId(orgId);
       if (!userId || typeof window === 'undefined') return;
@@ -439,8 +466,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // A just-created or just-joined team isn't in the list until the next
       // fetch; without this its URL would read as forbidden in the meantime.
       if (team && !teams.some((t) => t.id === team.id)) setTeams((prev) => [...prev, team]);
-      const orgId = team?.orgId ?? teams.find((t) => t.id === id)?.orgId;
-      rememberTeam(id, orgId);
+      const target = team ?? teams.find((t) => t.id === id);
+      const orgId = target?.orgId;
+      rememberTeam(id, orgId, target);
 
       // A URL that names the scope must follow the pick, or the URL would keep
       // overriding it. An `?org=` that no longer matches the team is dropped.
@@ -459,7 +487,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // sidebar link (which carries no `?team=`) stays on it.
   useEffect(() => {
     if (!urlTeam || restoredForUser !== userId || urlTeam.id === storedTeamId) return;
-    rememberTeam(urlTeam.id, urlTeam.orgId);
+    rememberTeam(urlTeam.id, urlTeam.orgId, urlTeam);
   }, [urlTeam, restoredForUser, userId, storedTeamId, rememberTeam]);
 
   const setSelectedEnterpriseId = useCallback(
@@ -538,12 +566,15 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userId || restoredForUser !== userId || scopedTeams.length === 0) return;
     if (urlTeamId) return;
 
+    // A remembered team the user has since left no longer counts, even though an
+    // organization owner still sees it: only a joined team is a default scope.
     const hasSelected = selectedTeamId
-      ? scopedTeams.some((team) => team.id === selectedTeamId)
+      ? scopedTeams.some((team) => team.id === selectedTeamId && isTeamMember(team, userId))
       : false;
 
-    if (!hasSelected) {
-      setSelectedTeamId(scopedTeams[0].id);
+    const firstOwnTeam = scopedTeams.find((team) => isTeamMember(team, userId));
+    if (!hasSelected && firstOwnTeam) {
+      setSelectedTeamId(firstOwnTeam.id);
     }
   }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId, restoredForUser, urlTeamId]);
 
@@ -560,6 +591,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Only a team that's in scope: right after an org switch the stored team
     // still belongs to the old org until "pick first available" replaces it.
     if (!selectedTeam) return;
+    // Without a team in the URL the selection is the remembered default, which
+    // must not put a team the user hasn't joined into member-only URLs. Explicit
+    // links to a team they manage (`?team=`, `/app/teams/:id`) are kept.
+    if (!urlTeamId && !isTeamMember(selectedTeam, userId)) return;
     if (pathname === '/app/teams') {
       replace(
         withQuery(`/app/teams/${selectedTeam.id}`, liveLocation().search, {
@@ -572,7 +607,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!carriesTeamScope(pathname, params)) return;
     if (params.get('team') === selectedTeam.id && !params.has('teamId')) return;
     setParams({ team: selectedTeam.id, teamId: null });
-  }, [selectedTeam, pathname, params, replace, setParams]);
+  }, [selectedTeam, urlTeamId, userId, pathname, params, replace, setParams]);
+
+  const isSelectedTeamMember = !!selectedTeam && isTeamMember(selectedTeam, userId);
+  // Only a confirmed membership: a remembered id whose team isn't in the current
+  // organization's list (right after an org switch) must not stand in for it.
+  const memberTeamId = isSelectedTeamMember ? selectedTeamId : null;
 
   const isAdmin = useMemo(
     () => !!selectedTeam && canManageTeam(selectedTeam, userId, organizations),
@@ -716,6 +756,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       teamAccess,
       orgAccess,
       isAdmin,
+      isSelectedTeamMember,
+      memberTeamId,
       activeClockEvent,
       clockReady,
       refetchClock,
@@ -742,6 +784,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       teamAccess,
       orgAccess,
       isAdmin,
+      isSelectedTeamMember,
+      memberTeamId,
       activeClockEvent,
       clockReady,
       refetchClock,

@@ -33,7 +33,7 @@ function openErrorMessage(err: unknown): string {
 }
 
 export const RedmineIssueRedirect: React.FC<{ issueId: number }> = ({ issueId }) => {
-  const { selectedTeamId, teamsReady } = useTeam();
+  const { memberTeamId, teamsReady } = useTeam();
   const { replace } = useRouter();
   const [error, setError] = useState<string | null>(null);
 
@@ -41,7 +41,7 @@ export const RedmineIssueRedirect: React.FC<{ issueId: number }> = ({ issueId })
     // Wait for the team list, so "no team" means none rather than not loaded yet.
     if (!teamsReady) return;
     let cancelled = false;
-    carriedKey(ticketKey('redmine', String(issueId)), selectedTeamId).then(
+    carriedKey(ticketKey('redmine', String(issueId)), memberTeamId).then(
       (key) => {
         // The ticket may be new: a Tickets table kept mounted behind this
         // route, and the Redmine cache, would otherwise miss it.
@@ -56,7 +56,7 @@ export const RedmineIssueRedirect: React.FC<{ issueId: number }> = ({ issueId })
     return () => {
       cancelled = true;
     };
-  }, [issueId, selectedTeamId, teamsReady, replace]);
+  }, [issueId, memberTeamId, teamsReady, replace]);
 
   return (
     <AppPage>
