@@ -71,6 +71,8 @@ export const clockText = {
   uploading: (percent: number) => `Uploading ${percent}%…`,
   /** …once every byte is in and the server is finishing (a video converting). */
   processing: 'Processing…',
+  /** Shown over the composer while files are dragged onto it. */
+  dropToAttach: 'Drop files to attach them',
   /** Why it stopped: a file didn't upload. */
   uploadFailed: (name: string) => `${name} didn't upload. Retry it or remove it.`,
   noWrapUpTeam: 'No team for this session — cannot post a wrap-up.',

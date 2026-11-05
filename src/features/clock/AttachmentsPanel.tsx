@@ -15,7 +15,7 @@
  */
 import { faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { AttachmentPreviewItem, Button, Spinner, Text } from '@mieweb/ui';
+import { Button, DropzoneOverlay, Spinner, Text, useDropzone } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -25,17 +25,15 @@ import {
   type Attachment,
 } from '../../lib/api';
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
+import { PendingVideoCard } from '../pulse-upload/PendingVideoCard';
 import { PulseControls } from '../pulse-upload/PulseButton';
+import { VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
 
-/** User-facing text for the video on its way up, kept in one place for translation. */
-const VIDEO_TILE_TEXT = {
-  uploading: (name: string) => `Uploading ${name}`,
-  processing: 'Processing…',
-  cancel: (name: string) => `Cancel upload of ${name}`,
-};
+/** What the Videos card says while a video is dragged over it. */
+const DROP_VIDEO_TEXT = 'Drop a video to upload it here';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -118,10 +116,24 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     { onSettled: (status) => status.state === 'done' && void fetchAttachments() },
   );
   const sending = pulse.file;
-  const sendingPercent = pulse.processing ? 100 : Math.round((pulse.progress ?? 0) * 100);
+  // Dropping a video file anywhere on the card uploads it, as Upload does.
+  const { upload } = pulse;
+  const dropzone = useDropzone({
+    onDrop: (files) => void (files[0] && upload(files[0])),
+    accept: VIDEO_FILE_ACCEPT.split(','),
+    multiple: false,
+    disabled: Boolean(sending),
+  });
 
   return (
-    <section className="attachments-panel">
+    <section className="attachments-panel relative" {...dropzone.getRootProps()}>
+      <DropzoneOverlay
+        isVisible={dropzone.isDragging}
+        message={DROP_VIDEO_TEXT}
+        size="compact"
+        variant="primary"
+        className="rounded-xl"
+      />
       {/* Wraps instead of squeezing: on a phone the chips drop under the
           heading. Top-aligned: a message that doesn't fit beside the chips
           drops under them, and the heading stays level with the chips. */}
@@ -207,22 +219,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           );
         })}
         {sending && (
-          // The video on its way up, in place: cancellable while its bytes
-          // go up; once they're in, it lands here by itself.
-          <li className="attachment-item attachment-sending text-sm">
-            <AttachmentPreviewItem
-              attachment={{
-                id: 'sending',
-                file: sending,
-                type: 'video',
-                state: 'uploading',
-                progress: sendingPercent,
-              }}
-              onRemove={pulse.cancel}
-              disabled={pulse.processing}
-              progressLabel={VIDEO_TILE_TEXT.uploading(sending.name)}
-              processingLabel={VIDEO_TILE_TEXT.processing}
-              removeLabel={VIDEO_TILE_TEXT.cancel(sending.name)}
+          // The video on its way up, in place and drawn like the card it
+          // becomes: cancellable while its bytes go up; once they're in, it
+          // lands here by itself.
+          <li className="attachment-item attachment-sending">
+            <PendingVideoCard
+              file={sending}
+              progress={pulse.progress ?? 1}
+              processing={pulse.processing}
+              onCancel={pulse.processing ? undefined : pulse.cancel}
             />
           </li>
         )}

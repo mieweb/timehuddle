@@ -72,10 +72,7 @@ describe('AttachmentsPanel', () => {
       render(<AttachmentsPanel kind="ticket" entityId="t1" currentUserId="u1" />);
     });
     expect(screen.getByText('Processing…')).toBeTruthy();
-    expect(
-      (screen.getByRole('button', { name: 'Cancel upload of demo.mov' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Cancel upload of demo.mov' })).toBeNull();
   });
 
   it("renames every card of a video, however each row's URL was stored", async () => {

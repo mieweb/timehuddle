@@ -18,7 +18,17 @@
  */
 import { faMugHot, faPlay, faStop, faTicket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, cn, Input, Spinner, Text, type AttachmentUpload } from '@mieweb/ui';
+import {
+  Badge,
+  Button,
+  cn,
+  DropzoneOverlay,
+  Input,
+  Spinner,
+  Text,
+  useDropzone,
+  type AttachmentUpload,
+} from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -181,6 +191,14 @@ export const ClockPage: React.FC = () => {
       .current()
       .filter((item) => item.state === 'uploaded')
       .map((item) => item.result as MediaItem);
+  // Files dropped anywhere on the composer attach, as the pickers do; it opens
+  // the editor so their tiles show.
+  const composerDropzone = useDropzone({
+    onDrop: (files) => {
+      setComposerExpanded(true);
+      attach(files);
+    },
+  });
   // A submit waiting for attachments still uploading: its button says how far.
   const [awaitingUploads, setAwaitingUploads] = useState(false);
   // Pasted or dropped images, written into the text once they've uploaded so
@@ -822,7 +840,17 @@ export const ClockPage: React.FC = () => {
             {/* Flush on mobile/Capacitor — no border or padding boxing the
                 editor in, so it gets the full screen width. The bordered
                 card is a desktop treatment, from md: up. */}
-            <div className="clock-plan-composer flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800">
+            <div
+              className="clock-plan-composer relative flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800"
+              {...composerDropzone.getRootProps()}
+            >
+              <DropzoneOverlay
+                isVisible={composerDropzone.isDragging}
+                message={clockText.dropToAttach}
+                size="compact"
+                variant="primary"
+                className="rounded-2xl"
+              />
               <Text variant="muted" size="sm">
                 {destinationBefore}
                 <button
