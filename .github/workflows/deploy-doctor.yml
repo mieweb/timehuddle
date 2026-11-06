@@ -1,0 +1,72 @@
+name: Deploy Doctor
+
+# When a deploy workflow fails, Claude diagnoses it against docs/deploy-failures.md,
+# records what it learns there, and opens a `deploy-failure` issue — plus a fix PR
+# when the cause is in the code. It never deploys, re-runs, merges or pushes to a
+# deploy branch. Instructions: .claude/agents/deploy-doctor.md.
+#
+# Run the same diagnosis locally:  bash scripts/deploy-doctor.sh <run-id>
+#
+# Requires the ANTHROPIC_API_KEY secret. workflow_run only fires once this file is
+# on the default branch.
+
+on:
+  workflow_run:
+    workflows: ['Main Branch Deployment', 'CI / Deploy']
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: deploy-doctor-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Diagnose Failed Deploy
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0 # the collector diffs against the last good deploy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Ensure labels
+        run: |
+          gh label create deploy-failure --color B60205 --force \
+            --description "A deploy workflow failed — opened by the deploy doctor"
+          gh label create needs-human --color FBCA04 --force \
+            --description "The deploy doctor could not resolve this on its own"
+
+      - name: Collect failure context
+        run: bash scripts/deploy-doctor.sh "$RUN_ID" | tee "$RUNNER_TEMP/deploy-failure.md"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Deploy run ${{ env.RUN_ID }} of "${{ github.event.workflow_run.name }}" failed
+            on branch ${{ github.event.workflow_run.head_branch }}.
+
+            Follow .claude/agents/deploy-doctor.md exactly — you are running in
+            GitHub Actions. The collector output is already in
+            ${{ runner.temp }}/deploy-failure.md; read it instead of re-running it.
+          claude_args: >-
+            --max-turns 60
+            --allowedTools "Read,Edit,Write,Grep,Glob,Bash(bash scripts/deploy-doctor.sh:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh issue:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh pr create:*),Bash(git status:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git switch -c deploy-doctor/*),Bash(git add:*),Bash(git commit:*),Bash(git push -u origin deploy-doctor/*),Bash(npm ci:*),Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm run format:*),Bash(npx tsc:*),Bash(patch:*),Bash(curl -sL https://registry.npmjs.org/*)"
