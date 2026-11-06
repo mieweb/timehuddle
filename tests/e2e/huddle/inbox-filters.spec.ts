@@ -227,19 +227,22 @@ test.describe('Huddle inbox filters', () => {
     // A team feed doesn't repeat its own name on each post.
     await openPostInInbox(page, token);
     await expect(inboxMessage(page, token)).not.toContainText('Test Team Alpha');
+    // The search carries over to Personal, where it would hide the message box.
+    await inboxSearch(page).fill('');
 
-    // Personal is its own private team: a team's posts stay in the team.
+    // Personal is its own private team: a post written there shows there…
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Personal', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Team: Personal' })).toBeVisible();
-    await inboxSearch(page).fill(token);
-    await expect(conversationRows(page)).toHaveCount(0, { timeout: 20000 });
-    await inboxSearch(page).fill('');
-
-    // …and a post written in Personal stays in Personal.
     const personalToken = uniqueToken('personal');
     await postFromHuddle(page, personalToken);
     await openPostInInbox(page, personalToken);
+
+    // …and a team's posts stay in the team: today's Personal thread, where
+    // today's team post would land if it leaked, doesn't hold it. Checked in
+    // the thread, not by searching, since an empty Personal feed shows a
+    // starter conversation whatever the search.
+    await expect(inboxMessage(page, token)).toHaveCount(0);
 
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Test Team Alpha', exact: true }).click();
