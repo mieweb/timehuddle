@@ -501,7 +501,8 @@ describe('TicketStartProvider', () => {
       });
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
-      expect(await screen.findByDisplayValue('1')).toBeTruthy();
+      // Without Redmine's choices, the copied value is stated, not picked.
+      expect(await screen.findByText('Yes')).toBeTruthy();
 
       fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -515,17 +516,36 @@ describe('TicketStartProvider', () => {
       );
     });
 
-    it('sends an edited Billable status separately from the original preview snapshot', async () => {
+    // Redmine's definition, as an administrator's key reads it.
+    const billableField = {
+      id: 7,
+      name: 'Billable status',
+      required: true,
+      multiple: false,
+      options: ['Billable', 'Non-billable', 'Internal Meeting'].map((value) => ({
+        value,
+        label: value,
+      })),
+    };
+    const billableSelect = () => screen.findByRole('combobox', { name: /Billable status/ });
+    const pickBillable = async (label: string) => {
+      fireEvent.click(await billableSelect());
+      fireEvent.click(screen.getByRole('option', { name: label }));
+    };
+
+    it('sends the Billable status picked, beside the default it was shown', async () => {
       const base = previewWith(0.52);
       const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
-      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable, billableField }],
+      });
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
-      fireEvent.change(await screen.findByRole('textbox', { name: billable.name }), {
-        target: { value: 'Billable' },
-      });
+      expect((await billableSelect()).textContent).toContain('Internal Meeting');
+      await pickBillable('Billable');
 
-      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+      fireEvent.click(sendButton());
 
       await waitFor(() =>
         expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
@@ -538,30 +558,45 @@ describe('TicketStartProvider', () => {
       );
     });
 
-    it('keeps an edited status and comment when Redmine rejects it, so it can be corrected', async () => {
+    it('holds Send until a required Billable status is picked', async () => {
+      const base = previewWith(0.52);
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable: null, billableField }],
+      });
+      await stopIssue({ settled: false });
+      await billableSelect();
+      expect(sendButton().disabled).toBe(true);
+
+      await pickBillable('Non-billable');
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('keeps the picked status and comment when Redmine refuses it, so it can be corrected', async () => {
       const base = previewWith(0.52);
       const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
-      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable, billableField }],
+      });
       mockSend
         .mockResolvedValueOnce({
           ticketId: '15',
           date: UNSENT.date,
           ok: false,
-          reason: 'rejected-by-redmine',
-          detail: ['Billable status is not included in the list'],
+          reason: 'invalid-billable',
         })
         .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
-      const input = await screen.findByRole('textbox', { name: billable.name });
-      fireEvent.change(input, { target: { value: 'Typo' } });
+      await pickBillable('Non-billable');
       fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
       fireEvent.click(sendButton());
 
       expect(await screen.findByRole('alert')).toBeTruthy();
-      expect((input as HTMLInputElement).value).toBe('Typo');
+      expect((await billableSelect()).textContent).toContain('Non-billable');
       expect((comment() as HTMLInputElement).value).toBe('Fixed the clock');
       expect(toast.error).not.toHaveBeenCalled();
-      fireEvent.change(input, { target: { value: 'Billable' } });
+      await pickBillable('Billable');
       fireEvent.click(sendButton());
 
       await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
@@ -725,7 +760,7 @@ describe('TicketStartProvider', () => {
       expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
       expect(toast.error).not.toHaveBeenCalled();
       // Read again, so the card now shows the value a second Send will use.
-      expect(await screen.findByDisplayValue('1')).toBeTruthy();
+      expect(await screen.findByText('Yes')).toBeTruthy();
       expect(mockPreview).toHaveBeenCalledTimes(2);
 
       await waitFor(() => expect(sendButton().disabled).toBe(false));

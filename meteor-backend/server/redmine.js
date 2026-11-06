@@ -55,10 +55,13 @@ import {
 } from './redmine-activities';
 import {
   billableByIssue,
+  hasValue,
+  isAllowedBillable,
   isBillableLookupIncomplete,
   isBillableValue,
   sameBillable,
 } from './redmine-billable';
+import { billableDefinition } from './redmine-billable-field';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -432,12 +435,29 @@ function hoursChanged(row, shownHours) {
   return Math.abs(row.hours - shownHours) > 0.001;
 }
 
-/** True when the row's Billable is no longer what the user was shown. */
+/**
+ * True when the row's Billable is no longer what the user was shown. Only a
+ * default left as it was is checked: a value the user picked is theirs.
+ */
 function billableChanged(row, shown, value) {
-  return (
-    (shown !== undefined && !sameBillable(shown, row.billable)) ||
-    (value !== undefined && !row.billable)
-  );
+  return value === undefined && shown !== undefined && !sameBillable(shown, row.billable);
+}
+
+/**
+ * The Billable custom field an entry goes with: the value picked, else the
+ * row's default. A `reason` instead when it cannot go: a value Redmine does not
+ * offer (`invalid-billable`), or none where Redmine requires one
+ * (`billable-required`), so nothing is sent only to be refused.
+ */
+function chosenBillable(row, value) {
+  const definition = row.billableField;
+  const id = definition?.id ?? row.billable?.id ?? null;
+  if (value !== undefined && (id == null || (definition && !isAllowedBillable(definition, value)))) {
+    return { reason: 'invalid-billable' };
+  }
+  const chosen = value ?? row.billable?.value ?? null;
+  if (definition?.required && !hasValue(chosen)) return { reason: 'billable-required' };
+  return { customFields: id != null && hasValue(chosen) ? [{ id, value: chosen }] : [] };
 }
 
 /**
@@ -463,6 +483,9 @@ async function buildPreviewRows(userId, account, { only } = {}) {
   // reads neither the user's other days nor their issues from Redmine.
   const unsynced = await unsentTicketDays(userId, account, only);
   if (!unsynced.length) return [];
+
+  // Without a definition the row has no dropdown, and its copied value goes as before.
+  const billableField = await billableDefinition(userId, account).catch(() => null);
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
 
@@ -497,6 +520,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
           trackerName: issue.tracker?.name ?? null,
           projectId: issue.project?.id ?? null,
           billable: billable.get(String(issue.id)) ?? null,
+          billableField,
         },
       ]),
     );
@@ -538,7 +562,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
-async function pushOneEntry(userId, account, row, activityId, comment, billableValue) {
+async function pushOneEntry(userId, account, row, activityId, comment, customFields) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
 
   let created;
@@ -549,9 +573,7 @@ async function pushOneEntry(userId, account, row, activityId, comment, billableV
       activityId,
       spentOn: row.date,
       comments: comment || PUSH_COMMENT,
-      customFields: row.billable
-        ? [{ id: row.billable.id, value: billableValue ?? row.billable.value }]
-        : [],
+      customFields,
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a
@@ -839,13 +861,22 @@ Meteor.methods({
 
       const activity = chosenActivity(row, activityId);
       if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
+      const billableChoice = chosenBillable(row, billableValue);
+      if (billableChoice.reason) return { ticketId, date, ok: false, reason: billableChoice.reason };
 
       // Renewed right before the write, as `push` does per entry: reading the
       // issue from Redmine can take long enough for the lock to go stale, and
       // losing it means another send may be writing this same time.
       if (!(await stillHeld())) return { ticketId, date, ok: false, reason: 'push-interrupted' };
 
-      const outcome = await pushOneEntry(userId, account, row, activity.id, text, billableValue);
+      const outcome = await pushOneEntry(
+        userId,
+        account,
+        row,
+        activity.id,
+        text,
+        billableChoice.customFields,
+      );
       // As in `push`: logged time is one of the relevant list's signals.
       bustUserCaches(userId);
       return { ...outcome, activityName: activity.name };
@@ -902,6 +933,11 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
       continue;
     }
+    const billableChoice = chosenBillable(row, requested.billableValue);
+    if (billableChoice.reason) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: billableChoice.reason });
+      continue;
+    }
 
     // Renewed before every write, so the lock cannot go stale under a long
     // push. Losing it means another push took over: stop, rather than risk
@@ -918,7 +954,7 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
         row,
         activity.id,
         requireComment(requested.comment),
-        requested.billableValue,
+        billableChoice.customFields,
       ),
     );
   }

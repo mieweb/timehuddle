@@ -2748,6 +2748,11 @@ export interface RedmineTimeEntryRow {
    * time entry that has one; null when Redmine has none to copy (#686).
    */
   billable: RedmineBillable | null;
+  /**
+   * Redmine's own definition of the Billable field, for the dropdown it is
+   * picked from; null until an administrator's key has let TimeHuddle read it (#786).
+   */
+  billableField?: RedmineBillableField | null;
   /** The minutes `hours` was rounded up to, and the exact hours; null when sent exact. */
   rounding?: { step: number; exactHours: number } | null;
   blockedReason: RedmineBlockedReason | null;
@@ -2758,6 +2763,15 @@ export interface RedmineBillable {
   id: number;
   name: string;
   value: string | string[];
+}
+
+/** The Billable field as Redmine defines it: whether it is required, and its choices. */
+export interface RedmineBillableField {
+  id: number;
+  name: string;
+  required: boolean;
+  multiple: boolean;
+  options: { value: string; label: string }[];
 }
 
 export interface RedmineTimeEntryPreview {

@@ -47,6 +47,7 @@ import {
 } from '../../lib/api';
 
 import { RedmineEntryCard, RedmineEntryField } from './RedmineEntryCard';
+import { billableMissing } from './redmineBillable';
 import {
   BLOCKED_TEXT,
   REDMINE_COMMENT_MAX_LENGTH,
@@ -123,6 +124,8 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     [rows],
   );
   const totalHours = useMemo(() => sendable.reduce((sum, row) => sum + row.hours, 0), [sendable]);
+  // Rows Redmine will refuse until a Billable status is picked for them (#786).
+  const needBillable = sendable.filter((row) => billableMissing(row, billableValues[rowKey(row)]));
 
   const resultByKey = useMemo(
     () => new Map((results ?? []).map((r) => [`${r.ticketId}@${r.date}`, r])),
@@ -272,6 +275,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                     decimalHours={decimalHours}
                     onToggleHours={() => setDecimalHours((on) => !on)}
                     billable={row.billable}
+                    billableField={row.billableField}
                     billableValue={billableValues[key]}
                     onBillableChange={
                       !results && !row.blockedReason
@@ -437,21 +441,29 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
               Done
             </Button>
           ) : (
-            <ButtonGroup>
-              <Button variant="outline" onClick={closeModal} disabled={pushing}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handlePush}
-                isLoading={pushing}
-                loadingText="Sending…"
-                disabled={sendable.length === 0}
-              >
-                Send {sendable.length} {sendable.length === 1 ? 'entry' : 'entries'} ·{' '}
-                {hoursText(totalHours)}
-              </Button>
-            </ButtonGroup>
+            <>
+              {/* Why Send waits, beside it. */}
+              {needBillable.length > 0 && (
+                <Text size="xs" variant="muted" className="redmine-push-billable-needed me-auto">
+                  {entryCardText.billableNeeded}
+                </Text>
+              )}
+              <ButtonGroup>
+                <Button variant="outline" onClick={closeModal} disabled={pushing}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handlePush}
+                  isLoading={pushing}
+                  loadingText="Sending…"
+                  disabled={sendable.length === 0 || needBillable.length > 0}
+                >
+                  Send {sendable.length} {sendable.length === 1 ? 'entry' : 'entries'} ·{' '}
+                  {hoursText(totalHours)}
+                </Button>
+              </ButtonGroup>
+            </>
           )}
         </ModalFooter>
       </AppModal>

@@ -12,6 +12,12 @@
  * Only this one field is ever kept. A time entry's other custom fields and its
  * comment are free text on an enterprise instance, so they are dropped the
  * moment an entry is read.
+ *
+ * The member picks the value from a dropdown (#786). Its choices are Redmine's
+ * own definition of the field, which only an administrator's key may read; see
+ * redmine-billable-field.js for how it reaches everyone else. The value copied
+ * from recent entries is the dropdown's default. A field with no list of choices
+ * (free text) has no dropdown, and is copied as before.
  */
 
 import { mapInChunks } from './redmine-client';
@@ -29,8 +35,51 @@ export function isBillableValue(value) {
   );
 }
 
-function hasValue(value) {
+export function hasValue(value) {
   return Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value !== '';
+}
+
+// A yes/no field from a Redmine that lists no choices for it.
+const YES_NO = [
+  { value: '1', label: 'Yes' },
+  { value: '0', label: 'No' },
+];
+
+/**
+ * The Billable field as Redmine defines it, out of a `/custom_fields.json`
+ * answer: `{ id, name, required, multiple, options: [{ value, label }] }`, or
+ * null when the server has no Billable field on time entries, or one without a
+ * list of choices.
+ */
+export function billableDefinitionOf(customFields) {
+  const field = (Array.isArray(customFields) ? customFields : []).find(
+    (each) =>
+      each?.customized_type === 'time_entry' &&
+      Number.isInteger(each.id) &&
+      typeof each.name === 'string' &&
+      BILLABLE_NAME.test(each.name),
+  );
+  if (!field) return null;
+  const listed = (Array.isArray(field.possible_values) ? field.possible_values : [])
+    .filter((each) => typeof each?.value === 'string' && each.value !== '')
+    .map((each) => ({ value: each.value, label: each.label || each.value }));
+  const options = listed.length === 0 && field.field_format === 'bool' ? YES_NO : listed;
+  if (options.length === 0) return null;
+  return {
+    id: field.id,
+    name: field.name,
+    required: field.is_required === true,
+    multiple: field.multiple === true,
+    options,
+  };
+}
+
+/** Whether every value chosen is one of the definition's choices. */
+export function isAllowedBillable(definition, value) {
+  const allowed = new Set(definition.options.map((option) => option.value));
+  const values = [value].flat();
+  if (!definition.multiple && values.length > 1) return false;
+  return values.every((each) => allowed.has(each));
 }
 
 /** The Billable field of one raw time entry, as `{ id, name, value }`, or null. */

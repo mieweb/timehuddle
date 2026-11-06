@@ -30,6 +30,12 @@ const QA = { id: 10, name: 'QA', active: true };
 /** The issue whose project requires Billable on its time entries (#686). */
 const BILLABLE_ISSUE = 915;
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
+/** Members who preview time with and without an administrator's key (#786). */
+const DEFINITION_MEMBERS = [
+  'wh-billable-admin@test.dev',
+  'wh-billable-member@test.dev',
+  'wh-billable-picker@test.dev',
+];
 
 type Outcome = {
   ticketId?: string | null;
@@ -60,6 +66,11 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
   const hoursById = new Map<number, number>();
   /** How long the stand-in takes to create an entry, to hold a send open. */
   let createDelayMs = 0;
+  /**
+   * What `/custom_fields.json` answers: the fields, as to an administrator's
+   * key, or null for the 403 every other key gets (#786).
+   */
+  let customFields: unknown[] | null = null;
 
   const issue = (id: number) => ({
     id,
@@ -126,6 +137,9 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
         if (/^\/projects\/\d+\.json$/.test(url.pathname)) {
           return json(200, { project: { id: 1, time_entry_activities: [DEVELOPMENT, QA] } });
         }
+        if (url.pathname === '/custom_fields.json') {
+          return customFields ? json(200, { custom_fields: customFields }) : json(403, {});
+        }
         if (url.pathname === '/users/current.json') return json(200, { user: { id: 1 } });
         return json(404, {});
       });
@@ -136,11 +150,11 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
   }
 
   /** Ten minutes of closed time on a Redmine issue today. */
-  async function loggedTime(ticketId: string, minutes = 10) {
+  async function loggedTime(ticketId: string, minutes = 10, forUserId = userId) {
     const db = await getDb();
     const item = {
       _id: new ObjectId(),
-      userId,
+      userId: forUserId,
       source: 'redmine',
       ticketId,
       date: today,
@@ -151,7 +165,7 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     await db.collection('timers').insertOne({
       _id: new ObjectId(),
       workItemId: item._id.toHexString(),
-      userId,
+      userId: forUserId,
       date: today,
       startTime: end - minutes * MINUTE,
       endTime: end,
@@ -160,12 +174,32 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     });
   }
 
-  const send = (ticketId: string, extra: Record<string, unknown> = {}) =>
+  const send = (ticketId: string, extra: Record<string, unknown> = {}, asJwt = jwt) =>
     wormhole<Outcome>(
       'redmine.timeEntries.sendTicketDay',
       { ticketId, date: today, ...extra },
-      jwt,
+      asJwt,
     );
+
+  /** A member with a key of their own, signed in. */
+  async function connectedMember(email: string) {
+    await purgeUser(email);
+    const member = await createUserAndGetJwt({
+      name: 'Billable Member',
+      email,
+      password: 'Password1!',
+    });
+    const db = await getDb();
+    const id = String((await db.collection('users').findOne({ 'emails.address': email }))!._id);
+    await db.collection('redmine_links').insertOne({
+      _id: new ObjectId(),
+      userId: id,
+      apiKey: encryptSecret('not-a-real-key', deriveKey(KEY!)),
+      redmineUserId: 1,
+      createdAt: new Date(),
+    });
+    return { jwt: member.jwt, userId: id };
+  }
 
   const ledger = async (ticketId: string) =>
     (await getDb())
@@ -175,6 +209,8 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
 
   beforeAll(async () => {
     redmine = await startRedmine();
+    // A definition kept by an earlier run would give every row a dropdown.
+    await (await getDb()).collection('redmine_field_definitions').deleteMany({});
     await purgeUser(USER.email);
     jwt = (await createUserAndGetJwt(USER)).jwt;
     const db = await getDb();
@@ -191,6 +227,7 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
   beforeEach(() => {
     created.length = 0;
     createDelayMs = 0;
+    customFields = null;
   });
 
   afterAll(async () => {
@@ -199,6 +236,16 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     await db.collection('redmine_time_syncs').deleteMany({ userId });
     await db.collection('timers').deleteMany({ userId });
     await db.collection('workitems').deleteMany({ userId });
+    await db.collection('redmine_field_definitions').deleteMany({});
+    for (const member of DEFINITION_MEMBERS) {
+      const found = await db.collection('users').findOne({ 'emails.address': member });
+      if (found) {
+        for (const name of ['redmine_links', 'redmine_time_syncs', 'timers', 'workitems']) {
+          await db.collection(name).deleteMany({ userId: String(found._id) });
+        }
+      }
+      await purgeUser(member);
+    }
     await purgeUser(USER.email);
     await closeDb();
     await new Promise((resolve) => redmine.close(resolve));
@@ -309,20 +356,20 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     },
   );
 
-  it('still refuses a stale Billable snapshot when an explicit edit was supplied', async () => {
+  it('sends a picked status even when the default it replaced has moved since', async () => {
     await loggedTime(String(BILLABLE_ISSUE));
     const res = await send(String(BILLABLE_ISSUE), {
       billable: { ...BILLABLE, value: 'old' },
       billableValue: 'Internal Meeting',
     });
-    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
-    expect(created).toHaveLength(0);
+    expect(res.result).toMatchObject({ ok: true });
+    expect(created[0].custom_fields).toEqual([{ id: BILLABLE.id, value: 'Internal Meeting' }]);
   });
 
-  it('cannot attach an override to an undiscovered custom field', async () => {
+  it('cannot pick a status for a field it knows nothing of', async () => {
     await loggedTime('916');
     const res = await send('916', { billableValue: 'Internal Meeting' });
-    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
+    expect(res.result).toMatchObject({ ok: false, reason: 'invalid-billable' });
     expect(created).toHaveLength(0);
   });
 
@@ -448,5 +495,70 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
 
     expect(created).toHaveLength(1);
     expect(await ledger('914')).toHaveLength(1);
+  });
+
+  describe("Redmine's own Billable choices (#786)", () => {
+    /** The definition as an administrator's key reads it: required, yes or no. */
+    const DEFINITION = {
+      id: 7,
+      name: 'Billable status',
+      customized_type: 'time_entry',
+      field_format: 'bool',
+      is_required: true,
+      multiple: false,
+      possible_values: [
+        { value: '1', label: 'Yes' },
+        { value: '0', label: 'No' },
+      ],
+    };
+    const EXPECTED = {
+      id: 7,
+      name: 'Billable status',
+      required: true,
+      multiple: false,
+      options: [
+        { value: '1', label: 'Yes' },
+        { value: '0', label: 'No' },
+      ],
+    };
+    // Issue 917 has no entries to copy Billable from: a fresh server's case.
+    const FRESH_ISSUE = '917';
+
+    const preview = (asJwt: string) =>
+      wormhole<{ rows: { ticketId: string; billableField: unknown }[] }>(
+        'redmine.timeEntries.preview',
+        {},
+        asJwt,
+      );
+
+    it("reads the choices with an administrator's key, and keeps them for every member", async () => {
+      const admin = await connectedMember(DEFINITION_MEMBERS[0]);
+      await loggedTime(FRESH_ISSUE, 10, admin.userId);
+      customFields = [DEFINITION];
+      const read = await preview(admin.jwt);
+      expect(read.ok && read.result.rows[0].billableField).toEqual(EXPECTED);
+
+      // A member whose key may not list custom fields gets what was kept.
+      customFields = null;
+      const member = await connectedMember(DEFINITION_MEMBERS[1]);
+      await loggedTime(FRESH_ISSUE, 10, member.userId);
+      const kept = await preview(member.jwt);
+      expect(kept.ok && kept.result.rows[0].billableField).toEqual(EXPECTED);
+    });
+
+    it('sends nothing until a required status is picked, nor one Redmine does not offer', async () => {
+      const member = await connectedMember(DEFINITION_MEMBERS[2]);
+      await loggedTime(FRESH_ISSUE, 10, member.userId);
+
+      const none = await send(FRESH_ISSUE, {}, member.jwt);
+      expect(none.result).toMatchObject({ ok: false, reason: 'billable-required' });
+      const unknown = await send(FRESH_ISSUE, { billableValue: 'Maybe' }, member.jwt);
+      expect(unknown.result).toMatchObject({ ok: false, reason: 'invalid-billable' });
+      expect(created).toHaveLength(0);
+
+      const picked = await send(FRESH_ISSUE, { billableValue: '0' }, member.jwt);
+      expect(picked.result).toMatchObject({ ok: true });
+      expect(created[0].custom_fields).toEqual([{ id: 7, value: '0' }]);
+    });
   });
 });
