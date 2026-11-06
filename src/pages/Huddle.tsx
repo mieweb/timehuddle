@@ -127,8 +127,8 @@ const LINK_SEARCH_MAX_DAYS = 360;
 const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
-// All comes first and sits apart: it is the one option that doesn't group.
 const HUDDLE_PATH = '/app/huddle';
+// All comes first and sits apart: it is the one option that doesn't group.
 const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
@@ -970,7 +970,6 @@ export default function Huddle() {
   // settling, not the reader moving.
   const scopeKey = `${contextTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
-  // The grouping on screen now, for a send that finishes after it changed.
   // The grouping on screen now, for a send that finishes after it changed.
   const threadByRef = useRef(threadBy);
   useEffect(() => {

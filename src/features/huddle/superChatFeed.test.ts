@@ -452,6 +452,23 @@ describe('postsToConversations', () => {
     });
   });
 
+  it("labels a session's plan but not an update posted while clocked in", () => {
+    const session = { startTime: SEP_29_0858, endTime: null };
+    const posts = [
+      makePost({ id: 'update', clockEventId: 'evt-1', session, sessionUpdate: true }),
+      makePost({
+        id: 'plan',
+        clockEventId: 'evt-1',
+        session,
+        createdAt: new Date(SEP_29_1032).toISOString(),
+      }),
+    ];
+    const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+    const labelOf = (id: string) => conversation.thread.find((m) => m.id === id)?.label;
+    expect(labelOf('update')).toBeUndefined();
+    expect(labelOf('plan')).toBe('Plan');
+  });
+
   describe('ticket links', () => {
     const tickets = [
       { id: 'tkt-1', title: 'Onboarding checklist', label: 'TH-1: Onboarding checklist' },

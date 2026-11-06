@@ -43,6 +43,13 @@ import { ObjectId } from 'mongodb';
  */
 export const SESSION_POST_SORT = { wrapUpAt: -1, createdAt: 1 };
 
+/**
+ * Narrows a session's posts to its plan/wrap-up candidates: an update posted
+ * from Huddle while clocked in joins the session (so it shows in that shift)
+ * but is never its plan, nor where the wrap-up goes.
+ */
+export const SESSION_POST_FILTER = { sessionUpdate: { $ne: true } };
+
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
 
 // Safe ObjectId conversion — only converts 24-char hex strings
@@ -295,6 +302,7 @@ async function enrichPost(post) {
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
+    ...(post.sessionUpdate === true ? { sessionUpdate: true } : {}),
     session,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
@@ -650,12 +658,23 @@ async function openSessionId(userId, teamId) {
  * Create a published Huddle post as `userId`, after the same checks the
  * `huddle.createPost` method makes (team membership, ticket, mentions, clock
  * session ownership). Shared with server-side callers — a Pulse upload that
- * posts itself. A post made while clocked in to the team joins that session
- * unless it names one. Returns `{ id, clockEventId? }`.
+ * posts itself. With `joinOpenSession`, a post that names no session joins the
+ * author's open one in the team as an update. Returns `{ id, clockEventId? }`.
  */
 export async function createHuddlePost(
   userId,
-  { teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, deliverAt },
+  {
+    teamId,
+    content,
+    ticketIds,
+    ticketId,
+    attachments,
+    postDate,
+    clockEventId,
+    wrapUp,
+    deliverAt,
+    joinOpenSession = false,
+  },
 ) {
   if (!content || typeof content.text !== 'string') {
     throw new Meteor.Error('bad-request', 'content.text is required');
@@ -702,10 +721,13 @@ export async function createHuddlePost(
       throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
     }
   }
-  // A post written while clocked in to this team belongs to that shift, so the
-  // Session view shows it there. A scheduled post appears later, when the
-  // shift may be over, so it stays unlinked.
-  const sessionId = clockEventId || (schedule ? null : await openSessionId(userId, teamId));
+  // A post written in Huddle while clocked in to this team belongs to that
+  // shift, so the Session view shows it there — as an update, never its plan
+  // (SESSION_POST_FILTER). A scheduled post appears later, when the shift may
+  // be over, so it stays unlinked.
+  const updateSessionId =
+    !clockEventId && joinOpenSession && !schedule ? await openSessionId(userId, teamId) : null;
+  const sessionId = clockEventId || updateSessionId;
 
   const { text, media } = await externalizeInlineImages(content.text, userId);
   // An upload or image a post dropped, waiting to be deleted, stays for this text.
@@ -728,6 +750,7 @@ export async function createHuddlePost(
     // wrap-up at creation — used by the clock-out recovery path when a
     // session somehow has no plan post.
     ...(sessionId ? { clockEventId: sessionId } : {}),
+    ...(updateSessionId ? { sessionUpdate: true } : {}),
     ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
     ...(schedule ?? {}),
     // Bumped on every write that changes deliverAt/deliveredAt/postDate, so a
@@ -782,7 +805,13 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
   const posts = rawDb().collection('huddlePosts');
   // Legacy posts carry the team id as an ObjectId; the feed matches both forms, so this does too.
   const sessionPost = await posts.findOne(
-    { teamId: { $in: [teamId, toId(teamId)] }, userId, clockEventId, ...PUBLISHED },
+    {
+      teamId: { $in: [teamId, toId(teamId)] },
+      userId,
+      clockEventId,
+      ...PUBLISHED,
+      ...SESSION_POST_FILTER,
+    },
     { sort: SESSION_POST_SORT },
   );
   if (!sessionPost) {
@@ -943,6 +972,7 @@ Meteor.methods({
       clockEventId,
       wrapUp,
       deliverAt,
+      joinOpenSession: true,
     });
   },
 
@@ -1154,7 +1184,7 @@ Meteor.methods({
     }
 
     const post = await rawDb().collection('huddlePosts').findOne(
-      { teamId, userId, clockEventId, status: { $ne: 'draft' } },
+      { teamId, userId, clockEventId, status: { $ne: 'draft' }, ...SESSION_POST_FILTER },
       { sort: SESSION_POST_SORT }
     );
     return { post: post ? await enrichPost(post) : null };

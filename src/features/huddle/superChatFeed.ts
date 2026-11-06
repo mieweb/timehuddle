@@ -402,13 +402,14 @@ function withDayDividers(thread: SuperChatMessage[]): SuperChatMessage[] {
 
 /**
  * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
- * (same pick as the backend's SESSION_POST_SORT). Any other post in a session
- * is a reply sent from the inbox.
+ * that isn't an update (same pick as the backend's SESSION_POST_SORT and
+ * SESSION_POST_FILTER). Any other post in a session is an update.
  */
 function sessionPostIds(posts: HuddlePost[]): Set<string> {
   const bySession = new Map<string, HuddlePost>();
   for (const post of posts) {
-    if (!post.clockEventId) continue;
+    // An update posted while clocked in is in the session but never its plan.
+    if (!post.clockEventId || post.sessionUpdate) continue;
     const current = bySession.get(post.clockEventId);
     const better =
       !current ||
