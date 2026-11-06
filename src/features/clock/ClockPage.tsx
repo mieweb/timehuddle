@@ -31,7 +31,7 @@ import {
   type AttachmentUpload,
 } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -48,12 +48,7 @@ import { ticketDetailPath } from '../tickets/sources/types';
 import { useComposerUploads } from '../huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../huddle/uploadText';
 import { useTicketSelection } from '../huddle/useTicketSelection';
-import {
-  appendImageMarkdown,
-  isInlineImage,
-  restoreImageAltText,
-  toPostAttachment,
-} from '../huddle/api';
+import { toPostAttachment } from '../huddle/api';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -196,36 +191,17 @@ export const ClockPage: React.FC = () => {
   // in place at once; posting waits for any still uploading.
   const uploads = useComposerUploads({ onError: setComposerError });
   const { attach, clear: clearUploads } = uploads;
-  // Pasted or dropped images, written into the text once they've uploaded so
-  // the writer sees them inline (the editor shares Huddle's paste handling,
-  // which keeps base64 images out of the post text).
-  const pastedIds = useRef(new Set<string>());
-  // useCallback: identity flows into the paste/drop listeners MarkdownEditor
-  // binds natively, which would otherwise re-register on every keystroke.
-  const attachDroppedFiles = useCallback(
-    (files: File[]) => {
-      for (const staged of attach(files)) pastedIds.current.add(staged.id);
-    },
-    [attach],
-  );
   // Files dropped anywhere on the composer attach, as the pickers do; it opens
   // the editor so their tiles show.
   const composerDropzone = useDropzone({
     onDrop: (files) => {
       setComposerExpanded(true);
-      attachDroppedFiles(files);
+      attach(files);
     },
     multiple: true,
   });
   // A submit waiting for attachments still uploading: its button says how far.
   const [awaitingUploads, setAwaitingUploads] = useState(false);
-  useEffect(() => {
-    for (const item of uploads.items) {
-      if (item.state !== 'uploaded' || !pastedIds.current.delete(item.id)) continue;
-      const media = item.result as MediaItem;
-      if (isInlineImage(media)) setText((prev) => appendImageMarkdown(prev, media));
-    }
-  }, [uploads.items]);
   // A submit that waits for its files posts what's there when they're done —
   // the text typed meanwhile, the mentions and tickets as they are then —
   // read here, and only while the page is still open.
@@ -234,6 +210,8 @@ export const ClockPage: React.FC = () => {
   mentionsRef.current = mentions;
   const ticketIdsRef = useRef(selectedTicketIds);
   ticketIdsRef.current = selectedTicketIds;
+  const ticketsRef = useRef(selectedTickets);
+  ticketsRef.current = selectedTickets;
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -244,9 +222,10 @@ export const ClockPage: React.FC = () => {
   /**
    * Waits for the attachments (a submit pressed early), then takes them out of
    * the composer for the post — so a page left or a mode switched meanwhile
-   * can't take them back — with the text as it is now and any pasted image
-   * written into it. Throws naming a file that didn't upload (it stays, for
-   * Retry or removal); null when the page went away meanwhile.
+   * can't take them back — with the text, mentions and tickets as they are
+   * now. Throws naming a file that didn't upload (it stays, for
+   * Retry or removal); null when the page went away meanwhile, or everything
+   * was cleared while it waited (the button says why: it's disabled).
    */
   const takeForPost = async () => {
     if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
@@ -257,24 +236,18 @@ export const ClockPage: React.FC = () => {
     } finally {
       if (aliveRef.current) setAwaitingUploads(false);
     }
+    if (!textRef.current.trim() && uploads.current().length === 0) return null;
     const taken = uploads.take();
-    let body = textRef.current;
-    for (const item of taken) {
-      if (!pastedIds.current.delete(item.id)) continue;
-      const media = item.result as MediaItem;
-      if (isInlineImage(media)) body = appendImageMarkdown(body, media);
-    }
-    if (body !== textRef.current) setText(body);
     const media = taken.map((item) => item.result as MediaItem);
     return {
       media,
-      // The editor strips alt text off image nodes as it serializes, so the
-      // text posted restores the filenames first.
-      text: restoreImageAltText(body.trim(), media),
+      text: textRef.current.trim(),
       mentionUserIds: mentionsRef.current.length
         ? mentionsRef.current.map((m) => m.userId)
         : undefined,
       ticketIds: ticketIdsRef.current,
+      /** The tickets as they are now, with their titles, for the plan's cache. */
+      tickets: ticketsRef.current,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -573,6 +546,8 @@ export const ClockPage: React.FC = () => {
 
   const showEditor =
     composerExpanded || !!text.trim() || selectedTickets.length > 0 || uploads.items.length > 0;
+  // Something to post: words, or a file on its own (a screenshot, say).
+  const hasContent = !!text.trim() || uploads.items.length > 0;
   // Editing pins it open: a seeded wrap-up shows only because it has content,
   // so clearing that content to start over would otherwise collapse the
   // editor mid-typing. It stays open until the composer resets.
@@ -582,7 +557,7 @@ export const ClockPage: React.FC = () => {
   };
 
   async function postPlanAndClockIn() {
-    if (!gateTeamId || !text.trim() || posting) return;
+    if (!gateTeamId || !hasContent || posting) return;
     // Clocked in at the press, however long its files take to finish.
     const at = Date.now();
     setPosting(true);
@@ -614,7 +589,7 @@ export const ClockPage: React.FC = () => {
       setPostedPlan({
         id: planPostId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        tickets: selectedTickets,
+        tickets: ready.tickets,
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
@@ -637,7 +612,7 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postWrapUpAndClockOut() {
-    if (!activeClockEvent || !text.trim() || posting) return;
+    if (!activeClockEvent || !hasContent || posting) return;
     // Clocked out at the press, however long its files take to finish.
     const at = Date.now();
     setPosting(true);
@@ -961,7 +936,7 @@ export const ClockPage: React.FC = () => {
                       ref={setEditorHandle}
                       key={`${composerMode}-${editorKey}`}
                       // `text`, not `seedText`: RichEditor reloads when `value` differs
-                      // from its own last output, which is how a pasted image shows inline.
+                      // from its own last output, so a reset or a seed shows at once.
                       value={text}
                       onChange={handleEditorChange}
                       onSubmit={() =>
@@ -969,7 +944,8 @@ export const ClockPage: React.FC = () => {
                           ? postPlanAndClockIn()
                           : postWrapUpAndClockOut())
                       }
-                      onFiles={attachDroppedFiles}
+                      // Pasted or dropped files are tiles, as picked ones are.
+                      onFiles={attach}
                     />
                   </Suspense>
 
@@ -1013,7 +989,7 @@ export const ClockPage: React.FC = () => {
                       // Set only while waiting: Button spreads props after its
                       // own aria-busy, so an undefined here would clear it.
                       {...(awaitingUploads ? { 'aria-busy': true } : {})}
-                      disabled={!text.trim()}
+                      disabled={!hasContent}
                       className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
                     >
                       {awaitingUploads
@@ -1022,7 +998,7 @@ export const ClockPage: React.FC = () => {
                     </Button>
                     <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
                     <Text variant="muted" size="sm" className="font-mono">
-                      {clockText.shortcutHint(composerMode, !text.trim())}
+                      {clockText.shortcutHint(composerMode, !hasContent)}
                     </Text>
                   </div>
                   {/* Announced: a submit that stopped (a file didn't upload) says why. */}

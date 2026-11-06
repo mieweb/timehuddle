@@ -102,9 +102,10 @@ const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Where an upload (`mediaId`, at `url`) may still be in use, as `{ collection,
  * filter }` queries; any match keeps its file. A Huddle post carrying it or
- * showing it in its text; an attachment (a ticket's, a session's) at its URL;
- * a ticket description linking or embedding it, which is Markdown kept apart
- * from the attachments.
+ * showing it in its text, or a comment doing so; an attachment (a ticket's, a
+ * session's) at its URL; a ticket description linking or embedding it, which
+ * is Markdown kept apart from the attachments; a timesheet change's video.
+ * Without `mediaId` (a video still uploading), only the URL is looked for.
  */
 export function uploadUseQueries({ mediaId, url }) {
   // A query or fragment (`#page=2`) is the same upload.
@@ -114,12 +115,15 @@ export function uploadUseQueries({ mediaId, url }) {
       collection: 'huddlePosts',
       filter: {
         $or: [
-          { 'attachments.mediaId': mediaId },
+          // Without an id (a video still uploading), only its URL can match.
+          ...(mediaId ? [{ 'attachments.mediaId': mediaId }] : []),
           { 'attachments.url': atUrl },
           { 'content.text': { $regex: literally(url) } },
         ],
       },
     },
+    // A comment linking or showing it in its text.
+    { collection: 'huddleComments', filter: { content: { $regex: literally(url) } } },
     { collection: 'attachments', filter: { url: atUrl } },
     { collection: 'tickets', filter: { description: { $regex: literally(url) } } },
     // A timesheet change's walkthrough video, whatever the request's state.

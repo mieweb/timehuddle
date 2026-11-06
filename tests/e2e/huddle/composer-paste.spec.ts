@@ -4,14 +4,13 @@
  * Kerebron's own media handlers embed an image inline as a base64 `data:` URL,
  * which bloats the post document by hundreds of KB (a 4 MB screenshot becomes
  * ~5.8 MB of markdown, past the API's 1 MB body limit) and never puts the file
- * in the media store. The composer intercepts both paste and drop first, uploads
- * the file like any other attachment, and writes the *uploaded* image back into
- * the document so the writer still sees it inline.
+ * in the media store. The composer intercepts both paste and drop first and
+ * makes the file a tile, like a picked one, as Huddle's message box does: it
+ * uploads in place, stays out of the text, and posts as an attachment.
  *
- * So "an image appears in the editor" is not the assertion — that was true of
- * the bug too. The load-bearing pair is that the image is there **and** its src
- * is a `/uploads/media/` path rather than a `data:` URL, in the editor and in
- * the feed alike.
+ * So the load-bearing pair is that the editor holds no image at all (neither a
+ * `data:` copy nor an inline one), **and** the post shows the image from a
+ * `/uploads/media/` path.
  *
  * `img[src]` throughout, never a bare `img`: ProseMirror keeps a src-less
  * `<img class="ProseMirror-separator">` in the document at all times, so an
@@ -66,21 +65,16 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
 
     await pasteFiles(page, [SCREENSHOT]);
 
-    // It became a real attachment chip…
+    // It became a real attachment tile, and stayed out of the text.
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
-    // …and it previews inline, from the media store rather than from base64.
-    const preview = composerEditor(page).locator('img[src]');
-    await expect(preview).toHaveCount(1);
-    await expect(preview).toHaveAttribute('src', /^\/uploads\/media\//);
-    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
+    await expect(composerEditor(page).locator('img[src]')).toHaveCount(0);
     await expect(composerEditor(page)).toContainText(postText);
 
     await submitPost(page);
 
     const post = await openPostInInbox(page, postText);
 
-    // Served from the media store, not embedded in the document — and shown
-    // once, though the post carries it both inline and as an attachment.
+    // Served from the media store, not embedded in the document.
     const img = post.locator('img[src*="/uploads/media/"]');
     await expect(img).toHaveCount(1);
     await expect(img).toBeVisible({ timeout: 15000 });
@@ -128,8 +122,7 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     // Uploads run sequentially through one shared hook — the second must not
     // clobber the first's chip.
     await expect.poll(() => attachmentChipCount(page), { timeout: 45000 }).toBe(2);
-    await expect(composerEditor(page).locator('img[src]')).toHaveCount(2);
-    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
+    await expect(composerEditor(page).locator('img[src]')).toHaveCount(0);
   });
 
   test('shows a pasted image uploading on its own tile, and keeps posting available', async ({
@@ -164,8 +157,7 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     await dropFiles(page, [{ ...SCREENSHOT, name: 'dropped.png' }]);
 
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
-    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
-    await expect(composerEditor(page).locator('img[src]')).toHaveCount(1);
+    await expect(composerEditor(page).locator('img[src]')).toHaveCount(0);
     await expect(composerEditor(page)).toContainText(postText);
 
     await submitPost(page);
@@ -194,10 +186,8 @@ test.describe('Huddle composer — screenshot paste and drop', () => {
     ).toContainText('quarterly-chart');
   });
 
-  test('the inlined image keeps an accessible name once posted', async ({ page }) => {
-    // Kerebron drops `alt` when it serializes an image node, so the filename is
-    // restored on the way out — otherwise every pasted screenshot publishes
-    // with no accessible name at all.
+  test('a pasted image keeps its name as its accessible name once posted', async ({ page }) => {
+    // Otherwise every pasted screenshot publishes with no accessible name.
     const postText = `Alt text ${Date.now()}`;
     await composerEditor(page).fill(postText);
     await pasteFiles(page, [{ ...SCREENSHOT, name: 'sprint-board.png' }]);

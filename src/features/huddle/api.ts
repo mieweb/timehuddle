@@ -68,64 +68,6 @@ export function uploadedMedia(attachment: ComposerAttachment): MediaItem {
 }
 
 /**
- * Whether this attachment can be previewed inline in the editor.
- *
- * Images only. Markdown has no video syntax, and Kerebron's video node does not
- * survive a markdown round-trip — a dropped clip stays a chip and renders from
- * the post's attachment list instead.
- */
-export function isInlineImage(media: MediaItem): boolean {
-  return media.type === 'image' || !!media.mimeType?.startsWith('image/');
-}
-
-/**
- * A filename as markdown alt text. `[` and `]` would close the alt early and
- * leave the rest of the name as stray document content.
- */
-function toAltText(filename: string): string {
-  return (filename || 'image').replace(/[[\]]/g, '');
-}
-
-/**
- * Append an uploaded image to a markdown document as its own paragraph.
- *
- * The **path** goes in, not the absolute URL the upload handed back: post text
- * outlives the host it was written on, and readers re-base it the same way they
- * re-base attachment URLs (see {@link toMediaPath}).
- */
-export function appendImageMarkdown(markdown: string, media: MediaItem): string {
-  const snippet = `![${toAltText(media.filename)}](${toMediaPath(media.url)})`;
-  const base = markdown.replace(/\s+$/, '');
-  return base ? `${base}\n\n${snippet}\n` : `${snippet}\n`;
-}
-
-/** A markdown image with empty alt text: `![](/uploads/media/x.png)`. */
-const EMPTY_ALT_IMAGE = /!\[\]\(([^()\s]+)\)/g;
-
-/**
- * Put back the alt text Kerebron drops.
- *
- * {@link appendImageMarkdown} writes `![board.png](…)`, but the editor's image
- * node does not carry `alt` through a markdown round-trip — what comes back out
- * of the document is `![](…)`. Persisting that would publish every pasted
- * screenshot with no accessible name at all, so the name is restored from the
- * attachment list on the way out.
- *
- * Only empty alts are filled; alt text the writer typed is never overwritten.
- */
-export function restoreImageAltText(markdown: string, attachments: MediaItem[]): string {
-  if (!markdown.includes('![](')) return markdown;
-  const names = new Map(
-    attachments.filter(isInlineImage).map((media) => [toMediaPath(media.url), media.filename]),
-  );
-  if (names.size === 0) return markdown;
-  return markdown.replace(EMPTY_ALT_IMAGE, (whole, url: string) => {
-    const name = names.get(toMediaPath(url));
-    return name ? `![${toAltText(name)}](${url})` : whole;
-  });
-}
-
-/**
  * Fetch team members for mention autocomplete
  */
 export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {

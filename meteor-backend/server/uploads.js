@@ -512,7 +512,8 @@ export async function keepReferencedVideos(texts) {
 
 /** Whether anything still uses this media item (uploadUseQueries). */
 export async function isUploadInUse(item) {
-  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+  // No `_id` for a video still uploading: it has no media item yet.
+  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id?.toHexString(), url: item.url })) {
     if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
   }
   return false;
@@ -851,6 +852,7 @@ Meteor.methods({
     if (video) {
       await discardVideo(userId, video, {
         isEvidenceUnderReview: () => artifactIsEvidenceUnderReview(video),
+        isInUse: (url) => isUploadInUse({ url }),
       });
       return { ok: true };
     }

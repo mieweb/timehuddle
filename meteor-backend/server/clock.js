@@ -970,16 +970,21 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const eventId = event._id.toHexString();
   const breaks = await findBreaksForEvent(eventId);
   const openBreak = breaks.find((b) => b.endTime === null);
-  const runningTimers = await rawDb()
+  // Running ones, and this session's stopped ones: one stopped while the
+  // wrap-up's files finished uploading ended after the press.
+  const timers = await rawDb()
     .collection('timers')
-    .find({ userId, endTime: null }, { projection: { startTime: 1 } })
+    .find(
+      { userId, $or: [{ endTime: null }, { clockEventId: eventId }] },
+      { projection: { startTime: 1, endTime: 1 } }
+    )
     .toArray();
   // When Clock out was pressed, but never before what it closes began or what
   // already ended in it (clockStopTime), so no duration comes out negative.
   const now = clockStopTime(at, Date.now(), {
     startTime: event.startTime,
     breakTimes: breaks.map((b) => b.endTime ?? b.startTime),
-    timerStartTimes: runningTimers.map((timer) => timer.startTime),
+    timerTimes: timers.map((timer) => timer.endTime ?? timer.startTime),
   });
 
   cancelClockJobs(eventId).catch((err) =>

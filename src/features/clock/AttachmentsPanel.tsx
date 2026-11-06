@@ -49,6 +49,9 @@ interface AttachmentsPanelProps {
   showHeading?: boolean;
 }
 
+/** When a landed video is looked for in the list again, about 37 s in all. */
+const LIST_RETRY_MS = [0, 2_000, 5_000, 10_000, 20_000];
+
 export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   kind,
   entityId,
@@ -155,17 +158,42 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     () => new Set(attachments.map((a) => (a.type === 'video' ? pulseArtifactId(a.url) : null))),
     [attachments],
   );
-  const fetchedFor = useRef(new Set<string>());
+  // A landed video is looked for in the list a few times (a refresh can fail
+  // or come back early); if it still isn't there, its card says so instead of
+  // staying on Processing with nothing to press.
+  const listChecks = useRef(
+    new Map<string, { tries: number; timer?: ReturnType<typeof setTimeout> }>(),
+  );
+  const [listChecked, setListChecked] = useState(0);
   useEffect(() => {
     for (const item of fileUploads.items) {
       if (item.state !== 'uploaded') continue;
-      if (listedVideos.has(item.result ?? null)) removeFile(item.id);
-      else if (!fetchedFor.current.has(item.id)) {
-        fetchedFor.current.add(item.id);
-        void fetchAttachments();
+      const check = listChecks.current.get(item.id) ?? { tries: 0 };
+      if (listedVideos.has(item.result ?? null)) {
+        clearTimeout(check.timer);
+        listChecks.current.delete(item.id);
+        removeFile(item.id);
+        continue;
       }
+      if (check.timer) continue;
+      if (check.tries >= LIST_RETRY_MS.length) {
+        listChecks.current.delete(item.id);
+        removeFile(item.id);
+        setFileError(UPLOAD_TEXT.notListed(item.file.name));
+        continue;
+      }
+      check.timer = setTimeout(() => {
+        check.timer = undefined;
+        void fetchAttachments().finally(() => setListChecked((n) => n + 1));
+      }, LIST_RETRY_MS[check.tries]);
+      check.tries += 1;
+      listChecks.current.set(item.id, check);
     }
-  }, [fileUploads.items, listedVideos, fetchAttachments, removeFile]);
+  }, [fileUploads.items, listedVideos, fetchAttachments, removeFile, listChecked]);
+  useEffect(() => {
+    const checks = listChecks.current;
+    return () => checks.forEach((check) => clearTimeout(check.timer));
+  }, []);
   // Landed but not in the list yet: still shown, as Processing.
   const pending = fileUploads.items;
 

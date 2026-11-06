@@ -147,6 +147,11 @@ export function filingProblem(filed: FilingResult): string | null {
   }
 }
 
+/** Take back an upload that won't be used (the sweep deletes it unless something links it). */
+function discard(videoid: string): void {
+  void mediaApi.discardUpload({ videoid }).catch(() => {});
+}
+
 /**
  * Send `file` to `destination` and wait until it has been conformed and
  * filed: `post` for one added to a Huddle post and `walkthrough` for a
@@ -176,14 +181,20 @@ export async function uploadVideoTo(
     // A cancel during the last status check: still taken back (below).
     if (signal?.aborted) throw uploadCancelled();
     const notFiled = filingProblem(filed);
-    if (notFiled) throw new Error(notFiled);
+    if (notFiled) {
+      // Not ready in time: a video only its caller attaches (a post's, a
+      // walkthrough's) would be left unused, so it's taken back now — Retry
+      // sends it again. Kept by the server, or headed for a ticket, a session
+      // or the library (which file it themselves once ready), it stays.
+      const callerAttaches = destination.kind === 'post' || destination.kind === 'walkthrough';
+      if (callerAttaches && filed.state !== 'kept') discard(reservation.videoid);
+      throw new Error(notFiled);
+    }
     return reservation.videoid;
   } catch (err) {
     // Cancelled at any stage: take back whatever arrived (converting, or
     // already filed). Idempotent, so a terminated upload costs a no-op.
-    if (isUploadCancelled(err)) {
-      void mediaApi.discardUpload({ videoid: reservation.videoid }).catch(() => {});
-    }
+    if (isUploadCancelled(err)) discard(reservation.videoid);
     throw err;
   }
 }

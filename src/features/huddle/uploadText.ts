@@ -22,6 +22,8 @@ export const UPLOAD_TEXT = {
   remove: (name: string) => `Remove attachment ${name}`,
   /** A post or clock action that waits for its files: how far they've got. */
   waiting: (percent: number) => `Uploading ${percent}%…`,
+  /** A video that uploaded but hasn't shown up in its list. */
+  notListed: (name: string) => `${name} uploaded, but isn't showing yet. Reload to see it.`,
   /** Why a post or clock action stopped. */
   blocked: (name: string) => `${name} didn't upload. Retry it or remove it.`,
   /** Over a composer while files are dragged onto it. */

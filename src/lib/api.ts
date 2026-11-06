@@ -2547,6 +2547,8 @@ export const mediaApi = {
     const form = new FormData();
     form.append('file', upload, upload.name || 'image');
     const token = await getAccessToken();
+    // Removed while the token refreshed: an abort listener added now would never fire.
+    signal?.throwIfAborted();
 
     const { status, body } = await new Promise<{ status: number; body: string }>(
       (resolve, reject) => {

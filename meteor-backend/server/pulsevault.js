@@ -132,14 +132,19 @@ export async function removeVideoArtifacts(videoid) {
 
 /**
  * Take back a video `userId` uploaded but didn't send (removed from a
- * composer). Still uploading: deleted now. Converting or filed: its media item
+ * composer). Still uploading: deleted now, unless something already links to
+ * it (`isInUse`, given its URL). Converting or filed: its media item
  * — made now when delivery hasn't made it yet, and left with the mark when it
  * does (addToLibrary only fills in what's missing) — is marked like a dropped
  * upload (discardUnusedMedia), so the library hides it and the sweep deletes
  * it after the grace period unless a post took it meanwhile. Nothing left:
  * nothing to do.
  */
-export async function discardVideo(userId, videoid, { isEvidenceUnderReview = async () => false } = {}) {
+export async function discardVideo(
+  userId,
+  videoid,
+  { isEvidenceUnderReview = async () => false, isInUse = async () => false } = {}
+) {
   const media = rawDb().collection('mediaitems');
   const item = await media.findOne({ videoid }, { projection: { userId: 1 }, ...CANONICAL_ITEM });
   const status = await videoArtifactStatus(videoid);
@@ -150,6 +155,7 @@ export async function discardVideo(userId, videoid, { isEvidenceUnderReview = as
     throw new Meteor.Error('evidence-in-review', 'This video backs a timesheet change awaiting review.');
   }
   if (status?.state === 'uploading') {
+    if (await isInUse(artifactPath(videoid))) return;
     await removeVideoArtifacts(videoid);
     await media.deleteMany({ videoid, userId });
     return;

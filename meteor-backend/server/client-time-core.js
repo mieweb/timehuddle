@@ -34,9 +34,10 @@ export function clockStartTime(at, now, { lastEndTime = 0, openStartTimes = [] }
  * When a clock-out pressed at `at` ends the session: the press time, but never
  * before what it closes began or what already ended in it — the session
  * (`startTime`), its breaks (`breakTimes`: an open one's start, a closed one's
- * end) and running timers (`timerStartTimes`) — so nothing ends before it
- * started and no break outlasts the shift.
+ * end) and its ticket timers (`timerTimes`: a running one's start, one stopped
+ * since the press its end) — so nothing ends before it started and no break or
+ * ticket time outlasts the shift.
  */
-export function clockStopTime(at, now, { startTime, breakTimes = [], timerStartTimes = [] }) {
-  return Math.max(clientTimeOrNow(at, now), startTime, ...breakTimes, ...timerStartTimes);
+export function clockStopTime(at, now, { startTime, breakTimes = [], timerTimes = [] }) {
+  return Math.max(clientTimeOrNow(at, now), startTime, ...breakTimes, ...timerTimes);
 }

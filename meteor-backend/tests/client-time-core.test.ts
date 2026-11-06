@@ -60,7 +60,12 @@ describe('clockStopTime', () => {
 
   it('never ends before a break ended, an open break began, or a running timer began', () => {
     expect(clockStopTime(now - 10 * min, now, { startTime, breakTimes: [now - 4 * min] })).toBe(now - 4 * min);
-    expect(clockStopTime(now - 10 * min, now, { startTime, timerStartTimes: [now - 6 * min] })).toBe(now - 6 * min);
+    expect(clockStopTime(now - 10 * min, now, { startTime, timerTimes: [now - 6 * min] })).toBe(now - 6 * min);
+  });
+
+  it('never ends before a ticket timer stopped while it waited', () => {
+    // Pressed at -10 min; a timer stopped at -2 min while the wrap-up's files went up.
+    expect(clockStopTime(now - 10 * min, now, { startTime, timerTimes: [now - 2 * min] })).toBe(now - 2 * min);
   });
 
   it('never ends before the session began', () => {
