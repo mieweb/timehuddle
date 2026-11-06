@@ -15,8 +15,16 @@
  */
 import { faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  DropzoneOverlay,
+  Spinner,
+  Text,
+  UploadAnnouncer,
+  useAttachmentUploads,
+  useDropzone,
+} from '@mieweb/ui';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   attachmentApi,
@@ -25,7 +33,11 @@ import {
   type Attachment,
 } from '../../lib/api';
 import { pulseArtifactId, videoLabel } from '../pulse-upload/artifact';
-import { PulseButton } from '../pulse-upload/PulseButton';
+import { PendingVideoCard } from '../pulse-upload/PendingVideoCard';
+import { PulseControls } from '../pulse-upload/PulseButton';
+import { VIDEO_FILE_ACCEPT, uploadVideoTo, videoFileProblem } from '../pulse-upload/videoFile';
+import { UPLOAD_TEXT } from '../huddle/uploadText';
+import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
 
@@ -36,6 +48,9 @@ interface AttachmentsPanelProps {
   /** False where the host already names the section (a "Session videos" window). */
   showHeading?: boolean;
 }
+
+/** When a landed video is looked for in the list again, about 37 s in all. */
+const LIST_RETRY_MS = [0, 2_000, 5_000, 10_000, 20_000];
 
 export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   kind,
@@ -49,11 +64,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   // The video playing in the feed (null: closed).
   const [openVideo, setOpenVideo] = useState<string | null>(null);
 
+  // Only the newest fetch lands: two videos landing close together each
+  // fetch, and an older answer must not replace a newer one.
+  const fetchSeq = useRef(0);
   const fetchAttachments = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     try {
       const data = await attachmentApi.list(kind, entityId);
-      setAttachments(data);
+      if (seq === fetchSeq.current) setAttachments(data);
     } catch {
       // silent
     } finally {
@@ -103,8 +122,97 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     return [...videos.values()];
   }, [attachments, currentUserId, handleRemove]);
 
+  // Pulse (the phone app): its own link, never held up by a file upload here.
+  const pulse = usePulseUpload(
+    { kind, id: entityId },
+    { onSettled: (status) => status.state === 'done' && void fetchAttachments() },
+  );
+
+  // Video files from this device: each uploads at once, shown in place as a
+  // pending card, several at a time. The server attaches each one when it
+  // lands, so an upload keeps going if the page is left, and a landed one
+  // makes way for its card once that's in the list.
+  const fileUploads = useAttachmentUploads<string>({
+    upload: (file, { signal, onProgress }) =>
+      uploadVideoTo({ kind, id: entityId }, file, onProgress, signal),
+    keepUploadingOnUnmount: true,
+  });
+  const { add, remove: removeFile } = fileUploads;
+  // A file that isn't a video, or is too large, is turned away with the
+  // reason, as the composers do — not left as a card whose Retry can't work.
+  const [fileError, setFileError] = useState<string | null>(null);
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const refused = files
+        .map((file) => {
+          const problem = videoFileProblem(file);
+          return problem && `${file.name}: ${problem}`;
+        })
+        .filter(Boolean);
+      setFileError(refused.length ? refused.join(' ') : null);
+      add(files.filter((file) => !videoFileProblem(file)));
+    },
+    [add],
+  );
+  const listedVideos = useMemo(
+    () => new Set(attachments.map((a) => (a.type === 'video' ? pulseArtifactId(a.url) : null))),
+    [attachments],
+  );
+  // A landed video is looked for in the list a few times (a refresh can fail
+  // or come back early); if it still isn't there, its card says so instead of
+  // staying on Processing with nothing to press.
+  const listChecks = useRef(
+    new Map<string, { tries: number; timer?: ReturnType<typeof setTimeout> }>(),
+  );
+  const [listChecked, setListChecked] = useState(0);
+  useEffect(() => {
+    for (const item of fileUploads.items) {
+      if (item.state !== 'uploaded') continue;
+      const check = listChecks.current.get(item.id) ?? { tries: 0 };
+      if (listedVideos.has(item.result ?? null)) {
+        clearTimeout(check.timer);
+        listChecks.current.delete(item.id);
+        removeFile(item.id);
+        continue;
+      }
+      if (check.timer) continue;
+      if (check.tries >= LIST_RETRY_MS.length) {
+        listChecks.current.delete(item.id);
+        removeFile(item.id);
+        setFileError(UPLOAD_TEXT.notListed(item.file.name));
+        continue;
+      }
+      check.timer = setTimeout(() => {
+        check.timer = undefined;
+        void fetchAttachments().finally(() => setListChecked((n) => n + 1));
+      }, LIST_RETRY_MS[check.tries]);
+      check.tries += 1;
+      listChecks.current.set(item.id, check);
+    }
+  }, [fileUploads.items, listedVideos, fetchAttachments, removeFile, listChecked]);
+  useEffect(() => {
+    const checks = listChecks.current;
+    return () => checks.forEach((check) => clearTimeout(check.timer));
+  }, []);
+  // Landed but not in the list yet: still shown, as Processing.
+  const pending = fileUploads.items;
+
+  // Dropping video files anywhere on the card uploads them, as Upload does.
+  const dropzone = useDropzone({
+    onDrop: (files) => addFiles(files),
+    accept: VIDEO_FILE_ACCEPT.split(','),
+    multiple: true,
+  });
+
   return (
-    <section className="attachments-panel">
+    <section className="attachments-panel relative" {...dropzone.getRootProps()}>
+      <DropzoneOverlay
+        isVisible={dropzone.isDragging}
+        message={UPLOAD_TEXT.dropVideos}
+        size="compact"
+        variant="primary"
+        className="rounded-xl"
+      />
       {/* Wraps instead of squeezing: on a phone the chips drop under the
           heading. Top-aligned: a message that doesn't fit beside the chips
           drops under them, and the heading stays level with the chips. */}
@@ -119,18 +227,28 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             Videos
           </Text>
         )}
-        <PulseButton
-          destination={{ kind, id: entityId }}
+        <PulseControls
+          pulse={pulse}
+          onFiles={addFiles}
           ariaLabel="Add a video with Pulse"
           allowFile
           card={showHeading ? 'end' : 'start'}
-          onSettled={(status) => status.state === 'done' && void fetchAttachments()}
         />
+      </div>
+
+      {/* Said as videos upload; a file turned away says why. */}
+      <UploadAnnouncer items={fileUploads.items} labels={UPLOAD_TEXT} />
+      <div role="alert" className="attachments-file-error">
+        {fileError && (
+          <Text size="xs" variant="destructive" className="mb-2">
+            {fileError}
+          </Text>
+        )}
       </div>
 
       {loading && <Spinner size="sm" />}
 
-      {!loading && attachments.length === 0 && (
+      {!loading && attachments.length === 0 && pending.length === 0 && (
         <Text size="xs" variant="muted">
           No videos yet.
         </Text>
@@ -190,6 +308,16 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             </li>
           );
         })}
+        {pending.map((upload) => (
+          // A video on its way up, in place and drawn like the card it becomes.
+          <li key={upload.id} className="attachment-item attachment-sending">
+            <PendingVideoCard
+              upload={upload}
+              onRemove={() => removeFile(upload.id)}
+              onRetry={() => fileUploads.retry(upload.id)}
+            />
+          </li>
+        ))}
       </ul>
 
       <VideoFeedView

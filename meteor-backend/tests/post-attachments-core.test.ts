@@ -117,6 +117,19 @@ describe('uploadUseQueries', () => {
     expect(matches(attachments.url, `${MINE.url}.bak`)).toBe(false);
   });
 
+  it('looks for a Huddle comment linking or showing it in its text', () => {
+    const comments = queryOn('huddleComments') as { content: { $regex: string } };
+    expect(comments).toBeDefined();
+    expect(matches(comments.content, `See [the clip](${MINE.url})`)).toBe(true);
+  });
+
+  it('without an id (a video still uploading) matches by URL only, never a missing id', () => {
+    const posts = uploadUseQueries({ url: MINE.url }).find((q) => q.collection === 'huddlePosts')!
+      .filter as { $or: Record<string, unknown>[] };
+    expect(posts.$or.some((c) => 'attachments.mediaId' in c)).toBe(false);
+    expect(posts.$or.some((c) => 'attachments.url' in c)).toBe(true);
+  });
+
   it('counts its URL with a query or fragment as the same upload', () => {
     const attachments = queryOn('attachments') as { url: RegExp };
     expect(matches(attachments.url, `${MINE.url}#page=2`)).toBe(true);

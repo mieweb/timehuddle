@@ -5,7 +5,8 @@
  * a composer attachment: a Pulse video is delivered by the server to where its
  * link was reserved for (see PulseButton), so it has its own button.
  */
-import { Badge } from '@mieweb/ui';
+import { AttachmentPreviewItem, Badge, UploadAnnouncer, type AttachmentUpload } from '@mieweb/ui';
+import { UPLOAD_TEXT } from './uploadText';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
 import { MentionMenu } from './MentionMenu';
@@ -22,34 +23,25 @@ export const TICKET_CHIP_TEXT = {
 
 interface ComposerAttachButtonsProps {
   teamId?: string | null;
-  onAttachmentAdd: (media: MediaItem) => void;
+  /** Called with each picked file, to stage and upload (useComposerUploads). */
+  onFiles: (files: File[]) => void;
   selectedTicketIds: string[];
   /** Adds a ticket to the post; the picker won't offer one already attached. */
   onTicketSelect: (ticket: TicketRef) => void;
   onMentionSelect: (userId: string, name: string) => void;
-  /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
-  onUploadProgress?: (fraction: number | null) => void;
-  /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
-  onError?: (message: string | null) => void;
 }
 
 /** The Photo / Video / Doc / Ticket / @Mention button row. */
 export function ComposerAttachButtons({
   teamId,
-  onAttachmentAdd,
+  onFiles,
   selectedTicketIds,
   onTicketSelect,
   onMentionSelect,
-  onUploadProgress,
-  onError,
 }: ComposerAttachButtonsProps) {
   return (
     <>
-      <AttachmentBar
-        onAttachmentAdd={onAttachmentAdd}
-        onUploadProgress={onUploadProgress}
-        onError={onError}
-      />
+      <AttachmentBar onFiles={onFiles} />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedIds={selectedTicketIds} />
       )}
@@ -63,8 +55,12 @@ interface ComposerChipsProps {
   onTicketRemove: (ticketId: string) => void;
   mentions: MentionRef[];
   onMentionRemove: (userId: string) => void;
-  attachments: MediaItem[];
-  onAttachmentRemove: (mediaId: string) => void;
+  /** Files staged in the composer, each uploading in place (useComposerUploads). */
+  attachments: AttachmentUpload<MediaItem>[];
+  /** Takes a file off: cancels its upload, or takes a finished one back. */
+  onAttachmentRemove: (id: string) => void;
+  /** Uploads a failed file again. */
+  onAttachmentRetry?: (id: string) => void;
 }
 
 /** Ticket / mention / attachment chips selected in the composer so far. */
@@ -75,6 +71,7 @@ export function ComposerChips({
   onMentionRemove,
   attachments,
   onAttachmentRemove,
+  onAttachmentRetry,
 }: ComposerChipsProps) {
   const hasChips = selectedTickets.length > 0 || mentions.length > 0 || attachments.length > 0;
   if (!hasChips) return null;
@@ -160,35 +157,37 @@ export function ComposerChips({
         </div>
       )}
 
+      {/* Said as files upload, as Huddle's message box says it. */}
+      <UploadAnnouncer items={attachments} labels={UPLOAD_TEXT} />
       {attachments.length > 0 && (
-        <div className="mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
-          {attachments.map((media) => (
-            /* `rounded-lg` overrides Badge's pill shape — file chips are square. */
-            <Badge
-              key={media.id}
-              size="sm"
-              className="relative max-w-full min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
-            >
-              <span className="truncate" title={media.filename}>
-                {media.filename}
-              </span>
-              <button
-                type="button"
-                onClick={() => onAttachmentRemove(media.id)}
-                className="shrink-0 text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
-                aria-label={`Remove attachment ${media.filename}`}
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </Badge>
-          ))}
+        <div className="composer-attachments mt-2 flex min-w-0 max-w-full flex-wrap gap-2">
+          {attachments.map((upload) => {
+            const busy = upload.state === 'uploading' || upload.state === 'processing';
+            const name = upload.file.name;
+            return (
+              <AttachmentPreviewItem
+                key={upload.id}
+                attachment={{
+                  ...upload,
+                  // Processing (the server finishing) is still a busy tile.
+                  state: busy ? 'uploading' : (upload.state as 'pending' | 'uploaded' | 'failed'),
+                  // Processing is the state's, not a rounded 100%.
+                  progress:
+                    upload.state === 'processing'
+                      ? 100
+                      : busy
+                        ? Math.min(99, Math.round(upload.progress * 100))
+                        : undefined,
+                }}
+                onRemove={() => onAttachmentRemove(upload.id)}
+                onRetry={onAttachmentRetry && (() => onAttachmentRetry(upload.id))}
+                progressLabel={UPLOAD_TEXT.uploading(name)}
+                processingLabel={UPLOAD_TEXT.processing}
+                retryLabel={UPLOAD_TEXT.retry}
+                removeLabel={busy ? UPLOAD_TEXT.cancel(name) : UPLOAD_TEXT.remove(name)}
+              />
+            );
+          })}
         </div>
       )}
     </>
