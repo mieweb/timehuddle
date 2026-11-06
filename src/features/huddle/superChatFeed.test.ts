@@ -1022,6 +1022,21 @@ describe('the All grouping', () => {
     expect(search('nothing like this')).toEqual([]);
   });
 
+  it('finds a post by the day All shows it under when that differs from its stored date', () => {
+    // Stamped Sep 29 (e.g. by an author a timezone ahead), appeared Sep 28 here.
+    const shifted = makePost({
+      id: 'p-shifted',
+      postDate: '2026-09-29',
+      createdAt: new Date(localMs(2026, 9, 28, 21, 0)).toISOString(),
+    });
+    const [all] = postsToConversations([shifted], 'all', VIEWER_MEMBER, NOW);
+    expect(all.thread[0].text).toBe('Mon, Sep 28');
+    const search = (query: string) => searchPosts([shifted], query, VIEWER_MEMBER).map((p) => p.id);
+    expect(search('Mon, Sep 28')).toEqual(['p-shifted']);
+    expect(search('2026-09-28')).toEqual(['p-shifted']);
+    expect(search('Sep 29')).toEqual(['p-shifted']);
+  });
+
   it('finds a post by the clock lines of its session, as the other groupings do', () => {
     const search = (query: string) => searchPosts(posts, query, VIEWER_MEMBER).map((p) => p.id);
     expect(search('clocked out')).toEqual(['p-plan']);
