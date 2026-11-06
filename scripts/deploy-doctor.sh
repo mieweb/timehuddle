@@ -26,13 +26,15 @@ field() { jq -r ".$1" <<<"$meta"; }
 workflow=$(field workflowName)
 branch=$(field headBranch)
 sha=$(field headSha)
+event=$(field event)
+created=$(field createdAt)
 
 echo "# Failed deploy run $run_id"
 echo
 echo "- Workflow: $workflow"
-echo "- Branch: $branch  (event: $(field event))"
+echo "- Branch: $branch  (event: $event)"
 echo "- Commit: ${sha:0:8} — $(field displayTitle)"
-echo "- Started: $(field createdAt)"
+echo "- Started: $created"
 echo "- Conclusion: $(field conclusion)"
 echo "- URL: $(field url)"
 echo
@@ -44,26 +46,29 @@ echo "## Failing log (last $LOG_LINES meaningful lines)"
 echo '```'
 # gh prints "job<TAB>step<TAB>timestamp line". Keep the job and the line; drop the
 # echoed deploy script (ANSI cyan), npm peer-dependency noise and stack frames.
+# An empty log is a valid result, so grep's "no lines" status must not abort.
 gh run view "$run_id" --log-failed \
-  | grep -v $'\x1b\\[36;1m' \
+  | { grep -v $'\x1b\\[36;1m' || true; } \
   | sed $'s/\x1b\\[[0-9;]*m//g; s/\xef\xbb\xbf//' \
   | awk -F'\t' '{ line = $3; sub(/^[0-9TZ:.-]+ /, "", line); print $1 " | " line }' \
-  | grep -vE '\| (npm warn|\s+at |\s*$)' \
+  | { grep -vE '\| (npm warn|\s+at |\s*$)' || true; } \
   | tail -n "$LOG_LINES"
 echo '```'
 echo
 
-good_sha=$(gh run list --workflow "$workflow" --branch "$branch" --status success --limit 1 \
-  --json headSha -q '.[0].headSha // empty')
+# The last success *before* this failure, started the same way: on main.yml a
+# push deploys DEV while workflow_dispatch can target BETA or PROD.
+good_sha=$(gh run list --workflow "$workflow" --branch "$branch" --event "$event" \
+  --status success --created "<$created" --limit 1 --json headSha -q '.[0].headSha // empty')
 echo "## Changes since the last successful run"
 if [ -z "$good_sha" ]; then
-  echo "No earlier successful run of \"$workflow\" on $branch."
+  echo "No earlier successful $event run of \"$workflow\" on $branch."
 elif ! git cat-file -e "$good_sha^{commit}" 2>/dev/null || ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
   echo "Last good commit ${good_sha:0:8} is not in local history — fetch more (git fetch --unshallow)."
 else
   echo "Last good: ${good_sha:0:8}. Commits since:"
   echo '```'
-  git log --oneline "$good_sha..$sha" | head -50
+  git log --oneline -50 "$good_sha..$sha"
   echo '```'
   echo "Deploy-sensitive files changed:"
   echo '```'

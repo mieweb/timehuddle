@@ -45,11 +45,28 @@ Update `docs/deploy-failures.md` in the same change as any fix:
 
 ## 4. Act
 
-| Where  | Do                                                                                                                                                                                                         |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| code   | Branch `deploy-doctor/<short-slug>` from `main`, make the smallest fix plus the catalog update, run the checks that cover it (`npm run lint`, `npm run typecheck`, or the backend equivalents), open a PR. |
-| server | No code fix. Report the exact commands a person should run on which host, and a code change that would prevent recurrence if one exists.                                                                   |
-| infra  | Recommend a re-run. Open a PR only to record a new catalog entry.                                                                                                                                          |
+| Where  | Do                                                                                                                                                 |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| code   | Make the smallest fix plus the catalog update, and run the checks that cover it (`npm run lint`, `npm run typecheck`, or the backend equivalents). |
+| server | No code fix. Report the exact commands a person should run on which host, and a code change that would prevent recurrence if one exists.           |
+| infra  | Recommend a re-run. Change files only to record a new catalog entry.                                                                               |
+
+**Delivering a fix in GitHub Actions:** you cannot commit, push or open PRs
+there. Leave your edits in the working tree and write three files in
+`.deploy-doctor-out/`:
+
+- `issue-number.txt` — the number of the `deploy-failure` issue you opened or
+  commented on;
+- `pr-title.txt` — one line, Conventional Commit style, e.g.
+  `fix(deploy): install with npm ci on deploy hosts`;
+- `pr-body.md` — what the fix does and why, linking the issue.
+
+A separate trusted job turns your edits into a `deploy-doctor/run-<id>` PR. If
+they touch `.github/workflows/`, it posts the patch on the issue for a person
+instead. Leave the working tree clean when you propose no fix.
+
+**Locally:** branch `deploy-doctor/<short-slug>` from `main` and ask before
+pushing or opening the PR.
 
 **Guardrails — these hold everywhere:**
 
@@ -72,7 +89,7 @@ In GitHub Actions, open (or comment on) an issue labelled `deploy-failure`:
   Menu Patch".
 - Body: **Overview** (one paragraph), **Failed run** (link, environment, commit),
   **Cause** (with the quoted log lines and the catalog entry, or "new"),
-  **Where**, **Fix** (PR link, or host commands), **Confirmed?** (yes / not
+  **Where**, **Fix** (what the PR will change, or host commands), **Confirmed?** (yes / not
   confirmed + how to confirm).
 
 Locally, give the same content in your reply and ask before opening an issue or PR.
