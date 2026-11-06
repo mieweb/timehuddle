@@ -7,11 +7,13 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
+  Badge,
   Button,
   ButtonGroup,
   type ChatComposerError,
   Dropdown,
   DropdownItem,
+  DropdownSeparator,
   Input,
   Spinner,
   Text,
@@ -29,7 +31,15 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   composerAttachmentFile,
@@ -51,6 +61,7 @@ import {
   pendingPostMessage,
   pulseVideoOfMedia,
   searchConversations,
+  searchPosts,
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
@@ -112,8 +123,10 @@ const LINK_SEARCH_MAX_DAYS = 360;
 const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
-const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
+// All comes first and sits apart: it is the one option that doesn't group.
+const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+  all: 'All',
   session: 'Session',
   day: 'Day',
   person: 'Person',
@@ -121,6 +134,7 @@ const THREAD_BY_LABELS: Record<ThreadBy, string> = {
 };
 // Must not contain another option's label: e2e picks menu items by name.
 const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+  all: 'Every update in one thread, oldest first',
   day: "Everyone's updates, one thread per date",
   session: 'Each clock-in to clock-out with its plan and wrap-up; off-the-clock posts kept apart',
   person: 'One thread per teammate',
@@ -249,8 +263,11 @@ export default function Huddle() {
   // its own grouping without overwriting the saved one (posts are found by
   // session).
   const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  // A post link opens the post's session, or the one All thread when that is
+  // the reader's grouping (both hold every post of a session together).
+  const postLinkThreadBy: ThreadBy = storedThreadBy === 'all' ? 'all' : 'session';
   const threadBy =
-    threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
+    threadByOf(conversationParam) ?? (postParam ? postLinkThreadBy : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
     (next: ThreadBy) => {
       _setThreadBy(next);
@@ -700,7 +717,8 @@ export default function Huddle() {
       : grouped;
   }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
-  // fields), after grouping, so a match keeps its thread intact.
+  // fields), after grouping, so a match keeps its thread intact. All has just
+  // the one thread, so there it narrows the posts in it instead.
   // With no posts at all, the inbox shows a starter conversation instead:
   // SuperChat's chat input only exists inside an open conversation, and it is
   // where the first update gets posted.
@@ -708,8 +726,22 @@ export default function Huddle() {
     if (activePosts.length === 0 && user) {
       return [starterConversation({ userId: user.id, name: user.name }, scope)];
     }
+    if (threadBy === 'all' && searchQuery.trim()) {
+      const matches = searchPosts(activePosts, searchQuery, getTeamName);
+      return postsToConversations(matches, 'all', viewer, nowMinute, getTeamName, activePosts);
+    }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
-  }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
+  }, [
+    allConversations,
+    activePosts,
+    searchQuery,
+    getTeamName,
+    user,
+    scope,
+    threadBy,
+    viewer,
+    nowMinute,
+  ]);
   // A post sending with files shows in the conversation it was sent from.
   const shownConversations = useMemo<SuperChatConversation[]>(
     () =>
@@ -828,22 +860,31 @@ export default function Huddle() {
         }
       >
         {THREAD_BY_OPTIONS.map((option) => (
-          <DropdownItem
-            key={option}
-            icon={<SelectedCheck selected={option === threadBy} />}
-            onClick={() => {
-              setThreadBy(option);
-              // DropdownItem doesn't close its menu on its own.
-              setThreadByMenuOpen(false);
-            }}
-          >
-            <span className="flex flex-col">
-              <span>{THREAD_BY_LABELS[option]}</span>
-              <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
-                {THREAD_BY_DESCRIPTIONS[option]}
-              </Text>
-            </span>
-          </DropdownItem>
+          <Fragment key={option}>
+            <DropdownItem
+              icon={<SelectedCheck selected={option === threadBy} />}
+              onClick={() => {
+                setThreadBy(option);
+                // DropdownItem doesn't close its menu on its own.
+                setThreadByMenuOpen(false);
+              }}
+            >
+              <span className="flex flex-col">
+                <span className="flex items-center gap-2">
+                  {THREAD_BY_LABELS[option]}
+                  {option === 'all' && (
+                    <Badge variant="secondary" size="sm">
+                      New
+                    </Badge>
+                  )}
+                </span>
+                <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
+                  {THREAD_BY_DESCRIPTIONS[option]}
+                </Text>
+              </span>
+            </DropdownItem>
+            {option === 'all' && <DropdownSeparator />}
+          </Fragment>
         ))}
       </Dropdown>
     </div>
@@ -1015,11 +1056,11 @@ export default function Huddle() {
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
   useEffect(() => {
-    if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
+    if (!postParam || !targetPostLoaded || threadBy !== postLinkThreadBy) return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
     if (!match) return;
     setParams({ conversation: match.id, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
+  }, [postParam, targetPostLoaded, threadBy, postLinkThreadBy, allConversations, setParams]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation

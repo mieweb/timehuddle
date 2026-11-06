@@ -22,6 +22,7 @@ import {
   postFromHuddle,
   seedClockSession,
   seedPost,
+  seedPostDaysAgo,
 } from './helpers';
 
 const HOUR = 60 * 60 * 1000;
@@ -95,6 +96,7 @@ test.describe('Huddle inbox filters', () => {
 
     await groupBy.click();
     const descriptions = {
+      All: 'Every update in one thread, oldest first',
       Day: "Everyone's updates, one thread per date",
       Session: 'Each clock-in to clock-out with its plan and wrap-up',
       Person: 'One thread per teammate',
@@ -109,6 +111,41 @@ test.describe('Huddle inbox filters', () => {
     await page.reload();
     await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
       'Group by: Person',
+      { timeout: 20000 },
+    );
+  });
+
+  test('All puts every day in one thread, dated, and search narrows the posts in it', async ({
+    page,
+  }) => {
+    const token = uniqueToken('all-view');
+    const oldText = `${token} older`;
+    const newText = `${token} newer`;
+    await seedPostDaysAgo({ teamId, userId, text: oldText, daysAgo: 3 });
+    await seedPost(page, { teamId, text: newText });
+    await page.goto('/app/huddle');
+
+    await groupInboxBy(page, 'All');
+    await expect(conversationRows(page)).toHaveCount(1);
+
+    await inboxSearch(page).fill(token);
+    await expect(inboxMessage(page, oldText)).toBeVisible({ timeout: 20000 });
+    await expect(inboxMessage(page, newText)).toBeVisible();
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * HOUR).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+    await expect(messageLog(page).getByText(threeDaysAgo, { exact: true })).toBeVisible();
+
+    await inboxSearch(page).fill(oldText);
+    await expect(inboxMessage(page, oldText)).toBeVisible();
+    await expect(inboxMessage(page, newText)).toHaveCount(0);
+
+    await inboxSearch(page).fill('');
+    await page.reload();
+    await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
+      'Group by: All',
       { timeout: 20000 },
     );
   });
