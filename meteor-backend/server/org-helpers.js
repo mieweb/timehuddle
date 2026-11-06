@@ -188,6 +188,17 @@ export async function setOrgMemberRole(orgId, userId, role) {
 }
 
 /**
+ * Put back the org `owners`/`admins` entry `orgs.blockMember` pulled out. The
+ * membership row keeps the role through a block, and team-owner checks read
+ * the legacy arrays, so without this an unblocked owner would show as Owner
+ * but could no longer manage the org's teams.
+ */
+export async function restoreLegacyRoleArrays(orgId, userId) {
+  const membership = await rawDb().collection('org_members').findOne({ orgId, userId });
+  if (membership) await syncLegacyRoleArrays(orgId, userId, membership.role);
+}
+
+/**
  * Put `userId` back in the teams `orgs.blockMember` pulled them out of, with
  * the admin flag each membership had at the time. Takes the recorded block
  * entries, so it works for one org or for every block a user carries.
@@ -263,3 +274,47 @@ export async function isTeamAdminOrOrgOwner(team, userId) {
   return !!org?.owners?.includes(userId);
 }
 
+
+/** Ids (hex strings) of the organizations `userId` owns. */
+export async function getOwnedOrgIds(userId) {
+  const orgs = await rawDb().collection('organizations').find({ owners: userId }, { projection: { _id: 1 } }).toArray();
+  return orgs.map((org) => org._id.toHexString());
+}
+
+/**
+ * Mongo selector for every team `userId` can see: the ones they belong to, plus
+ * every shared team in the organizations they own, which they manage without
+ * having joined. Personal teams stay private to their member.
+ */
+export async function visibleTeamsSelector(userId) {
+  return teamsSelectorFor(userId, await getOwnedOrgIds(userId));
+}
+
+/** The visible-teams selector for orgs already known to be owned (see `visibleTeamsSelector`). */
+export function teamsSelectorFor(userId, ownedOrgIds) {
+  if (!ownedOrgIds.length) return { members: userId };
+  return { $or: [{ members: userId }, { orgId: { $in: ownedOrgIds }, isPersonal: { $ne: true } }] };
+}
+
+/** True if `userId` owns the organization `team` belongs to. */
+export function isOrgOwnerOfTeam(team, userId) {
+  return isTeamAdminOrOrgOwner({ ...team, admins: [] }, userId);
+}
+
+/**
+ * The update that adds `userId` to `team`: org owners have team-admin authority
+ * on every team in their org, so they join as an admin too.
+ */
+export async function addMemberUpdate(team, userId) {
+  const asAdmin = await isOrgOwnerOfTeam(team, userId);
+  return {
+    $addToSet: { members: userId, ...(asAdmin ? { admins: userId } : {}) },
+    $set: { updatedAt: new Date() },
+  };
+}
+
+/** True if `userId` is a member of `team`, or owns its organization (a shared team only). */
+export async function isTeamMemberOrOrgOwner(team, userId) {
+  if (team.members.includes(userId)) return true;
+  return !team.isPersonal && (await isOrgOwnerOfTeam(team, userId));
+}

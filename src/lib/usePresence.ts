@@ -39,3 +39,14 @@ export function usePresence(watchIds: string[]): Set<string> {
 
   return onlineSet;
 }
+
+/**
+ * Keep the signed-in user marked online for as long as the app is open.
+ *
+ * `presence.watch` marks its subscriber online, so holding it with an empty
+ * watch list from the app shell is what makes "online" mean "has TimeHuddle
+ * open" rather than "has the Teams page open" — the usage report reads it.
+ */
+export function useOwnPresence(): void {
+  useEffect(() => getDdpClient().subscribe('presence.watch', [[]]), []);
+}

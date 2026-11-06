@@ -22,7 +22,7 @@ import {
   TabsTrigger,
   Text,
 } from '@mieweb/ui';
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -43,6 +43,7 @@ import {
   PERIOD_TAB_LABEL,
   featureLabel,
 } from './usageDisplay';
+import { useUsageLiveUpdates } from './useUsageLiveUpdates';
 
 const UsageGrid = lazy(() => import('./UsageGrid'));
 
@@ -172,20 +173,27 @@ export const OrgUsage: React.FC = () => {
     [administeredOrgs],
   );
 
+  // Live updates, period and org changes can overlap requests; only the latest
+  // one may land, or a slow older report overwrites a newer one.
+  const latestRequest = useRef(0);
   const loadReport = useCallback(async () => {
     if (!canAccess) return;
+    const request = ++latestRequest.current;
+    const isLatest = () => request === latestRequest.current;
     setLoading(true);
     setError(null);
     try {
-      setReport(await usageApi.getOrgUsage(periodDays, orgId === ALL_ORGS ? undefined : orgId));
+      const next = await usageApi.getOrgUsage(periodDays, orgId === ALL_ORGS ? undefined : orgId);
+      if (isLatest()) setReport(next);
     } catch (err) {
+      if (!isLatest()) return;
       if (err instanceof ApiError && err.code === 'forbidden') {
         setDenied(true);
         return;
       }
       setError(err instanceof ApiError ? err.message : 'Failed to load usage.');
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, [canAccess, orgId, periodDays]);
 
@@ -194,6 +202,7 @@ export const OrgUsage: React.FC = () => {
   }, [loadReport]);
 
   useRefresh(loadReport, canAccess);
+  useUsageLiveUpdates(orgId === ALL_ORGS ? undefined : orgId, canAccess, loadReport);
 
   if (!rolesLoaded) {
     return (
@@ -269,14 +278,24 @@ export const OrgUsage: React.FC = () => {
       {report && totals && (
         <>
           <section
-            className="usage-summary grid grid-cols-2 gap-3 lg:grid-cols-4"
+            className="usage-summary grid grid-cols-2 gap-3 sm:grid-cols-3"
             aria-label="Usage summary"
           >
             <SummaryCard label="Members" value={String(totals.members)} note={scopeLabel(report)} />
             <SummaryCard
               label={`Active — ${PERIOD_LABEL[report.periodDays].toLowerCase()}`}
               value={`${totals.activeMembers}/${totals.members}`}
-              note="did something in this period"
+              note="did something in this period, or is online or clocked in"
+            />
+            <SummaryCard
+              label="Online now"
+              value={String(totals.onlineNow)}
+              note={`${totals.clockedIn} clocked in`}
+            />
+            <SummaryCard
+              label="Integrations connected"
+              value={`${totals.redmineConnected} Redmine`}
+              note={`${totals.githubConnected} GitHub`}
             />
             <SummaryCard
               label="Daily users"

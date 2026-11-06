@@ -42,6 +42,7 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
+import { isTeamMember } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -140,8 +141,21 @@ const viewPanelClass = (showing: boolean) =>
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeam, selectedTeamId, teamsReady, selectedOrgId, organizations } =
-    useTeam();
+  const {
+    teams: orgTeams,
+    selectedTeam,
+    selectedTeamId,
+    teamsReady,
+    selectedOrgId,
+    organizations,
+  } = useTeam();
+  // An organization owner also sees the teams they haven't joined; the board is
+  // for the teams they work in, so only those load and show tickets here.
+  const teams = useMemo(
+    () => orgTeams.filter((team) => isTeamMember(team, userId)),
+    [orgTeams, userId],
+  );
+
   // Named servers are the selected org's. A team carries its org's live; a viewer
   // in no team of the org still sees Redmine rows, so the org list backs it up.
   const sourcePrefixes =
@@ -1323,7 +1337,7 @@ export const TicketsPage: React.FC = () => {
             loadBoard();
           }}
           teams={teams}
-          defaultTeamId={selectedTeam?.id ?? null}
+          defaultTeamId={teams.find((team) => team.id === selectedTeam?.id)?.id ?? null}
           userId={userId}
         />
         <RedmineIssueEditModal

@@ -5,8 +5,10 @@ import { requireIdentity, findUserById } from './auth-bridge';
 import {
   ensureDefaultOrganization,
   addOrgMember,
+  setOrgMemberRole,
   getAccessibleOrgIds,
   restoreBlockedMemberships,
+  restoreLegacyRoleArrays,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
 import { redmineUrlRefusal } from './redmine-client';
@@ -285,6 +287,21 @@ export async function loadOrgMembers(orgId) {
 }
 
 // Everyone holding an owner or admin role, from memberships and the legacy arrays.
+/**
+ * Of `ids`, those who could still run the organization: real users who aren't
+ * blocked from it. A block keeps the person's `org_members` row, so a blocked
+ * owner still counts in `elevatedIdsOf` while being unable to sign in to use it.
+ */
+async function usableIds(db, orgId, ids) {
+  const users = await db
+    .collection('users')
+    .find({ _id: { $in: [...ids].map(String) } }, { projection: { blocked: 1 } })
+    .toArray();
+  return new Set(
+    users.filter((u) => !(u.blocked ?? []).some((b) => b.orgId === orgId)).map((u) => String(u._id)),
+  );
+}
+
 function elevatedIdsOf(org, membershipDocs) {
   return new Set([
     ...(org?.owners ?? []),
@@ -674,11 +691,40 @@ Meteor.methods({
 
     const elevatedIds = elevatedIdsOf(org, membershipDocs);
     const current = await getOrgMembership(orgId, userId);
-    if (current && ELEVATED_ROLES.includes(current.role) && role === 'member' && elevatedIds.size === 1 && elevatedIds.has(userId)) {
-      throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+    if (current && ELEVATED_ROLES.includes(current.role) && role === 'member') {
+      // Only owners and admins who can still use the org count: a blocked one can't recover it.
+      const usable = await usableIds(db, orgId, elevatedIds);
+      if (usable.size === 1 && usable.has(userId)) {
+        throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+      }
     }
 
-    await addOrgMember(orgId, userId, role, false);
+    const previousRole =
+      current && ELEVATED_ROLES.includes(current.role)
+        ? current.role
+        : (org.owners ?? []).includes(userId)
+          ? 'owner'
+          : (org.admins ?? []).includes(userId)
+            ? 'admin'
+            : 'member';
+
+    // Sets the role outright: addOrgMember only ever raises it, so it can't demote.
+    await setOrgMemberRole(orgId, userId, role);
+
+    // The last-elevated check above ran on a snapshot, so two owners or admins
+    // demoted at once can both pass it. Count again now that this demotion is
+    // written: the later of two racing demotions always sees the earlier one,
+    // so if nobody is left it is undone and refused (as in orgs.removeMember).
+    if (role === 'member' && elevatedIds.has(userId)) {
+      const [orgNow, membershipsNow] = await Promise.all([
+        db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
+        db.collection('org_members').find({ orgId }).toArray(),
+      ]);
+      if ((await usableIds(db, orgId, elevatedIdsOf(orgNow, membershipsNow))).size === 0) {
+        await setOrgMemberRole(orgId, userId, previousRole);
+        throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
+      }
+    }
     return { user: { userId, role } };
   },
 
@@ -1105,6 +1151,7 @@ Meteor.methods({
 
     // Restore membership in whichever teams blockMember removed them from.
     await restoreBlockedMemberships(targetUserId, [blockRecord]);
+    await restoreLegacyRoleArrays(orgId, targetUserId);
 
     // Fire-and-forget activity
     void emitActivity({

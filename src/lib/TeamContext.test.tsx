@@ -253,6 +253,25 @@ describe('TeamContext URL scope', () => {
     expect(scope()).toBe('t1|org-a|ok');
   });
 
+  it('names a member team only once the team list confirms it', async () => {
+    renderAt('/app/dashboard');
+    // The remembered id may belong to another organization until the list says otherwise.
+    expect(ctx.selectedTeamId).toBe('t1');
+    expect(ctx.memberTeamId).toBeNull();
+    await waitFor(() => expect(ctx.memberTeamId).toBe('t1'));
+  });
+
+  it('has no member team for one the user only owns the organization of', async () => {
+    getTeamsMock.mockResolvedValue({
+      teams: [team('t1', 'org-a'), { ...team('t2', 'org-a'), members: ['someone-else'] }],
+      pendingRequests: [],
+    });
+    renderAt('/app/dashboard?team=t2');
+    await waitFor(() => expect(scope()).toBe('t2|org-a|ok'));
+    expect(ctx.isSelectedTeamMember).toBe(false);
+    expect(ctx.memberTeamId).toBeNull();
+  });
+
   it('lets ?team= override the stored team and remembers it', async () => {
     renderAt('/app/dashboard?team=t2');
     await waitFor(() => expect(scope()).toBe('t2|org-a|ok'));

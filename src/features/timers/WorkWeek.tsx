@@ -135,7 +135,19 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkWeek ─────────────────────────────────────────────────────────────────
 
 export const WorkWeek: React.FC = () => {
-  const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
+  const {
+    teams,
+    allTeams,
+    teamsReady,
+    currentTime,
+    selectedTeam,
+    selectedTeamId,
+    isSelectedTeamMember,
+    activeClockEvent,
+  } = useTeam();
+  // A team an organization owner manages without joining: its tickets can't be
+  // worked on from here, though earlier work entries still show.
+  const unjoinedTeam = !!selectedTeam && !isSelectedTeamMember;
   const { isClockedIn } = useClockToggle();
   // Starts and stops (with the clock-in prompt and the toasts) live app-wide.
   const { start: startTimer, stop: stopTimer, busyKey: timerBusyKey } = useTicketStart();
@@ -284,7 +296,8 @@ export const WorkWeek: React.FC = () => {
   // ── Fetch tickets for selected team only ──
 
   useEffect(() => {
-    if (!selectedTeamId) {
+    // Waits for the team list: until then it isn't known whether the team is joined.
+    if (!selectedTeamId || !teamsReady || unjoinedTeam) {
       setAllTickets([]);
       return;
     }
@@ -307,7 +320,7 @@ export const WorkWeek: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedTeamId]);
+  }, [selectedTeamId, teamsReady, unjoinedTeam]);
 
   // ── Fetch week totals ──
 

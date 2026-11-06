@@ -38,6 +38,7 @@ export const clockText = {
 
   // ── Clock actions ──
   clockIn: 'Clock in',
+  joinToClockIn: 'Join this team to clock in to it.',
   clockOut: 'Clock out',
   takeBreak: 'Take a break',
   /** The break button's accessible name — the same as the header's break control. */

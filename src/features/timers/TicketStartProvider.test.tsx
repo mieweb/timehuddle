@@ -38,7 +38,7 @@ vi.mock('../tickets/startTicketTimer', async (importOriginal) => ({
 vi.mock('../tickets/sources', () => ({ invalidateRedmineCache: vi.fn() }));
 vi.mock('../../lib/useClockToggle', () => ({ useClockToggle: vi.fn() }));
 vi.mock('../../lib/useRunningTicket', () => ({ useRunningTicket: vi.fn() }));
-vi.mock('../../lib/TeamContext', () => ({ useTeam: () => ({ selectedTeamId: 'team1' }) }));
+vi.mock('../../lib/TeamContext', () => ({ useTeam: () => ({ memberTeamId: 'team1' }) }));
 
 const navigate = vi.fn();
 vi.mock('../../ui/router', () => ({

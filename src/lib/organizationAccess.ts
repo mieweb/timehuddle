@@ -86,6 +86,14 @@ export function canManageSelectedOrganization(
 }
 
 /**
+ * Whether the user belongs to the team. Organization owners see and manage every
+ * team in their organization, so a team in their list isn't necessarily theirs.
+ */
+export function isTeamMember(team: { members: readonly string[] }, userId: string | null): boolean {
+  return !!userId && team.members.includes(userId);
+}
+
+/**
  * Whether this user can change a team's settings: its admins, and owners of
  * its organization, who get full team-admin authority on every team in it.
  * Display only; the server checks every action.
