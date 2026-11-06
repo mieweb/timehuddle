@@ -56,7 +56,7 @@ export function useClockToggle() {
     !!activeClockEvent && requirePlan && (!sessionPost || !sessionPost.wrapUpAt);
 
   const clockIn = useCallback(
-    async (opts?: { planJustPosted?: boolean; planPostId?: string }) => {
+    async (opts?: { planJustPosted?: boolean; planPostId?: string; at?: number }) => {
       // planMissing: the per-session gate refuses a bare clock-in until a plan
       // is posted for this session. The combined "post plan and clock in" flow
       // passes planJustPosted (+ planPostId to link the plan to the session).
@@ -65,7 +65,7 @@ export function useClockToggle() {
       }
       setClockInLoading(true);
       try {
-        await clockApi.start(selectedTeamId, opts?.planPostId);
+        await clockApi.start(selectedTeamId, opts?.planPostId, opts?.at);
         await refetchClock();
         return true;
       } finally {
@@ -75,29 +75,35 @@ export function useClockToggle() {
     [selectedTeamId, isSelectedTeamMember, planMissing, refetchClock],
   );
 
-  const clockOut = useCallback(async () => {
-    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return false;
-    setClockOutLoading(true);
-    setClockOutBlockedReason(null);
-    try {
-      await clockApi.stop(teamId);
-      await refetchClock();
-      // Notify all timer-displaying pages to refetch immediately
-      window.dispatchEvent(new CustomEvent('work:refetch'));
-      window.dispatchEvent(new CustomEvent('tickets:refetch'));
-      return true;
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'plan-required') {
-        setClockOutBlockedReason(err.message);
-      } else {
-        window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
+  // `at`: when Clock out was pressed, when finishing an upload came first.
+  const clockOut = useCallback(
+    async (opts?: { at?: number }) => {
+      const teamId = activeClockEvent?.teamId ?? selectedTeamId;
+      if (!teamId) return false;
+      setClockOutLoading(true);
+      setClockOutBlockedReason(null);
+      try {
+        await clockApi.stop(teamId, opts?.at);
+        await refetchClock();
+        // Notify all timer-displaying pages to refetch immediately
+        window.dispatchEvent(new CustomEvent('work:refetch'));
+        window.dispatchEvent(new CustomEvent('tickets:refetch'));
+        return true;
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'plan-required') {
+          setClockOutBlockedReason(err.message);
+        } else {
+          window.alert(
+            err instanceof Error ? err.message : 'Failed to clock out. Please try again.',
+          );
+        }
+        return false;
+      } finally {
+        setClockOutLoading(false);
       }
-      return false;
-    } finally {
-      setClockOutLoading(false);
-    }
-  }, [activeClockEvent, selectedTeamId, refetchClock]);
+    },
+    [activeClockEvent, selectedTeamId, refetchClock],
+  );
 
   return {
     isClockedIn,

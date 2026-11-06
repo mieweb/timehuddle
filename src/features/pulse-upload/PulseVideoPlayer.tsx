@@ -88,7 +88,7 @@ export const VIDEO_CARD_SIZE = 'min(16rem, 40dvh)';
  * `max-w-full` on the card still fits it, shape and all, inside a narrower
  * one. `--card-size` gives the poster its height cap.
  */
-function cardBox(aspect: number | null, size: string): React.CSSProperties {
+export function cardBox(aspect: number | null, size: string): React.CSSProperties {
   return {
     ['--card-size' as string]: size,
     ...(aspect

@@ -49,16 +49,16 @@ test.describe('Huddle composer — attachment failures are visible', () => {
     await openComposer(page);
   });
 
-  test('a file the backend will not take is reported by name', async ({ page }) => {
+  test('a file the composer does not take is turned away by name', async ({ page }) => {
     const draft = `Unsupported drop ${Date.now()}`;
     await composerEditor(page).fill(draft);
 
     await dropFiles(page, [{ text: 'PK', name: 'archive.zip', type: 'application/zip' }]);
 
-    // Named: a partial batch is otherwise unreadable — files go in, fewer chips
-    // come out, and nothing says which one is missing.
+    // Turned away before it uploads, and named: a partial batch is otherwise
+    // unreadable — files go in, fewer tiles come out, and nothing says which.
     await expect(errorRegion(page)).toContainText('archive.zip', { timeout: 30000 });
-    await expect(errorRegion(page)).toContainText(/unsupported/i);
+    await expect(errorRegion(page)).toContainText(/can't be attached/i);
     expect(await attachmentChipCount(page)).toBe(0);
     await expect(composerEditor(page)).toContainText(draft);
   });

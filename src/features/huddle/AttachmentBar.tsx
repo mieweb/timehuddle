@@ -1,52 +1,24 @@
 /**
- * AttachmentBar — the composer's Photo / Video / Doc file pickers.
- *
- * Upload progress is reported to the host (via `onUploadProgress`) rather than
- * rendered here: the composer shows a single bar covering every phase of
- * posting, so a slow video upload reads the same as a slow post instead of
- * looking like a dead button. The pressed button still shows its own spinner
- * so it's obvious *which* attachment is in flight.
+ * AttachmentBar — the composer's Photo / Video / Doc file pickers. A picked
+ * file goes to the host (`onFiles`), which stages it as a tile that uploads in
+ * place and shows its own progress (useComposerUploads), so the pickers stay
+ * free for the next file meanwhile.
  */
-import { Spinner } from '@mieweb/ui';
 import { ComposerChipButton } from './ComposerChipButton';
-import { useRef, useState } from 'react';
-import { useAttachmentUpload } from './useAttachmentUpload';
-import type { MediaItem } from './types';
+import { useRef } from 'react';
 import { VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
 type FileKind = 'photo' | 'video' | 'doc';
 
 interface AttachmentBarProps {
-  onAttachmentAdd: (media: MediaItem) => void;
-  /**
-   * Called with the in-flight upload's completed fraction (0–1), then `null`
-   * once it settles (success or failure).
-   */
-  onUploadProgress?: (fraction: number | null) => void;
-  /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
-  onError?: (message: string | null) => void;
+  /** Called with each picked file, to stage and upload. */
+  onFiles: (files: File[]) => void;
 }
 
-export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: AttachmentBarProps) {
-  const [uploadingKind, setUploadingKind] = useState<FileKind | null>(null);
+export function AttachmentBar({ onFiles }: AttachmentBarProps) {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
-
-  const { upload } = useAttachmentUpload({ onAttachmentAdd, onUploadProgress, onError });
-
-  // `uploadingKind` is tracked here rather than in the hook so the pressed
-  // button — and only that button — shows its own spinner.
-  const handleFileSelect = async (file: File, fileKind: FileKind) => {
-    setUploadingKind(fileKind);
-    try {
-      await upload([file]);
-    } finally {
-      setUploadingKind(null);
-    }
-  };
-
-  const uploading = uploadingKind !== null;
 
   const buttons: Array<{
     kind: FileKind;
@@ -80,71 +52,62 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: At
       <input
         ref={photoInputRef}
         type="file"
+        multiple
         accept="image/*"
         className="hidden"
         aria-label="Choose a photo to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file, 'photo');
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
       <input
         ref={videoInputRef}
         type="file"
+        multiple
         accept={VIDEO_FILE_ACCEPT}
         className="hidden"
         aria-label="Choose a video to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file, 'video');
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
       <input
         ref={docInputRef}
         type="file"
+        multiple
         accept=".pdf,.doc,.docx,.txt"
         className="hidden"
         aria-label="Choose a document to attach"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file, 'doc');
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
+          if (files.length) onFiles(files);
         }}
       />
 
-      {buttons.map(({ kind, label, inputRef, icon }) => {
-        const isUploading = uploadingKind === kind;
-        return (
-          <ComposerChipButton
-            key={kind}
-            onClick={() => inputRef.current?.click()}
-            disabled={uploading}
-            // No aria-label: the visible text ("Photo" / "Uploading…") is
-            // already the accessible name, and aria-busy carries the state.
-            aria-busy={isUploading}
-            leftIcon={
-              isUploading ? (
-                // `text-current` keeps the chip's own colour, as the inline SVG did.
-                <Spinner size="xs" className="text-current" />
-              ) : (
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
-                </svg>
-              )
-            }
-          >
-            {isUploading ? 'Uploading…' : label}
-          </ComposerChipButton>
-        );
-      })}
+      {buttons.map(({ kind, label, inputRef, icon }) => (
+        <ComposerChipButton
+          key={kind}
+          onClick={() => inputRef.current?.click()}
+          leftIcon={
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+            </svg>
+          }
+        >
+          {label}
+        </ComposerChipButton>
+      ))}
     </>
   );
 }

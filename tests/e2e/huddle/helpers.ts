@@ -326,8 +326,8 @@ export async function attachFile(page: Page, kind: 'image' | 'doc' | 'video'): P
  * Hold every attachment upload's response open for `ms`.
  *
  * The fixtures are small and the backend is on localhost, so a real upload
- * finishes before an assertion can observe the "in flight" state — the
- * progress bar is gone by the time it is looked for. Delaying the response
+ * finishes before an assertion can observe the "in flight" state — the tile's
+ * progress is gone by the time it is looked for. Delaying the response
  * (not the request) keeps the upload open long enough to inspect it without
  * faking anything the real upload doesn't already do. Covers both paths:
  * images/docs (multipart media endpoint) and videos (PulseVault TUS).
@@ -341,7 +341,10 @@ export async function holdUploadResponses(page: Page, ms = 1000): Promise<void> 
   await page.route('**/pulsevault/upload**', hold);
 }
 
-/** How many attachment chips the composer is currently showing. */
+/**
+ * How many attachments the composer holds that have finished uploading. A tile
+ * still uploading is labelled "Cancel upload of …" instead, so it isn't counted.
+ */
 export function attachmentChipCount(page: Page): Promise<number> {
   return page.locator('button[aria-label^="Remove attachment"]').count();
 }

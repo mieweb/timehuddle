@@ -21,8 +21,10 @@ the SuperChat host extension points (`Dharp02/ui`'s `feat/superchat-host-extensi
 SuperChat media work in [mieweb/ui#676](https://github.com/mieweb/ui/pull/676) (its MediaFeed and
 MediaPlayer half, [#675](https://github.com/mieweb/ui/pull/675), is merged),
 [#699](https://github.com/mieweb/ui/pull/699), which keeps `Textarea`'s Kerebron editor out of the
-app's first load, and [#700](https://github.com/mieweb/ui/pull/700), which hands SuperChat hosts each
-attachment's `File` so Huddle can post large videos. As those merge, `timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
+app's first load, [#700](https://github.com/mieweb/ui/pull/700), which hands SuperChat hosts each
+attachment's `File` so Huddle can post large videos, and upload on attach (`useAttachmentUploads`,
+ChatComposer's `uploadAttachment`, `UploadAnnouncer`), committed straight to `timehuddle/next`
+for now, with no PR to `main` yet. As those merge, `timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
 install the committed tarball.
 
 ```mermaid

@@ -43,6 +43,12 @@ interface PulseChipProps {
   card?: boolean;
   /** Below `sm`, the chips show only their icons (see ComposerChipButton `compact`). */
   compact?: boolean;
+  /**
+   * With `allowFile`: hand the picked files to the host, which uploads each
+   * in place (its own progress and cancel), instead of sending one through
+   * `pulse`. Then neither button waits on a file, and several can be picked.
+   */
+  onFiles?: (files: File[]) => void;
 }
 
 /**
@@ -58,6 +64,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   allowFile,
   card,
   compact,
+  onFiles,
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -117,12 +124,14 @@ export const PulseChip: React.FC<PulseChipProps> = ({
         ref={fileInput}
         type="file"
         accept={VIDEO_FILE_ACCEPT}
+        multiple={Boolean(onFiles)}
         className="hidden"
         aria-label="Choose a video file to upload"
         onChange={(e) => {
-          const file = e.target.files?.[0];
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          if (file) void pulse.upload(file);
+          if (onFiles) onFiles(files);
+          else if (files[0]) void pulse.upload(files[0]);
         }}
       />
       {pulseControl}
@@ -210,6 +219,8 @@ export const PulseButton: React.FC<PulseButtonProps> = ({ destination, onSettled
 
 type PulseControlsProps = Omit<PulseButtonProps, 'destination' | 'onSettled'> & {
   pulse: PulseUpload;
+  /** See PulseChip `onFiles`. */
+  onFiles?: (files: File[]) => void;
 };
 
 /**
@@ -223,6 +234,7 @@ export const PulseControls: React.FC<PulseControlsProps> = ({
   allowFile,
   card,
   compact,
+  onFiles,
 }) => {
   return (
     <div
@@ -244,6 +256,7 @@ export const PulseControls: React.FC<PulseControlsProps> = ({
         allowFile={allowFile}
         card={Boolean(card)}
         compact={compact}
+        onFiles={onFiles}
       />
       <PulseUploadModal
         open={pulse.modalOpen}
