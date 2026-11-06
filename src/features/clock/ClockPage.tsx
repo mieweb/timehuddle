@@ -18,9 +18,20 @@
  */
 import { faMugHot, faPlay, faStop, faTicket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, cn, Input, Spinner, Text } from '@mieweb/ui';
+import {
+  Badge,
+  Button,
+  cn,
+  DropzoneOverlay,
+  Input,
+  Spinner,
+  Text,
+  hasBusyUpload,
+  useDropzone,
+  type AttachmentUpload,
+} from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -34,14 +45,10 @@ import {
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
-import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
+import { useComposerUploads } from '../huddle/useComposerUploads';
+import { UPLOAD_TEXT } from '../huddle/uploadText';
 import { useTicketSelection } from '../huddle/useTicketSelection';
-import {
-  appendImageMarkdown,
-  isInlineImage,
-  restoreImageAltText,
-  toPostAttachment,
-} from '../huddle/api';
+import { toPostAttachment } from '../huddle/api';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -70,6 +77,21 @@ import { useRouter } from '../../ui/router';
  *  is explicit so both stay the same height whatever Button size either one
  *  defaults to. */
 const COMPACT_PILL = 'h-10 gap-2 rounded-full px-4 text-sm font-semibold shrink-0';
+
+/**
+ * The submit button's words while it waits for attachments: how much of their
+ * bytes are in (by size, so a big video counts for more than a photo), then
+ * Processing once every byte is and the server is finishing.
+ */
+function uploadsLabel(items: AttachmentUpload<MediaItem>[]): string {
+  const busy = items.filter((item) => item.state === 'uploading' || item.state === 'processing');
+  if (busy.length > 0 && busy.every((item) => item.state === 'processing')) {
+    return UPLOAD_TEXT.processing;
+  }
+  const total = busy.reduce((sum, item) => sum + item.file.size, 0);
+  const sent = busy.reduce((sum, item) => sum + item.progress * item.file.size, 0);
+  return UPLOAD_TEXT.waiting(Math.floor(total > 0 ? (sent / total) * 100 : 0));
+}
 
 /** "or Clock in/out with Pulse" — beside every way this page clocks in or out. */
 const PulseAlternative: React.FC<{ pulse: PulseUpload | null; label: string }> = ({
@@ -154,7 +176,6 @@ export const ClockPage: React.FC = () => {
   };
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
-  const [attachments, setAttachments] = useState<MediaItem[]>([]);
   const {
     tickets: selectedTickets,
     ticketIds: selectedTicketIds,
@@ -163,46 +184,77 @@ export const ClockPage: React.FC = () => {
     removeTicket,
   } = useTicketSelection();
   const [mentions, setMentions] = useState<MentionRef[]>([]);
-  // Completed fraction (0–1) of an attachment upload in flight, or null when
-  // none is — same single-bar treatment as the Huddle composer, aggregated
-  // across the pickers and paste so an overlapping pair can't read as idle.
-  const { fraction: uploadFraction, reporterFor } = useUploadProgress();
-  // Posting mid-upload would drop the attachment still on the wire, so every
-  // submit path stays closed until it has settled.
-  const uploadInFlight = uploadFraction !== null;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
-  // useCallback: identity flows into the paste/drop listeners MarkdownEditor
-  // binds natively, which would otherwise re-register on every keystroke.
-  const handleAttachmentAdd = useCallback(
-    (media: MediaItem) => setAttachments((prev) => [...prev, media]),
-    [],
-  );
-  const handleAttachmentRemove = (mediaId: string) =>
-    setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
-  // Same paste/drop-a-screenshot handling as the Huddle composer — both share
-  // the editor, so both must keep base64 images out of the post text.
-  // Pasted/dropped images are written back into the document so the writer sees
-  // the preview inline, and stay attachments too — same handling as the Huddle
-  // composer, which shares this editor.
-  const handlePastedMediaAdd = useCallback(
-    (media: MediaItem) => {
-      handleAttachmentAdd(media);
-      if (!isInlineImage(media)) return;
-      setText((prev) => appendImageMarkdown(prev, media));
+  // Every attached file — picked, pasted or dropped — is a tile that uploads
+  // in place at once; posting waits for any still uploading.
+  const uploads = useComposerUploads({ onError: setComposerError });
+  const { attach, clear: clearUploads } = uploads;
+  // Files dropped anywhere on the composer attach, as the pickers do; it opens
+  // the editor so their tiles show.
+  const composerDropzone = useDropzone({
+    onDrop: (files) => {
+      setComposerExpanded(true);
+      attach(files);
     },
-    [handleAttachmentAdd],
-  );
-
-  const { upload: uploadDroppedMedia } = useAttachmentUpload({
-    onAttachmentAdd: handlePastedMediaAdd,
-    onUploadProgress: reporterFor('paste'),
-    onError: setComposerError,
+    multiple: true,
   });
-  // The editor strips alt text off image nodes as it serializes, so every path
-  // that persists this composer's text restores the filenames first.
-  const composerText = () => restoreImageAltText(text.trim(), attachments);
+  // A submit waiting for attachments still uploading: its button says how far.
+  const [awaitingUploads, setAwaitingUploads] = useState(false);
+  // A submit that waits for its files posts what's there when they're done —
+  // the text typed meanwhile, the mentions and tickets as they are then —
+  // read here, and only while the page is still open.
+  // (`textRef`, the text as of now, is declared below with the Pulse drafts.)
+  const mentionsRef = useRef(mentions);
+  mentionsRef.current = mentions;
+  const ticketIdsRef = useRef(selectedTicketIds);
+  ticketIdsRef.current = selectedTicketIds;
+  const ticketsRef = useRef(selectedTickets);
+  ticketsRef.current = selectedTickets;
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  /**
+   * Waits for the attachments (a submit pressed early), then takes them out of
+   * the composer for the post — so a page left or a mode switched meanwhile
+   * can't take them back — with the text, mentions and tickets as they are
+   * now. Throws naming a file that didn't upload (it stays, for
+   * Retry or removal); null when the page went away meanwhile, or everything
+   * was cleared while it waited (the button says why: it's disabled).
+   */
+  const takeForPost = async () => {
+    if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
+    try {
+      const { failed } = await uploads.settle();
+      if (!aliveRef.current) return null;
+      if (failed.length > 0) throw new Error(UPLOAD_TEXT.blocked(failed[0].file.name));
+    } finally {
+      if (aliveRef.current) setAwaitingUploads(false);
+    }
+    if (!textRef.current.trim() && uploads.current().length === 0) return null;
+    const taken = uploads.take();
+    const media = taken.map((item) => item.result as MediaItem);
+    return {
+      media,
+      text: textRef.current.trim(),
+      mentionUserIds: mentionsRef.current.length
+        ? mentionsRef.current.map((m) => m.userId)
+        : undefined,
+      ticketIds: ticketIdsRef.current,
+      /** The tickets as they are now, with their titles, for the plan's cache. */
+      tickets: ticketsRef.current,
+      /** Puts them back, as uploaded, when the post fails. */
+      giveBack: () =>
+        uploads.restore(
+          taken.map((item) => ({ file: item.file, result: item.result as MediaItem })),
+        ),
+    };
+  };
 
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
@@ -242,7 +294,7 @@ export const ClockPage: React.FC = () => {
   // still takes over for realtime once it arrives.
   const [sessionPostFetch, setSessionPostFetch] = useState<Pick<
     HuddlePost,
-    'id' | 'content' | 'tickets'
+    'id' | 'content' | 'tickets' | 'attachments'
   > | null>(null);
   // Whether the wrap-up seed lookup has settled (resolved or failed). The
   // editor must not mount before this: RichEditor reads `value` on mount only,
@@ -263,7 +315,7 @@ export const ClockPage: React.FC = () => {
   const handedOverRef = useRef<{ draft: string; plan: string } | null>(null);
   const [postedPlan, setPostedPlan] = useState<Pick<
     HuddlePost,
-    'id' | 'content' | 'tickets'
+    'id' | 'content' | 'tickets' | 'attachments'
   > | null>(null);
   // What the editor was actually mounted with. The wrap-up submit overwrites
   // the plan post, so if the editor never received the plan text we must not
@@ -463,12 +515,14 @@ export const ClockPage: React.FC = () => {
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
   useEffect(() => {
-    setAttachments([]);
+    // A mode switch after a successful post finds nothing here: that post took
+    // its files first (uploads.take). Anything left was never sent.
+    clearUploads();
     setSelectedTickets([]);
     setMentions([]);
     setComposerExpanded(false);
     focusEditorOnMountRef.current = false;
-  }, [composerMode, setSelectedTickets]);
+  }, [composerMode, setSelectedTickets, clearUploads]);
 
   // The wrap-up starts with the tickets the plan linked at clock-in, so
   // clocking out keeps them unless removed here. Declared after the reset
@@ -491,7 +545,9 @@ export const ClockPage: React.FC = () => {
   }, [composerMode, sessionPlan, setSelectedTickets]);
 
   const showEditor =
-    composerExpanded || !!text.trim() || selectedTickets.length > 0 || attachments.length > 0;
+    composerExpanded || !!text.trim() || selectedTickets.length > 0 || uploads.items.length > 0;
+  // Something to post: words, or a file on its own (a screenshot, say).
+  const hasContent = !!text.trim() || uploads.items.length > 0;
   // Editing pins it open: a seeded wrap-up shows only because it has content,
   // so clearing that content to start over would otherwise collapse the
   // editor mid-typing. It stays open until the composer resets.
@@ -501,22 +557,30 @@ export const ClockPage: React.FC = () => {
   };
 
   async function postPlanAndClockIn() {
-    const trimmed = composerText();
-    if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
+    if (!gateTeamId || !hasContent || posting) return;
+    // Clocked in at the press, however long its files take to finish.
+    const at = Date.now();
     setPosting(true);
     setSubmittingMode('plan');
     setPostError(null);
     let planPosted = false;
-    const draft = text;
+    let giveBack: (() => void) | null = null;
     try {
-      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
+      const ready = await takeForPost();
+      if (!ready) return;
+      giveBack = ready.giveBack;
+      const { media, mentionUserIds } = ready;
+      const trimmed = ready.text;
+      const draft = textRef.current;
+      const attachments = media.map(toPostAttachment);
       const created = await huddleApi.createPost({
         teamId: gateTeamId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        ticketIds: selectedTicketIds,
-        attachments: attachments.map(toPostAttachment),
-        postDate: toDateString(new Date()),
+        ticketIds: ready.ticketIds,
+        attachments,
+        postDate: toDateString(new Date(at)),
       });
+      giveBack = null;
       const planPostId = created.id;
       planPosted = true;
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
@@ -526,16 +590,19 @@ export const ClockPage: React.FC = () => {
       setPostedPlan({
         id: planPostId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        tickets: selectedTickets,
+        tickets: ready.tickets,
+        attachments,
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
-      await clockIn({ planJustPosted: true, planPostId });
+      await clockIn({ planJustPosted: true, planPostId, at });
       // The editor keeps showing the plan while it posts, and the wrap-up
       // that replaces it opens on that same draft. Marked as seeded so it
       // doesn't remount to load the posted copy of the same text.
       seededTokenRef.current = `wrapup:${trimmed}`;
     } catch (e) {
+      // The post didn't go: its files come back, as they were.
+      giveBack?.();
       // Once the plan is posted, clear it even if clocking in failed, so a
       // retry can't post it twice.
       if (planPosted) setText('');
@@ -547,18 +614,27 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postWrapUpAndClockOut() {
-    const trimmed = composerText();
-    if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
+    if (!activeClockEvent || !hasContent || posting) return;
+    // Clocked out at the press, however long its files take to finish.
+    const at = Date.now();
     setPosting(true);
     setSubmittingMode('wrapup');
     setPostError(null);
+    let giveBack: (() => void) | null = null;
     try {
       // Use sessionPost from DDP if available, otherwise fall back to the
       // cached post ID (handles the race where the plan post was just created
       // but hasn't arrived via DDP subscription yet).
+      const ready = await takeForPost();
+      if (!ready) return;
+      giveBack = ready.giveBack;
+      const { mentionUserIds } = ready;
+      const trimmed = ready.text;
+      const selectedTicketIds = ready.ticketIds;
       const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
-      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
-      const postAttachments = attachments.map(toPostAttachment);
+      const postAttachments = ready.media.map(toPostAttachment);
+      const planAttachments =
+        sessionPost?.attachments ?? sessionPostFetch?.attachments ?? postedPlan?.attachments ?? [];
       if (effectivePostId) {
         // Safety net against losing the plan.
         //
@@ -591,7 +667,12 @@ export const ClockPage: React.FC = () => {
           },
           {
             wrapUp: true,
-            attachments: postAttachments.length ? postAttachments : undefined,
+            // Added to the plan's own files, never in place of them: the
+            // wrap-up doesn't show those, so it can't mean to drop them (and
+            // the update deletes what it drops).
+            attachments: postAttachments.length
+              ? [...planAttachments, ...postAttachments]
+              : undefined,
             // The list replaces the plan's, so send it only once it was seeded
             // from the plan — otherwise just what was picked, if anything.
             ticketIds:
@@ -616,12 +697,15 @@ export const ClockPage: React.FC = () => {
           attachments: postAttachments,
         });
       }
+      giveBack = null;
       draftGenRef.current += 1;
       cachedPlanPostIdRef.current = null;
-      await clockOut();
+      await clockOut({ at });
       // Cleared only now, so the editor doesn't blank while clock-out runs.
       setText('');
     } catch (e) {
+      // The post didn't go: its files come back, as they were.
+      giveBack?.();
       setPostError(e instanceof Error ? e.message : clockText.postFailed);
     } finally {
       setPosting(false);
@@ -803,7 +887,17 @@ export const ClockPage: React.FC = () => {
             {/* Flush on mobile/Capacitor — no border or padding boxing the
                 editor in, so it gets the full screen width. The bordered
                 card is a desktop treatment, from md: up. */}
-            <div className="clock-plan-composer flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800">
+            <div
+              className="clock-plan-composer relative flex flex-col gap-3 md:rounded-2xl md:border md:border-neutral-200 md:p-4 md:dark:border-neutral-800"
+              {...composerDropzone.getRootProps()}
+            >
+              <DropzoneOverlay
+                isVisible={composerDropzone.isDragging}
+                message={UPLOAD_TEXT.dropFiles}
+                size="compact"
+                variant="primary"
+                className="rounded-2xl"
+              />
               <Text variant="muted" size="sm">
                 {destinationBefore}
                 <button
@@ -851,7 +945,7 @@ export const ClockPage: React.FC = () => {
                       ref={setEditorHandle}
                       key={`${composerMode}-${editorKey}`}
                       // `text`, not `seedText`: RichEditor reloads when `value` differs
-                      // from its own last output, which is how a pasted image shows inline.
+                      // from its own last output, so a reset or a seed shows at once.
                       value={text}
                       onChange={handleEditorChange}
                       onSubmit={() =>
@@ -859,7 +953,8 @@ export const ClockPage: React.FC = () => {
                           ? postPlanAndClockIn()
                           : postWrapUpAndClockOut())
                       }
-                      onFiles={uploadDroppedMedia}
+                      // Pasted or dropped files are tiles, as picked ones are.
+                      onFiles={attach}
                     />
                   </Suspense>
 
@@ -869,24 +964,23 @@ export const ClockPage: React.FC = () => {
                     onTicketRemove={removeTicket}
                     mentions={mentions}
                     onMentionRemove={handleMentionRemove}
-                    attachments={attachments}
-                    onAttachmentRemove={handleAttachmentRemove}
+                    attachments={uploads.items}
+                    onAttachmentRemove={uploads.remove}
+                    onAttachmentRetry={uploads.retry}
                   />
 
                   {/* ── Attach bar — same Photo/Video/Doc/Ticket/@Mention controls as Huddle ── */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <ComposerAttachButtons
                       teamId={gateTeamId}
-                      onAttachmentAdd={handleAttachmentAdd}
+                      onFiles={attach}
                       selectedTicketIds={selectedTicketIds}
                       onTicketSelect={addTicket}
                       onMentionSelect={handleMentionSelect}
-                      onUploadProgress={reporterFor('picker')}
-                      onError={setComposerError}
                     />
                   </div>
 
-                  <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
+                  <ComposerProgress posting={posting && !awaitingUploads} />
 
                   <ComposerError message={composerError} onDismiss={() => setComposerError(null)} />
 
@@ -898,22 +992,32 @@ export const ClockPage: React.FC = () => {
                           ? postPlanAndClockIn()
                           : postWrapUpAndClockOut())
                       }
-                      isLoading={posting || clockInLoading || clockOutLoading}
-                      disabled={!text.trim() || uploadInFlight}
+                      // While it waits for attachments, its label says how far
+                      // they've got instead of a spinner; never disabled by them.
+                      isLoading={!awaitingUploads && (posting || clockInLoading || clockOutLoading)}
+                      // Set only while waiting: Button spreads props after its
+                      // own aria-busy, so an undefined here would clear it.
+                      {...(awaitingUploads ? { 'aria-busy': true } : {})}
+                      disabled={!hasContent}
                       className={cn(COMPACT_PILL, 'w-full sm:w-auto')}
                     >
-                      {clockText.submit(composerMode)}
+                      {awaitingUploads
+                        ? uploadsLabel(uploads.items)
+                        : clockText.submit(composerMode)}
                     </Button>
                     <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
                     <Text variant="muted" size="sm" className="font-mono">
-                      {clockText.shortcutHint(composerMode, !text.trim())}
+                      {clockText.shortcutHint(composerMode, !hasContent)}
                     </Text>
                   </div>
-                  {postError && (
-                    <Text variant="destructive" size="sm">
-                      {postError}
-                    </Text>
-                  )}
+                  {/* Announced: a submit that stopped (a file didn't upload) says why. */}
+                  <div role="alert" className="clock-post-error">
+                    {postError && (
+                      <Text variant="destructive" size="sm">
+                        {postError}
+                      </Text>
+                    )}
+                  </div>
                 </>
               )}
             </div>

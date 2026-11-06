@@ -1511,6 +1511,7 @@ Meteor.startup(async () => {
       properties: {
         teamId: { type: 'string' },
         planPostId: { type: 'string', description: 'Link this plan post to the new session' },
+        at: { type: 'number', description: 'When Clock in was pressed (ms since the epoch); used when at most 30 minutes old' },
       },
       required: ['teamId'],
     },
@@ -1522,6 +1523,7 @@ Meteor.startup(async () => {
       type: 'object',
       properties: {
         teamId: { type: 'string' },
+        at: { type: 'number', description: 'When Clock out was pressed (ms since the epoch); used when at most 30 minutes old' },
       },
       required: ['teamId'],
     },
@@ -2938,6 +2940,15 @@ Meteor.startup(async () => {
       type: 'object',
       properties: { mediaId: { type: 'string' } },
       required: ['mediaId'],
+    },
+  });
+
+  Wormhole.expose('media.discardUpload', {
+    description:
+      "Take back an upload the caller didn't send (removed from a composer): a photo or document by mediaId, a video by videoid. Deleted after a grace period unless a post uses it.",
+    inputSchema: {
+      type: 'object',
+      properties: { mediaId: { type: 'string' }, videoid: { type: 'string' } },
     },
   });
 

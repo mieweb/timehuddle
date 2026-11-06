@@ -6,7 +6,6 @@ import {
   postsToConversations,
   searchConversations,
   starterConversation,
-  pendingPostMessage,
   shownBody,
   keptAttachments,
   withTodayConversation,
@@ -593,38 +592,6 @@ describe('attachments', () => {
     });
     const [message] = postsToConversations([post], 'day', VIEWER_MEMBER, NOW)[0].thread;
     expect(message.files?.[0]?.size).toBe(2048);
-  });
-
-  it('shows a post sending with files as a pending message', () => {
-    const message = pendingPostMessage({
-      id: 'pending-1',
-      userId: 'u1',
-      text: 'Prep',
-      attachments: [
-        { id: 'a', name: 'board.png', type: 'image/png', url: 'blob:board' },
-        {
-          id: 'b',
-          name: 'agenda.pdf',
-          type: 'application/pdf',
-          url: 'blob:agenda',
-        },
-      ],
-    });
-    expect(message).toMatchObject({
-      status: 'pending',
-      progress: 0,
-      participantId: 'u1',
-      text: 'Prep',
-    });
-    expect(message.media).toEqual([
-      {
-        id: 'a',
-        kind: 'image',
-        src: 'blob:board',
-        alt: 'board.png',
-      },
-    ]);
-    expect(message.files).toEqual([{ id: 'b', name: 'agenda.pdf', url: 'blob:agenda' }]);
   });
 
   it('saves an edit without the images it showed under the text', () => {

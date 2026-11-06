@@ -144,7 +144,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockIn());
 
-      expect(mockStart).toHaveBeenCalledWith('team-abc', undefined);
+      expect(mockStart).toHaveBeenCalledWith('team-abc', undefined, undefined);
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
@@ -202,7 +202,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-from-event');
+      expect(mockStop).toHaveBeenCalledWith('team-from-event', undefined);
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
@@ -212,7 +212,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockOut());
 
-      expect(mockStop).toHaveBeenCalledWith('team-fallback');
+      expect(mockStop).toHaveBeenCalledWith('team-fallback', undefined);
     });
 
     it('does nothing when both teamId sources are null', async () => {

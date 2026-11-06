@@ -1817,12 +1817,15 @@ export const timesheetApprovalApi = {
 };
 
 export const clockApi = {
-  /** Clock in to a team. Returns the new clock event. */
-  start: (teamId: string, planPostId?: string) =>
-    wormholeCall<ClockEvent>('clock.start', { teamId, planPostId }),
+  /**
+   * Clock in to a team. Returns the new clock event. `at`: when Clock in was
+   * pressed (ms since the epoch), recorded when it's at most 30 minutes old.
+   */
+  start: (teamId: string, planPostId?: string, at?: number) =>
+    wormholeCall<ClockEvent>('clock.start', { teamId, planPostId, at }),
 
-  /** Clock out of a team. */
-  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
+  /** Clock out of a team. `at`: when Clock out was pressed, as for `start`. */
+  stop: (teamId: string, at?: number) => wormholeCall<ClockEvent>('clock.stop', { teamId, at }),
 
   /** Pause an active clock session (break start). */
   pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),
@@ -2452,12 +2455,14 @@ export const videoApi = {
    * Wait for the backend to file a finished upload and say how it went.
    * `forbidden` means the token no longer opens the status; `timeout` means
    * nothing was recorded within `timeoutMs` — the backend keeps trying on its
-   * own, so the video may still appear later.
+   * own, so the video may still appear later. Rejects with an AbortError once
+   * `signal` aborts.
    */
   waitUntilFiled: async (
     videoid: string,
     uploadToken: string,
     timeoutMs = 120_000,
+    signal?: AbortSignal,
   ): Promise<
     | { state: 'done'; note?: string }
     | { state: 'kept'; reason?: string }
@@ -2466,6 +2471,7 @@ export const videoApi = {
   > => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      signal?.throwIfAborted();
       try {
         // Each request is bounded by what's left of the deadline (at most 10 s), so a stalled
         // request can't keep this waiting past `timeoutMs`; an abort counts as transient.
@@ -2526,15 +2532,23 @@ export const mediaApi = {
    *
    * Uses XMLHttpRequest rather than `fetch` because only XHR exposes
    * upload-side byte progress, which the composer needs to render one progress
-   * bar across image, document, and (TUS) video uploads alike.
+   * bar across image, document, and (TUS) video uploads alike. Rejects with
+   * an AbortError once `signal` aborts.
    */
-  uploadImage: async (file: File, onProgress?: (fraction: number) => void): Promise<MediaItem> => {
+  uploadImage: async (
+    file: File,
+    onProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
+  ): Promise<MediaItem> => {
     const { compressImageForUpload } = await import('./imageCompress');
     const upload = await compressImageForUpload(file);
+    signal?.throwIfAborted();
 
     const form = new FormData();
     form.append('file', upload, upload.name || 'image');
     const token = await getAccessToken();
+    // Removed while the token refreshed: an abort listener added now would never fire.
+    signal?.throwIfAborted();
 
     const { status, body } = await new Promise<{ status: number; body: string }>(
       (resolve, reject) => {
@@ -2544,9 +2558,29 @@ export const mediaApi = {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total);
         };
-        xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
-        xhr.onerror = () => reject(new ApiError('Upload failed', 0));
-        xhr.onabort = () => reject(new ApiError('Upload cancelled', 0));
+        // Stopped only while bytes are going up: once they're all in, the
+        // server makes the item anyway, so the caller takes it back instead.
+        let sent = false;
+        xhr.upload.onload = () => {
+          sent = true;
+        };
+        const onAbort = () => {
+          if (!sent) xhr.abort();
+        };
+        const settled = () => signal?.removeEventListener('abort', onAbort);
+        xhr.onload = () => {
+          settled();
+          resolve({ status: xhr.status, body: xhr.responseText });
+        };
+        xhr.onerror = () => {
+          settled();
+          reject(new ApiError('Upload failed', 0));
+        };
+        xhr.onabort = () => {
+          settled();
+          reject(new DOMException('Upload cancelled', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
         xhr.send(form);
       },
     );
@@ -2564,6 +2598,15 @@ export const mediaApi = {
     }
     return withAbsoluteMediaItem(parsed.item);
   },
+
+  /**
+   * Take back an upload the caller made but didn't send (removed from a
+   * composer): a photo or document by `mediaId`, a video by `videoid`. The
+   * server hides it now and deletes it after a grace period unless a post
+   * uses it. Idempotent.
+   */
+  discardUpload: (ref: { mediaId: string } | { videoid: string }) =>
+    wormholeCall<{ ok: boolean }>('media.discardUpload', ref).then(() => undefined),
 
   list: () =>
     wormholeCall<{ items: MediaItem[] }>('media.list', {}).then((r) =>
