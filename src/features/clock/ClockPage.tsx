@@ -294,7 +294,7 @@ export const ClockPage: React.FC = () => {
   // still takes over for realtime once it arrives.
   const [sessionPostFetch, setSessionPostFetch] = useState<Pick<
     HuddlePost,
-    'id' | 'content' | 'tickets'
+    'id' | 'content' | 'tickets' | 'attachments'
   > | null>(null);
   // Whether the wrap-up seed lookup has settled (resolved or failed). The
   // editor must not mount before this: RichEditor reads `value` on mount only,
@@ -315,7 +315,7 @@ export const ClockPage: React.FC = () => {
   const handedOverRef = useRef<{ draft: string; plan: string } | null>(null);
   const [postedPlan, setPostedPlan] = useState<Pick<
     HuddlePost,
-    'id' | 'content' | 'tickets'
+    'id' | 'content' | 'tickets' | 'attachments'
   > | null>(null);
   // What the editor was actually mounted with. The wrap-up submit overwrites
   // the plan post, so if the editor never received the plan text we must not
@@ -572,11 +572,12 @@ export const ClockPage: React.FC = () => {
       const { media, mentionUserIds } = ready;
       const trimmed = ready.text;
       const draft = textRef.current;
+      const attachments = media.map(toPostAttachment);
       const created = await huddleApi.createPost({
         teamId: gateTeamId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
         ticketIds: ready.ticketIds,
-        attachments: media.map(toPostAttachment),
+        attachments,
         postDate: toDateString(new Date(at)),
       });
       giveBack = null;
@@ -590,6 +591,7 @@ export const ClockPage: React.FC = () => {
         id: planPostId,
         content: { text: trimmed, mentions: mentionUserIds ?? [] },
         tickets: ready.tickets,
+        attachments,
       });
       draftGenRef.current += 1;
       // Link this plan to the new session so the per-session gate finds it.
@@ -631,6 +633,8 @@ export const ClockPage: React.FC = () => {
       const selectedTicketIds = ready.ticketIds;
       const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
       const postAttachments = ready.media.map(toPostAttachment);
+      const planAttachments =
+        sessionPost?.attachments ?? sessionPostFetch?.attachments ?? postedPlan?.attachments ?? [];
       if (effectivePostId) {
         // Safety net against losing the plan.
         //
@@ -663,7 +667,12 @@ export const ClockPage: React.FC = () => {
           },
           {
             wrapUp: true,
-            attachments: postAttachments.length ? postAttachments : undefined,
+            // Added to the plan's own files, never in place of them: the
+            // wrap-up doesn't show those, so it can't mean to drop them (and
+            // the update deletes what it drops).
+            attachments: postAttachments.length
+              ? [...planAttachments, ...postAttachments]
+              : undefined,
             // The list replaces the plan's, so send it only once it was seeded
             // from the plan — otherwise just what was picked, if anything.
             ticketIds:

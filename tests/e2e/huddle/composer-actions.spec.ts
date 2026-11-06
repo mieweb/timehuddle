@@ -244,6 +244,24 @@ test.describe('Huddle composer — individual actions', () => {
     await clockOut(page);
     for (const title of titles) await deleteTicket(page, title);
   });
+
+  test("a wrap-up's files are added to the plan's, not put in their place", async ({ page }) => {
+    // The wrap-up doesn't show the plan's files, so it can't mean to drop them,
+    // and the update deletes whatever it drops.
+    const postText = `Plan and wrap-up files ${Date.now()}`;
+    await composerEditor(page).fill(postText);
+    await attachFile(page, 'image');
+    await submitPost(page);
+
+    await attachFile(page, 'doc');
+    await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
+    await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
+      timeout: 30000,
+    });
+
+    const stored = (await findPostByText(postText)) as { attachments?: { type: string }[] } | null;
+    expect(stored?.attachments?.map((a) => a.type).sort()).toEqual(['file', 'image']);
+  });
 });
 
 test.describe('Huddle composer — combined actions', () => {
