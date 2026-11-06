@@ -302,7 +302,6 @@ async function enrichPost(post) {
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
-    ...(post.sessionUpdate === true ? { sessionUpdate: true } : {}),
     session,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()

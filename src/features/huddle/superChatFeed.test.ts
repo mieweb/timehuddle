@@ -280,7 +280,7 @@ describe('postsToConversations', () => {
   });
 
   describe('titles', () => {
-    it('shows hours (and no-wrap-up warning) for admins, not for members', () => {
+    it('shows hours for admins, not for members, and never a wrap-up warning (#856)', () => {
       const posts = [
         makePost({
           id: 'p1',
@@ -291,22 +291,8 @@ describe('postsToConversations', () => {
       const [adminView] = postsToConversations(posts, 'session', VIEWER_ADMIN, NOW);
       const [memberView] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
       expect(adminView.title).toContain('1h 34m');
-      expect(adminView.title).toContain('⚠ no wrap-up');
+      expect(adminView.title).not.toContain('wrap-up');
       expect(memberView.title).not.toContain('1h 34m');
-      expect(memberView.title).not.toContain('no wrap-up');
-    });
-
-    it('omits the no-wrap-up warning once a post in the session has a wrap-up', () => {
-      const posts = [
-        makePost({
-          id: 'p1',
-          clockEventId: 'evt-1',
-          session: { startTime: SEP_29_0858, endTime: SEP_29_1032 },
-          wrapUpAt: new Date(SEP_29_1032).toISOString(),
-        }),
-      ];
-      const [adminView] = postsToConversations(posts, 'session', VIEWER_ADMIN, NOW);
-      expect(adminView.title).not.toContain('no wrap-up');
     });
 
     it('shows "You" for the viewer\'s own session thread', () => {
@@ -325,62 +311,24 @@ describe('postsToConversations', () => {
     });
   });
 
-  describe('plan / wrap-up labels', () => {
-    const session = { startTime: SEP_29_0858, endTime: null };
-    const labelOf = (posts: HuddlePost[], id: string) =>
-      postsToConversations(posts, 'session', VIEWER_MEMBER, NOW)[0].thread.find((m) => m.id === id)
-        ?.label ?? '';
-
-    it('labels only the earliest session post as the plan, not later inbox replies', () => {
-      const posts = [
-        makePost({ id: 'plan', clockEventId: 'evt-1', session }),
-        makePost({
-          id: 'reply',
-          clockEventId: 'evt-1',
-          session,
-          createdAt: new Date(SEP_29_1032).toISOString(),
-        }),
-      ];
-      expect(labelOf(posts, 'plan')).toContain('Plan');
-      expect(labelOf(posts, 'reply')).not.toContain('Plan');
-    });
-
-    it('labels the wrap-up post and leaves an earlier reply unlabeled', () => {
-      const posts = [
-        makePost({ id: 'reply', clockEventId: 'evt-1', session }),
-        makePost({
-          id: 'wrapup',
-          clockEventId: 'evt-1',
-          session,
-          createdAt: new Date(SEP_29_1032).toISOString(),
-          wrapUpAt: new Date(SEP_29_1032).toISOString(),
-        }),
-      ];
-      expect(labelOf(posts, 'wrapup')).toContain('Wrap-up');
-      expect(labelOf(posts, 'reply')).not.toMatch(/Plan|Wrap-up/);
-    });
-
-    it('keeps labels and the wrap-up warning right when a search hides the plan', () => {
-      const closed = { startTime: SEP_29_0858, endTime: SEP_29_1032 };
-      const plan = makePost({
-        id: 'plan',
+  it('labels no post as a plan or wrap-up, in any grouping (#856)', () => {
+    const session = { startTime: SEP_29_0858, endTime: SEP_29_1032 };
+    const posts = [
+      makePost({ id: 'plan', clockEventId: 'evt-1', session }),
+      makePost({
+        id: 'wrapup',
         clockEventId: 'evt-1',
-        session: closed,
-        wrapUpAt: new Date(SEP_29_1032).toISOString(),
-      });
-      const reply = makePost({
-        id: 'reply',
-        clockEventId: 'evt-1',
-        session: closed,
+        session,
         createdAt: new Date(SEP_29_1032).toISOString(),
-      });
-      const [searched] = postsToConversations([reply], 'session', VIEWER_ADMIN, NOW, undefined, [
-        plan,
-        reply,
-      ]);
-      expect(searched.thread.find((m) => m.id === 'reply')?.text).not.toMatch(/Plan|Wrap-up/);
-      expect(searched.title).not.toContain('no wrap-up');
-    });
+        wrapUpAt: new Date(SEP_29_1032).toISOString(),
+      }),
+    ];
+    for (const threadBy of ['all', 'session', 'day', 'person', 'ticket'] as const) {
+      const labels = postsToConversations(posts, threadBy, VIEWER_ADMIN, NOW)
+        .flatMap((c) => c.thread)
+        .map((m) => m.label ?? '');
+      expect(labels.join(' ')).not.toMatch(/Plan|Wrap-up/);
+    }
   });
 
   describe('scheduled posts', () => {
@@ -452,23 +400,6 @@ describe('postsToConversations', () => {
     });
   });
 
-  it("labels a session's plan but not an update posted while clocked in", () => {
-    const session = { startTime: SEP_29_0858, endTime: null };
-    const posts = [
-      makePost({ id: 'update', clockEventId: 'evt-1', session, sessionUpdate: true }),
-      makePost({
-        id: 'plan',
-        clockEventId: 'evt-1',
-        session,
-        createdAt: new Date(SEP_29_1032).toISOString(),
-      }),
-    ];
-    const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
-    const labelOf = (id: string) => conversation.thread.find((m) => m.id === id)?.label;
-    expect(labelOf('update')).toBeUndefined();
-    expect(labelOf('plan')).toBe('Plan');
-  });
-
   describe('ticket links', () => {
     const tickets = [
       { id: 'tkt-1', title: 'Onboarding checklist', label: 'TH-1: Onboarding checklist' },
@@ -525,9 +456,7 @@ describe('postsToConversations', () => {
       );
       const message = conversation.thread.find((m) => m.id === 'p1');
       expect(message?.text).toBe(post.content.text);
-      expect(message?.label).toBe(
-        'Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team',
-      );
+      expect(message?.label).toBe('[TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team');
     });
 
     it('keeps the link out of the text an edit starts from', () => {
