@@ -149,8 +149,8 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -225,8 +225,8 @@ jobs:
             # Never blocks a deploy: on a failure PulseVault keeps the ffmpeg already on PATH.
             sudo bash scripts/install-ffmpeg.sh || echo "⚠ Warning: pinned ffmpeg not installed — keeping the current one"
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm install (meteor-backend) ==="
             cd meteor-backend
@@ -349,8 +349,8 @@ jobs:
             git clean -fd
             echo "✓ Now at: $(git log -1 --oneline)"
 
-            echo "=== npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== npm run build ==="
             sudo rm -rf dist
@@ -457,8 +457,8 @@ jobs:
             echo "✓ Now at: $(git log -1 --oneline)"
             echo "✓ Working directory clean"
 
-            echo "=== sudo npm install ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
             sudo rm -rf dist
@@ -534,8 +534,8 @@ jobs:
             # Never blocks a deploy: on a failure PulseVault keeps the ffmpeg already on PATH.
             sudo bash scripts/install-ffmpeg.sh || echo "⚠ Warning: pinned ffmpeg not installed — keeping the current one"
 
-            echo "=== sudo npm install (root) ==="
-            sudo npm install --no-audit --no-fund
+            echo "=== sudo npm ci (root) ==="
+            sudo npm ci --no-audit --no-fund
 
             echo "=== sudo npm install (meteor-backend) ==="
             cd meteor-backend
