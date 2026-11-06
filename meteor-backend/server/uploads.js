@@ -4,6 +4,7 @@ import { rawDb, isValidId } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
 import { requireProfileAccess } from './profile-access';
 import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
+import { discardVideo, removeVideoArtifacts } from './pulsevault';
 // The backend's videoIdOf: a legacy post's full URL counts, whatever its host.
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from './media-library-core.js';
@@ -22,7 +23,6 @@ const UPLOADS_DIR = persistentDir(process.env.UPLOADS_DIR, 'uploads');
 const PROFILE_DIR = path.join(UPLOADS_DIR, 'profile');
 export const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-const VIDEOS_DIR = persistentDir(process.env.VIDEOS_DIR, 'data/videos');
 if (isInsideMeteorBuild(UPLOADS_DIR)) {
   console.warn(`[uploads] UPLOADS_DIR ${UPLOADS_DIR} is inside Meteor's build output — a rebuild deletes it`);
 }
@@ -31,6 +31,23 @@ if (isInsideMeteorBuild(UPLOADS_DIR)) {
 // the destinations, so the rename is atomic and free. Never served: the
 // /uploads handler refuses this prefix.
 const TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
+/** How old a `.part` file in TMP_DIR must be for the startup sweep to remove it. */
+const STALE_PART_MS = 60 * 60_000;
+
+/**
+ * Remove `.part` files a crash or a lost connection left in TMP_DIR. Run once
+ * at startup; an upload in progress writes its file within the hour.
+ */
+async function sweepStaleParts() {
+  const names = await fsp.readdir(TMP_DIR).catch(() => []);
+  const cutoff = Date.now() - STALE_PART_MS;
+  for (const name of names) {
+    if (!name.endsWith('.part')) continue;
+    const file = path.join(TMP_DIR, name);
+    const stat = await fsp.stat(file).catch(() => null);
+    if (stat && stat.mtimeMs < cutoff) unlinkSafe(file);
+  }
+}
 
 // Uploads stream straight to disk, so peak memory is one chunk regardless of
 // file size and this cap is about storage policy rather than heap safety.
@@ -120,6 +137,8 @@ async function parseMultipart(req, allowedMimes) {
     let size = 0;
     let error = null;
     let written = Promise.resolve();
+    let out = null;
+    let settled = false;
 
     const fail = (message, status = 400) => {
       if (error) return;
@@ -135,7 +154,7 @@ async function parseMultipart(req, allowedMimes) {
       }
       fileInfo = info;
 
-      const out = fs.createWriteStream(tmpPath);
+      out = fs.createWriteStream(tmpPath);
       written = new Promise((done) => {
         out.on('close', done);
         out.on('error', (err) => {
@@ -163,7 +182,9 @@ async function parseMultipart(req, allowedMimes) {
 
     busboy.on('error', (err) => fail(err.message));
 
-    busboy.on('close', async () => {
+    const finish = async () => {
+      if (settled) return;
+      settled = true;
       await written;
       if (!fileInfo) fail('No file uploaded');
       if (error) {
@@ -172,6 +193,17 @@ async function parseMultipart(req, allowedMimes) {
         return;
       }
       resolve({ path: tmpPath, size, filename: fileInfo.filename, mimeType: fileInfo.mimeType });
+    };
+    busboy.on('close', finish);
+
+    // A request that dies mid-upload (the client cancelled it) never ends,
+    // so busboy never closes: settle here instead, leaving no `.part` behind.
+    req.on('close', () => {
+      if (req.complete) return;
+      fail('Upload cancelled');
+      req.unpipe(busboy);
+      out?.destroy();
+      void finish();
     });
 
     req.pipe(busboy);
@@ -460,11 +492,28 @@ export function removeMediaFile(doc) {
 export async function keepReferencedUploads(texts) {
   const kept = keepForReference(texts);
   if (kept) await rawDb().collection('mediaitems').updateMany(kept.filter, kept.update);
+  await keepReferencedVideos(texts);
+}
+
+const ARTIFACT_IDS = /\/pulsevault\/artifacts\/([0-9a-f-]{36})/gi;
+
+/**
+ * The same for videos (by their PulseVault id) the `texts` reference: a video
+ * someone took back (media.discardUpload) and then posted or attached after
+ * all keeps its files, as an upload does (keepForReference).
+ */
+export async function keepReferencedVideos(texts) {
+  const ids = [...new Set(texts.flatMap((text) => [...String(text ?? '').matchAll(ARTIFACT_IDS)].map((m) => m[1])))];
+  if (!ids.length) return;
+  await rawDb()
+    .collection('mediaitems')
+    .updateMany({ videoid: { $in: ids }, discardAt: { $exists: true } }, { $unset: { discardAt: '' } });
 }
 
 /** Whether anything still uses this media item (uploadUseQueries). */
 export async function isUploadInUse(item) {
-  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id.toHexString(), url: item.url })) {
+  // No `_id` for a video still uploading: it has no media item yet.
+  for (const { collection, filter } of uploadUseQueries({ mediaId: item._id?.toHexString(), url: item.url })) {
     if (await rawDb().collection(collection).findOne(filter, { projection: { _id: 1 } })) return true;
   }
   return false;
@@ -667,6 +716,10 @@ WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
 
 import { Meteor } from 'meteor/meteor';
 
+Meteor.startup(() => {
+  sweepStaleParts().catch((err) => console.error('[uploads] stale .part sweep failed:', err));
+});
+
 /** Listed media items as the API returns them, each video under its one name. */
 async function toPublicMediaItems(docs) {
   const names = await videoNamesFor(docs.map((m) => (m.type === 'video' ? m.videoid : null)));
@@ -777,9 +830,35 @@ Meteor.methods({
 
     unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
     unlinkSafe(resolveUploadPath(doc.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
-    if (doc.videoid) {
-      fsp.rm(path.join(VIDEOS_DIR, doc.videoid), { recursive: true, force: true }).catch(() => {});
+    // A video's files go only when nothing else shows it (a post, an
+    // attachment, a timesheet walkthrough): the item is the library's entry,
+    // the video may be in use elsewhere.
+    if (doc.videoid && !(await isUploadInUse(doc))) void removeVideoArtifacts(doc.videoid);
+    return { ok: true };
+  },
+
+  /**
+   * Take back an upload the caller made but didn't send: removed from a
+   * composer before posting. A photo or document by `mediaId`, a video by
+   * `videoid` (PulseVault's id; see discardVideo). It's hidden from the
+   * library now and deleted after the grace period unless a post took it
+   * meanwhile; one in use is kept. Idempotent.
+   */
+  async 'media.discardUpload'({ mediaId, videoid } = {}) {
+    const { userId } = await requireIdentity(this);
+    const items = rawDb().collection('mediaitems');
+    const doc = isValidId(mediaId) ? await items.findOne({ _id: new ObjectId(mediaId) }) : null;
+    const video = typeof videoid === 'string' && videoid ? videoid : doc?.videoid;
+    if (video) {
+      await discardVideo(userId, video, {
+        isEvidenceUnderReview: () => artifactIsEvidenceUnderReview(video),
+        isInUse: (url) => isUploadInUse({ url }),
+      });
+      return { ok: true };
     }
+    if (!doc) return { ok: true };
+    if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    await discardUnusedMedia([doc]);
     return { ok: true };
   },
 });
