@@ -1008,9 +1008,30 @@ describe('the All grouping', () => {
   });
 
   it('narrows the posts in the thread when searched, and keeps them all for a blank query', () => {
-    expect(searchPosts(posts, '   ')).toBe(posts);
-    expect(searchPosts(posts, 'priya').map((p) => p.id)).toEqual(['p-today']);
-    expect(searchPosts(posts, 'onboarding sep 28').map((p) => p.id)).toEqual(['p-plan']);
-    expect(searchPosts(posts, 'nothing like this')).toEqual([]);
+    const search = (query: string) => searchPosts(posts, query, VIEWER_MEMBER);
+    expect(search('   ')).toBe(posts);
+    expect(search('priya').map((p) => p.id)).toEqual(['p-today']);
+    expect(search('onboarding sep 28').map((p) => p.id)).toEqual(['p-plan']);
+    expect(search('nothing like this')).toEqual([]);
+  });
+
+  it('finds a post by the clock lines of its session, as the other groupings do', () => {
+    const search = (query: string) => searchPosts(posts, query, VIEWER_MEMBER).map((p) => p.id);
+    expect(search('clocked out')).toEqual(['p-plan']);
+    expect(search('you clocked in 09:00')).toEqual(['p-plan']);
+  });
+
+  it('gives an empty feed an All thread of its own, so an all:feed link still opens', () => {
+    const starter = starterConversation(
+      { userId: 'user-aisha', name: 'Aisha' },
+      'team',
+      NOW,
+      'all',
+    );
+    expect(starter.id).toBe(ALL_CONVERSATION_ID);
+    expect(starter.title).toBe('All updates');
+    expect(starterConversation({ userId: 'user-aisha', name: 'Aisha' }, 'team', NOW).id).toBe(
+      'starter',
+    );
   });
 });

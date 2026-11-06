@@ -21,6 +21,7 @@ import {
   openPostInInbox,
   postFromHuddle,
   seedClockSession,
+  deletePost,
   seedPost,
   seedPostDaysAgo,
 } from './helpers';
@@ -148,6 +149,39 @@ test.describe('Huddle inbox filters', () => {
       'Group by: All',
       { timeout: 20000 },
     );
+  });
+
+  test('with All saved, a post link opens its session with the post in view', async ({ page }) => {
+    const token = uniqueToken('all-link');
+    const linkedId = await seedPostDaysAgo({ teamId, userId, text: token, daysAgo: 2 });
+    // Enough newer posts that the linked one would be offscreen in the All
+    // thread. Dated yesterday, so they stay out of today's threads other tests read.
+    const newerIds: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      newerIds.push(
+        await seedPostDaysAgo({ teamId, userId, text: `${token} newer ${i}`, daysAgo: 1 }),
+      );
+    }
+    try {
+      await page.goto('/app/huddle');
+      await groupInboxBy(page, 'All');
+
+      await page.goto(`/app/huddle?post=${linkedId}`);
+      await expect(page).toHaveURL(/conversation=session%3A/, { timeout: 30000 });
+      await expect(inboxMessage(page, token).first()).toBeInViewport();
+      await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
+        'Group by: Session',
+      );
+
+      // The saved grouping is still All.
+      await page.goto('/app/huddle');
+      await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
+        'Group by: All',
+        { timeout: 20000 },
+      );
+    } finally {
+      await Promise.all([linkedId, ...newerIds].map((id) => deletePost(id)));
+    }
   });
 
   test('Session view labels posts made without clocking in; other views stay clean', async ({

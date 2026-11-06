@@ -715,12 +715,16 @@ export function starterConversation(
   viewer: { userId: string; name: string },
   scope: 'team' | 'me',
   now: number = Date.now(),
+  threadBy?: ThreadBy,
 ): SuperChatConversation {
   const hint =
     scope === 'me'
       ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
       : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
-  return emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
+  // In All it is the one thread itself, so a saved `all:feed` link still opens.
+  return threadBy === 'all'
+    ? emptyConversation(ALL_CONVERSATION_ID, THREAD_TEXT.allUpdates, viewer, hint, now)
+    : emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
 }
 
 /** Id of the Day thread for a post dated `dateKey` (YYYY-MM-DD, a post's `postDate`). */
@@ -786,14 +790,31 @@ function searchWords(query: string): string[] {
 export function searchPosts(
   posts: HuddlePost[],
   query: string,
+  viewer: InboxViewer,
   getTeamName?: (teamId: string) => string | undefined,
 ): HuddlePost[] {
   const words = searchWords(query);
   if (words.length === 0) return posts;
   return posts.filter((post) => {
-    const haystack = normalizeForSearch(postSearchText(post, getTeamName?.(post.teamId)));
+    const haystack = normalizeForSearch(
+      [postSearchText(post, getTeamName?.(post.teamId)), clockLinesText(post, viewer)].join('\n'),
+    );
     return words.every((word) => haystack.includes(word));
   });
+}
+
+/**
+ * The clock-in/out lines shown for a post's session ("You clocked out ·
+ * 17:30"), so a search finds the post by them in All as it does in the
+ * groupings that search whole conversations.
+ */
+function clockLinesText(post: HuddlePost, viewer: InboxViewer): string {
+  return collectSessions([post])
+    .flatMap((session) =>
+      systemMessagesForSession(session, { viewer, includeDay: false, liveAt: 0 }),
+    )
+    .map((m) => m.text ?? '')
+    .join('\n');
 }
 
 /**

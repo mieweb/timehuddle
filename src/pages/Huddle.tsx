@@ -268,11 +268,11 @@ export default function Huddle() {
   // its own grouping without overwriting the saved one (posts are found by
   // session).
   const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
-  // A post link opens the post's session, or the one All thread when that is
-  // the reader's grouping (both hold every post of a session together).
-  const postLinkThreadBy: ThreadBy = storedThreadBy === 'all' ? 'all' : 'session';
+  // A post link opens the post's session, even when All is the saved grouping:
+  // SuperChatInbox can't scroll to a message yet, and a session's short thread
+  // keeps the post in view (see docs/superchat-inbox-gaps.md).
   const threadBy =
-    threadByOf(conversationParam) ?? (postParam ? postLinkThreadBy : null) ?? storedThreadBy;
+    threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
     (next: ThreadBy) => {
       _setThreadBy(next);
@@ -721,10 +721,12 @@ export default function Huddle() {
   // where the first update gets posted.
   const conversations = useMemo(() => {
     if (activePosts.length === 0 && user) {
-      return [starterConversation({ userId: user.id, name: user.name }, scope)];
+      return [
+        starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
+      ];
     }
     if (threadBy === 'all' && searchQuery.trim()) {
-      const matches = searchPosts(activePosts, searchQuery, getTeamName);
+      const matches = searchPosts(activePosts, searchQuery, viewer, getTeamName);
       return postsToConversations(matches, 'all', viewer, nowMinute, getTeamName, activePosts);
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
@@ -1036,11 +1038,11 @@ export default function Huddle() {
   // Post link → the conversation that holds it (see `targetPostLoaded`).
   // Searched in every conversation, not just the ones the search box shows.
   useEffect(() => {
-    if (!postParam || !targetPostLoaded || threadBy !== postLinkThreadBy) return;
+    if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
     if (!match) return;
     setParams({ conversation: match.id, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, postLinkThreadBy, allConversations, setParams]);
+  }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation
