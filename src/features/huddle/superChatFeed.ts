@@ -392,7 +392,7 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · [TH-7: Onboarding checklist](/app/tickets/…)". */
-function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
+function postLabelParts(post: HuddlePost, isSessionPost: boolean): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
   if (isAwaitingDelivery(post)) {
@@ -404,21 +404,14 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   for (const ticket of existingTickets(post)) {
     parts.push(ticketLinkMarkdown(ticket));
   }
-  if (teamName) {
-    parts.push(teamName);
-  }
   return parts;
 }
 
 /** A post's label (its message's `label`, under it): who can see it yet,
- *  plan or wrap-up, its tickets and its team, e.g. "Plan · [TH-7: …](…) ·
- *  Dev Team". Not part of its text, so an edit or a copy leaves it out. */
-function postLabel(
-  post: HuddlePost,
-  isSessionPost: boolean,
-  teamName?: string,
-): string | undefined {
-  const parts = postLabelParts(post, isSessionPost, teamName);
+ *  plan or wrap-up and its tickets, e.g. "Plan · [TH-7: …](…)". Not part of
+ *  its text, so an edit or a copy leaves it out. */
+function postLabel(post: HuddlePost, isSessionPost: boolean): string | undefined {
+  const parts = postLabelParts(post, isSessionPost);
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
@@ -476,10 +469,6 @@ function buildTitle(
  * conversations. Pure: no React, no API calls, no `Date.now()` — pass `now`
  * explicitly so callers (and tests) get a stable "live" duration/label.
  *
- * `getTeamName` is only needed for the Personal ("me") scope, where posts
- * from several teams can land in one conversation and each message's label
- * needs to say which team it came from.
- *
  * `sessionContext` is the unfiltered post list when `posts` is a search
  * result: which post is a session's plan, and whether it has a wrap-up, are
  * facts about the whole session, not about what the search happened to match.
@@ -489,7 +478,6 @@ export function postsToConversations(
   threadBy: ThreadBy,
   viewer: InboxViewer,
   now: number = Date.now(),
-  getTeamName?: (teamId: string) => string | undefined,
   sessionContext: HuddlePost[] = posts,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
@@ -551,7 +539,7 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: shownBody(post),
-      label: postLabel(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      label: postLabel(post, planPostIds.has(post.id)),
       media: postMedia(post),
       files: postFiles(post),
       time: postAt(post),
@@ -606,9 +594,9 @@ function withoutLinkTargets(text: string): string {
   }
 }
 
-/** Everything a post can be found by: body, author, ticket, attachments, team
- *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
-function postSearchText(post: HuddlePost, teamName?: string): string {
+/** Everything a post can be found by: body, author, ticket, attachments and
+ *  its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+function postSearchText(post: HuddlePost): string {
   const dateKey = getPostDateKey(post);
   const [year, month, day] = dateKey.split('-').map(Number);
   const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
@@ -629,7 +617,6 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
       shownVideoName(att) ?? undefined,
       att.type,
     ]),
-    teamName,
     dateKey,
     formatDayLabel(dateKey),
     longDate,
@@ -686,7 +673,7 @@ export function starterConversation(
 ): SuperChatConversation {
   const hint =
     scope === 'me'
-      ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
+      ? "You haven't posted in Personal in the last 30 days. Share an update below, or clock in to post your plan."
       : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
   return emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
 }
@@ -752,7 +739,6 @@ export function searchConversations(
   conversations: SuperChatConversation[],
   posts: HuddlePost[],
   query: string,
-  getTeamName?: (teamId: string) => string | undefined,
 ): SuperChatConversation[] {
   const words = normalizeForSearch(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return conversations;
@@ -766,7 +752,7 @@ export function searchConversations(
         ...conversation.thread.map((message) => {
           const shown = withoutLinkTargets(message.text ?? '');
           const post = postsById.get(message.id);
-          return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
+          return post ? `${shown}\n${postSearchText(post)}` : shown;
         }),
       ].join('\n'),
     );

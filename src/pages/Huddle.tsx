@@ -284,14 +284,13 @@ export default function Huddle() {
   const selectedTeamId = unjoinedTeam ? null : contextTeamId;
 
   // Personal is a view, not a team selection: entering it leaves the selected
-  // team and org alone, so the team picker stays put. It shows the caller's own
-  // posts across every team, fetched separately (no per-team DDP subscription
-  // applies across teams). Having the Personal team itself selected (e.g. from
-  // the header switcher) lands in the same view.
+  // team and org alone, so the team picker stays put. It shows the posts in the
+  // caller's personal team, fetched separately over REST. Having the Personal
+  // team itself selected (e.g. from the header switcher) lands in the same view.
   //
-  // It lives in the URL because a Personal conversation can belong to any team:
+  // It lives in the URL because the selected team is not the Personal team:
   // without `?view=me` a reloaded or shared link would fall back to the team
-  // feed, where a cross-team conversation reads as not found.
+  // feed, where a Personal conversation reads as not found.
   const showMe = params.get('view') === 'me';
   // A team change from anywhere (header switcher, org switch) leaves the
   // Personal view. Compared with the previous value so loading a `?view=me`
@@ -412,11 +411,8 @@ export default function Huddle() {
   // Live session state for the inbox titles and the classic card header. The
   // posts publication only fires on post writes, so a clock-out would never
   // reach the feed on its own — `clock.liveForTeams` carries every still-open
-  // session for the team(s) in scope.
-  const liveTeamIds = useMemo(
-    () => (scope === 'me' ? allTeams.map((t) => t.id) : selectedTeamId ? [selectedTeamId] : []),
-    [scope, allTeams, selectedTeamId],
-  );
+  // session for the team in scope.
+  const liveTeamIds = useMemo(() => (postingTeamId ? [postingTeamId] : []), [postingTeamId]);
   const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
 
   // Last REST snapshot for the team, replaced wholesale on every refetch (not
@@ -633,7 +629,7 @@ export default function Huddle() {
   }, [selectedTeamId, teamSince, teamFeedKey, syncPosts, refreshFeed, settleTeam]);
 
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
-  // caller's own posts across every team.
+  // caller's personal team.
   const activePosts = scope === 'me' ? myPosts : posts;
   const myScheduledPosts = useMemo(
     () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
@@ -657,7 +653,7 @@ export default function Huddle() {
   // notifications) opens the conversation containing it once loaded. Its team
   // comes in the link's ?team= (TeamContext switches to it); a search that
   // would hide it is cleared when it resolves. Against the active scope, since
-  // Personal fetches its own posts and a Personal post link can name any team.
+  // Personal fetches its own posts.
   // A boolean, not the array itself: that gets a fresh identity on every DDP
   // change event.
   const targetPostLoaded = postParam !== null && activePosts.some((p) => p.id === postParam);
@@ -671,14 +667,6 @@ export default function Huddle() {
     [user?.id, viewerIsAdmin],
   );
 
-  // Only the Personal ("me") scope labels messages with their team — a
-  // single-team feed already has that context from the page itself.
-  const getTeamName = useMemo(() => {
-    if (scope !== 'me') return undefined;
-    const names = new Map(allTeams.map((t) => [t.id, t.name]));
-    return (teamId: string) => names.get(teamId);
-  }, [scope, allTeams]);
-
   // ── SuperChatInbox mapping (memoized — posts update via DDP) ──
   // Keyed on the post arrays themselves: syncPosts/refreshMyPosts replace them
   // on every change, including ones that don't bump `updatedAt` (clock-in
@@ -688,7 +676,7 @@ export default function Huddle() {
   // A rename doesn't change the post, so the feed rebuilds on a name itself.
   const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
-    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute, getTeamName);
+    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute);
     return user
       ? withTodayConversation(
           grouped,
@@ -698,7 +686,7 @@ export default function Huddle() {
           nowMinute,
         )
       : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
+  }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact.
   // With no posts at all, the inbox shows a starter conversation instead:
@@ -708,8 +696,8 @@ export default function Huddle() {
     if (activePosts.length === 0 && user) {
       return [starterConversation({ userId: user.id, name: user.name }, scope)];
     }
-    return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
-  }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
+    return searchConversations(allConversations, activePosts, searchQuery);
+  }, [allConversations, activePosts, searchQuery, user, scope]);
   // A post sending with files shows in the conversation it was sent from.
   const shownConversations = useMemo<SuperChatConversation[]>(
     () =>
@@ -1190,8 +1178,8 @@ export default function Huddle() {
     // mentions: a scheduled post can sit unsent for a while, and swapping who
     // it mentions before delivery must notify the new name, not the old one.
     // Always load the post's own team roster rather than reuse the composer's:
-    // that one only covers `postingTeamId` (the Personal view shows posts from
-    // any team), and it is empty while loading or after a failed fetch, which
+    // that one only covers `postingTeamId`, and it is empty while loading or
+    // after a failed fetch, which
     // would save `mentions: []` and deliver a scheduled post silently. A failed
     // fetch here fails the save instead.
     try {

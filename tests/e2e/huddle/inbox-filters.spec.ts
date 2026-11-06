@@ -214,7 +214,7 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
-  test('the Team picker in the list header switches between a team and Personal', async ({
+  test('the Team picker switches between a team and Personal, which keeps its own posts', async ({
     page,
   }) => {
     const token = uniqueToken('team');
@@ -228,16 +228,25 @@ test.describe('Huddle inbox filters', () => {
     await openPostInInbox(page, token);
     await expect(inboxMessage(page, token)).not.toContainText('Test Team Alpha');
 
-    // Personal gathers your posts from every team, each labelled with its team.
+    // Personal is its own private team: a team's posts stay in the team.
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Personal', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Team: Personal' })).toBeVisible();
-    await openPostInInbox(page, token);
-    await expect(inboxMessage(page, token)).toContainText('Test Team Alpha');
+    await inboxSearch(page).fill(token);
+    await expect(conversationRows(page)).toHaveCount(0, { timeout: 20000 });
+    await inboxSearch(page).fill('');
+
+    // …and a post written in Personal stays in Personal.
+    const personalToken = uniqueToken('personal');
+    await postFromHuddle(page, personalToken);
+    await openPostInInbox(page, personalToken);
 
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Test Team Alpha', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Team: Test Team Alpha' })).toBeVisible();
+    // Today's team thread, where a Personal post from today would land if it leaked.
+    await openPostInInbox(page, token);
+    await expect(inboxMessage(page, personalToken)).toHaveCount(0);
   });
 
   test('the message box posts into the feed and clears', async ({ page }) => {
