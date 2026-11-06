@@ -102,6 +102,19 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
       </div>
       {/* Sessions lists each run, so show why this is one entry. */}
       {runSeconds.length > 1 && <RedmineEntryRuns runSeconds={runSeconds} />}
+      {/* About the hours above, so beside them, before what is still to decide. */}
+      {rounding && (
+        <RedmineEntryField label={text.rounding}>
+          <Text size="sm" className="redmine-entry-rounding">
+            {text.roundedUp(
+              rounding.exactHours > 0
+                ? hoursLabel(rounding.exactHours, decimalHours)
+                : text.underAMinute,
+              rounding.step,
+            )}
+          </Text>
+        </RedmineEntryField>
+      )}
       {billableField && onBillableChange ? (
         <RedmineEntryField label={text.billable}>
           <BillableSelect
@@ -130,18 +143,6 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
             </Text>
           </RedmineEntryField>
         )
-      )}
-      {rounding && (
-        <RedmineEntryField label={text.rounding}>
-          <Text size="sm" className="redmine-entry-rounding">
-            {text.roundedUp(
-              rounding.exactHours > 0
-                ? hoursLabel(rounding.exactHours, decimalHours)
-                : text.underAMinute,
-              rounding.step,
-            )}
-          </Text>
-        </RedmineEntryField>
       )}
       {children}
     </>
