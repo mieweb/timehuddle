@@ -1,26 +1,45 @@
 /**
  * Unit tests for redmine-billable (server/redmine-billable.js): reading the
- * Billable custom field off time entries, and which entry it is copied from
- * for each issue (#686).
+ * Billable custom field off time entries, which entry it is copied from for
+ * each issue (#686), and its definition, for the dropdown it is picked from (#786).
  */
 import { describe, expect, it } from 'vitest';
 
 import {
   BillableLookupIncomplete,
   billableByIssue,
+  billableDefinitionOf,
   billableFieldOf,
   findBillableInPages,
   firstBillable,
+  isAllowedBillable,
+  isBillableValue,
   sameBillable,
 } from '../server/redmine-billable';
 
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
 
+describe('isBillableValue', () => {
+  it.each(['0', '1', 'Internal Meeting', ['Client A', 'Client B']].map((value) => [value]))(
+    'accepts a Redmine status value (%j)',
+    (value) => {
+      expect(isBillableValue(value)).toBe(true);
+    },
+  );
+
+  it.each([null, undefined, true, 1, {}, ['Billable', 1]].map((value) => [value]))(
+    'rejects non-text status values (%j)',
+    (value) => {
+      expect(isBillableValue(value)).toBe(false);
+    },
+  );
+});
+
 describe('billableFieldOf', () => {
   it('finds the field named Billable or Billable status, in any case', () => {
-    expect(billableFieldOf({ custom_fields: [{ id: 3, name: 'Other', value: 'x' }, BILLABLE] })).toEqual(
-      BILLABLE,
-    );
+    expect(
+      billableFieldOf({ custom_fields: [{ id: 3, name: 'Other', value: 'x' }, BILLABLE] }),
+    ).toEqual(BILLABLE);
     expect(billableFieldOf({ custom_fields: [{ id: 4, name: 'BILLABLE', value: 'No' }] })).toEqual({
       id: 4,
       name: 'BILLABLE',
@@ -30,7 +49,9 @@ describe('billableFieldOf', () => {
 
   it('never takes another field that merely mentions billable', () => {
     expect(
-      billableFieldOf({ custom_fields: [{ id: 8, name: 'Billable notes', value: 'Patient Jane Doe' }] }),
+      billableFieldOf({
+        custom_fields: [{ id: 8, name: 'Billable notes', value: 'Patient Jane Doe' }],
+      }),
     ).toBeNull();
   });
 
@@ -190,8 +211,12 @@ describe('sameBillable', () => {
   });
 
   it('compares a list value by its contents', () => {
-    expect(sameBillable({ ...BILLABLE, value: ['a', 'b'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(true);
-    expect(sameBillable({ ...BILLABLE, value: ['a'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(false);
+    expect(
+      sameBillable({ ...BILLABLE, value: ['a', 'b'] }, { ...BILLABLE, value: ['a', 'b'] }),
+    ).toBe(true);
+    expect(sameBillable({ ...BILLABLE, value: ['a'] }, { ...BILLABLE, value: ['a', 'b'] })).toBe(
+      false,
+    );
   });
 });
 
@@ -229,13 +254,15 @@ describe('findBillableInPages', () => {
   });
 
   it('is incomplete when more entries remain after the last page it reads', async () => {
-    await expect(findBillableInPages(scope(without(301)).fetchPage, { issue_id: 5 })).rejects.toBeInstanceOf(
-      BillableLookupIncomplete,
-    );
+    await expect(
+      findBillableInPages(scope(without(301)).fetchPage, { issue_id: 5 }),
+    ).rejects.toBeInstanceOf(BillableLookupIncomplete);
   });
 
   it('without a total, ends on a short page, and is incomplete after three full ones', async () => {
-    expect(await findBillableInPages(scope(without(150), { totalCount: false }).fetchPage, {})).toBeNull();
+    expect(
+      await findBillableInPages(scope(without(150), { totalCount: false }).fetchPage, {}),
+    ).toBeNull();
     await expect(
       findBillableInPages(scope(without(300), { totalCount: false }).fetchPage, {}),
     ).rejects.toBeInstanceOf(BillableLookupIncomplete);
@@ -252,3 +279,91 @@ describe('findBillableInPages', () => {
   });
 });
 
+/** Redmine's `/custom_fields.json` entry for redmine0's yes/no field. */
+const YES_NO_FIELD = {
+  id: 1,
+  name: 'Billable status',
+  customized_type: 'time_entry',
+  field_format: 'bool',
+  is_required: true,
+  multiple: false,
+  possible_values: [
+    { value: '1', label: 'Yes' },
+    { value: '0', label: 'No' },
+  ],
+};
+
+describe('billableDefinitionOf', () => {
+  it("reads the time-entry Billable field: its id, whether it is required, and Redmine's choices", () => {
+    expect(billableDefinitionOf([YES_NO_FIELD])).toEqual({
+      id: 1,
+      name: 'Billable status',
+      required: true,
+      multiple: false,
+      options: [
+        { value: '1', label: 'Yes' },
+        { value: '0', label: 'No' },
+      ],
+    });
+  });
+
+  it('skips a Billable field on issues, and a field only named like it', () => {
+    expect(
+      billableDefinitionOf([
+        { ...YES_NO_FIELD, customized_type: 'issue' },
+        { ...YES_NO_FIELD, id: 2, name: 'Billable notes' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('offers Yes and No for a yes/no field that lists no choices', () => {
+    const { possible_values: _none, ...bare } = YES_NO_FIELD;
+    expect(billableDefinitionOf([bare])?.options.map((option) => option.label)).toEqual([
+      'Yes',
+      'No',
+    ]);
+  });
+
+  it('labels a list choice with its own value, and keeps a field that takes several', () => {
+    const field = {
+      ...YES_NO_FIELD,
+      field_format: 'list',
+      multiple: true,
+      is_required: false,
+      possible_values: [{ value: 'Client A' }, { value: 'Internal Meeting', label: '' }],
+    };
+    expect(billableDefinitionOf([field])).toMatchObject({
+      required: false,
+      multiple: true,
+      options: [
+        { value: 'Client A', label: 'Client A' },
+        { value: 'Internal Meeting', label: 'Internal Meeting' },
+      ],
+    });
+  });
+
+  it('has no dropdown for a field members may not set, and holds no one to a field hidden from them', () => {
+    expect(billableDefinitionOf([{ ...YES_NO_FIELD, editable: false }])).toBeNull();
+    expect(billableDefinitionOf([{ ...YES_NO_FIELD, visible: false }])?.required).toBe(false);
+  });
+
+  it('has no dropdown for a free-text field, so its value is copied as before', () => {
+    const { possible_values: _none, ...text } = { ...YES_NO_FIELD, field_format: 'string' };
+    expect(billableDefinitionOf([text])).toBeNull();
+    expect(billableDefinitionOf(null)).toBeNull();
+  });
+});
+
+describe('isAllowedBillable', () => {
+  const definition = billableDefinitionOf([YES_NO_FIELD])!;
+
+  it('allows only the choices Redmine offers', () => {
+    expect(isAllowedBillable(definition, '0')).toBe(true);
+    expect(isAllowedBillable(definition, 'Maybe')).toBe(false);
+  });
+
+  it('allows several values only on a field that takes several', () => {
+    expect(isAllowedBillable(definition, ['1', '0'])).toBe(false);
+    expect(isAllowedBillable({ ...definition, multiple: true }, ['1', '0'])).toBe(true);
+  });
+});

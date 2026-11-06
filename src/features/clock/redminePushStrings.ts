@@ -35,15 +35,17 @@ const FAILURE_TEXT: Record<string, string> = {
     'The rounding for this Redmine server changed since you opened this. Nothing was sent: close it and open it again to review the new hours',
   'billable-changed':
     'Billable status changed in Redmine since you opened this. Nothing was sent: close it and open it again to review the new value',
+  'billable-required': 'Choose a Billable status: Redmine requires one',
+  'invalid-billable': 'Redmine does not offer that Billable status. Choose another',
 };
 
 /**
- * Billable is copied from an entry that already has it (#686). With none to
- * copy, Redmine refuses the entry; the way out is one Billable entry made in
- * Redmine itself, or an administrator who can sort out the field.
+ * Billable is picked from Redmine's own choices, which only an administrator's
+ * key can read (#786); until one has been read, it is copied from an entry that
+ * already has it (#686). With neither, Redmine refuses the entry.
  */
 const BILLABLE_REQUIRED_HINT =
-  'Redmine requires a Billable status on every time entry, and TimeHuddle has none to copy yet. Log one time entry with Billable status set in Redmine, then send again. If that does not help, contact your Redmine administrator.';
+  "Redmine requires a Billable status on every time entry, and TimeHuddle can't read its choices yet: only a Redmine administrator's key can. Ask one to connect their key in TimeHuddle, or log one time entry with Billable status set in Redmine, then send again.";
 
 /**
  * Redmine messages whose wording hides the fix, keyed by their English text.
@@ -117,6 +119,8 @@ export function billableValueLabel(value: string | string[]): string {
 export const entryCardText = {
   activity: 'Activity',
   billable: 'Billable',
+  billablePlaceholder: 'Choose a status',
+  billableNeeded: 'Choose a Billable status for every entry: Redmine requires one.',
   yes: 'Yes',
   no: 'No',
   comment: 'Comment',

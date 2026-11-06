@@ -39,6 +39,7 @@ import {
   type UnsentRedmineTime,
 } from '../../lib/api';
 import { RedmineEntryCard, RedmineEntryField } from '../clock/RedmineEntryCard';
+import { billableMissing } from '../clock/redmineBillable';
 import {
   BLOCKED_TEXT,
   REDMINE_COMMENT_MAX_LENGTH,
@@ -77,13 +78,15 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   // Why the server will not send this entry (its project allows no activity,
   // or the issue could not be read), when it said so.
   const blockedReason = row?.blockedReason ?? null;
+  const [activityId, setActivityId] = useState<number | null>(null);
+  // The Billable status picked; undefined while the default copied from Redmine stands.
+  const [billableValue, setBillableValue] = useState<string | string[]>();
   // Not before the read has answered: a sent entry is permanent, so the
   // activity it goes under is shown first. Not at all for a blocked entry,
-  // which the server would only refuse.
-  const canSend = activitiesRead && !blockedReason;
+  // which the server would only refuse, nor before a required Billable status is picked.
+  const canSend = activitiesRead && !blockedReason && !billableMissing(row, billableValue);
   const canSendRef = useRef(canSend);
   canSendRef.current = canSend;
-  const [activityId, setActivityId] = useState<number | null>(null);
   const [decimalHours, setDecimalHours] = useState(false);
 
   const issue = timerLabel('redmine', time.ticketId);
@@ -136,6 +139,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         // if it moved since. When the preview failed nothing was shown, so a value
         // the server finds on its own is refused, never sent unseen.
         billable: row?.billable ?? null,
+        ...(billableValue !== undefined ? { billableValue } : {}),
         // The hours shown, read or from the stop: the server refuses them if they moved since.
         hours,
       });
@@ -155,6 +159,19 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         outcome.reason === 'hours-changed' ? text.redmineHoursChanged : text.redmineBillableChanged,
       );
       setRereads((count) => count + 1);
+      if (outcome.reason === 'billable-changed') setBillableValue(undefined);
+      busyRef.current = false;
+      setSending(false);
+      return;
+    }
+
+    // A Billable status Redmine refused or requires: stay open, to pick another.
+    if (
+      outcome.reason === 'billable-required' ||
+      outcome.reason === 'invalid-billable' ||
+      (outcome.reason === 'rejected-by-redmine' && billableValue !== undefined)
+    ) {
+      setError(failureText(outcome));
       busyRef.current = false;
       setSending(false);
       return;
@@ -220,6 +237,10 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             decimalHours={decimalHours}
             onToggleHours={() => setDecimalHours((on) => !on)}
             billable={row?.billable}
+            billableField={row?.billableField}
+            billableValue={billableValue}
+            onBillableChange={setBillableValue}
+            disabled={sending || !activitiesRead}
             rounding={row?.rounding}
             runSeconds={row?.runSeconds}
             // One entry, and the dialog frames it already.

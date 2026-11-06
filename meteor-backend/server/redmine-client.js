@@ -484,6 +484,15 @@ export async function getIssue(account, issueId) {
   return data?.issue ?? null;
 }
 
+/**
+ * The instance's custom fields via `GET /custom_fields.json`, or null when the
+ * key may not read them: Redmine allows that to administrators only.
+ */
+export async function listCustomFields(account) {
+  const data = await requestOrNull('/custom_fields.json', account);
+  return data ? (data.custom_fields ?? []) : null;
+}
+
 /** A GET whose 404 or 403 means "not there for this caller" rather than a failure. */
 export async function requestOrNull(path, account) {
   try {

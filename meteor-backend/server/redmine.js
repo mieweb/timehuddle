@@ -53,7 +53,15 @@ import {
   getActivitiesForUser,
   pickDefaultActivity,
 } from './redmine-activities';
-import { billableByIssue, isBillableLookupIncomplete, sameBillable } from './redmine-billable';
+import {
+  billableByIssue,
+  hasValue,
+  isAllowedBillable,
+  isBillableLookupIncomplete,
+  isBillableValue,
+  sameBillable,
+} from './redmine-billable';
+import { billableDefinition } from './redmine-billable-field';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -395,16 +403,24 @@ function requireComment(comment) {
 /**
  * The Billable field the user was shown before confirming: `null` for none,
  * `undefined` when the caller did not say (nothing is checked then). Only its
- * id and value are read; what is sent is always the server's own lookup.
+ * id and value are read; an explicit value edit is kept separate from this snapshot.
  */
 function requireShownBillable(shown) {
   if (shown == null) return shown;
-  const validValue = (value) =>
-    typeof value === 'string' || (Array.isArray(value) && value.every((v) => typeof v === 'string'));
-  if (!Number.isInteger(shown.id) || !validValue(shown.value)) {
+  if (!Number.isInteger(shown.id) || !isBillableValue(shown.value)) {
     throw new Meteor.Error('bad-request', 'The Billable value must be an id and a value.');
   }
   return { id: shown.id, value: shown.value };
+}
+
+function requireBillableValue(value) {
+  if (value !== undefined && !isBillableValue(value)) {
+    throw new Meteor.Error(
+      'bad-request',
+      'The Billable status must be text or a list of text values.',
+    );
+  }
+  return value;
 }
 
 /**
@@ -419,9 +435,39 @@ function hoursChanged(row, shownHours) {
   return Math.abs(row.hours - shownHours) > 0.001;
 }
 
-/** True when the row's Billable is no longer what the user was shown. */
-function billableChanged(row, shown) {
-  return shown !== undefined && !sameBillable(shown, row.billable);
+/**
+ * True when the row's Billable is no longer what the user was shown. Only a
+ * default left as it was is checked: a value the user picked is theirs.
+ */
+function billableChanged(row, shown, value) {
+  return value === undefined && shown !== undefined && !sameBillable(shown, row.billable);
+}
+
+/**
+ * The copied Billable value to start the dropdown on, or null. Only one of the
+ * definition's own choices on the same field: Redmine may hold an older field
+ * under a Billable name, whose value the current field would refuse.
+ */
+function defaultBillable(copied, definition) {
+  if (!copied || !definition) return copied;
+  return copied.id === definition.id && isAllowedBillable(definition, copied.value) ? copied : null;
+}
+
+/**
+ * The Billable custom field an entry goes with: the value picked, else the
+ * row's default. A `reason` instead when it cannot go: a value Redmine does not
+ * offer (`invalid-billable`), or none where Redmine requires one
+ * (`billable-required`), so nothing is sent only to be refused.
+ */
+function chosenBillable(row, value) {
+  const definition = row.billableField;
+  const id = definition?.id ?? row.billable?.id ?? null;
+  if (value !== undefined && (id == null || (definition && !isAllowedBillable(definition, value)))) {
+    return { reason: 'invalid-billable' };
+  }
+  const chosen = value ?? row.billable?.value ?? null;
+  if (definition?.required && !hasValue(chosen)) return { reason: 'billable-required' };
+  return { customFields: id != null && hasValue(chosen) ? [{ id, value: chosen }] : [] };
 }
 
 /**
@@ -447,6 +493,9 @@ async function buildPreviewRows(userId, account, { only } = {}) {
   // reads neither the user's other days nor their issues from Redmine.
   const unsynced = await unsentTicketDays(userId, account, only);
   if (!unsynced.length) return [];
+
+  // Without a definition the row has no dropdown, and its copied value goes as before.
+  const billableField = await billableDefinition(userId, account).catch(() => null);
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
 
@@ -480,7 +529,8 @@ async function buildPreviewRows(userId, account, { only } = {}) {
           subject: issue.subject ?? '',
           trackerName: issue.tracker?.name ?? null,
           projectId: issue.project?.id ?? null,
-          billable: billable.get(String(issue.id)) ?? null,
+          billable: defaultBillable(billable.get(String(issue.id)) ?? null, billableField),
+          billableField,
         },
       ]),
     );
@@ -522,7 +572,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
-async function pushOneEntry(userId, account, row, activityId, comment) {
+async function pushOneEntry(userId, account, row, activityId, comment, customFields) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
 
   let created;
@@ -533,7 +583,7 @@ async function pushOneEntry(userId, account, row, activityId, comment) {
       activityId,
       spentOn: row.date,
       comments: comment || PUSH_COMMENT,
-      customFields: row.billable ? [{ id: row.billable.id, value: row.billable.value }] : [],
+      customFields,
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a
@@ -748,6 +798,7 @@ Meteor.methods({
     for (const entry of entries) {
       requireComment(entry?.comment);
       requireShownBillable(entry?.billable);
+      requireBillableValue(entry?.billableValue);
     }
 
     const account = await requireRedmineAccount(userId);
@@ -792,6 +843,7 @@ Meteor.methods({
     comment,
     activityId,
     billable,
+    billableValue,
     hours,
   } = {}) {
     const { userId } = await requireIdentity(this);
@@ -802,6 +854,7 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'The activity must be an id.');
     }
     const shownBillable = requireShownBillable(billable);
+    requireBillableValue(billableValue);
     const account = await requireRedmineAccount(userId);
 
     return withPushLock(userId, async (stillHeld) => {
@@ -810,7 +863,7 @@ Meteor.methods({
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
       // Billable is read again here, and a sent entry is permanent: a value that
       // moved since the user confirmed it needs confirming again.
-      if (billableChanged(row, shownBillable)) {
+      if (billableChanged(row, shownBillable, billableValue)) {
         return { ticketId, date, ok: false, reason: 'billable-changed' };
       }
       // Likewise the hours, which the server's rounding can move.
@@ -818,13 +871,22 @@ Meteor.methods({
 
       const activity = chosenActivity(row, activityId);
       if (!activity) return { ticketId, date, ok: false, reason: 'invalid-activity' };
+      const billableChoice = chosenBillable(row, billableValue);
+      if (billableChoice.reason) return { ticketId, date, ok: false, reason: billableChoice.reason };
 
       // Renewed right before the write, as `push` does per entry: reading the
       // issue from Redmine can take long enough for the lock to go stale, and
       // losing it means another send may be writing this same time.
       if (!(await stillHeld())) return { ticketId, date, ok: false, reason: 'push-interrupted' };
 
-      const outcome = await pushOneEntry(userId, account, row, activity.id, text);
+      const outcome = await pushOneEntry(
+        userId,
+        account,
+        row,
+        activity.id,
+        text,
+        billableChoice.customFields,
+      );
       // As in `push`: logged time is one of the relevant list's signals.
       bustUserCaches(userId);
       return { ...outcome, activityName: activity.name };
@@ -866,7 +928,7 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     }
 
     // As in `sendTicketDay`: a Billable value that moved since it was shown.
-    if (billableChanged(row, requireShownBillable(requested.billable))) {
+    if (billableChanged(row, requireShownBillable(requested.billable), requested.billableValue)) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'billable-changed' });
       continue;
     }
@@ -881,6 +943,11 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
       continue;
     }
+    const billableChoice = chosenBillable(row, requested.billableValue);
+    if (billableChoice.reason) {
+      results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: billableChoice.reason });
+      continue;
+    }
 
     // Renewed before every write, so the lock cannot go stale under a long
     // push. Losing it means another push took over: stop, rather than risk
@@ -891,7 +958,14 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     }
 
     results.push(
-      await pushOneEntry(userId, account, row, activity.id, requireComment(requested.comment)),
+      await pushOneEntry(
+        userId,
+        account,
+        row,
+        activity.id,
+        requireComment(requested.comment),
+        billableChoice.customFields,
+      ),
     );
   }
 

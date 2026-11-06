@@ -5,15 +5,15 @@
  * (one card per ticket-day) and the prompt shown when a ticket timer ends (one
  * entry, so `bare`: the dialog is already its frame). It states what the entry
  * is — the issue, in full, with its hours and day — and its children are what
- * can still be decided about it: the activity, the comment, and in the push
- * dialog whether to send it at all. Each of those sits in a
- * `RedmineEntryField`, which names it.
+ * can still be decided about it: the Billable status, the activity, the
+ * comment, and in the push dialog whether to send it at all. Each of those sits
+ * in a `RedmineEntryField`, which names it.
  */
-import { Accordion, Button, Card, Text } from '@mieweb/ui';
+import { Accordion, Button, Card, Select, Text } from '@mieweb/ui';
 import { ArrowLeftRight } from 'lucide-react';
 import React from 'react';
 
-import type { RedmineBillable } from '@lib/api';
+import type { RedmineBillable, RedmineBillableField } from '@lib/api';
 import { formatTimer } from '@lib/timeUtils';
 
 import {
@@ -34,8 +34,14 @@ export interface RedmineEntryCardProps {
   decimalHours: boolean;
   /** A press on the hours switches between the two. */
   onToggleHours: () => void;
-  /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
+  /** The Billable value copied from recent entries: the default. Null or absent for none. */
   billable?: RedmineBillable | null;
+  /** Redmine's definition of the field. With `onBillableChange`, it is picked from a dropdown. */
+  billableField?: RedmineBillableField | null;
+  /** The value picked; absent while the default stands. */
+  billableValue?: RedmineBillable['value'];
+  onBillableChange?: (value: RedmineBillable['value']) => void;
+  disabled?: boolean;
   /** How `hours` was rounded up from the time worked; null or absent when exact. */
   rounding?: { step: number; exactHours: number } | null;
   /** The seconds of each timer run `hours` adds up; a single run needs no mention. */
@@ -53,6 +59,10 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
+  billableField = null,
+  billableValue = billable?.value,
+  onBillableChange,
+  disabled = false,
   rounding = null,
   runSeconds = [],
   bare = false,
@@ -92,16 +102,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
       </div>
       {/* Sessions lists each run, so show why this is one entry. */}
       {runSeconds.length > 1 && <RedmineEntryRuns runSeconds={runSeconds} />}
-      {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
-      {billable && (
-        <RedmineEntryField label={text.billable}>
-          <Text size="sm" className="redmine-entry-billable">
-            {/* The field's label is for the eye only; this names it for a screen reader. */}
-            <span className="sr-only">{billable.name}: </span>
-            {billableValueLabel(billable.value)}
-          </Text>
-        </RedmineEntryField>
-      )}
+      {/* About the hours above, so beside them, before what is still to decide. */}
       {rounding && (
         <RedmineEntryField label={text.rounding}>
           <Text size="sm" className="redmine-entry-rounding">
@@ -114,6 +115,35 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           </Text>
         </RedmineEntryField>
       )}
+      {billableField && onBillableChange ? (
+        <RedmineEntryField label={text.billable}>
+          <BillableSelect
+            field={billableField}
+            value={billableValue}
+            onChange={onBillableChange}
+            disabled={disabled}
+          />
+        </RedmineEntryField>
+      ) : (
+        // Stated, not chosen: copied with no choices to pick from, or what was sent.
+        billableValue !== undefined && (
+          <RedmineEntryField label={text.billable}>
+            <Text size="sm" className="redmine-entry-billable">
+              {/* The field's label is for the eye only; this names it for a screen reader. */}
+              <span className="sr-only">{billableField?.name ?? billable?.name}: </span>
+              {billableField
+                ? [billableValue]
+                    .flat()
+                    .map(
+                      (value) =>
+                        billableField.options.find((o) => o.value === value)?.label ?? value,
+                    )
+                    .join(', ')
+                : billableValueLabel(billableValue)}
+            </Text>
+          </RedmineEntryField>
+        )
+      )}
       {children}
     </>
   );
@@ -124,6 +154,30 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
     <Card padding="sm" className="redmine-entry-card flex flex-col gap-2 shadow-none">
       {content}
     </Card>
+  );
+};
+
+/** The Billable status as a dropdown of Redmine's own choices, one or several. */
+const BillableSelect: React.FC<{
+  field: RedmineBillableField;
+  value: RedmineBillable['value'] | undefined;
+  onChange: (value: RedmineBillable['value']) => void;
+  disabled: boolean;
+}> = ({ field, value, onChange, disabled }) => {
+  const shared = {
+    label: field.name,
+    hideLabel: true,
+    size: 'sm' as const,
+    options: field.options,
+    placeholder: text.billablePlaceholder,
+    required: field.required,
+    disabled,
+    className: 'redmine-entry-billable-select',
+  };
+  return field.multiple ? (
+    <Select {...shared} multiple value={[value ?? []].flat()} onValueChange={onChange} />
+  ) : (
+    <Select {...shared} value={[value].flat()[0] ?? ''} onValueChange={onChange} />
   );
 };
 

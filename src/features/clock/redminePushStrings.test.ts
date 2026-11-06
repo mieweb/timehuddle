@@ -12,9 +12,18 @@ describe('failureText', () => {
   it('tells a user Redmine refused for a missing Billable what to do, whichever name the field has', () => {
     for (const message of ['Billable status cannot be blank', 'Billable cannot be blank']) {
       const text = failureText({ reason: 'rejected-by-redmine', detail: [message] } as never);
-      expect(text).toContain('Log one time entry with Billable status set in Redmine');
-      expect(text).toContain('contact your Redmine administrator');
+      expect(text).toContain("only a Redmine administrator's key can");
+      expect(text).toContain('log one time entry with Billable status set in Redmine');
     }
+  });
+
+  it('asks for a Billable status, rather than saying Redmine refused, when none was picked', () => {
+    expect(failureText({ ok: false, reason: 'billable-required' } as never)).toBe(
+      'Choose a Billable status: Redmine requires one',
+    );
+    expect(failureText({ ok: false, reason: 'invalid-billable' } as never)).toContain(
+      'Choose another',
+    );
   });
 
   it('says nothing was sent when Billable changed since it was shown', () => {

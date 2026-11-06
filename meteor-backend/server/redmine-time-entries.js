@@ -193,7 +193,7 @@ export function sendableForTicketDay(unsent, ticketId, date) {
  * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number, minutes?: number, runSeconds?: number[]}>} totals
  *   `seconds` is the unsent time only, and `minutes` what to send for it — see
  *   `unsentTotals`. Without `minutes`, the seconds are rounded as they stand.
- * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null}>} issuesById
+ * @param {Map<string, {subject: string, trackerName: string|null, projectId?: number|null, billable?: {id: number, name: string, value: string|string[]}|null, billableField?: object|null}>} issuesById
  * @param {(issue: {trackerName: string|null}|null) => {activityId: number|null, activityName: string|null, reason: string, options?: Array<{id: number, name: string}>}} resolveActivity
  *   the activity for one issue, and the `options` its project allows. An
  *   unresolved issue is passed as null.
@@ -222,8 +222,10 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         activityReason: activity.reason,
         // What the row may be sent under. `push` checks an override against it.
         activityOptions: activity.options ?? [],
-        // The Billable field the entry is sent with, or null for none (#686).
+        // The Billable value the entry is sent with by default, or null for none (#686).
         billable: issue?.billable ?? null,
+        // Redmine's definition of the field, for the dropdown; null when unknown (#786).
+        billableField: issue?.billableField ?? null,
         // The step the hours were rounded up to, and the exact hours; null for exact.
         rounding: total.rounding
           ? { step: total.rounding.step, exactHours: minutesToHours(total.rounding.exactMinutes) }

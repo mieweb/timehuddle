@@ -501,6 +501,7 @@ describe('TicketStartProvider', () => {
       });
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
+      // Without Redmine's choices, the copied value is stated, not picked.
       expect(await screen.findByText('Yes')).toBeTruthy();
 
       fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -513,6 +514,99 @@ describe('TicketStartProvider', () => {
           hours: 0.52,
         }),
       );
+    });
+
+    // Redmine's definition, as an administrator's key reads it.
+    const billableField = {
+      id: 7,
+      name: 'Billable status',
+      required: true,
+      multiple: false,
+      options: ['Billable', 'Non-billable', 'Internal Meeting'].map((value) => ({
+        value,
+        label: value,
+      })),
+    };
+    const billableSelect = () => screen.findByRole('combobox', { name: /Billable status/ });
+    const pickBillable = async (label: string) => {
+      fireEvent.click(await billableSelect());
+      fireEvent.click(screen.getByRole('option', { name: label }));
+    };
+
+    it('sends the Billable status picked, beside the default it was shown', async () => {
+      const base = previewWith(0.52);
+      const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable, billableField }],
+      });
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      expect((await billableSelect()).textContent).toContain('Internal Meeting');
+      await pickBillable('Billable');
+
+      fireEvent.click(sendButton());
+
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: 9,
+          billable,
+          billableValue: 'Billable',
+          hours: 0.52,
+        }),
+      );
+    });
+
+    it('holds Send until a required Billable status is picked', async () => {
+      const base = previewWith(0.52);
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable: null, billableField }],
+      });
+      await stopIssue({ settled: false });
+      await billableSelect();
+      expect(sendButton().disabled).toBe(true);
+
+      await pickBillable('Non-billable');
+      await waitFor(() => expect(sendButton().disabled).toBe(false));
+    });
+
+    it('keeps the picked status and comment when Redmine refuses it, so it can be corrected', async () => {
+      const base = previewWith(0.52);
+      const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
+      mockPreview.mockResolvedValue({
+        ...base,
+        rows: [{ ...base.rows[0], billable, billableField }],
+      });
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'invalid-billable',
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      await pickBillable('Non-billable');
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.click(sendButton());
+
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      expect((await billableSelect()).textContent).toContain('Non-billable');
+      expect((comment() as HTMLInputElement).value).toBe('Fixed the clock');
+      expect(toast.error).not.toHaveBeenCalled();
+      await pickBillable('Billable');
+      fireEvent.click(sendButton());
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend).toHaveBeenLastCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: 9,
+        billable,
+        billableValue: 'Billable',
+        hours: 0.52,
+      });
     });
 
     it('says why an entry cannot be sent, and does not offer to send it', async () => {
