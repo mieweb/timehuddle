@@ -7,8 +7,9 @@ name: Deploy Doctor
 # Two jobs, so the agent never holds a token that can write code:
 #   diagnose — Claude, with a read-only contents token. It edits the checkout and
 #              describes the fix; a trusted step saves that as a patch.
-#   publish  — no AI. Applies the patch to a fresh deploy-doctor/run-<id> branch and
-#              opens the PR. A patch touching .github/workflows/ is posted on the
+#   publish  — no AI. Applies the patch to the commit Claude diagnosed, on a fresh
+#              deploy-doctor/run-<id> branch, and opens the PR against the branch
+#              that failed to deploy (main, development, prod or master). A patch touching .github/workflows/ is posted on the
 #              issue for a person instead: GITHUB_TOKEN cannot push workflow files.
 #
 # Run the same diagnosis locally:  bash scripts/deploy-doctor.sh <run-id>
@@ -46,12 +47,33 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
+    outputs:
+      base: ${{ steps.deploy_branch.outputs.base }}
+      sha: ${{ steps.pinned.outputs.sha }}
     steps:
+      # Fix the branch that failed to deploy: main (main.yml) or development, prod
+      # or master (ci.yml). Anything else is refused rather than checked out.
+      - name: Resolve deploy branch
+        id: deploy_branch
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          case "$HEAD_BRANCH" in
+            main | development | prod | master) echo "base=$HEAD_BRANCH" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Not a deploy branch: $HEAD_BRANCH"; exit 1 ;;
+          esac
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ steps.deploy_branch.outputs.base }}
           fetch-depth: 0 # the collector diffs against the last good deploy
           persist-credentials: false
+
+      # Recorded before Claude runs: the patch is diffed against this commit and
+      # the publish job applies it to the same commit.
+      - name: Pin diagnosed commit
+        id: pinned
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
@@ -87,12 +109,14 @@ jobs:
 
       - name: Save proposed fix
         if: always()
+        env:
+          BASE_SHA: ${{ steps.pinned.outputs.sha }}
         run: |
           mkdir -p "$OUT"
           mv "$OUT" "$RUNNER_TEMP/doctor"
           git add -A
-          if ! git diff --cached --quiet; then
-            git diff --cached --binary > "$RUNNER_TEMP/doctor/fix.patch"
+          if ! git diff --cached --quiet "$BASE_SHA"; then
+            git diff --cached --binary "$BASE_SHA" > "$RUNNER_TEMP/doctor/fix.patch"
           fi
           ls -la "$RUNNER_TEMP/doctor"
 
@@ -140,13 +164,21 @@ jobs:
         if: steps.fix.outputs.workflow == 'true'
         env:
           ISSUE: ${{ steps.fix.outputs.issue }}
+          BASE: ${{ needs.diagnose.outputs.base }}
+          BASE_SHA: ${{ needs.diagnose.outputs.sha }}
         run: |
+          patch="$RUNNER_TEMP/doctor/fix.patch"
+          artifact="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID#artifacts"
           {
             echo "The fix changes \`.github/workflows/\`, which GitHub's built-in token cannot push."
-            echo "Apply it locally with \`git apply\` and open the PR yourself:"
+            echo "Download \`fix.patch\` from the [deploy-doctor-$RUN_ID artifact]($artifact), apply it"
+            echo "on \`$BASE\` (made against \`${BASE_SHA:0:8}\`) with \`git apply\`, and open the PR yourself."
             echo
+            if [ "$(wc -c < "$patch")" -gt 60000 ]; then
+              echo "**Preview only — truncated. Apply the artifact, not this.**"
+            fi
             echo '```diff'
-            head -c 60000 "$RUNNER_TEMP/doctor/fix.patch"
+            head -c 60000 "$patch"
             echo '```'
           } > comment.md
           gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file comment.md
@@ -154,12 +186,13 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.fix.outputs.present == 'true' && steps.fix.outputs.workflow != 'true'
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ needs.diagnose.outputs.sha }} # the commit the patch was made against
 
       - name: Push branch and open PR
         if: steps.fix.outputs.present == 'true' && steps.fix.outputs.workflow != 'true'
         env:
           ISSUE: ${{ steps.fix.outputs.issue }}
+          BASE: ${{ needs.diagnose.outputs.base }}
         run: |
           D="$RUNNER_TEMP/doctor"
           git apply --index "$D/fix.patch"
@@ -170,6 +203,6 @@ jobs:
           git commit -q -m "$title" -m "Proposed by the deploy doctor for run $RUN_ID (#$ISSUE)."
           git push origin "HEAD:refs/heads/$BRANCH"
           body="$D/pr-body.md"; [ -s "$body" ] || { echo "Fixes the deploy failure in #$ISSUE." > pr-body.md; body=pr-body.md; }
-          url=$(gh pr create --base "${{ github.event.repository.default_branch }}" \
+          url=$(gh pr create --base "$BASE" \
             --head "$BRANCH" --title "$title" --body-file "$body")
           gh issue comment "$ISSUE" --body "Fix PR: $url"
