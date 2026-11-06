@@ -237,6 +237,54 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
+  test('a grouping picked while a post sends is kept when it lands (#854)', async ({ page }) => {
+    const olderToken = uniqueToken('older-shift');
+    const token = uniqueToken('in-flight');
+    const olderStart = Date.now() - 3 * HOUR;
+    const olderShift = await seedClockSession({
+      userId,
+      teamId,
+      startTime: olderStart,
+      endTime: olderStart + HOUR,
+    });
+    const liveShift = await seedClockSession({
+      userId,
+      teamId,
+      startTime: Date.now() - HOUR,
+      endTime: null,
+    });
+    let release = () => {};
+    try {
+      await seedPost(page, { teamId, text: olderToken, clockEventId: olderShift });
+      await page.goto('/app/huddle');
+      await groupInboxBy(page, 'Session');
+      // Sent from an older shift's thread, so it has somewhere else to land.
+      await openPostInInbox(page, olderToken);
+      await inboxSearch(page).fill('');
+
+      // Hold the create until the grouping has changed. Sent from Session while
+      // clocked in, it would otherwise land in (and switch back to) the live shift.
+      const held = new Promise<void>((resolve) => (release = resolve));
+      await page.route('**/api/huddle_createPost', async (route) => {
+        await held;
+        await route.continue();
+      });
+      await postFromHuddle(page, token);
+      await groupInboxBy(page, 'Person');
+      release();
+
+      await expect(inboxMessage(page, token).first()).toBeVisible({ timeout: 20000 });
+      await page.waitForTimeout(2000); // past the post's own feed refresh
+      await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
+        'Group by: Person',
+      );
+    } finally {
+      release();
+      await page.unroute('**/api/huddle_createPost');
+      await Promise.all([olderShift, liveShift].map((id) => deleteClockSession(id)));
+    }
+  });
+
   test('Session with only off-the-clock posts still has a message box (#854)', async ({ page }) => {
     // A team of its own, so no other test's shifts are in its Session view.
     await createTestTeam(page, 'EmptySession');

@@ -966,6 +966,11 @@ export default function Huddle() {
   // settling, not the reader moving.
   const scopeKey = `${contextTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
+  // The grouping on screen now, for a send that finishes after it changed.
+  const threadByRef = useRef(threadBy);
+  useEffect(() => {
+    threadByRef.current = threadBy;
+  }, [threadBy]);
   useEffect(() => {
     if (!teamsReady) {
       scopeKeyRef.current = scopeKey;
@@ -1082,6 +1087,8 @@ export default function Huddle() {
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
+    // Stamped once: the post's Day thread, even if midnight passes while it sends.
+    const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
@@ -1092,7 +1099,6 @@ export default function Huddle() {
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
-      const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
@@ -1125,7 +1131,7 @@ export default function Huddle() {
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
     // it's posted, so a failed send restores its draft where it was written.
-    const dayId = dayConversationId(toDateString(sendSchedule?.deliverAt ?? new Date()));
+    const dayId = dayConversationId(postDate);
     if (
       threadBy === 'day' &&
       dayId !== conversationId &&
@@ -1144,10 +1150,12 @@ export default function Huddle() {
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
-    // Not if the reader moved to another team or view meanwhile: the id is the old scope's.
+    // Not if the reader moved to another team, view or grouping meanwhile:
+    // the id is the old scope's, and opening it would undo their choice.
     const openSessionLanding = () => {
       if (!sessionLanding || sessionLanding === conversationId) return;
-      if (scopeKeyRef.current === scopeKey) openConversation(sessionLanding);
+      if (scopeKeyRef.current !== scopeKey || threadByRef.current !== threadBy) return;
+      openConversation(sessionLanding);
     };
     if (scope === 'me') {
       await refreshMyPosts();
