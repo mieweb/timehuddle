@@ -169,7 +169,12 @@ export interface SourceDefinition {
   connect: {
     auth: 'none' | 'header' | 'bearer';
     header?: string;
+    /** What a member enters to connect: one secret key for now. */
     fields?: { id: string; label: string; secret?: boolean }[];
+    /** Connected in one click instead, through the deployment's OAuth app. */
+    oauth?: boolean;
+    /** Whose key it is: the source's own "who am I", and where its id and login are. */
+    check?: { path: string; item?: string; id: string; login?: string };
   };
   /**
    * How an issue's address and ID look. Only these keys: an ID is plain text,
@@ -235,6 +240,9 @@ export interface SourceServer {
   /** How time entries sent to this server are rounded up; absent for exact. */
   rounding?: 'exact' | 'up5' | 'up10' | 'up15';
 }
+
+/** The kinds an owner can register a server as; GitHub is built in, so isn't one. */
+export declare const SERVER_TYPES: readonly string[];
 
 /** The outside ID for `url` (#689), e.g. `timehuddle-223` or `PM-233`, or null. */
 export declare function isOutsideSource(kind: string): boolean;

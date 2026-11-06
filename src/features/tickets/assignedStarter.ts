@@ -53,10 +53,17 @@ export async function collectAssignedOffBoard(
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 export const starterText = {
-  getAssigned: 'Get issues assigned to me',
   getting: 'Adding issues…',
-  noneAssigned: 'Nothing is assigned to you in Redmine right now.',
-  fetchFailed: "Couldn't get your issues from Redmine. Try again in a moment.",
+  bringFrom: 'Bring your recent tickets from',
+  sourcesLabel: 'Sources to bring your recent tickets from',
+  pickPlaceholder: 'Choose sources',
+  allSources: 'All sources',
+  fetch: 'Fetch',
+  fetchLabel: 'Fetch your recent assigned tickets from the chosen sources onto My Board',
+  pickNone: 'Choose at least one source to bring your tickets from.',
+  noneAssigned: 'Nothing is assigned to you on the sources you chose.',
+  fetchFailed: "Couldn't get your issues. Try again in a moment.",
+  someFailed: (sources: string[]) => `Couldn't reach ${sources.join(', ')}. Try again in a moment.`,
   moreAssigned: (count: number) =>
     `${count} more ${plural(count, 'issue', 'issues')} assigned to you in Redmine.`,
   /** After a reload, when the count from the last fill is gone. */

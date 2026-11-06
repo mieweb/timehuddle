@@ -51,6 +51,7 @@ import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
 import { MyBoard, Teams, Tickets, Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
+import { hostOf } from './ticket-ids';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 import { redminePrefixesFor } from './ticket-search';
 
@@ -211,10 +212,11 @@ async function boardRedmineIssueIds(userId) {
 }
 
 /**
- * The Redmine issues that tickets the caller can see are linked to. Fetched
- * with the caller's own key, so each viewer sees a linked issue as Redmine
- * shows it to them, and not at all when Redmine would not. Same visibility as
- * the `tickets.byTeam` publication.
+ * The Redmine issues that tickets the caller can see are linked to, on
+ * `account`'s server: another server's issue of the same number is a different
+ * issue. Fetched with the caller's own key, so each viewer sees a linked issue
+ * as Redmine shows it to them, and not at all when Redmine would not. Same
+ * visibility as the `tickets.byTeam` publication.
  */
 async function linkedRedmineIssueIds(userId, account) {
   if (!onDefaultRedmine(account)) return [];
@@ -228,6 +230,8 @@ async function linkedRedmineIssueIds(userId, account) {
       teamId: { $in: teams.map((team) => team._id.toHexString()) },
       status: { $ne: 'deleted' },
       'linkedIssue.source': REDMINE,
+      // A link saved before servers were stored is on the main server.
+      'linkedIssue.host': { $in: [null, hostOf(account.baseUrl)] },
     },
     { fields: { linkedIssue: 1 } },
   ).fetchAsync();

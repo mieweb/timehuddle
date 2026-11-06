@@ -17,6 +17,7 @@ import {
   readPath,
   statusChoices,
   toRecord,
+  whoseKey,
   writeRecord,
 } from '../server/sources/engine';
 
@@ -58,6 +59,25 @@ const hooks = {
   redmineIsClosed: (status: { is_closed?: boolean }) => status?.is_closed === true,
   redmineJournals: () => [],
 };
+
+describe('whoseKey', () => {
+  it("asks each source's own who-am-I, as its definition says", async () => {
+    const redmineAsk = vi.fn().mockResolvedValue({ user: { id: 42, login: 'jdoe' } });
+    const githubAsk = vi.fn().mockResolvedValue({ id: 7, login: 'octocat' });
+    expect(await whoseKey(redmine, redmineAsk)).toEqual({ id: 42, login: 'jdoe' });
+    expect(await whoseKey(github, githubAsk)).toEqual({ id: 7, login: 'octocat' });
+    expect(redmineAsk).toHaveBeenCalledWith('/users/current.json');
+    expect(githubAsk).toHaveBeenCalledWith('/user');
+  });
+
+  it('is null when the source names no one for the key', async () => {
+    expect(await whoseKey(redmine, vi.fn().mockResolvedValue(null))).toBeNull();
+  });
+
+  it('refuses a source with no key check', async () => {
+    await expect(whoseKey(timehuddle, vi.fn())).rejects.toThrow(EngineError);
+  });
+});
 
 describe('readPath and fillTemplate', () => {
   it('reads a dotted path, and nothing past a missing step', () => {

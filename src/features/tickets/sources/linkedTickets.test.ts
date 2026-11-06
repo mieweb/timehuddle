@@ -109,6 +109,53 @@ describe('mergeLinked', () => {
     expect(mergeLinked([huddle('a'), orphan])).toEqual([huddle('a')]);
   });
 
+  it('never shows another server’s issue of the same number on a ticket', () => {
+    const onOther = huddle('a', { ...linkTo('13'), host: 'redmine1.example.com', ref: 'PM1-13' });
+    const onMain = huddle('b', { ...linkTo('13'), host: 'redmine0.example.com', ref: 'PM0-13' });
+    const [other, main] = mergeLinked([
+      onOther,
+      onMain,
+      redmine('13', {
+        ref: 'PM0-13',
+        externalUrl: 'https://redmine0.example.com/issues/13',
+        linkOnly: true,
+      }),
+    ]);
+    // Its own server's ID and its own status: redmine0's #13 is a different issue.
+    expect(other).toEqual(onOther);
+    expect(main.linked?.status).toEqual({ native: 'Resolved', isClosed: true });
+  });
+
+  it('shows the live status of an issue on another server, read for that server', () => {
+    const ticket = huddle('a', { ...linkTo('13'), host: 'redmine1.example.com', ref: 'PM1-13' });
+    const [merged] = mergeLinked(
+      [ticket],
+      [
+        {
+          source: 'redmine',
+          host: 'redmine1.example.com',
+          id: '13',
+          status: { id: '2', native: 'In Progress', isClosed: false },
+          assignees: [{ id: '5', name: 'Grace Oduya' }],
+        },
+        // The same number on the main server is a different issue.
+        {
+          source: 'redmine',
+          host: 'redmine0.example.com',
+          id: '13',
+          status: { native: 'Closed', isClosed: true },
+          assignees: [],
+        },
+      ],
+    );
+    expect(merged.status).toEqual({ native: 'In Progress', isClosed: false });
+    expect(merged.linked).toEqual({
+      ...ticket.linked,
+      status: { native: 'In Progress', isClosed: false },
+      assignee: { id: '5', name: 'Grace Oduya' },
+    });
+  });
+
   it('lets two tickets link to the same issue', () => {
     const merged = mergeLinked([
       huddle('a', linkTo('482')),

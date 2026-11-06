@@ -11,6 +11,11 @@ import { EngineError } from './engine';
 
 const MAX_RESULTS = 25;
 const MAX_SCOPES = 12;
+/** How far back "assigned to me" looks: an issue no one has touched since is not current work. */
+export const RECENT_DAYS = 8;
+/** How many accounts and organizations a member may pick to bring issues from. */
+export const MAX_OWNERS = 50;
+const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const MAX_REPO_PAGES = 5;
 const reposCache = createUserTtlCache(5 * 60 * 1000);
 const REPO_ID = /^([\w.-]+)-(\d+)$/;
@@ -29,6 +34,10 @@ export function withStatus(answer) {
       : { id: 'issue', name: 'Issue' },
   };
 }
+
+/** Who owns the issue's repo: `/issues` sends `repository`, search only its URL. */
+const repoOwnerOf = (item) =>
+  item.repository?.owner?.login ?? item.repository_url?.split('/').slice(-2)[0];
 
 const repoOf = (item) =>
   item.repository?.name ?? item.repository_url?.split('/').pop() ?? item.html_url?.split('/')[4];
@@ -54,11 +63,34 @@ export function toSlimIssue(item) {
 /**
  * Where a word search may look: the member, then the owners of the repos they
  * can reach, most recently active first. Search alone would cover all of public
- * GitHub. `user:` also matches an org.
+ * GitHub. `user:` also matches an org. With `picked` (the accounts the member
+ * chose in Settings → Sources), only those.
  */
-export function searchScopes(login, repos) {
-  const owners = repos.map((repo) => repo.owner?.login).filter(Boolean);
-  return [...new Set([login, ...owners])].slice(0, MAX_SCOPES).map((owner) => `user:${owner}`);
+export function searchScopes(login, repos, picked = null) {
+  const owners = ownersOf(login, repos).filter((owner) => isPicked(picked, owner));
+  return owners.slice(0, MAX_SCOPES).map((owner) => `user:${owner}`);
+}
+
+/** The member's own account, then each owner of a repo they can reach, once each. */
+export function ownersOf(login, repos) {
+  return [...new Set([login, ...repos.map((repo) => repo.owner?.login)].filter(Boolean))];
+}
+
+/** Whether `owner` is among the accounts picked; with none picked, every one is. */
+export function isPicked(picked, owner) {
+  if (!picked?.length) return true;
+  const name = String(owner ?? '').toLowerCase();
+  return picked.some((each) => each.toLowerCase() === name);
+}
+
+/** Picked accounts as stored: GitHub logins only, each once, or null for all. */
+export function cleanOwners(owners) {
+  if (owners == null) return null;
+  if (!Array.isArray(owners) || owners.length > MAX_OWNERS || !owners.every((o) => OWNER.test(o))) {
+    throw new EngineError('bad-request', 'Pick GitHub accounts or organizations by their login.');
+  }
+  const unique = [...new Set(owners)];
+  return unique.length ? unique : null;
 }
 
 /** What `query` asks for: `{ url }`, `{ repo, number }`, `{ words }`, or null to ask nothing. */
@@ -98,9 +130,18 @@ function reachableRepos(request, userId) {
   });
 }
 
-async function scopesFor(request, userId) {
+async function scopesFor(request, userId, owners) {
   const [me, repos] = await Promise.all([request('/user'), reachableRepos(request, userId)]);
-  return searchScopes(me.login, repos);
+  return searchScopes(me.login, repos, owners);
+}
+
+/**
+ * The accounts a member can bring issues from, for Settings → Sources: their
+ * own, then each organization or person whose repos they can reach.
+ */
+export async function githubOwners({ request, userId }) {
+  const [me, repos] = await Promise.all([request('/user'), reachableRepos(request, userId)]);
+  return ownersOf(me.login, repos).map((login) => ({ login, own: login === me.login }));
 }
 
 async function oneIssue(request, container, number) {
@@ -112,9 +153,11 @@ async function oneIssue(request, container, number) {
  * `repo-number` on every reachable repo of that name. When several share the
  * name, each result is labelled with its owner (`acme/pulse-223`) to tell them apart.
  */
-async function byRepoName(request, userId, repo, number) {
+async function byRepoName(request, userId, repo, number, owners) {
   const repos = await reachableRepos(request, userId);
-  const named = repos.filter((item) => item.name.toLowerCase() === repo.toLowerCase());
+  const named = repos.filter(
+    (item) => item.name.toLowerCase() === repo.toLowerCase() && isPicked(owners, item.owner?.login),
+  );
   const lists = await Promise.all(
     named.map(async (item) => {
       const issues = await oneIssue(request, item.full_name, number).catch(() => []);
@@ -126,8 +169,8 @@ async function byRepoName(request, userId, repo, number) {
   return lists.flat();
 }
 
-async function byWords(request, userId, words) {
-  const scopes = (await scopesFor(request, userId)).join(' ');
+async function byWords(request, userId, words, owners) {
+  const scopes = (await scopesFor(request, userId, owners)).join(' ');
   // GitHub asks for issues and pull requests separately.
   const pages = await Promise.all(
     ['is:issue', 'is:pull-request'].map((kind) => {
@@ -148,20 +191,35 @@ async function byWords(request, userId, words) {
 
 export const githubHooks = {
   /** What the search bar's text finds, on repos the member can reach. */
-  async githubSearch(query, { request, userId }) {
+  async githubSearch(query, { request, userId, owners }) {
     const asked = readQuery(query);
     if (!asked) return [];
+    // A pasted link is asked for as it is, whoever owns it.
     if (asked.container) return oneIssue(request, asked.container, asked.number);
-    if (asked.repo) return byRepoName(request, userId, asked.repo, asked.number);
-    return byWords(request, userId, asked.words);
+    if (asked.repo) return byRepoName(request, userId, asked.repo, asked.number, owners);
+    return byWords(request, userId, asked.words, owners);
   },
 
-  /** Open issues assigned to the member, for the search bar before they type. */
-  async githubAssigned({ request }) {
-    const items = await request(
-      `/issues?${new URLSearchParams({ filter: 'assigned', state: 'open', per_page: String(MAX_RESULTS) })}`,
-    );
-    return (items ?? []).map(toSlimIssue);
+  /**
+   * Open issues and pull requests assigned to the member and touched in the
+   * last `RECENT_DAYS`, newest first, for the search bar before they type and
+   * for filling an empty My Board. Only from the accounts they picked, if any.
+   */
+  async githubAssigned({ request, owners }, { now = Date.now() } = {}) {
+    const since = new Date(now - RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const params = new URLSearchParams({
+      filter: 'assigned',
+      state: 'open',
+      sort: 'updated',
+      since,
+      // A page wide enough that the picked accounts still fill a list.
+      per_page: '100',
+    });
+    const items = (await request(`/issues?${params}`)) ?? [];
+    return items
+      .filter((item) => isPicked(owners, repoOwnerOf(item)))
+      .slice(0, MAX_RESULTS)
+      .map(toSlimIssue);
   },
 
   /** An issue's comments, as the record's conversation. */

@@ -8,6 +8,8 @@ const sources = vi.hoisted(() => ({
   disconnect: vi.fn(),
   githubConnectUrl: vi.fn(),
   confirmGithub: vi.fn(),
+  githubOwners: vi.fn(),
+  setGithubOwners: vi.fn(),
 }));
 const redmine = vi.hoisted(() => ({ status: vi.fn(), connect: vi.fn(), disconnect: vi.fn() }));
 vi.mock('../../lib/api', () => ({ sourcesApi: sources, redmineApi: redmine }));
@@ -48,6 +50,7 @@ const other = {
 describe('SourcesCard', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    sources.githubOwners.mockResolvedValue({ owners: [] });
     redmine.status.mockResolvedValue(unlinked);
     sources.list.mockResolvedValue({ servers: [] });
     search.params = new URLSearchParams();
@@ -82,6 +85,29 @@ describe('SourcesCard', () => {
     expect(await screen.findByRole('button', { name: /Check your key on github/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Disconnect from github/ })).toBeTruthy();
     expect(screen.getByText('@octo')).toBeTruthy();
+  });
+
+  it('brings GitHub issues from the accounts picked, and from all of them with none picked', async () => {
+    sources.list.mockResolvedValue({
+      servers: [],
+      github: { ...GITHUB, connected: true, login: 'octo', owners: null },
+    });
+    sources.githubOwners.mockResolvedValue({
+      owners: [
+        { login: 'octo', own: true },
+        { login: 'acme', own: false },
+      ],
+    });
+    sources.setGithubOwners.mockResolvedValue({ owners: ['octo'] });
+    render(<SourcesCard />);
+
+    const select = await screen.findByRole('combobox', { name: /Bring issues from/ });
+    await waitFor(() => expect((select as HTMLButtonElement).disabled).toBe(false));
+    expect(select.textContent).toContain('All your accounts and organizations');
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole('option', { name: 'octo (you)' }));
+
+    await waitFor(() => expect(sources.setGithubOwners).toHaveBeenCalledWith(['octo']));
   });
 
   it('says when this TimeHuddle has no GitHub set up', async () => {

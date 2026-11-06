@@ -1,11 +1,22 @@
 /** What GitHub's definition can't say as config (#734 step 4). */
 import { describe, expect, it, vi } from 'vitest';
 
-import { githubHooks, readQuery, searchScopes, toSlimIssue, withStatus } from '../server/sources/github-hooks';
+import {
+  cleanOwners,
+  githubHooks,
+  isPicked,
+  readQuery,
+  searchScopes,
+  toSlimIssue,
+  withStatus,
+} from '../server/sources/github-hooks';
 
 describe('reading the search text', () => {
   it('takes an address, an ID, or words', () => {
-    expect(readQuery('https://github.com/acme/pulse/pull/12')).toEqual({ container: 'acme/pulse', number: '12' });
+    expect(readQuery('https://github.com/acme/pulse/pull/12')).toEqual({
+      container: 'acme/pulse',
+      number: '12',
+    });
     expect(readQuery('pulse-223')).toEqual({ repo: 'pulse', number: '223' });
     expect(readQuery('printer jams')).toEqual({ words: 'printer jams' });
   });
@@ -18,8 +29,12 @@ describe('reading the search text', () => {
 });
 
 describe('where a search looks', () => {
-  it("is the member and who owns their repos, even an org they only collaborate in", () => {
-    const repos = [{ owner: { login: 'acme' } }, { owner: { login: 'ada' } }, { owner: { login: 'acme' } }];
+  it('is the member and who owns their repos, even an org they only collaborate in', () => {
+    const repos = [
+      { owner: { login: 'acme' } },
+      { owner: { login: 'ada' } },
+      { owner: { login: 'acme' } },
+    ];
     expect(searchScopes('ada', repos)).toEqual(['user:ada', 'user:acme']);
   });
 });
@@ -71,5 +86,60 @@ describe('writing back', () => {
     await expect(
       githubHooks.githubWrite({ raw, edits: { status: 'done' } }, { request: vi.fn() }),
     ).rejects.toMatchObject({ code: 'bad-request' });
+  });
+});
+
+describe('assigned to me, before anything is typed', () => {
+  const NOW = Date.parse('2026-11-06T12:00:00Z');
+  const issue = (number: number, owner: string) => ({
+    number,
+    title: `Issue ${number}`,
+    html_url: `https://github.com/${owner}/repo/issues/${number}`,
+    repository: { name: 'repo', owner: { login: owner } },
+  });
+
+  it('asks only for open ones touched in the last 8 days, newest first', async () => {
+    const request = vi.fn().mockResolvedValue([]);
+    await githubHooks.githubAssigned({ request, owners: null }, { now: NOW });
+    const params = new URL(`https://api.github.com${request.mock.calls[0][0]}`).searchParams;
+    expect(params.get('filter')).toBe('assigned');
+    expect(params.get('state')).toBe('open');
+    expect(params.get('sort')).toBe('updated');
+    expect(Date.parse(params.get('since')!)).toBe(NOW - 8 * 24 * 60 * 60 * 1000);
+  });
+
+  it('keeps only the accounts the member picked, whatever their case', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue([issue(1, 'SarkarShubhdeep'), issue(2, 'mieweb'), issue(3, 'other')]);
+    const all = await githubHooks.githubAssigned({ request, owners: null }, { now: NOW });
+    expect(all.map((each) => each.id)).toEqual([1, 2, 3]);
+    const mine = await githubHooks.githubAssigned(
+      { request, owners: ['sarkarshubhdeep'] },
+      { now: NOW },
+    );
+    expect(mine.map((each) => each.id)).toEqual([1]);
+  });
+});
+
+describe('the accounts a member picks', () => {
+  it('means every account when none is picked', () => {
+    expect(isPicked(null, 'mieweb')).toBe(true);
+    expect(isPicked([], 'mieweb')).toBe(true);
+    expect(isPicked(['MIEWeb'], 'mieweb')).toBe(true);
+    expect(isPicked(['mieweb'], 'other')).toBe(false);
+  });
+
+  it('narrows where a word search looks', () => {
+    const repos = [{ owner: { login: 'mieweb' } }, { owner: { login: 'other' } }];
+    expect(searchScopes('me', repos, ['me', 'mieweb'])).toEqual(['user:me', 'user:mieweb']);
+  });
+
+  it('stores logins only, each once, and none as all', () => {
+    expect(cleanOwners(['mieweb', 'mieweb', 'me'])).toEqual(['mieweb', 'me']);
+    expect(cleanOwners([])).toBeNull();
+    expect(cleanOwners(null)).toBeNull();
+    expect(() => cleanOwners(['user:evil'])).toThrow();
+    expect(() => cleanOwners('mieweb')).toThrow();
   });
 });

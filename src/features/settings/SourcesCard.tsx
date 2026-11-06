@@ -5,6 +5,7 @@
  * disconnect. A key goes to the server once and never comes back.
  */
 import { Badge, Button, ButtonGroup, Card, CardContent, Input, Text } from '@mieweb/ui';
+import { SOURCES, redmine } from '@timehuddle/ticket-sources';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -20,6 +21,7 @@ import { useQueryParams } from '../../ui/router';
 import { RedmineHiddenSuggestions } from '../tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../tickets/redmine/useRedmineSuggestions';
 
+import { GitHubOwnersPicker } from './GitHubOwnersPicker';
 import { SOURCES_STRINGS as text } from './settingsCopy';
 
 const messageOf = (err: unknown, fallback: string) =>
@@ -33,8 +35,16 @@ function hostOfUrl(url: string | null | undefined): string | null {
   }
 }
 
+/** What a server of `type` asks for to connect, from its definition: `API key` for Redmine. */
+function keyNameOf(type: string): string {
+  const source = Object.hasOwn(SOURCES, type) ? SOURCES[type as keyof typeof SOURCES] : null;
+  return source?.connect.fields?.[0]?.label ?? text.keyPlaceholder;
+}
+
 interface ServerRowProps {
   host: string;
+  /** The key field's name, from the server's definition. */
+  keyName?: string;
   prefix?: string;
   login?: string | null;
   connected: boolean;
@@ -53,6 +63,7 @@ interface ServerRowProps {
 
 const ServerRow: React.FC<ServerRowProps> = ({
   host,
+  keyName = text.keyPlaceholder,
   prefix,
   login,
   connected,
@@ -178,7 +189,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
           <div className="sources-server-connect flex gap-2">
             <Input
               type="password"
-              placeholder={text.keyPlaceholder}
+              placeholder={keyName}
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               onKeyDown={(event) => {
@@ -188,7 +199,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
               disabled={busy}
               className="h-8 flex-1 text-sm"
               size="sm"
-              aria-label={text.keyLabel(host)}
+              aria-label={text.keyLabel(keyName, host)}
             />
             <Button
               size="sm"
@@ -334,9 +345,12 @@ export const SourcesCard: React.FC = () => {
                     </Text>
                   )}
                   {github.connected && (
-                    <Text variant="muted" size="xs">
-                      {text.githubOrgs}
-                    </Text>
+                    <>
+                      <GitHubOwnersPicker owners={github.owners} />
+                      <Text variant="muted" size="xs">
+                        {text.githubOrgs}
+                      </Text>
+                    </>
                   )}
                   {githubNotice && (
                     <Text
@@ -369,6 +383,7 @@ export const SourcesCard: React.FC = () => {
           {hasMain && (
             <ServerRow
               host={hostOfUrl(mainAddress) ?? text.mainServerName}
+              keyName={keyNameOf(mainServer?.type ?? redmine.kind)}
               prefix={mainServer?.prefix}
               login={status?.redmineLogin}
               connected={Boolean(status?.connected)}
@@ -410,6 +425,7 @@ export const SourcesCard: React.FC = () => {
             <ServerRow
               key={server.host}
               host={server.host}
+              keyName={keyNameOf(server.type)}
               prefix={server.prefix}
               login={server.login}
               connected={server.connected}

@@ -13,7 +13,7 @@
  * type, saying which source definition reads its issues, and the address it
  * lives at.
  */
-import { github } from '@timehuddle/ticket-sources';
+import { SERVER_TYPES, github } from '@timehuddle/ticket-sources';
 import { ObjectId } from 'mongodb';
 
 import { runMigrationOnce } from './migration-claim';
@@ -38,12 +38,6 @@ export function normalizeTicketPrefix(input) {
 
 /** How many servers an org can name. */
 export const MAX_SOURCE_PREFIXES = 20;
-
-/**
- * The source types an owner can register a server as. GitHub isn't one: it is
- * built in, the same for every org. Jira joins when it has a definition.
- */
-export const SERVER_TYPES = Object.freeze(['redmine']);
 
 /**
  * How a Redmine server's time entries are rounded: up to this many minutes.

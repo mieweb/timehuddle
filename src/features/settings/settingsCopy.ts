@@ -72,7 +72,7 @@ export const SOURCES_STRINGS = {
   rejectedHelp:
     'This server rejected your API key. It may have been reset: paste your current key to reconnect.',
   keyPlaceholder: 'API key',
-  keyLabel: (host: string) => `API key for ${host}`,
+  keyLabel: (keyName: string, host: string) => `${keyName} for ${host}`,
   connect: 'Connect',
   connecting: 'Connecting…',
   connectLabel: (host: string) => `Connect to ${host}`,
@@ -86,6 +86,13 @@ export const SOURCES_STRINGS = {
     "GitHub will ask for repo access. It's GitHub's only option for private repos and also covers code; TimeHuddle reads and updates only issues and pull requests.",
   githubOrgs:
     "An org's private repos show once its owner approves TimeHuddle. You can request that on GitHub, under your authorized apps.",
+  githubOwnersLabel: 'Bring issues from',
+  githubOwnersPlaceholder: 'All your accounts and organizations',
+  githubOwnersHelp:
+    'Assigned issues and search come from these. Leave it empty for all of them. Only issues updated in the last 8 days are suggested.',
+  githubOwnersFailed: "Couldn't load your GitHub organizations. Try again.",
+  githubOwnersSaveFailed: "Couldn't save that. Try again.",
+  githubOwnLabel: (login: string) => `${login} (you)`,
   githubConnected: 'GitHub connected.',
   githubFailed: "Couldn't connect GitHub. Try again.",
   githubNotSetUp: "GitHub isn't set up on this TimeHuddle yet. Whoever runs it can add it.",

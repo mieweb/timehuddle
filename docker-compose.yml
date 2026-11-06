@@ -127,12 +127,11 @@ services:
       # REDMINE_ALLOW_CUSTOM_URL: dev/test only. When `true`, Settings lets each user
       #   link a Redmine URL of their own (REDMINE_BASE_URL becomes the default). The
       #   server fetches whatever URL is linked, so never enable it in production.
-      # REDMINE_ALLOWED_HOSTS: comma-separated `host[:port]` list the server may send
-      #   Redmine requests to, enforced only when NODE_ENV=production. REDMINE_BASE_URL's
-      #   own host is always allowed without being listed. This is the belt to
-      #   REDMINE_ALLOW_CUSTOM_URL's braces: if the flag is ever on in production, a
-      #   signed-in user could otherwise aim server-side requests at an internal
-      #   service or a cloud metadata endpoint. https is also required in production.
+      # SOURCES_ALLOW_PRIVATE_HOSTS: `true` when the servers orgs register (or users
+      #   link) are on your private network. When NODE_ENV=production, any server but
+      #   REDMINE_BASE_URL's must be https and resolve to a public address, so a
+      #   signed-in user can't aim server-side requests at an internal service or a
+      #   cloud metadata endpoint. Registering a public server needs no setting.
       # SOURCE_KEYS_SECRET_PREVIOUS: set during a rotation of SOURCE_KEYS_SECRET.
       #   Keys that still decrypt under the old secret are re-encrypted under the new one
       #   on next use, so a rotation does not send every user back to Settings. Remove it

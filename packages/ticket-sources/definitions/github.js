@@ -11,6 +11,7 @@ export const github = defineSource({
   connect: {
     auth: 'bearer',
     oauth: true,
+    check: { path: '/user', id: 'id', login: 'login' },
   },
   id: {
     hosts: ['github.com', 'www.github.com'],

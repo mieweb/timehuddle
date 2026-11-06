@@ -8,10 +8,13 @@
  *
  * `server` is the host the member's account is on; `request` resolves to the
  * source's answer, or null when the issue is missing or hidden from them.
+ *
+ * `ask(account)` asks with an account not saved yet, to check its key.
  */
 import { github, redmine } from '@timehuddle/ticket-sources';
 import { Meteor } from 'meteor/meteor';
 
+import { RedmineLinks } from '../collections';
 import { GITHUB_HOST, githubRequest } from '../github-client';
 
 import { toRedmineMeteorError } from '../redmine';
@@ -40,8 +43,14 @@ const DRIVERS = {
     definition: github,
     hooks: githubHooks,
     toError: toGithubError,
+    ask: (account) => (path) => githubRequest(path, account),
     async open(userId) {
       const account = await requireRedmineAccount(userId, GITHUB_HOST);
+      // The accounts the member chose to bring issues from in Settings → Sources; none means all.
+      const link = await RedmineLinks.findOneAsync(
+        { userId, host: GITHUB_HOST },
+        { fields: { owners: 1 } },
+      );
       const request = async (path, options) => {
         try {
           return withStatus(await githubRequest(path, account, options));
@@ -52,7 +61,7 @@ const DRIVERS = {
       };
       return {
         server: GITHUB_HOST,
-        ctx: { userId, account, request },
+        ctx: { userId, account, request, owners: link?.owners ?? null },
         request,
         urlOf: (ref) => `https://${GITHUB_HOST}/${ref.container}/issues/${ref.key}`,
         me: () => request('/user').then((me) => (me?.id == null ? null : String(me.id)), () => null),
@@ -63,6 +72,7 @@ const DRIVERS = {
     definition: redmine,
     hooks: redmineHooks,
     toError: toRedmineMeteorError,
+    ask: (account) => (path) => requestOrNull(path, account),
     async open(userId, host) {
       const account = await requireRedmineAccount(userId, host);
       // A link saved without its server means the deployment's Redmine: an
@@ -72,7 +82,7 @@ const DRIVERS = {
       return {
         server: hostOf(account.baseUrl),
         ctx: { userId, account },
-        request: (path) => requestOrNull(path, account),
+        request: DRIVERS.redmine.ask(account),
         urlOf: (ref) => `${account.baseUrl}/issues/${ref.key}`,
         // Best-effort: without it the page can't pick out the member's own activity.
         me: () =>

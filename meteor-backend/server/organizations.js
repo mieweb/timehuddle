@@ -582,11 +582,12 @@ Meteor.methods({
     } catch (error) {
       throw new Meteor.Error('validation-error', error.message);
     }
-    // A server new to the org must be one this deployment may send requests to,
-    // as for a Redmine account (production only). Servers it already had stay.
+    // A server new to the org must be one this deployment may send requests to
+    // (production only), told now rather than when a member connects. Servers
+    // it already had stay.
     const known = new Set((org.sourcePrefixes ?? []).map((entry) => entry.host));
     for (const entry of entries) {
-      const refusal = known.has(entry.host) ? null : redmineUrlRefusal(entry.baseUrl);
+      const refusal = known.has(entry.host) ? null : await redmineUrlRefusal(entry.baseUrl);
       if (refusal) throw new Meteor.Error('validation-error', `${entry.host}: ${refusal}`);
     }
     // Only over the ticket prefix these were checked against.

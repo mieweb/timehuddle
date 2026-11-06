@@ -33,6 +33,7 @@ import './redmine-suggestions';
 import './redmine';
 import './source-accounts';
 import './source-search';
+import './source-linked';
 import './github-connect';
 import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
@@ -1294,6 +1295,27 @@ Meteor.startup(async () => {
     },
   });
 
+  Wormhole.expose('sources.githubOwners', {
+    description:
+      "The GitHub accounts and organizations the caller can bring issues from: their own, then each owner of a repo they can reach",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.setGithubOwners', {
+    description:
+      'Bring GitHub issues only from these accounts and organizations, or from all of them with null or an empty list',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        owners: {
+          type: ['array', 'null'],
+          items: { type: 'string' },
+          description: 'GitHub logins of accounts or organizations',
+        },
+      },
+    },
+  });
+
   Wormhole.expose('tickets.carryLink', {
     description:
       "The team's ticket displayed as a GitHub issue or pull request, created from it if there is none",
@@ -1312,6 +1334,12 @@ Meteor.startup(async () => {
       properties: { query: { type: 'string', description: 'An issue number, link, @name or words' } },
       required: ['query'],
     },
+  });
+
+  Wormhole.expose('sources.linkedIssues', {
+    description:
+      "The live status and assignees of the issues the caller's tickets carry from servers other than their main Redmine, read with their own key for each",
+    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('sources.connect', {

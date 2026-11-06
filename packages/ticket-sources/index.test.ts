@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   RECORD_FIELDS,
+  SERVER_TYPES,
   SOURCES,
   defineSource,
   github,
@@ -29,6 +30,10 @@ describe('asking about a source', () => {
     expect(sourceLabel('huddle')).toBeNull();
     expect(suggestsIssues('redmine')).toBe(true);
     expect(suggestsIssues('huddle')).toBe(false);
+  });
+
+  it('lets owners register servers of the kinds connected with a key, not GitHub', () => {
+    expect(SERVER_TYPES).toEqual(['redmine']);
   });
 });
 
@@ -104,6 +109,34 @@ describe('defineSource', () => {
       /ranks must map names to numbers/,
     ],
     ['a sticky ID match', { ...minimal, id: { ...minimal.id, match: /x/y } }, /g or y flag/],
+    [
+      'two key fields',
+      {
+        ...minimal,
+        connect: {
+          auth: 'none',
+          fields: [
+            { id: 'email', label: 'Email' },
+            { id: 'apiKey', label: 'Token', secret: true },
+          ],
+          check: { path: '/me', id: 'id' },
+        },
+      },
+      /one secret key field/,
+    ],
+    [
+      'a key field with no way to check it',
+      {
+        ...minimal,
+        connect: { auth: 'none', fields: [{ id: 'apiKey', label: 'Key', secret: true }] },
+      },
+      /connect.check is required/,
+    ],
+    [
+      'a key check with no path',
+      { ...minimal, connect: { auth: 'none', check: { path: 'me', id: 'id' } } },
+      /connect.check needs a path/,
+    ],
   ])('refuses %s', (_, definition, message) => {
     // Invalid on purpose: what the types would refuse, a JS caller can still pass.
     expect(() => defineSource(definition as never)).toThrow(message);

@@ -173,7 +173,7 @@ function statusFor(link) {
  * The instance a `redmine.connect` call links to: the requested URL when custom
  * URLs are allowed and one was sent, otherwise the server's.
  */
-function requestedBaseUrl(rawBaseUrl) {
+async function requestedBaseUrl(rawBaseUrl) {
   if (!customRedmineUrlAllowed() || rawBaseUrl == null || rawBaseUrl === '') {
     const fallback = optionalRedmineBaseUrl();
     if (!fallback) {
@@ -191,7 +191,7 @@ function requestedBaseUrl(rawBaseUrl) {
   // Refused at link time as well as per request, so a user who cannot be served
   // is told why while they are looking at the field, rather than meeting
   // "Redmine is unreachable" on the Tickets page later.
-  const refusal = redmineUrlRefusal(baseUrl);
+  const refusal = await redmineUrlRefusal(baseUrl);
   if (refusal) throw new Meteor.Error('bad-request', `${refusal}.`);
   return baseUrl;
 }
@@ -667,7 +667,7 @@ Meteor.methods({
     }
     const key = apiKey.trim();
 
-    const baseUrl = requestedBaseUrl(rawBaseUrl);
+    const baseUrl = await requestedBaseUrl(rawBaseUrl);
     const existing = await RedmineLinks.findOneAsync(mainLinkOf(userId));
 
     // Issue ids mean nothing across instances, so the instance may only change

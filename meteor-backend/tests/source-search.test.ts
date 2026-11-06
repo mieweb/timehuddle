@@ -219,6 +219,27 @@ describe.skipIf(!MAIN || !OTHER || !FLAKY)('searching every connected server', (
     expect(issue.tickets).toEqual([{ id: expect.any(String), teamId: team }]);
   });
 
+  it("reads the live status of the other server's issue its ticket carries, not the main one's", async () => {
+    const res = await wormhole<{ issues: Array<Record<string, unknown>> }>('sources.linkedIssues', {}, jwt);
+    expect(res.error).toBeUndefined();
+    // The main server's #233 comes with `redmine.issues.relevant`, as before.
+    expect(res.result.issues).toEqual([
+      {
+        source: 'redmine',
+        host: otherHost,
+        id: '233',
+        status: { id: '1', native: 'New', isClosed: false },
+        assignees: [],
+      },
+    ]);
+  });
+
+  it("offers the other server's assigned issues before anything is typed", async () => {
+    const answer = answerOf(await search(''), otherHost)!;
+    expect(answer.failed).toBe(false);
+    expect(answer.issues.map((issue) => issue.id)).toEqual([233]);
+  });
+
   it('answers from the others when one server fails', async () => {
     const connected = await wormhole('sources.connect', { server: FLAKY, apiKey: KEY.flaky }, jwt);
     expect(connected.ok).toBe(true);

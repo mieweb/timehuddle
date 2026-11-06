@@ -114,7 +114,10 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
               : []),
           ]);
         }
-        if ((url.pathname === '/search/issues' || url.pathname.startsWith('/repos/')) && rateLimited) {
+        if (
+          (url.pathname === '/search/issues' || url.pathname.startsWith('/repos/')) &&
+          rateLimited
+        ) {
           res.setHeader('x-ratelimit-remaining', '0');
           return json(403, { message: 'API rate limit exceeded' });
         }
@@ -138,7 +141,9 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
         }
         // A renamed repo: GitHub's API sends the old name on to the new one.
         if (url.pathname.startsWith('/repos/acme/old-pulse/')) {
-          res.writeHead(301, { location: `${SERVER}${url.pathname.replace('old-pulse', 'pulse')}` });
+          res.writeHead(301, {
+            location: `${SERVER}${url.pathname.replace('old-pulse', 'pulse')}`,
+          });
           return res.end();
         }
         const issue = url.pathname.match(/^\/repos\/acme\/pulse\/issues\/(\d+)$/);
@@ -316,6 +321,31 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
     }
   });
 
+  it('brings issues only from the accounts the member picked, and from all of them again', async () => {
+    const owners = await wormhole<{ owners: { login: string; own: boolean }[] }>(
+      'sources.githubOwners',
+      {},
+      jwt,
+    );
+    expect(owners.ok && owners.result.owners).toEqual([
+      { login: 'ada', own: true },
+      { login: 'acme', own: false },
+    ]);
+
+    await wormhole('sources.setGithubOwners', { owners: ['ada'] }, jwt);
+    expect(github0(await search(''))?.issues ?? []).toEqual([]);
+    const listed = await wormhole<{ github: { owners: string[] | null } }>('sources.list', {}, jwt);
+    expect(listed.ok && listed.result.github.owners).toEqual(['ada']);
+
+    await wormhole('sources.setGithubOwners', { owners: null }, jwt);
+    expect(github0(await search(''))!.issues.map((i) => i.ref)).toEqual(['pulse-223']);
+  });
+
+  it('refuses an account that is not a GitHub login', async () => {
+    const res = await wormhole('sources.setGithubOwners', { owners: ['user:evil'] }, jwt);
+    expect(res.ok).toBe(false);
+  });
+
   it('offers assigned issues before anything is typed', async () => {
     expect(github0(await search(''))!.issues.map((i) => i.ref)).toEqual(['pulse-223']);
   });
@@ -436,7 +466,11 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
   it('says GitHub failed when its rate limit is hit, rather than that nothing matched', async () => {
     rateLimited = true;
     try {
-      expect(github0(await search('printer'))).toMatchObject({ failed: true, rateLimited: true, issues: [] });
+      expect(github0(await search('printer'))).toMatchObject({
+        failed: true,
+        rateLimited: true,
+        issues: [],
+      });
       // On the ticket page too: said as the rate limit, not as no access.
       const { ticket } = (await carry(ISSUE_URL)).result;
       const read = await wormhole('tickets.outsideRecord', { ticketId: ticket.id }, jwt);

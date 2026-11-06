@@ -216,6 +216,36 @@ async function readRaw(definition, ref, request) {
 }
 
 /**
+ * What a list row shows of issue `ref`: its status and assignees, or null when
+ * it is missing or hidden. One answer, and no hook but the status's: a row
+ * needs none of the conversation.
+ */
+export async function readSummary({ definition, ref, request, hooks = {}, ctx = {} }) {
+  const raw = await readRaw(definition, ref, request);
+  if (!raw) return null;
+  const f = definition.fields;
+  return {
+    status: f.status
+      ? await toStatus(f.status, readPath(raw, f.status.path), hooks, ctx)
+      : { native: '', isClosed: false },
+    assignees: f.assignees ? toPeople(f.assignees, readPath(raw, f.assignees.path)) : [],
+  };
+}
+
+/**
+ * Whose key `request` asks with, by the definition's `connect.check`:
+ * `{ id, login }`, or null when the source names no one for it.
+ */
+export async function whoseKey(definition, request) {
+  const { check } = definition.connect;
+  if (!check) throw new EngineError('bad-request', `${definition.label} isn't connected with a key.`);
+  const answer = await request(check.path);
+  const user = check.item ? readPath(answer, check.item) : answer;
+  const id = readPath(user, check.id);
+  return id == null ? null : { id, login: readPath(user, check.login) ?? null };
+}
+
+/**
  * Read issue `ref` through `definition`. `request(path)` asks the source with
  * the member's own key and resolves to its answer, or null when the issue is
  * missing or hidden from them. Returns `{ raw, record, choices }`, or null.

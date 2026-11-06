@@ -60,6 +60,8 @@ export interface UnifiedLinkedIssue {
   sourceId: TicketSourceId;
   /** Native id in the linked source, e.g. a Redmine issue number. */
   id: string;
+  /** The server the issue is on; absent on links saved before servers were stored. */
+  host?: string;
   /** Short human-facing reference, e.g. `#482`. */
   ref: string;
   /** Null until merged, or when the viewer cannot read the issue with their own key. */

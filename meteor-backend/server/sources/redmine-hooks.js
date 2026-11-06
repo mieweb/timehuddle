@@ -7,12 +7,12 @@
  * `redmine.push` in redmine.js, and moves onto the engine in #734 step 6.
  */
 import { bustUserCaches } from '../redmine-cache';
-import { parseRedmineQuery } from '../redmine-query';
+import { MAX_SEARCH_RESULTS, parseRedmineQuery } from '../redmine-query';
 import { runSearch } from '../redmine-suggestions';
 import { redminePrefixesFor } from '../ticket-search';
-import { updateIssue } from '../redmine-client';
+import { listAssignedIssues, updateIssue } from '../redmine-client';
 import { loadJournals, loadTimeEntries, toWriteMeteorError } from '../redmine-issue-methods';
-import { toConversation, toIssueDetail } from '../redmine-issues';
+import { toConversation, toIssue, toIssueDetail } from '../redmine-issues';
 import { buildUpdatePayload, fromRecordEdits, readBackMismatches } from '../redmine-issue-writes';
 
 import { EngineError } from './engine';
@@ -33,6 +33,11 @@ export const redmineHooks = {
       await redminePrefixesFor(userId, account.baseUrl),
     );
     return runSearch(userId, account, kind, value);
+  },
+
+  /** What the search bar offers before anything is typed: the member's open assigned issues. */
+  async redmineAssigned({ account }) {
+    return (await listAssignedIssues(account)).slice(0, MAX_SEARCH_RESULTS).map(toIssue);
   },
 
   async redmineJournals(raw, { userId, account }) {

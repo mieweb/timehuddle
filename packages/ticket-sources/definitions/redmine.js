@@ -11,6 +11,8 @@ export const redmine = defineSource({
     auth: 'header',
     header: 'X-Redmine-API-Key',
     fields: [{ id: 'apiKey', label: 'API key', secret: true }],
+    // Whose key it is: any member may read their own user.
+    check: { path: '/users/current.json', item: 'user', id: 'id', login: 'login' },
   },
   id: {
     // Any Redmine server, at its root or under a path (`/redmine/issues/214`):
@@ -66,6 +68,8 @@ export const redmine = defineSource({
   },
   can: {
     search: hook('redmineSearch'),
+    // The main server's come with its own suggestions; another server's through this.
+    assigned: hook('redmineAssigned'),
     suggest: true,
     write: hook('redmineWrite'),
     sendTime: hook('redmineSendTime'),

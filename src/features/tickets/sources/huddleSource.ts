@@ -8,7 +8,7 @@
 import { ticketApi, type Ticket } from '../../../lib/api';
 
 import { isWebUrl } from '../link/ticketLinkForm';
-import { linkRefOf } from '../ticketIds';
+import { carriedRefOf, linkRefOf } from '../ticketIds';
 
 import {
   ticketKey,
@@ -119,7 +119,11 @@ export const huddleSource: TicketSource<Ticket> = {
         ? {
             sourceId: ticket.linkedIssue.source,
             id: ticket.linkedIssue.id,
-            ref: `#${ticket.linkedIssue.id}`,
+            ...(ticket.linkedIssue.host ? { host: ticket.linkedIssue.host } : {}),
+            // `PM1-13` from its own server's prefix, until `mergeLinked` reads the issue.
+            ref:
+              carriedRefOf(ticket.linkedIssue, ctx.sourcePrefixes ?? [], null) ??
+              `#${ticket.linkedIssue.id}`,
             status: null,
             assignee: null,
           }

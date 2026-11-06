@@ -6,7 +6,12 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
-import type { RecordStatus, SourceServer, TicketRecord } from '@timehuddle/ticket-sources';
+import type {
+  RecordPerson,
+  RecordStatus,
+  SourceServer,
+  TicketRecord,
+} from '@timehuddle/ticket-sources';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
@@ -2995,6 +3000,24 @@ export interface GitHubSourceConnection {
   connected: boolean;
   rejected: boolean;
   login: string | null;
+  /** The accounts and organizations the member brings issues from; null for all of them. */
+  owners: string[] | null;
+}
+
+/** A GitHub account or organization the member can bring issues from. */
+export interface GitHubOwner {
+  login: string;
+  /** The member's own account. */
+  own: boolean;
+}
+
+/** The live status and assignees of an issue a ticket carries from a server other than the main Redmine. */
+export interface OutsideIssueSummary {
+  source: string;
+  host: string;
+  id: string;
+  status: RecordStatus;
+  assignees: RecordPerson[];
 }
 
 /** An issue found on another connected server, with the member's tickets carrying it. */
@@ -3020,6 +3043,9 @@ export interface SourceSearchAnswer {
 export const sourcesApi = {
   search: (query: string): Promise<{ servers: SourceSearchAnswer[] }> =>
     wormholeCall('sources.search', { query }),
+  /** For the Tickets table's rows: the main Redmine's come with `redmine.issues.relevant`. */
+  linkedIssues: (): Promise<{ issues: OutsideIssueSummary[] }> =>
+    wormholeCall('sources.linkedIssues', {}),
   list: (): Promise<{ servers: SourceConnection[]; github: GitHubSourceConnection }> =>
     wormholeCall('sources.list', {}),
   /** Where to send the browser to connect GitHub; it comes back with `?github_connect=`. */
@@ -3027,6 +3053,11 @@ export const sourcesApi = {
     const { token } = await wormholeCall<{ token: string }>('sources.githubConnectToken', {});
     return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ connect: token })}`;
   },
+  /** The GitHub accounts and organizations the member can bring issues from. */
+  githubOwners: (): Promise<{ owners: GitHubOwner[] }> => wormholeCall('sources.githubOwners', {}),
+  /** Bring GitHub issues only from `owners`; null or empty for all of them. */
+  setGithubOwners: (owners: string[] | null): Promise<{ owners: string[] | null }> =>
+    wormholeCall('sources.setGithubOwners', { owners }),
   /** Finish the GitHub connection, as the user who started it. */
   confirmGithub: (code: string): Promise<{ login: string | null }> =>
     wormholeCall('sources.confirmGithub', { code }),

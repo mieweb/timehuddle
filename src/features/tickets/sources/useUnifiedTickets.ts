@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { sourcesApi, type OutsideIssueSummary } from '../../../lib/api';
+
 import { mergeLinked } from './linkedTickets';
 import { TICKET_SOURCES } from './registry';
 import type { TicketSourceContext, TicketSourceId, UnifiedTicket } from './types';
@@ -76,10 +78,25 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
+  // The live status of issues tickets carry from servers other than the main
+  // Redmine, read through each source's definition. Not a source of rows: it
+  // only fills in the tickets that carry them.
+  const [outside, setOutside] = useState<OutsideIssueSummary[]>([]);
+
   // `quiet` reloads behind the rows already shown, without a loading state.
   const load = useCallback((quiet = false) => {
     const seq = ++requestSeq.current;
     const current = ctxRef.current;
+
+    if (current.userId) {
+      // A failed read keeps what was shown: those rows keep the ticket's own status meanwhile.
+      void sourcesApi
+        .linkedIssues()
+        .then(({ issues }) => {
+          if (seq === requestSeq.current) setOutside(issues);
+        })
+        .catch(() => undefined);
+    }
 
     for (const source of TICKET_SOURCES) {
       if (!source.isAvailable(current)) {
@@ -139,7 +156,10 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
     loaded.current = { userId, teamsKey, membersKey, labelsKey };
     // This hook outlives a sign-in as someone else, and a load keeps the rows it
     // had: the next user must not see the previous one's while theirs arrive.
-    if (previous && previous.userId !== userId) setPartitions(initialPartitions());
+    if (previous && previous.userId !== userId) {
+      setPartitions(initialPartitions());
+      setOutside([]);
+    }
     const sameScope = previous?.userId === userId && previous.teamsKey === teamsKey;
     if (sameScope && previous.labelsKey === labelsKey && previous.membersKey !== membersKey) {
       // Member data only renames people on rows already shown: no refetch.
@@ -174,8 +194,12 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
   // Merged here, not inside a source: a live Huddle push replaces only the
   // `huddle` partition, and the link overlay has to follow it.
   const tickets = useMemo(
-    () => mergeLinked(TICKET_SOURCES.flatMap((source) => partitions[source.id]?.items ?? [])),
-    [partitions],
+    () =>
+      mergeLinked(
+        TICKET_SOURCES.flatMap((source) => partitions[source.id]?.items ?? []),
+        outside,
+      ),
+    [partitions, outside],
   );
 
   const loading = useMemo(

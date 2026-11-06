@@ -21,6 +21,7 @@
 import { redmine } from '@timehuddle/ticket-sources';
 
 import { createRateLimiter } from './rate-limit';
+import { outboundRefusal } from './sources/outbound';
 import { activityIssueRefs } from './redmine-atom';
 import { findBillableInPages } from './redmine-billable';
 
@@ -89,46 +90,30 @@ function inProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
-/**
- * Hosts a production deployment may send Redmine requests to, from
- * `REDMINE_ALLOWED_HOSTS` (comma-separated `host[:port]`).
- *
- * The server's own `REDMINE_BASE_URL` is always allowed without being listed: it
- * is the deployment's own configuration, not user input, and requiring it to be
- * repeated here would break every existing install on upgrade.
- */
-export function redmineAllowedHosts() {
-  const configured = (process.env.REDMINE_ALLOWED_HOSTS ?? '')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean);
-
-  const own = optionalRedmineBaseUrl();
-  if (own) {
-    try {
-      configured.push(new URL(own).host.toLowerCase());
-    } catch {
-      /* an unparseable REDMINE_BASE_URL allows nothing extra */
-    }
+/** The host of the deployment's own `REDMINE_BASE_URL`, or null. */
+function ownRedmineHost() {
+  try {
+    return new URL(optionalRedmineBaseUrl() ?? '').host.toLowerCase();
+  } catch {
+    return null;
   }
-  return configured;
 }
 
 /**
  * Why `baseUrl` may not be used, or null when it may.
  *
- * `REDMINE_ALLOW_CUSTOM_URL` lets a user store a Redmine URL of their own, and
- * the server then fetches it — which is a signed-in user choosing an address the
- * server will connect to, including internal hosts and cloud metadata endpoints.
- * The flag is meant for dev only, so this is the belt to its braces: in
- * production the host must be one the deployment named, and the scheme must be
- * `https`, whatever any stored row says.
+ * In production the scheme must be `https`. The deployment's own
+ * `REDMINE_BASE_URL` is its own configuration, so always may be used. Any other
+ * server, one an org registered or one a member linked (`REDMINE_ALLOW_CUSTOM_URL`),
+ * is an address someone typed for the server to connect to, so its host must
+ * resolve to a public address unless the deployment allows its private network
+ * (`outboundRefusal`). There is no list of hosts to keep: registering a server is
+ * enough to use it, with no restart.
  *
- * Development is left alone deliberately. The point of the flag there is pointing
- * at a Redmine on localhost over plain HTTP, and an allowlist would only be
- * something to switch off.
+ * Development is left alone deliberately: stand-in servers run on localhost over
+ * plain http.
  */
-export function redmineUrlRefusal(baseUrl) {
+export async function redmineUrlRefusal(baseUrl) {
   if (!inProduction()) return null;
   if (typeof baseUrl !== 'string' || !baseUrl) return 'No Redmine base URL is configured';
 
@@ -139,10 +124,8 @@ export function redmineUrlRefusal(baseUrl) {
     return 'That is not a usable Redmine URL';
   }
   if (url.protocol !== 'https:') return 'Redmine must be reached over https';
-  if (!redmineAllowedHosts().includes(url.host.toLowerCase())) {
-    return 'That Redmine host is not allowed by this deployment';
-  }
-  return null;
+  if (url.host.toLowerCase() === ownRedmineHost()) return null;
+  return outboundRefusal(baseUrl, { production: true });
 }
 
 /**
@@ -218,7 +201,7 @@ async function redmineRequest(
   { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, accept = 'application/json' } = {},
 ) {
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
-  const refusal = redmineUrlRefusal(account.baseUrl);
+  const refusal = await redmineUrlRefusal(account.baseUrl);
   if (refusal) throw new Error(refusal);
   // An account always names its owner (`findRedmineAccount`, `redmine.connect`);
   // one that somehow does not shares a single budget rather than escaping it.
