@@ -705,10 +705,13 @@ export function starterConversation(
   now: number = Date.now(),
   threadBy?: ThreadBy,
 ): SuperChatConversation {
+  // Session can be empty with posts elsewhere: it lists shifts only.
   const hint =
-    scope === 'me'
-      ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
-      : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
+    threadBy === 'session'
+      ? 'No shifts yet. Clock in to post your plan, or share an update below.'
+      : scope === 'me'
+        ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
+        : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
   // In All it is the one thread itself, so a saved `all:feed` link still opens.
   return threadBy === 'all'
     ? emptyConversation(ALL_CONVERSATION_ID, THREAD_TEXT.allUpdates, viewer, hint, now)

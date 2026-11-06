@@ -8,7 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
-import { selectSharedTestTeam } from '../fixtures/team';
+import { createTestTeam, selectSharedTestTeam } from '../fixtures/team';
 import {
   conversationList,
   conversationRows,
@@ -235,6 +235,27 @@ test.describe('Huddle inbox filters', () => {
       await openPostInInbox(page, `${token} off the clock`, inboxMessage(page, token).first());
       await expect(inboxMessage(page, token)).not.toContainText('Off the clock');
     }
+  });
+
+  test('Session with only off-the-clock posts still has a message box (#854)', async ({ page }) => {
+    // A team of its own, so no other test's shifts are in its Session view.
+    await createTestTeam(page, 'EmptySession');
+    const first = uniqueToken('before-shift');
+    const second = uniqueToken('from-session');
+    await page.goto('/app/huddle');
+    await groupInboxBy(page, 'Day');
+    await postFromHuddle(page, first);
+    await expect(inboxMessage(page, first)).toBeVisible({ timeout: 20000 });
+
+    await groupInboxBy(page, 'Session');
+    await expect(messageLog(page)).toContainText('No shifts yet');
+    await expect(inboxComposer(page)).toBeVisible();
+
+    // Clocked out, so it lands in today's Day thread, which opens.
+    await postFromHuddle(page, second);
+    await expect(page).toHaveURL(/conversation=day%3A/, { timeout: 20000 });
+    await expect(inboxMessage(page, second)).toBeVisible();
+    await expect(inboxMessage(page, first)).toBeVisible();
   });
 
   test('a post sent from Huddle while clocked in joins the live session', async ({ page }) => {

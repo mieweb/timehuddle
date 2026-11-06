@@ -718,11 +718,13 @@ export default function Huddle() {
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact. All has just
   // the one thread, so there it narrows the posts in it instead.
-  // With no posts at all, the inbox shows a starter conversation instead:
-  // SuperChat's chat input only exists inside an open conversation, and it is
-  // where the first update gets posted.
+  // With nothing to group (no posts at all, or in Session none made on the
+  // clock), the inbox shows a starter conversation instead: SuperChat's chat
+  // input only exists inside an open conversation, and it is where the first
+  // update gets posted.
   const conversations = useMemo(() => {
-    if (activePosts.length === 0 && user) {
+    const nothingGrouped = allConversations.length === 0 && !searchQuery.trim();
+    if ((activePosts.length === 0 || nothingGrouped) && user) {
       return [
         starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
       ];
@@ -1142,9 +1144,14 @@ export default function Huddle() {
 
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
+    // Not if the reader moved to another team or view meanwhile: the id is the old scope's.
+    const openSessionLanding = () => {
+      if (!sessionLanding || sessionLanding === conversationId) return;
+      if (scopeKeyRef.current === scopeKey) openConversation(sessionLanding);
+    };
     if (scope === 'me') {
       await refreshMyPosts();
-      if (sessionLanding && sessionLanding !== conversationId) openConversation(sessionLanding);
+      openSessionLanding();
       return;
     }
 
@@ -1161,7 +1168,7 @@ export default function Huddle() {
       await refreshFeed();
       if (inFeed()) break;
     }
-    if (sessionLanding && sessionLanding !== conversationId) openConversation(sessionLanding);
+    openSessionLanding();
   }
 
   // Taking back a file removed from the message box after it uploaded.

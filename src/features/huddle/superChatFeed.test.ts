@@ -902,6 +902,13 @@ describe('starterConversation', () => {
     const { thread } = starterConversation(viewer, 'me', NOW);
     expect(thread[0].text).toMatch(/last 30 days/);
   });
+
+  it('says Session has no shifts yet and still points at the input (#854)', () => {
+    const conversation = starterConversation(viewer, 'team', NOW, 'session');
+    expect(conversation.id).toBe('starter');
+    expect(conversation.thread[0].text).toMatch(/no shifts yet/i);
+    expect(conversation.thread[0].text).toMatch(/share an update below/i);
+  });
 });
 
 describe('Today as the default conversation', () => {
