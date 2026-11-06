@@ -101,7 +101,7 @@ import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
-import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
+import { liveLocation, useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { isTeamMember } from '@lib/organizationAccess';
@@ -128,6 +128,7 @@ const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
 // All comes first and sits apart: it is the one option that doesn't group.
+const HUDDLE_PATH = '/app/huddle';
 const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
@@ -210,7 +211,7 @@ export default function Huddle() {
   // before paint, so the return never flashes the default conversation, and it
   // re-runs each time <Activity> shows the page again.
   const { pathname, navigate } = useRouter();
-  const onScreen = pathname === '/app/huddle';
+  const onScreen = pathname === HUDDLE_PATH;
 
   // A post can link into the app: a timer update links its ticket. The chat
   // opens a link in a new tab; one that stays in the app opens here instead.
@@ -398,24 +399,27 @@ export default function Huddle() {
   const meSinceRef = useRef(meSince);
   meSinceRef.current = meSince;
   const meLoadedRef = useRef(false);
-  const refreshMyPosts = useCallback(async () => {
+  // Resolves to the posts it loaded, or null when the fetch failed or was superseded.
+  const refreshMyPosts = useCallback(async (): Promise<HuddlePost[] | null> => {
     try {
       const asOf = Date.now();
       const page = await huddleApi.getMyPosts(meSince);
       // The server's names as of the fetch, newer than any rename made before it.
       noteVideoNames(postVideoNames(page.posts), asOf);
       // Answered for a window that has since moved on; the newer fetch owns the state.
-      if (meSinceRef.current !== meSince) return;
+      if (meSinceRef.current !== meSince) return null;
       setMyPosts(page.posts);
       setMyPostsError(null);
       meLoadedRef.current = true;
       settleMe(ME_FEED_KEY, { ok: true, hasMore: page.hasMore });
+      return page.posts;
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
       // Only the first load replaces the feed; a failed older window keeps what
       // is loaded and reports through the list footer's Retry.
       if (!meLoadedRef.current) setMyPostsError('Failed to load your posts.');
       settleMe(ME_FEED_KEY, { ok: false });
+      return null;
     }
   }, [meSince, settleMe]);
   useEffect(() => {
@@ -967,6 +971,7 @@ export default function Huddle() {
   const scopeKey = `${contextTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
   // The grouping on screen now, for a send that finishes after it changed.
+  // The grouping on screen now, for a send that finishes after it changed.
   const threadByRef = useRef(threadBy);
   useEffect(() => {
     threadByRef.current = threadBy;
@@ -1148,18 +1153,24 @@ export default function Huddle() {
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
-    // The Personal view reads its own cross-team list, not the team feed —
-    // the post went to the Personal team, so it can never appear in `posts`.
-    // Not if the reader moved to another team, view or grouping meanwhile:
-    // the id is the old scope's, and opening it would undo their choice.
-    const openSessionLanding = () => {
-      if (!sessionLanding || sessionLanding === conversationId) return;
-      if (scopeKeyRef.current !== scopeKey || threadByRef.current !== threadBy) return;
+    // Only once the post is in the loaded feed (else it opens on not-found),
+    // and not if the reader left Huddle or moved to another team, view or
+    // grouping meanwhile: the id is the old scope's, and would undo their choice.
+    const openSessionLanding = (postLoaded: boolean) => {
+      if (!sessionLanding || sessionLanding === conversationId || !postLoaded) return;
+      // The live URL: hidden behind another page, Huddle's own render (and
+      // `onScreen`) is paused at the moment it was left.
+      const stillHere = liveLocation().pathname === HUDDLE_PATH;
+      if (!stillHere || threadByRef.current !== threadBy || scopeKeyRef.current !== scopeKey)
+        return;
       openConversation(sessionLanding);
     };
+
+    // The Personal view reads its own cross-team list, not the team feed —
+    // the post went to the Personal team, so it can never appear in `posts`.
     if (scope === 'me') {
-      await refreshMyPosts();
-      openSessionLanding();
+      const mine = await refreshMyPosts();
+      openSessionLanding(!!mine?.some((p) => p.id === id));
       return;
     }
 
@@ -1176,7 +1187,7 @@ export default function Huddle() {
       await refreshFeed();
       if (inFeed()) break;
     }
-    openSessionLanding();
+    openSessionLanding(inFeed());
   }
 
   // Taking back a file removed from the message box after it uploaded.

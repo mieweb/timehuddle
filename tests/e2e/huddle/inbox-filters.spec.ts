@@ -237,52 +237,64 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
-  test('a grouping picked while a post sends is kept when it lands (#854)', async ({ page }) => {
+  /**
+   * Post from an older shift's thread in Session while clocked in, so it would
+   * land in (and open) the live shift, holding the create while `meanwhile`
+   * moves the reader somewhere else. Returns the post's text.
+   */
+  async function sendHeldFromOlderShift(page: Page, meanwhile: () => Promise<void>) {
     const olderToken = uniqueToken('older-shift');
     const token = uniqueToken('in-flight');
     const olderStart = Date.now() - 3 * HOUR;
-    const olderShift = await seedClockSession({
-      userId,
-      teamId,
-      startTime: olderStart,
-      endTime: olderStart + HOUR,
-    });
-    const liveShift = await seedClockSession({
-      userId,
-      teamId,
-      startTime: Date.now() - HOUR,
-      endTime: null,
-    });
+    const shifts = [
+      await seedClockSession({ userId, teamId, startTime: olderStart, endTime: olderStart + HOUR }),
+      await seedClockSession({ userId, teamId, startTime: Date.now() - HOUR, endTime: null }),
+    ];
     let release = () => {};
     try {
-      await seedPost(page, { teamId, text: olderToken, clockEventId: olderShift });
+      await seedPost(page, { teamId, text: olderToken, clockEventId: shifts[0] });
       await page.goto('/app/huddle');
       await groupInboxBy(page, 'Session');
-      // Sent from an older shift's thread, so it has somewhere else to land.
       await openPostInInbox(page, olderToken);
       await inboxSearch(page).fill('');
 
-      // Hold the create until the grouping has changed. Sent from Session while
-      // clocked in, it would otherwise land in (and switch back to) the live shift.
       const held = new Promise<void>((resolve) => (release = resolve));
       await page.route('**/api/huddle_createPost', async (route) => {
         await held;
         await route.continue();
       });
+      const created = page.waitForResponse('**/api/huddle_createPost');
       await postFromHuddle(page, token);
-      await groupInboxBy(page, 'Person');
+      await meanwhile();
       release();
-
-      await expect(inboxMessage(page, token).first()).toBeVisible({ timeout: 20000 });
-      await page.waitForTimeout(2000); // past the post's own feed refresh
-      await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
-        'Group by: Person',
-      );
+      await created;
+      await page.waitForTimeout(2500); // past the post's own feed refresh
+      return token;
     } finally {
       release();
       await page.unroute('**/api/huddle_createPost');
-      await Promise.all([olderShift, liveShift].map((id) => deleteClockSession(id)));
+      await Promise.all(shifts.map((id) => deleteClockSession(id)));
     }
+  }
+
+  test('a grouping picked while a post sends is kept when it lands (#854)', async ({ page }) => {
+    const token = await sendHeldFromOlderShift(page, () => groupInboxBy(page, 'Person'));
+    await expect(page.getByRole('button', { name: /^Group by:/ })).toHaveAccessibleName(
+      'Group by: Person',
+    );
+    await expect(inboxMessage(page, token).first()).toBeVisible({ timeout: 20000 });
+  });
+
+  test('leaving Huddle while a post sends leaves the new page alone (#854)', async ({ page }) => {
+    await sendHeldFromOlderShift(page, async () => {
+      await page
+        .getByRole('button', { name: /^Tickets$/i })
+        .first()
+        .click();
+      await expect(page).toHaveURL(/\/app\/tickets/);
+    });
+    await expect(page).toHaveURL(/\/app\/tickets/);
+    expect(new URL(page.url()).searchParams.has('conversation')).toBe(false);
   });
 
   test('Session with only off-the-clock posts still has a message box (#854)', async ({ page }) => {
