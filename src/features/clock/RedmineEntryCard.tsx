@@ -112,13 +112,21 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
           />
         </RedmineEntryField>
       ) : (
-        billable && (
-          // Copied from Redmine's own entries, with no choices to pick from: stated, not chosen.
+        // Stated, not chosen: copied with no choices to pick from, or what was sent.
+        billableValue !== undefined && (
           <RedmineEntryField label={text.billable}>
             <Text size="sm" className="redmine-entry-billable">
               {/* The field's label is for the eye only; this names it for a screen reader. */}
-              <span className="sr-only">{billable.name}: </span>
-              {billableValueLabel(billableValue ?? billable.value)}
+              <span className="sr-only">{billableField?.name ?? billable?.name}: </span>
+              {billableField
+                ? [billableValue]
+                    .flat()
+                    .map(
+                      (value) =>
+                        billableField.options.find((o) => o.value === value)?.label ?? value,
+                    )
+                    .join(', ')
+                : billableValueLabel(billableValue)}
             </Text>
           </RedmineEntryField>
         )

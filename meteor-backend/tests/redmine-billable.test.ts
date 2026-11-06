@@ -342,6 +342,11 @@ describe('billableDefinitionOf', () => {
     });
   });
 
+  it('has no dropdown for a field members may not set, and holds no one to a field hidden from them', () => {
+    expect(billableDefinitionOf([{ ...YES_NO_FIELD, editable: false }])).toBeNull();
+    expect(billableDefinitionOf([{ ...YES_NO_FIELD, visible: false }])?.required).toBe(false);
+  });
+
   it('has no dropdown for a free-text field, so its value is copied as before', () => {
     const { possible_values: _none, ...text } = { ...YES_NO_FIELD, field_format: 'string' };
     expect(billableDefinitionOf([text])).toBeNull();

@@ -32,6 +32,7 @@ const BILLABLE_ISSUE = 915;
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
 /** Members who preview time with and without an administrator's key (#786). */
 const DEFINITION_MEMBERS = [
+  'wh-billable-other-field@test.dev',
   'wh-billable-admin@test.dev',
   'wh-billable-member@test.dev',
   'wh-billable-picker@test.dev',
@@ -525,7 +526,7 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     const FRESH_ISSUE = '917';
 
     const preview = (asJwt: string) =>
-      wormhole<{ rows: { ticketId: string; billableField: unknown }[] }>(
+      wormhole<{ rows: { ticketId: string; billable: unknown; billableField: unknown }[] }>(
         'redmine.timeEntries.preview',
         {},
         asJwt,
@@ -559,6 +560,20 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
       const picked = await send(FRESH_ISSUE, { billableValue: '0' }, member.jwt);
       expect(picked.result).toMatchObject({ ok: true });
       expect(created[0].custom_fields).toEqual([{ id: 7, value: '0' }]);
+    });
+
+    it("drops a copied status that belongs to another Billable field, so Redmine never refuses it", async () => {
+      // Issue 915's entries carry field 7; Redmine now defines Billable as field 9.
+      const admin = await connectedMember(DEFINITION_MEMBERS[3]);
+      await loggedTime(String(BILLABLE_ISSUE), 10, admin.userId);
+      customFields = [{ ...DEFINITION, id: 9 }];
+      const read = await preview(admin.jwt);
+      const row = read.ok ? read.result.rows.find((each) => each.ticketId === String(BILLABLE_ISSUE)) : null;
+      expect(row).toMatchObject({ billable: null, billableField: { id: 9 } });
+
+      const none = await send(String(BILLABLE_ISSUE), {}, admin.jwt);
+      expect(none.result).toMatchObject({ ok: false, reason: 'billable-required' });
+      expect(created).toHaveLength(0);
     });
   });
 });

@@ -59,7 +59,8 @@ export function billableDefinitionOf(customFields) {
       typeof each.name === 'string' &&
       BILLABLE_NAME.test(each.name),
   );
-  if (!field) return null;
+  // A field members may not set has nothing to pick; its copied value goes as before.
+  if (!field || field.editable === false) return null;
   const listed = (Array.isArray(field.possible_values) ? field.possible_values : [])
     .filter((each) => typeof each?.value === 'string' && each.value !== '')
     .map((each) => ({ value: each.value, label: each.label || each.value }));
@@ -68,7 +69,8 @@ export function billableDefinitionOf(customFields) {
   return {
     id: field.id,
     name: field.name,
-    required: field.is_required === true,
+    // Shown only to some roles, Redmine asks it only of them; Send is never held for the rest.
+    required: field.is_required === true && field.visible !== false,
     multiple: field.multiple === true,
     options,
   };

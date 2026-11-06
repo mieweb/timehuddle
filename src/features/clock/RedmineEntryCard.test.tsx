@@ -93,6 +93,15 @@ describe('RedmineEntryCard', () => {
     expect(onBillableChange).toHaveBeenCalledWith(['Client A, Inc.', 'Client B']);
   });
 
+  it('states the status sent by its label once the choice is over', () => {
+    renderCard({
+      billableField: { ...billableField, options: [{ value: 'IM', label: 'Internal Meeting' }] },
+      billableValue: 'IM',
+    });
+    expect(screen.getByText('Internal Meeting')).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
   it('disables the choice during a send', () => {
     renderCard({ billableField, onBillableChange: vi.fn(), disabled: true });
     expect(

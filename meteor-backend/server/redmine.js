@@ -444,6 +444,16 @@ function billableChanged(row, shown, value) {
 }
 
 /**
+ * The copied Billable value to start the dropdown on, or null. Only one of the
+ * definition's own choices on the same field: Redmine may hold an older field
+ * under a Billable name, whose value the current field would refuse.
+ */
+function defaultBillable(copied, definition) {
+  if (!copied || !definition) return copied;
+  return copied.id === definition.id && isAllowedBillable(definition, copied.value) ? copied : null;
+}
+
+/**
  * The Billable custom field an entry goes with: the value picked, else the
  * row's default. A `reason` instead when it cannot go: a value Redmine does not
  * offer (`invalid-billable`), or none where Redmine requires one
@@ -519,7 +529,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
           subject: issue.subject ?? '',
           trackerName: issue.tracker?.name ?? null,
           projectId: issue.project?.id ?? null,
-          billable: billable.get(String(issue.id)) ?? null,
+          billable: defaultBillable(billable.get(String(issue.id)) ?? null, billableField),
           billableField,
         },
       ]),

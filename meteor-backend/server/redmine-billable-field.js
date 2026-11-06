@@ -20,27 +20,31 @@ import { hostOf } from './ticket-ids';
 const DEFINITIONS = 'redmine_field_definitions';
 
 /**
- * Read again at most every ten minutes per user: a field's choices change
- * rarely, while a preview runs on every timer stop.
+ * Whether each user's key may list custom fields, and what it read, for an
+ * hour: a field's choices change rarely, and a key that may not read them is
+ * refused (and the refusal logged) at most once an hour rather than on every
+ * timer stop. An outage is not kept, so the next preview asks again.
  */
-const cache = createUserTtlCache(10 * 60 * 1000);
+const reads = createUserTtlCache(60 * 60 * 1000);
 
 /** The Billable definition for the account's server, or null when none is known. */
-export function billableDefinition(userId, account) {
+export async function billableDefinition(userId, account) {
   const host = hostOf(account.baseUrl);
-  return cache.get(userId, `billable-definition:${host}`, async () => {
-    const definitions = rawDb().collection(DEFINITIONS);
-    // An outage reads as "may not read them": the kept definition still serves.
-    const fields = await listCustomFields(account).catch(() => null);
-    if (fields) {
+  const definitions = rawDb().collection(DEFINITIONS);
+  const read = await reads
+    .get(userId, `billable-definition:${host}`, async () => {
+      const fields = await listCustomFields(account);
+      if (!fields) return { readable: false };
       const billable = billableDefinitionOf(fields);
       await definitions.updateOne(
         { _id: host },
         { $set: { billable, readAt: new Date() } },
         { upsert: true },
       );
-      return billable;
-    }
-    return (await definitions.findOne({ _id: host }))?.billable ?? null;
-  });
+      return { readable: true, billable };
+    })
+    .catch(() => ({ readable: false }));
+  if (read.readable) return read.billable;
+  // Read every time: what an administrator's key kept reaches everyone at once.
+  return (await definitions.findOne({ _id: host }))?.billable ?? null;
 }
