@@ -21,6 +21,7 @@
 import { redmine } from '@timehuddle/ticket-sources';
 
 import { createRateLimiter } from './rate-limit';
+import { outboundRefusal } from './sources/outbound';
 import { activityIssueRefs } from './redmine-atom';
 import { findBillableInPages } from './redmine-billable';
 
@@ -89,46 +90,30 @@ function inProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
-/**
- * Hosts a production deployment may send Redmine requests to, from
- * `REDMINE_ALLOWED_HOSTS` (comma-separated `host[:port]`).
- *
- * The server's own `REDMINE_BASE_URL` is always allowed without being listed: it
- * is the deployment's own configuration, not user input, and requiring it to be
- * repeated here would break every existing install on upgrade.
- */
-export function redmineAllowedHosts() {
-  const configured = (process.env.REDMINE_ALLOWED_HOSTS ?? '')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean);
-
-  const own = optionalRedmineBaseUrl();
-  if (own) {
-    try {
-      configured.push(new URL(own).host.toLowerCase());
-    } catch {
-      /* an unparseable REDMINE_BASE_URL allows nothing extra */
-    }
+/** The host of the deployment's own `REDMINE_BASE_URL`, or null. */
+function ownRedmineHost() {
+  try {
+    return new URL(optionalRedmineBaseUrl() ?? '').host.toLowerCase();
+  } catch {
+    return null;
   }
-  return configured;
 }
 
 /**
  * Why `baseUrl` may not be used, or null when it may.
  *
- * `REDMINE_ALLOW_CUSTOM_URL` lets a user store a Redmine URL of their own, and
- * the server then fetches it — which is a signed-in user choosing an address the
- * server will connect to, including internal hosts and cloud metadata endpoints.
- * The flag is meant for dev only, so this is the belt to its braces: in
- * production the host must be one the deployment named, and the scheme must be
- * `https`, whatever any stored row says.
+ * In production the scheme must be `https`. The deployment's own
+ * `REDMINE_BASE_URL` is its own configuration, so always may be used. Any other
+ * server, one an org registered or one a member linked (`REDMINE_ALLOW_CUSTOM_URL`),
+ * is an address someone typed for the server to connect to, so its host must
+ * resolve to a public address unless the deployment allows its private network
+ * (`outboundRefusal`). There is no list of hosts to keep: registering a server is
+ * enough to use it, with no restart.
  *
- * Development is left alone deliberately. The point of the flag there is pointing
- * at a Redmine on localhost over plain HTTP, and an allowlist would only be
- * something to switch off.
+ * Development is left alone deliberately: stand-in servers run on localhost over
+ * plain http.
  */
-export function redmineUrlRefusal(baseUrl) {
+export async function redmineUrlRefusal(baseUrl) {
   if (!inProduction()) return null;
   if (typeof baseUrl !== 'string' || !baseUrl) return 'No Redmine base URL is configured';
 
@@ -139,10 +124,8 @@ export function redmineUrlRefusal(baseUrl) {
     return 'That is not a usable Redmine URL';
   }
   if (url.protocol !== 'https:') return 'Redmine must be reached over https';
-  if (!redmineAllowedHosts().includes(url.host.toLowerCase())) {
-    return 'That Redmine host is not allowed by this deployment';
-  }
-  return null;
+  if (url.host.toLowerCase() === ownRedmineHost()) return null;
+  return outboundRefusal(baseUrl, { production: true });
 }
 
 /**
@@ -151,7 +134,7 @@ export function redmineUrlRefusal(baseUrl) {
  */
 async function readErrorMessages(res) {
   try {
-    const data = JSON.parse(await res.text());
+    const data = JSON.parse(await readBounded(res));
     return Array.isArray(data?.errors) ? data.errors.map(String) : [];
   } catch {
     return [];
@@ -218,7 +201,7 @@ async function redmineRequest(
   { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, accept = 'application/json' } = {},
 ) {
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
-  const refusal = redmineUrlRefusal(account.baseUrl);
+  const refusal = await redmineUrlRefusal(account.baseUrl);
   if (refusal) throw new Error(refusal);
   // An account always names its owner (`findRedmineAccount`, `redmine.connect`);
   // one that somehow does not shares a single budget rather than escaping it.
@@ -267,12 +250,70 @@ async function redmineRequest(
     err.status = res.status;
     err.errors = await readErrorMessages(res);
     logRequestFailure({ method, path, startedAt, err, status: res.status });
+    if (res.status === 401 && accept === 'application/json') await checkKeyRejected(path, account);
     throw err;
   }
 
-  const text = await res.text();
+  const text = await readBounded(res);
   if (accept !== 'application/json') return text;
   return text ? JSON.parse(text) : null;
+}
+
+/**
+ * The most a server's answer may be (#734 step 7). An issue with years of
+ * history is a few megabytes; past this, a broken or hostile server could
+ * fill the backend's memory.
+ */
+export const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+
+/** `res`'s body as text, refused once it passes `MAX_RESPONSE_BYTES`. */
+async function readBounded(res) {
+  const tooLarge = () => {
+    const err = new Error('Redmine answered with more than this TimeHuddle accepts');
+    err.tooLarge = true;
+    return err;
+  };
+  if (Number(res.headers.get('content-length')) > MAX_RESPONSE_BYTES) throw tooLarge();
+  if (!res.body) return '';
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await res.body.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
+ * After a 401, ask Redmine who the key belongs to, and mark the account's key
+ * rejected (`account.onKeyRejected`) only if that is refused too, so no
+ * further request is sent with it (#734 step 7). A 403 never gets here: it
+ * means "not allowed" with a good key (a role without `log_time`, a private
+ * project). Atom isn't checked either: an instance can answer it with 401 for
+ * a good key (see `listActivityIssueIds`). Never throws.
+ */
+async function checkKeyRejected(path, account) {
+  if (typeof account.onKeyRejected !== 'function') return;
+  let rejected = path === '/users/current.json';
+  if (!rejected) {
+    try {
+      // Without the callback, so this check never checks itself.
+      await redmineRequest('/users/current.json', { account: { ...account, onKeyRejected: null } });
+    } catch (err) {
+      rejected = err?.status === 401;
+    }
+  }
+  if (!rejected) return;
+  try {
+    account.keyRejected = true;
+    await account.onKeyRejected();
+  } catch (error) {
+    console.error('[redmine] failed to mark a rejected API key:', error);
+  }
 }
 
 /**

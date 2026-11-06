@@ -8,6 +8,7 @@
  * This page owns TimeHuddle-specific mutations (create, edit, delete, status,
  * assignment); rows gate those controls on each source's capabilities.
  */
+import { isOutsideSource, suggestsIssues } from '@timehuddle/ticket-sources';
 import {
   Button,
   ButtonGroup,
@@ -33,6 +34,7 @@ import {
   ApiError,
   myBoardApi,
   redmineApi,
+  sourcesApi,
   teamApi,
   ticketApi,
   type RedmineIssue,
@@ -50,19 +52,20 @@ import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
-import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
 import {
   collectAssignedOffBoard,
   STARTER_LIMIT,
   starterText,
   useAssignedNotice,
 } from './assignedStarter';
+import { AssignedSourcePicker } from './AssignedSourcePicker';
+import { MAIN_SOURCE, pickAssigned, useAssignedSources } from './assignedSources';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
 import { ticketLinkText } from './link/ticketLinkStrings';
 import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
-import { RedmineSuggestions } from './redmine/RedmineSuggestions';
+import { TicketSearchBar } from './redmine/TicketSearchBar';
 import {
   boardEntryKeys,
   huddleSource,
@@ -416,7 +419,8 @@ export const TicketsPage: React.FC = () => {
   const carrierByIssueId = useMemo(() => {
     const carriers = new Map<string, UnifiedTicket>();
     for (const ticket of allTickets) {
-      const issueId = ticket.linked?.sourceId === 'redmine' ? ticket.linked.id : null;
+      const issueId =
+        ticket.linked && suggestsIssues(ticket.linked.sourceId) ? ticket.linked.id : null;
       if (!issueId || ticket.container?.id !== selectedTeamId) continue;
       const held = carriers.get(issueId);
       if (!held || (ticket.createdAt ?? '') < (held.createdAt ?? '')) carriers.set(issueId, ticket);
@@ -517,8 +521,9 @@ export const TicketsPage: React.FC = () => {
     (ticket: UnifiedTicket): Promise<TicketTimerOutcome> => {
       const label = timerLabel(ticket.sourceId, ticket.id, ticket.title);
       // A bare issue is timed as the ticket carrying it (#736).
-      const carrierKey =
-        ticket.sourceId === 'redmine' ? (carrierByIssueId.get(ticket.id)?.key ?? null) : null;
+      const carrierKey = suggestsIssues(ticket.sourceId)
+        ? (carrierByIssueId.get(ticket.id)?.key ?? null)
+        : null;
       if (
         runningTicket?.sessionId &&
         (runningTicket.key === ticket.key || runningTicket.key === carrierKey)
@@ -562,9 +567,10 @@ export const TicketsPage: React.FC = () => {
   // in the selected team: that is the ticket its Stop acts on (#736).
   const runningLinked = runningTicket ? ticketByKey.get(runningTicket.key)?.linked : null;
   const runningRedmineIssueId =
-    runningTicket?.source === 'redmine'
+    runningTicket && suggestsIssues(runningTicket.source)
       ? Number(runningTicket.id)
-      : runningLinked?.sourceId === 'redmine' &&
+      : runningLinked &&
+          suggestsIssues(runningLinked.sourceId) &&
           carrierByIssueId.get(runningLinked.id)?.key === runningTicket?.key
         ? Number(runningLinked.id)
         : null;
@@ -736,7 +742,7 @@ export const TicketsPage: React.FC = () => {
    */
   const addToBoard = useCallback(
     async (keys: string[]) => {
-      if (!selectedTeam && keys.some((key) => ticketRefOf(key).sourceId === 'redmine')) {
+      if (!selectedTeam && keys.some((key) => isOutsideSource(ticketRefOf(key).sourceId))) {
         setShowNoTeamDialog(true);
         return null;
       }
@@ -770,7 +776,7 @@ export const TicketsPage: React.FC = () => {
       new Set([
         ...[...boardKeys]
           .map(ticketRefOf)
-          .filter((ref) => ref.sourceId === 'redmine')
+          .filter((ref) => suggestsIssues(ref.sourceId))
           .map((ref) => Number(ref.ticketId)),
         ...[...carrierByIssueId]
           .filter(([, carrier]) => isOnBoard(carrier, boardKeys))
@@ -791,6 +797,17 @@ export const TicketsPage: React.FC = () => {
         : addToBoard([key]);
     },
     [boardKeys, carrierByIssueId, addToBoard, removeFromBoard],
+  );
+
+  // A search result on another server, which acts through its ticket.
+  const handleFoundTicketBoard = useCallback(
+    (ticket: Ticket) => {
+      const key = ticketKey('huddle', ticket.id);
+      return boardKeys.has(key)
+        ? removeFromBoard([key], timerLabel('huddle', ticket.id, ticket.title))
+        : addToBoard([key]);
+    },
+    [boardKeys, addToBoard, removeFromBoard],
   );
 
   // One row's board button: on puts it there, off takes it away again.
@@ -843,55 +860,136 @@ export const TicketsPage: React.FC = () => {
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
   // Only for a board known to be empty: after a failed read it merely looks so.
-  // Offered whenever Redmine is connected: the button asks Redmine itself, so
-  // it can bring back issues the table no longer lists (#736).
-  const offerAssigned = boardKnown && boardKeys.size === 0 && redmineConnected === true;
+  const boardEmpty = boardKnown && boardKeys.size === 0;
+  // Every connected source, picked in a dropdown (#734). The main Redmine is
+  // asked itself, so it can bring back issues the table no longer lists (#736).
+  const assignedSources = useAssignedSources(
+    userId,
+    redmineConnected === true ? redmineBaseUrl : null,
+    boardEmpty,
+  );
+  const offerAssigned = boardEmpty && assignedSources.sources.length > 0;
 
   /**
-   * Put the next few assigned issues on the board: the empty board's button and
-   * the notice's "Add more" both. Redmine is asked each time, a page of 100 at
-   * a time, until there are enough off the board or the list ends, so the count
-   * the notice shows is of what Redmine still has off the board.
+   * Put the main Redmine's next few assigned issues on the board; resolves to
+   * how many went on. Redmine is asked each time, a page of 100 at a time,
+   * until there are enough off the board or the list ends, so the count the
+   * notice shows is of what Redmine still has off the board.
    */
-  const handleGetAssigned = useCallback(async () => {
-    setGettingAssigned(true);
-    try {
-      const pending = assignedAddedRef.current;
-      const { offBoard, nextOffset } = await collectAssignedOffBoard(
-        (offset) => redmineApi.issues.assignedIds(offset),
-        (id) => !boardRedmineIssueIds.has(id) && !pending.has(id),
-      );
-      if (offBoard.length === 0) {
-        toast.info(starterText.noneAssigned);
-        dismissAssignedNotice();
-        return;
-      }
-      const batch = offBoard.slice(0, STARTER_LIMIT);
-      // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
-      const result = await addToBoard(batch.map((id) => ticketKey('redmine', String(id))));
-      if (!result) return;
-      // Only the ones that made it: a failed one stays to be added again.
-      for (const key of result.requested) pending.add(Number(ticketRefOf(key).ticketId));
-      // The board may have caught up while they were being added.
-      pruneAssignedAdded();
-      const leftOver = offBoard.length - result.requested.length;
-      // An unread page may hold more, so the count is only known at the end.
-      setAssignedRemaining(nextOffset === null ? leftOver : null);
-      if (leftOver > 0 || nextOffset !== null) showAssignedNotice();
-      else dismissAssignedNotice();
-    } catch {
-      toast.error(starterText.fetchFailed);
-    } finally {
-      setGettingAssigned(false);
+  const fillFromMain = useCallback(async (): Promise<number> => {
+    const pending = assignedAddedRef.current;
+    const { offBoard, nextOffset } = await collectAssignedOffBoard(
+      (offset) => redmineApi.issues.assignedIds(offset),
+      (id) => !boardRedmineIssueIds.has(id) && !pending.has(id),
+    );
+    if (offBoard.length === 0) {
+      dismissAssignedNotice();
+      return 0;
     }
+    const batch = offBoard.slice(0, STARTER_LIMIT);
+    // Each goes on as the ticket carrying it (`addToBoard`), new if need be.
+    const result = await addToBoard(batch.map((id) => ticketKey('redmine', String(id))));
+    if (!result) return 0;
+    // Only the ones that made it: a failed one stays to be added again.
+    for (const key of result.requested) pending.add(Number(ticketRefOf(key).ticketId));
+    // The board may have caught up while they were being added.
+    pruneAssignedAdded();
+    const leftOver = offBoard.length - result.requested.length;
+    // An unread page may hold more, so the count is only known at the end.
+    setAssignedRemaining(nextOffset === null ? leftOver : null);
+    if (leftOver > 0 || nextOffset !== null) showAssignedNotice();
+    else dismissAssignedNotice();
+    return result.requested.length;
   }, [
     boardRedmineIssueIds,
     addToBoard,
     pruneAssignedAdded,
     showAssignedNotice,
     dismissAssignedNotice,
-    toast,
   ]);
+
+  /**
+   * Put the next few assigned issues of each other source in `hosts` on the
+   * board, each as the ticket carrying it in the current team, made now if
+   * need be. Resolves to how many went on, and the sources that didn't answer.
+   */
+  const fillFromOthers = useCallback(
+    async (hosts: string[]): Promise<{ added: number; failed: string[] }> => {
+      if (!selectedTeamId) {
+        setShowNoTeamDialog(true);
+        return { added: 0, failed: [] };
+      }
+      // With no text, each source answers with what's assigned to the member.
+      const { servers } = await sourcesApi.search('');
+      const failed = servers
+        .filter((server) => hosts.includes(server.host) && server.failed)
+        .map((server) => server.host);
+      const picks = pickAssigned(servers, hosts, (issue) =>
+        issue.tickets.some(
+          (ticket) =>
+            ticket.teamId === selectedTeamId && boardKeys.has(ticketKey('huddle', ticket.id)),
+        ),
+      );
+      const carried = await Promise.allSettled(
+        picks.map(({ host, issue }) =>
+          issue.ref
+            ? ticketApi.carryLink(selectedTeamId, issue.url)
+            : ticketApi.carryIssue(selectedTeamId, String(issue.id), host),
+        ),
+      );
+      const keys = carried.flatMap((r) =>
+        r.status === 'fulfilled' ? [ticketKey('huddle', r.value.ticket.id)] : [],
+      );
+      if (keys.length < picks.length) toast.error(starterText.fetchFailed);
+      if (keys.length === 0) return { added: 0, failed };
+      const result = await addToBoard(keys);
+      return { added: result?.requested.length ?? 0, failed };
+    },
+    [selectedTeamId, boardKeys, addToBoard, toast],
+  );
+
+  /**
+   * Put the next few assigned issues of each source in `ids` on the board: the
+   * empty board's Fetch (every picked source) and the notice's "Add more"
+   * (the main Redmine, whose count it shows).
+   */
+  const handleGetAssigned = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) {
+        toast.info(starterText.pickNone);
+        return;
+      }
+      const labelOf = (id: string) =>
+        assignedSources.sources.find((source) => source.id === id)?.label ?? id;
+      const others = ids.filter((id) => id !== MAIN_SOURCE);
+      setGettingAssigned(true);
+      let added = 0;
+      const failed: string[] = [];
+      try {
+        if (ids.includes(MAIN_SOURCE)) {
+          try {
+            added += await fillFromMain();
+          } catch {
+            failed.push(labelOf(MAIN_SOURCE));
+          }
+        }
+        if (others.length > 0) {
+          try {
+            const result = await fillFromOthers(others);
+            added += result.added;
+            failed.push(...result.failed.map(labelOf));
+          } catch {
+            failed.push(...others.map(labelOf));
+          }
+        }
+        if (failed.length > 0) toast.error(starterText.someFailed(failed));
+        else if (added === 0) toast.info(starterText.noneAssigned);
+      } finally {
+        setGettingAssigned(false);
+      }
+    },
+    [assignedSources.sources, fillFromMain, fillFromOthers, toast],
+  );
   const nextAssignedCount = Math.min(assignedRemaining ?? STARTER_LIMIT, STARTER_LIMIT);
 
   const handleRemoveFromBoard = useCallback(() => {
@@ -983,7 +1081,7 @@ export const TicketsPage: React.FC = () => {
             <div className="tickets-toolbar sticky top-0 z-20 -mx-4 mb-3 flex shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
               {newTicketButton}
 
-              <RedmineSuggestions
+              <TicketSearchBar
                 userId={userId}
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
@@ -996,6 +1094,8 @@ export const TicketsPage: React.FC = () => {
                 boardIssueIds={boardRedmineIssueIds}
                 boardKnown={boardKnown}
                 onToggleBoard={handleSuggestionBoard}
+                boardKeys={boardKeys}
+                onToggleTicketBoard={handleFoundTicketBoard}
                 inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
               />
             </div>
@@ -1072,7 +1172,7 @@ export const TicketsPage: React.FC = () => {
                           className="h-auto p-0 text-xs"
                           isLoading={gettingAssigned}
                           loadingText={starterText.getting}
-                          onClick={() => void handleGetAssigned()}
+                          onClick={() => void handleGetAssigned([MAIN_SOURCE])}
                           aria-label={starterText.addMoreLabel(nextAssignedCount)}
                         >
                           {starterText.addMore(nextAssignedCount)}
@@ -1132,18 +1232,15 @@ export const TicketsPage: React.FC = () => {
               }}
               // Wraps on a phone, where the two labels do not fit one row.
               emptyAction={
-                <ButtonGroup className="empty-board-actions max-w-full flex-wrap justify-center gap-2">
+                <div className="empty-board-start flex max-w-full flex-col items-center gap-3">
                   {offerAssigned && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      leftIcon={<UserRoundArrowLeft className="h-4 w-4" aria-hidden="true" />}
-                      isLoading={gettingAssigned}
-                      loadingText={starterText.getting}
-                      onClick={() => void handleGetAssigned()}
-                    >
-                      {starterText.getAssigned}
-                    </Button>
+                    <AssignedSourcePicker
+                      sources={assignedSources.sources}
+                      picked={assignedSources.picked}
+                      busy={gettingAssigned}
+                      onPickedChange={assignedSources.setPicked}
+                      onFetch={() => void handleGetAssigned(assignedSources.picked)}
+                    />
                   )}
                   <Button
                     variant="outline"
@@ -1153,7 +1250,7 @@ export const TicketsPage: React.FC = () => {
                   >
                     {viewText.browseAllSources}
                   </Button>
-                </ButtonGroup>
+                </div>
               }
               emptyNotice={unresolvedBoardNotice}
             />

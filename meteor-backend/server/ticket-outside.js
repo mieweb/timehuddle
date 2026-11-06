@@ -8,6 +8,7 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
+import { github, matchIssueUrl } from '@timehuddle/ticket-sources';
 
 import { requireIdentity } from './auth-bridge';
 import { Tickets, isObjectIdHex } from './collections';
@@ -29,15 +30,59 @@ async function openOutside(userId, ticketId) {
   if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
   await requireTeamMembership(userId, ticket.teamId);
 
-  const link = ticket.linkedIssue;
+  const linkedFromAddress = !ticket.linkedIssue?.id && carriedLinkOf(ticket);
+  const link = linkedFromAddress || ticket.linkedIssue;
   const driver = link?.id ? driverFor(link.source) : null;
   if (!driver) throw new Meteor.Error('not-linked', 'This ticket carries no outside issue.');
-  const session = await driver.open(userId);
+  let session;
+  try {
+    session = await driver.open(userId, link.host);
+  } catch (err) {
+    if (linkedFromAddress) throw notConnectedLink();
+    throw err;
+  }
   if (link.host && link.host !== session.server) {
     throw new Meteor.Error('other-server', 'This issue is on a server your account is not on.');
   }
-  const ref = { server: link.host ?? session.server, key: String(link.id) };
-  return { kind: link.source, ticket, driver, session, ref };
+  const ref = {
+    server: link.host ?? session.server,
+    ...(link.container ? { container: link.container } : {}),
+    key: String(link.id),
+  };
+  return { kind: link.source, ticket, driver, session, ref, linkedFromAddress };
+}
+
+/**
+ * A ticket displayed as a GitHub issue (#734) keeps only its address, as it
+ * always has. That address names the issue, so nothing new is stored.
+ */
+function carriedLinkOf(ticket) {
+  if (!ticket.github || ticket.linkIsIssue === false) return null;
+  const ref = matchIssueUrl(github, ticket.github);
+  return ref ? { source: github.kind, id: ref.key, container: ref.container } : null;
+}
+
+/**
+ * A member who can't read a ticket's GitHub address still sees the ticket: it
+ * shows as the plain link it is. Only the ticket's own title is shown, which
+ * was never the issue's secret to keep the way a carried Redmine subject is.
+ * The page says why: no connection (`plain-link-connect`), or the account
+ * can't open it (`plain-link`: private, moved, deleted or not approved).
+ */
+const plainLink = () => new Meteor.Error('plain-link', 'This ticket shows as a plain link for you.');
+const notConnectedLink = () =>
+  new Meteor.Error('plain-link-connect', 'Connect this source to see the issue behind this link.');
+
+/**
+ * Why a ticket's address couldn't be read. A refusal or a missing or moved
+ * issue is the account's view of it; an outage or a rate limit says nothing
+ * about access, and is said as what it is.
+ */
+function addressFailure(err, driver) {
+  if (err instanceof EngineError || (err?.status >= 300 && err?.status < 500 && !err.rateLimited)) {
+    return plainLink();
+  }
+  return toMeteorError(err, driver);
 }
 
 /**
@@ -50,7 +95,8 @@ async function openOutside(userId, ticketId) {
  */
 async function followTitle(ticket, record) {
   const title = record.title.trim();
-  if (!title || title === ticket.title) return;
+  // A ticket displayed by its address keeps the title its team gave it.
+  if (!ticket.linkedIssue?.id || !title || title === ticket.title) return;
   await Tickets.updateAsync(
     {
       _id: ticket._id,
@@ -97,8 +143,10 @@ Meteor.methods({
     try {
       [result, me] = await Promise.all([fetchRecord(engineArgs(outside)), outside.session.me()]);
     } catch (err) {
+      if (outside.linkedFromAddress) throw addressFailure(err, outside.driver);
       throw toMeteorError(err, outside.driver);
     }
+    if (!result && outside.linkedFromAddress) throw plainLink();
     if (!result) {
       throw new Meteor.Error('gone', 'This issue no longer exists, or you can no longer see it.');
     }
@@ -129,7 +177,8 @@ Meteor.methods({
     }
     const outside = await openOutside(userId, ticketId);
     // Relinked since the caller read it: their edit was meant for another issue.
-    if (`${outside.kind}:${outside.ref.server}:${outside.ref.key}` !== expectedIssue) {
+    const { server, container, key } = outside.ref;
+    if (`${outside.kind}:${server}:${container ? `${container}#` : ''}${key}` !== expectedIssue) {
       throw new Meteor.Error(
         'stale-link',
         "This ticket's linked issue changed since you opened it. Reload to see the latest version.",

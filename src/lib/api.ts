@@ -6,7 +6,12 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
-import type { RecordStatus, SourceServer, TicketRecord } from '@timehuddle/ticket-sources';
+import type {
+  RecordPerson,
+  RecordStatus,
+  SourceServer,
+  TicketRecord,
+} from '@timehuddle/ticket-sources';
 import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
@@ -1046,6 +1051,9 @@ async function wormholeCall<T = unknown>(
   console.log(`[wormholeCall] ${method}: got response, status=${status}`);
 
   if (status < 200 || status >= 300) {
+    if (data.error && REDMINE_KEY_CODES.has(data.error)) {
+      window.dispatchEvent(new Event(REDMINE_KEY_PROBLEM));
+    }
     throw new ApiError(
       data.reason || data.message || `Request failed (${status})`,
       status,
@@ -1054,6 +1062,15 @@ async function wormholeCall<T = unknown>(
   }
   return data.result as T;
 }
+
+/**
+ * Broadcast when a call failed for want of a working Redmine key: Redmine
+ * refused it (`invalid-key`), or there is none to use (`not-connected`, which
+ * is also what a key Redmine rejected earlier reads as). `useRedmineStatus`
+ * checks the status again, which says whether the key was rejected (#734).
+ */
+export const REDMINE_KEY_PROBLEM = 'redmine:key-problem';
+const REDMINE_KEY_CODES = new Set(['invalid-key', 'not-connected']);
 
 // ─── Ticket API ───────────────────────────────────────────────────────────────
 
@@ -1155,7 +1172,12 @@ export interface OutsideIssue {
 /** Which issue `issue` is, as `tickets.writeOutside` checks it: `kind:server:key`. */
 export function outsideIssueKey(issue: OutsideIssue): string {
   const ref = issue.record.ref;
-  return `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`;
+  return `${issue.kind}:${ref?.server ?? ''}:${outsideRefKey(ref)}`;
+}
+
+/** An issue's number within its source: with its repo where numbers are per repo. */
+export function outsideRefKey(ref: { container?: string; key: string } | null): string {
+  return ref ? `${ref.container ? `${ref.container}#` : ''}${ref.key}` : '';
 }
 
 /** Edits to an outside issue, by record field; ids as the source gives them. */
@@ -1246,10 +1268,16 @@ export const ticketApi = {
    * The team's ticket carrying Redmine issue `issueId`, created from the issue
    * and linked when there is none (#736). `created` says which.
    */
-  carryIssue: (teamId: string, issueId: string) =>
+  carryLink: (teamId: string, url: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryLink', {
+      teamId,
+      url,
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
+  carryIssue: (teamId: string, issueId: string, host?: string) =>
     wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryIssue', {
       teamId,
       issueId: Number(issueId),
+      ...(host ? { host } : {}),
     }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
 
   /**
@@ -2197,6 +2225,8 @@ export interface UnsentRedmineTime {
   ticketId: string;
   date: string;
   hours: number;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
 }
 
 export const timerApi = {
@@ -2694,6 +2724,8 @@ export const tokenApi = {
 /** Client-safe Redmine connection status. Never carries the API key. */
 export interface RedmineStatus {
   connected: boolean;
+  /** Redmine rejected the saved key; it isn't used until a new one is pasted (#734). */
+  rejected?: boolean;
   redmineUserId?: number;
   redmineLogin?: string;
   redmineName?: string;
@@ -2726,6 +2758,10 @@ export interface RedmineTimeEntryRow {
   ticketId: string;
   /** The day being logged, `YYYY-MM-DD`. */
   date: string;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+  /** That server's address, for its issue links. */
+  baseUrl?: string;
   /** Seconds not yet sent to Redmine — what this push would cover. */
   seconds: number;
   /** Seconds already sent for this ticket-day by earlier pushes. */
@@ -2765,12 +2801,17 @@ export interface RedmineTimeEntryPreview {
   /** False while a shift is open or a ticket timer is running. */
   idle: boolean;
   rows: RedmineTimeEntryRow[];
+  /** Servers that refused the member's key just now: left out, the rest still shown (#734). */
+  refusedHosts?: string[];
   baseUrl: string | null;
 }
 
 export interface RedmineTimeEntryPushRequest {
   ticketId: string;
   date: string;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+
   /** Optional override of the resolved activity. */
   activityId?: number;
   /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
@@ -2791,6 +2832,9 @@ export interface RedmineTimeEntryPushRequest {
 export interface RedmineTimeEntryPushOutcome {
   ticketId: string | null;
   date: string | null;
+  /** The server, when it isn't this TimeHuddle's own Redmine (#734). */
+  host?: string;
+
   hours?: number;
   ok: boolean;
   /** Present on failure: `no-log-time-permission`, `unreachable`, … */
@@ -2993,6 +3037,97 @@ export const githubApi = {
     wormholeCall<GitHubLinkStatus>('github.disconnect', {}),
 };
 
+/** A ticket server the member's orgs registered, and their connection to it (#734). */
+export interface SourceConnection {
+  host: string;
+  baseUrl: string;
+  prefix: string;
+  type: string;
+  /** Connected through the Redmine card, not here. */
+  main: boolean;
+  connected: boolean;
+  /** The server refused the saved key, so it's no longer sent. */
+  rejected: boolean;
+  login: string | null;
+}
+
+/** The member's GitHub connection: built in for everyone, connected in one click. */
+export interface GitHubSourceConnection {
+  host: string;
+  /** This TimeHuddle has an OAuth app to connect through. */
+  configured: boolean;
+  connected: boolean;
+  rejected: boolean;
+  login: string | null;
+  /** The accounts and organizations the member brings issues from; null for all of them. */
+  owners: string[] | null;
+}
+
+/** A GitHub account or organization the member can bring issues from. */
+export interface GitHubOwner {
+  login: string;
+  /** The member's own account. */
+  own: boolean;
+}
+
+/** The live status and assignees of an issue a ticket carries from a server other than the main Redmine. */
+export interface OutsideIssueSummary {
+  source: string;
+  host: string;
+  id: string;
+  status: RecordStatus;
+  assignees: RecordPerson[];
+}
+
+/** An issue found on another connected server, with the member's tickets carrying it. */
+export interface SourceSearchIssue extends RedmineIssue {
+  url: string;
+  /** Its own ID, where the source names one (`pulse-223`). */
+  ref?: string;
+  pull?: boolean;
+  tickets: { id: string; teamId: string }[];
+}
+
+export interface SourceSearchAnswer {
+  host: string;
+  prefix: string;
+  type: string;
+  /** The server was slow or refused: it found nothing, rather than nothing to find. */
+  failed: boolean;
+  /** Why it failed, when that was its rate limit (GitHub's). */
+  rateLimited?: boolean;
+  issues: SourceSearchIssue[];
+}
+
+export const sourcesApi = {
+  search: (query: string): Promise<{ servers: SourceSearchAnswer[] }> =>
+    wormholeCall('sources.search', { query }),
+  /** For the Tickets table's rows: the main Redmine's come with `redmine.issues.relevant`. */
+  linkedIssues: (): Promise<{ issues: OutsideIssueSummary[] }> =>
+    wormholeCall('sources.linkedIssues', {}),
+  list: (): Promise<{ servers: SourceConnection[]; github: GitHubSourceConnection }> =>
+    wormholeCall('sources.list', {}),
+  /** Where to send the browser to connect GitHub; it comes back with `?github_connect=`. */
+  githubConnectUrl: async (): Promise<string> => {
+    const { token } = await wormholeCall<{ token: string }>('sources.githubConnectToken', {});
+    return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ connect: token })}`;
+  },
+  /** The GitHub accounts and organizations the member can bring issues from. */
+  githubOwners: (): Promise<{ owners: GitHubOwner[] }> => wormholeCall('sources.githubOwners', {}),
+  /** Bring GitHub issues only from `owners`; null or empty for all of them. */
+  setGithubOwners: (owners: string[] | null): Promise<{ owners: string[] | null }> =>
+    wormholeCall('sources.setGithubOwners', { owners }),
+  /** Finish the GitHub connection, as the user who started it. */
+  confirmGithub: (code: string): Promise<{ login: string | null }> =>
+    wormholeCall('sources.confirmGithub', { code }),
+  check: (server: string): Promise<{ host: string; connected: boolean; login: string | null }> =>
+    wormholeCall('sources.check', { server }),
+  connect: (server: string, apiKey: string): Promise<{ host: string; connected: boolean }> =>
+    wormholeCall('sources.connect', { server, apiKey }),
+  disconnect: (server: string): Promise<{ host: string; connected: boolean }> =>
+    wormholeCall('sources.disconnect', { server }),
+};
+
 export const redmineApi = {
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
@@ -3115,8 +3250,18 @@ export const redmineApi = {
      * What a push would send. Read-only — creates nothing in Redmine. With
      * `only`, that one ticket-day: its hours and the activities its project allows.
      */
-    preview: (only?: { ticketId: string; date: string }): Promise<RedmineTimeEntryPreview> =>
-      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', { ...only }),
+    preview: (only?: {
+      ticketId: string;
+      date: string;
+      host?: string;
+    }): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', { ...only }).then(
+        (preview) => {
+          // A server left out for a rejected key says so, as a refused call does.
+          if (preview.refusedHosts?.length) window.dispatchEvent(new Event(REDMINE_KEY_PROBLEM));
+          return preview;
+        },
+      ),
 
     /**
      * Send the confirmed ticket-days to Redmine.
@@ -3144,6 +3289,7 @@ export const redmineApi = {
         activityId,
         billable,
         hours,
+        host,
       }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
       wormholeCall<RedmineTicketDaySendOutcome>('redmine.timeEntries.sendTicketDay', {
@@ -3153,6 +3299,7 @@ export const redmineApi = {
         activityId,
         billable,
         hours,
+        host,
       }),
 
     /**
@@ -3160,7 +3307,15 @@ export const redmineApi = {
      * Redmine and the time stays in TimeHuddle; only time tracked on that day
      * later is offered again.
      */
-    discard: (ticketId: string, date: string): Promise<{ discardedSeconds: number }> =>
-      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', { ticketId, date }),
+    discard: (
+      ticketId: string,
+      date: string,
+      host?: string,
+    ): Promise<{ discardedSeconds: number }> =>
+      wormholeCall<{ discardedSeconds: number }>('redmine.timeEntries.discard', {
+        ticketId,
+        date,
+        host,
+      }),
   },
 };

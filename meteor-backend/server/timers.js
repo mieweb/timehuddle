@@ -219,32 +219,44 @@ async function restampSessions(entry, newTicketId) {
   const [sessions, stamp, ledger] = await Promise.all([
     Timers.find(
       { workItemId: entry._id.toHexString() },
-      { fields: { redmineIssueId: 1, date: 1, endTime: 1 } },
+      { fields: { redmineIssueId: 1, redmineHost: 1, date: 1, endTime: 1 } },
     ).fetchAsync(),
     redmineStampFor({ source: HUDDLE, ticketId: newTicketId }),
     pushLedgerFor(entry.userId),
   ]);
+  // Sessions on another server are read against that server's ledger (#734).
+  const otherHosts = [...new Set(sessions.map((s) => s.redmineHost).filter(Boolean))];
+  const otherLedgers = new Map(
+    await Promise.all(
+      otherHosts.map(async (host) => [host, await pushLedgerFor(entry.userId, undefined, host)]),
+    ),
+  );
   const moved = sessionIssuesAfterMove({
     sessions,
     date: entry.date,
     previousIssueId: normalizeSource(entry.source) === REDMINE ? entry.ticketId : null,
     nextIssueId: stamp.redmineIssueId ?? null,
+    nextHost: stamp.redmineHost ?? null,
     ledger,
+    otherLedgers,
   });
 
   const writeStamps = (stamps) => {
-    const idsByIssue = new Map();
-    for (const { sessionId, issueId } of stamps) {
-      idsByIssue.set(issueId, [...(idsByIssue.get(issueId) ?? []), sessionId]);
+    const idsByStamp = new Map();
+    for (const { sessionId, issueId, host = null } of stamps) {
+      const key = JSON.stringify([issueId, host]);
+      idsByStamp.set(key, [...(idsByStamp.get(key) ?? []), sessionId]);
     }
     return Promise.all(
-      [...idsByIssue].map(([issueId, ids]) =>
-        Timers.updateAsync(
-          { _id: { $in: ids } },
-          issueId ? { $set: { redmineIssueId: issueId } } : { $unset: { redmineIssueId: '' } },
-          { multi: true },
-        ),
-      ),
+      [...idsByStamp].map(([key, ids]) => {
+        const [issueId, host] = JSON.parse(key);
+        const update = !issueId
+          ? { $unset: { redmineIssueId: '', redmineHost: '' } }
+          : host
+            ? { $set: { redmineIssueId: issueId, redmineHost: host } }
+            : { $set: { redmineIssueId: issueId }, $unset: { redmineHost: '' } };
+        return Timers.updateAsync({ _id: { $in: ids } }, update, { multi: true });
+      }),
     );
   };
 
@@ -252,7 +264,11 @@ async function restampSessions(entry, newTicketId) {
   // time is sent to, which can never be taken back. So the stamps move first,
   // and are put back if anything after them fails; a restore that itself fails
   // is logged for reconciliation by hand.
-  const original = sessions.map((s) => ({ sessionId: s._id, issueId: s.redmineIssueId ?? null }));
+  const original = sessions.map((s) => ({
+    sessionId: s._id,
+    issueId: s.redmineIssueId ?? null,
+    host: s.redmineHost ?? null,
+  }));
   const restore = async () => {
     try {
       await writeStamps(original);
@@ -402,8 +418,13 @@ async function callerSessionSelector(userId, ticketId, source) {
   // A link names an issue on the deployment's own Redmine. For a caller on a
   // custom instance (dev/test) the same number is a different issue.
   const account = await findRedmineAccount(userId);
+  // A bare Redmine issue is on the deployment's own, so time linked to the same
+  // number on another server isn't its (#734 step 6).
   return !account || onDefaultRedmine(account)
-    ? { userId, $or: [onWorkItems, { redmineIssueId: String(ticketId) }] }
+    ? {
+        userId,
+        $or: [onWorkItems, { redmineIssueId: String(ticketId), redmineHost: { $exists: false } }],
+      }
     : { userId, ...onWorkItems };
 }
 

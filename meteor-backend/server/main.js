@@ -21,6 +21,8 @@ import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
+import { requestGithubToken } from './github-client';
+import { stageGithubConnect } from './github-connect';
 import { findUserIdByGithubId, stageGithubLink } from './github-link';
 import './tickets';
 import './ticket-links';
@@ -29,6 +31,10 @@ import './ticket-search';
 import './ticket-outside';
 import './redmine-suggestions';
 import './redmine';
+import './source-accounts';
+import './source-search';
+import './source-linked';
+import './github-connect';
 import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
@@ -45,7 +51,7 @@ import './usage';
 import './teams';
 import './team-join-requests';
 import { migrateSettings } from './settings/migrate';
-import { hostOf, migrateServerTypes, migrateTicketNumbers } from './ticket-ids';
+import { hostOf, migrateTicketNumbers } from './ticket-ids';
 import { migrateBareRedmineData } from './redmine-cleanup-736';
 import { optionalRedmineBaseUrl } from './redmine-client';
 import { watchSettingsChanges } from './settings/changes';
@@ -99,14 +105,6 @@ Meteor.startup(async () => {
 Meteor.startup(() => {
   migrateTicketNumbers(rawDb()).catch((error) =>
     console.error('[tickets] numbering existing tickets failed:', error),
-  );
-});
-
-// Not awaited either: until it runs, a server named before types existed reads
-// as Redmine anyway (outsideIdOf's default).
-Meteor.startup(() => {
-  migrateServerTypes(rawDb(), { redmineBaseUrl: optionalRedmineBaseUrl() }).catch((error) =>
-    console.error('[orgs] giving servers a type failed:', error),
   );
 });
 
@@ -404,9 +402,10 @@ function sendNativeAuthRedirect(res, token, resumeToken, extraParams = {}) {
 // OAuth `state` round-trips through the third-party IdP unmodified, so it's
 // the only place to smuggle context (native flag + pending team/org join
 // links) through the redirect-away-and-back flow. Encoded as base64url JSON.
-function encodeOAuthState({ isNative, join, invite, orgInvite, link } = {}) {
+function encodeOAuthState({ isNative, join, invite, orgInvite, link, connect } = {}) {
   const payload = { n: !!isNative, r: Random.secret() };
   if (link) payload.l = link;
+  if (connect) payload.c = connect;
   if (join) payload.j = join;
   if (invite) payload.i = invite;
   if (orgInvite) payload.o = orgInvite;
@@ -422,6 +421,7 @@ function decodeOAuthState(state) {
       invite: payload.i || null,
       orgInvite: payload.o || null,
       link: payload.l || null,
+      connect: payload.c || null,
     };
   } catch {
     // Legacy format (plain 'native_' prefix) — no join/invite context available.
@@ -431,6 +431,7 @@ function decodeOAuthState(state) {
       invite: null,
       orgInvite: null,
       link: null,
+      connect: null,
     };
   }
 }
@@ -456,8 +457,10 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     orgInvite: reqParams.get('org_invite'),
     // Settings → Connect GitHub: a single-use token naming the signed-in user (#725).
     link: reqParams.get('link'),
+    // Settings → Sources → Connect GitHub: a separate ask for repo access (#734).
+    connect: reqParams.get('connect'),
   });
-  const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
+  const callbackUrl = `${process.env.ROOT_URL.replace(/\/+$/, '')}/auth/github/callback`;
 
   console.log('[github-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[github-oauth] Client ID:', process.env.GITHUB_CLIENT_ID);
@@ -467,7 +470,7 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
     'https://github.com/login/oauth/authorize' +
     `?client_id=${process.env.GITHUB_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
-    `&scope=user:email` +
+    `&scope=${reqParams.get('connect') ? 'repo' : 'user:email'}` +
     `&state=${credentialToken}`;
 
   res.writeHead(302, { Location: githubAuthUrl });
@@ -484,6 +487,18 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
   }
 
   try {
+    // Connect GitHub keeps a token, so it never joins sign-in's path below.
+    const { connect } = decodeOAuthState(state);
+    if (connect) {
+      const tokens = await requestGithubToken({ code });
+      const { code: confirm, error } = await stageGithubConnect(connect, tokens);
+      const frontend = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+      const params = { section: 'integrations', ...(confirm ? { github_connect: confirm } : { github_failed: error }) };
+      res.writeHead(302, { Location: `${frontend}/app/settings?${new URLSearchParams(params)}` });
+      res.end();
+      return;
+    }
+
     // Exchange code for token
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -1075,6 +1090,7 @@ Meteor.startup(async () => {
       properties: {
         teamId: { type: 'string' },
         issueId: { type: 'integer', description: 'The Redmine issue number' },
+        host: { type: 'string', description: "The issue's server, when it isn't the main one" },
       },
       required: ['teamId', 'issueId'],
     },
@@ -1248,6 +1264,104 @@ Meteor.startup(async () => {
   Wormhole.expose('redmine.disconnect', {
     description: "Remove the caller's Redmine account link",
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.list', {
+    description:
+      "The ticket servers the caller's organizations registered, with their connection to each (never returns a key)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.check', {
+    description: "Ask a ticket server whether the caller's saved API key still works",
+    inputSchema: {
+      type: 'object',
+      properties: { server: { type: 'string', description: "The server's address" } },
+      required: ['server'],
+    },
+  });
+
+  Wormhole.expose('sources.githubConnectToken', {
+    description: 'A single-use token that starts connecting the caller\'s GitHub repos',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.confirmGithub', {
+    description: 'Finish the GitHub connection the OAuth callback staged, as the caller',
+    inputSchema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+    },
+  });
+
+  Wormhole.expose('sources.githubOwners', {
+    description:
+      "The GitHub accounts and organizations the caller can bring issues from: their own, then each owner of a repo they can reach",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.setGithubOwners', {
+    description:
+      'Bring GitHub issues only from these accounts and organizations, or from all of them with null or an empty list',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        owners: {
+          type: ['array', 'null'],
+          items: { type: 'string' },
+          description: 'GitHub logins of accounts or organizations',
+        },
+      },
+    },
+  });
+
+  Wormhole.expose('tickets.carryLink', {
+    description:
+      "The team's ticket displayed as a GitHub issue or pull request, created from it if there is none",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, url: { type: 'string' } },
+      required: ['teamId', 'url'],
+    },
+  });
+
+  Wormhole.expose('sources.search', {
+    description:
+      "Find issues on every other ticket server the caller has connected, grouped by server. Results carry no description, history or custom fields",
+    inputSchema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'An issue number, link, @name or words' } },
+      required: ['query'],
+    },
+  });
+
+  Wormhole.expose('sources.linkedIssues', {
+    description:
+      "The live status and assignees of the issues the caller's tickets carry from servers other than their main Redmine, read with their own key for each",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('sources.connect', {
+    description:
+      "Connect the caller to another ticket server their organization registered, with their own API key",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        server: { type: 'string', description: "The registered server's address" },
+        apiKey: { type: 'string', description: 'Personal API key on that server' },
+      },
+      required: ['server', 'apiKey'],
+    },
+  });
+
+  Wormhole.expose('sources.disconnect', {
+    description: "Remove the caller's account on another registered server",
+    inputSchema: {
+      type: 'object',
+      properties: { server: { type: 'string', description: "The server's address" } },
+      required: ['server'],
+    },
   });
 
   Wormhole.expose('redmine.status', {

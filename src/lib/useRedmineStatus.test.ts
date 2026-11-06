@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { redmineApi, type RedmineStatus } from './api';
+import { REDMINE_KEY_PROBLEM, redmineApi, type RedmineStatus } from './api';
 import {
   notifyRedmineChanged,
   onOtherRedmineServer,
@@ -14,6 +14,7 @@ import { useSession } from './useSession';
 
 vi.mock('./api', () => ({
   redmineApi: { status: vi.fn() },
+  REDMINE_KEY_PROBLEM: 'redmine:key-problem',
 }));
 
 vi.mock('./useSession', () => ({
@@ -160,6 +161,36 @@ describe('useRedmineStatus', () => {
 
     // No act() wrapper: nothing should re-render, and React would warn if it did.
     expect(() => notifyRedmineChanged(CONNECTED)).not.toThrow();
+  });
+});
+
+describe('useRedmineStatus after a call failed for want of a key (#734)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signedInAs('u1');
+  });
+  afterEach(cleanup);
+
+  it('checks again, and shows a key Redmine rejected meanwhile', async () => {
+    mockStatus.mockResolvedValue(CONNECTED);
+    const { result } = renderHook(() => useRedmineStatus());
+    await waitFor(() => expect(result.current).toEqual(CONNECTED));
+
+    mockStatus.mockResolvedValue({ connected: false, rejected: true });
+    act(() => {
+      window.dispatchEvent(new Event(REDMINE_KEY_PROBLEM));
+    });
+    await waitFor(() => expect(result.current).toEqual({ connected: false, rejected: true }));
+  });
+
+  it('checks at most once every half minute, however many calls fail', async () => {
+    const { result } = renderHook(() => useRedmineStatus());
+    await waitFor(() => expect(result.current).not.toBeNull());
+
+    act(() => {
+      for (let i = 0; i < 5; i++) window.dispatchEvent(new Event(REDMINE_KEY_PROBLEM));
+    });
+    await waitFor(() => expect(mockStatus).toHaveBeenCalledTimes(2));
   });
 });
 

@@ -23,6 +23,8 @@ export const BRAND_KEY = 'app:brand' as const;
 export const RELEASE_CELEBRATED_KEY = 'app:release-celebrated' as const;
 /** Prefix, per user: the "more issues assigned to you" notice on My Board is showing. */
 export const BOARD_ASSIGNED_NOTICE_KEY = 'app:board-assigned-notice' as const;
+/** Prefix, per user: the sources left unpicked for My Board's "Bring your recent tickets from". */
+export const BOARD_ASSIGNED_SKIPPED_KEY = 'app:board-assigned-skipped' as const;
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 

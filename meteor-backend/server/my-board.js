@@ -9,6 +9,7 @@
  * unresolved when its ticket is gone: a Huddle ticket deleted, or a Redmine
  * issue deleted or no longer visible. The Tickets page offers to remove those.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import { Meteor } from 'meteor/meteor';
 
 import { Mongo } from 'meteor/mongo';
@@ -128,8 +129,8 @@ async function unavailableHuddleTicketIds(userId, ticketIds) {
  * The board is a reason for a Redmine issue to be in the relevant list, which is
  * cached for 90 seconds, so a board change must clear it.
  */
-function bustIfRedmine(userId, refs) {
-  if (refs.some((ref) => ref.sourceId === 'redmine')) bustUserCaches(userId);
+function bustIfOutside(userId, refs) {
+  if (refs.some((ref) => isOutsideSource(ref.sourceId))) bustUserCaches(userId);
 }
 
 /** Delete these (sourceId, ticketId) entries from one user's board. */
@@ -138,7 +139,7 @@ export async function removeBoardEntries(userId, refs) {
     userId,
     $or: refs.map(({ sourceId, ticketId }) => ({ sourceId, ticketId })),
   });
-  bustIfRedmine(userId, refs);
+  bustIfOutside(userId, refs);
   return result.deletedCount;
 }
 
@@ -199,7 +200,7 @@ Meteor.methods({
     }
 
     await Promise.all(fresh.map((ref) => upsertEntry(userId, ref)));
-    bustIfRedmine(userId, fresh);
+    bustIfOutside(userId, fresh);
     return { addedCount: allowed.length };
   },
 

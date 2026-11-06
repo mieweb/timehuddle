@@ -24,6 +24,7 @@ import { bustUserCaches } from './redmine-cache';
 import { getIssue, onDefaultRedmine, optionalRedmineBaseUrl } from './redmine-client';
 import { pushLedgerFor } from './redmine-time-sync';
 import {
+  issueServerOf,
   linkAction,
   linkNotificationBody,
   linkedIssueIdOf,
@@ -79,15 +80,20 @@ async function callerTimeOn(userId, ticket) {
   const sessions = items.length
     ? await Timers.find(
         { workItemId: { $in: items.map((item) => item._id.toHexString()) } },
-        { fields: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1 } },
+        { fields: { redmineIssueId: 1, redmineHost: 1, date: 1, endTime: 1, durationSeconds: 1 } },
       ).fetchAsync()
     : [];
   const issueId = linkedIssueIdOf(ticket);
+  // The issue's server: its time pools and is sent there (#734 step 6).
+  const host = issueServerOf(ticket, hostOf(optionalRedmineBaseUrl()));
   const [poolTotals, ledger] =
     issueId && sessions.length
-      ? await Promise.all([redmineTicketDaysFor(userId), pushLedgerFor(userId)])
+      ? await Promise.all([
+          redmineTicketDaysFor(userId, { host }),
+          pushLedgerFor(userId, undefined, host),
+        ])
       : [[], new Map()];
-  return linkedTimeSummary({ sessions, issueId, poolTotals, ledger });
+  return linkedTimeSummary({ sessions, issueId, host, poolTotals, ledger });
 }
 
 /** Each link is one Redmine read; nobody links more than a few tickets a minute. */
@@ -168,9 +174,9 @@ export function assertOnDefaultRedmine(account) {
  * linked to it. Refused unless the caller has connected Redmine on the
  * deployment's own server, and the issue exists for them. Returns the issue.
  */
-export async function readLinkableIssue(userId, issueId) {
-  const account = await requireRedmineAccount(userId);
-  assertOnDefaultRedmine(account);
+export async function readLinkableIssue(userId, issueId, host = null) {
+  const account = await requireRedmineAccount(userId, host ?? undefined);
+  if (!host) assertOnDefaultRedmine(account);
   let issue;
   try {
     issue = await getIssue(account, Number(issueId));

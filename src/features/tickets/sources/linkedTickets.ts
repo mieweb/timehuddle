@@ -9,7 +9,14 @@
  * source explicitly, so `redmine:482` on a ticket and the Redmine issue 482 are
  * the same thing by construction, not by coincidence.
  */
-import { ticketKey, type TicketSourceId, type UnifiedTicket } from './types';
+import type { OutsideIssueSummary } from '../../../lib/api';
+
+import {
+  ticketKey,
+  type TicketSourceId,
+  type UnifiedLinkedIssue,
+  type UnifiedTicket,
+} from './types';
 
 /** The row key of the issue a ticket is linked to, e.g. `redmine:482`, or null. */
 export const linkedIssueKey = (ticket: UnifiedTicket): string | null =>
@@ -40,6 +47,22 @@ export const isOnBoard = (ticket: UnifiedTicket, boardKeys: ReadonlySet<string>)
 export const displaySourceId = (ticket: UnifiedTicket): TicketSourceId =>
   ticket.linked?.sourceId ?? ticket.sourceId;
 
+const outsideKey = ({ source, id, host }: Pick<OutsideIssueSummary, 'source' | 'id' | 'host'>) =>
+  `${source}:${id}@${host}`;
+
+/**
+ * Whether `issue` is the one `linked` names: the same number on another server
+ * is a different issue. A link saved without its server is on the issue's.
+ */
+function onSameServer(linked: UnifiedLinkedIssue, issue: UnifiedTicket): boolean {
+  if (!linked.host || !issue.externalUrl) return true;
+  try {
+    return new URL(issue.externalUrl).hostname === linked.host;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Overlay each linked issue's live status and assignee onto the ticket that
  * links to it, and drop the issue's own row.
@@ -47,14 +70,36 @@ export const displaySourceId = (ticket: UnifiedTicket): TicketSourceId =>
  * The linked issue's status replaces the ticket's, so it decides Open/Closed.
  * A ticket whose issue the viewer cannot read keeps its own status.
  */
-export function mergeLinked(tickets: UnifiedTicket[]): UnifiedTicket[] {
+export function mergeLinked(
+  tickets: UnifiedTicket[],
+  outside: readonly OutsideIssueSummary[] = [],
+): UnifiedTicket[] {
   const byKey = new Map(tickets.map((ticket) => [ticket.key, ticket]));
+  const outsideByKey = new Map(outside.map((issue) => [outsideKey(issue), issue]));
   const absorbed = new Set<string>();
 
   const merged = tickets.map((ticket) => {
+    // An issue on a server other than the main Redmine (`sources.linkedIssues`).
+    const read =
+      ticket.linked?.host &&
+      outsideByKey.get(
+        outsideKey({
+          source: ticket.linked.sourceId,
+          id: ticket.linked.id,
+          host: ticket.linked.host,
+        }),
+      );
+    if (ticket.linked && read) {
+      const status = { native: read.status.native, isClosed: read.status.isClosed };
+      return {
+        ...ticket,
+        status,
+        linked: { ...ticket.linked, status, assignee: read.assignees[0] ?? null },
+      };
+    }
     const key = linkedIssueKey(ticket);
     const issue = key ? byKey.get(key) : undefined;
-    if (!ticket.linked || !key || !issue) return ticket;
+    if (!ticket.linked || !key || !issue || !onSameServer(ticket.linked, issue)) return ticket;
     absorbed.add(key);
     return {
       ...ticket,

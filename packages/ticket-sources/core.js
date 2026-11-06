@@ -90,6 +90,14 @@ export function defineSource(definition) {
   if (!AUTH_SCHEMES.includes(connect.auth))
     fail(kind, `connect.auth must be one of ${AUTH_SCHEMES}`);
   if (connect.auth === 'header' && !connect.header) fail(kind, 'connect.header is required');
+  // One key field for now: `sources.connect` takes and stores a single key.
+  if (connect.fields && (connect.fields.length !== 1 || !connect.fields[0]?.secret)) {
+    fail(kind, 'connect.fields must be one secret key field');
+  }
+  if (connect.fields && !connect.check) fail(kind, 'connect.check is required to check a key');
+  if (connect.check && !(connect.check.path?.startsWith('/') && connect.check.id)) {
+    fail(kind, 'connect.check needs a path starting with / and where the id is');
+  }
   if (api.paging !== undefined && !PAGING_STYLES.includes(api.paging)) {
     fail(kind, `api.paging must be one of ${PAGING_STYLES}`);
   }

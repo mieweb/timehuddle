@@ -64,8 +64,8 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   },
   {
     id: 'integrations',
-    label: 'Integrations',
-    description: 'Your Redmine connection.',
+    label: 'Sources',
+    description: 'Your connections to the servers your tickets come from.',
     icon: LinkIcon,
   },
   {

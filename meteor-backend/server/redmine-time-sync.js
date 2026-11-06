@@ -7,6 +7,9 @@
  *                       API, a string in our WorkItem rows)
  *   date                "YYYY-MM-DD" — the entry's `spent_on`
  *   source              always 'redmine'; stored for legibility
+ *   host                the server the entry is on, when it isn't the
+ *                       deployment's own Redmine (#734 step 6); a row without
+ *                       one is on the deployment's own
  *   redmineTimeEntryId  the remote entry's id
  *   syncedSeconds       the raw seconds this entry covered — what later pushes
  *                       subtract to find the unsent remainder
@@ -32,6 +35,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineTimeSyncs } from './collections';
 import { ticketDayKey } from './redmine-net-hours';
+import { onServer } from './ticket-link-core';
 import { redmineClosedSecondsUntil } from './timer-core';
 
 Meteor.startup(async () => {
@@ -47,15 +51,23 @@ Meteor.startup(async () => {
       { userId: 1, ticketId: 1, date: 1 },
       { name: 'redmine_time_sync_lookup' },
     );
-    // Each remote entry is recorded once, however the push is retried.
+    // Each remote entry is recorded once, however the push is retried. Entry
+    // ids are numbered per server, so the server is part of it (#734 step 6);
+    // the deployment's own rows have no host and index as null. The index this
+    // replaces is dropped; no row is touched.
     await RedmineTimeSyncs.createIndexAsync(
-      { redmineTimeEntryId: 1 },
+      { redmineTimeEntryId: 1, host: 1 },
       {
         unique: true,
-        name: 'unique_redmine_time_entry',
+        name: 'unique_redmine_time_entry_host',
         partialFilterExpression: { redmineTimeEntryId: { $type: 'number' } },
       },
     );
+    await RedmineTimeSyncs.rawCollection()
+      .dropIndex('unique_redmine_time_entry')
+      .catch((error) => {
+        if (error?.codeName !== 'IndexNotFound') throw error;
+      });
   } catch (error) {
     console.error('[redmine] failed to create time-sync indexes:', error);
   }
@@ -92,16 +104,17 @@ async function backfillSyncedSeconds() {
  * covered (sent or discarded), how many of those were discarded, and the whole
  * minutes Redmine holds from the entries sent.
  *
- * `only` narrows it to one ticket-day, `{ ticketId, date }`, as in
- * `redmineTicketDaysFor`.
+ * `only` narrows it to one ticket-day, `{ ticketId, date }`, and `host` to one
+ * server (null for the deployment's own), as in `redmineTicketDaysFor`.
  * @returns {Promise<Map<string, {seconds: number, discardedSeconds: number, minutes: number}>>}
  *   keyed by `ticketDayKey`
  */
-export async function pushLedgerFor(userId, only) {
+export async function pushLedgerFor(userId, only, host = null) {
   // Discarded time counts too: "handled" is what keeps it out of the dialog.
   const rows = await RedmineTimeSyncs.find(
     {
       userId,
+      ...onServer(host, 'host'),
       ...(only ? { ticketId: String(only.ticketId), date: only.date } : {}),
       $or: [{ redmineTimeEntryId: { $type: 'number' } }, { discardedAt: { $type: 'date' } }],
     },
@@ -127,21 +140,22 @@ export async function pushLedgerFor(userId, only) {
  * sessions, so the page leaves these Redmine copies out.
  * @returns {Promise<Set<number>>}
  */
-export async function pushedEntryIdsFor(userId, ticketId) {
+export async function pushedEntryIdsFor(userId, ticketId, host = null) {
   const rows = await RedmineTimeSyncs.find(
-    { userId, ticketId: String(ticketId), redmineTimeEntryId: { $type: 'number' } },
+    { userId, ticketId: String(ticketId), ...onServer(host, 'host'), redmineTimeEntryId: { $type: 'number' } },
     { fields: { redmineTimeEntryId: 1 } },
   ).fetchAsync();
   return new Set(rows.map((row) => row.redmineTimeEntryId));
 }
 
-/** Record an entry Redmine has just created. */
-export function recordEntry(userId, ticketId, date, { redmineTimeEntryId, seconds, hours }) {
+/** Record an entry Redmine has just created, on `host` (null for the deployment's own). */
+export function recordEntry(userId, ticketId, date, { redmineTimeEntryId, seconds, hours }, host = null) {
   return RedmineTimeSyncs.insertAsync({
     userId,
     ticketId,
     date,
     source: 'redmine',
+    ...(host ? { host } : {}),
     redmineTimeEntryId,
     syncedSeconds: seconds,
     syncedHours: hours,
@@ -155,12 +169,13 @@ export function recordEntry(userId, ticketId, date, { redmineTimeEntryId, second
  * Redmine. Nothing is written to Redmine; the time stays in TimeHuddle, and
  * only time tracked on that day later is offered again.
  */
-export function recordDiscard(userId, ticketId, date, seconds) {
+export function recordDiscard(userId, ticketId, date, seconds, host = null) {
   return RedmineTimeSyncs.insertAsync({
     userId,
     ticketId,
     date,
     source: 'redmine',
+    ...(host ? { host } : {}),
     redmineTimeEntryId: null,
     syncedSeconds: seconds,
     syncedHours: 0,
@@ -175,6 +190,9 @@ export function recordDiscard(userId, ticketId, date, seconds) {
  * in Redmine regardless, so it keeps counting as sent — clearing it would resend
  * the same time as a duplicate.
  */
-export function flagEntry(redmineTimeEntryId, failureReason) {
-  return RedmineTimeSyncs.updateAsync({ redmineTimeEntryId }, { $set: { failureReason } });
+export function flagEntry(redmineTimeEntryId, failureReason, host = null) {
+  return RedmineTimeSyncs.updateAsync(
+    { redmineTimeEntryId, ...onServer(host, 'host') },
+    { $set: { failureReason } },
+  );
 }

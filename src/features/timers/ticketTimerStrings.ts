@@ -6,6 +6,7 @@
  * read this text only from here, and anything built from values is a function.
  * A `label` is how a ticket is named in a sentence; see `timerLabel`.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import type { TicketSourceId } from '../../lib/api';
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
 
@@ -15,7 +16,7 @@ import { huddleTicketRef } from '../tickets/sources/huddleSource';
  * has no number (its short ref is the fallback when the title is unknown).
  */
 export function timerLabel(source: TicketSourceId, id: string, title?: string | null): string {
-  if (source === 'redmine') return `#${id}`;
+  if (isOutsideSource(source)) return `#${id}`;
   return title?.trim() || huddleTicketRef({ id });
 }
 

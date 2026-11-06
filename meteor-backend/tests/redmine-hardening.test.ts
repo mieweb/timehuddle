@@ -21,7 +21,6 @@ import {
   isNarrowIssueQuery,
   listActivityIssueIds,
   listAssignedIssues,
-  redmineAllowedHosts,
   redmineUrlRefusal,
   searchIssues,
 } from '../server/redmine-client';
@@ -29,12 +28,12 @@ import { withEnv } from './env';
 
 const account = { apiKey: 'personal-key', baseUrl: 'https://redmine.test' };
 
-/** A production deployment whose own Redmine is redmine.test, optionally allowing more hosts. */
-const inProduction = (allowedHosts?: string) =>
+/** A production deployment whose own Redmine is redmine.test. */
+const inProduction = () =>
   withEnv({
     NODE_ENV: 'production',
     REDMINE_BASE_URL: 'https://redmine.test',
-    REDMINE_ALLOWED_HOSTS: allowedHosts,
+    SOURCES_ALLOW_PRIVATE_HOSTS: undefined,
   });
 
 describe('redirects are never followed', () => {
@@ -64,36 +63,38 @@ describe('redmineUrlRefusal', () => {
   let restore: () => void;
   afterEach(() => restore());
 
-  it('allows anything outside production, so dev can point at localhost over http', () => {
-    restore = withEnv({ NODE_ENV: 'development', REDMINE_ALLOWED_HOSTS: undefined });
-    expect(redmineUrlRefusal('http://localhost:3002/redmine')).toBeNull();
-    expect(redmineUrlRefusal('http://169.254.169.254')).toBeNull();
+  it('allows anything outside production, so dev can point at localhost over http', async () => {
+    restore = withEnv({ NODE_ENV: 'development' });
+    expect(await redmineUrlRefusal('http://localhost:3002/redmine')).toBeNull();
+    expect(await redmineUrlRefusal('http://169.254.169.254')).toBeNull();
   });
 
-  it('allows the deployment\'s own Redmine without it being listed', () => {
+  it("allows the deployment's own Redmine, whatever it resolves to", async () => {
     restore = inProduction();
-    expect(redmineUrlRefusal('https://redmine.test')).toBeNull();
-    expect(redmineAllowedHosts()).toContain('redmine.test');
+    expect(await redmineUrlRefusal('https://redmine.test')).toBeNull();
   });
 
-  it('refuses a host the deployment did not name', () => {
-    restore = inProduction('other.test');
-    expect(redmineUrlRefusal('https://other.test')).toBeNull();
+  it('allows any other public server, with no list to add it to', async () => {
+    restore = inProduction();
+    expect(await redmineUrlRefusal('https://203.0.113.7/redmine')).toBeNull();
+  });
+
+  it('refuses a server on a private network', async () => {
+    restore = inProduction();
     // The addresses this rule exists for: internal services and cloud metadata.
-    expect(redmineUrlRefusal('https://169.254.169.254')).toMatch(/not allowed/);
-    expect(redmineUrlRefusal('https://localhost:9200')).toMatch(/not allowed/);
-    expect(redmineUrlRefusal('https://redmine.test.evil.example')).toMatch(/not allowed/);
+    expect(await redmineUrlRefusal('https://169.254.169.254')).toMatch(/private network/);
+    expect(await redmineUrlRefusal('https://127.0.0.1:9200')).toMatch(/private network/);
   });
 
-  it('requires https in production, even for an allowed host', () => {
-    restore = inProduction('other.test');
-    expect(redmineUrlRefusal('http://other.test')).toMatch(/https/);
-  });
-
-  it('refuses a missing or unusable URL in production', () => {
+  it('requires https in production', async () => {
     restore = inProduction();
-    expect(redmineUrlRefusal(null as never)).toMatch(/configured/);
-    expect(redmineUrlRefusal('redmine.test')).toMatch(/usable/);
+    expect(await redmineUrlRefusal('http://203.0.113.7')).toMatch(/https/);
+  });
+
+  it('refuses a missing or unusable URL in production', async () => {
+    restore = inProduction();
+    expect(await redmineUrlRefusal(null as never)).toMatch(/configured/);
+    expect(await redmineUrlRefusal('redmine.test')).toMatch(/usable/);
   });
 
   it('refuses to send a request to a host it would refuse', async () => {
@@ -101,7 +102,7 @@ describe('redmineUrlRefusal', () => {
     vi.stubGlobal('fetch', vi.fn());
     await expect(
       getCurrentUser({ apiKey: 'k', baseUrl: 'https://169.254.169.254' }),
-    ).rejects.toThrow(/not allowed/);
+    ).rejects.toThrow(/private network/);
     expect(fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

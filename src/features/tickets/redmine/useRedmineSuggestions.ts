@@ -7,7 +7,7 @@
  *   `includeDismissed`, loaded on first focus and cached per user for the
  *   session. The Tickets table makes its own call with `includeDismissed: true`,
  *   because hiding a suggestion must not remove a table row.
- * - **More from Redmine** — `redmine.issues.search`, after a pause in typing.
+ * - **From the main server** — `redmine.issues.search`, after a pause in typing.
  *   Every search is numbered and only the latest answer is kept, so a slow
  *   response can never overwrite a newer one.
  *

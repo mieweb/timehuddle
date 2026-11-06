@@ -19,8 +19,8 @@ import {
   type StubValue,
 } from '../fixtures/redmine';
 
-const apiKeyInput = (page: Page) => page.getByLabel('Redmine API key');
-const connectButton = (page: Page) => page.getByRole('button', { name: 'Connect', exact: true });
+const apiKeyInput = (page: Page) => page.getByLabel(/^API key for /);
+const connectButton = (page: Page) => page.getByRole('button', { name: /^Connect to / });
 
 async function openSettings(
   page: Page,
@@ -28,7 +28,9 @@ async function openSettings(
 ): Promise<RedmineStub> {
   const rm = await stubRedmine(page, overrides);
   await page.goto('/app/settings?section=integrations');
-  await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole('heading', { name: 'Sources', exact: true })).toBeVisible({
+    timeout: 20000,
+  });
   return rm;
 }
 
@@ -48,7 +50,7 @@ test.describe('Settings — Redmine connection', () => {
   test('says Redmine is not set up, instead of a key form that can only fail', async ({ page }) => {
     await openSettings(page, { status: { connected: false, defaultBaseUrl: null } });
 
-    await expect(page.getByText('This TimeHuddle has no Redmine server set up yet.')).toBeVisible();
+    await expect(page.getByText('No servers are set up yet.', { exact: false })).toBeVisible();
     await expect(apiKeyInput(page)).toHaveCount(0);
   });
 
@@ -66,8 +68,7 @@ test.describe('Settings — Redmine connection', () => {
     await connectButton(page).click();
 
     await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('Priya Patel', { exact: true })).toBeVisible();
-    await expect(page.getByText(`@priya.patel · ${BASE_URL}`)).toBeVisible();
+    await expect(page.getByText('@priya.patel', { exact: true })).toBeVisible();
     expect(rm.calls('connect')[0]).toEqual({ apiKey: 'a-personal-api-key' });
   });
 
@@ -130,7 +131,7 @@ test.describe('Settings — Redmine connection', () => {
   });
 
   test.describe('custom Redmine URL (REDMINE_ALLOW_CUSTOM_URL)', () => {
-    const baseUrlInput = (page: Page) => page.getByLabel('Redmine URL');
+    const baseUrlInput = (page: Page) => page.getByLabel('Server URL');
     const unlinkedWithCustomUrl = {
       connected: false,
       customUrlAllowed: true,
@@ -187,9 +188,7 @@ test.describe('Settings — Redmine connection', () => {
 
       await expect(baseUrlInput(page)).toBeDisabled();
       await expect(baseUrlInput(page)).toHaveValue(BASE_URL);
-      await expect(
-        page.getByText('Clock out to connect to a different Redmine instance.'),
-      ).toBeVisible();
+      await expect(page.getByText('Clock out to connect to a different server.')).toBeVisible();
 
       await apiKeyInput(page).fill('a-personal-api-key');
       await connectButton(page).click();

@@ -1,10 +1,11 @@
 /**
- * The Tickets page search bar, with Redmine suggestions under it.
+ * The Tickets page search bar, with everything it finds under it: tickets, the
+ * main Redmine's suggestions, and each other connected server's issues (#734).
  *
  * The parent owns `query`, but the Tickets table no longer filters on it: all
- * results live in the dropdown. It offers Redmine issues — "Suggested for you"
- * on focus, narrowed as they type, then "More from Redmine" from a server
- * search. Above them, "Tickets" lists the tickets the query finds in any of
+ * results live in the dropdown. It offers issues — "Suggested for you" on
+ * focus, narrowed as they type, then each server's search results under its
+ * address. Above them, "Tickets" lists the tickets the query finds in any of
  * the user's teams (#736c), current team first.
  *
  * Built on downshift's `useCombobox` rather than `@mieweb/ui`'s `Autocomplete`,
@@ -27,16 +28,20 @@ import {
   useAnchoredPosition,
   useToast,
 } from '@mieweb/ui';
+import { sourceLabel } from '@timehuddle/ticket-sources';
 import { useCombobox, type UseComboboxState, type UseComboboxStateChangeOptions } from 'downshift';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type {
-  RedmineIssue,
-  RedmineRelevantIssue,
-  SourcePrefix,
-  Team,
-  Ticket,
+import {
+  ticketApi,
+  type RedmineIssue,
+  type RedmineRelevantIssue,
+  type SourcePrefix,
+  type SourceSearchAnswer,
+  type SourceSearchIssue,
+  type Team,
+  type Ticket,
 } from '../../../lib/api';
 import { useTeam } from '../../../lib/TeamContext';
 import { useRouter } from '../../../ui/router';
@@ -61,9 +66,10 @@ import {
   reasonLabel,
 } from './suggestions';
 import { invalidateSuggestionsCache, useRedmineSuggestions } from './useRedmineSuggestions';
+import { useSourceSearch } from './useSourceSearch';
 import { useTicketSearch } from './useTicketSearch';
 
-interface RedmineSuggestionsProps {
+interface TicketSearchBarProps {
   userId: string | null;
   /** The search text. The parent filters the Tickets table with it. */
   query: string;
@@ -86,6 +92,10 @@ interface RedmineSuggestionsProps {
   boardKnown: boolean;
   /** Put the issue on My Board, or take it off when it is there. */
   onToggleBoard: (issue: RedmineIssue) => Promise<unknown>;
+  /** Board keys, for a result on another server, which acts through its ticket. */
+  boardKeys: ReadonlySet<string>;
+  /** Put a ticket on My Board, or take it off when it is there. */
+  onToggleTicketBoard: (ticket: Ticket) => Promise<unknown>;
   inputClassName?: string;
 }
 
@@ -95,6 +105,7 @@ type Row =
   | { kind: 'ticket'; ticket: Ticket }
   | { kind: 'issue'; section: 'suggested'; issue: RedmineRelevantIssue }
   | { kind: 'issue'; section: 'more'; issue: RedmineIssue }
+  | { kind: 'source'; server: SourceSearchAnswer; issue: SourceSearchIssue }
   | { kind: 'show-all'; count: number }
   | { kind: 'connect' }
   | { kind: 'retry' };
@@ -104,9 +115,11 @@ const rowKey = (row: Row | null): string =>
     ? ''
     : row.kind === 'issue'
       ? `${row.section}:${row.issue.id}`
-      : row.kind === 'ticket'
-        ? `ticket:${row.ticket.id}`
-        : row.kind;
+      : row.kind === 'source'
+        ? `source:${row.server.host}:${row.issue.url}`
+        : row.kind === 'ticket'
+          ? `ticket:${row.ticket.id}`
+          : row.kind;
 
 /** Keep the typed text and the menu's own state through every selection. */
 function stateReducer(
@@ -140,7 +153,7 @@ function stateReducer(
   }
 }
 
-export function RedmineSuggestions({
+export function TicketSearchBar({
   userId,
   query,
   onQueryChange,
@@ -153,8 +166,10 @@ export function RedmineSuggestions({
   boardIssueIds,
   boardKnown,
   onToggleBoard,
+  boardKeys,
+  onToggleTicketBoard,
   inputClassName,
-}: RedmineSuggestionsProps) {
+}: TicketSearchBarProps) {
   const { navigate } = useRouter();
   const toast = useToast();
   const { allTeams, selectedTeamId } = useTeam();
@@ -162,6 +177,7 @@ export function RedmineSuggestions({
     useRedmineSuggestions(userId, query);
   const ticketSearch = useTicketSearch(userId, query);
   const foundTickets = ticketSearch.tickets;
+  const sourceSearch = useSourceSearch(userId, query);
   const [showAll, setShowAll] = useState(false);
   // The row whose timer start or stop is in flight, by `rowKey`. The ref is the
   // guard (a double-click lands before the state does); the state drives the
@@ -170,6 +186,7 @@ export function RedmineSuggestions({
   const timerBusy = useRef(false);
   // The same for a row being put on or taken off My Board.
   const [boardIssueId, setBoardIssueId] = useState<number | null>(null);
+  const [boardSourceKey, setBoardSourceKey] = useState<string | null>(null);
   const boardBusy = useRef(false);
   const shortcutsId = useId();
   const searchShortcutsId = useId();
@@ -221,6 +238,23 @@ export function RedmineSuggestions({
     return newSearchResults(search.issues, shown);
   }, [search, trimmed, carriedHere, matching]);
 
+  // The current team's ticket for a result on another server, if any, else
+  // another team's: that one still opens, but actions make one here.
+  const ticketHere = useCallback(
+    (issue: SourceSearchIssue) => issue.tickets.find((t) => t.teamId === selectedTeamId) ?? null,
+    [selectedTeamId],
+  );
+
+  const sourceRows = useMemo<Extract<Row, { kind: 'source' }>[]>(() => {
+    const listed = new Set(foundTickets.map((ticket) => ticket.id));
+    return sourceSearch.servers.flatMap((server) =>
+      server.issues
+        // Already listed above as its ticket.
+        .filter((issue) => !issue.tickets.some((ticket) => listed.has(ticket.id)))
+        .map((issue) => ({ kind: 'source' as const, server, issue })),
+    );
+  }, [sourceSearch.servers, foundTickets]);
+
   const rows = useMemo<Row[]>(() => {
     const visible = showAll ? matching : matching.slice(0, SUGGESTION_LIMIT);
     // The current team's tickets first, each group in the server's order.
@@ -231,6 +265,7 @@ export function RedmineSuggestions({
     for (const issue of visible) list.push({ kind: 'issue', section: 'suggested', issue });
     if (matching.length > visible.length) list.push({ kind: 'show-all', count: matching.length });
     for (const issue of moreResults) list.push({ kind: 'issue', section: 'more', issue });
+    list.push(...sourceRows);
     if (suggestions.status === 'not-connected') list.push({ kind: 'connect' });
     if (suggestions.status === 'error' || search.status === 'error') list.push({ kind: 'retry' });
     return list;
@@ -239,6 +274,7 @@ export function RedmineSuggestions({
     selectedTeamId,
     matching,
     moreResults,
+    sourceRows,
     showAll,
     suggestions.status,
     search.status,
@@ -275,6 +311,54 @@ export function RedmineSuggestions({
   const toggleTicketTimer = useCallback(
     (row: Extract<Row, { kind: 'ticket' }>) => runTimer(row, () => onToggleTicketTimer(row.ticket)),
     [runTimer, onToggleTicketTimer],
+  );
+
+  // A result on another server acts through the ticket carrying it in the
+  // current team, made now if there is none (#736): an issue only becomes a
+  // ticket on a first action.
+  const carrierOf = useCallback(
+    async (row: Extract<Row, { kind: 'source' }>): Promise<Ticket | null> => {
+      if (!selectedTeamId) {
+        toast.error(text.noTeam);
+        return null;
+      }
+      try {
+        const { ticket, created } = row.issue.ref
+          ? await ticketApi.carryLink(selectedTeamId, row.issue.url)
+          : await ticketApi.carryIssue(selectedTeamId, String(row.issue.id), row.server.host);
+        if (created) sourceSearch.noteTicket(row.server.host, row.issue.url, ticket);
+        return ticket;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : text.carryFailed);
+        return null;
+      }
+    },
+    [selectedTeamId, toast, sourceSearch.noteTicket],
+  );
+
+  const toggleSourceTimer = useCallback(
+    (row: Extract<Row, { kind: 'source' }>) =>
+      runTimer(row, async () => {
+        const ticket = await carrierOf(row);
+        return ticket ? onToggleTicketTimer(ticket) : 'failed';
+      }),
+    [runTimer, carrierOf, onToggleTicketTimer],
+  );
+
+  const toggleSourceBoard = useCallback(
+    async (row: Extract<Row, { kind: 'source' }>) => {
+      if (!boardKnown || boardBusy.current) return;
+      boardBusy.current = true;
+      setBoardSourceKey(rowKey(row));
+      try {
+        const ticket = await carrierOf(row);
+        if (ticket) await onToggleTicketBoard(ticket);
+      } finally {
+        boardBusy.current = false;
+        setBoardSourceKey(null);
+      }
+    },
+    [boardKnown, carrierOf, onToggleTicketBoard],
   );
 
   const toggleBoard = useCallback(
@@ -321,7 +405,17 @@ export function RedmineSuggestions({
         navigate(ticketDetailPath({ sourceId: 'huddle', id: row.ticket.id }));
       else if (row.kind === 'issue')
         navigate(ticketDetailPath({ sourceId: 'redmine', id: String(row.issue.id) }));
-      else if (row.kind === 'show-all') setShowAll(true);
+      else if (row.kind === 'source') {
+        // Opening acts on its ticket, made now if the issue has none (#736), as
+        // opening a main-server issue does.
+        const existing = ticketHere(row.issue) ?? row.issue.tickets[0];
+        if (existing) navigate(ticketDetailPath({ sourceId: 'huddle', id: existing.id }));
+        else {
+          void carrierOf(row).then((ticket) => {
+            if (ticket) navigate(ticketDetailPath({ sourceId: 'huddle', id: ticket.id }));
+          });
+        }
+      } else if (row.kind === 'show-all') setShowAll(true);
       else if (row.kind === 'connect') navigate(settingsPath('integrations'));
       else {
         // One retry row stands for both requests: retry whichever failed.
@@ -329,7 +423,15 @@ export function RedmineSuggestions({
         if (search.status === 'error') retrySearch();
       }
     },
-    [navigate, suggestions.status, search.status, retrySuggestions, retrySearch],
+    [
+      navigate,
+      ticketHere,
+      carrierOf,
+      suggestions.status,
+      search.status,
+      retrySuggestions,
+      retrySearch,
+    ],
   );
 
   const {
@@ -378,6 +480,15 @@ export function RedmineSuggestions({
       void toggleTicketTimer(row);
       return;
     }
+    if (row?.kind === 'source' && event.key === 'Enter' && (event.altKey || event.shiftKey)) {
+      stopDownshift();
+      if (event.altKey) void toggleSourceBoard(row);
+      else {
+        closeMenu();
+        void toggleSourceTimer(row);
+      }
+      return;
+    }
     if (row?.kind !== 'issue') return;
     if (event.key === 'Delete' && row.section === 'suggested') {
       stopDownshift();
@@ -396,8 +507,13 @@ export function RedmineSuggestions({
   const statusMessage = (() => {
     if (suggestions.status === 'loading' && !suggestions.issues.length)
       return text.loadingSuggestions;
-    if (search.status === 'loading' && !moreResults.length) return text.searching;
-    if (suggestions.status === 'error' || search.status === 'error') return text.unreachable;
+    const mainSearching = search.status === 'loading' && !moreResults.length;
+    if (mainSearching || (trimmed && !sourceSearch.settled && !rows.length)) {
+      return text.searchingServers;
+    }
+    if (suggestions.status === 'error' || search.status === 'error') {
+      return redmineHost ? text.serversFailed([redmineHost]) : text.unreachable;
+    }
     // Nothing anywhere: said once both searches have answered, or once the
     // ticket search has when there is no Redmine to ask.
     const redmineAnswered =
@@ -409,7 +525,9 @@ export function RedmineSuggestions({
       redmineAnswered &&
       !foundTickets.length &&
       !matching.length &&
-      !moreResults.length
+      !moreResults.length &&
+      sourceSearch.settled &&
+      !sourceRows.length
     ) {
       const kind = search.status === 'ready' ? search.kind : (ticketSearch.kind ?? 'text');
       return emptySearchMessage(kind, trimmed);
@@ -420,17 +538,24 @@ export function RedmineSuggestions({
   })();
 
   // Placeholders while the list is still on its way, so the panel never sits
-  // empty: rows for the first suggestions load, and a "More from Redmine"
+  // empty: rows for the first suggestions load, and the main server's
   // section while a search is out.
   const loadingSuggested = suggestions.status === 'loading' && !suggestions.issues.length;
   const loadingMore = search.status === 'loading' && !moreResults.length;
+  // The main server's results are headed like every other server's.
+  const moreHeading = redmineHost ? text.fromServer(redmineHost) : text.moreHeading;
 
   const firstTicketIndex = rows.findIndex((row) => row.kind === 'ticket');
   const firstMoreIndex = rows.findIndex((row) => row.kind === 'issue' && row.section === 'more');
+  const failedServers = sourceSearch.servers.filter((server) => server.failed);
+  const downServers = failedServers.filter((server) => !server.rateLimited);
+  const limitedServers = failedServers.filter((server) => server.rateLimited);
   const firstSuggestedIndex = rows.findIndex(
     (row) => row.kind === 'issue' && row.section === 'suggested',
   );
-  const showPanel = isOpen && (rows.length > 0 || statusMessage !== null || suggestions.partial);
+  const showPanel =
+    isOpen &&
+    (rows.length > 0 || statusMessage !== null || suggestions.partial || failedServers.length > 0);
 
   // Rendered in a portal and positioned against the input: the page header
   // blurs its backdrop, which makes it its own stacking context, so an absolute
@@ -491,12 +616,17 @@ export function RedmineSuggestions({
                     {index === firstSuggestedIndex && (
                       <SectionHeading>{text.suggestedHeading}</SectionHeading>
                     )}
-                    {index === firstMoreIndex && (
-                      <SectionHeading>{text.moreHeading}</SectionHeading>
-                    )}
+                    {index === firstMoreIndex && <SectionHeading>{moreHeading}</SectionHeading>}
+                    {row.kind === 'source' &&
+                      rows.findIndex(
+                        (other) => other.kind === 'source' && other.server.host === row.server.host,
+                      ) === index && (
+                        <SectionHeading>{text.fromServer(row.server.host)}</SectionHeading>
+                      )}
                     <li
                       className="redmine-suggestion group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm aria-selected:bg-muted"
                       {...getItemProps({ item: row, index })}
+                      {...(row.kind === 'source' ? { 'aria-describedby': searchShortcutsId } : {})}
                       {...(row.kind === 'issue'
                         ? {
                             'aria-describedby':
@@ -518,6 +648,30 @@ export function RedmineSuggestions({
                           onToggleTimer={() => {
                             closeMenu();
                             void toggleTicketTimer(row);
+                          }}
+                        />
+                      ) : row.kind === 'source' ? (
+                        <IssueRow
+                          issue={row.issue}
+                          issueRef={row.issue.ref ?? `${row.server.prefix}-${row.issue.id}`}
+                          reason={row.issue.pull ? text.pullRequest : null}
+                          running={Boolean(
+                            ticketHere(row.issue) &&
+                            runningTicketKey === ticketKey('huddle', ticketHere(row.issue)!.id),
+                          )}
+                          timerBusy={timerRowKey !== null}
+                          timerLoading={timerRowKey === rowKey(row)}
+                          onBoard={Boolean(
+                            ticketHere(row.issue) &&
+                            boardKeys.has(ticketKey('huddle', ticketHere(row.issue)!.id)),
+                          )}
+                          boardKnown={boardKnown}
+                          boardBusy={boardIssueId !== null || boardSourceKey !== null}
+                          boardLoading={boardSourceKey === rowKey(row)}
+                          onToggleBoard={() => void toggleSourceBoard(row)}
+                          onToggleTimer={() => {
+                            closeMenu();
+                            void toggleSourceTimer(row);
                           }}
                         />
                       ) : row.kind === 'issue' ? (
@@ -567,7 +721,7 @@ export function RedmineSuggestions({
               )}
               {showPanel && loadingMore && (
                 <>
-                  <SectionHeading>{text.moreHeading}</SectionHeading>
+                  <SectionHeading>{moreHeading}</SectionHeading>
                   <SuggestionSkeletons count={2} />
                 </>
               )}
@@ -575,6 +729,22 @@ export function RedmineSuggestions({
           </ScrollArea>
 
           <div className="redmine-suggestions-status empty:hidden" role="status" aria-live="polite">
+            {showPanel && downServers.length > 0 && (
+              <div className="redmine-suggestions-failed border-t border-border px-3 py-2">
+                <Text as="span" size="xs" variant="muted">
+                  {text.serversFailed(downServers.map((server) => server.host))}
+                </Text>
+              </div>
+            )}
+            {showPanel && limitedServers.length > 0 && (
+              <div className="redmine-suggestions-limited border-t border-border px-3 py-2">
+                <Text as="span" size="xs" variant="muted">
+                  {text.serversRateLimited(
+                    limitedServers.map((server) => sourceLabel(server.type) ?? server.host),
+                  )}
+                </Text>
+              </div>
+            )}
             {showPanel && (statusMessage || suggestions.partial) && (
               <div className="flex items-center gap-2 border-t border-border px-3 py-2">
                 {(suggestions.status === 'loading' || search.status === 'loading') && (

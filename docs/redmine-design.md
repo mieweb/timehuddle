@@ -85,7 +85,7 @@ A save sends the issue's `updated_on` as the user last saw it. The server re-rea
 - **Key at rest:** AES-256-GCM, with a versioned ciphertext. A previous key can be supplied during rotation; a key that only opens under it is re-encrypted on first use.
 - **Key in transit:** only ever in the request header, never in a URL, including the activity feed.
 - **Redirects are refused.** A redirect could hand the key header to another host.
-- **Where requests can go:** in production, only `REDMINE_BASE_URL`'s host and those in `REDMINE_ALLOWED_HOSTS`, over `https`. A per-user URL (`REDMINE_ALLOW_CUSTOM_URL`) is for development only, because the server will fetch whatever URL is linked.
+- **Where requests can go:** in production, over `https`, to `REDMINE_BASE_URL`'s host and to any other server whose host resolves to a public address (`server/sources/outbound.js`). There is no list of hosts: an org registering a server is enough, with no restart. `SOURCES_ALLOW_PRIVATE_HOSTS=true` lets servers be on the deployment's private network. A per-user URL (`REDMINE_ALLOW_CUSTOM_URL`) is for development only, because the server will fetch whatever URL is linked.
 - **Logs:** method, path without its query string, status and duration. Never a full URL, body, header or search term.
 - **Rate limits:** search, the relevant list, the preference methods, and the connect, activity and push methods are limited per user. The limits are applied inside the methods, because calls arrive over the REST bridge, which Meteor's DDP rate limiter does not see.
 

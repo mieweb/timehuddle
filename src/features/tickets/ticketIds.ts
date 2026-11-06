@@ -11,7 +11,7 @@
  * an ID lives in `@timehuddle/ticket-sources`, shared with the backend; the
  * helpers here are about ticket rows.
  */
-import { outsideIdOf } from '@timehuddle/ticket-sources';
+import { github, matchIssueUrl, outsideIdOf } from '@timehuddle/ticket-sources';
 
 import type { SourcePrefix, Ticket } from '../../lib/api';
 
@@ -19,6 +19,18 @@ import type { UnifiedTicket } from './sources/types';
 
 /** The outside ID for an address, from the shared ticket sources (#734). */
 export { outsideIdOf };
+
+/**
+ * Which outside issue a ticket carries, for reading it (`source:id`): its linked
+ * issue, or the GitHub issue its address names when it's displayed as one.
+ * Null when it carries none.
+ */
+export function carriedKeyOf(ticket: Pick<Ticket, 'github' | 'linkIsIssue' | 'linkedIssue'>) {
+  if (ticket.linkedIssue) return `${ticket.linkedIssue.source}:${ticket.linkedIssue.id}`;
+  if (ticket.linkIsIssue === false || !ticket.github) return null;
+  const ref = matchIssueUrl(github, ticket.github);
+  return ref?.container ? `github:${ref.container}#${ref.key}` : null;
+}
 
 /**
  * The outside ID a ticket's link gives it, e.g. `pulse-250`, or null. A link

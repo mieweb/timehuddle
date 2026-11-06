@@ -38,6 +38,7 @@ import {
   hashInvitationToken,
   escapeHtml,
 } from './invitation-helpers';
+import { removeKeysAfterLeaving } from './source-accounts';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -680,6 +681,10 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.removeAsync(team._id);
+    // Its members may have reached its org's servers only through it.
+    await removeKeysAfterLeaving([...new Set([...(team.members ?? []), ...(team.admins ?? [])])]).catch(
+      (error) => console.error('[sources] failed to remove keys after leaving:', error),
+    );
     return { ok: true };
   },
 
@@ -971,6 +976,10 @@ Meteor.methods({
       $pull: { members: targetUserId, admins: targetUserId },
       $set: { updatedAt: new Date() },
     });
+    // Out of the team may mean out of its org's servers: their keys go.
+    await removeKeysAfterLeaving([targetUserId]).catch((error) =>
+      console.error('[sources] failed to remove keys after leaving:', error),
+    );
     return { ok: true };
   },
 

@@ -62,12 +62,14 @@ async function stubLinkableRedmine(page: Page) {
 
 async function openSettings(page: Page) {
   await page.goto('/app/settings?section=integrations');
-  await expect(page.getByRole('heading', { name: 'Redmine' })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole('heading', { name: 'Sources', exact: true })).toBeVisible({
+    timeout: 20000,
+  });
 }
 
 async function connectInSettings(page: Page) {
-  await page.getByLabel('Redmine API key').fill('a-personal-api-key');
-  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await page.getByLabel(/^API key for /).fill('a-personal-api-key');
+  await page.getByRole('button', { name: /^Connect to / }).click();
   await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15000 });
 }
 

@@ -13,7 +13,9 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { normalizeSource, refKey, resolveTicketRefs, sourceSelector } from './ticket-refs';
 import { sumClosedSessions, ticketDayKey, ticketDayTotals } from './redmine-net-hours';
-import { linkedIssueIdOf } from './ticket-link-core';
+import { optionalRedmineBaseUrl } from './redmine-client';
+import { issueServerOf, linkedIssueIdOf, onServer } from './ticket-link-core';
+import { hostOf } from './ticket-ids';
 import { postTimerUpdate } from './timer-updates';
 import { TimerUpdate } from './timer-updates-core';
 
@@ -106,16 +108,22 @@ export function findClosedAtTime(userId, endTime) {
  * For the paths that act on one issue's day (a timer just ended, one entry
  * being sent), which would otherwise slow down as that history grows.
  *
+ * `host` is the server to total (#734 step 6): null, the default, for the
+ * deployment's own Redmine, which is every session saved without a host.
+ *
  * @returns {Promise<Array<{ticketId: string, date: string, seconds: number, clockEventId: string|null, runSeconds: number[]}>>}
  */
-export async function redmineTicketDaysFor(userId, { includeLinked = true, only } = {}) {
+export async function redmineTicketDaysFor(userId, { includeLinked = true, only, host = null } = {}) {
   const day = only ? { ticketId: String(only.ticketId), date: only.date } : null;
-  const rows = await workItems()
-    .find(
-      { userId, ...sourceSelector('redmine'), ...(day ?? {}) },
-      { projection: { _id: 1, ticketId: 1, date: 1 } },
-    )
-    .toArray();
+  // A bare Redmine entry is always on the deployment's own Redmine.
+  const rows = host
+    ? []
+    : await workItems()
+        .find(
+          { userId, ...sourceSelector('redmine'), ...(day ?? {}) },
+          { projection: { _id: 1, ticketId: 1, date: 1 } },
+        )
+        .toArray();
 
   // `timers.workItemId` is stored as a hex string, not an ObjectId.
   const keyByWorkItem = new Map(
@@ -138,8 +146,8 @@ export async function redmineTicketDaysFor(userId, { includeLinked = true, only 
       ? timers()
           .find(
             day
-              ? { userId, redmineIssueId: day.ticketId, date: day.date, ...closed }
-              : { userId, redmineIssueId: { $type: 'string' }, ...closed },
+              ? { userId, redmineIssueId: day.ticketId, date: day.date, ...onServer(host, 'redmineHost'), ...closed }
+              : { userId, redmineIssueId: { $type: 'string' }, ...onServer(host, 'redmineHost'), ...closed },
             {
               projection: { redmineIssueId: 1, date: 1, endTime: 1, durationSeconds: 1, clockEventId: 1 },
             },
@@ -157,8 +165,9 @@ export async function redmineTicketDaysFor(userId, { includeLinked = true, only 
 
 /**
  * The Redmine issue a new session on this work item is logged under: the issue
- * its TimeHuddle ticket is linked to at this moment, as `{ redmineIssueId }`, or
- * `{}` when there is none.
+ * its TimeHuddle ticket is linked to at this moment, as `{ redmineIssueId }`,
+ * with `redmineHost` when that issue is on a server other than the
+ * deployment's own (#734 step 6), or `{}` when there is none.
  *
  * Read at every session start and stored on the session, so time remembers the
  * issue it was logged under: if the ticket is linked to a different issue
@@ -173,7 +182,9 @@ export async function redmineStampFor(workItem) {
     .collection('tickets')
     .findOne({ _id: new ObjectId(workItem.ticketId) }, { projection: { linkedIssue: 1 } });
   const redmineIssueId = linkedIssueIdOf(ticket);
-  return redmineIssueId ? { redmineIssueId } : {};
+  if (!redmineIssueId) return {};
+  const redmineHost = issueServerOf(ticket, hostOf(optionalRedmineBaseUrl()));
+  return redmineHost ? { redmineIssueId, redmineHost } : { redmineIssueId };
 }
 
 /**

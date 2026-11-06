@@ -24,15 +24,33 @@ export const ticketLinkText = {
   /** "New · Assigned to Grace Oduya" — the live facts about the linked issue, as quiet text. */
   statusAndAssignee: (status: string | null, assignee: string | null) =>
     [status, assignee ? `Assigned to ${assignee}` : 'Unassigned'].filter(Boolean).join(' · '),
+  /** The linked issue's own fields, listed under its source line. */
+  issueFields: 'Issue fields',
+  typeField: 'Type',
+  labelsField: 'Labels',
+  milestoneField: 'Milestone',
+  /** Redmine refused the saved key, so TimeHuddle stopped sending it (#734). */
+  keyRejectedTitle: "Couldn't reach Redmine",
+  keyRejected: 'Your Redmine API key was rejected. It may have been reset in Redmine.',
+  openSettings: 'Open Settings',
   goToSettings: 'Go to Settings',
+  /** Under a link shown as an issue that this viewer can't read (#734); `source` is e.g. "GitHub". */
+  plainConnect: (source: string) =>
+    `Connect ${source} in Settings to see this issue's status, labels and comments here.`,
+  plainNoAccess: (source: string) =>
+    `Your ${source} account can't open this issue, so it shows as a plain link. It may be private, moved or deleted, or its organization may need to approve TimeHuddle.`,
+  sourceRateLimited: (source: string) =>
+    `${source}'s rate limit was hit, so this issue's details can't show right now. Try again in a few minutes.`,
+  sourceUnreachable: (source: string) =>
+    `Couldn't reach ${source}, so this issue's details can't show right now.`,
 
   linkLabel: 'Link',
   linkPlaceholder: 'Paste a link to an issue, a pull request, a doc…',
-  /** "Convert to PM issue": the ticket will go by the ID the link names. */
-  convertTo: (prefix: string, pullRequest: boolean) =>
-    `Convert to ${prefix} ${pullRequest ? 'pull request' : 'issue'}`,
+  /** "Display as PM-233": the ticket will go by the ID the link names. */
+  displayAs: (name: string) => `Display as ${name}`,
+  redmineIssue: 'Redmine issue',
   orKeepAsLink: 'Or save it as a plain link.',
-  convertedTo: (id: string) => `This ticket will go by ${id}.`,
+  displayedAs: (id: string) => `This ticket will go by ${id}.`,
   keepAsLink: 'Keep as a plain link',
   useRedmine: 'Link a Redmine issue instead',
   useLink: 'Use a link instead',
