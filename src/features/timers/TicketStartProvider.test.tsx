@@ -501,7 +501,7 @@ describe('TicketStartProvider', () => {
       });
       mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
       await stopIssue();
-      expect(await screen.findByText('Yes')).toBeTruthy();
+      expect(await screen.findByDisplayValue('1')).toBeTruthy();
 
       fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -513,6 +513,65 @@ describe('TicketStartProvider', () => {
           hours: 0.52,
         }),
       );
+    });
+
+    it('sends an edited Billable status separately from the original preview snapshot', async () => {
+      const base = previewWith(0.52);
+      const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
+      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockSend.mockResolvedValue({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      fireEvent.change(await screen.findByRole('textbox', { name: billable.name }), {
+        target: { value: 'Billable' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() =>
+        expect(mockSend).toHaveBeenCalledWith('15', UNSENT.date, {
+          comment: undefined,
+          activityId: 9,
+          billable,
+          billableValue: 'Billable',
+          hours: 0.52,
+        }),
+      );
+    });
+
+    it('keeps an edited status and comment when Redmine rejects it, so it can be corrected', async () => {
+      const base = previewWith(0.52);
+      const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
+      mockPreview.mockResolvedValue({ ...base, rows: [{ ...base.rows[0], billable }] });
+      mockSend
+        .mockResolvedValueOnce({
+          ticketId: '15',
+          date: UNSENT.date,
+          ok: false,
+          reason: 'rejected-by-redmine',
+          detail: ['Billable status is not included in the list'],
+        })
+        .mockResolvedValueOnce({ ticketId: '15', date: UNSENT.date, ok: true });
+      await stopIssue();
+      const input = await screen.findByRole('textbox', { name: billable.name });
+      fireEvent.change(input, { target: { value: 'Typo' } });
+      fireEvent.change(comment(), { target: { value: 'Fixed the clock' } });
+      fireEvent.click(sendButton());
+
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      expect((input as HTMLInputElement).value).toBe('Typo');
+      expect((comment() as HTMLInputElement).value).toBe('Fixed the clock');
+      expect(toast.error).not.toHaveBeenCalled();
+      fireEvent.change(input, { target: { value: 'Billable' } });
+      fireEvent.click(sendButton());
+
+      await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(2));
+      expect(mockSend).toHaveBeenLastCalledWith('15', UNSENT.date, {
+        comment: 'Fixed the clock',
+        activityId: 9,
+        billable,
+        billableValue: 'Billable',
+        hours: 0.52,
+      });
     });
 
     it('says why an entry cannot be sent, and does not offer to send it', async () => {
@@ -666,7 +725,7 @@ describe('TicketStartProvider', () => {
       expect((comment() as HTMLTextAreaElement).value).toBe('Fixed the clock');
       expect(toast.error).not.toHaveBeenCalled();
       // Read again, so the card now shows the value a second Send will use.
-      expect(await screen.findByText('Yes')).toBeTruthy();
+      expect(await screen.findByDisplayValue('1')).toBeTruthy();
       expect(mockPreview).toHaveBeenCalledTimes(2);
 
       await waitFor(() => expect(sendButton().disabled).toBe(false));

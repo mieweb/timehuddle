@@ -84,6 +84,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   const canSendRef = useRef(canSend);
   canSendRef.current = canSend;
   const [activityId, setActivityId] = useState<number | null>(null);
+  const [billableValue, setBillableValue] = useState<string | string[]>();
   const [decimalHours, setDecimalHours] = useState(false);
 
   const issue = timerLabel('redmine', time.ticketId);
@@ -136,6 +137,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         // if it moved since. When the preview failed nothing was shown, so a value
         // the server finds on its own is refused, never sent unseen.
         billable: row?.billable ?? null,
+        ...(billableValue !== undefined ? { billableValue } : {}),
         // The hours shown, read or from the stop: the server refuses them if they moved since.
         hours,
       });
@@ -155,6 +157,14 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
         outcome.reason === 'hours-changed' ? text.redmineHoursChanged : text.redmineBillableChanged,
       );
       setRereads((count) => count + 1);
+      if (outcome.reason === 'billable-changed') setBillableValue(undefined);
+      busyRef.current = false;
+      setSending(false);
+      return;
+    }
+
+    if (outcome.reason === 'rejected-by-redmine' && billableValue !== undefined) {
+      setError(failureText(outcome));
       busyRef.current = false;
       setSending(false);
       return;
@@ -220,6 +230,9 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
             decimalHours={decimalHours}
             onToggleHours={() => setDecimalHours((on) => !on)}
             billable={row?.billable}
+            billableValue={billableValue}
+            onBillableChange={setBillableValue}
+            disabled={sending || !activitiesRead}
             rounding={row?.rounding}
             runSeconds={row?.runSeconds}
             // One entry, and the dialog frames it already.

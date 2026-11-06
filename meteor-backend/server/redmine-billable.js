@@ -22,6 +22,13 @@ const BILLABLE_NAME = /^billable( status)?$/i;
 // Issues looked up at once, so a long preview is not one burst at Redmine.
 const LOOKUPS_AT_ONCE = 5;
 
+export function isBillableValue(value) {
+  return (
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every((each) => typeof each === 'string'))
+  );
+}
+
 function hasValue(value) {
   return Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value !== '';
 }

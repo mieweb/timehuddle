@@ -2701,7 +2701,7 @@ export interface RedmineTimeEntryRow {
   /** The activities this issue's project allows: the only ones the row may be sent under. */
   activityOptions: { id: number; name: string }[];
   /**
-   * The Billable custom field the entry is sent with, copied from the newest
+   * The default Billable custom field, copied from the newest
    * time entry that has one; null when Redmine has none to copy (#686).
    */
   billable: RedmineBillable | null;
@@ -2733,10 +2733,12 @@ export interface RedmineTimeEntryPushRequest {
   /** The entry's comment. Without one the entry says it was logged by TimeHuddle. */
   comment?: string;
   /**
-   * The Billable value the user was shown, `null` for none. The server sends its
-   * own lookup, and refuses the entry if that no longer matches what was shown.
+   * The original Billable preview, `null` for none. The server refuses the entry
+   * if its lookup no longer matches; explicit edits travel in `billableValue`.
    */
   billable?: RedmineBillable | null;
+  /** An explicit edit to the discovered field's value, validated by Redmine. */
+  billableValue?: RedmineBillable['value'];
   /**
    * The hours the user was shown. The server works them out again, and refuses
    * the entry if its rounding has since changed them.
@@ -3080,7 +3082,7 @@ export const redmineApi = {
      *
      * **Irreversible** — entries cannot be edited or deleted afterwards.
      * Hours are recomputed server-side; only the selection and any activity
-     * override travel from here.
+     * and Billable overrides travel from here.
      */
     push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
       wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
@@ -3100,6 +3102,7 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
+        billableValue,
         hours,
       }: Omit<RedmineTimeEntryPushRequest, 'ticketId' | 'date'> = {},
     ): Promise<RedmineTicketDaySendOutcome> =>
@@ -3109,6 +3112,7 @@ export const redmineApi = {
         comment,
         activityId,
         billable,
+        billableValue,
         hours,
       }),
 

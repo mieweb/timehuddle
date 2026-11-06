@@ -11,10 +11,27 @@ import {
   billableFieldOf,
   findBillableInPages,
   firstBillable,
+  isBillableValue,
   sameBillable,
 } from '../server/redmine-billable';
 
 const BILLABLE = { id: 7, name: 'Billable status', value: '1' };
+
+describe('isBillableValue', () => {
+  it.each(['0', '1', 'Internal Meeting', ['Client A', 'Client B']].map((value) => [value]))(
+    'accepts a Redmine status value (%j)',
+    (value) => {
+      expect(isBillableValue(value)).toBe(true);
+    },
+  );
+
+  it.each([null, undefined, true, 1, {}, ['Billable', 1]].map((value) => [value]))(
+    'rejects non-text status values (%j)',
+    (value) => {
+      expect(isBillableValue(value)).toBe(false);
+    },
+  );
+});
 
 describe('billableFieldOf', () => {
   it('finds the field named Billable or Billable status, in any case', () => {
@@ -251,4 +268,3 @@ describe('findBillableInPages', () => {
     expect(await findBillableInPages(scope([subtask]).fetchPage, { issue_id: 11 })).toBeNull();
   });
 });
-

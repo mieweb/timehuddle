@@ -53,7 +53,12 @@ import {
   getActivitiesForUser,
   pickDefaultActivity,
 } from './redmine-activities';
-import { billableByIssue, isBillableLookupIncomplete, sameBillable } from './redmine-billable';
+import {
+  billableByIssue,
+  isBillableLookupIncomplete,
+  isBillableValue,
+  sameBillable,
+} from './redmine-billable';
 import { bustUserCaches } from './redmine-cache';
 import { createRateLimiter } from './rate-limit';
 import { removeUserIssuePrefs } from './redmine-prefs';
@@ -395,16 +400,24 @@ function requireComment(comment) {
 /**
  * The Billable field the user was shown before confirming: `null` for none,
  * `undefined` when the caller did not say (nothing is checked then). Only its
- * id and value are read; what is sent is always the server's own lookup.
+ * id and value are read; an explicit value edit is kept separate from this snapshot.
  */
 function requireShownBillable(shown) {
   if (shown == null) return shown;
-  const validValue = (value) =>
-    typeof value === 'string' || (Array.isArray(value) && value.every((v) => typeof v === 'string'));
-  if (!Number.isInteger(shown.id) || !validValue(shown.value)) {
+  if (!Number.isInteger(shown.id) || !isBillableValue(shown.value)) {
     throw new Meteor.Error('bad-request', 'The Billable value must be an id and a value.');
   }
   return { id: shown.id, value: shown.value };
+}
+
+function requireBillableValue(value) {
+  if (value !== undefined && !isBillableValue(value)) {
+    throw new Meteor.Error(
+      'bad-request',
+      'The Billable status must be text or a list of text values.',
+    );
+  }
+  return value;
 }
 
 /**
@@ -420,8 +433,11 @@ function hoursChanged(row, shownHours) {
 }
 
 /** True when the row's Billable is no longer what the user was shown. */
-function billableChanged(row, shown) {
-  return shown !== undefined && !sameBillable(shown, row.billable);
+function billableChanged(row, shown, value) {
+  return (
+    (shown !== undefined && !sameBillable(shown, row.billable)) ||
+    (value !== undefined && !row.billable)
+  );
 }
 
 /**
@@ -522,7 +538,7 @@ async function buildPreviewRows(userId, account, { only } = {}) {
  * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
  * time to the minute; a larger gap means it stored something else entirely.
  */
-async function pushOneEntry(userId, account, row, activityId, comment) {
+async function pushOneEntry(userId, account, row, activityId, comment, billableValue) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
 
   let created;
@@ -533,7 +549,9 @@ async function pushOneEntry(userId, account, row, activityId, comment) {
       activityId,
       spentOn: row.date,
       comments: comment || PUSH_COMMENT,
-      customFields: row.billable ? [{ id: row.billable.id, value: row.billable.value }] : [],
+      customFields: row.billable
+        ? [{ id: row.billable.id, value: billableValue ?? row.billable.value }]
+        : [],
     });
   } catch (err) {
     // 403 here is the signature of a role without `log_time`, which is a
@@ -748,6 +766,7 @@ Meteor.methods({
     for (const entry of entries) {
       requireComment(entry?.comment);
       requireShownBillable(entry?.billable);
+      requireBillableValue(entry?.billableValue);
     }
 
     const account = await requireRedmineAccount(userId);
@@ -792,6 +811,7 @@ Meteor.methods({
     comment,
     activityId,
     billable,
+    billableValue,
     hours,
   } = {}) {
     const { userId } = await requireIdentity(this);
@@ -802,6 +822,7 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'The activity must be an id.');
     }
     const shownBillable = requireShownBillable(billable);
+    requireBillableValue(billableValue);
     const account = await requireRedmineAccount(userId);
 
     return withPushLock(userId, async (stillHeld) => {
@@ -810,7 +831,7 @@ Meteor.methods({
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
       // Billable is read again here, and a sent entry is permanent: a value that
       // moved since the user confirmed it needs confirming again.
-      if (billableChanged(row, shownBillable)) {
+      if (billableChanged(row, shownBillable, billableValue)) {
         return { ticketId, date, ok: false, reason: 'billable-changed' };
       }
       // Likewise the hours, which the server's rounding can move.
@@ -824,7 +845,7 @@ Meteor.methods({
       // losing it means another send may be writing this same time.
       if (!(await stillHeld())) return { ticketId, date, ok: false, reason: 'push-interrupted' };
 
-      const outcome = await pushOneEntry(userId, account, row, activity.id, text);
+      const outcome = await pushOneEntry(userId, account, row, activity.id, text, billableValue);
       // As in `push`: logged time is one of the relevant list's signals.
       bustUserCaches(userId);
       return { ...outcome, activityName: activity.name };
@@ -866,7 +887,7 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     }
 
     // As in `sendTicketDay`: a Billable value that moved since it was shown.
-    if (billableChanged(row, requireShownBillable(requested.billable))) {
+    if (billableChanged(row, requireShownBillable(requested.billable), requested.billableValue)) {
       results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'billable-changed' });
       continue;
     }
@@ -891,7 +912,14 @@ async function pushRequestedEntries(userId, account, entries, stillHeld) {
     }
 
     results.push(
-      await pushOneEntry(userId, account, row, activity.id, requireComment(requested.comment)),
+      await pushOneEntry(
+        userId,
+        account,
+        row,
+        activity.id,
+        requireComment(requested.comment),
+        requested.billableValue,
+      ),
     );
   }
 

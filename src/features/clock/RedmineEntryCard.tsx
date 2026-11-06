@@ -5,11 +5,11 @@
  * (one card per ticket-day) and the prompt shown when a ticket timer ends (one
  * entry, so `bare`: the dialog is already its frame). It states what the entry
  * is — the issue, in full, with its hours and day — and its children are what
- * can still be decided about it: the activity, the comment, and in the push
+ * can still be decided about it: Billable status, the activity, the comment, and in the push
  * dialog whether to send it at all. Each of those sits in a
  * `RedmineEntryField`, which names it.
  */
-import { Accordion, Button, Card, Text } from '@mieweb/ui';
+import { Accordion, Button, Card, Input, Text, Textarea } from '@mieweb/ui';
 import { ArrowLeftRight } from 'lucide-react';
 import React from 'react';
 
@@ -34,8 +34,11 @@ export interface RedmineEntryCardProps {
   decimalHours: boolean;
   /** A press on the hours switches between the two. */
   onToggleHours: () => void;
-  /** The Billable value the entry is sent with, shown read-only; null or absent for none. */
+  /** The Billable field discovered in Redmine; null or absent for none. */
   billable?: RedmineBillable | null;
+  billableValue?: RedmineBillable['value'];
+  onBillableChange?: (value: RedmineBillable['value']) => void;
+  disabled?: boolean;
   /** How `hours` was rounded up from the time worked; null or absent when exact. */
   rounding?: { step: number; exactHours: number } | null;
   /** The seconds of each timer run `hours` adds up; a single run needs no mention. */
@@ -53,6 +56,9 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   decimalHours,
   onToggleHours,
   billable = null,
+  billableValue = billable?.value,
+  onBillableChange,
+  disabled = false,
   rounding = null,
   runSeconds = [],
   bare = false,
@@ -92,14 +98,37 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
       </div>
       {/* Sessions lists each run, so show why this is one entry. */}
       {runSeconds.length > 1 && <RedmineEntryRuns runSeconds={runSeconds} />}
-      {/* Read-only: copied from Redmine's own entries, so it is stated, not chosen. */}
       {billable && (
         <RedmineEntryField label={text.billable}>
-          <Text size="sm" className="redmine-entry-billable">
-            {/* The field's label is for the eye only; this names it for a screen reader. */}
-            <span className="sr-only">{billable.name}: </span>
-            {billableValueLabel(billable.value)}
-          </Text>
+          {onBillableChange ? (
+            Array.isArray(billableValue) ? (
+              <Textarea
+                richText={false}
+                label={billable.name}
+                aria-label={billable.name}
+                hideLabel
+                value={billableValue.join('\n')}
+                onChange={(event) => onBillableChange(event.target.value.split('\n'))}
+                helperText={text.billableMultipleHint}
+                disabled={disabled}
+              />
+            ) : (
+              <Input
+                label={billable.name}
+                hideLabel
+                size="sm"
+                value={billableValue ?? ''}
+                onChange={(event) => onBillableChange(event.target.value)}
+                helperText={text.billableHint}
+                disabled={disabled}
+              />
+            )
+          ) : (
+            <Text size="sm" className="redmine-entry-billable">
+              <span className="sr-only">{billable.name}: </span>
+              {billableValueLabel(billableValue ?? billable.value)}
+            </Text>
+          )}
         </RedmineEntryField>
       )}
       {rounding && (

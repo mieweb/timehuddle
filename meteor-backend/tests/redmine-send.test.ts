@@ -45,7 +45,7 @@ type Created = {
   activity_id: number;
   spent_on: string;
   comments?: string;
-  custom_fields?: { id: number; value: string }[];
+  custom_fields?: { id: number; value: string | string[] }[];
 };
 
 describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
@@ -294,6 +294,73 @@ describe.skipIf(!KEY || !BASE_URL)('sending time to Redmine', () => {
     expect(created).toHaveLength(0);
     // Still unsent, so the next preview offers it again with the new value.
     expect(await ledger(String(BILLABLE_ISSUE))).toHaveLength(recordedBefore);
+  });
+
+  it.each(['0', 'Internal Meeting', ['Client A', 'Client B']].map((value) => [value]))(
+    'sends an explicit Billable edit (%j) using the discovered field id',
+    async (billableValue) => {
+      await loggedTime(String(BILLABLE_ISSUE));
+
+      const res = await send(String(BILLABLE_ISSUE), { billable: BILLABLE, billableValue });
+
+      expect(res.result).toMatchObject({ ok: true });
+      expect(created).toHaveLength(1);
+      expect(created[0].custom_fields).toEqual([{ id: BILLABLE.id, value: billableValue }]);
+    },
+  );
+
+  it('still refuses a stale Billable snapshot when an explicit edit was supplied', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+    const res = await send(String(BILLABLE_ISSUE), {
+      billable: { ...BILLABLE, value: 'old' },
+      billableValue: 'Internal Meeting',
+    });
+    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
+    expect(created).toHaveLength(0);
+  });
+
+  it('cannot attach an override to an undiscovered custom field', async () => {
+    await loggedTime('916');
+    const res = await send('916', { billableValue: 'Internal Meeting' });
+    expect(res.result).toMatchObject({ ok: false, reason: 'billable-changed' });
+    expect(created).toHaveLength(0);
+  });
+
+  it('the bulk push sends an explicit Billable edit', async () => {
+    await loggedTime(String(BILLABLE_ISSUE));
+    const res = await wormhole<{ results: Outcome[] }>(
+      'redmine.timeEntries.push',
+      {
+        entries: [
+          {
+            ticketId: String(BILLABLE_ISSUE),
+            date: today,
+            billable: BILLABLE,
+            billableValue: '0',
+          },
+        ],
+      },
+      jwt,
+    );
+    expect(res.ok && res.result.results[0].ok).toBe(true);
+    expect(created[0].custom_fields).toEqual([{ id: BILLABLE.id, value: '0' }]);
+  });
+
+  it('rejects malformed Billable edits before sending any bulk entries', async () => {
+    await loggedTime('916');
+    await loggedTime(String(BILLABLE_ISSUE));
+    const res = await wormhole(
+      'redmine.timeEntries.push',
+      {
+        entries: [
+          { ticketId: '916', date: today },
+          { ticketId: String(BILLABLE_ISSUE), date: today, billableValue: { id: 99, value: '1' } },
+        ],
+      },
+      jwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(created).toHaveLength(0);
   });
 
   it('sends nothing when no Billable was shown but Redmine has one now', async () => {

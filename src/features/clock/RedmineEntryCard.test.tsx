@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RedmineEntryCard } from './RedmineEntryCard';
 
@@ -37,6 +37,51 @@ describe('RedmineEntryCard rounding', () => {
 });
 
 describe('RedmineEntryCard', () => {
+  it('lets the user edit a discovered Billable status without changing its field identity', () => {
+    const billable = { id: 7, name: 'Billable status', value: 'Internal Meeting' };
+    const onBillableChange = vi.fn();
+    renderCard({ billable, onBillableChange });
+
+    fireEvent.change(screen.getByRole('textbox', { name: billable.name }), {
+      target: { value: 'Billable' },
+    });
+
+    expect(onBillableChange).toHaveBeenCalledWith('Billable');
+    expect(billable.value).toBe('Internal Meeting');
+  });
+
+  it('preserves multiple statuses, including commas within a status', () => {
+    const onBillableChange = vi.fn();
+    renderCard({
+      billable: { id: 7, name: 'Billable', value: ['Client A, Inc.', 'Client B'] },
+      onBillableChange,
+    });
+    const input = screen.getByRole('textbox', { name: 'Billable' });
+    expect((input as HTMLTextAreaElement).value).toBe('Client A, Inc.\nClient B');
+    fireEvent.change(input, { target: { value: 'Client C\nClient A, Inc.' } });
+    expect(onBillableChange).toHaveBeenCalledWith(['Client C', 'Client A, Inc.']);
+  });
+
+  it('disables editing during a send', () => {
+    renderCard({
+      billable: { id: 7, name: 'Billable', value: '0' },
+      onBillableChange: vi.fn(),
+      disabled: true,
+    });
+    expect((screen.getByRole('textbox', { name: 'Billable' }) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('keeps result cards read-only and omits Billable when no field was discovered', () => {
+    const { unmount } = renderCard({ billable: { id: 7, name: 'Billable', value: '1' } });
+    expect(screen.getByText('Yes')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    unmount();
+    renderCard({ onBillableChange: vi.fn() });
+    expect(screen.queryByText('Billable')).toBeNull();
+  });
+
   it('lists each timer run behind a collapsed row', () => {
     renderCard({ runSeconds: [60, 90] });
     const toggle = screen.getByRole('button', { name: 'Adds up 2 timer runs' });

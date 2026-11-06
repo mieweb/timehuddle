@@ -43,7 +43,7 @@ const FAILURE_TEXT: Record<string, string> = {
  * Redmine itself, or an administrator who can sort out the field.
  */
 const BILLABLE_REQUIRED_HINT =
-  'Redmine requires a Billable status on every time entry, and TimeHuddle has none to copy yet. Log one time entry with Billable status set in Redmine, then send again. If that does not help, contact your Redmine administrator.';
+  'Redmine requires a Billable status on every time entry. Enter a status accepted by Redmine. No Billable field shown? Log one time entry with Billable status set in Redmine, then send again. If that does not help, contact your Redmine administrator.';
 
 /**
  * Redmine messages whose wording hides the fix, keyed by their English text.
@@ -117,6 +117,8 @@ export function billableValueLabel(value: string | string[]): string {
 export const entryCardText = {
   activity: 'Activity',
   billable: 'Billable',
+  billableHint: 'Enter a status accepted by Redmine (1 = Yes, 0 = No for yes/no fields).',
+  billableMultipleHint: 'Enter statuses accepted by Redmine, one per line.',
   yes: 'Yes',
   no: 'No',
   comment: 'Comment',

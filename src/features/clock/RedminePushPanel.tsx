@@ -40,6 +40,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 
 import {
   redmineApi,
+  type RedmineBillable,
   type RedmineTimeEntryPreview,
   type RedmineTimeEntryPushOutcome,
   type RedmineTimeEntryRow,
@@ -65,6 +66,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   // Each row's comment about the work. A row without one is sent as logged by TimeHuddle.
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [billableValues, setBillableValues] = useState<Record<string, RedmineBillable['value']>>(
+    {},
+  );
   // Hours read as time worked (0:09) or as Redmine stores them (0.15 h); a
   // press on any row's hours switches every figure in the dialog.
   const [decimalHours, setDecimalHours] = useState(false);
@@ -136,6 +140,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
           activityId: overrides[rowKey(row)] ?? row.activityId ?? undefined,
           comment: comments[rowKey(row)]?.trim() || undefined,
           billable: row.billable,
+          ...(billableValues[rowKey(row)] !== undefined
+            ? { billableValue: billableValues[rowKey(row)] }
+            : {}),
           hours: row.hours,
         })),
       );
@@ -175,6 +182,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     setResults(null);
     setOverrides({});
     setComments({});
+    setBillableValues({});
     setError(null);
     setConfirmDiscard(null);
   };
@@ -264,6 +272,13 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                     decimalHours={decimalHours}
                     onToggleHours={() => setDecimalHours((on) => !on)}
                     billable={row.billable}
+                    billableValue={billableValues[key]}
+                    onBillableChange={
+                      !results && !row.blockedReason
+                        ? (value) => setBillableValues((prev) => ({ ...prev, [key]: value }))
+                        : undefined
+                    }
+                    disabled={pushing}
                     rounding={row.rounding}
                     runSeconds={row.runSeconds}
                   >
