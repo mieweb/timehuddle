@@ -214,7 +214,7 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
-  test('the Team picker in the list header switches between a team and Personal', async ({
+  test('the Team picker switches between a team and Personal, which keeps its own posts', async ({
     page,
   }) => {
     const token = uniqueToken('team');
@@ -227,17 +227,29 @@ test.describe('Huddle inbox filters', () => {
     // A team feed doesn't repeat its own name on each post.
     await openPostInInbox(page, token);
     await expect(inboxMessage(page, token)).not.toContainText('Test Team Alpha');
+    // The search carries over to Personal, where it would hide the message box.
+    await inboxSearch(page).fill('');
 
-    // Personal gathers your posts from every team, each labelled with its team.
+    // Personal is its own private team: a post written there shows there…
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Personal', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Team: Personal' })).toBeVisible();
-    await openPostInInbox(page, token);
-    await expect(inboxMessage(page, token)).toContainText('Test Team Alpha');
+    const personalToken = uniqueToken('personal');
+    await postFromHuddle(page, personalToken);
+    await openPostInInbox(page, personalToken);
+
+    // …and a team's posts stay in the team: today's Personal thread, where
+    // today's team post would land if it leaked, doesn't hold it. Checked in
+    // the thread, not by searching, since an empty Personal feed shows a
+    // starter conversation whatever the search.
+    await expect(inboxMessage(page, token)).toHaveCount(0);
 
     await page.getByRole('button', { name: /^Team:/ }).click();
     await page.getByRole('menuitem', { name: 'Test Team Alpha', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Team: Test Team Alpha' })).toBeVisible();
+    // Today's team thread, where a Personal post from today would land if it leaked.
+    await openPostInInbox(page, token);
+    await expect(inboxMessage(page, personalToken)).toHaveCount(0);
   });
 
   test('the message box posts into the feed and clears', async ({ page }) => {
