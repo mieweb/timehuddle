@@ -641,14 +641,9 @@ function withoutLinkTargets(text: string): string {
 /** Everything a post can be found by: body, author, ticket, attachments, team
  *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
 function postSearchText(post: HuddlePost, teamName?: string): string {
-  const dateKey = getPostDateKey(post);
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  // The post's own date, and the day All's divider shows it under (when it
+  // appeared, in the reader's timezone) when that differs.
+  const dateKeys = new Set([getPostDateKey(post), localDateKey(postTime(post))]);
   return [
     withoutLinkTargets(post.content.text),
     post.userName,
@@ -662,12 +657,22 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
       att.type,
     ]),
     teamName,
-    dateKey,
-    formatDayLabel(dateKey),
-    longDate,
+    ...[...dateKeys].flatMap(dateSearchTerms),
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** A date in the spellings search accepts: "2026-09-24", "Thu, Sep 24", "Thursday, September 24, 2026". */
+function dateSearchTerms(dateKey: string): string[] {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return [dateKey, formatDayLabel(dateKey), longDate];
 }
 
 /** Id of the {@link starterConversation}; it never matches a real post. */
