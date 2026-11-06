@@ -1,6 +1,6 @@
 /**
  * Huddle inbox — the filters in the conversation list header, Group by,
- * search, the "Off the clock" labelling and the inbox's own message box.
+ * search, which posts the Session view holds, and the inbox's own message box.
  *
  * Posts are seeded through the API (and clock sessions straight into the test
  * DB) so each test controls exactly what the inbox has to group and find; a
@@ -15,6 +15,7 @@ import {
   deleteClockSession,
   getUserIdByEmail,
   groupInboxBy,
+  insertPost,
   inboxComposer,
   inboxMessage,
   inboxSearch,
@@ -27,6 +28,7 @@ import {
 } from './helpers';
 
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 function uniqueToken(label: string): string {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -99,7 +101,7 @@ test.describe('Huddle inbox filters', () => {
     const descriptions = {
       All: 'Every update in one thread, oldest first',
       Day: "Everyone's updates, one thread per date",
-      Session: 'Each clock-in to clock-out with its plan and wrap-up',
+      Session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
       Person: 'One thread per teammate',
       Ticket: 'Updates grouped by the work item they link to',
     };
@@ -153,7 +155,20 @@ test.describe('Huddle inbox filters', () => {
 
   test('with All saved, a post link opens its session with the post in view', async ({ page }) => {
     const token = uniqueToken('all-link');
-    const linkedId = await seedPostDaysAgo({ teamId, userId, text: token, daysAgo: 2 });
+    const startTime = Date.now() - 2 * DAY;
+    const clockEventId = await seedClockSession({
+      userId,
+      teamId,
+      startTime,
+      endTime: startTime + HOUR,
+    });
+    const linkedId = await insertPost({
+      teamId,
+      userId,
+      text: token,
+      createdAt: startTime + 1000,
+      clockEventId,
+    });
     // Enough newer posts that the linked one would be offscreen in the All
     // thread. Dated yesterday, so they stay out of today's threads other tests read.
     const newerIds: string[] = [];
@@ -181,10 +196,27 @@ test.describe('Huddle inbox filters', () => {
       );
     } finally {
       await Promise.all([linkedId, ...newerIds].map((id) => deletePost(id)));
+      await deleteClockSession(clockEventId);
     }
   });
 
-  test('Session view labels posts made without clocking in; other views stay clean', async ({
+  test('a link to a post made off the clock opens its Day thread', async ({ page }) => {
+    const token = uniqueToken('off-clock-link');
+    const linkedId = await seedPostDaysAgo({ teamId, userId, text: token, daysAgo: 2 });
+    try {
+      await page.goto('/app/huddle');
+      await groupInboxBy(page, 'Session');
+
+      await page.goto(`/app/huddle?post=${linkedId}`);
+      await expect(page).toHaveURL(/conversation=day%3A/, { timeout: 30000 });
+      await expect(inboxMessage(page, token).first()).toBeVisible();
+      await expect(page.getByText('Post not found', { exact: false })).toHaveCount(0);
+    } finally {
+      await deletePost(linkedId);
+    }
+  });
+
+  test('Session view leaves out posts made without clocking in; All and Day keep them', async ({
     page,
   }) => {
     const token = uniqueToken('off-clock');
@@ -192,17 +224,44 @@ test.describe('Huddle inbox filters', () => {
     await page.goto('/app/huddle');
 
     await groupInboxBy(page, 'Session');
-    await openPostInInbox(page, token);
-    await expect(conversationRows(page)).toHaveCount(1);
-    await expect(conversationRows(page).first()).toContainText('Off the clock');
-    await expect(messageLog(page)).toContainText('Posted without clocking in');
-    // Said by the thread, never inside the post (its text seeds inline edit).
-    await expect(inboxMessage(page, token)).not.toContainText('Off the clock');
+    await inboxSearch(page).fill(token);
+    await expect(conversationRows(page)).toHaveCount(0);
+    await inboxSearch(page).fill('');
 
-    // Other views don't mark it, but search still finds it by that phrase.
-    await groupInboxBy(page, 'Day');
-    await openPostInInbox(page, `${token} off the clock`, inboxMessage(page, token).first());
-    await expect(inboxMessage(page, token)).not.toContainText('Off the clock');
+    for (const grouping of ['All', 'Day'] as const) {
+      await groupInboxBy(page, grouping);
+      await openPostInInbox(page, token);
+      // Search still finds it by that phrase.
+      await openPostInInbox(page, `${token} off the clock`, inboxMessage(page, token).first());
+      await expect(inboxMessage(page, token)).not.toContainText('Off the clock');
+    }
+  });
+
+  test('a post sent from Huddle while clocked in joins the live session', async ({ page }) => {
+    const planToken = uniqueToken('plan');
+    const token = uniqueToken('mid-shift');
+    const clockEventId = await seedClockSession({
+      userId,
+      teamId,
+      startTime: Date.now() - HOUR,
+      endTime: null,
+    });
+    try {
+      await seedPost(page, { teamId, text: planToken, clockEventId });
+      await page.goto('/app/huddle');
+      await groupInboxBy(page, 'Session');
+      await openPostInInbox(page, planToken);
+      await inboxSearch(page).fill('');
+
+      await postFromHuddle(page, token);
+      await expect(inboxMessage(page, token)).toBeVisible({ timeout: 20000 });
+      // Same thread as the plan: the live shift, not a thread of its own.
+      await expect(inboxMessage(page, planToken)).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`conversation=session%3A${clockEventId}`));
+      await expect(conversationList(page)).not.toContainText('Off the clock');
+    } finally {
+      await deleteClockSession(clockEventId);
+    }
   });
 
   test('Session view shows a real shift with its clock lines and no off-the-clock label', async ({
@@ -248,7 +307,8 @@ test.describe('Huddle inbox filters', () => {
       `${token} off the clock`, // label
       `${token} ${todayKey()}`, // date
     ];
-    for (const option of ['Day', 'Session', 'Person', 'Ticket'] as const) {
+    // Not Session: the post is made off the clock, so Session leaves it out.
+    for (const option of ['Day', 'Person', 'Ticket'] as const) {
       await groupInboxBy(page, option);
       for (const query of queries) {
         await inboxSearch(page).fill(query);

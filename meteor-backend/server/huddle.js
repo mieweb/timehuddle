@@ -638,11 +638,20 @@ async function checkedAttachments(userId, attachments, existing = []) {
   }
 }
 
+/** Id of `userId`'s open clock session in `teamId`, or null when clocked out. */
+async function openSessionId(userId, teamId) {
+  const event = await rawDb()
+    .collection('clockevents')
+    .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
+  return event ? event._id.toHexString() : null;
+}
+
 /**
  * Create a published Huddle post as `userId`, after the same checks the
  * `huddle.createPost` method makes (team membership, ticket, mentions, clock
  * session ownership). Shared with server-side callers — a Pulse upload that
- * posts itself. Returns `{ id }`.
+ * posts itself. A post made while clocked in to the team joins that session
+ * unless it names one. Returns `{ id, clockEventId? }`.
  */
 export async function createHuddlePost(
   userId,
@@ -693,7 +702,11 @@ export async function createHuddlePost(
       throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
     }
   }
-  
+  // A post written while clocked in to this team belongs to that shift, so the
+  // Session view shows it there. A scheduled post appears later, when the
+  // shift may be over, so it stays unlinked.
+  const sessionId = clockEventId || (schedule ? null : await openSessionId(userId, teamId));
+
   const { text, media } = await externalizeInlineImages(content.text, userId);
   // An upload or image a post dropped, waiting to be deleted, stays for this text.
   await keepReferencedUploads([text]);
@@ -714,7 +727,7 @@ export async function createHuddlePost(
     // Optionally link to a clock session (per-session gate) and/or stamp a
     // wrap-up at creation — used by the clock-out recovery path when a
     // session somehow has no plan post.
-    ...(clockEventId ? { clockEventId } : {}),
+    ...(sessionId ? { clockEventId: sessionId } : {}),
     ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
     ...(schedule ?? {}),
     // Bumped on every write that changes deliverAt/deliveredAt/postDate, so a
@@ -755,7 +768,7 @@ export async function createHuddlePost(
       .catch((err) => console.error('[huddle] post notifications failed:', err));
   }
 
-  return { id: doc._id.toHexString() };
+  return { id: doc._id.toHexString(), ...(sessionId ? { clockEventId: sessionId } : {}) };
 }
 
 /**

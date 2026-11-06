@@ -1464,7 +1464,7 @@ export const huddleApi = {
     wrapUp?: boolean;
     /** ISO date to schedule the post for. */
     deliverAt?: string;
-  }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+  }) => wormholeCall<{ id: string; clockEventId?: string }>('huddle.createPost', { ...params }),
 
   /** Deliver one of my scheduled posts now. */
   sendScheduledNow: (postId: string) =>

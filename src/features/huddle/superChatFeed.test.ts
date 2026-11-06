@@ -430,16 +430,15 @@ describe('postsToConversations', () => {
   });
 
   describe('posts without a session or ticket', () => {
-    it('labels a session-view thread of off-the-clock posts, title and first line', () => {
+    it('leaves off-the-clock posts out of the Session view; All, Day and Person keep them', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];
-      const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
-      expect(conversation.id).toBe('session:nosession:user-aisha:2026-09-29');
-      expect(conversation.title).toBe('You · Tue, Sep 29 · Off the clock');
-      const system = conversation.thread.filter((m) => m.type === 'system');
-      expect(system.map((m) => m.text)).toEqual(['Posted without clocking in']);
-      expect(conversation.thread[0].type).toBe('system');
-      // The thread says it once; the post itself isn't labelled again.
-      expect(conversation.thread[1].text).not.toContain('Off the clock');
+      expect(postsToConversations(posts, 'session', VIEWER_MEMBER, NOW)).toEqual([]);
+      for (const threadBy of ['all', 'day', 'person'] as const) {
+        const thread = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW).flatMap(
+          (c) => c.thread,
+        );
+        expect(thread.map((m) => m.id)).toContain('p1');
+      }
     });
 
     it('keeps the label out of message text in the other views (it would seed inline edit)', () => {
@@ -485,7 +484,7 @@ describe('postsToConversations', () => {
     it('links each existing ticket to its page and skips deleted ones', () => {
       for (const threadBy of ['session', 'day', 'person', 'ticket'] as const) {
         const [conversation] = postsToConversations(
-          [makePost({ id: 'p1', tickets })],
+          [makePost({ id: 'p1', clockEventId: 'evt-1', tickets })],
           threadBy,
           VIEWER_MEMBER,
           NOW,
@@ -772,7 +771,7 @@ describe('searchConversations', () => {
       createdAt: new Date(SEP_28_0900).toISOString(),
     }),
   ];
-  const all = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+  const all = postsToConversations(posts, 'day', VIEWER_MEMBER, NOW);
   const titlesFor = (query: string) =>
     searchConversations(all, posts, query).map(
       (c) => c.thread.find((m) => m.id.startsWith('p'))?.id,
@@ -821,7 +820,7 @@ describe('searchConversations', () => {
         ],
       }),
     ];
-    const grouped = postsToConversations(withVideo, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(withVideo, 'day', VIEWER_MEMBER, NOW);
     const hits = (query: string) => searchConversations(grouped, withVideo, query).length;
     expect(hits('standup recap')).toBe(1);
     expect(hits('sprint review')).toBe(1);
@@ -840,7 +839,7 @@ describe('searchConversations', () => {
         },
       }),
     ];
-    const grouped = postsToConversations(slow, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(slow, 'day', VIEWER_MEMBER, NOW);
     const started = performance.now();
     expect(searchConversations(grouped, slow, 'slow')).toHaveLength(1);
     expect(performance.now() - started).toBeLessThan(500);
@@ -856,11 +855,11 @@ describe('searchConversations', () => {
         },
       }),
     ];
-    const grouped = postsToConversations(withChart, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(withChart, 'day', VIEWER_MEMBER, NOW);
     expect(searchConversations(grouped, withChart, 'latency')).toHaveLength(1);
   });
 
-  it('finds off-the-clock and live posts the same way in every view', () => {
+  it('finds off-the-clock and live posts the same way in every view that has them', () => {
     const livePost = makePost({
       id: 'p3',
       userId: 'user-priya',
@@ -869,7 +868,8 @@ describe('searchConversations', () => {
       session: { startTime: SEP_29_1032, endTime: null },
     });
     const withLive = [...posts, livePost];
-    for (const threadBy of ['day', 'session', 'person', 'ticket'] as const) {
+    // Session leaves off-the-clock posts out, so it isn't asked to find one.
+    for (const threadBy of ['day', 'person', 'ticket'] as const) {
       const grouped = postsToConversations(withLive, threadBy, VIEWER_MEMBER, NOW);
       const idsFor = (query: string) =>
         searchConversations(grouped, withLive, query).flatMap((c) =>

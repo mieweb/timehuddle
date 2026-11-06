@@ -56,6 +56,7 @@ import {
 import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
   dayConversationId,
+  dayConversationIdForPost,
   defaultConversation,
   keptAttachments,
   isAwaitingDelivery,
@@ -64,6 +65,7 @@ import {
   pulseVideoOfMedia,
   searchConversations,
   searchPosts,
+  sessionConversationId,
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
@@ -141,7 +143,7 @@ const THREAD_BY_LABELS: Record<ThreadBy, string> = {
 const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
   all: 'Every update in one thread, oldest first',
   day: "Everyone's updates, one thread per date",
-  session: 'Each clock-in to clock-out with its plan and wrap-up; off-the-clock posts kept apart',
+  session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
   person: 'One thread per teammate',
   ticket: 'Updates grouped by the work item they link to',
 };
@@ -1040,9 +1042,12 @@ export default function Huddle() {
   useEffect(() => {
     if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
-    if (!match) return;
-    setParams({ conversation: match.id, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
+    // A post made off the clock has no Session thread: its Day thread holds it.
+    const offClock = match ? null : activePosts.find((p) => p.id === postParam && !p.clockEventId);
+    const conversation = match?.id ?? (offClock && dayConversationIdForPost(offClock));
+    if (!conversation) return;
+    setParams({ conversation, post: null, postId: null, q: null });
+  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation
@@ -1074,6 +1079,7 @@ export default function Huddle() {
     setSending(true);
     setInboxError(null);
     let id: string;
+    let clockEventId: string | undefined;
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
@@ -1088,7 +1094,7 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
-      ({ id } = await huddleApi.createPost({
+      ({ id, clockEventId } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
@@ -1117,13 +1123,19 @@ export default function Huddle() {
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
     // it's posted, so a failed send restores its draft where it was written.
-    const landsIn =
-      threadBy === 'day'
-        ? dayConversationId(toDateString(sendSchedule?.deliverAt ?? new Date()))
-        : conversationId;
-    if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
-      openConversation(landsIn);
+    const dayId = dayConversationId(toDateString(sendSchedule?.deliverAt ?? new Date()));
+    if (
+      threadBy === 'day' &&
+      dayId !== conversationId &&
+      conversations.some((c) => c.id === dayId)
+    ) {
+      openConversation(dayId);
     }
+    // In Session grouping, the server put it in the live shift, or in no shift
+    // when clocked out — then it's only in Day, so its Day thread opens. Opened
+    // after the refresh below, once the post (maybe a shift's first) is in.
+    const sessionLanding =
+      threadBy !== 'session' ? null : clockEventId ? sessionConversationId(clockEventId) : dayId;
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
@@ -1132,6 +1144,7 @@ export default function Huddle() {
     // the post went to the Personal team, so it can never appear in `posts`.
     if (scope === 'me') {
       await refreshMyPosts();
+      if (sessionLanding && sessionLanding !== conversationId) openConversation(sessionLanding);
       return;
     }
 
@@ -1148,6 +1161,7 @@ export default function Huddle() {
       await refreshFeed();
       if (inFeed()) break;
     }
+    if (sessionLanding && sessionLanding !== conversationId) openConversation(sessionLanding);
   }
 
   // Taking back a file removed from the message box after it uploaded.

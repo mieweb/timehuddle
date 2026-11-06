@@ -789,3 +789,59 @@ describe('huddle post tickets', () => {
     expect(await storedTicketIds(created.result.id)).toEqual([]);
   });
 });
+
+describe('a post made while clocked in joins the open session (#853)', () => {
+  async function openSession(sessionTeamId: string) {
+    const db = await getDb();
+    const _id = new ObjectId();
+    await db.collection('clockevents').insertOne({
+      _id,
+      userId: authorUserId,
+      teamId: sessionTeamId,
+      startTime: Date.now() - 60_000,
+      accumulatedTime: 0,
+      autoClockoutAgreed: null,
+      endTime: null,
+    });
+    return _id;
+  }
+
+  async function post(text: string) {
+    const res = await wormhole<{ id: string; clockEventId?: string }>(
+      'huddle.createPost',
+      { teamId, content: { text, mentions: [] }, postDate: todayString() },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    const db = await getDb();
+    const stored = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    return { result: res.result, stored: stored! };
+  }
+
+  it('links the post to the open session in this team and says so', async () => {
+    const sessionId = await openSession(teamId);
+    try {
+      const { result, stored } = await post('Mid-shift update');
+      expect(stored.clockEventId).toBe(sessionId.toHexString());
+      expect(result.clockEventId).toBe(sessionId.toHexString());
+    } finally {
+      await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
+    }
+  });
+
+  it('leaves the post unlinked when clocked out', async () => {
+    const { result, stored } = await post('Off-shift note');
+    expect(stored.clockEventId).toBeUndefined();
+    expect(result.clockEventId).toBeUndefined();
+  });
+
+  it('leaves the post unlinked when the open session is in another team', async () => {
+    const sessionId = await openSession(new ObjectId().toHexString());
+    try {
+      const { stored } = await post('Clocked in elsewhere');
+      expect(stored.clockEventId).toBeUndefined();
+    } finally {
+      await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
+    }
+  });
+});
