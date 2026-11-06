@@ -7,11 +7,13 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
+  Badge,
   Button,
   ButtonGroup,
   type ChatComposerError,
   Dropdown,
   DropdownItem,
+  DropdownSeparator,
   Input,
   Spinner,
   Text,
@@ -27,7 +29,15 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   discardMedia,
@@ -53,6 +63,7 @@ import {
   postVideoNames,
   pulseVideoOfMedia,
   searchConversations,
+  searchPosts,
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
@@ -114,11 +125,13 @@ const LINK_SEARCH_MAX_DAYS = 360;
 const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
-const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
+// All comes first and sits apart: it is the one option that doesn't group.
+const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
 
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+  all: 'All',
   session: 'Session',
   day: 'Day',
   person: 'Person',
@@ -126,6 +139,7 @@ const THREAD_BY_LABELS: Record<ThreadBy, string> = {
 };
 // Must not contain another option's label: e2e picks menu items by name.
 const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+  all: 'Every update in one thread, oldest first',
   day: "Everyone's updates, one thread per date",
   session: 'Each clock-in to clock-out with its plan and wrap-up; off-the-clock posts kept apart',
   person: 'One thread per teammate',
@@ -254,6 +268,9 @@ export default function Huddle() {
   // its own grouping without overwriting the saved one (posts are found by
   // session).
   const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  // A post link opens the post's session, even when All is the saved grouping:
+  // SuperChatInbox can't scroll to a message yet, and a session's short thread
+  // keeps the post in view (see docs/superchat-inbox-gaps.md).
   const threadBy =
     threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
@@ -697,16 +714,33 @@ export default function Huddle() {
       : grouped;
   }, [activePosts, threadBy, viewer, nowMinute, getTeamName, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
-  // fields), after grouping, so a match keeps its thread intact.
+  // fields), after grouping, so a match keeps its thread intact. All has just
+  // the one thread, so there it narrows the posts in it instead.
   // With no posts at all, the inbox shows a starter conversation instead:
   // SuperChat's chat input only exists inside an open conversation, and it is
   // where the first update gets posted.
   const conversations = useMemo(() => {
     if (activePosts.length === 0 && user) {
-      return [starterConversation({ userId: user.id, name: user.name }, scope)];
+      return [
+        starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
+      ];
+    }
+    if (threadBy === 'all' && searchQuery.trim()) {
+      const matches = searchPosts(activePosts, searchQuery, viewer, getTeamName);
+      return postsToConversations(matches, 'all', viewer, nowMinute, getTeamName, activePosts);
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
-  }, [allConversations, activePosts, searchQuery, getTeamName, user, scope]);
+  }, [
+    allConversations,
+    activePosts,
+    searchQuery,
+    getTeamName,
+    user,
+    scope,
+    threadBy,
+    viewer,
+    nowMinute,
+  ]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
@@ -808,22 +842,31 @@ export default function Huddle() {
         }
       >
         {THREAD_BY_OPTIONS.map((option) => (
-          <DropdownItem
-            key={option}
-            icon={<SelectedCheck selected={option === threadBy} />}
-            onClick={() => {
-              setThreadBy(option);
-              // DropdownItem doesn't close its menu on its own.
-              setThreadByMenuOpen(false);
-            }}
-          >
-            <span className="flex flex-col">
-              <span>{THREAD_BY_LABELS[option]}</span>
-              <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
-                {THREAD_BY_DESCRIPTIONS[option]}
-              </Text>
-            </span>
-          </DropdownItem>
+          <Fragment key={option}>
+            <DropdownItem
+              icon={<SelectedCheck selected={option === threadBy} />}
+              onClick={() => {
+                setThreadBy(option);
+                // DropdownItem doesn't close its menu on its own.
+                setThreadByMenuOpen(false);
+              }}
+            >
+              <span className="flex flex-col">
+                <span className="flex items-center gap-2">
+                  {THREAD_BY_LABELS[option]}
+                  {option === 'all' && (
+                    <Badge variant="secondary" size="sm">
+                      New
+                    </Badge>
+                  )}
+                </span>
+                <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
+                  {THREAD_BY_DESCRIPTIONS[option]}
+                </Text>
+              </span>
+            </DropdownItem>
+            {option === 'all' && <DropdownSeparator />}
+          </Fragment>
         ))}
       </Dropdown>
     </div>

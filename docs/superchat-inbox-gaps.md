@@ -132,6 +132,7 @@ Priority: **P1** blocks the Huddle rollout · **P2** needed for parity with the 
 | 3.16 | Edit opens the host's own editor (e.g. TimeHuddle's rich editor)                                            | ❌ Edit always opens SuperChat's plain textarea; no `onEditRequest`-style hook                                                                 | P3       |
 | 3.17 | Long URLs and wide images wrap inside the bubble                                                            | ❌ They push the bubble past the thread; Huddle caps it with CSS                                                                               | P2       |
 | 3.18 | Links in messages show a focus ring, and the host can name them ("Open ticket: …", #737)                    | ❌ The default link has no `focus-visible` style and no way to set `aria-label`                                                                | P2       |
+| 3.19 | Open a conversation scrolled to a given message, e.g. the post a link names                                 | ❌ No prop to scroll to (or highlight) a message; a conversation always opens at its newest message                                            | P2       |
 
 ### 4. Message Box (Composer)
 
@@ -232,6 +233,8 @@ Code in TimeHuddle that exists only because of a gap above. When the gap closes 
 | 2.7      | Notifications bell portaled into the conversation header                                                 | `useInboxSlot` + `findConversationHeader` in `src/pages/Huddle.tsx`              |
 | 1.11     | `starterConversation()`: an on-screen-only "Today" conversation so the message box renders with no posts | `src/features/huddle/superChatFeed.ts`, `conversations` in `Huddle.tsx`          |
 | 3.17     | Bubble row capped at 100% width with `overflow-wrap: anywhere`                                           | `src/pages/Huddle.module.css`                                                    |
+| 3.1      | All grouping opens each day with a system line naming the date                                           | `withDayDividers` in `src/features/huddle/superChatFeed.ts`                      |
+| 3.19     | A post link opens the post's short Session thread, even with All saved, so the post is in view           | `threadBy` in `src/pages/Huddle.tsx`                                             |
 | 4.10     | Pulse videos kept in page state beside SuperChat's attachments and added to the post on send             | `pulseVideos` in `Huddle.tsx`                                                    |
 | 4.13     | `useTeamMentions().detect` re-resolves the sent text against the team roster                             | `src/features/huddle/useTeamMentions.ts`                                         |
 | 4.14     | Send held busy while `pulsePending` or ticket videos are loading                                         | `isSending` in `Huddle.tsx` composerProps                                        |
