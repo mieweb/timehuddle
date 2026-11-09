@@ -106,6 +106,13 @@ export default defineConfig({
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
   },
 
+  // Scan only the app for dependencies. Left to itself Vite crawls every .html
+  // under the root, and where the vendor/pulsevault submodule is checked out
+  // (for anyone who has run pv:build) that takes in its example pages
+  // (vendor/pulsevault/examples/**/*.html). They import packages this app
+  // doesn't have, which fails the scan and skips pre-bundling.
+  optimizeDeps: { entries: ['index.html'] },
+
   resolve: {
     // Force a single React instance — a duplicate react/react-dom copy from
     // any dependency breaks hooks ("Invalid hook call" / useReducer of null).
