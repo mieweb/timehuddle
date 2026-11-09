@@ -48,6 +48,8 @@ import { useRouter } from '../../../ui/router';
 import { MINIMAL_SCROLLBAR_CLASS } from '../../../ui/scrollbar';
 import { TimerToggleButton } from '../../../ui/TimerToggleButton';
 import { huddleTicketRef } from '../sources/huddleSource';
+
+import { exactIdFirst } from './exactIdFirst';
 import { carriedRefOf, linkRefOf, outsideIdOf } from '../ticketIds';
 import { ticketDetailPath, ticketKey } from '../sources/types';
 import type { TicketTimerOutcome } from '../startTicketTimer';
@@ -268,8 +270,25 @@ export function TicketSearchBar({
     list.push(...sourceRows);
     if (suggestions.status === 'not-connected') list.push({ kind: 'connect' });
     if (suggestions.status === 'error' || search.status === 'error') list.push({ kind: 'retry' });
-    return list;
+    // The IDs each row is shown with, as `FoundTicketRow` and `IssueRow` show them.
+    const idsOf = (row: Row): string[] => {
+      if (row.kind === 'issue') return [issueRef(row.issue.id)];
+      if (row.kind === 'source') return [row.issue.ref ?? `${row.server.prefix}-${row.issue.id}`];
+      if (row.kind !== 'ticket') return [];
+      const team = teamById.get(row.ticket.teamId);
+      const prefixes = team?.sourcePrefixes ?? [];
+      return [
+        carriedRefOf(row.ticket.linkedIssue, prefixes, redmineHost),
+        linkRefOf(row.ticket, prefixes),
+        huddleTicketRef(row.ticket, team?.ticketPrefix),
+      ].filter((id): id is string => Boolean(id));
+    };
+    return exactIdFirst(list, trimmed, idsOf);
   }, [
+    trimmed,
+    issueRef,
+    teamById,
+    redmineHost,
     foundTickets,
     selectedTeamId,
     matching,
@@ -359,6 +378,19 @@ export function TicketSearchBar({
       }
     },
     [boardKnown, carrierOf, onToggleTicketBoard],
+  );
+
+  const toggleTicketBoard = useCallback(
+    async (row: Extract<Row, { kind: 'ticket' }>) => {
+      if (!boardKnown || boardBusy.current) return;
+      boardBusy.current = true;
+      try {
+        await onToggleTicketBoard(row.ticket);
+      } finally {
+        boardBusy.current = false;
+      }
+    },
+    [boardKnown, onToggleTicketBoard],
   );
 
   const toggleBoard = useCallback(
@@ -478,6 +510,11 @@ export function TicketSearchBar({
       stopDownshift();
       closeMenu();
       void toggleTicketTimer(row);
+      return;
+    }
+    if (row?.kind === 'ticket' && event.key === 'Enter' && event.altKey) {
+      stopDownshift();
+      void toggleTicketBoard(row);
       return;
     }
     if (row?.kind === 'source' && event.key === 'Enter' && (event.altKey || event.shiftKey)) {
@@ -625,7 +662,24 @@ export function TicketSearchBar({
                       )}
                     <li
                       className="redmine-suggestion group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm aria-selected:bg-muted"
-                      {...getItemProps({ item: row, index })}
+                      {...getItemProps({
+                        item: row,
+                        index,
+                        // Alt+click is Alt+Enter: on or off My Board, the menu left open.
+                        onClick: (event: React.MouseEvent) => {
+                          const kind = row.kind;
+                          if (!event.altKey || !['issue', 'source', 'ticket'].includes(kind)) {
+                            return;
+                          }
+                          (
+                            event.nativeEvent as MouseEvent & { preventDownshiftDefault?: boolean }
+                          ).preventDownshiftDefault = true;
+                          event.preventDefault();
+                          if (row.kind === 'issue') void toggleBoard(row.issue);
+                          else if (row.kind === 'source') void toggleSourceBoard(row);
+                          else if (row.kind === 'ticket') void toggleTicketBoard(row);
+                        },
+                      })}
                       {...(row.kind === 'source' ? { 'aria-describedby': searchShortcutsId } : {})}
                       {...(row.kind === 'issue'
                         ? {

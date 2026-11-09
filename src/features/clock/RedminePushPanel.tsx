@@ -46,6 +46,7 @@ import {
 } from '../../lib/api';
 
 import { RedmineEntryCard, RedmineEntryField } from './RedmineEntryCard';
+import { useEntryRef } from './redmineEntryRef';
 import {
   BLOCKED_TEXT,
   REDMINE_COMMENT_MAX_LENGTH,
@@ -62,6 +63,7 @@ const rowKey = (row: { ticketId: string | null; date: string | null; host?: stri
 
 export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClockedIn }) => {
   const [preview, setPreview] = useState<RedmineTimeEntryPreview | null>(null);
+  const entryRef = useEntryRef(preview?.baseUrl);
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   // Each row's comment about the work. A row without one is sent as logged by TimeHuddle.
@@ -257,6 +259,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                 <li key={key} className="redmine-push-entry">
                   <RedmineEntryCard
                     ticketId={row.ticketId}
+                    issueRef={entryRef(row.ticketId, row.host)}
                     subject={row.subject ?? 'Unavailable'}
                     date={row.date}
                     hours={row.hours}

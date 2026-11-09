@@ -25,6 +25,8 @@ import {
 
 export interface RedmineEntryCardProps {
   ticketId: string;
+  /** How the issue is named, e.g. `PM0-1`, so two servers' issue 1 read apart. `#1` without one. */
+  issueRef?: string;
   /** The issue's subject. Null while it is unknown, or when Redmine could not supply it. */
   subject: string | null;
   /** The day being logged, `YYYY-MM-DD`. */
@@ -47,6 +49,7 @@ export interface RedmineEntryCardProps {
 
 export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
   ticketId,
+  issueRef = `#${ticketId}`,
   subject,
   date,
   hours,
@@ -65,7 +68,7 @@ export const RedmineEntryCard: React.FC<RedmineEntryCardProps> = ({
       <div className="redmine-entry-head flex items-start justify-between gap-3">
         <Text size="sm" className="redmine-entry-issue min-w-0 break-words">
           <Text as="span" size="sm" weight="medium">
-            #{ticketId}
+            {issueRef}
           </Text>
           {subject && ` ${subject}`}
         </Text>

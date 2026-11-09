@@ -846,7 +846,11 @@ export const TicketsPage: React.FC = () => {
   // For the first fill only: once the board holds anything, more is added by
   // searching or from All Sources.
   // Only for a board known to be empty: after a failed read it merely looks so.
-  const boardEmpty = boardKnown && boardKeys.size === 0;
+  // Empty as the board says it, in this team: nothing open on it. Entries for
+  // another team's tickets don't show here, and finished ones are under Closed;
+  // neither may hide the way to fill it.
+  const boardEmpty =
+    boardKnown && !ticketsLoading && boardTickets.every((ticket) => ticket.status.isClosed);
   // Every connected source, picked in a dropdown (#734). The main Redmine is
   // asked itself, so it can bring back issues the table no longer lists (#736).
   const assignedSources = useAssignedSources(

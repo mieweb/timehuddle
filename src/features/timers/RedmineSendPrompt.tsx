@@ -48,7 +48,9 @@ import {
   failureText,
 } from '../clock/redminePushStrings';
 
-import { ticketTimerText as text, timerLabel } from './ticketTimerStrings';
+import { useEntryRef } from '../clock/redmineEntryRef';
+
+import { ticketTimerText as text } from './ticketTimerStrings';
 
 /** A reason as a sentence fragment: the messages here end it themselves. */
 const withoutFullStop = (reason: string) => reason.replace(/\.$/, '');
@@ -86,7 +88,9 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
   const [activityId, setActivityId] = useState<number | null>(null);
   const [decimalHours, setDecimalHours] = useState(false);
 
-  const issue = timerLabel('redmine', time.ticketId);
+  // The main Redmine's address, from the preview: names the issue by its server.
+  const [mainBaseUrl, setMainBaseUrl] = useState<string | null>(null);
+  const issue = useEntryRef(mainBaseUrl)(time.ticketId, time.host);
 
   // Read again when a newer total arrives for this issue-day while the prompt
   // is open, and hold Send until it has answered: the card shows what will go.
@@ -96,7 +100,9 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
     redmineApi.timeEntries
       .preview({ ticketId: time.ticketId, date: time.date, host: time.host })
       .then((preview) => {
-        if (current) setRow(preview.rows[0] ?? null);
+        if (!current) return;
+        setRow(preview.rows[0] ?? null);
+        setMainBaseUrl(preview.baseUrl);
       })
       // Left without the list: the time can still go, under the server's pick,
       // and the field says so (`redmineSendActivityAuto`).
@@ -215,6 +221,7 @@ export const RedmineSendPrompt: React.FC<RedmineSendPromptProps> = ({ time, onDo
           {/* The same entry the push dialog lists as cards. */}
           <RedmineEntryCard
             ticketId={time.ticketId}
+            issueRef={issue}
             subject={row?.subject ?? null}
             date={time.date}
             hours={hours}

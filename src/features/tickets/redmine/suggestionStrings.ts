@@ -37,7 +37,8 @@ export const suggestionText = {
   hide: (ref: string) => `Hide ${ref} from suggestions`,
   rowShortcuts:
     'Press Delete to hide, Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
-  ticketRowShortcuts: 'Press Shift+Enter to start or stop a timer.',
+  ticketRowShortcuts:
+    'Press Shift+Enter to start or stop a timer, Alt+Enter to add to or remove from My Board.',
   searchRowShortcuts:
     'Press Shift+Enter to start a timer, Alt+Enter to add to or remove from My Board.',
 

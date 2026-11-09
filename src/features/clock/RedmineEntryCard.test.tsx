@@ -37,6 +37,14 @@ describe('RedmineEntryCard rounding', () => {
 });
 
 describe('RedmineEntryCard', () => {
+  it("names the issue by its server's ID, and #1 without one", () => {
+    const { unmount } = renderCard({ ticketId: '1', issueRef: 'PM1-1' });
+    expect(screen.getByText('PM1-1')).toBeTruthy();
+    unmount();
+    renderCard({ ticketId: '1' });
+    expect(screen.getByText('#1')).toBeTruthy();
+  });
+
   it('lists each timer run behind a collapsed row', () => {
     renderCard({ runSeconds: [60, 90] });
     const toggle = screen.getByRole('button', { name: 'Adds up 2 timer runs' });
