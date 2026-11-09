@@ -49,6 +49,9 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useQueryParam, useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { BOTTOM_NAV_INSET_CLASS } from '../../ui/bottomNavInset';
+import { TuckAway } from '../../ui/TuckAway';
+import { useHideOnScroll } from '../../ui/useHideOnScroll';
 import { SegmentedSwitcher, type SegmentedOption } from '../../ui/SegmentedSwitcher';
 import { UserRoundArrowLeft } from '../../ui/UserRoundArrowLeft';
 import {
@@ -377,6 +380,10 @@ export const TicketsPage: React.FC = () => {
   // Rows carry no checkbox until Select asks for them, at every width.
   const [selecting, setSelecting] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement>(null);
+  // On a phone, scrolling a list down folds the tab row and the sort and
+  // filter bar away; a little scroll back up brings them back.
+  const viewsRef = React.useRef<HTMLDivElement>(null);
+  const chromeHidden = useHideOnScroll(viewsRef);
   // The empty board's button hides itself by switching views. Focus goes to
   // the option it selected, so a keyboard user is not dropped on the page body.
   const browseAllSources = useCallback(() => {
@@ -478,9 +485,11 @@ export const TicketsPage: React.FC = () => {
         if (reorderedRest) handleBoardReorder(rest);
         else setBoardOrder((prev) => placeShownOrder(prev, rest));
       },
+      // "Pin to top" means it: a ticket from far down the board goes straight to
+      // the head of Pinned, with no drag through the list.
       onTogglePin: (ticket) =>
         setPinnedKeys((prev) =>
-          prev.includes(ticket.key) ? prev.filter((k) => k !== ticket.key) : [...prev, ticket.key],
+          prev.includes(ticket.key) ? prev.filter((k) => k !== ticket.key) : [ticket.key, ...prev],
         ),
       // Cosmetic for now: the pinned tickets reach the composer in step 4.
       onClockIn: () => navigate('/app/clock'),
@@ -966,6 +975,7 @@ export const TicketsPage: React.FC = () => {
   // What both tabs' lists share; each tab adds its own view and labels.
   const sharedListProps = {
     selecting: selectionOn,
+    headerHidden: chromeHidden,
     errors: sourceErrors,
     isCreator: (t: UnifiedTicket) => t.createdBy?.id === userId,
     runningTicketKey: runningTicket?.key ?? null,
@@ -984,34 +994,39 @@ export const TicketsPage: React.FC = () => {
     <AppPage fill width="full">
       <h1 className="sr-only">Tickets</h1>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="tickets-views flex min-h-0 flex-1 flex-col">
-          <div
-            ref={switcherRef}
-            className="tickets-view-switcher mb-1.5 flex shrink-0 items-center justify-between gap-2"
-          >
-            <SegmentedSwitcher
-              name="tickets-view"
-              label={viewText.switcherLabel}
-              hideLabel
-              compact
-              options={VIEW_OPTIONS}
-              value={activeView}
-              onValueChange={setActiveView}
-            />
-            {activeView !== 'week' && (
-              <Button
-                variant={selectionOn ? 'primary' : 'secondary'}
-                size="sm"
-                aria-pressed={selectionOn}
-                rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
-                onClick={toggleSelecting}
-                className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
-              >
-                {selectionOn ? viewText.doneSelecting : viewText.select}
-              </Button>
-            )}
-          </div>
+      {/* On a phone the list runs to the bottom nav: the page's own bottom
+          padding (AppPage's pb-4) is taken back, and the list keeps the
+          nav's room inside itself (RowList's bottomNavInset). */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 max-md:-mb-4">
+        <div ref={viewsRef} className="tickets-views flex min-h-0 flex-1 flex-col">
+          <TuckAway hidden={chromeHidden && activeView !== 'week'}>
+            <div
+              ref={switcherRef}
+              className="tickets-view-switcher flex shrink-0 items-center justify-between gap-2 pb-1.5"
+            >
+              <SegmentedSwitcher
+                name="tickets-view"
+                label={viewText.switcherLabel}
+                hideLabel
+                compact
+                options={VIEW_OPTIONS}
+                value={activeView}
+                onValueChange={setActiveView}
+              />
+              {activeView !== 'week' && (
+                <Button
+                  variant={selectionOn ? 'primary' : 'secondary'}
+                  size="sm"
+                  aria-pressed={selectionOn}
+                  rightIcon={<CheckCheck className="h-4 w-4" aria-hidden="true" />}
+                  onClick={toggleSelecting}
+                  className="tickets-select-toggle shrink-0 rounded-lg md:hidden"
+                >
+                  {selectionOn ? viewText.doneSelecting : viewText.select}
+                </Button>
+              )}
+            </div>
+          </TuckAway>
 
           {/* One toolbar for both ticket lists: it stays put when the tab changes.
               My Week is a timesheet, so it has none. */}
@@ -1041,7 +1056,7 @@ export const TicketsPage: React.FC = () => {
           {activeView === 'week' && (
             <section
               aria-label={viewText.myWeek}
-              className="tickets-week-panel min-h-0 flex-1 overflow-y-auto"
+              className={`tickets-week-panel min-h-0 flex-1 overflow-y-auto ${BOTTOM_NAV_INSET_CLASS}`}
             >
               <React.Suspense
                 fallback={

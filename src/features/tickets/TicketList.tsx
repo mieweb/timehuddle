@@ -119,6 +119,8 @@ export interface TicketListProps {
    * sortable list (see `boardSections`), and rows offer Pin / Unpin.
    */
   pinning?: BoardPinning;
+  /** Folds the sort and filter bar away while the rows scroll on a phone. */
+  headerHidden?: boolean;
 }
 
 export interface BoardPinning {
@@ -184,6 +186,7 @@ export const TicketList: React.FC<TicketListProps> = ({
   onChangeStatusRequest,
   onReorder,
   pinning,
+  headerHidden,
 }) => {
   // Both sections start open.
   const [collapsed, setCollapsed] = React.useState<BoardCollapsed>({ pinned: false, rest: false });
@@ -346,7 +349,12 @@ export const TicketList: React.FC<TicketListProps> = ({
           collapsed,
         );
         const wasRest = rest.some((t) => t.key === movedId);
-        pinning.onArrange(next.pinned, next.rest, wasRest && next.rest.includes(movedId));
+        const nowRest = next.rest.includes(movedId);
+        pinning.onArrange(next.pinned, next.rest, wasRest && nowRest);
+        // A ticket dropped into a collapsed section opens it, so it's in sight.
+        if (wasRest !== nowRest) {
+          setCollapsed((prev) => (nowRest ? { ...prev, rest: false } : { ...prev, pinned: false }));
+        }
       },
       revealPinned: () =>
         scrollerOf(restHeadingRef.current)?.scrollTo({ top: 0, behavior: 'smooth' }),
@@ -505,11 +513,13 @@ export const TicketList: React.FC<TicketListProps> = ({
           label={text.list(showClosed)}
           className="ticket-list"
           header={header}
+          headerHidden={headerHidden}
           items={sections.entries}
           getId={boardEntryId}
           getTitle={entryTitle}
           loading={loading}
           scrollKey={listKey}
+          bottomNavInset
           emptyState={emptyState}
           onReorder={sections.onReorder}
           canDrag={isTicketEntry}
@@ -522,11 +532,13 @@ export const TicketList: React.FC<TicketListProps> = ({
           label={text.list(showClosed)}
           className="ticket-list"
           header={header}
+          headerHidden={headerHidden}
           items={tickets}
           getId={ticketKey}
           getTitle={ticketTitle}
           loading={loading}
           scrollKey={listKey}
+          bottomNavInset
           emptyState={emptyState}
           onReorder={onReorder}
           renderRow={renderTicket}

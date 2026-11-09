@@ -495,6 +495,9 @@ const AppLayoutContent: React.FC = () => {
                     <WhatsNewBanner />
                     <main
                       ref={mainRef}
+                      // Tickets' list scrolls on its own, under the bottom nav,
+                      // so the page reserves no room for the nav (styles.css).
+                      data-under-nav={isTicketsRoute || undefined}
                       className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"
                     >
                       <PullToRefresh>

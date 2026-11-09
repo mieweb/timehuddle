@@ -10,6 +10,11 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 // For local builds (VITE_LOCAL_BUILD=true): evict any cached OTA bundle so the
 // freshly-built native bundle is always used instead.
 if (Capacitor.isNativePlatform()) {
+  // The native app reads as an app, not a page: no long-press text selection
+  // outside fields (styles.css). A press iOS turns into a selection also
+  // fights the app's own press-and-hold gestures (reordering My Board).
+  document.documentElement.dataset.native = 'true';
+
   if ((import.meta as { env?: Record<string, string> }).env?.VITE_LOCAL_BUILD === 'true') {
     CapacitorUpdater.current()
       .then(({ bundle }) => {

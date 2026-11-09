@@ -19,7 +19,9 @@
 import { cn, ListView, ScrollArea, Skeleton, SortableList } from '@mieweb/ui';
 import React from 'react';
 
+import { BOTTOM_NAV_INSET_CLASS } from './bottomNavInset';
 import { MINIMAL_SCROLLBAR_CLASS } from './scrollbar';
+import { TuckAway } from './TuckAway';
 
 /**
  * Inline padding and the gap between a row's parts, in container units so they
@@ -145,6 +147,8 @@ export interface RowListProps<T> {
   renderRow: (item: T) => React.ReactNode;
   /** Controls above the rows. Stays put while the rows scroll. */
   header?: React.ReactNode;
+  /** Folds the header away, e.g. while the rows scroll on a phone. */
+  headerHidden?: boolean;
   /** Shown in place of the rows when there are none and nothing is loading. */
   emptyState?: React.ReactNode;
   /**
@@ -154,6 +158,12 @@ export interface RowListProps<T> {
   loading?: boolean;
   /** Scrolls back to the first row whenever this changes. */
   scrollKey?: unknown;
+  /**
+   * On a phone, the rows run on under the fixed bottom nav (the page reserves
+   * it no room: `data-under-nav` in `AppLayout`), and the list ends with that
+   * much space so its last row still scrolls clear of the nav.
+   */
+  bottomNavInset?: boolean;
   /**
    * Makes the rows the member's to order: hold one to drag it (or Alt+↑/↓),
    * and a move reports every listed id in its new order and the one that moved.
@@ -171,7 +181,9 @@ export interface RowListProps<T> {
 const SKELETON_ROWS_EMPTY = 5;
 const SKELETON_ROWS_TRAILING = 3;
 
-const SCROLL_AREA_CLASS = `row-list-scroll min-h-0 w-full flex-1 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
+// No rubber-band at either end (`overscroll-none`): the list stops where it
+// ends, and its bounce never reaches the page or folds its chrome.
+const SCROLL_AREA_CLASS = `row-list-scroll min-h-0 w-full flex-1 overscroll-none [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
 
 export function RowList<T>({
   label,
@@ -180,9 +192,11 @@ export function RowList<T>({
   getTitle,
   renderRow,
   header,
+  headerHidden = false,
   emptyState,
   loading = false,
   scrollKey,
+  bottomNavInset = false,
   onReorder,
   canDrag,
   canDropOn,
@@ -206,16 +220,18 @@ export function RowList<T>({
         // rows' own inset, so its first and last controls line up with theirs.
         // Its corner is the vertical padding out from a pill-shaped control's
         // own (h-7), so one line of controls reads as a pill.
-        <div className="row-list-header mb-1 flex shrink-0 flex-wrap items-center gap-1.5 rounded-[1.375rem] bg-muted px-(--row-list-inset) py-2">
-          {header}
-        </div>
+        <TuckAway hidden={headerHidden} className="pb-1">
+          <div className="row-list-header flex shrink-0 flex-wrap items-center gap-1.5 rounded-[1.375rem] bg-muted px-(--row-list-inset) py-2">
+            {header}
+          </div>
+        </TuckAway>
       )}
       <ScrollArea
         ref={scrollRef}
         role="region"
         aria-label={label}
         orientation="vertical"
-        className={SCROLL_AREA_CLASS}
+        className={cn(SCROLL_AREA_CLASS, bottomNavInset && BOTTOM_NAV_INSET_CLASS)}
       >
         {/* While nothing has loaded yet, placeholders stand in for the empty state. */}
         {!(loading && items.length === 0) &&
