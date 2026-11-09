@@ -3,8 +3,9 @@
  *
  * Renders a `UnifiedTicket` without caring which source it came from, as a
  * `RowListItem`, the same at every width: a line of where the ticket sits
- * (project, reference, last updated), then its title with its badges beside it
- * (assignees, status, priority, source, linked issue), wrapping as it narrows.
+ * (an outside project, last updated), then its reference and title with its
+ * badges beside them (assignees, status, priority, source, linked issue),
+ * wrapping as it narrows.
  *
  * An open ticket leads with its timer button; a closed one has its purple mark
  * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
@@ -81,7 +82,7 @@ export interface TicketRowProps {
  * most of what tells one ticket from another and a phone has no hover tooltip.
  */
 const TITLE_CLASS =
-  'ticket-row-title h-auto max-w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
+  'ticket-row-title h-auto min-h-8 max-w-full justify-start whitespace-normal break-words p-0 text-start text-sm leading-snug font-medium text-neutral-900 hover:bg-transparent hover:text-neutral-900 dark:text-neutral-100 dark:hover:bg-transparent dark:hover:text-neutral-100 [&_[data-slot=button-label]]:overflow-visible [&_[data-slot=button-label]]:whitespace-normal';
 
 /** Assignee names a row shows before it counts the rest. */
 const SHOWN_ASSIGNEES = 3;
@@ -185,28 +186,21 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     </>
   );
 
-  // Where the ticket sits, then what it is called by: project, reference, age.
+  // Where the ticket sits and its age. A Huddle ticket's container is the team,
+  // which the header already names; an outside source's is its project.
   const updatedAt = ticket.updatedAt ?? ticket.createdAt;
-  const refClass = 'ticket-row-ref font-semibold text-foreground';
   const outsideRef = outsideRefOf(ticket);
   const leadingRef = outsideRef ?? ticket.ref;
+  const projectName = ticket.sourceId === 'huddle' ? null : ticket.container?.name;
+  // Right after the last badge, on the badges' line.
   const meta = (
-    <span className="ticket-row-meta contents">
-      {ticket.container?.name && (
-        <span className="min-w-0 break-words">{ticket.container.name}</span>
-      )}
-      {/* The outside ID leads. Plain text for every source: where it comes from
-          and its links belong to the ticket's page. */}
-      <span className={refClass}>{leadingRef}</span>
+    <span className="ticket-row-meta flex min-w-0 items-center gap-x-2 text-xs text-muted-foreground">
+      {projectName && <span className="min-w-0 break-words">{projectName}</span>}
       {showHuddleIds && outsideRef && (
         <span className="ticket-row-huddle-ref text-xs text-muted-foreground">{ticket.ref}</span>
       )}
       {updatedAt && (
-        <time
-          dateTime={updatedAt}
-          title={text.updated(new Date(updatedAt).toLocaleString())}
-          className="text-xs"
-        >
+        <time dateTime={updatedAt} title={text.updated(new Date(updatedAt).toLocaleString())}>
           {timeAgo(updatedAt)}
         </time>
       )}
@@ -266,6 +260,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           </Badge>
         </Tooltip>
       )}
+      {meta}
     </span>
   );
 
@@ -283,7 +278,9 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           ariaLabel={
             onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
           }
-          className="h-8 w-8 shrink-0"
+          // On a phone (the bottom-nav width) "Remove from My Board" is only in
+          // the ⋮ menu, which keeps the row's end to one control.
+          className={`h-8 w-8 shrink-0 ${onBoard ? 'max-md:hidden' : ''}`}
         />
         {/* The same menu as the list header's: focus moves into it, the arrow
             keys walk it, Tab and Escape leave it, and a choice closes it. */}
@@ -362,6 +359,9 @@ export const TicketRow: React.FC<TicketRowProps> = ({
       data-ticket-key={ticket.key}
       data-ticket-id={ticket.id}
       data-ticket-source={ticket.sourceId}
+      // The title takes its whole line, so the badges always start the next
+      // one, close under it.
+      className="[&_.row-list-title]:basis-full [&_.row-list-title-line]:gap-y-1"
       selected={selected}
       // The whole row opens the ticket, a bigger target than its title; the
       // keyboard path is the title, which is a real button.
@@ -369,10 +369,14 @@ export const TicketRow: React.FC<TicketRowProps> = ({
       leading={leading}
       title={
         <Button variant="ghost" className={TITLE_CLASS} onClick={openTicket}>
+          {/* The outside ID leads the title, on its line. Plain text for every
+              source: where it comes from and its links belong to the ticket's page. */}
+          <span className="ticket-row-ref me-1.5 font-semibold text-muted-foreground">
+            {leadingRef}
+          </span>
           {ticket.title}
         </Button>
       }
-      meta={meta}
       properties={properties}
       actions={actions}
     />
