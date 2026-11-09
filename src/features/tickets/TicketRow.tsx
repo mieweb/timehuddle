@@ -33,7 +33,7 @@ import {
   DropdownSeparator,
   Tooltip,
 } from '@mieweb/ui';
-import { CircleUser, ClipboardCopy, ClipboardX } from 'lucide-react';
+import { CircleUser, ClipboardCopy, ClipboardX, Pin, PinOff } from 'lucide-react';
 import React, { useCallback } from 'react';
 
 import { timeAgo } from '../../lib/date';
@@ -75,6 +75,10 @@ export interface TicketRowProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  /** On My Board: whether the ticket is pinned to its top. */
+  pinned?: boolean;
+  /** On My Board: pins or unpins the ticket. Without it the menu offers neither. */
+  onTogglePin?: (ticket: UnifiedTicket) => void;
 }
 
 /**
@@ -127,6 +131,8 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  pinned = false,
+  onTogglePin,
 }) => {
   const [showHuddleIds] = useShowHuddleIds();
   const { navigate } = useRouter();
@@ -316,6 +322,20 @@ export const TicketRow: React.FC<TicketRowProps> = ({
           >
             {onBoard ? boardText.remove : boardText.add}
           </DropdownItem>
+          {onTogglePin && (
+            <DropdownItem
+              icon={
+                pinned ? (
+                  <PinOff className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" aria-hidden="true" />
+                )
+              }
+              onClick={() => onTogglePin(ticket)}
+            >
+              {pinned ? boardText.unpin : boardText.pin}
+            </DropdownItem>
+          )}
           {capabilities.openExternal && externalUrl && (
             <DropdownItem icon={<FontAwesomeIcon icon={faExternalLink} />} onClick={openExternal}>
               {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}

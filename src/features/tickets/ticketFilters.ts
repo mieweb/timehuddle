@@ -123,7 +123,15 @@ export function containerOptions(tickets: UnifiedTicket[]): FilterOption[] {
 
 /** Columns the table can sort by. Mirrors the sortable table headers. */
 export type SortField =
-  'title' | 'ref' | 'source' | 'status' | 'priority' | 'container' | 'updated';
+  | 'title'
+  | 'ref'
+  | 'source'
+  | 'status'
+  | 'priority'
+  | 'container'
+  | 'updated'
+  // The member's own order, set by dragging rows (My Board).
+  | 'manual';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -140,6 +148,8 @@ export const DEFAULT_SORT: SortSpec = { field: 'updated', direction: 'desc' };
  * direction, the active column flips.
  */
 export function toggleSort(current: SortSpec, field: SortField): SortSpec {
+  // A hand-made order has no other way round.
+  if (field === 'manual') return { field, direction: 'asc' };
   if (current.field === field) {
     return { field, direction: current.direction === 'asc' ? 'desc' : 'asc' };
   }
@@ -241,4 +251,39 @@ export function sortTickets(tickets: UnifiedTicket[], sort: SortSpec): UnifiedTi
     // Title breaks ties so equal-ranked rows keep a stable, readable order.
     return result !== 0 ? result * factor : a.title.localeCompare(b.title);
   });
+}
+
+/**
+ * Tickets in a saved order of keys. Those the order doesn't know yet (newly
+ * added to the board) come first, newest first, so a new ticket is in sight.
+ */
+export function arrangeByOrder(
+  tickets: UnifiedTicket[],
+  order: readonly string[],
+): UnifiedTicket[] {
+  const position = new Map(order.map((key, i) => [key, i]));
+  const unknown = sortTickets(
+    tickets.filter((t) => !position.has(t.key)),
+    DEFAULT_SORT,
+  );
+  const known = tickets
+    .filter((t) => position.has(t.key))
+    .sort((a, b) => position.get(a.key)! - position.get(b.key)!);
+  return [...unknown, ...known];
+}
+
+/**
+ * A full order with some of its keys rearranged: `shown` is the new order of
+ * the rows a filtered list showed, and they take the slots those rows held, so
+ * the rows the filter hid keep their places. Keys in `shown` that `order`
+ * lacks go first, as they were listed.
+ */
+export function placeShownOrder(order: readonly string[], shown: readonly string[]): string[] {
+  const shownSet = new Set(shown);
+  const known = new Set(order);
+  const fresh = shown.filter((key) => !known.has(key));
+  const inOrder = shown.filter((key) => known.has(key));
+  let next = 0;
+  const placed = order.map((key) => (shownSet.has(key) ? inOrder[next++] : key));
+  return [...fresh, ...placed];
 }

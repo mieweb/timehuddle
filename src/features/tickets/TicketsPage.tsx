@@ -82,6 +82,9 @@ import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useMyBoardKeys } from './useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { timerLabel } from '../timers/ticketTimerStrings';
+import type { BoardPinning } from './TicketList';
+import { placeShownOrder } from './ticketFilters';
+import { useSavedKeyList } from './useSavedKeyList';
 import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -450,7 +453,40 @@ export const TicketsPage: React.FC = () => {
   // Resolves the assignee filter's "Me" option across both id namespaces.
   const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
-  const boardView = useTicketTableView(boardTickets, meKeys);
+  const [boardOrder, setBoardOrder] = useSavedKeyList('board-order', userId);
+  const [pinnedKeys, setPinnedKeys] = useSavedKeyList('board-pinned', userId);
+  const boardView = useTicketTableView(boardTickets, meKeys, boardOrder);
+
+  // A drag puts the rows shown in the member's order. Made under another sort,
+  // it starts from what was on screen and switches My Board to that order.
+  const { sort: boardSort, onSortChange: onBoardSortChange } = boardView;
+  const handleBoardReorder = useCallback(
+    (keys: string[]) => {
+      setBoardOrder((prev) => placeShownOrder(prev, keys));
+      if (boardSort.field !== 'manual') onBoardSortChange('manual');
+    },
+    [setBoardOrder, boardSort.field, onBoardSortChange],
+  );
+
+  // Pinned: the tickets picked for today, on top of My Board in their own
+  // order. A drag across the Rest heading pins or unpins; the ⋮ menu does too.
+  const boardPinning = useMemo<BoardPinning>(
+    () => ({
+      keys: pinnedKeys,
+      onArrange: (pinned, rest, reorderedRest) => {
+        setPinnedKeys(() => pinned);
+        if (reorderedRest) handleBoardReorder(rest);
+        else setBoardOrder((prev) => placeShownOrder(prev, rest));
+      },
+      onTogglePin: (ticket) =>
+        setPinnedKeys((prev) =>
+          prev.includes(ticket.key) ? prev.filter((k) => k !== ticket.key) : [...prev, ticket.key],
+        ),
+      // Cosmetic for now: the pinned tickets reach the composer in step 4.
+      onClockIn: () => navigate('/app/clock'),
+    }),
+    [pinnedKeys, setPinnedKeys, handleBoardReorder, setBoardOrder, navigate],
+  );
 
   // Leaving selection mode drops the selection: with the checkboxes gone there
   // would be no way to see, or undo, what was still ticked.
@@ -1051,6 +1087,8 @@ export const TicketsPage: React.FC = () => {
               {...sharedListProps}
               view={boardView}
               loading={boardLoading}
+              onReorder={handleBoardReorder}
+              pinning={boardPinning}
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <>

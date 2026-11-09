@@ -14,11 +14,24 @@
  */
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Checkbox, Text, useMediaQuery } from '@mieweb/ui';
+import { Button, Checkbox, cn, Text, useMediaQuery } from '@mieweb/ui';
+import { Clock, Pin } from 'lucide-react';
 import React from 'react';
 
 import { RowList } from '../../ui/RowList';
 
+import { BOARD_HEADING_HEIGHT, BoardSectionHeading } from './BoardSectionHeading';
+import { boardText } from './boardStrings';
+import {
+  arrangeFromIds,
+  boardEntries,
+  boardEntryId,
+  canLandOn,
+  PINNED_HEADING,
+  splitPinned,
+  type BoardCollapsed,
+  type BoardEntry,
+} from './boardSections';
 import { TicketRow } from './TicketRow';
 import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketListControls, type TicketField } from './TicketListControls';
@@ -47,6 +60,7 @@ const text = {
     `${count} ${showClosed ? 'closed' : 'open'} ticket${count === 1 ? '' : 's'}`,
   loadError: (source: string, message: string) => `Couldn’t load ${source} tickets: ${message}`,
   loadErrors: 'Source load errors',
+  myOrder: 'My order',
 };
 
 export interface TicketListProps {
@@ -95,10 +109,44 @@ export interface TicketListProps {
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
+  /**
+   * Makes the list the member's to order (My Board): rows get a drag handle,
+   * and a move reports the listed tickets' keys in their new order.
+   */
+  onReorder?: (keys: string[]) => void;
+  /**
+   * My Board's Pinned section. With it, the open list is two sections in one
+   * sortable list (see `boardSections`), and rows offer Pin / Unpin.
+   */
+  pinning?: BoardPinning;
+}
+
+export interface BoardPinning {
+  /** The pinned tickets' keys, in their order. */
+  keys: readonly string[];
+  /**
+   * After a move: the pinned keys and the rest's listed order, and whether the
+   * moved ticket stayed in the rest (an order change rather than a pin).
+   */
+  onArrange: (pinned: string[], rest: string[], reorderedRest: boolean) => void;
+  onTogglePin: (ticket: UnifiedTicket) => void;
+  onClockIn: () => void;
 }
 
 const ticketKey = (ticket: UnifiedTicket) => ticket.key;
 const ticketTitle = (ticket: UnifiedTicket) => ticket.title;
+const entryTitle = (entry: BoardEntry) => (entry.kind === 'ticket' ? entry.ticket.title : entry.id);
+const isTicketEntry = (entry: BoardEntry) => entry.kind === 'ticket';
+
+/**
+ * The section headings stick while their sections scroll: Pinned's at the
+ * top, Rest of My Board's under it. On the row element, picked out by the
+ * heading inside it.
+ */
+// Rest's top is BOARD_HEADING_HEIGHT, written out: Tailwind only sees literal classes.
+const STICKY_HEADINGS =
+  'has-[[data-sticky=pinned]]:sticky has-[[data-sticky=pinned]]:top-0 has-[[data-sticky=pinned]]:z-[6] ' +
+  'has-[[data-sticky=rest]]:sticky has-[[data-sticky=rest]]:top-[42px] has-[[data-sticky=rest]]:z-[5]';
 
 export const TicketList: React.FC<TicketListProps> = ({
   tickets,
@@ -134,7 +182,34 @@ export const TicketList: React.FC<TicketListProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  onReorder,
+  pinning,
 }) => {
+  // Both sections start open.
+  const [collapsed, setCollapsed] = React.useState<BoardCollapsed>({ pinned: false, rest: false });
+  // The Rest heading has scrolled up to where it sticks, under Pinned's: the
+  // pinned tickets are out of sight above.
+  const [pastPinned, setPastPinned] = React.useState(false);
+  const restHeadingRef = React.useRef<HTMLDivElement | null>(null);
+  const scrollerOf = (el: HTMLElement | null) =>
+    el?.closest<HTMLElement>('.row-list-scroll') ?? null;
+  const showsSections = Boolean(pinning) && !showClosed && tickets.length > 0;
+  React.useEffect(() => {
+    const scroller = scrollerOf(restHeadingRef.current);
+    if (!showsSections || !scroller) {
+      setPastPinned(false);
+      return;
+    }
+    const check = () => {
+      const row = restHeadingRef.current?.closest('li');
+      if (!row) return;
+      const top = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      setPastPinned(top <= BOARD_HEADING_HEIGHT + 0.5);
+    };
+    check();
+    scroller.addEventListener('scroll', check, { passive: true });
+    return () => scroller.removeEventListener('scroll', check);
+  }, [showsSections, collapsed]);
   // Each mounted list needs its own switcher name: it ties the sliding highlight.
   const stateSwitcherName = `ticket-state-${React.useId()}`;
   const compact = useMediaQuery('(max-width: 767px)');
@@ -152,6 +227,8 @@ export const TicketList: React.FC<TicketListProps> = ({
   // reached for most come first. The registry drives the source options, so a
   // third source needs no change here.
   const fields: TicketField[] = [
+    // A list the member orders by hand leads with that order.
+    ...(onReorder ? [{ label: text.myOrder, sortField: 'manual' as const }] : []),
     {
       label: 'Assignees',
       filter: {
@@ -227,6 +304,142 @@ export const TicketList: React.FC<TicketListProps> = ({
     { label: 'Title', sortField: 'title' },
   ];
 
+  const pinnedSet = new Set(pinning?.keys ?? []);
+  const renderTicket = (ticket: UnifiedTicket) => (
+    <TicketRow
+      ticket={ticket}
+      isCreator={isCreator(ticket)}
+      selected={selectedKeys.has(ticket.key)}
+      selecting={showSelectionControls}
+      onSelectedChange={onSelectedChange}
+      isTimerRunning={runningTicketKey === ticket.key}
+      timerLoading={timerLoadingKey === ticket.key}
+      // One timer start or stop at a time (TicketStartProvider).
+      timerDisabled={timerLoadingKey !== null}
+      onToggleTimer={onToggleTimer}
+      onBoard={isOnBoard(ticket)}
+      boardKnown={boardKnown}
+      boardLoading={boardLoadingKey === ticket.key}
+      onToggleBoard={onToggleBoard}
+      onEditRequest={onEditRequest}
+      onDeleteRequest={onDeleteRequest}
+      onChangeStatusRequest={onChangeStatusRequest}
+      pinned={pinnedSet.has(ticket.key)}
+      onTogglePin={pinning?.onTogglePin}
+    />
+  );
+
+  // My Board's open list: Pinned, then the rest, as one sortable list. Only
+  // with tickets to list, so an empty board keeps its empty state.
+  const sections = (() => {
+    if (!pinning || !showsSections) return null;
+    const { pinned, rest } = splitPinned(tickets, pinning.keys);
+    const shownPinned = pinned.map((t) => t.key);
+    const entries = boardEntries(pinned, rest, collapsed);
+    return {
+      entries,
+      onReorder: (ids: string[], movedId: string) => {
+        const next = arrangeFromIds(
+          ids,
+          pinning.keys,
+          { pinned: shownPinned, rest: rest.map((t) => t.key) },
+          collapsed,
+        );
+        const wasRest = rest.some((t) => t.key === movedId);
+        pinning.onArrange(next.pinned, next.rest, wasRest && next.rest.includes(movedId));
+      },
+      revealPinned: () =>
+        scrollerOf(restHeadingRef.current)?.scrollTo({ top: 0, behavior: 'smooth' }),
+      renderEntry: (entry: BoardEntry) => {
+        const pinnedScrolledPast = pastPinned && !collapsed.pinned && pinned.length > 0;
+        const at = entries.indexOf(entry);
+        const next = entries[at + 1];
+        const content =
+          entry.kind === 'ticket' ? (
+            renderTicket(entry.ticket)
+          ) : entry.id === PINNED_HEADING ? (
+            <BoardSectionHeading
+              title={boardText.pinnedHeading}
+              icon={<Pin className="h-3.5 w-3.5" aria-hidden="true" />}
+              count={pinned.length}
+              countLabel={boardText.pinnedCount(pinned.length)}
+              collapsed={collapsed.pinned}
+              onCollapsedChange={(c) => setCollapsed((prev) => ({ ...prev, pinned: c }))}
+              toggleLabel={collapsed.pinned ? boardText.expandPinned : boardText.collapsePinned}
+              scrolledPast={
+                pinnedScrolledPast
+                  ? { label: boardText.revealPinned, onReveal: () => sections?.revealPinned() }
+                  : undefined
+              }
+              action={
+                pinned.length > 0 && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="board-pinned-clock-in rounded-full"
+                    leftIcon={<Clock className="h-3.5 w-3.5" aria-hidden="true" />}
+                    aria-label={boardText.clockInLabel(pinned.length)}
+                    onClick={pinning.onClockIn}
+                  >
+                    {boardText.clockIn}
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <BoardSectionHeading
+              title={boardText.restHeading}
+              count={rest.length}
+              countLabel={boardText.restCount(rest.length)}
+              collapsed={collapsed.rest}
+              onCollapsedChange={(c) => setCollapsed((prev) => ({ ...prev, rest: c }))}
+              toggleLabel={collapsed.rest ? boardText.expandRest : boardText.collapseRest}
+            />
+          );
+        // Each section is a card: its heading opens it, its last entry closes
+        // it. The gap before the second card is padding inside its heading's
+        // row, so the rows' measured heights stay true while one is dragged.
+        return (
+          // A heading's row is opaque, so the rows scrolling under it while it
+          // sticks don't show through: in the page's own colour (`styles.css`),
+          // so the row itself doesn't show.
+          <div
+            ref={
+              entry.kind === 'heading' && entry.id !== PINNED_HEADING ? restHeadingRef : undefined
+            }
+            data-sticky={
+              entry.kind === 'heading'
+                ? entry.id === PINNED_HEADING
+                  ? 'pinned'
+                  : 'rest'
+                : undefined
+            }
+            className={cn(
+              entry.kind === 'heading' && 'bg-neutral-50 dark:bg-neutral-950',
+              entry.kind === 'heading' && entry.id !== PINNED_HEADING && 'pt-1.5',
+            )}
+          >
+            <div
+              className={cn(
+                'board-section-part border-x border-border/50 bg-card/40',
+                entry.kind === 'heading' && 'rounded-t-xl border-t',
+                // Scrolled past, Pinned's heading closes its card, as if collapsed.
+                (!next ||
+                  next.kind === 'heading' ||
+                  (entry.kind === 'heading' &&
+                    entry.id === PINNED_HEADING &&
+                    pinnedScrolledPast)) &&
+                  'overflow-hidden rounded-b-xl border-b [&_.board-section-heading]:border-b-0 [&_.row-list-item]:border-b-0',
+              )}
+            >
+              {content}
+            </div>
+          </div>
+        );
+      },
+    };
+  })();
+
   const header = (
     <div className="ticket-list-header-controls flex w-full min-w-0 flex-wrap items-center gap-1.5">
       <div className="ticket-list-header-primary flex shrink-0 items-center gap-2">
@@ -287,38 +500,38 @@ export const TicketList: React.FC<TicketListProps> = ({
         {loading ? text.loading : text.count(tickets.length, showClosed)}
       </div>
 
-      <RowList
-        label={text.list(showClosed)}
-        className="ticket-list"
-        header={header}
-        items={tickets}
-        getId={ticketKey}
-        getTitle={ticketTitle}
-        loading={loading}
-        scrollKey={listKey}
-        emptyState={emptyState}
-        renderRow={(ticket) => (
-          <TicketRow
-            ticket={ticket}
-            isCreator={isCreator(ticket)}
-            selected={selectedKeys.has(ticket.key)}
-            selecting={showSelectionControls}
-            onSelectedChange={onSelectedChange}
-            isTimerRunning={runningTicketKey === ticket.key}
-            timerLoading={timerLoadingKey === ticket.key}
-            // One timer start or stop at a time (TicketStartProvider).
-            timerDisabled={timerLoadingKey !== null}
-            onToggleTimer={onToggleTimer}
-            onBoard={isOnBoard(ticket)}
-            boardKnown={boardKnown}
-            boardLoading={boardLoadingKey === ticket.key}
-            onToggleBoard={onToggleBoard}
-            onEditRequest={onEditRequest}
-            onDeleteRequest={onDeleteRequest}
-            onChangeStatusRequest={onChangeStatusRequest}
-          />
-        )}
-      />
+      {sections ? (
+        <RowList
+          label={text.list(showClosed)}
+          className="ticket-list"
+          header={header}
+          items={sections.entries}
+          getId={boardEntryId}
+          getTitle={entryTitle}
+          loading={loading}
+          scrollKey={listKey}
+          emptyState={emptyState}
+          onReorder={sections.onReorder}
+          canDrag={isTicketEntry}
+          canDropOn={canLandOn}
+          itemClassName={STICKY_HEADINGS}
+          renderRow={sections.renderEntry}
+        />
+      ) : (
+        <RowList
+          label={text.list(showClosed)}
+          className="ticket-list"
+          header={header}
+          items={tickets}
+          getId={ticketKey}
+          getTitle={ticketTitle}
+          loading={loading}
+          scrollKey={listKey}
+          emptyState={emptyState}
+          onReorder={onReorder}
+          renderRow={renderTicket}
+        />
+      )}
     </>
   );
 };

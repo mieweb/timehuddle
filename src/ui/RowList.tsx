@@ -16,7 +16,7 @@
  * list semantics, empty state and item styling are the library's; this adds
  * the header, the scrolling, the trailing placeholders and the row layout.
  */
-import { cn, ListView, ScrollArea, Skeleton } from '@mieweb/ui';
+import { cn, ListView, ScrollArea, Skeleton, SortableList } from '@mieweb/ui';
 import React from 'react';
 
 import { MINIMAL_SCROLLBAR_CLASS } from './scrollbar';
@@ -154,6 +154,17 @@ export interface RowListProps<T> {
   loading?: boolean;
   /** Scrolls back to the first row whenever this changes. */
   scrollKey?: unknown;
+  /**
+   * Makes the rows the member's to order: hold one to drag it (or Alt+↑/↓),
+   * and a move reports every listed id in its new order and the one that moved.
+   */
+  onReorder?: (ids: string[], movedId: string) => void;
+  /** With `onReorder`: which items can be picked up (not a section heading). */
+  canDrag?: (item: T) => boolean;
+  /** With `onReorder`: where an item may land. */
+  canDropOn?: (draggedId: string, targetId: string) => boolean;
+  /** With `onReorder`: classes for every row's own element (sticky headings, say). */
+  itemClassName?: string;
   className?: string;
 }
 
@@ -172,6 +183,10 @@ export function RowList<T>({
   emptyState,
   loading = false,
   scrollKey,
+  onReorder,
+  canDrag,
+  canDropOn,
+  itemClassName,
   className,
 }: RowListProps<T>) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -203,16 +218,31 @@ export function RowList<T>({
         className={SCROLL_AREA_CLASS}
       >
         {/* While nothing has loaded yet, placeholders stand in for the empty state. */}
-        {!(loading && items.length === 0) && (
-          <ListView
-            items={items}
-            accessors={accessors}
-            renderItem={renderRow}
-            emptyState={emptyState}
-            className="overflow-visible rounded-none border-0 bg-transparent"
-            classNames={{ item: 'gap-0 p-0' }}
-          />
-        )}
+        {!(loading && items.length === 0) &&
+          (onReorder && items.length > 0 ? (
+            // Press and hold a row to lift it (see `SortableList`). The row
+            // draws its own rule and background, so lifting it shows both.
+            <SortableList
+              aria-label={label}
+              items={items}
+              getId={getId}
+              getItemLabel={getTitle}
+              onReorder={onReorder}
+              canDrag={canDrag}
+              canDropOn={canDropOn}
+              renderItem={renderRow}
+              itemClassName={cn('row-list-sortable-item', itemClassName)}
+            />
+          ) : (
+            <ListView
+              items={items}
+              accessors={accessors}
+              renderItem={renderRow}
+              emptyState={emptyState}
+              className="overflow-visible rounded-none border-0 bg-transparent"
+              classNames={{ item: 'gap-0 p-0' }}
+            />
+          ))}
         {placeholders > 0 && (
           <div className="row-list-placeholders" aria-hidden="true">
             {Array.from({ length: placeholders }, (_, i) => (
