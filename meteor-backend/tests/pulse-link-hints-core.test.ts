@@ -170,6 +170,27 @@ describe('pulseLinkHints', () => {
     );
   });
 
+  it('falls back to the plain label when what is left of a name once cut shows as nothing', () => {
+    // 60 zero-width characters, then the words: the first 39 are all that fit, and they are nothing.
+    const hidden = `${'\u200B'.repeat(60)}Fix login`;
+    expect(pulseLinkHints(USER, { kind: 'ticket', id: TICKET }, { title: hidden })).toEqual({
+      ref: refOf(`${USER}:ticket:${TICKET}`),
+      label: 'Ticket video',
+    });
+    expect(pulseLinkHints(USER, { kind: 'huddle', teamId: TEAM }, { team: hidden })?.label).toBe('Huddle update');
+    expect(pulseLinkHints(USER, { kind: 'clock-wrapup', clockEventId: SESSION }, { team: hidden })?.label).toBe(
+      'Wrap-up',
+    );
+    // Joiners and soft hyphens are format characters too.
+    expect(
+      pulseLinkHints(USER, { kind: 'ticket', id: TICKET }, { title: `${'\u200D\u00AD'.repeat(40)} Fix login` })?.label,
+    ).toBe('Ticket video');
+    // A few of them before words that fit are left alone, as the package leaves them.
+    expect(pulseLinkHints(USER, { kind: 'ticket', id: TICKET }, { title: '\u200BFix login' })?.label).toBe(
+      '\u200BFix login',
+    );
+  });
+
   it("names a place so that @mieweb/pulsevault's link carries the names unchanged", () => {
     const family = '👨‍👩‍👧‍👦';
     const names = [
@@ -183,6 +204,9 @@ describe('pulseLinkHints', () => {
       '🇮🇳'.repeat(50),
       'e\u0301'.repeat(90),
       `half a pair \uD83D${'x'.repeat(60)}`,
+      `${'\u200B'.repeat(60)}Fix login`,
+      `${'\u200D\u00AD'.repeat(40)} Fix login`,
+      '\u200BFix login',
       '  spaced   out  ',
     ];
     for (const called of names) {

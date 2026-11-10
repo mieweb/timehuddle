@@ -124,11 +124,13 @@ describe('buildPulseLink with hints', () => {
     it.each([
       ['a long one', `  ${'é'.repeat(90)}  `],
       ['line breaks and tabs', 'Fix\r\nthe\tlogin\u0000 page'],
-      ['a line or paragraph separator', 'one two three'],
-      ['text that reorders what is shown beside it', '‮gnp.exe‬ ⁦safe⁩'],
-      ['nothing to show', ' ​‎‮ '],
+      ['a line or paragraph separator', 'one\u2028two\u2029three'],
+      ['text that reorders what is shown beside it', '\u202Egnp.exe\u202C \u2066safe\u2069'],
+      ['nothing to show', ' \u200B\u200E\u202E '],
+      ['nothing to show once cut', `${'\u200B'.repeat(60)}Fix login`],
+      ['joiners and soft hyphens only, once cut', `${'\u200D\u00AD'.repeat(40)} Fix login`],
       ['emoji sequences, cut at a whole one', FAMILY.repeat(30)],
-      ['accents written as their own characters', 'é'.repeat(90)],
+      ['accents written as their own characters', 'e\u0301'.repeat(90)],
       ['flags', '🇮🇳'.repeat(50)],
     ])('%s', (_what, text) => {
       const dirty = { ...place, label: text, name: text };
@@ -139,8 +141,13 @@ describe('buildPulseLink with hints', () => {
     it('to one line of plain text, cut at a whole character', () => {
       const params = (text: string) => paramsOf(buildPulseLink({ ...place, label: text }));
       expect(params('Fix\r\nthe\tlogin').get('label')).toBe('Fix the login');
-      expect(params('‮gnp.exe‬').get('label')).toBe('gnp.exe');
-      expect(params(' ​‎ ').has('label')).toBe(false);
+      expect(params('\u202Egnp.exe\u202C').get('label')).toBe('gnp.exe');
+      expect(params(' \u200B\u200E ').has('label')).toBe(false);
+      // 60 characters that show as nothing, then the words: cut to the 60, which is nothing.
+      expect(params(`${'\u200B'.repeat(60)}Fix login`).has('label')).toBe(false);
+      expect(params(`${'\u200B'.repeat(50)}Fix login`).get('label')).toBe(
+        `${'\u200B'.repeat(50)}Fix login`,
+      );
       expect(Array.from(params('é'.repeat(90)).get('label') ?? '')).toHaveLength(60);
       // A family is seven characters: eight of them fit in 60, not eight and a half.
       expect(params(FAMILY.repeat(30)).get('label')).toBe(FAMILY.repeat(8));

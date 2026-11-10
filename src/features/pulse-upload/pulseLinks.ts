@@ -39,14 +39,17 @@ const MAX_NAME_LENGTH = 80;
 const MAX_APP_LENGTH = 30;
 const MAX_RETURN_URL_LENGTH = 512;
 
+/** `text`, or nothing when all it holds is whitespace and format characters (zero-width spaces, joiners). */
+const unlessBlank = (text: string): string => (/^[\s\p{Cf}]*$/u.test(text) ? '' : text);
+
 /**
  * A display hint as the link carries it, exactly as the package's
  * `buildUploadLink` cleans one: a single line of plain text, at most `max`
  * characters. Control characters and line breaks become a space,
  * bidirectional-formatting characters (which can reorder the text shown around
  * them) are dropped, and a longer text is cut at a whole user-perceived
- * character, never through an emoji sequence or an accent. Blank or invisible:
- * none.
+ * character, never through an emoji sequence or an accent. Nothing but
+ * whitespace and format characters, as given or once cut: none.
  */
 function displayText(value: string | undefined, max: number): string {
   if (typeof value !== 'string') return '';
@@ -54,8 +57,7 @@ function displayText(value: string | undefined, max: number): string {
     .replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
     .replace(/\p{Bidi_Control}/gu, '')
     .trim();
-  if (/^[\s\p{Cf}]*$/u.test(text)) return '';
-  if (Array.from(text).length <= max) return text;
+  if (Array.from(text).length <= max) return unlessBlank(text);
   let cut = '';
   let length = 0;
   for (const { segment } of new Intl.Segmenter().segment(text)) {
@@ -63,7 +65,7 @@ function displayText(value: string | undefined, max: number): string {
     if (length > max) break;
     cut += segment;
   }
-  return cut.trim();
+  return unlessBlank(cut.trim());
 }
 
 /** Plain http is for development only: localhost or a private address, as Pulse itself checks. */

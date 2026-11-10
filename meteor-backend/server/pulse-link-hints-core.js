@@ -44,6 +44,9 @@ function encodedLength(text) {
   return new URLSearchParams({ t: text }).toString().length - 2;
 }
 
+/** Whether all `text` holds is whitespace and format characters (zero-width spaces, joiners). */
+const isBlank = (text) => /^[\s\p{Cf}]*$/u.test(text);
+
 /**
  * One line of plain text, as @mieweb/pulsevault's `buildUploadLink` cleans a
  * hint (PROTOCOL.md §3.1), so what `reserve` returns is what the link carries:
@@ -59,13 +62,15 @@ function cleanText(value) {
     .replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
     .replace(/\p{Bidi_Control}/gu, '')
     .trim();
-  return /^[\s\p{Cf}]*$/u.test(text) ? '' : text;
+  return isBlank(text) ? '' : text;
 }
 
 /**
  * Cleaned, and cut to fit both `max` characters and `maxEncoded` in the link,
  * at a whole user-perceived character (never through an emoji sequence or an
- * accent), ending in "…" when cut.
+ * accent), ending in "…" when cut. None when what is left once cut shows as
+ * nothing (a name that starts with 40 zero-width characters): an ellipsis
+ * alone names no place.
  */
 function displayText(value, max = MAX_HINT_LENGTH, maxEncoded = MAX_HINT_ENCODED) {
   const text = cleanText(value);
@@ -79,7 +84,7 @@ function displayText(value, max = MAX_HINT_LENGTH, maxEncoded = MAX_HINT_ENCODED
     if (length > max || encoded > maxEncoded) break;
     cut += segment;
   }
-  return cut.trim() ? cut.trimEnd() + ELLIPSIS : '';
+  return isBlank(cut) ? '' : cut.trimEnd() + ELLIPSIS;
 }
 
 /** `<team> · <what>`, the team's name cut so the whole label fits; `fallback` without one. */
@@ -150,7 +155,8 @@ export function pulseLinkHints(userId, resolved, names = {}) {
   const name = displayText(place.name?.(called));
   return {
     ref: placeRef([userId, resolved.kind, ...(key ? [key] : [])].join(':')),
-    // The plain label too when nothing of the name survives the cut (one character of 40 accents).
+    // The plain label too when nothing of the name survives the cut (one
+    // character of 40 accents, or 40 that show as nothing).
     label: displayText(place.label(called)) || place.label({}),
     ...(name ? { name } : {}),
   };
