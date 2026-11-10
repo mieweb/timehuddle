@@ -9,7 +9,7 @@ import { buildUploadLink } from '@mieweb/pulsevault/core';
 import { BASE, callMethod, checklist, claimsOf, devLogin, tusUpload, waitFiled } from './lib.mjs';
 
 const role = process.env.TH_ROLE ?? 'member';
-const { section, check, skip, finish } = checklist();
+const { section, check, skip, note, finish } = checklist();
 
 const session = await devLogin(role);
 console.log(`Signed in to ${BASE} as ${role} (${session.id})`);
@@ -123,7 +123,7 @@ if (/^[0-9a-f]{24}$/.test(teamId)) {
     { ref: shouted.ref, signed: claims.ctx?.destination },
   );
 } else {
-  skip("a team's id in another case", "this team's id isn't hex");
+  note("a team's id in another case", "this team's id isn't hex, so it has no other case");
 }
 
 section('A ticket');

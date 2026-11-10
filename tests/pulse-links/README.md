@@ -14,8 +14,9 @@ npm run e2e:pulse-links                                             # in another
 It signs in through dev quick-login, so the backend must be a development one
 (or have `DEV_QUICK_LOGIN_ENABLED=true`). `TH_BASE` points it at another
 backend (default `http://localhost:3100`), and `TH_ROLE` picks the dev account
-(default `member`). It exits non-zero when a check fails, and when it could
-check nothing (the account is in no team).
+(default `member`). It exits non-zero when a check fails, when one is skipped
+(no ticket to use, and none could be made), and when it could check nothing
+(the account is in no team).
 
 **Not for CI, and not for a backend anyone else is using.** Every run posts a
 video to a team's Huddle and attaches one to a ticket (see

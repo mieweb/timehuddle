@@ -96,11 +96,13 @@ export async function waitFiled(artifactId, token, seconds = 120) {
 
 /**
  * A run's checks: each prints as it goes, and `finish()` exits non-zero when
- * any failed, or when none ran: a run that checked nothing has not passed.
+ * any failed, any was skipped, or none ran: a run that left a check out has
+ * not passed. A check that doesn't apply here is not a skip; say so with `note`.
  */
 export function checklist() {
   let checked = 0;
   let failed = 0;
+  let skipped = 0;
   return {
     section: (title) => console.log(`\n${title}`),
     check(what, ok, detail) {
@@ -111,12 +113,17 @@ export function checklist() {
       );
       return ok;
     },
-    skip: (what, why) => console.log(`  skip ${what} — ${why}`),
+    skip(what, why) {
+      skipped += 1;
+      console.log(`  SKIP ${what} — ${why}`);
+    },
+    note: (what, why) => console.log(`  n/a  ${what} — ${why}`),
     finish() {
       if (failed) console.log(`\n${failed} check(s) failed`);
-      else if (!checked) console.log('\nNothing was checked');
-      else console.log('\nAll checks passed');
-      process.exit(failed || !checked ? 1 : 0);
+      if (skipped) console.log(`\n${skipped} check(s) skipped`);
+      if (!checked) console.log('\nNothing was checked');
+      if (!failed && !skipped && checked) console.log('\nAll checks passed');
+      process.exit(failed || skipped || !checked ? 1 : 0);
     },
   };
 }
