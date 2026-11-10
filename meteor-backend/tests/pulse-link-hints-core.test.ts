@@ -8,7 +8,7 @@ import { createHash } from 'crypto';
 import { buildUploadLink } from '@mieweb/pulsevault/core';
 import { describe, it, expect } from 'vitest';
 
-import { isPulsePlace, pulseLinkHints } from '../server/pulse-link-hints-core';
+import { isPulsePlace, pulseLinkHints, resolvedPlace, teamPlace } from '../server/pulse-link-hints-core';
 
 const USER = 'user1';
 const TICKET = 'a'.repeat(24);
@@ -235,5 +235,42 @@ describe('pulseLinkHints', () => {
       expect(isPulsePlace(kind)).toBe(false);
     }
     expect(isPulsePlace('ticket')).toBe(true);
+  });
+});
+
+describe('what a destination check hands on', () => {
+  it("signs a team by the team's own id, however that id is stored", () => {
+    // A team made by Meteor has a string id; a legacy one an ObjectId, which prints as lowercase hex.
+    expect(teamPlace({ _id: 'aBcDeFgHiJkLmNoPq', name: 'Platform' })).toEqual({
+      teamId: 'aBcDeFgHiJkLmNoPq',
+      names: { team: 'Platform' },
+    });
+    const legacy = { _id: { toString: () => TEAM }, name: 'Platform' };
+    expect(teamPlace(legacy).teamId).toBe(TEAM);
+  });
+
+  it('makes one team one place: the same ref whichever case the caller sent its id in', () => {
+    // The check finds a legacy team by its hex id in either case, and signs the team's own.
+    const team = { _id: { toString: () => TEAM }, name: 'Platform' };
+    const refFor = () => {
+      const { resolved, names } = resolvedPlace('huddle', teamPlace(team));
+      return pulseLinkHints(USER, resolved, names)?.ref;
+    };
+    expect(refFor()).toBe(refOf(`${USER}:huddle:${TEAM}`));
+    expect(refFor()).not.toBe(refOf(`${USER}:huddle:${TEAM.toUpperCase()}`));
+  });
+
+  it('keeps the names out of what is signed', () => {
+    const checked = { ...teamPlace({ _id: TEAM, name: 'Platform' }), postDate: '2026-11-09', reservedAt: 123 };
+    expect(resolvedPlace('clock-plan', checked)).toEqual({
+      resolved: { kind: 'clock-plan', teamId: TEAM, postDate: '2026-11-09', reservedAt: 123 },
+      names: { team: 'Platform' },
+    });
+    expect(resolvedPlace('ticket', { id: TICKET, names: { title: 'Fix login' } })).toEqual({
+      resolved: { kind: 'ticket', id: TICKET },
+      names: { title: 'Fix login' },
+    });
+    // A kind that reads no name has none.
+    expect(resolvedPlace('library', {})).toEqual({ resolved: { kind: 'library' }, names: {} });
   });
 });

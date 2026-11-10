@@ -135,6 +135,25 @@ const PLACES = {
   },
 };
 
+/**
+ * A team, as the check of a destination in it returns it: the id to sign, and
+ * its name for the link. The id is the team's own as it is written, however
+ * the caller spelled it (a legacy id is hex, found in either case): one team
+ * is one place, with one `ref`.
+ */
+export function teamPlace(team) {
+  return { teamId: String(team._id), names: { team: team.name } };
+}
+
+/**
+ * What a destination's check returned, taken apart: `resolved`, its kind and
+ * the fields to sign into the token, and `names`, what it is called
+ * (`{ team?, title? }`), which is never signed.
+ */
+export function resolvedPlace(kind, { names = {}, ...signed }) {
+  return { resolved: { kind, ...signed }, names };
+}
+
 /** Whether a destination kind is a place a link carries hints for. */
 export function isPulsePlace(kind) {
   return Object.hasOwn(PLACES, kind ?? '');

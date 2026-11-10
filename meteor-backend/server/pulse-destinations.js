@@ -32,6 +32,7 @@ import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
 import { CANONICAL_ITEM, cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
+import { resolvedPlace, teamPlace } from './pulse-link-hints-core.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -302,10 +303,7 @@ const DESTINATIONS = {
   huddle: {
     async check(userId, { teamId }) {
       requireId(teamId, 'team');
-      const team = await requireTeamMember(userId, teamId);
-      // As the team's own id is written, however the caller spelled it (a
-      // legacy id is hex, in either case): one team is one place.
-      return { teamId: String(team._id), names: { team: team.name } };
+      return teamPlace(await requireTeamMember(userId, teamId));
     },
     // This uploader's post in this team: a post elsewhere carrying the same
     // video (huddle.createPost takes attachment URLs) isn't this delivery.
@@ -328,7 +326,7 @@ const DESTINATIONS = {
       assertPostDate(postDate);
       // When the link was made, so delivery can tell a shift worked by hand
       // meanwhile. Signed into the token at reserve; unused at delivery.
-      return { teamId: String(team._id), postDate, reservedAt: Date.now(), names: { team: team.name } };
+      return { ...teamPlace(team), postDate, reservedAt: Date.now() };
     },
     // Two steps, so "delivered" is both: the post, and the session it was
     // linked to by the clock-in. A post with no session is a delivery that
@@ -495,8 +493,7 @@ function kindOf(destination) {
 export async function resolvePulseDestination(userId, destination) {
   const kind = kindOf(destination);
   if (!kind) throw new Meteor.Error('bad-request', 'Unknown Pulse destination');
-  const { names = {}, ...signed } = await kind.check(userId, destination, 'reserve');
-  return { resolved: { kind: destination.kind, ...signed }, names };
+  return resolvedPlace(destination.kind, await kind.check(userId, destination, 'reserve'));
 }
 
 /**
