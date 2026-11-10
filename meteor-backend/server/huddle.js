@@ -302,7 +302,9 @@ async function enrichPost(post) {
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
-    ...(post.sessionUpdate === true ? { sessionUpdate: true } : {}),
+    // Always a boolean: a live `changed` that left it out would keep a promoted
+    // plan's stale `true` in the client cache, which merges fields.
+    sessionUpdate: post.sessionUpdate === true,
     session,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
