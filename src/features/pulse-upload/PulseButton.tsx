@@ -11,8 +11,8 @@
  */
 import { faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, cn, Spinner, Text } from '@mieweb/ui';
-import React, { useRef } from 'react';
+import { Button, cn, Spinner, Text, Tooltip, useMediaQuery } from '@mieweb/ui';
+import React, { useEffect, useRef, useState } from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
@@ -41,8 +41,13 @@ interface PulseChipProps {
    * come before the buttons rather than after them.
    */
   card?: boolean;
-  /** Below `sm`, the chips show only their icons (see ComposerChipButton `compact`). */
-  compact?: boolean;
+  /**
+   * Below `sm`, the chips show only their icons; `'always'`, at every width
+   * (see ComposerChipButton `compact`), for a chip on each row of a list. That
+   * one has its name in a tooltip, and says what went wrong there too, never
+   * in words beside it: a row has no room for a sentence.
+   */
+  compact?: boolean | 'always';
   /**
    * With `allowFile`: hand the picked files to the host, which uploads each
    * in place (its own progress and cancel), instead of sending one through
@@ -50,6 +55,11 @@ interface PulseChipProps {
    */
   onFiles?: (files: File[]) => void;
 }
+
+/** What the Pulse chip does, shown on hover where the chip is its logo alone. */
+const ICON_ONLY_TOOLTIP = 'Record with Pulse';
+/** How long that chip's tooltip stays up by itself to say something went wrong. */
+const ICON_ONLY_ALERT_MS = 6000;
 
 /**
  * The Pulse chip, with what went wrong beside it. A video that landed needs
@@ -68,6 +78,10 @@ export const PulseChip: React.FC<PulseChipProps> = ({
 }) => {
   const { reserving, error, status, modalOpen, destination, progress, processing } = pulse;
   const fileInput = useRef<HTMLInputElement>(null);
+  // The logo alone: its name, and anything it has to say, are in its tooltip.
+  const iconOnly = compact === 'always' && !main;
+  // No tooltip where there is no hover: one that opens on a tap sits over the chip it names.
+  const noHover = useMediaQuery('(hover: none)');
   const sending = progress !== null || processing;
   // A file on its way: said beside the chips, or (card) on the Upload button.
   const inFlight =
@@ -103,7 +117,21 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     'aria-busy': reserving,
     'aria-label': ariaLabel,
   };
-  const pulseControl = main ? (
+  // What the person has to be told, hovering or not: Pulse didn't start, or
+  // the video didn't go where they sent it. On an icon-only chip the tooltip
+  // comes up by itself to say so, for a while.
+  const alertText = error || (status?.state === 'kept' ? note : '');
+  const [alertUp, setAlertUp] = useState(false);
+  useEffect(() => {
+    if (!iconOnly || !alertText) return;
+    setAlertUp(true);
+    const done = setTimeout(() => setAlertUp(false), ICON_ONLY_ALERT_MS);
+    return () => {
+      clearTimeout(done);
+      setAlertUp(false);
+    };
+  }, [iconOnly, alertText]);
+  const pulseButton = main ? (
     <Button
       type="button"
       variant="primary"
@@ -114,9 +142,30 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       {reserving ? 'Opening Pulse…' : main.label}
     </Button>
   ) : (
-    <ComposerChipButton leftIcon={<PulseLogo className="h-3.5" />} compact={compact} {...shared}>
+    <ComposerChipButton
+      // Alone in its circle the logo is drawn larger: at a label's 14px its
+      // heartbeat line is under a pixel wide and the mark looks out of focus.
+      leftIcon={<PulseLogo className={compact === 'always' ? 'h-5' : 'h-3.5'} />}
+      compact={compact}
+      {...shared}
+    >
       Pulse
     </ComposerChipButton>
+  );
+  // The logo alone gets its name in a tooltip, on hover and on keyboard
+  // focus; while it has something to say, the tooltip says that instead.
+  const pulseControl = iconOnly ? (
+    <Tooltip
+      content={error || note || ICON_ONLY_TOOLTIP}
+      placement="top"
+      // Open while an alert is up; otherwise the tooltip's own (hover and
+      // focus), or never where there is no hover.
+      open={alertUp ? true : noHover ? false : undefined}
+    >
+      {pulseButton}
+    </Tooltip>
+  ) : (
+    pulseButton
   );
   const chips = allowFile ? (
     <span className="pulse-upload-chips inline-flex shrink-0 items-center gap-2">
@@ -159,7 +208,12 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Text
       as="span"
       size="xs"
-      className={cn('pulse-chip-error text-red-500 dark:text-red-400', card && 'min-w-40 text-end')}
+      className={cn(
+        'pulse-chip-error text-red-500 dark:text-red-400',
+        card && 'min-w-40 text-end',
+        // Still announced; shown in the chip's tooltip.
+        iconOnly && 'sr-only',
+      )}
       role="alert"
     >
       {error}
@@ -172,7 +226,11 @@ export const PulseChip: React.FC<PulseChipProps> = ({
       size="xs"
       variant="muted"
       role="status"
-      className={cn('pulse-chip-status', !note && 'sr-only', card && note && 'min-w-40 text-end')}
+      className={cn(
+        'pulse-chip-status',
+        (!note || iconOnly) && 'sr-only',
+        card && note && 'min-w-40 text-end',
+      )}
     >
       {note || announced}
     </Text>
@@ -208,16 +266,23 @@ interface PulseButtonProps {
    * line of their own under the buttons.
    */
   card?: 'start' | 'end';
-  /** Below `sm`, the chips show only their icons. */
-  compact?: boolean;
+  /** Below `sm`, the chips show only their icons; `'always'`, at every width. */
+  compact?: boolean | 'always';
+  /** See usePulseUpload `prepare`: a button on every row of a list passes whether its row is on screen. */
+  prepare?: boolean;
 }
 
-export const PulseButton: React.FC<PulseButtonProps> = ({ destination, onSettled, ...rest }) => {
-  const pulse = usePulseUpload(destination, { onSettled });
+export const PulseButton: React.FC<PulseButtonProps> = ({
+  destination,
+  onSettled,
+  prepare,
+  ...rest
+}) => {
+  const pulse = usePulseUpload(destination, { onSettled, prepare });
   return <PulseControls pulse={pulse} {...rest} />;
 };
 
-type PulseControlsProps = Omit<PulseButtonProps, 'destination' | 'onSettled'> & {
+type PulseControlsProps = Omit<PulseButtonProps, 'destination' | 'onSettled' | 'prepare'> & {
   pulse: PulseUpload;
   /** See PulseChip `onFiles`. */
   onFiles?: (files: File[]) => void;
