@@ -127,7 +127,12 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   useEffect(() => {
     if (!iconOnly || !alertText) return;
     setAlertUp(true);
-    const done = setTimeout(() => setAlertUp(false), ICON_ONLY_ALERT_MS);
+    // Down when the time is up, wherever the pointer or focus is; the next
+    // hover or focus asks again.
+    const done = setTimeout(() => {
+      setAlertUp(false);
+      setTipAsked(false);
+    }, ICON_ONLY_ALERT_MS);
     return () => {
       clearTimeout(done);
       setAlertUp(false);

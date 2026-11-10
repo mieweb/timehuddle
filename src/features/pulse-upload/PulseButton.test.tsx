@@ -120,12 +120,30 @@ describe('PulseChip, the logo alone on a row', () => {
     expect(tooltip()).toBeNull();
   });
 
-  it('keeps the tooltip up past the six seconds for a pointer still on the chip', () => {
+  it('takes it down after the six seconds for a pointer still on the chip, until it comes back', () => {
     const { rerender } = render(row(pulseWith()));
     fireEvent.mouseEnter(chip().parentElement!);
     act(() => vi.advanceTimersByTime(200));
     rerender(row(pulseWith({ error: ERROR })));
     act(() => vi.advanceTimersByTime(6000));
+    expect(tooltip()).toBeNull();
+
+    fireEvent.mouseLeave(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(100));
+    fireEvent.mouseEnter(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(200));
+    expect(tooltip()?.textContent).toBe(ERROR);
+  });
+
+  it('takes it down after the six seconds for keyboard focus still on the chip, until it comes back', () => {
+    const { rerender } = render(row(pulseWith()));
+    act(() => chip().focus());
+    rerender(row(pulseWith({ error: ERROR })));
+    act(() => vi.advanceTimersByTime(6000));
+    expect(tooltip()).toBeNull();
+
+    act(() => chip().blur());
+    act(() => chip().focus());
     expect(tooltip()?.textContent).toBe(ERROR);
   });
 
