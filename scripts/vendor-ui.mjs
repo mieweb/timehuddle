@@ -16,30 +16,17 @@
  * CI and Docker only need the committed tarball, never the submodule.
  * History: .attic/mieweb-ui-tarball/README.md.
  */
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOT = process.cwd();
-const UI_DIR = join(ROOT, 'vendor/ui');
+import { ensureCheckout, markBuilt, packInto, ROOT, sh, tarballState } from './vendor-tarball.mjs';
+
+const SUBMODULE = 'vendor/ui';
+const UI_DIR = join(ROOT, SUBMODULE);
 const TARBALL = join(ROOT, 'vendor/mieweb-ui.tgz');
 const MARKER = join(ROOT, 'vendor/.ui-tarball-commit');
 const UPSTREAM_URL = 'https://github.com/mieweb/ui.git';
 
 const log = (msg) => console.log(`[vendor-ui] ${msg}`);
-
-function sh(cmd, cwd = ROOT, capture = false) {
-  // 'inherit' streams output live so the long pnpm/tsup steps don't look hung.
-  return execSync(cmd, { cwd, stdio: capture ? 'pipe' : 'inherit' })
-    ?.toString()
-    .trim();
-}
-
-function ensureCheckout() {
-  if (existsSync(join(UI_DIR, '.git'))) return;
-  log('initializing the vendor/ui submodule…');
-  sh('git submodule update --init vendor/ui');
-}
 
 /**
  * Put vendor/ui on the branch `.gitmodules` tracks.
@@ -58,7 +45,7 @@ function ensureBranch() {
 
 /** Merge upstream main into the PR branch (a merge, so no force-push is needed). */
 function sync() {
-  ensureCheckout();
+  ensureCheckout(SUBMODULE, log);
   if (sh('git status --porcelain', UI_DIR, true)) {
     throw new Error('vendor/ui has uncommitted changes — commit or stash them first.');
   }
@@ -71,10 +58,9 @@ function sync() {
 }
 
 function build({ force }) {
-  ensureCheckout();
-  const commit = sh('git rev-parse HEAD', UI_DIR, true);
-  const built = existsSync(MARKER) ? readFileSync(MARKER, 'utf8').trim() : null;
-  if (!force && existsSync(TARBALL) && commit === built) {
+  ensureCheckout(SUBMODULE, log);
+  const { commit, upToDate } = tarballState({ dir: UI_DIR, tarball: TARBALL, marker: MARKER });
+  if (!force && upToDate) {
     log(`up to date (${commit.slice(0, 8)}) — skipping rebuild`);
     return;
   }
@@ -86,16 +72,12 @@ function build({ force }) {
   // errors. Its `prepare` builds datavis and the CSS bundles.
   sh('pnpm install --frozen-lockfile', UI_DIR);
   sh('pnpm run build', UI_DIR);
-  // --ignore-scripts: `prepare` already ran above; packing must not rebuild.
-  const packed = sh('npm pack --ignore-scripts', UI_DIR, true).split('\n').pop().trim();
-  renameSync(join(UI_DIR, packed), TARBALL);
+  packInto(UI_DIR, TARBALL);
 
   // package-lock.json pins the tarball's checksum, so refresh it — otherwise
   // `npm ci` (CI, Docker) fails with EINTEGRITY on the next run.
   sh('npm install --no-audit --no-fund @mieweb/ui@file:vendor/mieweb-ui.tgz');
-  // Last: the marker is what makes the next run skip the rebuild, so writing
-  // it before the install above would strand a stale lockfile behind it.
-  writeFileSync(MARKER, `${commit}\n`);
+  markBuilt(MARKER, commit);
   log(`vendor/mieweb-ui.tgz rebuilt from ${commit.slice(0, 8)}. Commit it with package-lock.json.`);
 }
 
