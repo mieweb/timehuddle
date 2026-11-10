@@ -80,7 +80,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   const fileInput = useRef<HTMLInputElement>(null);
   // The logo alone: its name, and anything it has to say, are in its tooltip.
   const iconOnly = compact === 'always' && !main;
-  // No tooltip where there is no hover: one that opens on a tap sits over the chip it names.
+  // No pointer's tooltip where there is no hover: one that opens on a tap sits
+  // over the chip it names. Keyboard focus still gets one.
   const noHover = useMediaQuery('(hover: none)');
   const sending = progress !== null || processing;
   // A file on its way: said beside the chips, or (card) on the Upload button.
@@ -122,8 +123,14 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   // comes up by itself to say so, for a while.
   const alertText = error || (status?.state === 'kept' ? note : '');
   const [alertUp, setAlertUp] = useState(false);
-  // Whether hover or keyboard focus is asking for the chip's tooltip.
-  const [tipAsked, setTipAsked] = useState(false);
+  // What is asking for the chip's tooltip: keyboard focus, or a pointer (a
+  // hover, or the focus a tap leaves behind).
+  const [tipAsked, setTipAsked] = useState<'keyboard' | 'pointer' | null>(null);
+  const chipButton = useRef<HTMLButtonElement>(null);
+  const askTip = (open: boolean) =>
+    setTipAsked(
+      !open ? null : chipButton.current?.matches(':focus-visible') ? 'keyboard' : 'pointer',
+    );
   useEffect(() => {
     if (!iconOnly || !alertText) return;
     setAlertUp(true);
@@ -131,7 +138,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     // hover or focus asks again.
     const done = setTimeout(() => {
       setAlertUp(false);
-      setTipAsked(false);
+      setTipAsked(null);
     }, ICON_ONLY_ALERT_MS);
     return () => {
       clearTimeout(done);
@@ -150,6 +157,7 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     </Button>
   ) : (
     <ComposerChipButton
+      ref={chipButton}
       // Alone in its circle the logo is drawn larger: at a label's 14px its
       // heartbeat line is under a pixel wide and the mark looks out of focus.
       leftIcon={<PulseLogo className={compact === 'always' ? 'h-5' : 'h-3.5'} />}
@@ -166,14 +174,17 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   // the library's goes stale while an alert holds the tooltip open (the
   // pointer leaves, and it never hears), and the tooltip then stays up for
   // good. So it only reports what the pointer and keyboard ask
-  // (`onOpenChange`), and this decides: open for an alert's six seconds, or
-  // while asked where there is hover, and never over the QR window.
+  // (`onOpenChange`), and this decides: open for an alert's six seconds, while
+  // keyboard focus asks, or while a pointer asks where there is hover; never
+  // over the QR window.
   const pulseControl = iconOnly ? (
     <Tooltip
       content={error || note || ICON_ONLY_TOOLTIP}
       placement="top"
-      open={!modalOpen && (alertUp || (tipAsked && !noHover))}
-      onOpenChange={setTipAsked}
+      open={
+        !modalOpen && (alertUp || tipAsked === 'keyboard' || (tipAsked === 'pointer' && !noHover))
+      }
+      onOpenChange={askTip}
     >
       {pulseButton}
     </Tooltip>

@@ -156,15 +156,29 @@ describe('PulseChip, the logo alone on a row', () => {
     expect(tooltip()).toBeNull();
   });
 
-  it('shows them where there is no hover too, and no tooltip otherwise', () => {
+  it('shows them where there is no hover too, and no tooltip for a tap', () => {
     hover(false);
     const { rerender } = render(row(pulseWith()));
-    fireEvent.focus(chip());
+    // A tap's focus: the chip does not match :focus-visible.
+    fireEvent.mouseDown(chip());
+    act(() => chip().focus());
     expect(tooltip()).toBeNull();
+    act(() => chip().blur());
 
     rerender(row(pulseWith({ error: ERROR })));
     expect(tooltip()?.textContent).toBe(ERROR);
     act(() => vi.advanceTimersByTime(6000));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('names itself on keyboard focus where there is no hover (a tablet with a keyboard)', () => {
+    hover(false);
+    render(row(pulseWith()));
+    // Tab: the focus that follows matches :focus-visible.
+    fireEvent.keyDown(document, { key: 'Tab' });
+    act(() => chip().focus());
+    expect(tooltip()?.textContent).toBe('Record with Pulse');
+    act(() => chip().blur());
     expect(tooltip()).toBeNull();
   });
 
