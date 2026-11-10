@@ -830,7 +830,8 @@ export const DashboardPage: React.FC = () => {
                               variant="muted"
                               className="mt-0.5 leading-snug text-neutral-500 dark:text-neutral-400"
                             >
-                              {post.clockEventId
+                              {/* A mid-shift update joins the session too, but isn't its plan. */}
+                              {post.clockEventId && !post.sessionUpdate
                                 ? 'Posted their plan & clocked in'
                                 : 'Shared an update'}
                             </Text>
