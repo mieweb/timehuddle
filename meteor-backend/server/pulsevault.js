@@ -42,11 +42,10 @@ import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
-import { pulseLinkHints } from './pulse-link-hints-core.js';
+import { createPulseReserve, PULSE_RESERVE_LIMIT, TOO_MANY_RESERVES } from './pulse-reserve-core.js';
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { createRateLimiter } from './rate-limit';
-import { randomUUID } from 'crypto';
 import path from 'path';
 import { persistentDir } from './storage-paths';
 
@@ -467,13 +466,14 @@ function destinationOf({ destination, target, ticketId }) {
   return { kind: target, id: ticketId };
 }
 
-/**
- * How many links one person may reserve (see rate-limit.js). Reserving is a
- * couple of reads and a signature, and a phone's ticket list reserves ahead
- * for each row that stays on screen, so scrolling a long one is some dozens a
- * minute. This is several times that: a person never meets it, and a loop does.
- */
-const reserveLimiter = createRateLimiter({ limit: 240, windowMs: 60 * 1000 });
+/** `pulsevault.reserve` behind its sign-in: see pulse-reserve-core.js. */
+const reservePulseUpload = createPulseReserve({
+  limiter: createRateLimiter(PULSE_RESERVE_LIMIT),
+  tooManyRequests: (retryAfterMs) =>
+    new Meteor.Error(TOO_MANY_RESERVES.error, TOO_MANY_RESERVES.reason, { timeToReset: retryAfterMs }),
+  resolveDestination: resolvePulseDestination,
+  mintToken: mintUploadToken,
+});
 
 Meteor.methods({
   /**
@@ -487,23 +487,7 @@ Meteor.methods({
    */
   async 'pulsevault.reserve'({ destination } = {}) {
     const identity = await requireIdentity(this);
-    const { allowed, retryAfterMs } = reserveLimiter.check(identity.userId);
-    if (!allowed) {
-      throw new Meteor.Error('too-many-requests', 'Too many Pulse links at once. Try again in a moment.', {
-        timeToReset: retryAfterMs,
-      });
-    }
-    const { resolved, names } = await resolvePulseDestination(identity.userId, destination);
-    // Always a fresh id: one link is one upload, and a re-scan of the same
-    // link resumes it (PulseVault's `reclaim`).
-    const videoid = randomUUID();
-    // Null for a kind that isn't a place: its link stays plain.
-    const place = pulseLinkHints(identity.userId, resolved, names);
-    return {
-      videoid,
-      uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }, place?.ref),
-      ...place,
-    };
+    return reservePulseUpload(identity.userId, destination);
   },
 
   /**
