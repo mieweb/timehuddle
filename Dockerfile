@@ -44,6 +44,12 @@ COPY scripts ./scripts
 # the file: dependency; the submodule itself isn't needed here.
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 
+# @mieweb/pulsevault installs from its committed tarball too, here and in
+# meteor-backend ("file:vendor/mieweb-pulsevault.tgz" and
+# "file:../vendor/mieweb-pulsevault.tgz", packed from the vendor/pulsevault
+# submodule by `npm run pv:build`). Both installs below read it from here.
+COPY vendor/mieweb-pulsevault.tgz ./vendor/mieweb-pulsevault.tgz
+
 # Kerebron fixes the RichEditor needs, applied by the postinstall step
 # (scripts/apply-patches.cjs) — see patches/README.md.
 COPY patches ./patches
@@ -112,8 +118,10 @@ COPY scripts ./scripts
 # DEV/BETA/PROD backends (scripts/install-ffmpeg.sh).
 RUN bash scripts/install-ffmpeg.sh
 # Install still resolves @mieweb/ui's file: dependency (it's already bundled
-# into dist/, but npm needs the tarball present to satisfy the manifest).
+# into dist/, but npm needs the tarball present to satisfy the manifest), and
+# @mieweb/pulsevault's.
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
+COPY vendor/mieweb-pulsevault.tgz ./vendor/mieweb-pulsevault.tgz
 RUN npm install --production
 
 # Copy pre-built artifacts from builder — no source, no Meteor, no vendor

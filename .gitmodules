@@ -6,3 +6,7 @@
 	path = vendor/ui
 	url = https://github.com/mieweb/ui.git
 	branch = timehuddle/next
+[submodule "vendor/pulsevault"]
+	path = vendor/pulsevault
+	url = https://github.com/mieweb/pulsevault.git
+	branch = timehuddle/next
