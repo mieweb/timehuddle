@@ -122,6 +122,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   // comes up by itself to say so, for a while.
   const alertText = error || (status?.state === 'kept' ? note : '');
   const [alertUp, setAlertUp] = useState(false);
+  // Whether hover or keyboard focus is asking for the chip's tooltip.
+  const [tipAsked, setTipAsked] = useState(false);
   useEffect(() => {
     if (!iconOnly || !alertText) return;
     setAlertUp(true);
@@ -154,13 +156,19 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   );
   // The logo alone gets its name in a tooltip, on hover and on keyboard
   // focus; while it has something to say, the tooltip says that instead.
+  //
+  // Always controlled. Left to keep its own open state for hover and focus,
+  // the library's goes stale while an alert holds the tooltip open (the
+  // pointer leaves, and it never hears), and the tooltip then stays up for
+  // good. So it only reports what the pointer and keyboard ask
+  // (`onOpenChange`), and this decides: open for an alert's six seconds, or
+  // while asked where there is hover, and never over the QR window.
   const pulseControl = iconOnly ? (
     <Tooltip
       content={error || note || ICON_ONLY_TOOLTIP}
       placement="top"
-      // Open while an alert is up; otherwise the tooltip's own (hover and
-      // focus), or never where there is no hover.
-      open={alertUp ? true : noHover ? false : undefined}
+      open={!modalOpen && (alertUp || (tipAsked && !noHover))}
+      onOpenChange={setTipAsked}
     >
       {pulseButton}
     </Tooltip>

@@ -94,6 +94,50 @@ describe('PulseChip, the logo alone on a row', () => {
     },
   );
 
+  it('takes an alert down after its six seconds, whatever the pointer did meanwhile', () => {
+    const { rerender } = render(row(pulseWith()));
+    // Hovering: the chip names itself.
+    fireEvent.mouseEnter(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(200));
+    expect(tooltip()?.textContent).toBe('Record with Pulse');
+
+    // Pressed, and Pulse didn't start; the pointer moves off while the reason is up.
+    fireEvent.click(chip());
+    rerender(row(pulseWith({ error: ERROR })));
+    expect(tooltip()?.textContent).toBe(ERROR);
+    fireEvent.mouseLeave(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(3000));
+    expect(tooltip()?.textContent).toBe(ERROR);
+
+    act(() => vi.advanceTimersByTime(3000));
+    expect(tooltip()).toBeNull();
+    // And it still answers to the pointer afterwards.
+    fireEvent.mouseEnter(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(200));
+    expect(tooltip()?.textContent).toBe(ERROR);
+    fireEvent.mouseLeave(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(100));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('keeps the tooltip up past the six seconds for a pointer still on the chip', () => {
+    const { rerender } = render(row(pulseWith()));
+    fireEvent.mouseEnter(chip().parentElement!);
+    act(() => vi.advanceTimersByTime(200));
+    rerender(row(pulseWith({ error: ERROR })));
+    act(() => vi.advanceTimersByTime(6000));
+    expect(tooltip()?.textContent).toBe(ERROR);
+  });
+
+  it('never shows over the QR window, opened by keyboard or by pointer', () => {
+    const { rerender } = render(row(pulseWith()));
+    fireEvent.focus(chip());
+    expect(tooltip()?.textContent).toBe('Record with Pulse');
+    // Enter: the window opens, and the chip may or may not be told it lost focus.
+    rerender(row(pulseWith({ modalOpen: true, status: { state: 'waiting' } })));
+    expect(tooltip()).toBeNull();
+  });
+
   it('shows them where there is no hover too, and no tooltip otherwise', () => {
     hover(false);
     const { rerender } = render(row(pulseWith()));
