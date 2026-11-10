@@ -11,6 +11,11 @@ vi.mock('../../lib/api', () => ({
   videoApi: { reserve: vi.fn(), status: vi.fn() },
 }));
 
+// Where a link opened on the phone itself says to come back to.
+vi.mock('../../lib/useCopyLink', () => ({
+  absoluteAppUrl: (path: string) => `https://huddle.example.org${path}`,
+}));
+
 // A computer's browser unless a test says otherwise.
 const device = vi.hoisted(() => ({ phoneBrowser: false, nativeApp: false }));
 vi.mock('../../lib/device', () => ({
@@ -32,6 +37,13 @@ const status = vi.mocked(videoApi.status);
 const TICKET_A: PulseDestination = { kind: 'ticket', id: 'a'.repeat(24) };
 const TICKET_B: PulseDestination = { kind: 'ticket', id: 'b'.repeat(24) };
 const RESERVATION = { videoid: '0b7e7c1e-5a3f-4c1d-9e2a-6f1d2c3b4a59', uploadToken: 'token' };
+/** A reservation for a place Pulse keeps a draft for. */
+const PLACE = {
+  ...RESERVATION,
+  ref: 'Zm9vYmFyYmF6cXV4MQ',
+  label: 'Fix the login page',
+  name: 'Fix the login page',
+};
 
 /** A reserve call that answers only when the test says so. */
 function deferredReserve() {
@@ -161,6 +173,24 @@ describe('usePulseUpload', () => {
     expect(signals[0].aborted).toBe(true);
   });
 
+  it("puts the place's label and name on a QR link, and nothing about this page", async () => {
+    reserve.mockResolvedValueOnce(PLACE);
+    const { result } = renderHook(() => usePulseUpload(TICKET_A));
+
+    await act(() => result.current.start());
+
+    expect(result.current.modalOpen).toBe(true);
+    const params = new URLSearchParams(new URL(result.current.link!.url).hash.slice(1));
+    expect(params.get('artifactId')).toBe(RESERVATION.videoid);
+    expect(params.get('token')).toBe(RESERVATION.uploadToken);
+    expect(params.get('label')).toBe('Fix the login page');
+    expect(params.get('name')).toBe('Fix the login page');
+    // Scanned from another screen: no way back, and the place's key stays in the token.
+    expect(params.has('app')).toBe(false);
+    expect(params.has('return')).toBe(false);
+    expect(params.has('ref')).toBe(false);
+  });
+
   describe("in a phone's browser", () => {
     const SECOND = { videoid: '1c8f8d2f-6b40-4d2e-8f3b-7a2e3d4c5b6a', uploadToken: 'token-2' };
     let assign: ReturnType<typeof vi.fn>;
@@ -186,6 +216,100 @@ describe('usePulseUpload', () => {
       expect(result.current.error).toBeNull();
       expect(result.current.link?.videoid).toBe(RESERVATION.videoid);
       expect(assign).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens a link that says who sent it and the page to come back to', async () => {
+      vi.stubGlobal('location', {
+        assign,
+        pathname: '/app/tickets',
+        search: '?team=t1&status=open&q=private+search',
+      });
+      reserve.mockResolvedValueOnce(PLACE);
+      const { result } = renderHook(() => usePulseUpload(TICKET_A));
+      await act(async () => {});
+
+      await act(() => result.current.start());
+
+      const params = new URLSearchParams(new URL(assign.mock.calls[0][0]).hash.slice(1));
+      expect(params.get('label')).toBe('Fix the login page');
+      expect(params.get('app')).toBe('TimeHuddle');
+      // The page and its team; what was searched or filtered for stays off the link.
+      expect(params.get('return')).toBe('https://huddle.example.org/app/tickets?team=t1');
+      expect(params.has('ref')).toBe(false);
+    });
+
+    it('with prepare off (a row off screen), reserves only on the tap, then offers the window', async () => {
+      reserve.mockReset();
+      const { result } = renderHook(() => usePulseUpload(TICKET_A, { prepare: false }));
+      await act(async () => {});
+      expect(reserve).not.toHaveBeenCalled();
+
+      reserve.mockResolvedValueOnce(RESERVATION);
+      await act(() => result.current.start());
+
+      // The tap was spent on the server: "Open Pulse" in the window, not a navigation.
+      expect(reserve).toHaveBeenCalledTimes(1);
+      expect(assign).not.toHaveBeenCalled();
+      expect(result.current.modalOpen).toBe(true);
+    });
+
+    it('keeps its link ready while its row is off screen, and reserves nothing when it comes back', async () => {
+      reserve.mockReset();
+      reserve.mockResolvedValueOnce(RESERVATION);
+      const { result, rerender } = renderHook(
+        ({ prepare }) => usePulseUpload(TICKET_A, { prepare }),
+        { initialProps: { prepare: true } },
+      );
+      await act(async () => {});
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      rerender({ prepare: false });
+      rerender({ prepare: true });
+      await act(async () => {});
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      // Still one tap, with the link it had.
+      reserve.mockResolvedValue(SECOND);
+      await act(() => result.current.start());
+      expect(assign).toHaveBeenCalledTimes(1);
+      expect(assign.mock.calls[0][0]).toContain(RESERVATION.videoid);
+    });
+
+    it('reserves a new link for a row that comes back after its link went stale', async () => {
+      vi.useFakeTimers();
+      reserve.mockReset();
+      // Each use prepares the next link.
+      reserve.mockResolvedValue({ videoid: 'next', uploadToken: 'next' });
+      reserve.mockResolvedValueOnce(RESERVATION).mockResolvedValueOnce(SECOND);
+      const { result, rerender } = renderHook(
+        ({ prepare }) => usePulseUpload(TICKET_A, { prepare }),
+        { initialProps: { prepare: true } },
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      // Off screen, nothing is refreshed.
+      rerender({ prepare: false });
+      await act(() => vi.advanceTimersByTimeAsync(21 * 60 * 1000));
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      rerender({ prepare: true });
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(reserve).toHaveBeenCalledTimes(2);
+      await act(() => result.current.start());
+      expect(assign.mock.calls[0][0]).toContain(SECOND.videoid);
+    });
+
+    it('refreshes a link that stays on screen for 20 minutes', async () => {
+      vi.useFakeTimers();
+      reserve.mockReset();
+      reserve.mockResolvedValueOnce(RESERVATION).mockResolvedValueOnce(SECOND);
+      renderHook(() => usePulseUpload(TICKET_A));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(20 * 60 * 1000));
+      expect(reserve).toHaveBeenCalledTimes(2);
     });
 
     it('prepares a new link when the prepare key changes, and uses that one', async () => {
