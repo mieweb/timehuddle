@@ -838,7 +838,7 @@ describe('a post made while clocked in joins the open session (#853)', () => {
   });
 
   async function sessionPost(clockEventId: string) {
-    const res = await wormhole<{ post: { id: string } | null }>(
+    const res = await wormhole<{ post: { id: string; sessionUpdate?: boolean } | null }>(
       'huddle.getMyPostForSession',
       { teamId, clockEventId },
       authorJwt,
@@ -865,7 +865,10 @@ describe('a post made while clocked in joins the open session (#853)', () => {
         },
         authorJwt,
       );
-      expect((await sessionPost(sessionId.toHexString()))?.id).toBe(plan.result.id);
+      const planPost = await sessionPost(sessionId.toHexString());
+      expect(planPost?.id).toBe(plan.result.id);
+      // Sent as false, not left out, so a live update clears a stale true.
+      expect(planPost?.sessionUpdate).toBe(false);
     } finally {
       await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
     }
