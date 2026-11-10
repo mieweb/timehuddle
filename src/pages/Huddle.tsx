@@ -735,7 +735,7 @@ export default function Huddle() {
     }
     if (threadBy === 'all' && searchQuery.trim()) {
       const matches = searchPosts(activePosts, searchQuery, viewer, getTeamName);
-      return postsToConversations(matches, 'all', viewer, nowMinute, getTeamName, activePosts);
+      return postsToConversations(matches, 'all', viewer, nowMinute, getTeamName);
     }
     return searchConversations(allConversations, activePosts, searchQuery, getTeamName);
   }, [

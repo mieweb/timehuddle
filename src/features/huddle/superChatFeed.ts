@@ -400,36 +400,12 @@ function withDayDividers(thread: SuperChatMessage[]): SuperChatMessage[] {
   return out;
 }
 
-/**
- * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
- * that isn't an update (same pick as the backend's SESSION_POST_SORT and
- * SESSION_POST_FILTER). Any other post in a session is an update.
- */
-function sessionPostIds(posts: HuddlePost[]): Set<string> {
-  const bySession = new Map<string, HuddlePost>();
-  for (const post of posts) {
-    // An update posted while clocked in is in the session but never its plan.
-    if (!post.clockEventId || post.sessionUpdate) continue;
-    const current = bySession.get(post.clockEventId);
-    const better =
-      !current ||
-      (!!post.wrapUpAt !== !!current.wrapUpAt
-        ? !!post.wrapUpAt
-        : new Date(post.createdAt).getTime() < new Date(current.createdAt).getTime());
-    if (better) bySession.set(post.clockEventId, post);
-  }
-  return new Set([...bySession.values()].map((p) => p.id));
-}
-
-/** Plan/wrap-up + ticket label for a post, e.g. "Plan · [TH-7: Onboarding checklist](/app/tickets/…)". */
-function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
+/** Ticket label for a post, e.g. "[TH-7: Onboarding checklist](/app/tickets/…) · Dev Team". */
+function postLabelParts(post: HuddlePost, teamName?: string): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
   if (isAwaitingDelivery(post)) {
     parts.push(THREAD_TEXT.scheduledHidden);
-  }
-  if (isSessionPost) {
-    parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
   for (const ticket of existingTickets(post)) {
     parts.push(ticketLinkMarkdown(ticket));
@@ -440,15 +416,12 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   return parts;
 }
 
-/** A post's label (its message's `label`, under it): who can see it yet,
- *  plan or wrap-up, its tickets and its team, e.g. "Plan · [TH-7: …](…) ·
- *  Dev Team". Not part of its text, so an edit or a copy leaves it out. */
-function postLabel(
-  post: HuddlePost,
-  isSessionPost: boolean,
-  teamName?: string,
-): string | undefined {
-  const parts = postLabelParts(post, isSessionPost, teamName);
+/** A post's label (its message's `label`, under it): who can see it yet, its
+ *  tickets and its team, e.g. "[TH-7: …](…) · Dev Team". Not part of its
+ *  text, so an edit or a copy leaves it out. A plan or wrap-up says so in its
+ *  own words; the feed doesn't label it. */
+function postLabel(post: HuddlePost, teamName?: string): string | undefined {
+  const parts = postLabelParts(post, teamName);
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
@@ -466,7 +439,6 @@ function buildTitle(
   sessions: SessionInfo[],
   viewer: InboxViewer,
   now: number,
-  wrappedUpSessions: Set<string>,
 ): string {
   const first = posts[0];
   switch (threadBy) {
@@ -493,9 +465,6 @@ function buildTitle(
       if (viewer.isAdmin) {
         const endTime = session.endTime ?? now;
         title += ` · ${formatDuration((endTime - session.startTime) / 1000)}`;
-        if (!isLive && !wrappedUpSessions.has(session.clockEventId)) {
-          title += ' · \u26A0 no wrap-up';
-        }
       }
       return title;
     }
@@ -510,10 +479,6 @@ function buildTitle(
  * `getTeamName` is only needed for the Personal ("me") scope, where posts
  * from several teams can land in one conversation and each message's label
  * needs to say which team it came from.
- *
- * `sessionContext` is the unfiltered post list when `posts` is a search
- * result: which post is a session's plan, and whether it has a wrap-up, are
- * facts about the whole session, not about what the search happened to match.
  */
 export function postsToConversations(
   posts: HuddlePost[],
@@ -521,13 +486,8 @@ export function postsToConversations(
   viewer: InboxViewer,
   now: number = Date.now(),
   getTeamName?: (teamId: string) => string | undefined,
-  sessionContext: HuddlePost[] = posts,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
-  const planPostIds = sessionPostIds(sessionContext);
-  const wrappedUpSessions = new Set(
-    sessionContext.flatMap((p) => (p.clockEventId && p.wrapUpAt ? [p.clockEventId] : [])),
-  );
   for (const post of posts) {
     // Session view shows shifts only: a post made off the clock is in All, Day and Person.
     if (threadBy === 'session' && !post.clockEventId) continue;
@@ -563,7 +523,7 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: shownBody(post),
-      label: postLabel(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      label: postLabel(post, getTeamName?.(post.teamId)),
       media: postMedia(post),
       files: postFiles(post),
       time: postAt(post),
@@ -595,7 +555,7 @@ export function postsToConversations(
 
     conversations.push({
       id: `${threadBy}:${key}`,
-      title: buildTitle(threadBy, groupPosts, sessions, viewer, now, wrappedUpSessions),
+      title: buildTitle(threadBy, groupPosts, sessions, viewer, now),
       participants: [...participants.values()],
       thread,
       lastActivity,
