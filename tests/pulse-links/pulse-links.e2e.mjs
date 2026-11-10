@@ -90,7 +90,8 @@ const listed = (await callMethod(session, 'teams.list')).result;
 const teams = Array.isArray(listed) ? listed : (listed?.teams ?? []);
 const team = teams.find((candidate) => !candidate.isPersonal) ?? teams[0];
 if (!team) {
-  skip('Huddle and ticket links', `${role} is in no team`);
+  // Nothing can be reserved for: a failure, not a pass with nothing checked.
+  check(`${role} is in a team to make links for`, false, teams);
   finish();
 }
 const teamId = String(team.id ?? team._id);
@@ -110,6 +111,20 @@ await checkPlace(
     isName: (name) => name === 'Huddle update',
   },
 );
+
+// A legacy team's id is hex, which the server finds in either case: one team
+// must stay one place, signed by the team's own id.
+if (/^[0-9a-f]{24}$/.test(teamId)) {
+  const shouted = await reserve({ kind: 'huddle', teamId: teamId.toUpperCase() });
+  const claims = claimsOf(shouted.uploadToken);
+  check(
+    "a team's id in another case is the same place, signed by the team's own id",
+    shouted.ref === refOf('huddle', teamId) && claims.ctx?.destination?.teamId === teamId,
+    { ref: shouted.ref, signed: claims.ctx?.destination },
+  );
+} else {
+  skip("a team's id in another case", "this team's id isn't hex");
+}
 
 section('A ticket');
 const tickets = (await callMethod(session, 'tickets.list', { teamId, brief: true })).result;

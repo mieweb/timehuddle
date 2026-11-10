@@ -94,12 +94,17 @@ export async function waitFiled(artifactId, token, seconds = 120) {
   throw new Error(`${artifactId} wasn't filed within ${seconds} s`);
 }
 
-/** A run's checks: each prints as it goes, and `finish()` exits non-zero when any failed. */
+/**
+ * A run's checks: each prints as it goes, and `finish()` exits non-zero when
+ * any failed, or when none ran: a run that checked nothing has not passed.
+ */
 export function checklist() {
+  let checked = 0;
   let failed = 0;
   return {
     section: (title) => console.log(`\n${title}`),
     check(what, ok, detail) {
+      checked += 1;
       if (!ok) failed += 1;
       console.log(
         `  ${ok ? 'ok  ' : 'FAIL'} ${what}${!ok && detail !== undefined ? ` — got ${JSON.stringify(detail)}` : ''}`,
@@ -108,8 +113,10 @@ export function checklist() {
     },
     skip: (what, why) => console.log(`  skip ${what} — ${why}`),
     finish() {
-      console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed');
-      process.exit(failed ? 1 : 0);
+      if (failed) console.log(`\n${failed} check(s) failed`);
+      else if (!checked) console.log('\nNothing was checked');
+      else console.log('\nAll checks passed');
+      process.exit(failed || !checked ? 1 : 0);
     },
   };
 }
