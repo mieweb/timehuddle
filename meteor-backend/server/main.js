@@ -2993,6 +2993,12 @@ Meteor.startup(async () => {
       properties: {
         videoid: { type: 'string' },
         uploadToken: { type: 'string' },
+        ref: {
+          type: 'string',
+          description: "The place's key, also signed into uploadToken (kinds that are a place)",
+        },
+        label: { type: 'string', description: 'What Pulse calls the place (kinds that are a place)' },
+        name: { type: 'string', description: 'What Pulse calls a new recording made from the link (some kinds)' },
       },
     },
   });

@@ -42,6 +42,7 @@ import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
+import { pulseLinkHints } from './pulse-link-hints-core.js';
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
@@ -437,12 +438,18 @@ Meteor.startup(async () => {
   if (replayed.length) console.log('[pulsevault] replayed', replayed.length, 'completion(s):', replayed.join(', '));
 });
 
-/** The capability token for one reservation: who, and where the video goes. */
-function mintUploadToken(artifactId, context) {
+/**
+ * The capability token for one reservation: who, and where the video goes.
+ * `ref`, when the destination is a place (pulse-link-hints-core.js), is its
+ * short opaque key, signed in the open for Pulse to read: which draft the
+ * link is for.
+ */
+function mintUploadToken(artifactId, context, ref) {
   return issueCapabilityToken(artifactId, CAPABILITY_SECRET, {
     keyId: CAPABILITY_KEY_ID,
     issuer: ISSUER,
     context,
+    ...(ref ? { ref } : {}),
   });
 }
 
@@ -464,17 +471,23 @@ Meteor.methods({
    * Reserve one Pulse upload: a fresh video id and a link token for it that
    * carries where the finished video goes (`destination`, see
    * pulse-destinations.js). The server delivers it there when the upload
-   * completes — the client has nothing left to do.
+   * completes — the client has nothing left to do. For a destination that is
+   * a place (pulse-link-hints-core.js) the token also signs its `ref`, and
+   * the result says what the link should call it (`label`) and a recording
+   * made for it (`name`), so Pulse opens on that place's draft.
    */
   async 'pulsevault.reserve'({ destination } = {}) {
     const identity = await requireIdentity(this);
-    const resolved = await resolvePulseDestination(identity.userId, destination);
+    const { resolved, names } = await resolvePulseDestination(identity.userId, destination);
     // Always a fresh id: one link is one upload, and a re-scan of the same
     // link resumes it (PulseVault's `reclaim`).
     const videoid = randomUUID();
+    // Null for a kind that isn't a place: its link stays plain.
+    const place = pulseLinkHints(identity.userId, resolved, names);
     return {
       videoid,
-      uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }),
+      uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }, place?.ref),
+      ...place,
     };
   },
 
