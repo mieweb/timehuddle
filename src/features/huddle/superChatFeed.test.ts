@@ -372,10 +372,7 @@ describe('postsToConversations', () => {
         session: closed,
         createdAt: new Date(SEP_29_1032).toISOString(),
       });
-      const [searched] = postsToConversations([reply], 'session', VIEWER_ADMIN, NOW, undefined, [
-        plan,
-        reply,
-      ]);
+      const [searched] = postsToConversations([reply], 'session', VIEWER_ADMIN, NOW, [plan, reply]);
       expect(searched.thread.find((m) => m.id === 'reply')?.text).not.toMatch(/Plan|Wrap-up/);
       expect(searched.title).not.toContain('no wrap-up');
     });
@@ -498,18 +495,10 @@ describe('postsToConversations', () => {
 
     it('keeps the rest of the label as plain text', () => {
       const post = makePost({ id: 'p1', clockEventId: 'evt-1', tickets: tickets.slice(0, 1) });
-      const [conversation] = postsToConversations(
-        [post],
-        'session',
-        VIEWER_MEMBER,
-        NOW,
-        () => 'Dev Team',
-      );
+      const [conversation] = postsToConversations([post], 'session', VIEWER_MEMBER, NOW);
       const message = conversation.thread.find((m) => m.id === 'p1');
       expect(message?.text).toBe(post.content.text);
-      expect(message?.label).toBe(
-        'Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1) · Dev Team',
-      );
+      expect(message?.label).toBe('Plan · [TH-1: Onboarding checklist](/app/tickets/tkt-1)');
     });
 
     it('keeps the link out of the text an edit starts from', () => {
@@ -533,26 +522,6 @@ describe('postsToConversations', () => {
       expect(conversation.thread.some((m) => m.type === 'system')).toBe(false);
       expect(conversation.participants.some((p) => p.kind === 'system')).toBe(false);
     });
-  });
-});
-
-describe('the Personal ("me") scope (posts from multiple teams)', () => {
-  const TEAM_NAMES: Record<string, string> = {
-    'team-1': 'Platform Team',
-    'team-2': 'Support Team',
-  };
-  const getTeamName = (teamId: string) => TEAM_NAMES[teamId];
-
-  it('groups posts from every team the same way (person), each labeled with its own team', () => {
-    const posts = [
-      makePost({ id: 'p1', teamId: 'team-1', postDate: '2026-09-29' }),
-      makePost({ id: 'p2', teamId: 'team-2', postDate: '2026-09-29' }),
-    ];
-    const [conversation] = postsToConversations(posts, 'person', VIEWER_MEMBER, NOW, getTeamName);
-    expect(conversation.thread).toHaveLength(2);
-    const byId = new Map(conversation.thread.map((m) => [m.id, m]));
-    expect(byId.get('p1')?.label).toContain('Platform Team');
-    expect(byId.get('p2')?.label).toContain('Support Team');
   });
 });
 
@@ -898,7 +867,7 @@ describe('starterConversation', () => {
 
   it('words the hint for the Personal view', () => {
     const { thread } = starterConversation(viewer, 'me', NOW);
-    expect(thread[0].text).toMatch(/last 30 days/);
+    expect(thread[0].text).toMatch(/posted in Personal in the last 30 days/);
   });
 });
 

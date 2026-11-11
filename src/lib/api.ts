@@ -1426,8 +1426,8 @@ export const huddleApi = {
       (r) => r.hasMore,
     ),
 
-  /** The caller's own published posts across every team they belong to (the
-   *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
+  /** The caller's posts in their personal team (the Huddle inbox's Personal
+   *  view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
     wormholeCall<HuddleFeedPage>('huddle.getMyPosts', since ? { since } : {}),
 
