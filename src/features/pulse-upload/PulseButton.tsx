@@ -158,9 +158,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   ) : (
     <ComposerChipButton
       ref={chipButton}
-      // Alone in its circle the icon is drawn larger: at a label's 14px its
-      // heartbeat line is under a pixel wide and the mark looks out of focus.
-      leftIcon={<PulseIcon className={compact === 'always' ? 'h-5' : 'h-3.5'} />}
+      // The size of the icons beside it, in the composer and on a ticket's row.
+      leftIcon={<PulseIcon className="h-3.5" />}
       compact={compact}
       {...shared}
     >
