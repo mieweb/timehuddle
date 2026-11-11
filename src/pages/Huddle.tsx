@@ -1074,6 +1074,11 @@ export default function Huddle() {
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
+    // The conversation open in the live URL, read again when the post lands
+    // to tell whether the reader opened another one meanwhile.
+    const openConversationParam = () =>
+      new URLSearchParams(liveLocation().search).get('conversation');
+    const sentFromParam = openConversationParam();
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
@@ -1131,14 +1136,19 @@ export default function Huddle() {
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
     // Only once the post is in the loaded feed (else it opens on not-found),
-    // and not if the reader left Huddle or moved to another team, view or
-    // grouping meanwhile: the id is the old scope's, and would undo their choice.
+    // and not if the reader left Huddle or moved to another team, view,
+    // grouping or conversation meanwhile: opening it would undo their choice.
     const openSessionLanding = (postLoaded: boolean) => {
       if (!sessionLanding || sessionLanding === conversationId || !postLoaded) return;
       // The live URL: hidden behind another page, Huddle's own render (and
       // `onScreen`) is paused at the moment it was left.
       const stillHere = liveLocation().pathname === HUDDLE_PATH;
-      if (!stillHere || threadByRef.current !== threadBy || scopeKeyRef.current !== scopeKey)
+      if (
+        !stillHere ||
+        threadByRef.current !== threadBy ||
+        scopeKeyRef.current !== scopeKey ||
+        openConversationParam() !== sentFromParam
+      )
         return;
       openConversation(sessionLanding);
     };

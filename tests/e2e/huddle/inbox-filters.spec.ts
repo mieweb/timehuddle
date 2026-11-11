@@ -285,6 +285,28 @@ test.describe('Huddle inbox filters', () => {
     await expect(inboxMessage(page, token).first()).toBeVisible({ timeout: 20000 });
   });
 
+  test('a Session thread opened while a post sends stays open when it lands', async ({ page }) => {
+    const otherToken = uniqueToken('other-shift');
+    const otherStart = Date.now() - 6 * HOUR;
+    const otherShift = await seedClockSession({
+      userId,
+      teamId,
+      startTime: otherStart,
+      endTime: otherStart + HOUR,
+    });
+    try {
+      await seedPost(page, { teamId, text: otherToken, clockEventId: otherShift });
+      await sendHeldFromOlderShift(page, async () => {
+        await conversationRows(page).filter({ hasText: otherToken }).locator('button').click();
+        await expect(inboxMessage(page, otherToken).first()).toBeVisible();
+      });
+      expect(new URL(page.url()).searchParams.get('conversation')).toBe(`session:${otherShift}`);
+      await expect(inboxMessage(page, otherToken).first()).toBeVisible();
+    } finally {
+      await deleteClockSession(otherShift);
+    }
+  });
+
   test('leaving Huddle while a post sends leaves the new page alone (#854)', async ({ page }) => {
     await sendHeldFromOlderShift(page, async () => {
       await page
