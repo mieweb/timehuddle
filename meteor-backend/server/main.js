@@ -2499,6 +2499,15 @@ Meteor.startup(async () => {
     },
   });
 
+  Wormhole.expose('users.markNativeAppSeen', {
+    description: 'Record that this user just opened the native app',
+    inputSchema: {
+      type: 'object',
+      properties: { platform: { type: 'string', enum: ['ios', 'android'] } },
+      required: ['platform'],
+    },
+  });
+
   // ── Organizations ─────────────────────────────────────────────────────────
 
   Wormhole.expose('orgs.list', {

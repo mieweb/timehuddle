@@ -1,7 +1,7 @@
 /**
  * accountMenu — the Help group of the account menu.
  *
- * Single source for these items and APP_STORE_URL. UserDropdown renders them
+ * Single source for these items. UserDropdown renders them
  * as a dropdown section; BottomNav renders them as the More sheet's drill-down
  * tile. Keeping both on one definition is what stops the avatar menu and the
  * mobile sheet drifting apart again.
@@ -18,10 +18,9 @@ import {
 } from '@mieweb/ui';
 import { useMemo } from 'react';
 
+import { APP_STORE_URL } from '../lib/appLinks';
 import { openExternalUrl } from '../lib/device';
 import { useAppFeedback } from './AppLayout';
-
-export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657217';
 
 export type AccountMenuSectionId = 'help';
 

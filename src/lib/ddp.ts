@@ -75,6 +75,20 @@ export class DdpTimeoutError extends Error {
   }
 }
 
+/** What `users.getCurrentUser` returns for a signed-in user. */
+interface DdpCurrentUser {
+  id: string;
+  email: string;
+  name: string;
+  username: string | null;
+  image: string | null;
+  emailVerified: boolean;
+  createdAt: string | null;
+  releaseNotesSeenVersion: string | null;
+  /** Used the iOS app recently: the web app offers to open it instead of installing it. */
+  hasIosApp?: boolean;
+}
+
 class DdpClient {
   private ws: WebSocket | null = null;
   private nextId = 1;
@@ -480,16 +494,7 @@ class DdpClient {
     }
   }
 
-  async getCurrentUser(): Promise<{
-    id: string;
-    email: string;
-    name: string;
-    username: string | null;
-    image: string | null;
-    emailVerified: boolean;
-    createdAt: string | null;
-    releaseNotesSeenVersion: string | null;
-  } | null> {
+  async getCurrentUser(): Promise<DdpCurrentUser | null> {
     // No stored session means nothing to restore: answer now instead of holding the
     // login form behind the socket handshake, and warm the socket for the sign-in.
     if (!localStorage.getItem('meteor_resume_token')) {
@@ -510,16 +515,7 @@ class DdpClient {
       if (!resumeToken) return null;
 
       const result = await this.call('users.getCurrentUser', {});
-      return result as {
-        id: string;
-        email: string;
-        name: string;
-        username: string | null;
-        image: string | null;
-        emailVerified: boolean;
-        createdAt: string | null;
-        releaseNotesSeenVersion: string | null;
-      } | null;
+      return result as DdpCurrentUser | null;
     } catch (err) {
       // Unknown, not signed out: the caller keeps whoever it already has.
       if (err instanceof DdpTimeoutError) throw err;
@@ -530,6 +526,11 @@ class DdpClient {
   /** Records the newest release note the user has read. Never moves backwards. */
   async markReleaseNotesSeen(version: string): Promise<void> {
     await this.call('users.markReleaseNotesSeen', { version });
+  }
+
+  /** Records that this user just opened the native app on `platform` (#859). */
+  async markNativeAppSeen(platform: 'ios' | 'android'): Promise<void> {
+    await this.call('users.markNativeAppSeen', { platform });
   }
 
   async logout(): Promise<void> {
