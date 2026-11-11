@@ -251,6 +251,7 @@ npm run test:unit     # Vitest unit tests (run once)
 npm test              # Playwright end-to-end tests
 npm run test:all      # Unit + e2e — the full gate
 npm run test:watch    # Vitest watch mode
+npm run e2e:pulse-links  # Pulse links against a running backend — see tests/pulse-links/
 
 # Production
 npm run build         # Vite production build → dist/

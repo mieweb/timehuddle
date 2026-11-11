@@ -2496,8 +2496,23 @@ export const videoApi = {
    * finished video goes. The backend delivers it there once it lands.
    */
   reserve: (destination: PulseDestination) =>
-    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserve', { destination }),
+    wormholeCall<PulseReservation>('pulsevault.reserve', { destination }),
 };
+
+/**
+ * One reserved Pulse upload (`videoid`, `uploadToken`). For a destination
+ * Pulse keeps a draft for (a ticket, a team's Huddle, a plan…), also what its
+ * link tells Pulse: `label`, the place's name there, and for some `name`, what
+ * a new recording made from the link is called. `ref`, the place's key, is
+ * signed into the token, where Pulse reads it; it is never put on the link.
+ */
+export interface PulseReservation {
+  videoid: string;
+  uploadToken: string;
+  ref?: string;
+  label?: string;
+  name?: string;
+}
 
 // ─── Media Library ────────────────────────────────────────────────────────────
 

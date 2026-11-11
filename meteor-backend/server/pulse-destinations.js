@@ -32,6 +32,7 @@ import { isObjectIdHex, rawDb } from './collections.js';
 import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from './huddle.js';
 import { CANONICAL_ITEM, cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
+import { resolvedPlace, teamPlace } from './pulse-link-hints-core.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -81,8 +82,10 @@ const attachment = (kind, check) => ({
 
 /**
  * Every destination kind. `check(userId, destination)` throws a Meteor.Error
- * when the video may not go there (and returns the fields to sign into the
- * token); `delivered(userId, destination, video)` is the note from an earlier
+ * when the video may not go there, and returns the fields to sign into the
+ * token, with, under `names`, what the place it just read is called
+ * (`{ team?, title? }`, for the link's names: never signed);
+ * `delivered(userId, destination, video)` is the note from an earlier
  * delivery of this video, or null; `deliver(userId, destination, video)`
  * carries it out and returns the note.
  */
@@ -300,8 +303,7 @@ const DESTINATIONS = {
   huddle: {
     async check(userId, { teamId }) {
       requireId(teamId, 'team');
-      await requireTeamMember(userId, teamId);
-      return { teamId };
+      return teamPlace(await requireTeamMember(userId, teamId));
     },
     // This uploader's post in this team: a post elsewhere carrying the same
     // video (huddle.createPost takes attachment URLs) isn't this delivery.
@@ -320,11 +322,11 @@ const DESTINATIONS = {
   'clock-plan': {
     async check(userId, { teamId, postDate }) {
       requireId(teamId, 'team');
-      await requireTeamMember(userId, teamId);
+      const team = await requireTeamMember(userId, teamId);
       assertPostDate(postDate);
       // When the link was made, so delivery can tell a shift worked by hand
       // meanwhile. Signed into the token at reserve; unused at delivery.
-      return { teamId, postDate, reservedAt: Date.now() };
+      return { ...teamPlace(team), postDate, reservedAt: Date.now() };
     },
     // Two steps, so "delivered" is both: the post, and the session it was
     // linked to by the clock-in. A post with no session is a delivery that
@@ -353,9 +355,9 @@ const DESTINATIONS = {
       if (phase === 'reserve' && session.endTime != null) {
         throw new Meteor.Error('bad-request', 'That clock session has already ended');
       }
-      await requireTeamMember(userId, String(session.teamId));
+      const team = await requireTeamMember(userId, String(session.teamId));
       assertPostDate(postDate);
-      return { clockEventId: clockEventId.toLowerCase(), postDate };
+      return { clockEventId: clockEventId.toLowerCase(), postDate, names: { team: team.name } };
     },
     // Two steps here too: the wrap-up on the post, and the session ended. A
     // wrap-up on a session still open stopped halfway, and runs again.
@@ -450,12 +452,12 @@ const DESTINATIONS = {
     // `tickets.delete` soft-deletes, so a deleted ticket still has a document.
     const ticket = await rawDb()
       .collection('tickets')
-      .findOne({ _id: new ObjectId(id), status: { $ne: 'deleted' } }, { projection: { teamId: 1 } });
+      .findOne({ _id: new ObjectId(id), status: { $ne: 'deleted' } }, { projection: { teamId: 1, title: 1 } });
     if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
     // Whoever can see the ticket's team — the same check as reading the ticket,
     // unconditional like there: a ticket without a valid team is refused.
     await requireTeamMembership(userId, String(ticket.teamId ?? ''));
-    return { id };
+    return { id, names: { title: ticket.title } };
   }),
 
   clock: attachment('clock', async (userId, { id: rawId }) => {
@@ -481,14 +483,17 @@ function kindOf(destination) {
 
 /**
  * Check that `destination` is somewhere `userId` may send a Pulse video, and
- * return the form to sign into the token. Throws a Meteor.Error if not.
- * `check(userId, destination, phase)` runs with `phase` 'reserve' here and
- * 'deliver' from deliverPulseVideo, for a kind that is stricter up front.
+ * return `{ resolved, names }`: the form to sign into the token, and what the
+ * destination is called in TimeHuddle (`{ team?, title? }`, empty for a kind
+ * that reads neither), for its link's names (pulse-link-hints-core.js). Throws
+ * a Meteor.Error if not. `check(userId, destination, phase)` runs with `phase`
+ * 'reserve' here and 'deliver' from deliverPulseVideo, for a kind that is
+ * stricter up front.
  */
 export async function resolvePulseDestination(userId, destination) {
   const kind = kindOf(destination);
   if (!kind) throw new Meteor.Error('bad-request', 'Unknown Pulse destination');
-  return { kind: destination.kind, ...(await kind.check(userId, destination, 'reserve')) };
+  return resolvedPlace(destination.kind, await kind.check(userId, destination, 'reserve'));
 }
 
 /**
