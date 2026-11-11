@@ -5,10 +5,12 @@
  *   wrap root with <SessionProvider>
  *   read auth state anywhere with useSession()
  */
+import { Capacitor } from '@capacitor/core';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 import { authApi, orgApi, type TimecoreUser } from './api';
 import { DdpTimeoutError, getDdpClient } from './ddp';
+import { isNativeApp } from './device';
 import { forgetReturnTo } from './returnTo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -104,6 +106,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           backgroundUrl: null,
           username: meteorUser.username ?? null,
           releaseNotesSeenVersion: meteorUser.releaseNotesSeenVersion ?? null,
+          hasIosApp: meteorUser.hasIosApp ?? false,
           organizationMembership: null,
           organizations,
         });
@@ -155,6 +158,20 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     window.addEventListener('timehuddle:oauth-login', handler);
     return () => window.removeEventListener('timehuddle:oauth-login', handler);
   }, [fetchSession]);
+
+  // The native app reports itself once per launch and signed-in user, so a
+  // browser knows this person has the app and offers to open it rather than
+  // asking them to install it (#859). Best-effort: a missed report only means
+  // the install prompt may show in a browser.
+  const nativeAppUserId = user && isNativeApp() ? user.id : null;
+  useEffect(() => {
+    if (!nativeAppUserId) return;
+    const platform = Capacitor.getPlatform();
+    if (platform !== 'ios' && platform !== 'android') return;
+    void getDdpClient()
+      .markNativeAppSeen(platform)
+      .catch(() => {});
+  }, [nativeAppUserId]);
 
   const signOut = useCallback(async () => {
     // Clear token FIRST so no wormhole calls fire with invalidated token

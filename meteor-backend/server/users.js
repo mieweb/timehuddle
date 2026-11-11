@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { isNewer, isValidVersion } from '@timehuddle/ota-version';
 import { Teams, rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { NATIVE_APP_PLATFORMS, isNativeAppPlatform } from './native-app-core';
 import { adminsAnOrgOf, sharedTeamDocs } from './profile-access';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -255,5 +256,26 @@ Meteor.methods({
       { $set: { releaseNotesSeenVersion: version, updatedAt: new Date() } },
     );
     return { releaseNotesSeenVersion: version };
+  },
+
+  /**
+   * Records that this user just opened the native app on `platform`.
+   *
+   * The web app reads it back (as `hasIosApp` on the current user) to choose
+   * between asking someone to install the app and offering to open it (#859).
+   * Called on every app start, whether or not notifications are allowed, so
+   * it doesn't depend on a push token being registered.
+   */
+  async 'users.markNativeAppSeen'({ platform }) {
+    const identity = await requireIdentity(this);
+    if (!isNativeAppPlatform(platform)) {
+      throw new Meteor.Error('bad-request', `platform must be one of ${NATIVE_APP_PLATFORMS.join(', ')}`);
+    }
+
+    await rawDb().collection('users').updateOne(
+      { _id: identity.userId },
+      { $set: { [`nativeAppLastSeenAt.${platform}`]: new Date() } },
+    );
+    return { ok: true };
   },
 });

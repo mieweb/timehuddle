@@ -20,6 +20,7 @@ import { createHash } from 'crypto';
 import bcrypt from 'bcrypt';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
+import { usesNativeApp } from './native-app-core';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -529,7 +530,11 @@ Meteor.methods({
       // unread, and the signup date keeps a brand-new account from being told
       // about a release it has only ever known as present.
       createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
-      releaseNotesSeenVersion: user.releaseNotesSeenVersion || null
+      releaseNotesSeenVersion: user.releaseNotesSeenVersion || null,
+      // Decides whether the web app asks this person to install the iOS app or
+      // offers to open it (#859). Worked out here rather than stored, so it
+      // lapses on its own when the app stops reporting in.
+      hasIosApp: usesNativeApp(user.nativeAppLastSeenAt, 'ios')
     };
   }
 });
