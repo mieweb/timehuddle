@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { HuddlePost } from '@lib/api';
 import { noteRenamed, noteVideoNames } from '../pulse-upload/videoNames';
 import {
+  ALL_CONVERSATION_ID,
   defaultConversation,
   postsToConversations,
   searchConversations,
+  searchPosts,
   starterConversation,
   shownBody,
   keptAttachments,
@@ -425,16 +427,15 @@ describe('postsToConversations', () => {
   });
 
   describe('posts without a session or ticket', () => {
-    it('labels a session-view thread of off-the-clock posts, title and first line', () => {
+    it('leaves off-the-clock posts out of the Session view; All, Day and Person keep them', () => {
       const posts = [makePost({ id: 'p1', postDate: '2026-09-29' })];
-      const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
-      expect(conversation.id).toBe('session:nosession:user-aisha:2026-09-29');
-      expect(conversation.title).toBe('You · Tue, Sep 29 · Off the clock');
-      const system = conversation.thread.filter((m) => m.type === 'system');
-      expect(system.map((m) => m.text)).toEqual(['Posted without clocking in']);
-      expect(conversation.thread[0].type).toBe('system');
-      // The thread says it once; the post itself isn't labelled again.
-      expect(conversation.thread[1].text).not.toContain('Off the clock');
+      expect(postsToConversations(posts, 'session', VIEWER_MEMBER, NOW)).toEqual([]);
+      for (const threadBy of ['all', 'day', 'person'] as const) {
+        const thread = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW).flatMap(
+          (c) => c.thread,
+        );
+        expect(thread.map((m) => m.id)).toContain('p1');
+      }
     });
 
     it('keeps the label out of message text in the other views (it would seed inline edit)', () => {
@@ -446,6 +447,23 @@ describe('postsToConversations', () => {
         expect(thread.find((m) => m.id === 'bare')?.text).not.toContain('Off the clock');
       }
     });
+  });
+
+  it("labels a session's plan but not an update posted while clocked in", () => {
+    const session = { startTime: SEP_29_0858, endTime: null };
+    const posts = [
+      makePost({ id: 'update', clockEventId: 'evt-1', session, sessionUpdate: true }),
+      makePost({
+        id: 'plan',
+        clockEventId: 'evt-1',
+        session,
+        createdAt: new Date(SEP_29_1032).toISOString(),
+      }),
+    ];
+    const [conversation] = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+    const labelOf = (id: string) => conversation.thread.find((m) => m.id === id)?.label;
+    expect(labelOf('update')).toBeUndefined();
+    expect(labelOf('plan')).toBe('Plan');
   });
 
   describe('ticket links', () => {
@@ -480,7 +498,7 @@ describe('postsToConversations', () => {
     it('links each existing ticket to its page and skips deleted ones', () => {
       for (const threadBy of ['session', 'day', 'person', 'ticket'] as const) {
         const [conversation] = postsToConversations(
-          [makePost({ id: 'p1', tickets })],
+          [makePost({ id: 'p1', clockEventId: 'evt-1', tickets })],
           threadBy,
           VIEWER_MEMBER,
           NOW,
@@ -739,7 +757,7 @@ describe('searchConversations', () => {
       createdAt: new Date(SEP_28_0900).toISOString(),
     }),
   ];
-  const all = postsToConversations(posts, 'session', VIEWER_MEMBER, NOW);
+  const all = postsToConversations(posts, 'day', VIEWER_MEMBER, NOW);
   const titlesFor = (query: string) =>
     searchConversations(all, posts, query).map(
       (c) => c.thread.find((m) => m.id.startsWith('p'))?.id,
@@ -788,7 +806,7 @@ describe('searchConversations', () => {
         ],
       }),
     ];
-    const grouped = postsToConversations(withVideo, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(withVideo, 'day', VIEWER_MEMBER, NOW);
     const hits = (query: string) => searchConversations(grouped, withVideo, query).length;
     expect(hits('standup recap')).toBe(1);
     expect(hits('sprint review')).toBe(1);
@@ -807,7 +825,7 @@ describe('searchConversations', () => {
         },
       }),
     ];
-    const grouped = postsToConversations(slow, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(slow, 'day', VIEWER_MEMBER, NOW);
     const started = performance.now();
     expect(searchConversations(grouped, slow, 'slow')).toHaveLength(1);
     expect(performance.now() - started).toBeLessThan(500);
@@ -823,11 +841,11 @@ describe('searchConversations', () => {
         },
       }),
     ];
-    const grouped = postsToConversations(withChart, 'session', VIEWER_MEMBER, NOW);
+    const grouped = postsToConversations(withChart, 'day', VIEWER_MEMBER, NOW);
     expect(searchConversations(grouped, withChart, 'latency')).toHaveLength(1);
   });
 
-  it('finds off-the-clock and live posts the same way in every view', () => {
+  it('finds off-the-clock and live posts the same way in every view that has them', () => {
     const livePost = makePost({
       id: 'p3',
       userId: 'user-priya',
@@ -836,7 +854,8 @@ describe('searchConversations', () => {
       session: { startTime: SEP_29_1032, endTime: null },
     });
     const withLive = [...posts, livePost];
-    for (const threadBy of ['day', 'session', 'person', 'ticket'] as const) {
+    // Session leaves off-the-clock posts out, so it isn't asked to find one.
+    for (const threadBy of ['day', 'person', 'ticket'] as const) {
       const grouped = postsToConversations(withLive, threadBy, VIEWER_MEMBER, NOW);
       const idsFor = (query: string) =>
         searchConversations(grouped, withLive, query).flatMap((c) =>
@@ -868,6 +887,13 @@ describe('starterConversation', () => {
   it('words the hint for the Personal view', () => {
     const { thread } = starterConversation(viewer, 'me', NOW);
     expect(thread[0].text).toMatch(/posted in Personal in the last 30 days/);
+  });
+
+  it('says Session has no shifts yet and still points at the input (#854)', () => {
+    const conversation = starterConversation(viewer, 'team', NOW, 'session');
+    expect(conversation.id).toBe('starter');
+    expect(conversation.thread[0].text).toMatch(/no shifts yet/i);
+    expect(conversation.thread[0].text).toMatch(/share an update below/i);
   });
 });
 
@@ -915,5 +941,105 @@ describe('Today as the default conversation', () => {
     const grouped = postsToConversations(withToday, 'day', VIEWER_MEMBER, nextDay);
     const conversations = withTodayConversation(grouped, 'day', viewer, 'team', nextDay);
     expect(defaultConversation(conversations, 'day', nextDay)?.id).toBe('day:2026-09-30');
+  });
+});
+
+describe('the All grouping', () => {
+  const posts = [
+    makePost({
+      id: 'p-today',
+      userId: 'user-priya',
+      userName: 'Priya Sharma',
+      content: { text: 'Reviewing PRs', mentions: [] },
+      createdAt: new Date(SEP_29_1032).toISOString(),
+    }),
+    makePost({
+      id: 'p-plan',
+      content: { text: 'Plan: onboarding checklist', mentions: [] },
+      createdAt: new Date(SEP_28_0900).toISOString(),
+      clockEventId: 'evt-1',
+      session: { startTime: SEP_28_0900, endTime: SEP_28_0900 + 60 * 60_000 },
+    }),
+    makePost({ id: 'p-morning', createdAt: new Date(SEP_29_0858).toISOString() }),
+  ];
+  const [conversation, ...rest] = postsToConversations(posts, 'all', VIEWER_MEMBER, NOW);
+  const threadIds = conversation.thread.map((m) => m.id);
+
+  it('puts every post, from everyone and every day, in one conversation', () => {
+    expect(rest).toEqual([]);
+    expect(conversation.id).toBe(ALL_CONVERSATION_ID);
+    expect(conversation.title).toBe('All updates');
+    expect(conversation.participants.map((p) => p.id)).toEqual(
+      expect.arrayContaining(['user-aisha', 'user-priya']),
+    );
+  });
+
+  it('runs oldest first, opening each day with its date and keeping clock lines', () => {
+    expect(threadIds).toEqual([
+      'day-divider:2026-09-28',
+      'evt-1:clock-in',
+      'p-plan',
+      'evt-1:clock-out',
+      'day-divider:2026-09-29',
+      'p-morning',
+      'p-today',
+    ]);
+    const dividers = conversation.thread.filter((m) => m.id.startsWith('day-divider:'));
+    expect(dividers.map((m) => [m.type, m.text])).toEqual([
+      ['system', 'Mon, Sep 28'],
+      ['system', 'Tue, Sep 29'],
+    ]);
+  });
+
+  it('adds no date lines to the other groupings', () => {
+    for (const threadBy of ['day', 'session', 'person', 'ticket'] as const) {
+      const messages = postsToConversations(posts, threadBy, VIEWER_MEMBER, NOW).flatMap(
+        (c) => c.thread,
+      );
+      expect(messages.some((m) => m.id.startsWith('day-divider:'))).toBe(false);
+    }
+  });
+
+  it('narrows the posts in the thread when searched, and keeps them all for a blank query', () => {
+    const search = (query: string) => searchPosts(posts, query, VIEWER_MEMBER);
+    expect(search('   ')).toBe(posts);
+    expect(search('priya').map((p) => p.id)).toEqual(['p-today']);
+    expect(search('onboarding sep 28').map((p) => p.id)).toEqual(['p-plan']);
+    expect(search('nothing like this')).toEqual([]);
+  });
+
+  it('finds a post by the day All shows it under when that differs from its stored date', () => {
+    // Stamped Sep 29 (e.g. by an author a timezone ahead), appeared Sep 28 here.
+    const shifted = makePost({
+      id: 'p-shifted',
+      postDate: '2026-09-29',
+      createdAt: new Date(localMs(2026, 9, 28, 21, 0)).toISOString(),
+    });
+    const [all] = postsToConversations([shifted], 'all', VIEWER_MEMBER, NOW);
+    expect(all.thread[0].text).toBe('Mon, Sep 28');
+    const search = (query: string) => searchPosts([shifted], query, VIEWER_MEMBER).map((p) => p.id);
+    expect(search('Mon, Sep 28')).toEqual(['p-shifted']);
+    expect(search('2026-09-28')).toEqual(['p-shifted']);
+    expect(search('Sep 29')).toEqual(['p-shifted']);
+  });
+
+  it('finds a post by the clock lines of its session, as the other groupings do', () => {
+    const search = (query: string) => searchPosts(posts, query, VIEWER_MEMBER).map((p) => p.id);
+    expect(search('clocked out')).toEqual(['p-plan']);
+    expect(search('you clocked in 09:00')).toEqual(['p-plan']);
+  });
+
+  it('gives an empty feed an All thread of its own, so an all:feed link still opens', () => {
+    const starter = starterConversation(
+      { userId: 'user-aisha', name: 'Aisha' },
+      'team',
+      NOW,
+      'all',
+    );
+    expect(starter.id).toBe(ALL_CONVERSATION_ID);
+    expect(starter.title).toBe('All updates');
+    expect(starterConversation({ userId: 'user-aisha', name: 'Aisha' }, 'team', NOW).id).toBe(
+      'starter',
+    );
   });
 });

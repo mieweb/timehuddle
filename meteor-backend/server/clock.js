@@ -16,7 +16,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, findUserById } from './auth-bridge';
-import { SESSION_POST_SORT } from './huddle';
+import { SESSION_POST_FILTER, SESSION_POST_SORT } from './huddle';
 import { requireTeamMembership } from './permissions';
 import { resolveSettings } from './settings';
 import {
@@ -840,7 +840,8 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
           .collection('huddlePosts')
           .updateOne(
             { _id: new ObjectId(planPostId), userId, teamId: String(teamId) },
-            { $set: { clockEventId: shift._id.toHexString() } }
+            // A plan, never an update (SESSION_POST_FILTER).
+            { $set: { clockEventId: shift._id.toHexString() }, $unset: { sessionUpdate: '' } }
           );
       }
       return toPublicClockEvent(shift, await findBreaksForEvent(shift._id.toHexString()));
@@ -883,7 +884,8 @@ export async function clockStart(userId, { teamId, planPostId, reuseOpen = false
         .collection('huddlePosts')
         .updateOne(
           { _id: planPost._id },
-          { $set: { clockEventId: created._id.toHexString() } }
+          // A plan, never an update (SESSION_POST_FILTER).
+          { $set: { clockEventId: created._id.toHexString() }, $unset: { sessionUpdate: '' } }
         );
     } else {
       planPost = null;
@@ -956,7 +958,13 @@ export async function clockStop(userId, { teamId, clockEventId, at } = {}) {
   const sessionPost = await rawDb()
     .collection('huddlePosts')
     .findOne(
-      { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
+      {
+        teamId,
+        userId,
+        clockEventId: event._id.toHexString(),
+        status: { $ne: 'draft' },
+        ...SESSION_POST_FILTER,
+      },
       { sort: SESSION_POST_SORT }
     );
 

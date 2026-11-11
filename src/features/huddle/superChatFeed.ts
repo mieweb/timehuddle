@@ -168,7 +168,11 @@ function postFiles(post: HuddlePost): SuperChatFileAttachment[] {
 
 // ─── SuperChatInbox grouping (postsToConversations) ────────────────────────
 
-export type ThreadBy = 'session' | 'day' | 'person' | 'ticket';
+export type ThreadBy = 'all' | 'session' | 'day' | 'person' | 'ticket';
+
+const ALL_KEY = 'feed';
+/** The one conversation of the All grouping: every post, in time order. */
+export const ALL_CONVERSATION_ID = `all:${ALL_KEY}`;
 
 export interface InboxViewer {
   userId: string;
@@ -186,7 +190,7 @@ const THREAD_TEXT = {
   clockedOut: (who: string, when: string) => `${who} clocked out · ${when}`,
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
-  postedWithoutClockingIn: 'Posted without clocking in',
+  allUpdates: 'All updates',
   scheduledHidden: '🔒 Only you can see this until it is sent',
 } as const;
 
@@ -269,8 +273,11 @@ function ticketLinkMarkdown(ticket: { id: string; name: string }): string {
 
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
   switch (threadBy) {
+    case 'all':
+      return ALL_KEY;
     case 'session':
-      return post.clockEventId ?? `nosession:${post.userId}:${getPostDateKey(post)}`;
+      // Only posts with a session reach here (see postsToConversations).
+      return post.clockEventId as string;
     case 'day':
       return getPostDateKey(post);
     case 'person':
@@ -327,7 +334,7 @@ function clockLineWhen(epochMs: number, includeDay: boolean): string {
   return includeDay ? `${formatDayLabel(localDateKey(epochMs))} · ${time}` : time;
 }
 
-function clockLine(id: string, text: string, epochMs: number): SuperChatMessage {
+function systemLine(id: string, text: string, epochMs: number): SuperChatMessage {
   return {
     id,
     type: 'system',
@@ -345,7 +352,7 @@ function systemMessagesForSession(
   const who = isViewer ? THREAD_TEXT.you : session.userName;
   const { clockEventId, startTime, endTime } = session;
   const messages = [
-    clockLine(
+    systemLine(
       `${clockEventId}:clock-in`,
       THREAD_TEXT.clockedIn(who, clockLineWhen(startTime, includeDay)),
       // Above the plan posted just before the clock started (SuperChat orders by time).
@@ -354,7 +361,7 @@ function systemMessagesForSession(
   ];
   if (endTime == null) {
     messages.push(
-      clockLine(
+      systemLine(
         `${clockEventId}:still-in`,
         THREAD_TEXT.stillClockedIn(who, isViewer, clockLineWhen(startTime, includeDay)),
         liveAt,
@@ -365,21 +372,44 @@ function systemMessagesForSession(
   let outText = THREAD_TEXT.clockedOut(who, clockLineWhen(endTime, includeDay));
   // Shift length stays admin-only, matching the session title.
   if (viewer.isAdmin) outText += ` · ${formatDuration((endTime - startTime) / 1000)}`;
-  messages.push(clockLine(`${clockEventId}:clock-out`, outText, endTime));
+  messages.push(systemLine(`${clockEventId}:clock-out`, outText, endTime));
   return messages;
 }
 
 const isClockIn = (m: SuperChatMessage) => m.id.endsWith(':clock-in');
 
 /**
+ * A time-sorted thread with a system line naming the date ahead of each day's
+ * first message. SuperChat has no date separators of its own (see
+ * docs/superchat-inbox-gaps.md); its stable sort keeps the line above the
+ * message it shares a time with.
+ */
+function withDayDividers(thread: SuperChatMessage[]): SuperChatMessage[] {
+  const out: SuperChatMessage[] = [];
+  let currentDay: string | null = null;
+  for (const message of thread) {
+    const day = localDateKey(new Date(message.time).getTime());
+    if (day !== currentDay) {
+      currentDay = day;
+      out.push(
+        systemLine(`day-divider:${day}`, formatDayLabel(day), new Date(message.time).getTime()),
+      );
+    }
+    out.push(message);
+  }
+  return out;
+}
+
+/**
  * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
- * (same pick as the backend's SESSION_POST_SORT). Any other post in a session
- * is a reply sent from the inbox.
+ * that isn't an update (same pick as the backend's SESSION_POST_SORT and
+ * SESSION_POST_FILTER). Any other post in a session is an update.
  */
 function sessionPostIds(posts: HuddlePost[]): Set<string> {
   const bySession = new Map<string, HuddlePost>();
   for (const post of posts) {
-    if (!post.clockEventId) continue;
+    // An update posted while clocked in is in the session but never its plan.
+    if (!post.clockEventId || post.sessionUpdate) continue;
     const current = bySession.get(post.clockEventId);
     const better =
       !current ||
@@ -433,6 +463,8 @@ function buildTitle(
 ): string {
   const first = posts[0];
   switch (threadBy) {
+    case 'all':
+      return THREAD_TEXT.allUpdates;
     case 'day':
       return formatDayLabel(getPostDateKey(first));
     case 'person':
@@ -444,7 +476,6 @@ function buildTitle(
     case 'session': {
       const dateLabel = formatDayLabel(getPostDateKey(first));
       const name = displayName(first, viewer);
-      if (!first.clockEventId) return `${name} · ${dateLabel} · ${OFF_THE_CLOCK}`;
       const session = sessions[0];
       if (!session) return `${name} · ${dateLabel}`;
 
@@ -486,6 +517,8 @@ export function postsToConversations(
     sessionContext.flatMap((p) => (p.clockEventId && p.wrapUpAt ? [p.clockEventId] : [])),
   );
   for (const post of posts) {
+    // Session view shows shifts only: a post made off the clock is in All, Day and Person.
+    if (threadBy === 'session' && !post.clockEventId) continue;
     const key = groupKeyFor(post, threadBy);
     const bucket = groups.get(key);
     if (bucket) bucket.push(post);
@@ -514,27 +547,6 @@ export function postsToConversations(
       liveAt: Math.max(now, ...groupPosts.map((p) => postTime(p) + 1)),
     };
     const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
-    // Session view: a thread of posts made without clocking in says so up
-    // front, rather than looking like a shift with its clock lines missing.
-    const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
-    if (offTheClockThread) {
-      const earliest = Math.min(...groupPosts.map(postTime));
-      systemMessages.push({
-        id: `${key}:off-the-clock`,
-        type: 'system',
-        participantId: SYSTEM_PARTICIPANT_ID,
-        text: THREAD_TEXT.postedWithoutClockingIn,
-        time: new Date(earliest - 1),
-      });
-    }
-    if (systemMessages.length > 0) {
-      participants.set(SYSTEM_PARTICIPANT_ID, {
-        id: SYSTEM_PARTICIPANT_ID,
-        kind: 'system',
-        name: 'Clock',
-      });
-    }
-
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
@@ -549,11 +561,20 @@ export function postsToConversations(
 
     // On a tie the clock-in goes first, above the plan it shares a moment with;
     // SuperChat's own sort by time is stable, so it keeps this order.
-    const thread = [...systemMessages, ...postMessages].sort(
+    const sorted = [...systemMessages, ...postMessages].sort(
       (a, b) =>
         new Date(a.time).getTime() - new Date(b.time).getTime() ||
         Number(isClockIn(b)) - Number(isClockIn(a)),
     );
+    // All runs across many days in one thread, so each day opens with its date.
+    const thread = threadBy === 'all' ? withDayDividers(sorted) : sorted;
+    if (thread.some((m) => m.participantId === SYSTEM_PARTICIPANT_ID)) {
+      participants.set(SYSTEM_PARTICIPANT_ID, {
+        id: SYSTEM_PARTICIPANT_ID,
+        kind: 'system',
+        name: 'Clock',
+      });
+    }
 
     const isLive = sessions.some((s) => s.endTime == null);
     const lastActivity = isLive
@@ -597,14 +618,9 @@ function withoutLinkTargets(text: string): string {
 /** Everything a post can be found by: body, author, ticket, attachments and
  *  its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
 function postSearchText(post: HuddlePost): string {
-  const dateKey = getPostDateKey(post);
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  // The post's own date, and the day All's divider shows it under (when it
+  // appeared, in the reader's timezone) when that differs.
+  const dateKeys = new Set([getPostDateKey(post), localDateKey(postTime(post))]);
   return [
     withoutLinkTargets(post.content.text),
     post.userName,
@@ -617,12 +633,22 @@ function postSearchText(post: HuddlePost): string {
       shownVideoName(att) ?? undefined,
       att.type,
     ]),
-    dateKey,
-    formatDayLabel(dateKey),
-    longDate,
+    ...[...dateKeys].flatMap(dateSearchTerms),
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** A date in the spellings search accepts: "2026-09-24", "Thu, Sep 24", "Thursday, September 24, 2026". */
+function dateSearchTerms(dateKey: string): string[] {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const longDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return [dateKey, formatDayLabel(dateKey), longDate];
 }
 
 /** Id of the {@link starterConversation}; it never matches a real post. */
@@ -670,17 +696,34 @@ export function starterConversation(
   viewer: { userId: string; name: string },
   scope: 'team' | 'me',
   now: number = Date.now(),
+  threadBy?: ThreadBy,
 ): SuperChatConversation {
+  // Session can be empty with posts elsewhere: it lists shifts only.
   const hint =
-    scope === 'me'
-      ? "You haven't posted in Personal in the last 30 days. Share an update below, or clock in to post your plan."
-      : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
-  return emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
+    threadBy === 'session'
+      ? 'No shifts yet. Clock in to post your plan, or share an update below.'
+      : scope === 'me'
+        ? "You haven't posted in Personal in the last 30 days. Share an update below, or clock in to post your plan."
+        : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
+  // In All it is the one thread itself, so a saved `all:feed` link still opens.
+  return threadBy === 'all'
+    ? emptyConversation(ALL_CONVERSATION_ID, THREAD_TEXT.allUpdates, viewer, hint, now)
+    : emptyConversation(STARTER_CONVERSATION_ID, 'Today', viewer, hint, now);
 }
 
 /** Id of the Day thread for a post dated `dateKey` (YYYY-MM-DD, a post's `postDate`). */
 export function dayConversationId(dateKey: string): string {
   return `day:${dateKey}`;
+}
+
+/** Id of the Day thread holding `post`. */
+export function dayConversationIdForPost(post: HuddlePost): string {
+  return dayConversationId(getPostDateKey(post));
+}
+
+/** Id of the Session thread for a clock session. */
+export function sessionConversationId(clockEventId: string): string {
+  return `session:${clockEventId}`;
 }
 
 /** Id of the Day thread for the calendar day containing `now`. */
@@ -728,6 +771,41 @@ export function defaultConversation(
   return conversations[0];
 }
 
+/** A query's words, normalized; every one must match. */
+function searchWords(query: string): string[] {
+  return normalizeForSearch(query).split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The posts matching a free-text query, by the same fields and rules as
+ * {@link searchConversations}. All grouping has a single conversation, so it
+ * narrows the posts in it rather than keeping or dropping the whole thread.
+ */
+export function searchPosts(posts: HuddlePost[], query: string, viewer: InboxViewer): HuddlePost[] {
+  const words = searchWords(query);
+  if (words.length === 0) return posts;
+  return posts.filter((post) => {
+    const haystack = normalizeForSearch(
+      [postSearchText(post), clockLinesText(post, viewer)].join('\n'),
+    );
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
+/**
+ * The clock-in/out lines shown for a post's session ("You clocked out ·
+ * 17:30"), so a search finds the post by them in All as it does in the
+ * groupings that search whole conversations.
+ */
+function clockLinesText(post: HuddlePost, viewer: InboxViewer): string {
+  return collectSessions([post])
+    .flatMap((session) =>
+      systemMessagesForSession(session, { viewer, includeDay: false, liveAt: 0 }),
+    )
+    .map((m) => m.text ?? '')
+    .join('\n');
+}
+
 /**
  * Filter inbox conversations by a free-text query. Every word must appear
  * somewhere in the conversation — its title, participants, message text
@@ -740,7 +818,7 @@ export function searchConversations(
   posts: HuddlePost[],
   query: string,
 ): SuperChatConversation[] {
-  const words = normalizeForSearch(query).split(/\s+/).filter(Boolean);
+  const words = searchWords(query);
   if (words.length === 0) return conversations;
 
   const postsById = new Map(posts.map((post) => [post.id, post]));

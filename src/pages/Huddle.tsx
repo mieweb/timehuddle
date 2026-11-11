@@ -7,11 +7,13 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
+  Badge,
   Button,
   ButtonGroup,
   type ChatComposerError,
   Dropdown,
   DropdownItem,
+  DropdownSeparator,
   Input,
   Spinner,
   Text,
@@ -27,7 +29,15 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   discardMedia,
@@ -46,6 +56,7 @@ import {
 import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
   dayConversationId,
+  dayConversationIdForPost,
   defaultConversation,
   keptAttachments,
   isAwaitingDelivery,
@@ -53,6 +64,8 @@ import {
   postVideoNames,
   pulseVideoOfMedia,
   searchConversations,
+  searchPosts,
+  sessionConversationId,
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
@@ -88,7 +101,7 @@ import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
-import { useQueryParams, useRouter, useSearchParam } from '../ui/router';
+import { liveLocation, useQueryParams, useRouter, useSearchParam } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { isTeamMember } from '@lib/organizationAccess';
@@ -114,11 +127,14 @@ const LINK_SEARCH_MAX_DAYS = 360;
 const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
-const THREAD_BY_OPTIONS: ThreadBy[] = ['day', 'session', 'person', 'ticket'];
+const HUDDLE_PATH = '/app/huddle';
+// All comes first and sits apart: it is the one option that doesn't group.
+const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
 
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+  all: 'All',
   session: 'Session',
   day: 'Day',
   person: 'Person',
@@ -126,8 +142,9 @@ const THREAD_BY_LABELS: Record<ThreadBy, string> = {
 };
 // Must not contain another option's label: e2e picks menu items by name.
 const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+  all: 'Every update in one thread, oldest first',
   day: "Everyone's updates, one thread per date",
-  session: 'Each clock-in to clock-out with its plan and wrap-up; off-the-clock posts kept apart',
+  session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
   person: 'One thread per teammate',
   ticket: 'Updates grouped by the work item they link to',
 };
@@ -194,7 +211,7 @@ export default function Huddle() {
   // before paint, so the return never flashes the default conversation, and it
   // re-runs each time <Activity> shows the page again.
   const { pathname, navigate } = useRouter();
-  const onScreen = pathname === '/app/huddle';
+  const onScreen = pathname === HUDDLE_PATH;
 
   // A post can link into the app: a timer update links its ticket. The chat
   // opens a link in a new tab; one that stays in the app opens here instead.
@@ -254,6 +271,9 @@ export default function Huddle() {
   // its own grouping without overwriting the saved one (posts are found by
   // session).
   const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  // A post link opens the post's session, even when All is the saved grouping:
+  // SuperChatInbox can't scroll to a message yet, and a session's short thread
+  // keeps the post in view (see docs/superchat-inbox-gaps.md).
   const threadBy =
     threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
@@ -378,24 +398,27 @@ export default function Huddle() {
   const meSinceRef = useRef(meSince);
   meSinceRef.current = meSince;
   const meLoadedRef = useRef(false);
-  const refreshMyPosts = useCallback(async () => {
+  // Resolves to the posts it loaded, or null when the fetch failed or was superseded.
+  const refreshMyPosts = useCallback(async (): Promise<HuddlePost[] | null> => {
     try {
       const asOf = Date.now();
       const page = await huddleApi.getMyPosts(meSince);
       // The server's names as of the fetch, newer than any rename made before it.
       noteVideoNames(postVideoNames(page.posts), asOf);
       // Answered for a window that has since moved on; the newer fetch owns the state.
-      if (meSinceRef.current !== meSince) return;
+      if (meSinceRef.current !== meSince) return null;
       setMyPosts(page.posts);
       setMyPostsError(null);
       meLoadedRef.current = true;
       settleMe(ME_FEED_KEY, { ok: true, hasMore: page.hasMore });
+      return page.posts;
     } catch (err) {
       console.error('[Huddle] refreshMyPosts failed:', err);
       // Only the first load replaces the feed; a failed older window keeps what
       // is loaded and reports through the list footer's Retry.
       if (!meLoadedRef.current) setMyPostsError('Failed to load your posts.');
       settleMe(ME_FEED_KEY, { ok: false });
+      return null;
     }
   }, [meSince, settleMe]);
   useEffect(() => {
@@ -685,16 +708,25 @@ export default function Huddle() {
       : grouped;
   }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion]);
   // Search runs over whole conversations (titles, people, clock lines, post
-  // fields), after grouping, so a match keeps its thread intact.
-  // With no posts at all, the inbox shows a starter conversation instead:
-  // SuperChat's chat input only exists inside an open conversation, and it is
-  // where the first update gets posted.
+  // fields), after grouping, so a match keeps its thread intact. All has just
+  // the one thread, so there it narrows the posts in it instead.
+  // With nothing to group (no posts at all, or in Session none made on the
+  // clock), the inbox shows a starter conversation instead: SuperChat's chat
+  // input only exists inside an open conversation, and it is where the first
+  // update gets posted.
   const conversations = useMemo(() => {
-    if (activePosts.length === 0 && user) {
-      return [starterConversation({ userId: user.id, name: user.name }, scope)];
+    const nothingGrouped = allConversations.length === 0 && !searchQuery.trim();
+    if ((activePosts.length === 0 || nothingGrouped) && user) {
+      return [
+        starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
+      ];
+    }
+    if (threadBy === 'all' && searchQuery.trim()) {
+      const matches = searchPosts(activePosts, searchQuery, viewer);
+      return postsToConversations(matches, 'all', viewer, nowMinute, activePosts);
     }
     return searchConversations(allConversations, activePosts, searchQuery);
-  }, [allConversations, activePosts, searchQuery, user, scope]);
+  }, [allConversations, activePosts, searchQuery, user, scope, threadBy, viewer, nowMinute]);
   const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
@@ -796,22 +828,31 @@ export default function Huddle() {
         }
       >
         {THREAD_BY_OPTIONS.map((option) => (
-          <DropdownItem
-            key={option}
-            icon={<SelectedCheck selected={option === threadBy} />}
-            onClick={() => {
-              setThreadBy(option);
-              // DropdownItem doesn't close its menu on its own.
-              setThreadByMenuOpen(false);
-            }}
-          >
-            <span className="flex flex-col">
-              <span>{THREAD_BY_LABELS[option]}</span>
-              <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
-                {THREAD_BY_DESCRIPTIONS[option]}
-              </Text>
-            </span>
-          </DropdownItem>
+          <Fragment key={option}>
+            <DropdownItem
+              icon={<SelectedCheck selected={option === threadBy} />}
+              onClick={() => {
+                setThreadBy(option);
+                // DropdownItem doesn't close its menu on its own.
+                setThreadByMenuOpen(false);
+              }}
+            >
+              <span className="flex flex-col">
+                <span className="flex items-center gap-2">
+                  {THREAD_BY_LABELS[option]}
+                  {option === 'all' && (
+                    <Badge variant="secondary" size="sm">
+                      New
+                    </Badge>
+                  )}
+                </span>
+                <Text as="span" variant="muted" size="xs" className="max-w-56 whitespace-normal">
+                  {THREAD_BY_DESCRIPTIONS[option]}
+                </Text>
+              </span>
+            </DropdownItem>
+            {option === 'all' && <DropdownSeparator />}
+          </Fragment>
         ))}
       </Dropdown>
     </div>
@@ -907,6 +948,11 @@ export default function Huddle() {
   // settling, not the reader moving.
   const scopeKey = `${contextTeamId}|${scope}`;
   const scopeKeyRef = useRef(scopeKey);
+  // The grouping on screen now, for a send that finishes after it changed.
+  const threadByRef = useRef(threadBy);
+  useEffect(() => {
+    threadByRef.current = threadBy;
+  }, [threadBy]);
   useEffect(() => {
     if (!teamsReady) {
       scopeKeyRef.current = scopeKey;
@@ -985,9 +1031,12 @@ export default function Huddle() {
   useEffect(() => {
     if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
-    if (!match) return;
-    setParams({ conversation: match.id, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, allConversations, setParams]);
+    // A post made off the clock has no Session thread: its Day thread holds it.
+    const offClock = match ? null : activePosts.find((p) => p.id === postParam && !p.clockEventId);
+    const conversation = match?.id ?? (offClock && dayConversationIdForPost(offClock));
+    if (!conversation) return;
+    setParams({ conversation, post: null, postId: null, q: null });
+  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation
@@ -1019,9 +1068,17 @@ export default function Huddle() {
     setSending(true);
     setInboxError(null);
     let id: string;
+    let clockEventId: string | undefined;
+    // Stamped once: the post's Day thread, even if midnight passes while it sends.
+    const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
+    // The conversation open in the live URL, read again when the post lands
+    // to tell whether the reader opened another one meanwhile.
+    const openConversationParam = () =>
+      new URLSearchParams(liveLocation().search).get('conversation');
+    const sentFromParam = openConversationParam();
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
@@ -1029,11 +1086,10 @@ export default function Huddle() {
       }
       if (ticketVideos.error) throw new Error(ticketVideos.error);
       const staged = ticketVideos.videos;
-      const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
-      ({ id } = await huddleApi.createPost({
+      ({ id, clockEventId } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
@@ -1062,21 +1118,46 @@ export default function Huddle() {
     // Where the post landed: in Day grouping, its day's thread, which isn't
     // necessarily the one it was sent from (an older day's). Opened only now
     // it's posted, so a failed send restores its draft where it was written.
-    const landsIn =
-      threadBy === 'day'
-        ? dayConversationId(toDateString(sendSchedule?.deliverAt ?? new Date()))
-        : conversationId;
-    if (landsIn !== conversationId && conversations.some((c) => c.id === landsIn)) {
-      openConversation(landsIn);
+    const dayId = dayConversationId(postDate);
+    if (
+      threadBy === 'day' &&
+      dayId !== conversationId &&
+      conversations.some((c) => c.id === dayId)
+    ) {
+      openConversation(dayId);
     }
+    // In Session grouping, the server put it in the live shift, or in no shift
+    // when clocked out — then it's only in Day, so its Day thread opens. Opened
+    // after the refresh below, once the post (maybe a shift's first) is in.
+    const sessionLanding =
+      threadBy !== 'session' ? null : clockEventId ? sessionConversationId(clockEventId) : dayId;
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
 
+    // Only once the post is in the loaded feed (else it opens on not-found),
+    // and not if the reader left Huddle or moved to another team, view,
+    // grouping or conversation meanwhile: opening it would undo their choice.
+    const openSessionLanding = (postLoaded: boolean) => {
+      if (!sessionLanding || sessionLanding === conversationId || !postLoaded) return;
+      // The live URL: hidden behind another page, Huddle's own render (and
+      // `onScreen`) is paused at the moment it was left.
+      const stillHere = liveLocation().pathname === HUDDLE_PATH;
+      if (
+        !stillHere ||
+        threadByRef.current !== threadBy ||
+        scopeKeyRef.current !== scopeKey ||
+        openConversationParam() !== sentFromParam
+      )
+        return;
+      openConversation(sessionLanding);
+    };
+
     // The Personal view reads its own cross-team list, not the team feed —
     // the post went to the Personal team, so it can never appear in `posts`.
     if (scope === 'me') {
-      await refreshMyPosts();
+      const mine = await refreshMyPosts();
+      openSessionLanding(!!mine?.some((p) => p.id === id));
       return;
     }
 
@@ -1093,6 +1174,7 @@ export default function Huddle() {
       await refreshFeed();
       if (inFeed()) break;
     }
+    openSessionLanding(inFeed());
   }
 
   // Taking back a file removed from the message box after it uploaded.

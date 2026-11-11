@@ -78,7 +78,8 @@ test.describe('Notification deep links', () => {
     // link. Left in place, a stale ?postId= would make the next identical tap
     // a no-op.
     const params = () => new URL(page.url()).searchParams;
-    await expect.poll(() => params().get('conversation'), { timeout: 10000 }).toMatch(/^session:/);
+    // Seeded off the clock, so its Day thread holds it, not a Session one.
+    await expect.poll(() => params().get('conversation'), { timeout: 10000 }).toMatch(/^day:/);
     expect(params().get('team')).toBe(teamId);
     expect(params().has('postId')).toBe(false);
     expect(params().has('teamId')).toBe(false);
