@@ -190,7 +190,6 @@ const THREAD_TEXT = {
   clockedOut: (who: string, when: string) => `${who} clocked out · ${when}`,
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
-  postedWithoutClockingIn: 'Posted without clocking in',
   allUpdates: 'All updates',
   scheduledHidden: '🔒 Only you can see this until it is sent',
 } as const;
@@ -277,7 +276,8 @@ function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
     case 'all':
       return ALL_KEY;
     case 'session':
-      return post.clockEventId ?? `nosession:${post.userId}:${getPostDateKey(post)}`;
+      // Only posts with a session reach here (see postsToConversations).
+      return post.clockEventId as string;
     case 'day':
       return getPostDateKey(post);
     case 'person':
@@ -402,13 +402,14 @@ function withDayDividers(thread: SuperChatMessage[]): SuperChatMessage[] {
 
 /**
  * Each session's plan/wrap-up post: the one with the wrap-up, else the earliest
- * (same pick as the backend's SESSION_POST_SORT). Any other post in a session
- * is a reply sent from the inbox.
+ * that isn't an update (same pick as the backend's SESSION_POST_SORT and
+ * SESSION_POST_FILTER). Any other post in a session is an update.
  */
 function sessionPostIds(posts: HuddlePost[]): Set<string> {
   const bySession = new Map<string, HuddlePost>();
   for (const post of posts) {
-    if (!post.clockEventId) continue;
+    // An update posted while clocked in is in the session but never its plan.
+    if (!post.clockEventId || post.sessionUpdate) continue;
     const current = bySession.get(post.clockEventId);
     const better =
       !current ||
@@ -482,7 +483,6 @@ function buildTitle(
     case 'session': {
       const dateLabel = formatDayLabel(getPostDateKey(first));
       const name = displayName(first, viewer);
-      if (!first.clockEventId) return `${name} · ${dateLabel} · ${OFF_THE_CLOCK}`;
       const session = sessions[0];
       if (!session) return `${name} · ${dateLabel}`;
 
@@ -529,6 +529,8 @@ export function postsToConversations(
     sessionContext.flatMap((p) => (p.clockEventId && p.wrapUpAt ? [p.clockEventId] : [])),
   );
   for (const post of posts) {
+    // Session view shows shifts only: a post made off the clock is in All, Day and Person.
+    if (threadBy === 'session' && !post.clockEventId) continue;
     const key = groupKeyFor(post, threadBy);
     const bucket = groups.get(key);
     if (bucket) bucket.push(post);
@@ -557,19 +559,6 @@ export function postsToConversations(
       liveAt: Math.max(now, ...groupPosts.map((p) => postTime(p) + 1)),
     };
     const systemMessages = sessions.flatMap((s) => systemMessagesForSession(s, lineContext));
-    // Session view: a thread of posts made without clocking in says so up
-    // front, rather than looking like a shift with its clock lines missing.
-    const offTheClockThread = threadBy === 'session' && !groupPosts[0].clockEventId;
-    if (offTheClockThread) {
-      const earliest = Math.min(...groupPosts.map(postTime));
-      systemMessages.push({
-        id: `${key}:off-the-clock`,
-        type: 'system',
-        participantId: SYSTEM_PARTICIPANT_ID,
-        text: THREAD_TEXT.postedWithoutClockingIn,
-        time: new Date(earliest - 1),
-      });
-    }
     const postMessages: SuperChatMessage[] = groupPosts.map((post) => ({
       id: post.id,
       participantId: post.userId,
@@ -722,10 +711,13 @@ export function starterConversation(
   now: number = Date.now(),
   threadBy?: ThreadBy,
 ): SuperChatConversation {
+  // Session can be empty with posts elsewhere: it lists shifts only.
   const hint =
-    scope === 'me'
-      ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
-      : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
+    threadBy === 'session'
+      ? 'No shifts yet. Clock in to post your plan, or share an update below.'
+      : scope === 'me'
+        ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
+        : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
   // In All it is the one thread itself, so a saved `all:feed` link still opens.
   return threadBy === 'all'
     ? emptyConversation(ALL_CONVERSATION_ID, THREAD_TEXT.allUpdates, viewer, hint, now)
@@ -735,6 +727,16 @@ export function starterConversation(
 /** Id of the Day thread for a post dated `dateKey` (YYYY-MM-DD, a post's `postDate`). */
 export function dayConversationId(dateKey: string): string {
   return `day:${dateKey}`;
+}
+
+/** Id of the Day thread holding `post`. */
+export function dayConversationIdForPost(post: HuddlePost): string {
+  return dayConversationId(getPostDateKey(post));
+}
+
+/** Id of the Session thread for a clock session. */
+export function sessionConversationId(clockEventId: string): string {
+  return `session:${clockEventId}`;
 }
 
 /** Id of the Day thread for the calendar day containing `now`. */

@@ -789,3 +789,98 @@ describe('huddle post tickets', () => {
     expect(await storedTicketIds(created.result.id)).toEqual([]);
   });
 });
+
+describe('a post made while clocked in joins the open session (#853)', () => {
+  async function openSession(sessionTeamId: string) {
+    const db = await getDb();
+    const _id = new ObjectId();
+    await db.collection('clockevents').insertOne({
+      _id,
+      userId: authorUserId,
+      teamId: sessionTeamId,
+      startTime: Date.now() - 60_000,
+      accumulatedTime: 0,
+      autoClockoutAgreed: null,
+      endTime: null,
+    });
+    return _id;
+  }
+
+  async function post(text: string) {
+    const res = await wormhole<{ id: string; clockEventId?: string }>(
+      'huddle.createPost',
+      { teamId, content: { text, mentions: [] }, postDate: todayString() },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    const db = await getDb();
+    const stored = await db.collection('huddlePosts').findOne({ _id: new ObjectId(res.result.id) });
+    return { result: res.result, stored: stored! };
+  }
+
+  it('links the post to the open session in this team and says so', async () => {
+    const sessionId = await openSession(teamId);
+    try {
+      const { result, stored } = await post('Mid-shift update');
+      expect(stored.clockEventId).toBe(sessionId.toHexString());
+      expect(stored.sessionUpdate).toBe(true);
+      expect(result.clockEventId).toBe(sessionId.toHexString());
+    } finally {
+      await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
+    }
+  });
+
+  it('leaves the post unlinked when clocked out', async () => {
+    const { result, stored } = await post('Off-shift note');
+    expect(stored.clockEventId).toBeUndefined();
+    expect(stored.sessionUpdate).toBeUndefined();
+    expect(result.clockEventId).toBeUndefined();
+  });
+
+  async function sessionPost(clockEventId: string) {
+    const res = await wormhole<{ post: { id: string; sessionUpdate?: boolean } | null }>(
+      'huddle.getMyPostForSession',
+      { teamId, clockEventId },
+      authorJwt,
+    );
+    expect(res.ok).toBe(true);
+    return res.result.post;
+  }
+
+  it("never takes an update for the session's plan (the wrap-up editor's post)", async () => {
+    const sessionId = await openSession(teamId);
+    try {
+      // A session with no plan: its only post is an update, so it has no plan post.
+      await post('grabbing lunch');
+      expect(await sessionPost(sessionId.toHexString())).toBeNull();
+
+      // Linked explicitly, as the Clock page links a plan: that one is the plan.
+      const plan = await wormhole<{ id: string }>(
+        'huddle.createPost',
+        {
+          teamId,
+          content: { text: 'The plan', mentions: [] },
+          postDate: todayString(),
+          clockEventId: sessionId.toHexString(),
+        },
+        authorJwt,
+      );
+      const planPost = await sessionPost(sessionId.toHexString());
+      expect(planPost?.id).toBe(plan.result.id);
+      // Sent as false, not left out, so a live update clears a stale true.
+      expect(planPost?.sessionUpdate).toBe(false);
+    } finally {
+      await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
+    }
+  });
+
+  it('leaves the post unlinked when the open session is in another team', async () => {
+    const sessionId = await openSession(new ObjectId().toHexString());
+    try {
+      const { stored } = await post('Clocked in elsewhere');
+      expect(stored.clockEventId).toBeUndefined();
+    } finally {
+      await (await getDb()).collection('clockevents').deleteOne({ _id: sessionId });
+    }
+  });
+});
