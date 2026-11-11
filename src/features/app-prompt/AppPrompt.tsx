@@ -62,8 +62,10 @@ function useAppPromptKind(): AppPromptKind | null {
 
 export const AppPrompt: React.FC = () => {
   const kind = useAppPromptKind();
+  const { needsUsernameClaim } = useSession();
   const [open, setOpen] = useState(true);
-  if (!kind || !open) return null;
+  // A new social signup must pick a username first (main.tsx); don't stack a second dialog on it.
+  if (!kind || !open || needsUsernameClaim) return null;
 
   const close = () => setOpen(false);
   return kind === 'install-desktop' ? (
