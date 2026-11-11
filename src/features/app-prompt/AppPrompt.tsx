@@ -3,9 +3,9 @@
  * to open it when they already have it (#859). Which one, if any, is decided
  * by appPromptKind.ts.
  *
- * Shown each time the app is opened: it lives in AppLayout, which mounts once
- * per page load, so moving between pages doesn't bring it back and a reload
- * or new tab does. Dismissing it is deliberately not remembered.
+ * Shown once per browser tab: the first time TimeHuddle opens in a tab it
+ * shows, and a session-storage flag keeps reloads and in-app navigation from
+ * bringing it back. A new tab or window shows it again.
  */
 import {
   Button,
@@ -26,7 +26,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 import { APP_STORE_URL, openInAppUrl } from '../../lib/appLinks';
 import { getMobileOS, isNativeApp, openExternalUrl } from '../../lib/device';
@@ -46,16 +46,37 @@ const COPY = {
   dismiss: 'Not Now',
 } as const;
 
+const SHOWN_KEY = 'timehuddle.appPromptShown';
+
+/** Session storage can throw (private mode, blocked storage); treat that as "not shown yet". */
+function wasShownThisSession(): boolean {
+  try {
+    return sessionStorage.getItem(SHOWN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markShownThisSession(): void {
+  try {
+    sessionStorage.setItem(SHOWN_KEY, '1');
+  } catch {
+    // Without storage it simply shows again on the next load.
+  }
+}
+
 /** Decided once per page load: the device can't change, and the prompt shouldn't swap mid-view. */
 function useAppPromptKind(): AppPromptKind | null {
   const { user } = useSession();
   const [kind] = useState(() =>
-    appPromptKind({
-      isNativeApp: isNativeApp(),
-      automated: typeof navigator !== 'undefined' && navigator.webdriver === true,
-      mobileOS: getMobileOS(),
-      hasIosApp: user?.hasIosApp ?? false,
-    }),
+    wasShownThisSession()
+      ? null
+      : appPromptKind({
+          isNativeApp: isNativeApp(),
+          automated: typeof navigator !== 'undefined' && navigator.webdriver === true,
+          mobileOS: getMobileOS(),
+          hasIosApp: user?.hasIosApp ?? false,
+        }),
   );
   return kind;
 }
@@ -65,7 +86,11 @@ export const AppPrompt: React.FC = () => {
   const { needsUsernameClaim } = useSession();
   const [open, setOpen] = useState(true);
   // A new social signup must pick a username first (main.tsx); don't stack a second dialog on it.
-  if (!kind || !open || needsUsernameClaim) return null;
+  const visible = Boolean(kind) && open && !needsUsernameClaim;
+  useEffect(() => {
+    if (visible) markShownThisSession();
+  }, [visible]);
+  if (!kind || !visible) return null;
 
   const close = () => setOpen(false);
   return kind === 'install-desktop' ? (

@@ -1,7 +1,7 @@
 /**
  * Install / open-in-app prompt (#859)
  *
- * Each time TimeHuddle opens in a browser it asks people without the iOS app
+ * The first time TimeHuddle opens in a browser tab it asks people without the iOS app
  * to install it, and offers to open the app to people on an iPhone who have
  * it. Who "has it" comes from the server (`nativeAppLastSeenAt`, written by the
  * native app on launch), so these tests set that field directly.
@@ -10,7 +10,7 @@
  * of the suite; these tests clear it so the prompt shows as it would for a
  * person.
  *
- * 1. Laptop, no app: QR modal on every page load, not on in-app navigation
+ * 1. Laptop, no app: QR modal once per tab, not on reload or in-app navigation
  * 2. Laptop, has the app: no prompt
  * 3. iPhone, no app: install sheet
  * 4. iPhone, has the app: open-in-app sheet that links to the current page
@@ -53,7 +53,7 @@ test.afterAll(async () => {
 });
 
 test.describe('App prompt on a laptop', () => {
-  test('asks to install on every page load, but not on in-app navigation', async ({ page }) => {
+  test('asks to install once per tab, not on reload or in-app navigation', async ({ page }) => {
     await setHasIosApp(false);
     await asPerson(page);
     await loginAs(page, USER);
@@ -74,7 +74,8 @@ test.describe('App prompt on a laptop', () => {
     await expect(modal).toBeHidden();
 
     await page.reload();
-    await expect(modal).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await expect(modal).toBeHidden();
   });
 
   test('leaves someone who has the app alone', async ({ page }) => {
