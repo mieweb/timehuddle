@@ -20,12 +20,27 @@ const refOf = (kind, key) =>
 /** How many characters `text` takes in a link's parameters, where it is percent-encoded. */
 const encoded = (text) => new URLSearchParams({ t: text }).toString().length - 2;
 /**
+ * `text` as a link's hint carries it, cleaned by @mieweb/pulsevault's own
+ * builder: a line break or control character becomes a space, and
+ * bidirectional-formatting characters go. A title is stored as typed.
+ */
+const asHint = (text) => {
+  const link = buildUploadLink({
+    server: BASE,
+    artifactId: 'x',
+    token: 'x',
+    label: text,
+    form: 'https',
+  });
+  return new URLSearchParams(new URL(link).hash.slice(1)).get('label') ?? '';
+};
+/**
  * Whether `shown` is how a link names something called `full`: all of it when
  * it fits 40 characters (and 120 once encoded), else its start and an ellipsis.
  */
 function namedFor(shown, full) {
   if (typeof shown !== 'string' || [...shown].length > 40 || encoded(shown) > 120) return false;
-  const whole = full.trim();
+  const whole = asHint(full);
   return shown === whole || (shown.endsWith('…') && whole.startsWith(shown.slice(0, -1)));
 }
 
