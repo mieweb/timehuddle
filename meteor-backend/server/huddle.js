@@ -919,23 +919,22 @@ Meteor.methods({
   },
 
   /**
-   * The caller's own published posts across every team they belong to — the
-   * Huddle inbox's "Me · all teams" scope. Defaults to the last 30 days so an
-   * account with years of history doesn't return an unbounded feed.
+   * The caller's posts in their personal team — the Huddle inbox's Personal
+   * view. Personal reads like its own private team: a post written in a
+   * shared team stays in that team and doesn't show here. Defaults to the
+   * last 30 days so an account with years of history doesn't return an
+   * unbounded feed.
    */
   async 'huddle.getMyPosts'({ since } = {}) {
     const identity = await requireIdentity(this);
     const sinceDate = requireSince(since);
 
-    const myTeams = await rawDb()
+    const personalTeam = await rawDb()
       .collection('teams')
-      .find(
-        { $or: [{ members: identity.userId }, { admins: identity.userId }] },
-        { projection: { _id: 1 } },
-      )
-      .toArray();
+      .findOne({ isPersonal: true, members: identity.userId }, { projection: { _id: 1 } });
+    if (!personalTeam) return { posts: [], hasMore: false };
     // Legacy posts store teamId as an ObjectId — match both forms.
-    const teamIds = myTeams.flatMap((t) => [String(t._id), toId(String(t._id))]);
+    const teamIds = [String(personalTeam._id), toId(String(personalTeam._id))];
 
     const mine = { userId: identity.userId, teamId: { $in: teamIds }, ...PUBLISHED };
     const posts = await rawDb()

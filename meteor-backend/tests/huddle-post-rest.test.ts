@@ -458,22 +458,29 @@ describe('huddle post clockEventId ownership', () => {
 });
 
 /**
- * `huddle.getMyPosts` feeds the Huddle Personal view: the caller's own
- * published posts, only from teams they belong to, from the last 30 days by
- * default. Legacy rows store `teamId` as an ObjectId and must still match.
+ * `huddle.getMyPosts` feeds the Huddle Personal view: the caller's posts in
+ * their personal team only — a post in a shared team stays in that team — from
+ * the last 30 days by default. Legacy rows store `teamId` as an ObjectId and
+ * must still match.
  */
 describe('huddle.getMyPosts', () => {
   const otherTeamId = new ObjectId().toHexString();
+  let personalTeamId: string;
   const ids = {
     recent: new ObjectId(),
     legacyObjectIdTeam: new ObjectId(),
     old: new ObjectId(),
     draft: new ObjectId(),
     someoneElse: new ObjectId(),
+    sharedTeam: new ObjectId(),
     leftTeam: new ObjectId(),
   };
 
   beforeAll(async () => {
+    const ensured = await wormhole<{ team: { id: string } }>('teams.ensurePersonal', {}, authorJwt);
+    expect(ensured.ok).toBe(true);
+    personalTeamId = ensured.result.team.id;
+
     const db = await getDb();
     const outsiderUserId = String(
       (await db.collection('users').findOne({ 'emails.address': OUTSIDER.email }))!._id,
@@ -486,56 +493,30 @@ describe('huddle.getMyPosts', () => {
     };
     const now = new Date();
     const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    const mine = { ...base, userId: authorUserId, createdAt: now, updatedAt: now };
     await db.collection('huddlePosts').insertMany([
-      { ...base, _id: ids.recent, teamId, userId: authorUserId, createdAt: now, updatedAt: now },
+      { ...mine, _id: ids.recent, teamId: personalTeamId },
+      { ...mine, _id: ids.legacyObjectIdTeam, teamId: new ObjectId(personalTeamId) },
       {
-        ...base,
-        _id: ids.legacyObjectIdTeam,
-        teamId: new ObjectId(teamId),
-        userId: authorUserId,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        ...base,
+        ...mine,
         _id: ids.old,
-        teamId,
-        userId: authorUserId,
+        teamId: personalTeamId,
         createdAt: fortyDaysAgo,
         updatedAt: fortyDaysAgo,
       },
-      {
-        ...base,
-        _id: ids.draft,
-        teamId,
-        userId: authorUserId,
-        status: 'draft',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        ...base,
-        _id: ids.someoneElse,
-        teamId,
-        userId: outsiderUserId,
-        createdAt: now,
-        updatedAt: now,
-      },
+      { ...mine, _id: ids.draft, teamId: personalTeamId, status: 'draft' },
+      { ...mine, _id: ids.someoneElse, teamId: personalTeamId, userId: outsiderUserId },
+      // A shared team the author belongs to: its posts stay in that team.
+      { ...mine, _id: ids.sharedTeam, teamId },
       // A team the author isn't (or is no longer) a member of.
-      {
-        ...base,
-        _id: ids.leftTeam,
-        teamId: otherTeamId,
-        userId: authorUserId,
-        createdAt: now,
-        updatedAt: now,
-      },
+      { ...mine, _id: ids.leftTeam, teamId: otherTeamId },
     ]);
   });
 
   afterAll(async () => {
     const db = await getDb();
     await db.collection('huddlePosts').deleteMany({ _id: { $in: Object.values(ids) } });
+    await db.collection('teams').deleteOne({ _id: new ObjectId(personalTeamId) });
   });
 
   async function myPostIds(args: Record<string, unknown> = {}): Promise<string[]> {
@@ -548,10 +529,14 @@ describe('huddle.getMyPosts', () => {
     return res.result.posts.map((p) => p.id);
   }
 
-  it("returns the caller's own recent posts, including legacy ObjectId team ids", async () => {
+  it("returns the caller's recent Personal posts, including legacy ObjectId team ids", async () => {
     const found = await myPostIds();
     expect(found).toContain(ids.recent.toHexString());
     expect(found).toContain(ids.legacyObjectIdTeam.toHexString());
+  });
+
+  it("leaves out the caller's posts in shared teams", async () => {
+    expect(await myPostIds()).not.toContain(ids.sharedTeam.toHexString());
   });
 
   it("leaves out other people's posts, teams the caller isn't in, and drafts", async () => {
@@ -574,7 +559,7 @@ describe('huddle.getMyPosts', () => {
       authorJwt,
     );
     const legacy = res.result.posts.find((p) => p.id === ids.legacyObjectIdTeam.toHexString());
-    expect(legacy?.teamId).toBe(teamId);
+    expect(legacy?.teamId).toBe(personalTeamId);
   });
 
   it('rejects an invalid `since`', async () => {
@@ -588,6 +573,16 @@ describe('huddle.getMyPosts', () => {
     expect(await page({})).toBe(true); // the 40-day-old fixture
     const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     expect(await page({ since })).toBe(false);
+  });
+
+  it('returns nothing for a caller with no personal team yet', async () => {
+    const res = await wormhole<{ posts: unknown[]; hasMore: boolean }>(
+      'huddle.getMyPosts',
+      {},
+      outsiderJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result).toEqual({ posts: [], hasMore: false });
   });
 });
 

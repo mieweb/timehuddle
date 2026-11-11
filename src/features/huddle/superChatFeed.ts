@@ -422,7 +422,7 @@ function sessionPostIds(posts: HuddlePost[]): Set<string> {
 }
 
 /** Plan/wrap-up + ticket label for a post, e.g. "Plan · [TH-7: Onboarding checklist](/app/tickets/…)". */
-function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: string): string[] {
+function postLabelParts(post: HuddlePost, isSessionPost: boolean): string[] {
   const parts: string[] = [];
   // SuperChat draws the scheduled time (`scheduledFor`); this says who can see it.
   if (isAwaitingDelivery(post)) {
@@ -434,21 +434,14 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean, teamName?: str
   for (const ticket of existingTickets(post)) {
     parts.push(ticketLinkMarkdown(ticket));
   }
-  if (teamName) {
-    parts.push(teamName);
-  }
   return parts;
 }
 
 /** A post's label (its message's `label`, under it): who can see it yet,
- *  plan or wrap-up, its tickets and its team, e.g. "Plan · [TH-7: …](…) ·
- *  Dev Team". Not part of its text, so an edit or a copy leaves it out. */
-function postLabel(
-  post: HuddlePost,
-  isSessionPost: boolean,
-  teamName?: string,
-): string | undefined {
-  const parts = postLabelParts(post, isSessionPost, teamName);
+ *  plan or wrap-up and its tickets, e.g. "Plan · [TH-7: …](…)". Not part of
+ *  its text, so an edit or a copy leaves it out. */
+function postLabel(post: HuddlePost, isSessionPost: boolean): string | undefined {
+  const parts = postLabelParts(post, isSessionPost);
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
@@ -507,10 +500,6 @@ function buildTitle(
  * conversations. Pure: no React, no API calls, no `Date.now()` — pass `now`
  * explicitly so callers (and tests) get a stable "live" duration/label.
  *
- * `getTeamName` is only needed for the Personal ("me") scope, where posts
- * from several teams can land in one conversation and each message's label
- * needs to say which team it came from.
- *
  * `sessionContext` is the unfiltered post list when `posts` is a search
  * result: which post is a session's plan, and whether it has a wrap-up, are
  * facts about the whole session, not about what the search happened to match.
@@ -520,7 +509,6 @@ export function postsToConversations(
   threadBy: ThreadBy,
   viewer: InboxViewer,
   now: number = Date.now(),
-  getTeamName?: (teamId: string) => string | undefined,
   sessionContext: HuddlePost[] = posts,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
@@ -563,7 +551,7 @@ export function postsToConversations(
       id: post.id,
       participantId: post.userId,
       text: shownBody(post),
-      label: postLabel(post, planPostIds.has(post.id), getTeamName?.(post.teamId)),
+      label: postLabel(post, planPostIds.has(post.id)),
       media: postMedia(post),
       files: postFiles(post),
       time: postAt(post),
@@ -627,9 +615,9 @@ function withoutLinkTargets(text: string): string {
   }
 }
 
-/** Everything a post can be found by: body, author, ticket, attachments, team
- *  and its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
-function postSearchText(post: HuddlePost, teamName?: string): string {
+/** Everything a post can be found by: body, author, ticket, attachments and
+ *  its date in several spellings ("2026-09-24", "Thu, Sep 24", "September"). */
+function postSearchText(post: HuddlePost): string {
   // The post's own date, and the day All's divider shows it under (when it
   // appeared, in the reader's timezone) when that differs.
   const dateKeys = new Set([getPostDateKey(post), localDateKey(postTime(post))]);
@@ -645,7 +633,6 @@ function postSearchText(post: HuddlePost, teamName?: string): string {
       shownVideoName(att) ?? undefined,
       att.type,
     ]),
-    teamName,
     ...[...dateKeys].flatMap(dateSearchTerms),
   ]
     .filter(Boolean)
@@ -716,7 +703,7 @@ export function starterConversation(
     threadBy === 'session'
       ? 'No shifts yet. Clock in to post your plan, or share an update below.'
       : scope === 'me'
-        ? "You haven't posted in any team in the last 30 days. Share an update below, or clock in to post your plan."
+        ? "You haven't posted in Personal in the last 30 days. Share an update below, or clock in to post your plan."
         : 'No updates yet. Share what you’re working on below, or clock in to post your plan.';
   // In All it is the one thread itself, so a saved `all:feed` link still opens.
   return threadBy === 'all'
@@ -794,17 +781,12 @@ function searchWords(query: string): string[] {
  * {@link searchConversations}. All grouping has a single conversation, so it
  * narrows the posts in it rather than keeping or dropping the whole thread.
  */
-export function searchPosts(
-  posts: HuddlePost[],
-  query: string,
-  viewer: InboxViewer,
-  getTeamName?: (teamId: string) => string | undefined,
-): HuddlePost[] {
+export function searchPosts(posts: HuddlePost[], query: string, viewer: InboxViewer): HuddlePost[] {
   const words = searchWords(query);
   if (words.length === 0) return posts;
   return posts.filter((post) => {
     const haystack = normalizeForSearch(
-      [postSearchText(post, getTeamName?.(post.teamId)), clockLinesText(post, viewer)].join('\n'),
+      [postSearchText(post), clockLinesText(post, viewer)].join('\n'),
     );
     return words.every((word) => haystack.includes(word));
   });
@@ -835,7 +817,6 @@ export function searchConversations(
   conversations: SuperChatConversation[],
   posts: HuddlePost[],
   query: string,
-  getTeamName?: (teamId: string) => string | undefined,
 ): SuperChatConversation[] {
   const words = searchWords(query);
   if (words.length === 0) return conversations;
@@ -849,7 +830,7 @@ export function searchConversations(
         ...conversation.thread.map((message) => {
           const shown = withoutLinkTargets(message.text ?? '');
           const post = postsById.get(message.id);
-          return post ? `${shown}\n${postSearchText(post, getTeamName?.(post.teamId))}` : shown;
+          return post ? `${shown}\n${postSearchText(post)}` : shown;
         }),
       ].join('\n'),
     );
