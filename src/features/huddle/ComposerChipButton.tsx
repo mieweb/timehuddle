@@ -51,8 +51,10 @@ export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButt
           'gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
           // No gap below sm: the hidden label would still hold one, pushing
           // the icon off centre.
+          // Alone on a list's row, it looks like the row's other icon buttons
+          // (BoardToggleButton): filled, with no border.
           compact === 'always'
-            ? 'size-8 shrink-0 justify-center gap-0 p-0'
+            ? 'size-8 shrink-0 justify-center gap-0 border-0 bg-neutral-100 p-0 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700'
             : compact &&
                 'max-sm:size-8 max-sm:shrink-0 max-sm:justify-center max-sm:gap-0 max-sm:p-0',
         )}

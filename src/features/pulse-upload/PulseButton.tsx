@@ -16,7 +16,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { ComposerChipButton } from '../huddle/ComposerChipButton';
-import { PulseLogo } from './PulseLogo';
+import { PulseIcon } from './PulseIcon';
 import { EXPIRED_MESSAGE, followUpNote, keptMessage, landedLabel } from './pulseStatus';
 import { PulseUploadModal } from './PulseUploadModal';
 import { usePulseUpload, type PulseUpload } from './usePulseUpload';
@@ -149,7 +149,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Button
       type="button"
       variant="primary"
-      leftIcon={<PulseLogo inverse className="h-5" />}
+      // The size of a filled button's icon across the app (h-4 w-4).
+      leftIcon={<PulseIcon white className="h-4" />}
       className={cn('pulse-button', main.className)}
       {...shared}
     >
@@ -158,9 +159,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
   ) : (
     <ComposerChipButton
       ref={chipButton}
-      // Alone in its circle the logo is drawn larger: at a label's 14px its
-      // heartbeat line is under a pixel wide and the mark looks out of focus.
-      leftIcon={<PulseLogo className={compact === 'always' ? 'h-5' : 'h-3.5'} />}
+      // The size of the icons beside it, in the composer and on a ticket's row.
+      leftIcon={<PulseIcon className="h-3.5" />}
       compact={compact}
       {...shared}
     >
