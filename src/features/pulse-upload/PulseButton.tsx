@@ -149,7 +149,8 @@ export const PulseChip: React.FC<PulseChipProps> = ({
     <Button
       type="button"
       variant="primary"
-      leftIcon={<PulseIcon white className="h-5" />}
+      // The size of a filled button's icon across the app (h-4 w-4).
+      leftIcon={<PulseIcon white className="h-4" />}
       className={cn('pulse-button', main.className)}
       {...shared}
     >
