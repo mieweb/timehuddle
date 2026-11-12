@@ -5,14 +5,18 @@ import { describe, it, expect } from 'vitest';
 
 import {
   LABEL_MAX,
+  audienceFilter,
+  audienceOf,
   canSee,
   checkStartDateKey,
   cleanLabel,
   directKey,
   displayLabel,
   isOpen,
+  isOutsideAudience,
   isTeamMember,
   legacyDateKeyFor,
+  teamForAudience,
   utcDateKey,
 } from '../server/conversations-core';
 
@@ -140,6 +144,36 @@ describe('legacyDateKeyFor', () => {
     expect(legacyDateKeyFor({ postDate: 'Nov 11', createdAt: new Date('2026-11-12T07:00:00Z') })).toBe(
       '2026-11-12',
     );
+  });
+});
+
+describe('who may see a post (R21)', () => {
+  const direct = { kind: 'direct', memberIds: ['cindy', 'bob'] };
+
+  it('a team or direct conversation post carries its members; a workday post carries none', () => {
+    expect(audienceOf(direct)).toEqual(['cindy', 'bob']);
+    expect(audienceOf({ kind: 'group', memberIds: ['cindy'] })).toEqual(['cindy']);
+    expect(audienceOf({ kind: 'workday' })).toBeNull();
+    expect(audienceOf(null)).toBeNull();
+  });
+  it('a copy, so changing it never touches the conversation', () => {
+    const copy = audienceOf(direct)!;
+    copy.push('eve');
+    expect(direct.memberIds).toEqual(['cindy', 'bob']);
+  });
+  it('only a post with an audience can be outside it', () => {
+    expect(isOutsideAudience({ audienceIds: ['cindy', 'bob'] }, 'eve')).toBe(true);
+    expect(isOutsideAudience({ audienceIds: ['cindy', 'bob'] }, 'bob')).toBe(false);
+    expect(isOutsideAudience({}, 'eve')).toBe(false);
+  });
+  it('the query form matches the same posts', () => {
+    expect(audienceFilter('bob')).toEqual({ $or: [{ audienceIds: { $exists: false } }, { audienceIds: 'bob' }] });
+  });
+  it('narrows a team to the audience for notifications', () => {
+    const narrowed = teamForAudience({ ...team, members: ['cindy', 'bob', 'eve'] }, ['cindy', 'admin']);
+    expect(narrowed.members).toEqual(['cindy']);
+    expect(narrowed.admins).toEqual(['admin']);
+    expect(teamForAudience(team, undefined)).toBe(team);
   });
 });
 

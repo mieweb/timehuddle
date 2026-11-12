@@ -82,6 +82,45 @@ export function displayLabel(conversation, viewerId, { personalLabel = null, nam
   return null;
 }
 
+// ─── Who may see a post (#866 R21) ─────────────────────────────────────────
+//
+// A post in a team or direct conversation carries that conversation's members
+// as `audienceIds`. Members are fixed when the conversation is made, so the
+// copy never goes stale, and every read filters on the post itself: a
+// conversation created after a page loaded can't slip past a list worked out
+// when it loaded. Workday posts carry no `audienceIds`: the whole team sees them.
+
+/** The `audienceIds` a post in `conversation` carries, or null for a team-wide workday. */
+export function audienceOf(conversation) {
+  if (!conversation || conversation.kind === 'workday') return null;
+  return [...(conversation.memberIds ?? [])];
+}
+
+/** Whether `post` is private to people other than `userId`. */
+export function isOutsideAudience(post, userId) {
+  return Array.isArray(post?.audienceIds) && !post.audienceIds.includes(userId);
+}
+
+/** Mongo filter: posts `userId` is in the audience of — the query form of `isOutsideAudience`. */
+export function audienceFilter(userId) {
+  return { $or: [{ audienceIds: { $exists: false } }, { audienceIds: userId }] };
+}
+
+/**
+ * `team` narrowed to the people a post with `audienceIds` reaches, for
+ * notification fan-out: followers, @team / @here and @mentions all draw on
+ * the team's members, so narrowing them once covers every kind.
+ */
+export function teamForAudience(team, audienceIds) {
+  if (!Array.isArray(audienceIds)) return team;
+  const inAudience = (id) => audienceIds.includes(String(id));
+  return {
+    ...team,
+    members: (team.members ?? []).filter(inAudience),
+    admins: (team.admins ?? []).filter(inAudience),
+  };
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

@@ -9,6 +9,7 @@ import { createNotification, userDisplayName } from './notify-core';
 import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
 import { resolvePostConversation } from './conversations';
+import { teamForAudience } from './conversations-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -76,7 +77,10 @@ async function sendMentionNotifications(post, recipientIds) {
  * still on `team`, so a mention can't leak the text outside the team. Returns
  * the ids of any recipients whose notification failed.
  */
-export async function notifyPostRecipients(post, team) {
+export async function notifyPostRecipients(post, fullTeam) {
+  // A post in a team or direct conversation reaches its members only (#866):
+  // narrowing the team narrows mentions, @team/@here and followers alike.
+  const team = teamForAudience(fullTeam, post.audienceIds);
   const onTeam = teamMemberIds(team);
   const recipients = [...new Set(post.content?.mentions ?? [])].filter(
     (userId) => userId !== post.userId && onTeam.has(String(userId)),
@@ -172,12 +176,15 @@ export async function retryMentionNotifications(postId, recipientIds) {
   if (!recipientIds?.length) return [];
   const post = await rawDb()
     .collection('huddlePosts')
-    .findOne({ _id: new ObjectId(postId) }, { projection: { userId: 1, teamId: 1, content: 1 } });
+    .findOne(
+      { _id: new ObjectId(postId) },
+      { projection: { userId: 1, teamId: 1, content: 1, audienceIds: 1 } },
+    );
   if (!post) return []; // the post is gone — nothing left to notify about
   const team = await findPostTeam(post.teamId);
   if (!team) return [];
 
-  const onTeam = teamMemberIds(team);
+  const onTeam = teamMemberIds(teamForAudience(team, post.audienceIds));
   const candidates = [...new Set(recipientIds)].filter((userId) => onTeam.has(String(userId)));
   if (!candidates.length) return [];
 

@@ -36,6 +36,7 @@ import {
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
 import { resolvePostConversation } from './conversations';
+import { audienceFilter, audienceOf, isOutsideAudience } from './conversations-core';
 
 /**
  * A session can hold several posts (the plan plus replies sent from the Huddle
@@ -464,7 +465,9 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   // scheduled post, from when it was actually delivered — and the caller's
   // own still-waiting post regardless of age). A hidden scheduled post is
   // the author's alone until it is delivered.
-  const inWindow = { $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate)] };
+  const inWindow = {
+    $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate), audienceFilter(this.userId)],
+  };
   let posts = await collection
     .find({ teamId, ...PUBLISHED, ...inWindow })
     .sort({ createdAt: -1 })
@@ -513,8 +516,13 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
         // Older than the window: not this subscription's to send — unless it's a
         // scheduled post delivered within it, or the caller's own still-waiting post.
         if (isOutsideWindow(change.fullDocument, sinceDate, self.userId)) return;
-        // Drafts never reach the feed; nor does someone else's undelivered hidden post.
-        if (change.fullDocument.status === 'draft' || isHiddenFrom(change.fullDocument, self.userId)) {
+        // Drafts never reach the feed; nor does someone else's undelivered hidden
+        // post, nor a post in a conversation this reader isn't in (#866 R21).
+        if (
+          change.fullDocument.status === 'draft' ||
+          isHiddenFrom(change.fullDocument, self.userId) ||
+          isOutsideAudience(change.fullDocument, self.userId)
+        ) {
           if (sentIds.has(docId)) {
             sentIds.delete(docId);
             self.removed('huddlePosts', docId);
@@ -739,6 +747,7 @@ export async function createHuddlePost(
   // post bound for a workday gets one when it is delivered
   // (deliverScheduledPost), since the open workday may have changed by then.
   let conversationId = null;
+  let audienceIds = null;
   if (!schedule || requestedConversationId) {
     const conversation = await resolvePostConversation(userId, team, {
       conversationId: requestedConversationId,
@@ -746,6 +755,8 @@ export async function createHuddlePost(
       onClosed,
     });
     if (!schedule || conversation.kind !== 'workday') conversationId = conversation._id.toHexString();
+    // Private to the conversation's members (R21); a workday post has none.
+    audienceIds = audienceOf(conversation);
   }
 
   const { text, media } = await externalizeInlineImages(content.text, userId);
@@ -766,6 +777,7 @@ export async function createHuddlePost(
     commentCount: 0,
     ...(postDate ? { postDate } : {}),
     ...(conversationId ? { conversationId } : {}),
+    ...(audienceIds ? { audienceIds } : {}),
     // Optionally link to a clock session (per-session gate) and/or stamp a
     // wrap-up at creation — used by the clock-out recovery path when a
     // session somehow has no plan post.
@@ -912,7 +924,7 @@ Meteor.methods({
     const filter = {
       teamId: { $in: [teamId, toId(teamId)] },
       ...PUBLISHED,
-      ...visibleTo(identity.userId),
+      $and: [visibleTo(identity.userId), audienceFilter(identity.userId)],
     };
     // `withPosts: false` answers only `hasMore` — for a client already receiving
     // the window's posts from the huddlePosts.byTeam subscription.
@@ -923,7 +935,11 @@ Meteor.methods({
       .find({
         teamId: { $in: [teamId, toId(teamId)] },
         ...PUBLISHED,
-        $and: [visibleTo(identity.userId), inWindowOrPending(identity.userId, sinceDate)],
+        $and: [
+          visibleTo(identity.userId),
+          inWindowOrPending(identity.userId, sinceDate),
+          audienceFilter(identity.userId),
+        ],
       })
       .sort({ createdAt: -1 })
       .toArray();
@@ -1487,7 +1503,11 @@ Meteor.methods({
     if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ticketIds: ticketId, ...PUBLISHED, ...visibleTo(identity.userId) })
+      .find({
+        ticketIds: ticketId,
+        ...PUBLISHED,
+        $and: [visibleTo(identity.userId), audienceFilter(identity.userId)],
+      })
       .sort({ createdAt: -1 })
       .toArray();
     const enriched = await Promise.all(posts.map(enrichPost));

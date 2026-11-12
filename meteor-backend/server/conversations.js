@@ -16,7 +16,10 @@ import { rawDb } from './collections';
 import {
   canSee,
   checkStartDateKey,
+  cleanLabel,
   DATE_KEY_RE,
+  directKey,
+  displayLabel,
   isOpen,
   isTeamMember,
   legacyDateKeyFor,
@@ -222,20 +225,23 @@ export async function currentWorkday(teamId, { postDate, at = new Date() } = {})
 /** The team, if `userId` is on it; throws otherwise. */
 async function requireTeam(userId, teamId) {
   if (!teamId || typeof teamId !== 'string') throw new Meteor.Error('bad-request', 'teamId is required');
-  const team = await rawDb()
-    .collection('teams')
-    .findOne({ _id: /^[a-f0-9]{24}$/i.test(teamId) ? { $in: [teamId, new ObjectId(teamId)] } : teamId });
+  const team = await findTeam(teamId);
   if (!team) throw new Meteor.Error('not-found', 'Team not found');
   if (!isTeamMember(team, userId)) throw new Meteor.Error('forbidden', 'Not a team member');
   return team;
 }
 
-/** A conversation row as the API returns it. */
-export function toConversationShape(row) {
+/**
+ * A conversation row as the API returns it. `displayLabel` is the name this
+ * viewer sees (null for a workday: the client formats its `dateKey`).
+ */
+export function toConversationShape(row, { displayLabel: shown = null, myLabel = null } = {}) {
   return {
     id: row._id.toHexString(),
     teamId: row.teamId,
     kind: row.kind,
+    displayLabel: shown,
+    myLabel,
     ...(row.kind === 'workday'
       ? {
           dateKey: row.dateKey,
@@ -243,8 +249,162 @@ export function toConversationShape(row) {
           startedBy: row.startedBy ?? null,
           closedAt: row.closedAt ? row.closedAt.toISOString() : null,
         }
-      : {}),
+      : { label: row.label ?? null, memberIds: row.memberIds ?? [], createdBy: row.createdBy ?? null }),
   };
+}
+
+// ─── Team and direct conversations, names (#866 M3) ────────────────────────
+
+/** Names (profile.name) for `userIds`, by id. */
+async function userNames(userIds) {
+  if (userIds.length === 0) return new Map();
+  const users = await rawDb()
+    .collection('users')
+    .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
+    .toArray();
+  return new Map(users.map((u) => [String(u._id), u.profile?.name ?? null]));
+}
+
+/** Rows shaped for `userId`: their personal names and the names they see. Two queries, never one per row. */
+async function shapeFor(userId, rows) {
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r._id.toHexString());
+  const labels = await conversationLabelsCollection()
+    .find({ userId, conversationId: { $in: ids } }, { projection: { conversationId: 1, label: 1 } })
+    .toArray();
+  const mine = new Map(labels.map((l) => [l.conversationId, l.label]));
+  const others = [
+    ...new Set(rows.filter((r) => r.kind === 'direct').flatMap((r) => r.memberIds ?? [])),
+  ].filter((id) => id !== userId);
+  const names = await userNames(others);
+  return rows.map((row) => {
+    const myLabel = mine.get(row._id.toHexString()) ?? null;
+    return toConversationShape(row, {
+      myLabel,
+      displayLabel: displayLabel(row, userId, { personalLabel: myLabel, nameOf: (id) => names.get(id) ?? null }),
+    });
+  });
+}
+
+/** The conversations `userId` can see on `team`: its workdays, and the team and direct conversations they are in. */
+export async function listConversations(userId, team) {
+  const rows = await conversationsCollection()
+    .find({ teamId: String(team._id), $or: [{ kind: 'workday' }, { memberIds: userId }] })
+    .sort({ createdAt: -1 })
+    .toArray();
+  return shapeFor(userId, rows);
+}
+
+/** Load a conversation `userId` can see, with its team; throws not-found otherwise (never reveals it exists). */
+async function requireVisibleConversation(userId, conversationId) {
+  if (typeof conversationId !== 'string' || !/^[a-f0-9]{24}$/i.test(conversationId)) {
+    throw new Meteor.Error('bad-request', 'Invalid conversationId');
+  }
+  const row = await conversationsCollection().findOne({ _id: new ObjectId(conversationId) });
+  const team = row ? await findTeam(row.teamId) : null;
+  if (!row || !canSee(row, userId, team)) throw new Meteor.Error('not-found', 'Conversation not found');
+  return { row, team };
+}
+
+/**
+ * Create a team conversation (`group`, named, with members) or a direct one
+ * (`direct`, one other person). A direct conversation that already exists is
+ * returned instead — insert first and read the winner on a duplicate key,
+ * never look up then insert (#866 R17).
+ */
+export async function createConversation(userId, team, { kind, label, memberIds } = {}) {
+  if (kind !== 'group' && kind !== 'direct') {
+    throw new Meteor.Error('bad-request', 'kind must be group or direct');
+  }
+  if (!Array.isArray(memberIds) || memberIds.some((id) => typeof id !== 'string' || !id)) {
+    throw new Meteor.Error('bad-request', 'memberIds must be a list of user ids');
+  }
+  const others = [...new Set(memberIds)].filter((id) => id !== userId);
+  if (others.some((id) => !isTeamMember(team, id))) {
+    throw new Meteor.Error('bad-request', 'Everyone in a conversation must be on the team');
+  }
+  const now = new Date();
+  const base = { teamId: String(team._id), kind, createdBy: userId, createdAt: now };
+  if (kind === 'direct') {
+    if (others.length !== 1) throw new Meteor.Error('bad-request', 'A direct conversation is with exactly one other person');
+    const row = {
+      _id: new ObjectId(),
+      ...base,
+      label: null,
+      memberIds: [userId, others[0]],
+      directKey: directKey(userId, others[0]),
+    };
+    try {
+      await conversationsCollection().insertOne(row);
+      return row;
+    } catch (err) {
+      if (!isDuplicateKey(err)) throw err;
+      return conversationsCollection().findOne({ kind: 'direct', directKey: row.directKey });
+    }
+  }
+  const { label: name, error } = cleanLabel(label);
+  if (error) throw new Meteor.Error('bad-request', error);
+  if (!name) throw new Meteor.Error('bad-request', 'A team conversation needs a name');
+  if (others.length === 0) throw new Meteor.Error('bad-request', 'Add at least one other team member');
+  const row = { _id: new ObjectId(), ...base, label: name, memberIds: [userId, ...others] };
+  await conversationsCollection().insertOne(row);
+  return row;
+}
+
+/** Change a team conversation's shared name, once. Its creator and team admins only; the last rename wins (#866 R20). */
+export async function renameConversation(userId, conversationId, label) {
+  const { row, team } = await requireVisibleConversation(userId, conversationId);
+  if (row.kind !== 'group') {
+    throw new Meteor.Error('bad-request', 'Only a team conversation has a shared name; set your own name instead');
+  }
+  if (row.createdBy !== userId && !(team.admins ?? []).includes(userId)) {
+    throw new Meteor.Error('forbidden', 'Only its creator or a team admin can rename it for everyone');
+  }
+  const { label: name, error } = cleanLabel(label);
+  if (error) throw new Meteor.Error('bad-request', error);
+  if (!name) throw new Meteor.Error('bad-request', 'A team conversation needs a name');
+  await conversationsCollection().updateOne({ _id: row._id }, { $set: { label: name } });
+  return { ...row, label: name };
+}
+
+/**
+ * Set (or with an empty name, clear) the name only `userId` sees. A name the
+ * same as the one they would see anyway is cleared too. Two saves colliding
+ * on the unique index retry once (#866 R19).
+ */
+export async function setMyLabel(userId, conversationId, label) {
+  const { row } = await requireVisibleConversation(userId, conversationId);
+  const { label: name, error } = cleanLabel(label);
+  if (error) throw new Meteor.Error('bad-request', error);
+  const key = { userId, conversationId: row._id.toHexString() };
+  const other = row.kind === 'direct' ? (row.memberIds ?? []).find((id) => id !== userId) : null;
+  const names = other ? await userNames([other]) : new Map();
+  const shownAnyway = displayLabel(row, userId, { nameOf: (id) => names.get(id) ?? null });
+  if (!name || name === shownAnyway) {
+    await conversationLabelsCollection().deleteOne(key);
+    return row;
+  }
+  const save = () =>
+    conversationLabelsCollection().updateOne(
+      key,
+      { $set: { label: name, updatedAt: new Date() } },
+      { upsert: true },
+    );
+  try {
+    await save();
+  } catch (err) {
+    if (!isDuplicateKey(err)) throw err;
+    await save();
+  }
+  return row;
+}
+
+/** The team row by id, either id form. */
+function findTeam(teamId) {
+  const id = String(teamId);
+  return rawDb()
+    .collection('teams')
+    .findOne({ _id: /^[a-f0-9]{24}$/i.test(id) ? { $in: [id, new ObjectId(id)] } : id });
 }
 
 Meteor.methods({
@@ -252,7 +412,40 @@ Meteor.methods({
   async 'huddle.startWorkday'({ teamId, dateKey } = {}) {
     const identity = await requireIdentity(this);
     const team = await requireTeam(identity.userId, teamId);
-    return toConversationShape(await startWorkday(identity.userId, team, dateKey));
+    const [shaped] = await shapeFor(identity.userId, [await startWorkday(identity.userId, team, dateKey)]);
+    return shaped;
+  },
+
+  /** The conversations the caller can see on a team, each with the name they see. */
+  async 'huddle.conversations.list'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
+    const team = await requireTeam(identity.userId, teamId);
+    return { conversations: await listConversations(identity.userId, team) };
+  },
+
+  /** Create a team (`group`) or direct conversation. */
+  async 'huddle.conversations.create'({ teamId, kind, label, memberIds } = {}) {
+    const identity = await requireIdentity(this);
+    const team = await requireTeam(identity.userId, teamId);
+    const row = await createConversation(identity.userId, team, { kind, label, memberIds });
+    const [shaped] = await shapeFor(identity.userId, [row]);
+    return shaped;
+  },
+
+  /** Rename a team conversation for everyone. */
+  async 'huddle.conversations.rename'({ conversationId, label } = {}) {
+    const identity = await requireIdentity(this);
+    const [shaped] = await shapeFor(identity.userId, [
+      await renameConversation(identity.userId, conversationId, label),
+    ]);
+    return shaped;
+  },
+
+  /** Set or clear the caller's own name for a conversation. */
+  async 'huddle.conversations.setMyLabel'({ conversationId, label } = {}) {
+    const identity = await requireIdentity(this);
+    const [shaped] = await shapeFor(identity.userId, [await setMyLabel(identity.userId, conversationId, label)]);
+    return shaped;
   },
 });
 

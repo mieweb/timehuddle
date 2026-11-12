@@ -1827,6 +1827,25 @@ Meteor.startup(async () => {
     },
   };
 
+  // A Huddle conversation topic (#866), as conversations.js toConversationShape returns it.
+  const huddleConversationSchema = {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      teamId: { type: 'string' },
+      kind: { type: 'string', enum: ['workday', 'group', 'direct'] },
+      displayLabel: { type: ['string', 'null'], description: 'The name the caller sees; null for a workday' },
+      myLabel: { type: ['string', 'null'], description: "The caller's own name for it, if set" },
+      label: { type: ['string', 'null'], description: 'Shared name (group only)' },
+      memberIds: { type: 'array', items: { type: 'string' } },
+      createdBy: { type: ['string', 'null'] },
+      dateKey: { type: 'string', description: 'Workday only: the date its huddle started' },
+      startedAt: { type: ['string', 'null'] },
+      startedBy: { type: ['string', 'null'] },
+      closedAt: { type: ['string', 'null'] },
+    },
+  };
+
   const huddlePostContentSchema = {
     type: 'object',
     properties: {
@@ -1888,18 +1907,57 @@ Meteor.startup(async () => {
       },
       required: ['teamId', 'dateKey'],
     },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.list', {
+    description:
+      'Conversations the caller can see on a team (#866): its workdays, and the team and direct conversations they are in, each with the name they see',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
     outputSchema: {
       type: 'object',
-      properties: {
-        id: { type: 'string' },
-        teamId: { type: 'string' },
-        kind: { type: 'string' },
-        dateKey: { type: 'string' },
-        startedAt: { type: ['string', 'null'] },
-        startedBy: { type: ['string', 'null'] },
-        closedAt: { type: ['string', 'null'] },
-      },
+      properties: { conversations: { type: 'array', items: huddleConversationSchema } },
     },
+  });
+
+  Wormhole.expose('huddle.conversations.create', {
+    description:
+      'Create a team conversation (kind "group", named, with members) or a direct one (kind "direct", one other person; an existing one is returned)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        kind: { type: 'string', enum: ['group', 'direct'] },
+        label: { type: 'string', description: 'Shared name; required for a group' },
+        memberIds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['teamId', 'kind', 'memberIds'],
+    },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.rename', {
+    description: "Rename a team conversation for everyone (its creator or a team admin)",
+    inputSchema: {
+      type: 'object',
+      properties: { conversationId: { type: 'string' }, label: { type: 'string' } },
+      required: ['conversationId', 'label'],
+    },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.setMyLabel', {
+    description: 'Set the name only the caller sees for a conversation; an empty name clears it',
+    inputSchema: {
+      type: 'object',
+      properties: { conversationId: { type: 'string' }, label: { type: ['string', 'null'] } },
+      required: ['conversationId'],
+    },
+    outputSchema: huddleConversationSchema,
   });
 
   Wormhole.expose('huddle.sendScheduledNow', {
