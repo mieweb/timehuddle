@@ -11,7 +11,13 @@ import {
   shownBody,
   keptAttachments,
   withTodayConversation,
+  conversationThreadId,
+  toConversationTopics,
+  topicIdOfThread,
+  topicTitle,
+  withTopicConversations,
 } from './superChatFeed';
+import type { HuddleConversation } from '@lib/api';
 
 /** Build an epoch ms from local calendar components, so fixtures and their
  *  expected "HH:MM" / weekday output stay identical regardless of the test
@@ -1040,6 +1046,116 @@ describe('the All grouping', () => {
     expect(starter.title).toBe('All updates');
     expect(starterConversation({ userId: 'user-aisha', name: 'Aisha' }, 'team', NOW).id).toBe(
       'starter',
+    );
+  });
+});
+
+describe('Conversation grouping (#866)', () => {
+  const WED = 'a1a1a1a1a1a1a1a1a1a1a1a1';
+  const THU = 'b2b2b2b2b2b2b2b2b2b2b2b2';
+  const DM = 'c3c3c3c3c3c3c3c3c3c3c3c3';
+  const GROUP = 'd4d4d4d4d4d4d4d4d4d4d4d4';
+  const topic = (overrides: Partial<HuddleConversation> & { id: string }): HuddleConversation => ({
+    teamId: 'team-1',
+    kind: 'workday',
+    displayLabel: null,
+    myLabel: null,
+    ...overrides,
+  });
+  const list = [
+    topic({ id: WED, dateKey: '2026-11-11', closedAt: '2026-11-12T14:00:00.000Z' }),
+    topic({ id: THU, dateKey: '2026-11-12', closedAt: null }),
+    topic({ id: DM, kind: 'direct', displayLabel: 'Bob', memberIds: ['user-aisha', 'user-bob'] }),
+    topic({ id: GROUP, kind: 'group', displayLabel: 'Release 4.2', label: 'Release 4.2' }),
+  ];
+  const topics = toConversationTopics(list);
+  const me = { userId: 'user-aisha', name: 'Aisha Khan' };
+
+  it('finds the open workday', () => {
+    expect(topics.openWorkdayId).toBe(THU);
+  });
+
+  it('names a topic by what the reader sees, else its workday date', () => {
+    expect(topicTitle(list[2])).toBe('Bob');
+    expect(topicTitle(list[0])).toBe('Wed, Nov 11');
+  });
+
+  it('round-trips a thread id and ignores other groupings', () => {
+    expect(topicIdOfThread(conversationThreadId(DM))).toBe(DM);
+    expect(topicIdOfThread('day:2026-11-11')).toBeNull();
+    expect(topicIdOfThread(undefined)).toBeNull();
+  });
+
+  it('groups posts by their conversation, titled by the topic', () => {
+    const posts = [
+      // A 2 AM post that still belongs to Wednesday's workday.
+      makePost({
+        id: 'p1',
+        conversationId: WED,
+        createdAt: new Date(localMs(2026, 11, 12, 2)).toISOString(),
+      }),
+      makePost({ id: 'p2', conversationId: WED }),
+      makePost({ id: 'p3', conversationId: DM }),
+    ];
+    const convs = postsToConversations(
+      posts,
+      'conversation',
+      VIEWER_MEMBER,
+      Date.now(),
+      posts,
+      topics,
+    );
+    const byId = new Map(convs.map((c) => [c.id, c]));
+    expect(byId.get(conversationThreadId(WED))?.title).toBe('Wed, Nov 11');
+    expect(byId.get(conversationThreadId(DM))?.title).toBe('Bob');
+    expect(
+      byId.get(conversationThreadId(WED))?.thread.filter((m) => m.type !== 'system'),
+    ).toHaveLength(2);
+  });
+
+  it('shows a scheduled post with no conversation yet in the open workday', () => {
+    const posts = [makePost({ id: 'p1', deliverAt: new Date(Date.now() + 3600e3).toISOString() })];
+    const convs = postsToConversations(
+      posts,
+      'conversation',
+      VIEWER_MEMBER,
+      Date.now(),
+      posts,
+      topics,
+    );
+    expect(convs.map((c) => c.id)).toEqual([conversationThreadId(THU)]);
+  });
+
+  it('adds empty threads for open topics with no posts, never for a closed workday', () => {
+    const posts = [makePost({ id: 'p1', conversationId: DM })];
+    const grouped = postsToConversations(
+      posts,
+      'conversation',
+      VIEWER_MEMBER,
+      Date.now(),
+      posts,
+      topics,
+    );
+    const ids = withTopicConversations(grouped, 'conversation', topics, me).map((c) => c.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        conversationThreadId(THU),
+        conversationThreadId(GROUP),
+        conversationThreadId(DM),
+      ]),
+    );
+    expect(ids).not.toContain(conversationThreadId(WED));
+    expect(ids.filter((id) => id === conversationThreadId(DM))).toHaveLength(1);
+  });
+
+  it('leaves other groupings alone', () => {
+    expect(withTopicConversations([], 'day', topics, me)).toEqual([]);
+  });
+
+  it('opens the open workday by default', () => {
+    const convs = withTopicConversations([], 'conversation', topics, me);
+    expect(defaultConversation(convs, 'conversation', Date.now(), topics.openWorkdayId)?.id).toBe(
+      conversationThreadId(THU),
     );
   });
 });

@@ -100,6 +100,7 @@ test.describe('Huddle inbox filters', () => {
     await groupBy.click();
     const descriptions = {
       All: 'Every update in one thread, oldest first',
+      Conversation: 'Stand-up to stand-up threads, team conversations and direct messages',
       Day: "Everyone's updates, one thread per date",
       Session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
       Person: 'One thread per teammate',

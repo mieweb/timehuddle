@@ -55,6 +55,7 @@ import {
 } from '../features/huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
+  conversationThreadId,
   dayConversationId,
   dayConversationIdForPost,
   defaultConversation,
@@ -69,8 +70,16 @@ import {
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
+  topicIdOfThread,
   withTodayConversation,
+  withTopicConversations,
 } from '../features/huddle/superChatFeed';
+import { useConversationTopics } from '../features/huddle/useConversationTopics';
+import {
+  ConversationMenu,
+  NewConversationButton,
+  StartHuddleButton,
+} from '../features/huddle/ConversationControls';
 import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
@@ -129,12 +138,18 @@ const COMPOSER_MAX_FILES = 10;
 const SEND_LATER = 'schedule';
 const HUDDLE_PATH = '/app/huddle';
 // All comes first and sits apart: it is the one option that doesn't group.
-const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
+const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'conversation', 'day', 'session', 'person', 'ticket'];
+/**
+ * The grouping for someone who hasn't picked one. Day until #866's open
+ * question (replace Day with Conversation?) is decided.
+ */
+const DEFAULT_THREAD_BY: ThreadBy = 'day';
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
 
 const THREAD_BY_LABELS: Record<ThreadBy, string> = {
   all: 'All',
+  conversation: 'Conversation',
   session: 'Session',
   day: 'Day',
   person: 'Person',
@@ -143,6 +158,7 @@ const THREAD_BY_LABELS: Record<ThreadBy, string> = {
 // Must not contain another option's label: e2e picks menu items by name.
 const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
   all: 'Every update in one thread, oldest first',
+  conversation: 'Stand-up to stand-up threads, team conversations and direct messages',
   day: "Everyone's updates, one thread per date",
   session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
   person: 'One thread per teammate',
@@ -171,9 +187,11 @@ function SelectedCheck({ selected }: { selected: boolean }) {
 function loadStoredThreadBy(): ThreadBy {
   try {
     const stored = localStorage.getItem(THREAD_BY_KEY);
-    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '') ? (stored as ThreadBy) : 'day';
+    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '')
+      ? (stored as ThreadBy)
+      : DEFAULT_THREAD_BY;
   } catch {
-    return 'day';
+    return DEFAULT_THREAD_BY;
   }
 }
 
@@ -651,6 +669,9 @@ export default function Huddle() {
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's personal team.
   const activePosts = scope === 'me' ? myPosts : posts;
+  // The conversation topics (#866) the posts belong to, with the names I see.
+  const { topics, refresh: refreshTopics } = useConversationTopics(postingTeamId, activePosts);
+  const openWorkday = topics.openWorkdayId ? (topics.byId.get(topics.openWorkdayId) ?? null) : null;
   const myScheduledPosts = useMemo(
     () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
     [activePosts, user?.id],
@@ -696,17 +717,24 @@ export default function Huddle() {
   // A rename doesn't change the post, so the feed rebuilds on a name itself.
   const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
-    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute);
-    return user
-      ? withTodayConversation(
-          grouped,
-          threadBy,
-          { userId: user.id, name: user.name },
-          scope,
-          nowMinute,
-        )
-      : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion]);
+    const grouped = postsToConversations(
+      activePosts,
+      threadBy,
+      viewer,
+      nowMinute,
+      activePosts,
+      topics,
+    );
+    if (!user) return grouped;
+    const me = { userId: user.id, name: user.name };
+    return withTopicConversations(
+      withTodayConversation(grouped, threadBy, me, scope, nowMinute),
+      threadBy,
+      topics,
+      me,
+      nowMinute,
+    );
+  }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion, topics]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact. All has just
   // the one thread, so there it narrows the posts in it instead.
@@ -716,7 +744,9 @@ export default function Huddle() {
   // update gets posted.
   const conversations = useMemo(() => {
     const nothingGrouped = allConversations.length === 0 && !searchQuery.trim();
-    if ((activePosts.length === 0 || nothingGrouped) && user) {
+    // Conversation grouping already lists its open topics, posts or not.
+    const topicsListed = threadBy === 'conversation' && allConversations.length > 0;
+    if ((activePosts.length === 0 || nothingGrouped) && user && !topicsListed) {
       return [
         starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
       ];
@@ -840,7 +870,7 @@ export default function Huddle() {
               <span className="flex flex-col">
                 <span className="flex items-center gap-2">
                   {THREAD_BY_LABELS[option]}
-                  {option === 'all' && (
+                  {(option === 'all' || option === 'conversation') && (
                     <Badge variant="secondary" size="sm">
                       New
                     </Badge>
@@ -863,22 +893,32 @@ export default function Huddle() {
   // header team switcher.
   const inboxControls = (
     <div className="huddle-inbox-controls flex w-full min-w-0 flex-col gap-3">
-      <div className="huddle-search relative">
-        <FontAwesomeIcon
-          icon={faMagnifyingGlass}
-          aria-hidden
-          className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-xs text-neutral-400"
-        />
-        <Input
-          label="Search posts"
-          hideLabel
-          size="sm"
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search posts, people, tickets, dates…"
-          className="ps-8"
-        />
+      <div className="huddle-search-row flex items-center gap-2">
+        <div className="huddle-search relative min-w-0 flex-1">
+          <FontAwesomeIcon
+            icon={faMagnifyingGlass}
+            aria-hidden
+            className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-xs text-neutral-400"
+          />
+          <Input
+            label="Search posts"
+            hideLabel
+            size="sm"
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search posts, people, tickets, dates…"
+            className="ps-8"
+          />
+        </div>
+        {scope === 'team' && postingTeamId && user && (
+          <NewConversationButton
+            teamId={postingTeamId}
+            roster={mentions.options}
+            viewerId={user.id}
+            onCreated={(created) => void openTopic(created.id)}
+          />
+        )}
       </div>
       <ButtonGroup orientation="horizontal">
         <div className={filterFieldClass}>
@@ -937,9 +977,18 @@ export default function Huddle() {
     : null;
   const activeConversation = conversationParam
     ? linkedConversation
-    : defaultConversation(conversations, threadBy, nowMinute);
+    : defaultConversation(conversations, threadBy, nowMinute, topics.openWorkdayId);
   const openConversation = (conversationId: string) =>
     setParams({ conversation: conversationId }, 'push');
+  // A topic just made or started: reload the list first, so its thread is
+  // there to open rather than a not-found.
+  const openTopic = async (topicId: string) => {
+    await refreshTopics();
+    openConversation(conversationThreadId(topicId));
+  };
+  // The topic behind the open thread, when it is one (Conversation grouping).
+  const activeTopicId = topicIdOfThread(activeConversation?.id);
+  const activeTopic = activeTopicId ? (topics.byId.get(activeTopicId) ?? null) : null;
 
   // Switching team or view leaves the open conversation behind. Compared with
   // the previous value so a linked conversation survives the first render.
@@ -1079,6 +1128,12 @@ export default function Huddle() {
     const openConversationParam = () =>
       new URLSearchParams(liveLocation().search).get('conversation');
     const sentFromParam = openConversationParam();
+    // Posting from a conversation thread posts into that conversation (#866).
+    // A scheduled post bound for a workday names none: its workday is the one
+    // open when it is delivered.
+    const topicId = topicIdOfThread(conversationId);
+    const postTopicId =
+      topicId && !(sendSchedule && topics.byId.get(topicId)?.kind === 'workday') ? topicId : null;
     try {
       if (!postingTeamId) throw new Error('Select a team before posting.');
       if (ticketVideos.loading) {
@@ -1106,6 +1161,7 @@ export default function Huddle() {
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
+        ...(postTopicId && { conversationId: postTopicId }),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
@@ -1500,10 +1556,29 @@ export default function Huddle() {
                 scope === 'team' &&
                 selectedTeamId &&
                 createPortal(
-                  <HuddleNotifyMenu
-                    teamId={selectedTeamId}
-                    teamName={teamOptions.find((t) => t.id === selectedTeamId)?.name ?? ''}
-                  />,
+                  <div className="huddle-conversation-actions flex items-center gap-1">
+                    {threadBy === 'conversation' && (
+                      <StartHuddleButton
+                        teamId={selectedTeamId}
+                        openWorkday={openWorkday}
+                        onStarted={(workday) => void openTopic(workday.id)}
+                      />
+                    )}
+                    {activeTopic && (
+                      <ConversationMenu
+                        conversation={activeTopic}
+                        canRenameForEveryone={
+                          activeTopic.kind === 'group' &&
+                          (activeTopic.createdBy === user?.id || viewerIsAdmin)
+                        }
+                        onChanged={() => void refreshTopics()}
+                      />
+                    )}
+                    <HuddleNotifyMenu
+                      teamId={selectedTeamId}
+                      teamName={teamOptions.find((t) => t.id === selectedTeamId)?.name ?? ''}
+                    />
+                  </div>,
                   conversationHeaderEl,
                 )}
             </>
