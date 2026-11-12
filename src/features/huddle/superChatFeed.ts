@@ -10,7 +10,7 @@
  * .attic/huddle-superchat-inbox/README.md).
  */
 import { resolveMediaUrl } from '@lib/api';
-import type { HuddlePost } from '@lib/api';
+import type { HuddleConversation, HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
 import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
@@ -168,7 +168,146 @@ function postFiles(post: HuddlePost): SuperChatFileAttachment[] {
 
 // ─── SuperChatInbox grouping (postsToConversations) ────────────────────────
 
-export type ThreadBy = 'all' | 'session' | 'day' | 'person' | 'ticket';
+export type ThreadBy = 'all' | 'conversation' | 'session' | 'day' | 'person' | 'ticket';
+
+// ─── Conversation topics (#866) ────────────────────────────────────────────
+
+/** What the Conversation grouping needs to know about each conversation topic. */
+export interface ConversationTopics {
+  /** Every topic the reader can see, by id. */
+  byId: Map<string, HuddleConversation>;
+  /** The team's open workday, where a post with no conversation yet (a scheduled one) shows. */
+  openWorkdayId: string | null;
+}
+
+/** The topics from a fetched list. */
+export function toConversationTopics(list: HuddleConversation[]): ConversationTopics {
+  const open = list.find((c) => c.kind === 'workday' && !c.closedAt);
+  return { byId: new Map(list.map((c) => [c.id, c])), openWorkdayId: open?.id ?? null };
+}
+
+/** The name a reader sees for a topic: theirs or its shared one, else a workday's date. */
+export function topicTitle(topic: HuddleConversation): string {
+  if (topic.displayLabel) return topic.displayLabel;
+  return topic.dateKey ? formatDayLabel(topic.dateKey) : THREAD_TEXT.conversation;
+}
+
+/** Whether new posts can go into `topic`. Only a workday ever closes. */
+export function topicIsOpen(topic: HuddleConversation): boolean {
+  return topic.kind !== 'workday' || !topic.closedAt;
+}
+
+/** Id of the Conversation thread for a conversation topic. */
+export function conversationThreadId(conversationId: string): string {
+  return `conversation:${conversationId}`;
+}
+
+/** The conversation topic id inside a Conversation thread id, or null for any other thread. */
+export function topicIdOfThread(threadId: string | null | undefined): string | null {
+  const match = /^conversation:([a-f0-9]{24})$/i.exec(threadId ?? '');
+  return match ? match[1] : null;
+}
+
+/**
+ * Where a post sent now goes: the open thread's conversation if it can take
+ * posts, otherwise the team's open workday. Null when no workday is open yet
+ * (the server opens one for the post).
+ */
+export function postDestination(
+  openThreadId: string | null | undefined,
+  topics: ConversationTopics,
+): HuddleConversation | null {
+  const topic = topics.byId.get(topicIdOfThread(openThreadId) ?? '');
+  if (topic && topicIsOpen(topic)) return topic;
+  return topics.openWorkdayId ? (topics.byId.get(topics.openWorkdayId) ?? null) : null;
+}
+
+/** User-facing reasons a just-sent post won't show where the reader is looking. */
+export const DESTINATION_TEXT = {
+  to: (name: string) => `To: ${name}`,
+  inTeam: (team: string, conversation: string) =>
+    team ? `${team} › ${conversation}` : conversation,
+  newWorkday: 'a new workday',
+  closedWorkday: (open: string, dest: string) =>
+    `${open} closed when the next huddle started, so new posts go to ${dest}.`,
+  otherConversation: (open: string, dest: string) =>
+    `You're reading ${open}, but this post goes to ${dest}.`,
+  otherPerson: (name: string) => `You're reading ${name}'s posts; yours won't show there.`,
+  otherTicket: 'This thread only shows posts linked to its ticket, and this post isn’t.',
+  search: (query: string) => `Your search “${query}” would hide it.`,
+} as const;
+
+/** What the reader is looking at when they send. */
+export interface SendView {
+  threadBy: ThreadBy;
+  /** The open thread's id and title. */
+  openThreadId: string | null;
+  openThreadTitle: string;
+  searchQuery: string;
+  /** The text being sent. */
+  text: string;
+  viewer: { userId: string; name: string };
+  /** Tickets the post links. */
+  ticketIds: string[];
+}
+
+/**
+ * Why a post sent now would not appear in the thread being read (#866):
+ * another conversation, a closed workday, another person's or ticket's
+ * thread, or a search it won't match. Empty when it will show right there.
+ *
+ * Day and Session need no warning: after a send they already open the thread
+ * the post landed in (#854), so the reader is taken to it.
+ */
+export function reasonsPostWontShow(
+  destination: HuddleConversation | null,
+  topics: ConversationTopics,
+  view: SendView,
+): string[] {
+  const reasons: string[] = [];
+  const dest = destination ? topicTitle(destination) : DESTINATION_TEXT.newWorkday;
+  const [kind, key] = splitThreadId(view.openThreadId);
+  switch (view.threadBy) {
+    case 'conversation': {
+      const open = topics.byId.get(key);
+      if (open && open.id !== destination?.id) {
+        reasons.push(
+          topicIsOpen(open)
+            ? DESTINATION_TEXT.otherConversation(topicTitle(open), dest)
+            : DESTINATION_TEXT.closedWorkday(topicTitle(open), dest),
+        );
+      }
+      break;
+    }
+    case 'person':
+      if (kind === 'person' && key !== view.viewer.userId) {
+        reasons.push(DESTINATION_TEXT.otherPerson(view.openThreadTitle));
+      }
+      break;
+    case 'ticket':
+      if (kind === 'ticket' && !view.ticketIds.includes(key))
+        reasons.push(DESTINATION_TEXT.otherTicket);
+      break;
+    case 'day':
+    case 'session':
+    case 'all':
+      break;
+  }
+  const query = view.searchQuery.trim();
+  if (query) {
+    const haystack = normalizeForSearch(`${view.text}\n${view.viewer.name}`);
+    if (!searchWords(query).every((word) => haystack.includes(word))) {
+      reasons.push(DESTINATION_TEXT.search(query));
+    }
+  }
+  return reasons;
+}
+
+/** `[grouping, key]` of a thread id (`day:2026-11-12` → `['day', '2026-11-12']`). */
+function splitThreadId(threadId: string | null): [string, string] {
+  const at = threadId?.indexOf(':') ?? -1;
+  return threadId && at > 0 ? [threadId.slice(0, at), threadId.slice(at + 1)] : ['', ''];
+}
 
 const ALL_KEY = 'feed';
 /** The one conversation of the All grouping: every post, in time order. */
@@ -191,6 +330,10 @@ const THREAD_TEXT = {
   stillClockedIn: (who: string, isViewer: boolean, since: string) =>
     `${who} ${isViewer ? 'are' : 'is'} still clocked in · since ${since}`,
   allUpdates: 'All updates',
+  conversation: 'Conversation',
+  earlier: 'Earlier updates',
+  emptyWorkday: 'No updates yet in this workday. Share what you’re working on below.',
+  emptyConversation: 'No posts yet. Say hello below.',
   scheduledHidden: '🔒 Only you can see this until it is sent',
 } as const;
 
@@ -271,10 +414,30 @@ function ticketLinkMarkdown(ticket: { id: string; name: string }): string {
   return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
 }
 
-function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
+/** A post's Conversation thread key: its topic; a not-yet-delivered scheduled post shows in the open workday. */
+const NO_TOPIC = 'none';
+function topicKeyFor(post: HuddlePost, topics: ConversationTopics | undefined): string {
+  if (post.conversationId) return post.conversationId;
+  // A scheduled post gets its conversation when it is delivered; until then
+  // its author sees it in the open workday.
+  if (isAwaitingDelivery(post)) return topics?.openWorkdayId ?? NO_TOPIC;
+  // Anything else without one (written while a deploy was rolling out, before
+  // the backfill reached it) waits in "Earlier updates" — a key that doesn't
+  // move when the topic list loads, so a link to it stays put.
+  return NO_TOPIC;
+}
+
+/** Id of the Conversation thread `post` is shown in — the same key the grouping uses. */
+export function conversationThreadIdForPost(post: HuddlePost, topics: ConversationTopics): string {
+  return `conversation:${topicKeyFor(post, topics)}`;
+}
+
+function groupKeyFor(post: HuddlePost, threadBy: ThreadBy, topics?: ConversationTopics): string {
   switch (threadBy) {
     case 'all':
       return ALL_KEY;
+    case 'conversation':
+      return topicKeyFor(post, topics);
     case 'session':
       // Only posts with a session reach here (see postsToConversations).
       return post.clockEventId as string;
@@ -460,11 +623,16 @@ function buildTitle(
   viewer: InboxViewer,
   now: number,
   wrappedUpSessions: Set<string>,
+  topics?: ConversationTopics,
 ): string {
   const first = posts[0];
   switch (threadBy) {
     case 'all':
       return THREAD_TEXT.allUpdates;
+    case 'conversation': {
+      const topic = topics?.byId.get(topicKeyFor(first, topics));
+      return topic ? topicTitle(topic) : THREAD_TEXT.earlier;
+    }
     case 'day':
       return formatDayLabel(getPostDateKey(first));
     case 'person':
@@ -510,6 +678,7 @@ export function postsToConversations(
   viewer: InboxViewer,
   now: number = Date.now(),
   sessionContext: HuddlePost[] = posts,
+  topics?: ConversationTopics,
 ): SuperChatConversation[] {
   const groups = new Map<string, HuddlePost[]>();
   const planPostIds = sessionPostIds(sessionContext);
@@ -519,7 +688,7 @@ export function postsToConversations(
   for (const post of posts) {
     // Session view shows shifts only: a post made off the clock is in All, Day and Person.
     if (threadBy === 'session' && !post.clockEventId) continue;
-    const key = groupKeyFor(post, threadBy);
+    const key = groupKeyFor(post, threadBy, topics);
     const bucket = groups.get(key);
     if (bucket) bucket.push(post);
     else groups.set(key, [post]);
@@ -566,8 +735,10 @@ export function postsToConversations(
         new Date(a.time).getTime() - new Date(b.time).getTime() ||
         Number(isClockIn(b)) - Number(isClockIn(a)),
     );
-    // All runs across many days in one thread, so each day opens with its date.
-    const thread = threadBy === 'all' ? withDayDividers(sorted) : sorted;
+    // All runs across many days in one thread, so each day opens with its date;
+    // so can a conversation, and a workday past midnight (#866).
+    const thread =
+      threadBy === 'all' || threadBy === 'conversation' ? withDayDividers(sorted) : sorted;
     if (thread.some((m) => m.participantId === SYSTEM_PARTICIPANT_ID)) {
       participants.set(SYSTEM_PARTICIPANT_ID, {
         id: SYSTEM_PARTICIPANT_ID,
@@ -583,7 +754,7 @@ export function postsToConversations(
 
     conversations.push({
       id: `${threadBy}:${key}`,
-      title: buildTitle(threadBy, groupPosts, sessions, viewer, now, wrappedUpSessions),
+      title: buildTitle(threadBy, groupPosts, sessions, viewer, now, wrappedUpSessions, topics),
       participants: [...participants.values()],
       thread,
       lastActivity,
@@ -755,14 +926,47 @@ export function withTodayConversation(
 }
 
 /**
+ * Conversation grouping lists every open topic, posts or not: a direct or team
+ * conversation someone just made, or a workday just started, gets an empty
+ * thread (same id its first post will land in) so it can be opened and posted
+ * to. Closed workdays with nothing loaded stay out. Other groupings are
+ * returned as they are.
+ */
+export function withTopicConversations(
+  conversations: SuperChatConversation[],
+  threadBy: ThreadBy,
+  topics: ConversationTopics,
+  viewer: { userId: string; name: string },
+  now: number = Date.now(),
+): SuperChatConversation[] {
+  if (threadBy !== 'conversation') return conversations;
+  const present = new Set(conversations.map((c) => c.id));
+  const empty: SuperChatConversation[] = [];
+  for (const topic of topics.byId.values()) {
+    const id = conversationThreadId(topic.id);
+    if (present.has(id) || !topicIsOpen(topic)) continue;
+    const hint =
+      topic.kind === 'workday' ? THREAD_TEXT.emptyWorkday : THREAD_TEXT.emptyConversation;
+    empty.push(emptyConversation(id, topicTitle(topic), viewer, hint, now));
+  }
+  return [...empty, ...conversations];
+}
+
+/**
  * The conversation to open when the URL doesn't name one: Today in Day
- * grouping, the first (most recent) conversation otherwise.
+ * grouping, the open workday in Conversation grouping, the first (most
+ * recent) conversation otherwise.
  */
 export function defaultConversation(
   conversations: SuperChatConversation[],
   threadBy: ThreadBy,
   now: number = Date.now(),
+  openWorkdayId: string | null = null,
 ): SuperChatConversation | undefined {
+  if (threadBy === 'conversation' && openWorkdayId) {
+    const workday = conversations.find((c) => c.id === conversationThreadId(openWorkdayId));
+    if (workday) return workday;
+  }
   if (threadBy === 'day') {
     const id = todayConversationId(now);
     const today = conversations.find((c) => c.id === id);

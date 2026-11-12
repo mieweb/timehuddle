@@ -35,6 +35,8 @@ import {
   sweepDiscardedUploads,
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
+import { resolvePostConversation } from './conversations';
+import { audienceFilter, audienceOf, isOutsideAudience } from './conversations-core';
 
 /**
  * A session can hold several posts (the plan plus replies sent from the Huddle
@@ -301,6 +303,7 @@ async function enrichPost(post) {
     commentCount: post.commentCount ?? 0,
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
+    conversationId: post.conversationId ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
     // Always a boolean: a live `changed` that left it out would keep a promoted
     // plan's stale `true` in the client cache, which merges fields.
@@ -462,7 +465,9 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
   // scheduled post, from when it was actually delivered — and the caller's
   // own still-waiting post regardless of age). A hidden scheduled post is
   // the author's alone until it is delivered.
-  const inWindow = { $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate)] };
+  const inWindow = {
+    $and: [visibleTo(this.userId), inWindowOrPending(this.userId, sinceDate), audienceFilter(this.userId)],
+  };
   let posts = await collection
     .find({ teamId, ...PUBLISHED, ...inWindow })
     .sort({ createdAt: -1 })
@@ -511,8 +516,13 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId, since) {
         // Older than the window: not this subscription's to send — unless it's a
         // scheduled post delivered within it, or the caller's own still-waiting post.
         if (isOutsideWindow(change.fullDocument, sinceDate, self.userId)) return;
-        // Drafts never reach the feed; nor does someone else's undelivered hidden post.
-        if (change.fullDocument.status === 'draft' || isHiddenFrom(change.fullDocument, self.userId)) {
+        // Drafts never reach the feed; nor does someone else's undelivered hidden
+        // post, nor a post in a conversation this reader isn't in (#866 R21).
+        if (
+          change.fullDocument.status === 'draft' ||
+          isHiddenFrom(change.fullDocument, self.userId) ||
+          isOutsideAudience(change.fullDocument, self.userId)
+        ) {
           if (sentIds.has(docId)) {
             sentIds.delete(docId);
             self.removed('huddlePosts', docId);
@@ -675,6 +685,8 @@ export async function createHuddlePost(
     clockEventId,
     wrapUp,
     deliverAt,
+    conversationId: requestedConversationId,
+    onClosed = 'redirect',
     joinOpenSession = false,
   },
 ) {
@@ -731,6 +743,22 @@ export async function createHuddlePost(
     !clockEventId && joinOpenSession && !schedule ? await openSessionId(userId, teamId) : null;
   const sessionId = clockEventId || updateSessionId;
 
+  // #866: every visible post belongs to a checked conversation. A scheduled
+  // post bound for a workday gets one when it is delivered
+  // (deliverScheduledPost), since the open workday may have changed by then.
+  let conversationId = null;
+  let audienceIds = null;
+  if (!schedule || requestedConversationId) {
+    const conversation = await resolvePostConversation(userId, team, {
+      conversationId: requestedConversationId,
+      postDate,
+      onClosed,
+    });
+    if (!schedule || conversation.kind !== 'workday') conversationId = conversation._id.toHexString();
+    // Private to the conversation's members (R21); a workday post has none.
+    audienceIds = audienceOf(conversation);
+  }
+
   const { text, media } = await externalizeInlineImages(content.text, userId);
   // An upload or image a post dropped, waiting to be deleted, stays for this text.
   await keepReferencedUploads([text]);
@@ -748,6 +776,8 @@ export async function createHuddlePost(
     likes: [],
     commentCount: 0,
     ...(postDate ? { postDate } : {}),
+    ...(conversationId ? { conversationId } : {}),
+    ...(audienceIds ? { audienceIds } : {}),
     // Optionally link to a clock session (per-session gate) and/or stamp a
     // wrap-up at creation — used by the clock-out recovery path when a
     // session somehow has no plan post.
@@ -793,7 +823,13 @@ export async function createHuddlePost(
       .catch((err) => console.error('[huddle] post notifications failed:', err));
   }
 
-  return { id: doc._id.toHexString(), ...(sessionId ? { clockEventId: sessionId } : {}) };
+  return {
+    id: doc._id.toHexString(),
+    ...(sessionId ? { clockEventId: sessionId } : {}),
+    // Where it went (#866), so the composer can open it: the open workday may
+    // have been made just now for this post.
+    ...(conversationId ? { conversationId } : {}),
+  };
 }
 
 /**
@@ -894,7 +930,7 @@ Meteor.methods({
     const filter = {
       teamId: { $in: [teamId, toId(teamId)] },
       ...PUBLISHED,
-      ...visibleTo(identity.userId),
+      $and: [visibleTo(identity.userId), audienceFilter(identity.userId)],
     };
     // `withPosts: false` answers only `hasMore` — for a client already receiving
     // the window's posts from the huddlePosts.byTeam subscription.
@@ -905,7 +941,11 @@ Meteor.methods({
       .find({
         teamId: { $in: [teamId, toId(teamId)] },
         ...PUBLISHED,
-        $and: [visibleTo(identity.userId), inWindowOrPending(identity.userId, sinceDate)],
+        $and: [
+          visibleTo(identity.userId),
+          inWindowOrPending(identity.userId, sinceDate),
+          audienceFilter(identity.userId),
+        ],
       })
       .sort({ createdAt: -1 })
       .toArray();
@@ -951,7 +991,7 @@ Meteor.methods({
     return { posts: enriched, hasMore };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
+  async 'huddle.createPost'({ teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt, conversationId }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -973,6 +1013,10 @@ Meteor.methods({
       clockEventId,
       wrapUp,
       deliverAt,
+      conversationId,
+      // The composer keeps its draft and says why when the workday it showed
+      // has closed meanwhile (#866 R5), rather than posting somewhere else.
+      onClosed: 'refuse',
       joinOpenSession: true,
     });
   },
@@ -1465,7 +1509,11 @@ Meteor.methods({
     if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ticketIds: ticketId, ...PUBLISHED, ...visibleTo(identity.userId) })
+      .find({
+        ticketIds: ticketId,
+        ...PUBLISHED,
+        $and: [visibleTo(identity.userId), audienceFilter(identity.userId)],
+      })
       .sort({ createdAt: -1 })
       .toArray();
     const enriched = await Promise.all(posts.map(enrichPost));

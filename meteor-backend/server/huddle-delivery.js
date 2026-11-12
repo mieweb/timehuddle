@@ -8,6 +8,8 @@ import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
+import { resolvePostConversation } from './conversations';
+import { teamForAudience } from './conversations-core';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -75,7 +77,10 @@ async function sendMentionNotifications(post, recipientIds) {
  * still on `team`, so a mention can't leak the text outside the team. Returns
  * the ids of any recipients whose notification failed.
  */
-export async function notifyPostRecipients(post, team) {
+export async function notifyPostRecipients(post, fullTeam) {
+  // A post in a team or direct conversation reaches its members only (#866):
+  // narrowing the team narrows mentions, @team/@here and followers alike.
+  const team = teamForAudience(fullTeam, post.audienceIds);
   const onTeam = teamMemberIds(team);
   const recipients = [...new Set(post.content?.mentions ?? [])].filter(
     (userId) => userId !== post.userId && onTeam.has(String(userId)),
@@ -171,12 +176,15 @@ export async function retryMentionNotifications(postId, recipientIds) {
   if (!recipientIds?.length) return [];
   const post = await rawDb()
     .collection('huddlePosts')
-    .findOne({ _id: new ObjectId(postId) }, { projection: { userId: 1, teamId: 1, content: 1 } });
+    .findOne(
+      { _id: new ObjectId(postId) },
+      { projection: { userId: 1, teamId: 1, content: 1, audienceIds: 1 } },
+    );
   if (!post) return []; // the post is gone — nothing left to notify about
   const team = await findPostTeam(post.teamId);
   if (!team) return [];
 
-  const onTeam = teamMemberIds(team);
+  const onTeam = teamMemberIds(teamForAudience(team, post.audienceIds));
   const candidates = [...new Set(recipientIds)].filter((userId) => onTeam.has(String(userId)));
   if (!candidates.length) return [];
 
@@ -240,15 +248,31 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { projection: { userId: 1, teamId: 1 } },
+      { projection: { userId: 1, teamId: 1, postDate: 1, conversationId: 1 } },
     );
   if (!pending) return { delivered: false };
-  const team = await findPostTeam(pending.teamId);
-  if (!team || !isTeamMember(team, pending.userId)) {
-    // Never shown to anyone — drop it rather than leave it stranded with no
-    // way to ever be delivered or managed.
+  // Never shown to anyone — drop it rather than leave it stranded with no
+  // way to ever be delivered or managed.
+  const drop = async () => {
     await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
     return { delivered: false };
+  };
+  const team = await findPostTeam(pending.teamId);
+  if (!team || !isTeamMember(team, pending.userId)) return drop();
+  // #866: a post scheduled into a team or direct conversation keeps it (if the
+  // author can still see it, R13); one bound for a workday joins the workday
+  // open now. Written in the same update that claims the delivery, so only the
+  // winning delivery sets it (R11).
+  let conversationId;
+  try {
+    const conversation = await resolvePostConversation(pending.userId, team, {
+      conversationId: pending.conversationId,
+      postDate: pending.postDate,
+    });
+    conversationId = conversation._id.toHexString();
+  } catch (err) {
+    if (err?.error === 'forbidden') return drop();
+    throw err;
   }
   const post = await rawDb()
     .collection('huddlePosts')
@@ -260,7 +284,7 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         // findPostTeam() above was in flight must not still be revealed early.
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { $set: { deliveredAt: new Date() }, $inc: { scheduleVersion: 1 } },
+      { $set: { deliveredAt: new Date(), conversationId }, $inc: { scheduleVersion: 1 } },
       { returnDocument: 'after' },
     );
   if (!post) return { delivered: false }; // raced with something else (send now, delete, reschedule) between the checks above

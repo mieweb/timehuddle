@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@lib/api', () => ({ ApiError: class extends Error {}, videoApi: {} }));
 
-import { composerRefusalMessage } from './composerErrors';
+import { ApiError } from '@lib/api';
+import { composerErrorMessage, composerRefusalMessage } from './composerErrors';
 
 const caps = {
   limitOf: (f: File) => (f.type.startsWith('video/') ? '500 MB' : '100 MB'),
@@ -46,5 +47,14 @@ describe('composerRefusalMessage', () => {
       'A post takes up to 10 files.',
     );
     expect(composerRefusalMessage({ reason: 'send-failed' }, caps)).toBeNull();
+  });
+});
+
+describe('composerErrorMessage', () => {
+  it('explains a workday that closed while the post was written, and that the draft is kept (#866)', () => {
+    const err = Object.assign(new ApiError('closed', 409), { code: 'conversation-closed' });
+    expect(composerErrorMessage(err, 'Failed')).toMatch(
+      /closed when the next huddle started.*draft is still here/,
+    );
   });
 });

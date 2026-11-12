@@ -125,13 +125,13 @@ test.describe('Huddle clock lines', () => {
     for (const id of sessionIds) await deleteClockSession(id);
   });
 
-  test('a Day thread names whose clock each line is, in order, with admin-only shift length', async ({
+  test('a workday thread names whose clock each line is, in order, with admin-only shift length', async ({
     page,
   }) => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
     await page.goto('/app/huddle');
-    await groupInboxBy(page, 'Day');
+    await groupInboxBy(page, 'Conversation');
     await openPostInInbox(page, token, inboxMessage(page, oneToken).first());
     await expect(inboxMessage(page, twoToken)).toBeVisible();
 

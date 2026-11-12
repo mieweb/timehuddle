@@ -56,6 +56,7 @@ import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
+import './conversations';
 // M8 — Live collaborative editing relay (Yjs) on /yjs
 import './yjs';
 // M3 — Org & profiles
@@ -1826,6 +1827,25 @@ Meteor.startup(async () => {
     },
   };
 
+  // A Huddle conversation topic (#866), as conversations.js toConversationShape returns it.
+  const huddleConversationSchema = {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      teamId: { type: 'string' },
+      kind: { type: 'string', enum: ['workday', 'group', 'direct'] },
+      displayLabel: { type: ['string', 'null'], description: 'The name the caller sees; null for a workday' },
+      myLabel: { type: ['string', 'null'], description: "The caller's own name for it, if set" },
+      label: { type: ['string', 'null'], description: 'Shared name (group only)' },
+      memberIds: { type: 'array', items: { type: 'string' } },
+      createdBy: { type: ['string', 'null'] },
+      dateKey: { type: 'string', description: 'Workday only: the date its huddle started' },
+      startedAt: { type: ['string', 'null'] },
+      startedBy: { type: ['string', 'null'] },
+      closedAt: { type: ['string', 'null'] },
+    },
+  };
+
   const huddlePostContentSchema = {
     type: 'object',
     properties: {
@@ -1862,6 +1882,11 @@ Meteor.startup(async () => {
           description:
             'ISO date to schedule the post for; only the author sees it, and nobody is notified, until then',
         },
+        conversationId: {
+          type: 'string',
+          description:
+            "Conversation to post into (#866). Omitted: the team's open workday. A closed workday is refused with conversation-closed",
+        },
       },
       required: ['teamId', 'content'],
     },
@@ -1869,6 +1894,70 @@ Meteor.startup(async () => {
       type: 'object',
       properties: { id: { type: 'string' } },
     },
+  });
+
+  Wormhole.expose('huddle.startWorkday', {
+    description:
+      "Start the team's huddle (#866): close the open workday and open one for dateKey. Starting again on the same day returns the open workday",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        dateKey: { type: 'string', description: "The starter's local date, YYYY-MM-DD" },
+      },
+      required: ['teamId', 'dateKey'],
+    },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.list', {
+    description:
+      'Conversations the caller can see on a team (#866): its workdays, and the team and direct conversations they are in, each with the name they see',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { conversations: { type: 'array', items: huddleConversationSchema } },
+    },
+  });
+
+  Wormhole.expose('huddle.conversations.create', {
+    description:
+      'Create a team conversation (kind "group", named, with members) or a direct one (kind "direct", one other person; an existing one is returned)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        kind: { type: 'string', enum: ['group', 'direct'] },
+        label: { type: 'string', description: 'Shared name; required for a group' },
+        memberIds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['teamId', 'kind', 'memberIds'],
+    },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.rename', {
+    description: "Rename a team conversation for everyone (its creator or a team admin)",
+    inputSchema: {
+      type: 'object',
+      properties: { conversationId: { type: 'string' }, label: { type: 'string' } },
+      required: ['conversationId', 'label'],
+    },
+    outputSchema: huddleConversationSchema,
+  });
+
+  Wormhole.expose('huddle.conversations.setMyLabel', {
+    description: 'Set the name only the caller sees for a conversation; an empty name clears it',
+    inputSchema: {
+      type: 'object',
+      properties: { conversationId: { type: 'string' }, label: { type: ['string', 'null'] } },
+      required: ['conversationId'],
+    },
+    outputSchema: huddleConversationSchema,
   });
 
   Wormhole.expose('huddle.sendScheduledNow', {

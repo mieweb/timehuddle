@@ -7,6 +7,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
+  AlertDialog,
   Badge,
   Button,
   ButtonGroup,
@@ -46,8 +47,13 @@ import {
   toPostAttachment,
 } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
+import { ComposerChipButton } from '../features/huddle/ComposerChipButton';
 import { ComposerError } from '../features/huddle/ComposerError';
-import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
+import {
+  composerErrorMessage,
+  composerRefusalMessage,
+  CONVERSATION_CLOSED_CODE,
+} from '../features/huddle/composerErrors';
 import {
   attachmentLimitLabel,
   attachmentSizeLimit,
@@ -55,8 +61,8 @@ import {
 } from '../features/huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
-  dayConversationId,
-  dayConversationIdForPost,
+  conversationThreadId,
+  conversationThreadIdForPost,
   defaultConversation,
   keptAttachments,
   isAwaitingDelivery,
@@ -69,8 +75,19 @@ import {
   starterConversation,
   SYSTEM_PARTICIPANT_ID,
   type ThreadBy,
-  withTodayConversation,
+  DESTINATION_TEXT,
+  postDestination,
+  reasonsPostWontShow,
+  topicIdOfThread,
+  topicTitle,
+  withTopicConversations,
 } from '../features/huddle/superChatFeed';
+import { useConversationTopics } from '../features/huddle/useConversationTopics';
+import {
+  ConversationMenu,
+  NewConversationButton,
+  StartHuddleButton,
+} from '../features/huddle/ConversationControls';
 import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
@@ -106,7 +123,7 @@ import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { isTeamMember } from '@lib/organizationAccess';
 import { TEAMS_STRINGS } from '../features/teams/teamsStrings';
-import { huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
+import { ApiError, huddleApi, resolveMediaUrl, type HuddlePost } from '@lib/api';
 import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
@@ -128,22 +145,37 @@ const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
 const HUDDLE_PATH = '/app/huddle';
+/**
+ * The groupings the inbox offers. Day is gone (#866): a workday conversation
+ * replaces the calendar-day thread, and an old `day:` link opens the workday
+ * for that date.
+ */
+type InboxGrouping = Exclude<ThreadBy, 'day'>;
 // All comes first and sits apart: it is the one option that doesn't group.
-const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'day', 'session', 'person', 'ticket'];
+const THREAD_BY_OPTIONS: InboxGrouping[] = ['all', 'conversation', 'session', 'person', 'ticket'];
+/** The "won't show here" warning before sending (#866). */
+const SEND_ELSEWHERE_TEXT = {
+  title: "This post won't show in the thread you're reading",
+  description: (destination: string) => `It goes to ${destination}.`,
+  send: 'Send and open it',
+} as const;
+
+/** The grouping for someone who hasn't picked one (or had picked the retired Day). */
+const DEFAULT_THREAD_BY: InboxGrouping = 'conversation';
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
 
-const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+const THREAD_BY_LABELS: Record<InboxGrouping, string> = {
   all: 'All',
+  conversation: 'Conversation',
   session: 'Session',
-  day: 'Day',
   person: 'Person',
   ticket: 'Ticket',
 };
 // Must not contain another option's label: e2e picks menu items by name.
-const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+const THREAD_BY_DESCRIPTIONS: Record<InboxGrouping, string> = {
   all: 'Every update in one thread, oldest first',
-  day: "Everyone's updates, one thread per date",
+  conversation: 'Stand-up to stand-up threads, team conversations and direct messages',
   session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
   person: 'One thread per teammate',
   ticket: 'Updates grouped by the work item they link to',
@@ -168,19 +200,21 @@ function SelectedCheck({ selected }: { selected: boolean }) {
   return <FontAwesomeIcon icon={faCheck} className={selected ? undefined : 'invisible'} />;
 }
 
-function loadStoredThreadBy(): ThreadBy {
+function loadStoredThreadBy(): InboxGrouping {
   try {
     const stored = localStorage.getItem(THREAD_BY_KEY);
-    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '') ? (stored as ThreadBy) : 'day';
+    return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '')
+      ? (stored as InboxGrouping)
+      : DEFAULT_THREAD_BY;
   } catch {
-    return 'day';
+    return DEFAULT_THREAD_BY;
   }
 }
 
 /** The grouping a conversation id belongs to — ids are `${threadBy}:${key}`. */
-function threadByOf(conversationId: string | null): ThreadBy | null {
+function threadByOf(conversationId: string | null): InboxGrouping | null {
   const prefix = conversationId?.split(':')[0] ?? '';
-  return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as ThreadBy) : null;
+  return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as InboxGrouping) : null;
 }
 
 /** Local midnight (epoch ms) of a `day:YYYY-MM-DD` conversation id; null for any other id. */
@@ -270,14 +304,14 @@ export default function Huddle() {
   // function below, it never refetches. A linked conversation or post brings
   // its own grouping without overwriting the saved one (posts are found by
   // session).
-  const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  const [storedThreadBy, _setThreadBy] = useState<InboxGrouping>(loadStoredThreadBy);
   // A post link opens the post's session, even when All is the saved grouping:
   // SuperChatInbox can't scroll to a message yet, and a session's short thread
   // keeps the post in view (see docs/superchat-inbox-gaps.md).
   const threadBy =
     threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
-    (next: ThreadBy) => {
+    (next: InboxGrouping) => {
       _setThreadBy(next);
       // The open conversation belongs to the old grouping.
       setParams({ conversation: null });
@@ -361,6 +395,23 @@ export default function Huddle() {
   const askForSchedule = () =>
     new Promise<PostSchedule>((resolve, reject) =>
       setSchedulePrompt({ resolve, reject: () => reject(new Error('Scheduling cancelled')) }),
+    );
+  // The open "won't show here" warning (#866): settles the send waiting on it.
+  // Cancel rejects, which puts the draft back in the composer.
+  const [elsewherePrompt, setElsewherePrompt] = useState<{
+    reasons: string[];
+    destination: string;
+    resolve: () => void;
+    reject: () => void;
+  } | null>(null);
+  const confirmSendElsewhere = (reasons: string[], destination: string) =>
+    new Promise<void>((resolve, reject) =>
+      setElsewherePrompt({
+        reasons,
+        destination,
+        resolve,
+        reject: () => reject(new Error('Sending cancelled')),
+      }),
     );
   useEffect(() => {
     setSelectedTickets([]);
@@ -651,6 +702,9 @@ export default function Huddle() {
   // The posts driving the inbox: one team's feed, or (in the "Me" scope) the
   // caller's personal team.
   const activePosts = scope === 'me' ? myPosts : posts;
+  // The conversation topics (#866) the posts belong to, with the names I see.
+  const { topics, refresh: refreshTopics } = useConversationTopics(postingTeamId, activePosts);
+  const openWorkday = topics.openWorkdayId ? (topics.byId.get(topics.openWorkdayId) ?? null) : null;
   const myScheduledPosts = useMemo(
     () => activePosts.filter((p) => p.userId === user?.id && isAwaitingDelivery(p)),
     [activePosts, user?.id],
@@ -696,17 +750,18 @@ export default function Huddle() {
   // A rename doesn't change the post, so the feed rebuilds on a name itself.
   const videoNamesVersion = useVideoNamesVersion();
   const allConversations = useMemo(() => {
-    const grouped = postsToConversations(activePosts, threadBy, viewer, nowMinute);
-    return user
-      ? withTodayConversation(
-          grouped,
-          threadBy,
-          { userId: user.id, name: user.name },
-          scope,
-          nowMinute,
-        )
-      : grouped;
-  }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion]);
+    const grouped = postsToConversations(
+      activePosts,
+      threadBy,
+      viewer,
+      nowMinute,
+      activePosts,
+      topics,
+    );
+    if (!user) return grouped;
+    const me = { userId: user.id, name: user.name };
+    return withTopicConversations(grouped, threadBy, topics, me, nowMinute);
+  }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion, topics]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact. All has just
   // the one thread, so there it narrows the posts in it instead.
@@ -716,7 +771,9 @@ export default function Huddle() {
   // update gets posted.
   const conversations = useMemo(() => {
     const nothingGrouped = allConversations.length === 0 && !searchQuery.trim();
-    if ((activePosts.length === 0 || nothingGrouped) && user) {
+    // Conversation grouping already lists its open topics, posts or not.
+    const topicsListed = threadBy === 'conversation' && allConversations.length > 0;
+    if ((activePosts.length === 0 || nothingGrouped) && user && !topicsListed) {
       return [
         starterConversation({ userId: user.id, name: user.name }, scope, nowMinute, threadBy),
       ];
@@ -840,7 +897,7 @@ export default function Huddle() {
               <span className="flex flex-col">
                 <span className="flex items-center gap-2">
                   {THREAD_BY_LABELS[option]}
-                  {option === 'all' && (
+                  {(option === 'all' || option === 'conversation') && (
                     <Badge variant="secondary" size="sm">
                       New
                     </Badge>
@@ -863,22 +920,32 @@ export default function Huddle() {
   // header team switcher.
   const inboxControls = (
     <div className="huddle-inbox-controls flex w-full min-w-0 flex-col gap-3">
-      <div className="huddle-search relative">
-        <FontAwesomeIcon
-          icon={faMagnifyingGlass}
-          aria-hidden
-          className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-xs text-neutral-400"
-        />
-        <Input
-          label="Search posts"
-          hideLabel
-          size="sm"
-          type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search posts, people, tickets, dates…"
-          className="ps-8"
-        />
+      <div className="huddle-search-row flex items-center gap-2">
+        <div className="huddle-search relative min-w-0 flex-1">
+          <FontAwesomeIcon
+            icon={faMagnifyingGlass}
+            aria-hidden
+            className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-xs text-neutral-400"
+          />
+          <Input
+            label="Search posts"
+            hideLabel
+            size="sm"
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search posts, people, tickets, dates…"
+            className="ps-8"
+          />
+        </div>
+        {scope === 'team' && postingTeamId && user && (
+          <NewConversationButton
+            teamId={postingTeamId}
+            roster={mentions.options}
+            viewerId={user.id}
+            onCreated={(created) => void openTopic(created.id)}
+          />
+        )}
       </div>
       <ButtonGroup orientation="horizontal">
         <div className={filterFieldClass}>
@@ -937,9 +1004,38 @@ export default function Huddle() {
     : null;
   const activeConversation = conversationParam
     ? linkedConversation
-    : defaultConversation(conversations, threadBy, nowMinute);
+    : defaultConversation(conversations, threadBy, nowMinute, topics.openWorkdayId);
   const openConversation = (conversationId: string) =>
     setParams({ conversation: conversationId }, 'push');
+  // A topic just made or started: reload the list first, so its thread is
+  // there to open rather than a not-found.
+  const openTopic = async (topicId: string) => {
+    await refreshTopics();
+    openConversation(conversationThreadId(topicId));
+  };
+  // The topic behind the open thread, when it is one (Conversation grouping).
+  const activeTopicId = topicIdOfThread(activeConversation?.id);
+  const activeTopic = activeTopicId ? (topics.byId.get(activeTopicId) ?? null) : null;
+  // An old `day:YYYY-MM-DD` link (the Day grouping, retired in #866) opens the
+  // workday for that date once the topics are in.
+  useEffect(() => {
+    const day = /^day:(\d{4}-\d{2}-\d{2})$/.exec(conversationParam ?? '')?.[1];
+    if (!day) return;
+    const workday = [...topics.byId.values()].find(
+      (t) => t.kind === 'workday' && t.dateKey === day,
+    );
+    if (workday) setParams({ conversation: conversationThreadId(workday.id) });
+  }, [conversationParam, topics, setParams]);
+  // Where the composer's next post goes, always shown beside it (#866).
+  // The team names it too (a direct message names the person, its audience).
+  const composerDestination = postDestination(activeConversation?.id, topics);
+  const destinationTeamName =
+    scope === 'me' ? 'Personal' : (teamOptions.find((t) => t.id === selectedTeamId)?.name ?? '');
+  const composerDestinationName = composerDestination
+    ? composerDestination.kind === 'direct'
+      ? topicTitle(composerDestination)
+      : DESTINATION_TEXT.inTeam(destinationTeamName, topicTitle(composerDestination))
+    : DESTINATION_TEXT.inTeam(destinationTeamName, DESTINATION_TEXT.newWorkday);
 
   // Switching team or view leaves the open conversation behind. Compared with
   // the previous value so a linked conversation survives the first render.
@@ -1031,12 +1127,12 @@ export default function Huddle() {
   useEffect(() => {
     if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
-    // A post made off the clock has no Session thread: its Day thread holds it.
+    // A post made off the clock has no Session thread: its conversation holds it.
     const offClock = match ? null : activePosts.find((p) => p.id === postParam && !p.clockEventId);
-    const conversation = match?.id ?? (offClock && dayConversationIdForPost(offClock));
+    const conversation = match?.id ?? (offClock && conversationThreadIdForPost(offClock, topics));
     if (!conversation) return;
     setParams({ conversation, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams]);
+  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams, topics]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation
@@ -1063,14 +1159,42 @@ export default function Huddle() {
     if (sendingRef.current) throw alreadySending();
     // Cancelling the dialog rejects, so SuperChat puts the typed text back.
     const sendSchedule = sendOption === SEND_LATER ? await askForSchedule() : null;
+    // Stamped once: the post's Day thread, even if midnight passes while it sends.
+    const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
+    // Posting from a conversation thread posts into that conversation (#866).
+    // Where it goes is named explicitly, never left to the server, so a
+    // workday that closed while this was typed is refused and explained
+    // rather than the post moving silently (#866 R5). A scheduled post bound
+    // for a workday names none: its workday is the one open when it is
+    // delivered.
+    const destination = postDestination(conversationId, topics);
+    const postTopicId =
+      destination && !(sendSchedule && destination.kind === 'workday') ? destination.id : null;
+    // Warn before sending a post that won't show in the thread being read.
+    // Cancelling rejects, so SuperChat puts the draft back.
+    const reasons = reasonsPostWontShow(destination, topics, {
+      threadBy,
+      openThreadId: conversationId,
+      openThreadTitle: conversations.find((c) => c.id === conversationId)?.title ?? '',
+      searchQuery,
+      text,
+      viewer: { userId: user?.id ?? '', name: user?.name ?? '' },
+      ticketIds: selectedTicketIds,
+    });
+    if (reasons.length) {
+      await confirmSendElsewhere(
+        reasons,
+        destination ? topicTitle(destination) : DESTINATION_TEXT.newWorkday,
+      );
+    }
     if (sendingRef.current) throw alreadySending();
     sendingRef.current = true;
     setSending(true);
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
-    // Stamped once: the post's Day thread, even if midnight passes while it sends.
-    const postDate = toDateString(sendSchedule?.deliverAt ?? new Date());
+    // The conversation the server put it in (#866).
+    let landedTopicId: string | undefined;
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
@@ -1089,7 +1213,11 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
-      ({ id, clockEventId } = await huddleApi.createPost({
+      ({
+        id,
+        clockEventId,
+        conversationId: landedTopicId,
+      } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
@@ -1106,31 +1234,36 @@ export default function Huddle() {
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
+        ...(postTopicId && { conversationId: postTopicId }),
       }));
     } catch (err) {
       console.error('[Huddle] Failed to post:', err);
       setInboxError(composerErrorMessage(err, 'Failed to post. Please try again.'));
+      // The workday closed while this was written: reload the topics, so the
+      // composer shows the new workday as where the kept draft goes (#866 R5).
+      if (err instanceof ApiError && err.code === CONVERSATION_CLOSED_CODE) void refreshTopics();
       throw err;
     } finally {
       sendingRef.current = false;
       setSending(false);
     }
-    // Where the post landed: in Day grouping, its day's thread, which isn't
-    // necessarily the one it was sent from (an older day's). Opened only now
-    // it's posted, so a failed send restores its draft where it was written.
-    const dayId = dayConversationId(postDate);
-    if (
-      threadBy === 'day' &&
-      dayId !== conversationId &&
-      conversations.some((c) => c.id === dayId)
-    ) {
-      openConversation(dayId);
+    // Where the post landed. In Conversation grouping, its conversation: the
+    // open workday when it was sent from a closed one (the reader was warned
+    // and agreed). Opened only now it's posted, so a failed send restores its
+    // draft where it was written.
+    const landedThread = landedTopicId ? conversationThreadId(landedTopicId) : null;
+    if (threadBy === 'conversation' && landedThread && landedThread !== conversationId) {
+      openConversation(landedThread);
     }
     // In Session grouping, the server put it in the live shift, or in no shift
-    // when clocked out — then it's only in Day, so its Day thread opens. Opened
-    // after the refresh below, once the post (maybe a shift's first) is in.
+    // when clocked out — then its conversation opens. Opened after the refresh
+    // below, once the post (maybe a shift's first) is in.
     const sessionLanding =
-      threadBy !== 'session' ? null : clockEventId ? sessionConversationId(clockEventId) : dayId;
+      threadBy !== 'session'
+        ? null
+        : clockEventId
+          ? sessionConversationId(clockEventId)
+          : landedThread;
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));
@@ -1324,6 +1457,33 @@ export default function Huddle() {
                 />
               )}
 
+              {/* Warned before sending a post that won't show here (#866). */}
+              <AlertDialog
+                open={elsewherePrompt !== null}
+                onOpenChange={(next) => {
+                  if (next || !elsewherePrompt) return;
+                  elsewherePrompt.reject();
+                  setElsewherePrompt(null);
+                }}
+                title={SEND_ELSEWHERE_TEXT.title}
+                description={SEND_ELSEWHERE_TEXT.description(elsewherePrompt?.destination ?? '')}
+                actionLabel={SEND_ELSEWHERE_TEXT.send}
+                onAction={() => {
+                  elsewherePrompt?.resolve();
+                  setElsewherePrompt(null);
+                }}
+                onCancel={() => {
+                  elsewherePrompt?.reject();
+                  setElsewherePrompt(null);
+                }}
+              >
+                <ul className="huddle-send-elsewhere-reasons list-disc space-y-1 ps-5 text-sm">
+                  {elsewherePrompt?.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </AlertDialog>
+
               {/* SuperChatInbox, grouped by the selected Thread by option.
                   Its chat input posts to the team; own messages edit inline.
                   Stays mounted through an empty search so the filters in its
@@ -1429,6 +1589,19 @@ export default function Huddle() {
                         // CSS module lets its two children join the composer's row.
                         <>
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            {/* Where this post goes (#866); opens it. */}
+                            <ComposerChipButton
+                              onClick={
+                                composerDestination
+                                  ? () =>
+                                      openConversation(conversationThreadId(composerDestination.id))
+                                  : undefined
+                              }
+                              disabled={!composerDestination}
+                              aria-label={`${DESTINATION_TEXT.to(composerDestinationName)}. Open it`}
+                            >
+                              {DESTINATION_TEXT.to(composerDestinationName)}
+                            </ComposerChipButton>
                             {postingTeamId && (
                               <TicketPicker
                                 teamId={postingTeamId}
@@ -1500,10 +1673,29 @@ export default function Huddle() {
                 scope === 'team' &&
                 selectedTeamId &&
                 createPortal(
-                  <HuddleNotifyMenu
-                    teamId={selectedTeamId}
-                    teamName={teamOptions.find((t) => t.id === selectedTeamId)?.name ?? ''}
-                  />,
+                  <div className="huddle-conversation-actions flex items-center gap-1">
+                    {threadBy === 'conversation' && (
+                      <StartHuddleButton
+                        teamId={selectedTeamId}
+                        openWorkday={openWorkday}
+                        onStarted={(workday) => void openTopic(workday.id)}
+                      />
+                    )}
+                    {activeTopic && (
+                      <ConversationMenu
+                        conversation={activeTopic}
+                        canRenameForEveryone={
+                          activeTopic.kind === 'group' &&
+                          (activeTopic.createdBy === user?.id || viewerIsAdmin)
+                        }
+                        onChanged={() => void refreshTopics()}
+                      />
+                    )}
+                    <HuddleNotifyMenu
+                      teamId={selectedTeamId}
+                      teamName={teamOptions.find((t) => t.id === selectedTeamId)?.name ?? ''}
+                    />
+                  </div>,
                   conversationHeaderEl,
                 )}
             </>

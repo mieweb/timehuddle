@@ -1336,6 +1336,30 @@ export interface HuddlePostAttachment {
   ownerId?: string | null;
 }
 
+/**
+ * A Huddle conversation topic (#866): a workday (huddle start to the next),
+ * a named team conversation, or a direct conversation between two people.
+ */
+export interface HuddleConversation {
+  id: string;
+  teamId: string;
+  kind: 'workday' | 'group' | 'direct';
+  /** The name I see: my own name for it, else its shared name or the other person's. Null for a workday. */
+  displayLabel: string | null;
+  /** My own name for it, if I set one. */
+  myLabel: string | null;
+  /** Team conversation only: its shared name. */
+  label?: string | null;
+  memberIds?: string[];
+  createdBy?: string | null;
+  /** Workday only: the date its huddle started (YYYY-MM-DD). */
+  dateKey?: string;
+  startedAt?: string | null;
+  startedBy?: string | null;
+  /** Workday only: when the next huddle closed it; null while open. */
+  closedAt?: string | null;
+}
+
 export interface HuddlePost {
   id: string;
   teamId: string;
@@ -1356,6 +1380,8 @@ export interface HuddlePost {
   commentCount: number;
   /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
   postDate?: string;
+  /** The conversation topic this post belongs to (#866). Absent on a scheduled post until it is delivered. */
+  conversationId?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
   clockEventId?: string;
   /** Joined its session because it was posted while clocked in: never the session's plan. */
@@ -1466,7 +1492,37 @@ export const huddleApi = {
     wrapUp?: boolean;
     /** ISO date to schedule the post for. */
     deliverAt?: string;
-  }) => wormholeCall<{ id: string; clockEventId?: string }>('huddle.createPost', { ...params }),
+    /** The conversation to post into (#866); omitted, the team's open workday. */
+    conversationId?: string;
+  }) =>
+    wormholeCall<{ id: string; clockEventId?: string; conversationId?: string }>(
+      'huddle.createPost',
+      { ...params },
+    ),
+
+  /** The conversations I can see on a team (#866), each with the name I see. */
+  listConversations: (teamId: string) =>
+    wormholeCall<{ conversations: HuddleConversation[] }>('huddle.conversations.list', { teamId }),
+
+  /** Start the team's huddle: close the open workday and open one for `dateKey` (my local date). */
+  startWorkday: (teamId: string, dateKey: string) =>
+    wormholeCall<HuddleConversation>('huddle.startWorkday', { teamId, dateKey }),
+
+  /** Create a team conversation, or open (creating if needed) a direct one. */
+  createConversation: (params: {
+    teamId: string;
+    kind: 'group' | 'direct';
+    label?: string;
+    memberIds: string[];
+  }) => wormholeCall<HuddleConversation>('huddle.conversations.create', params),
+
+  /** Rename a team conversation for everyone. */
+  renameConversation: (conversationId: string, label: string) =>
+    wormholeCall<HuddleConversation>('huddle.conversations.rename', { conversationId, label }),
+
+  /** Set (or with an empty name, clear) the name only I see. */
+  setMyConversationLabel: (conversationId: string, label: string) =>
+    wormholeCall<HuddleConversation>('huddle.conversations.setMyLabel', { conversationId, label }),
 
   /** Deliver one of my scheduled posts now. */
   sendScheduledNow: (postId: string) =>

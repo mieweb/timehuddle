@@ -19,14 +19,24 @@ import { ApiError } from '@lib/api';
  */
 const PAYLOAD_TOO_LARGE_CODE = 'payload-too-large';
 
+/**
+ * The workday the composer showed closed while the post was being written
+ * (#866): the next huddle started. The draft is still in the box, and the
+ * composer now shows the open workday as where it goes.
+ */
+export const CONVERSATION_CLOSED_CODE = 'conversation-closed';
+
 const MESSAGES = {
   tooLarge: 'This post is too large to send. Shorten it, or remove an image and attach it instead.',
   offline: 'Could not reach the server. Check your connection and try again.',
+  conversationClosed:
+    'That workday closed when the next huddle started. Your draft is still here: send it again to post it in the new workday.',
 } as const;
 
 export function composerErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     if (error.code === PAYLOAD_TOO_LARGE_CODE) return MESSAGES.tooLarge;
+    if (error.code === CONVERSATION_CLOSED_CODE) return MESSAGES.conversationClosed;
     // status 0 is the native HTTP bridge's "never got a response".
     if (error.status === 0) return MESSAGES.offline;
     return error.message || fallback;

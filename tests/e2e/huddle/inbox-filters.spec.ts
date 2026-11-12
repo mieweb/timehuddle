@@ -88,19 +88,19 @@ test.describe('Huddle inbox filters', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('Group by defaults to Day, explains each option, and remembers the choice', async ({
+  test('Group by defaults to Conversation, explains each option, and remembers the choice', async ({
     page,
   }) => {
     await seedPost(page, { teamId, text: uniqueToken('group-by') });
     await page.goto('/app/huddle');
 
     const groupBy = page.getByRole('button', { name: /^Group by:/ });
-    await expect(groupBy).toHaveAccessibleName('Group by: Day', { timeout: 20000 });
+    await expect(groupBy).toHaveAccessibleName('Group by: Conversation', { timeout: 20000 });
 
     await groupBy.click();
     const descriptions = {
       All: 'Every update in one thread, oldest first',
-      Day: "Everyone's updates, one thread per date",
+      Conversation: 'Stand-up to stand-up threads, team conversations and direct messages',
       Session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
       Person: 'One thread per teammate',
       Ticket: 'Updates grouped by the work item they link to',
@@ -200,7 +200,7 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
-  test('a link to a post made off the clock opens its Day thread', async ({ page }) => {
+  test('a link to a post made off the clock opens its conversation', async ({ page }) => {
     const token = uniqueToken('off-clock-link');
     const linkedId = await seedPostDaysAgo({ teamId, userId, text: token, daysAgo: 2 });
     try {
@@ -208,7 +208,7 @@ test.describe('Huddle inbox filters', () => {
       await groupInboxBy(page, 'Session');
 
       await page.goto(`/app/huddle?post=${linkedId}`);
-      await expect(page).toHaveURL(/conversation=day%3A/, { timeout: 30000 });
+      await expect(page).toHaveURL(/conversation=conversation%3A/, { timeout: 30000 });
       await expect(inboxMessage(page, token).first()).toBeVisible();
       await expect(page.getByText('Post not found', { exact: false })).toHaveCount(0);
     } finally {
@@ -216,7 +216,7 @@ test.describe('Huddle inbox filters', () => {
     }
   });
 
-  test('Session view leaves out posts made without clocking in; All and Day keep them', async ({
+  test('Session view leaves out posts made without clocking in; All and Conversation keep them', async ({
     page,
   }) => {
     const token = uniqueToken('off-clock');
@@ -228,7 +228,7 @@ test.describe('Huddle inbox filters', () => {
     await expect(conversationRows(page)).toHaveCount(0);
     await inboxSearch(page).fill('');
 
-    for (const grouping of ['All', 'Day'] as const) {
+    for (const grouping of ['All', 'Conversation'] as const) {
       await groupInboxBy(page, grouping);
       await openPostInInbox(page, token);
       // Search still finds it by that phrase.
@@ -325,7 +325,7 @@ test.describe('Huddle inbox filters', () => {
     const first = uniqueToken('before-shift');
     const second = uniqueToken('from-session');
     await page.goto('/app/huddle');
-    await groupInboxBy(page, 'Day');
+    await groupInboxBy(page, 'Conversation');
     await postFromHuddle(page, first);
     await expect(inboxMessage(page, first)).toBeVisible({ timeout: 20000 });
 
@@ -335,7 +335,7 @@ test.describe('Huddle inbox filters', () => {
 
     // Clocked out, so it lands in today's Day thread, which opens.
     await postFromHuddle(page, second);
-    await expect(page).toHaveURL(/conversation=day%3A/, { timeout: 20000 });
+    await expect(page).toHaveURL(/conversation=conversation%3A/, { timeout: 20000 });
     await expect(inboxMessage(page, second)).toBeVisible();
     await expect(inboxMessage(page, first)).toBeVisible();
   });
@@ -411,7 +411,7 @@ test.describe('Huddle inbox filters', () => {
       `${token} ${todayKey()}`, // date
     ];
     // Not Session: the post is made off the clock, so Session leaves it out.
-    for (const option of ['Day', 'Person', 'Ticket'] as const) {
+    for (const option of ['Conversation', 'Person', 'Ticket'] as const) {
       await groupInboxBy(page, option);
       for (const query of queries) {
         await inboxSearch(page).fill(query);
