@@ -16,6 +16,9 @@ import {
   topicIdOfThread,
   topicTitle,
   withTopicConversations,
+  postDestination,
+  reasonsPostWontShow,
+  type SendView,
 } from './superChatFeed';
 import type { HuddleConversation } from '@lib/api';
 
@@ -1157,5 +1160,82 @@ describe('Conversation grouping (#866)', () => {
     expect(defaultConversation(convs, 'conversation', Date.now(), topics.openWorkdayId)?.id).toBe(
       conversationThreadId(THU),
     );
+  });
+});
+
+describe('where a post goes, and whether it shows here (#866 M5)', () => {
+  const OPEN = 'e5e5e5e5e5e5e5e5e5e5e5e5';
+  const CLOSED = 'f6f6f6f6f6f6f6f6f6f6f6f6';
+  const DM = '0a0a0a0a0a0a0a0a0a0a0a0a';
+  const base = { teamId: 'team-1', displayLabel: null, myLabel: null } as const;
+  const topics = toConversationTopics([
+    { ...base, id: OPEN, kind: 'workday', dateKey: '2026-11-12', closedAt: null },
+    {
+      ...base,
+      id: CLOSED,
+      kind: 'workday',
+      dateKey: '2026-11-11',
+      closedAt: '2026-11-12T14:00:00Z',
+    },
+    { ...base, id: DM, kind: 'direct', displayLabel: 'Bob' },
+  ]);
+  const view = (overrides: Partial<SendView> = {}): SendView => ({
+    threadBy: 'conversation',
+    openThreadId: conversationThreadId(OPEN),
+    openThreadTitle: 'Thu, Nov 12',
+    searchQuery: '',
+    text: 'Deploy finished',
+    viewer: { userId: 'user-aisha', name: 'Aisha Khan' },
+    ticketIds: [],
+    ...overrides,
+  });
+
+  it('goes to the open thread when it can take posts, else the open workday', () => {
+    expect(postDestination(conversationThreadId(DM), topics)?.id).toBe(DM);
+    expect(postDestination(conversationThreadId(CLOSED), topics)?.id).toBe(OPEN);
+    expect(postDestination('day:2026-11-11', topics)?.id).toBe(OPEN);
+    expect(postDestination(null, toConversationTopics([]))).toBeNull();
+  });
+
+  it('shows here when sent from the thread it goes to', () => {
+    const dest = postDestination(conversationThreadId(OPEN), topics);
+    expect(reasonsPostWontShow(dest, topics, view())).toEqual([]);
+  });
+
+  it('warns from a closed workday (row 8)', () => {
+    const dest = postDestination(conversationThreadId(CLOSED), topics);
+    const reasons = reasonsPostWontShow(
+      dest,
+      topics,
+      view({ openThreadId: conversationThreadId(CLOSED) }),
+    );
+    expect(reasons).toEqual([expect.stringContaining('closed when the next huddle started')]);
+  });
+
+  it("warns when a search wouldn't match the post (row 32)", () => {
+    const dest = postDestination(conversationThreadId(OPEN), topics);
+    expect(reasonsPostWontShow(dest, topics, view({ searchQuery: 'migration' }))).toEqual([
+      expect.stringContaining('“migration”'),
+    ]);
+    expect(reasonsPostWontShow(dest, topics, view({ searchQuery: 'deploy' }))).toEqual([]);
+    // The author's own name matches too.
+    expect(reasonsPostWontShow(dest, topics, view({ searchQuery: 'aisha' }))).toEqual([]);
+  });
+
+  it('warns from another person or ticket; Day and Session open the landing thread instead (row 33)', () => {
+    const dest = postDestination(null, topics);
+    const reasonsFor = (overrides: Partial<SendView>) =>
+      reasonsPostWontShow(dest, topics, view(overrides));
+    expect(
+      reasonsFor({ threadBy: 'person', openThreadId: 'person:user-bob', openThreadTitle: 'Bob' }),
+    ).toEqual([expect.stringContaining("Bob's posts")]);
+    expect(reasonsFor({ threadBy: 'person', openThreadId: 'person:user-aisha' })).toEqual([]);
+    expect(reasonsFor({ threadBy: 'ticket', openThreadId: 'ticket:t1' })).toHaveLength(1);
+    expect(
+      reasonsFor({ threadBy: 'ticket', openThreadId: 'ticket:t1', ticketIds: ['t1'] }),
+    ).toEqual([]);
+    expect(reasonsFor({ threadBy: 'day', openThreadId: 'day:2026-11-11' })).toEqual([]);
+    expect(reasonsFor({ threadBy: 'session', openThreadId: 'session:s1' })).toEqual([]);
+    expect(reasonsFor({ threadBy: 'all', openThreadId: 'all:feed' })).toEqual([]);
   });
 });

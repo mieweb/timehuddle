@@ -208,6 +208,107 @@ export function topicIdOfThread(threadId: string | null | undefined): string | n
   return match ? match[1] : null;
 }
 
+/**
+ * Where a post sent now goes: the open thread's conversation if it can take
+ * posts, otherwise the team's open workday. Null when no workday is open yet
+ * (the server opens one for the post).
+ */
+export function postDestination(
+  openThreadId: string | null | undefined,
+  topics: ConversationTopics,
+): HuddleConversation | null {
+  const topic = topics.byId.get(topicIdOfThread(openThreadId) ?? '');
+  if (topic && topicIsOpen(topic)) return topic;
+  return topics.openWorkdayId ? (topics.byId.get(topics.openWorkdayId) ?? null) : null;
+}
+
+/** User-facing reasons a just-sent post won't show where the reader is looking. */
+export const DESTINATION_TEXT = {
+  to: (name: string) => `To: ${name}`,
+  inTeam: (team: string, conversation: string) =>
+    team ? `${team} › ${conversation}` : conversation,
+  newWorkday: 'a new workday',
+  closedWorkday: (open: string, dest: string) =>
+    `${open} closed when the next huddle started, so new posts go to ${dest}.`,
+  otherConversation: (open: string, dest: string) =>
+    `You're reading ${open}, but this post goes to ${dest}.`,
+  otherPerson: (name: string) => `You're reading ${name}'s posts; yours won't show there.`,
+  otherTicket: 'This thread only shows posts linked to its ticket, and this post isn’t.',
+  search: (query: string) => `Your search “${query}” would hide it.`,
+} as const;
+
+/** What the reader is looking at when they send. */
+export interface SendView {
+  threadBy: ThreadBy;
+  /** The open thread's id and title. */
+  openThreadId: string | null;
+  openThreadTitle: string;
+  searchQuery: string;
+  /** The text being sent. */
+  text: string;
+  viewer: { userId: string; name: string };
+  /** Tickets the post links. */
+  ticketIds: string[];
+}
+
+/**
+ * Why a post sent now would not appear in the thread being read (#866):
+ * another conversation, a closed workday, another person's or ticket's
+ * thread, or a search it won't match. Empty when it will show right there.
+ *
+ * Day and Session need no warning: after a send they already open the thread
+ * the post landed in (#854), so the reader is taken to it.
+ */
+export function reasonsPostWontShow(
+  destination: HuddleConversation | null,
+  topics: ConversationTopics,
+  view: SendView,
+): string[] {
+  const reasons: string[] = [];
+  const dest = destination ? topicTitle(destination) : DESTINATION_TEXT.newWorkday;
+  const [kind, key] = splitThreadId(view.openThreadId);
+  switch (view.threadBy) {
+    case 'conversation': {
+      const open = topics.byId.get(key);
+      if (open && open.id !== destination?.id) {
+        reasons.push(
+          topicIsOpen(open)
+            ? DESTINATION_TEXT.otherConversation(topicTitle(open), dest)
+            : DESTINATION_TEXT.closedWorkday(topicTitle(open), dest),
+        );
+      }
+      break;
+    }
+    case 'person':
+      if (kind === 'person' && key !== view.viewer.userId) {
+        reasons.push(DESTINATION_TEXT.otherPerson(view.openThreadTitle));
+      }
+      break;
+    case 'ticket':
+      if (kind === 'ticket' && !view.ticketIds.includes(key))
+        reasons.push(DESTINATION_TEXT.otherTicket);
+      break;
+    case 'day':
+    case 'session':
+    case 'all':
+      break;
+  }
+  const query = view.searchQuery.trim();
+  if (query) {
+    const haystack = normalizeForSearch(`${view.text}\n${view.viewer.name}`);
+    if (!searchWords(query).every((word) => haystack.includes(word))) {
+      reasons.push(DESTINATION_TEXT.search(query));
+    }
+  }
+  return reasons;
+}
+
+/** `[grouping, key]` of a thread id (`day:2026-11-12` → `['day', '2026-11-12']`). */
+function splitThreadId(threadId: string | null): [string, string] {
+  const at = threadId?.indexOf(':') ?? -1;
+  return threadId && at > 0 ? [threadId.slice(0, at), threadId.slice(at + 1)] : ['', ''];
+}
+
 const ALL_KEY = 'feed';
 /** The one conversation of the All grouping: every post, in time order. */
 export const ALL_CONVERSATION_ID = `all:${ALL_KEY}`;
