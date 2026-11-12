@@ -28,8 +28,6 @@ export const TICKET_IDS_STRINGS = {
   serversTitle: 'Outside servers',
   serversDescription:
     'Register the Redmine servers your issues live on, so an issue there shows as its prefix and number, such as PM-233. GitHub issues need no setup: they show as the repository and number, such as timehuddle-223.',
-  serversOneServerNote:
-    "For now, members open and edit issues on this TimeHuddle's own Redmine server only. Issues on other servers show their ID and can be searched.",
   serverLabel: (row: number) => `Server address, row ${row}`,
   serverPlaceholder: 'https://redmine.example.com',
   serverPrefixLabel: (row: number) => `Prefix, row ${row}`,
@@ -241,9 +239,6 @@ export const TicketIdsCard: React.FC<TicketIdsCardProps> = ({
             </Text>
             <Text variant="muted" size="xs">
               {TICKET_IDS_STRINGS.serversDescription}
-            </Text>
-            <Text variant="muted" size="xs">
-              {TICKET_IDS_STRINGS.serversOneServerNote}
             </Text>
           </div>
           {serversSave.error && <Alert variant="danger">{serversSave.error}</Alert>}

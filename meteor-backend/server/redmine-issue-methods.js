@@ -100,11 +100,11 @@ async function loadIssueDetail(account, issueId) {
 
 /** A project's trackers, assignable users and priorities, from the per-user cache. */
 function loadFormOptions(userId, account, projectId) {
-  return formOptionsCache.get(userId, `project:${projectId}`, async () => {
+  return formOptionsCache.get(userId, `${account.baseUrl}|project:${projectId}`, async () => {
     const [trackers, memberships, priorities] = await Promise.all([
       listProjectTrackers(account, projectId),
       listProjectMemberships(account, projectId),
-      prioritiesCache.get(userId, 'priorities', () => listIssuePriorities(account)),
+      prioritiesCache.get(userId, `${account.baseUrl}|priorities`, () => listIssuePriorities(account)),
     ]);
     return toFormOptions({ trackers, memberships, priorities });
   });
@@ -119,7 +119,7 @@ export async function loadJournals(userId, account, raw) {
   let lookups = {};
   try {
     const [statuses, options] = await Promise.all([
-      statusesCache.get(userId, 'statuses', () => listIssueStatuses(account)),
+      statusesCache.get(userId, `${account.baseUrl}|statuses`, () => listIssueStatuses(account)),
       raw.project?.id ? loadFormOptions(userId, account, raw.project.id) : null,
     ]);
     lookups = {
@@ -166,7 +166,7 @@ const ISSUE_TIME_ENTRY_LIMIT = 10;
  */
 export async function loadTimeEntries(userId, account, issueId) {
   try {
-    const pushedIds = await pushedEntryIdsFor(userId, issueId);
+    const pushedIds = await pushedEntryIdsFor(userId, issueId, account.ledgerHost);
     return await collectUnpushedTimeEntries(
       (offset, limit) => listIssueTimeEntries(account, issueId, { offset, limit }),
       { issueId, pushedIds, limit: ISSUE_TIME_ENTRY_LIMIT },
@@ -184,7 +184,7 @@ Meteor.methods({
     const account = await requireAccount(userId);
 
     try {
-      const projects = await projectsCache.get(userId, 'projects', async () =>
+      const projects = await projectsCache.get(userId, `${account.baseUrl}|projects`, async () =>
         toNamedList(await listProjects(account)),
       );
       return { projects };

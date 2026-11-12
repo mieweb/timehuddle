@@ -92,7 +92,10 @@ describe('ticketIdsFor', () => {
       insertOrg(),
     ]);
     const ids = await ticketIdsFor(db, [custom, plain, null]);
-    expect(ids.get(custom)).toEqual({ ticketPrefix: 'TJ', sourcePrefixes: servers });
+    expect(ids.get(custom)).toEqual({
+      ticketPrefix: 'TJ',
+      sourcePrefixes: [{ ...servers[0], type: 'redmine', baseUrl: 'https://redmine.example.com' }],
+    });
     expect(ids.get(plain)).toEqual({ ticketPrefix: DEFAULT_TICKET_PREFIX, sourcePrefixes: [] });
   });
 });

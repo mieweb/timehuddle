@@ -41,9 +41,11 @@ import {
   optionalRedmineBaseUrl,
   redmineUrlRefusal,
 } from './redmine-client';
-import { encryptSecret, envKey } from './redmine-crypto';
+import { encryptSecret, envKey, hasKeysSecret, weakSecretNames } from './redmine-crypto';
 import {
   findRedmineAccount,
+  keyOwnerOf,
+  mainLinkOf,
   requireRedmineAccount,
   tooManyRedmineRequests,
 } from './redmine-account';
@@ -117,20 +119,40 @@ export function toRedmineMeteorError(err) {
 // first-time `redmine.connect` calls can't both insert (Mongo `_id` uniqueness
 // alone doesn't guard the `userId` upsert key). Mirrors the unique-index pattern
 // in org-helpers.js used for the same concurrent-upsert race.
+// Since #734 step 7 a member can also have a row per other registered server
+// (`host`, source-accounts.js), so the invariant is one row per member per
+// server; a main link has no `host` and indexes as null, still one per member.
+// The old one-row-per-member index is replaced; no row is touched.
 Meteor.startup(async () => {
   try {
-    await RedmineLinks.createIndexAsync({ userId: 1 }, { unique: true, name: 'unique_redmine_link_user' });
+    await RedmineLinks.createIndexAsync(
+      { userId: 1, host: 1 },
+      { unique: true, name: 'unique_redmine_link_user_host' },
+    );
+    await RedmineLinks.rawCollection()
+      .dropIndex('unique_redmine_link_user')
+      .catch((error) => {
+        if (error?.codeName !== 'IndexNotFound') throw error;
+      });
   } catch (error) {
-    console.error('[redmine] failed to create unique userId index:', error);
+    console.error('[redmine] failed to set up the unique { userId, host } index:', error);
   }
 });
 
 // Redmine is on when a base URL is set, and every personal key is encrypted with
-// REDMINE_ENCRYPTION_KEY. Without it the first connect fails with a 500, so refuse
-// to boot instead.
+// SOURCE_KEYS_SECRET (or REDMINE_ENCRYPTION_KEY). Without one the first connect
+// fails with a 500, so refuse to boot instead. A weak one only warns for now
+// (#734 step 7); refusing it waits until production's logs show no warning.
 Meteor.startup(() => {
-  if (optionalRedmineBaseUrl() && !process.env.REDMINE_ENCRYPTION_KEY) {
-    throw new Error('REDMINE_BASE_URL is set but REDMINE_ENCRYPTION_KEY is not.');
+  if (!optionalRedmineBaseUrl()) return;
+  if (!hasKeysSecret()) {
+    throw new Error('REDMINE_BASE_URL is set but SOURCE_KEYS_SECRET (or REDMINE_ENCRYPTION_KEY) is not.');
+  }
+  for (const name of weakSecretNames()) {
+    console.warn(
+      `[sources] ${name} is weak: use a random secret, e.g. \`openssl rand -base64 32\`. ` +
+        'A later release will refuse to start with it.',
+    );
   }
 });
 
@@ -151,7 +173,7 @@ function statusFor(link) {
  * The instance a `redmine.connect` call links to: the requested URL when custom
  * URLs are allowed and one was sent, otherwise the server's.
  */
-function requestedBaseUrl(rawBaseUrl) {
+async function requestedBaseUrl(rawBaseUrl) {
   if (!customRedmineUrlAllowed() || rawBaseUrl == null || rawBaseUrl === '') {
     const fallback = optionalRedmineBaseUrl();
     if (!fallback) {
@@ -169,7 +191,7 @@ function requestedBaseUrl(rawBaseUrl) {
   // Refused at link time as well as per request, so a user who cannot be served
   // is told why while they are looking at the field, rather than meeting
   // "Redmine is unreachable" on the Tickets page later.
-  const refusal = redmineUrlRefusal(baseUrl);
+  const refusal = await redmineUrlRefusal(baseUrl);
   if (refusal) throw new Meteor.Error('bad-request', `${refusal}.`);
   return baseUrl;
 }
@@ -214,7 +236,7 @@ async function acquirePushLock(userId) {
   const owner = randomUUID();
   const claimed = await RedmineLinks.updateAsync(
     {
-      userId,
+      ...mainLinkOf(userId),
       $or: [
         { pushingSince: null },
         { pushingSince: { $exists: false } },
@@ -233,7 +255,7 @@ async function acquirePushLock(userId) {
  */
 async function renewPushLock(userId, owner) {
   const renewed = await RedmineLinks.updateAsync(
-    { userId, pushLockOwner: owner },
+    { ...mainLinkOf(userId), pushLockOwner: owner },
     { $set: { pushingSince: new Date() } },
   );
   return renewed === 1;
@@ -241,7 +263,7 @@ async function renewPushLock(userId, owner) {
 
 function releasePushLock(userId, owner) {
   return RedmineLinks.updateAsync(
-    { userId, pushLockOwner: owner },
+    { ...mainLinkOf(userId), pushLockOwner: owner },
     { $set: { pushingSince: null, pushLockOwner: null } },
   );
 }
@@ -269,15 +291,20 @@ async function withPushLock(userId, work) {
  * The caller's ticket-days with time that has been neither sent nor discarded.
  * Local data only: nothing is read from Redmine. `only` is one ticket-day,
  * `{ ticketId, date }`: that day alone is read, not the user's whole history.
+ * `host` is the server (#734 step 6): null for the deployment's own Redmine,
+ * `account` being the caller's account there.
  */
-async function unsentTicketDays(userId, account, only) {
+async function unsentTicketDays(userId, account, only, host = null) {
   const totals = await redmineTicketDaysFor(userId, {
-    includeLinked: onDefaultRedmine(account),
+    // A link on the deployment's own Redmine means nothing to an account on a
+    // custom URL (dev); another server's account is that server's.
+    includeLinked: host ? true : onDefaultRedmine(account),
     only,
+    host,
   });
   if (!totals.length) return [];
   const [ledger, steps] = await Promise.all([
-    pushLedgerFor(userId, only),
+    pushLedgerFor(userId, only, host),
     roundingStepsFor(totals, account),
   ]);
   return unsentTotals(totals, ledger, steps);
@@ -326,8 +353,37 @@ async function roundingStepsFor(totals, account) {
   return steps;
 }
 
+/** A request's server: a host, or null for the deployment's own Redmine. */
+function requireHost(host) {
+  if (host == null || host === '') return null;
+  if (typeof host !== 'string' || hostOf(host) !== host) {
+    throw new Meteor.Error('bad-request', 'Not a server.');
+  }
+  return host;
+}
+
+/**
+ * The other servers the caller has time on and an account for, besides the
+ * deployment's own Redmine: what the push dialog lists rows for.
+ */
+async function otherServersWithTime(userId) {
+  const hosts = await Timers.rawCollection().distinct('redmineHost', {
+    userId,
+    redmineHost: { $type: 'string' },
+    endTime: { $ne: null },
+  });
+  const servers = [];
+  for (const host of hosts) {
+    const account = await findRedmineAccount(userId, host);
+    if (account) servers.push({ host, account });
+  }
+  return servers;
+}
+
 /** The Redmine issue a timer session's time belongs to, as a string id, or null. */
 async function redmineIssueOf(session, account) {
+  // On another server, `account` is the caller's there (`unsentRedmineFor`).
+  if (session.redmineHost) return session.redmineIssueId ?? null;
   // A link names an issue on the deployment's own Redmine (see `redmineStampFor`).
   if (session.redmineIssueId) return onDefaultRedmine(account) ? session.redmineIssueId : null;
   // `isValidId` also passes legacy Meteor ids, which `Mongo.ObjectID` throws on.
@@ -350,12 +406,18 @@ async function redmineIssueOf(session, account) {
 export async function unsentRedmineFor(userId, session) {
   if (!session) return null;
   try {
-    const account = await findRedmineAccount(userId);
+    const host = session.redmineHost ?? null;
+    const account = await findRedmineAccount(userId, host ?? undefined);
     if (!account) return null;
     const ticketId = await redmineIssueOf(session, account);
     if (!ticketId) return null;
     const only = { ticketId, date: session.date };
-    return sendableForTicketDay(await unsentTicketDays(userId, account, only), ticketId, session.date);
+    const sendable = sendableForTicketDay(
+      await unsentTicketDays(userId, account, only, host),
+      ticketId,
+      session.date,
+    );
+    return sendable && host ? { ...sendable, host } : sendable;
   } catch (err) {
     console.error('[redmine] could not work out unsent time for a closed session:', err);
     return null;
@@ -442,10 +504,10 @@ function chosenActivity(row, requestedId) {
  * Shared by `preview` and `push` so the two can never disagree about what is
  * eligible — `push` re-derives this rather than trusting what the client sends.
  */
-async function buildPreviewRows(userId, account, { only } = {}) {
+async function buildPreviewRows(userId, account, { only, host = null } = {}) {
   // `only` is one ticket-day, `{ ticketId, date }`: sending one issue's time
   // reads neither the user's other days nor their issues from Redmine.
-  const unsynced = await unsentTicketDays(userId, account, only);
+  const unsynced = await unsentTicketDays(userId, account, only, host);
   if (!unsynced.length) return [];
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
@@ -493,8 +555,10 @@ async function buildPreviewRows(userId, account, { only } = {}) {
       [...new Set(projectIds.filter((id) => id != null))],
       enumeration,
     );
-  } catch {
-    /* fall through with empty maps */
+  } catch (err) {
+    // A rejected key isn't an outage: the client must hear it, to say so.
+    if (account.keyRejected) throw toRedmineMeteorError(err);
+    /* otherwise fall through with empty maps */
   }
 
   const resolveActivity = (issue) => {
@@ -510,7 +574,9 @@ async function buildPreviewRows(userId, account, { only } = {}) {
     };
   };
 
-  return buildPushRows(unsynced, issuesById, resolveActivity);
+  const rows = buildPushRows(unsynced, issuesById, resolveActivity);
+  // Another server's rows say which, and where its issues are (#734 step 6).
+  return host ? rows.map((row) => ({ ...row, host, baseUrl: account.baseUrl })) : rows;
 }
 
 /**
@@ -523,7 +589,12 @@ async function buildPreviewRows(userId, account, { only } = {}) {
  * time to the minute; a larger gap means it stored something else entirely.
  */
 async function pushOneEntry(userId, account, row, activityId, comment) {
-  const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
+  const base = {
+    ticketId: row.ticketId,
+    date: row.date,
+    hours: row.hours,
+    ...(row.host ? { host: row.host } : {}),
+  };
 
   let created;
   try {
@@ -558,22 +629,24 @@ async function pushOneEntry(userId, account, row, activityId, comment) {
 
   // Record before confirming: if the read-back fails, the entry still exists in
   // Redmine, and forgetting it is what would resend the same time as a duplicate.
-  await recordEntry(userId, row.ticketId, row.date, {
-    redmineTimeEntryId: entryId,
-    seconds: row.seconds,
-    hours: row.hours,
-  });
+  await recordEntry(
+    userId,
+    row.ticketId,
+    row.date,
+    { redmineTimeEntryId: entryId, seconds: row.seconds, hours: row.hours },
+    row.host ?? null,
+  );
 
   // A read-back that fails, or that Redmine will not show this key, confirms
   // nothing. The entry stays recorded as sent, and the user is told it went
   // unconfirmed rather than that it was verified.
   const stored = await getTimeEntry(account, entryId).catch(() => null);
   if (!stored) {
-    await flagEntry(entryId, 'unconfirmed');
+    await flagEntry(entryId, 'unconfirmed', row.host ?? null);
     return { ...base, ok: false, reason: 'unconfirmed', entryId };
   }
   if (!hoursAgree(row.hours, Number(stored.hours))) {
-    await flagEntry(entryId, 'hours-mismatch');
+    await flagEntry(entryId, 'hours-mismatch', row.host ?? null);
     return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
   }
 
@@ -594,8 +667,8 @@ Meteor.methods({
     }
     const key = apiKey.trim();
 
-    const baseUrl = requestedBaseUrl(rawBaseUrl);
-    const existing = await RedmineLinks.findOneAsync({ userId });
+    const baseUrl = await requestedBaseUrl(rawBaseUrl);
+    const existing = await RedmineLinks.findOneAsync(mainLinkOf(userId));
 
     // Issue ids mean nothing across instances, so the instance may only change
     // between shifts. Compared against the default when unlinked, so
@@ -631,19 +704,20 @@ Meteor.methods({
       firstname: user.firstname ?? '',
       lastname: user.lastname ?? '',
       mail: user.mail ?? '',
-      apiKey: encryptSecret(key, envKey()),
+      apiKey: encryptSecret(key, envKey(), keyOwnerOf({ userId })),
       linkedAt: new Date(),
     };
+    // A new key clears a rejected one's mark.
     const update = customRedmineUrlAllowed()
-      ? { $set: { ...fields, baseUrl } }
-      : { $set: fields, $unset: { baseUrl: '' } };
+      ? { $set: { ...fields, baseUrl }, $unset: { rejectedAt: '' } }
+      : { $set: fields, $unset: { baseUrl: '', rejectedAt: '' } };
     try {
-      await RedmineLinks.upsertAsync({ userId }, update);
+      await RedmineLinks.upsertAsync(mainLinkOf(userId), update);
     } catch (err) {
       // Lost a concurrent first-insert race against the unique userId index;
       // the row now exists, so retry as a plain update.
       if (err?.code === DUPLICATE_KEY_ERROR_CODE) {
-        await RedmineLinks.updateAsync({ userId }, update);
+        await RedmineLinks.updateAsync(mainLinkOf(userId), update);
       } else {
         throw err;
       }
@@ -653,13 +727,13 @@ Meteor.methods({
     // activities, projects or members.
     bustUserCaches(userId);
 
-    return statusFor(await RedmineLinks.findOneAsync({ userId }));
+    return statusFor(await RedmineLinks.findOneAsync(mainLinkOf(userId)));
   },
 
-  /** Remove the caller's Redmine link. */
+  /** Remove the caller's main Redmine link. Accounts on other servers stay. */
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
-    await RedmineLinks.removeAsync({ userId });
+    await RedmineLinks.removeAsync(mainLinkOf(userId));
     // Pins and dismissals are issue ids from one instance, and mean nothing on
     // another — a stale pin would resolve to whatever issue happens to hold that
     // number next. Unlinking is also how a user says "forget my Redmine data".
@@ -673,7 +747,7 @@ Meteor.methods({
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return statusFor(await RedmineLinks.findOneAsync({ userId }));
+    return statusFor(await RedmineLinks.findOneAsync(mainLinkOf(userId)));
   },
 
   /**
@@ -683,24 +757,56 @@ Meteor.methods({
    * still returned, carrying a `blockedReason`, so the dialog can explain the
    * omission rather than quietly showing a shorter list than the user's day.
    */
-  async 'redmine.timeEntries.preview'({ ticketId, date } = {}) {
+  async 'redmine.timeEntries.preview'({ ticketId, date, host: rawHost } = {}) {
     const { userId } = await requireIdentity(this);
     // One ticket-day only, for the prompt shown when a timer ends (#688): it
     // needs that issue's activities, not every unsent day.
     const one = ticketId != null || date != null;
     if (one) requireTicketDay(ticketId, date);
+    const host = requireHost(rawHost);
 
-    const account = await findRedmineAccount(userId);
-    if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+    if (one) {
+      const account = await findRedmineAccount(userId, host ?? undefined);
+      if (!account) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+      enforceRedmineLimit(accountLimiter, userId);
+      const idle = await isIdleForPush(userId);
+      const rows = await buildPreviewRows(userId, account, { only: { ticketId, date }, host });
+      return { connected: true, idle, rows, baseUrl: account.baseUrl };
+    }
+
+    // Every unsent day: the deployment's own Redmine's, then each other
+    // server's the caller has an account on (#734 step 6).
+    const [account, others] = await Promise.all([
+      findRedmineAccount(userId),
+      otherServersWithTime(userId),
+    ]);
+    if (!account && !others.length) {
+      return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+    }
     enforceRedmineLimit(accountLimiter, userId);
-
     const idle = await isIdleForPush(userId);
-    const rows = await buildPreviewRows(
-      userId,
-      account,
-      one ? { only: { ticketId, date } } : {},
-    );
-    return { connected: true, idle, rows, baseUrl: account.baseUrl };
+    // A server that refuses the key drops out on its own, named in `refusedHosts`:
+    // every other server's time still shows.
+    const refusedHosts = [];
+    const rowsOf = (forAccount, options) =>
+      buildPreviewRows(userId, forAccount, options).catch((err) => {
+        if (err?.error !== 'invalid-key') throw err;
+        refusedHosts.push(options?.host ?? hostOf(forAccount.baseUrl));
+        return [];
+      });
+    const rows = [
+      ...(account ? await rowsOf(account) : []),
+      ...(
+        await Promise.all(others.map((other) => rowsOf(other.account, { host: other.host })))
+      ).flat(),
+    ];
+    return {
+      connected: true,
+      idle,
+      rows,
+      refusedHosts,
+      baseUrl: account?.baseUrl ?? optionalRedmineBaseUrl(),
+    };
   },
 
   /**
@@ -710,19 +816,20 @@ Meteor.methods({
    * afterwards is offered as new. The seconds are re-derived here, never taken
    * from the client.
    */
-  async 'redmine.timeEntries.discard'({ ticketId, date } = {}) {
+  async 'redmine.timeEntries.discard'({ ticketId, date, host: rawHost } = {}) {
     const { userId } = await requireIdentity(this);
     // Not metered with `enforceRedmineLimit`, unlike its neighbours: it never
     // calls Redmine (local timer data and one Mongo write), and the push lock
     // below already serializes it per user.
     requireTicketDay(ticketId, date);
-    const account = await requireRedmineAccount(userId);
+    const host = requireHost(rawHost);
+    const account = await requireRedmineAccount(userId, host ?? undefined);
 
     // The push lock: a push running now could otherwise send the same seconds.
     return withPushLock(userId, async () => {
-      const [unsent] = await unsentTicketDays(userId, account, { ticketId, date });
+      const [unsent] = await unsentTicketDays(userId, account, { ticketId, date }, host);
       if (!unsent) return { discardedSeconds: 0 };
-      await recordDiscard(userId, ticketId, date, unsent.seconds);
+      await recordDiscard(userId, ticketId, date, unsent.seconds, host);
       return { discardedSeconds: unsent.seconds };
     });
   },
@@ -750,7 +857,16 @@ Meteor.methods({
       requireShownBillable(entry?.billable);
     }
 
-    const account = await requireRedmineAccount(userId);
+    // Each server's entries go with the caller's account there (#734 step 6).
+    const byHost = new Map();
+    for (const entry of entries) {
+      const host = requireHost(entry?.host);
+      byHost.set(host, [...(byHost.get(host) ?? []), entry]);
+    }
+    const accounts = new Map();
+    for (const host of byHost.keys()) {
+      accounts.set(host, await requireRedmineAccount(userId, host ?? undefined));
+    }
 
     // The same gate the button enforces, re-checked server-side: a timer that
     // started after the dialog opened would otherwise have its partial total
@@ -766,7 +882,17 @@ Meteor.methods({
     // between them would let a second push read the same unsent figure before
     // this one records its entry.
     return withPushLock(userId, async (stillHeld) => {
-      const results = await pushRequestedEntries(userId, account, entries, stillHeld);
+      const results = [];
+      for (const [host, hostEntries] of byHost) {
+        const sent = await pushRequestedEntries(
+          userId,
+          accounts.get(host),
+          hostEntries,
+          stillHeld,
+          host,
+        );
+        results.push(...(host ? sent.map((result) => ({ ...result, host })) : sent));
+      }
       // Logged time is one of the relevant list's signals, so the cached list is
       // now out of date about the issues this push covered.
       bustUserCaches(userId);
@@ -793,19 +919,21 @@ Meteor.methods({
     activityId,
     billable,
     hours,
+    host: rawHost,
   } = {}) {
     const { userId } = await requireIdentity(this);
     enforceRedmineLimit(accountLimiter, userId);
     requireTicketDay(ticketId, date);
+    const host = requireHost(rawHost);
     const text = requireComment(comment);
     if (activityId != null && !Number.isInteger(activityId)) {
       throw new Meteor.Error('bad-request', 'The activity must be an id.');
     }
     const shownBillable = requireShownBillable(billable);
-    const account = await requireRedmineAccount(userId);
+    const account = await requireRedmineAccount(userId, host ?? undefined);
 
     return withPushLock(userId, async (stillHeld) => {
-      const [row] = await buildPreviewRows(userId, account, { only: { ticketId, date } });
+      const [row] = await buildPreviewRows(userId, account, { only: { ticketId, date }, host });
       if (!row) return { ticketId, date, ok: false, reason: 'already-synced-or-gone' };
       if (row.blockedReason) return { ticketId, date, ok: false, reason: row.blockedReason };
       // Billable is read again here, and a sent entry is permanent: a value that
@@ -838,8 +966,8 @@ Meteor.methods({
  * Unsent time is recomputed here rather than taken from the client, then
  * matched against the requested rows.
  */
-async function pushRequestedEntries(userId, account, entries, stillHeld) {
-  const previewRows = await buildPreviewRows(userId, account);
+async function pushRequestedEntries(userId, account, entries, stillHeld, host = null) {
+  const previewRows = await buildPreviewRows(userId, account, { host });
   const byKey = new Map(previewRows.map((row) => [ticketDayKey(row.ticketId, row.date), row]));
 
   // A ticket-day listed twice would otherwise have its unsent time sent twice.

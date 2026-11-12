@@ -11,8 +11,15 @@ import {
   restoreLegacyRoleArrays,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
-import { redmineUrlRefusal } from './redmine-client';
-import { DEFAULT_TICKET_PREFIX, normalizeSourcePrefixes, normalizeTicketPrefix } from './ticket-ids';
+import { optionalRedmineBaseUrl, redmineUrlRefusal } from './redmine-client';
+import { removeKeysAfterLeaving, removeKeysForDroppedServers } from './source-accounts';
+import {
+  DEFAULT_TICKET_PREFIX,
+  normalizeSourcePrefixes,
+  normalizeTicketPrefix,
+  freeOfServerPrefix,
+  typedServers,
+} from './ticket-ids';
 import {
   idOf,
   resolveEnterpriseSettings,
@@ -154,7 +161,7 @@ async function toOrgSummary(org, role) {
     name: org.name,
     slug: org.slug,
     ticketPrefix: org.ticketPrefix || DEFAULT_TICKET_PREFIX,
-    sourcePrefixes: org.sourcePrefixes ?? [],
+    sourcePrefixes: typedServers(org.sourcePrefixes ?? [], optionalRedmineBaseUrl()),
     allowAutoJoin: effectiveSettings.allowAutoJoin.value,
     settings: org.settings ?? {},
     settingsLocks: org.settingsLocks ?? {},
@@ -561,14 +568,15 @@ Meteor.methods({
         'A ticket prefix is a letter followed by up to five letters or digits.',
       );
     }
-    if ((org.sourcePrefixes ?? []).some((entry) => entry.prefix === prefix)) {
+    const servers = typedServers(org.sourcePrefixes ?? [], optionalRedmineBaseUrl());
+    if (servers.some((entry) => entry.prefix === prefix)) {
       throw new Meteor.Error('validation-error', `${prefix} is already used for a server.`);
     }
     // Checked again in the write, so a server named meanwhile can't take the same prefix.
     const { matchedCount } = await rawDb()
       .collection('organizations')
       .updateOne(
-        { _id: org._id, 'sourcePrefixes.prefix': { $ne: prefix } },
+        { _id: org._id, ...freeOfServerPrefix(prefix) },
         { $set: { ticketPrefix: prefix, updatedAt: new Date() } },
       );
     if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
@@ -591,11 +599,12 @@ Meteor.methods({
     } catch (error) {
       throw new Meteor.Error('validation-error', error.message);
     }
-    // A server new to the org must be one this deployment may send requests to,
-    // as for a Redmine account (production only). Servers it already had stay.
+    // A server new to the org must be one this deployment may send requests to
+    // (production only), told now rather than when a member connects. Servers
+    // it already had stay.
     const known = new Set((org.sourcePrefixes ?? []).map((entry) => entry.host));
     for (const entry of entries) {
-      const refusal = known.has(entry.host) ? null : redmineUrlRefusal(entry.baseUrl);
+      const refusal = known.has(entry.host) ? null : await redmineUrlRefusal(entry.baseUrl);
       if (refusal) throw new Meteor.Error('validation-error', `${entry.host}: ${refusal}`);
     }
     // Only over the ticket prefix these were checked against.
@@ -608,6 +617,12 @@ Meteor.methods({
     if (!matchedCount) throw new Meteor.Error('conflict', PREFIXES_CHANGED);
     // Live team subscriptions republish the servers, so open ticket lists relabel.
     announceSettingsChanged();
+    // Members' keys for a server no longer listed go, and they're told.
+    const kept = new Set(entries.map((entry) => entry.host));
+    const dropped = [...known].filter((host) => host && !kept.has(host));
+    await removeKeysForDroppedServers(org.name, dropped).catch((error) =>
+      console.error('[sources] failed to remove keys for dropped servers:', error),
+    );
     return { sourcePrefixes: entries };
   },
 
@@ -817,6 +832,10 @@ Meteor.methods({
         throw new Meteor.Error('last-elevated', 'At least one owner or admin required');
       }
     }
+    // Keys for servers only this org listed go with the membership.
+    await removeKeysAfterLeaving([userId]).catch((error) =>
+      console.error('[sources] failed to remove keys after leaving:', error),
+    );
     return { user: { userId } };
   },
 
@@ -1109,6 +1128,10 @@ Meteor.methods({
         reason: reason ?? null,
       },
     });
+    // Blocked is out: keys for servers only this org listed go.
+    await removeKeysAfterLeaving([targetUserId]).catch((error) =>
+      console.error('[sources] failed to remove keys after leaving:', error),
+    );
 
     return {
       user: {

@@ -20,6 +20,11 @@ vi.mock('./registry', () => ({
   SOURCE_LABELS: {},
 }));
 
+// No other servers here: their overlay is `mergeLinked`'s, tested on its own.
+vi.mock('../../../lib/api', () => ({
+  sourcesApi: { linkedIssues: () => Promise.resolve({ issues: [] }) },
+}));
+
 const { useUnifiedTickets } = await import('./useUnifiedTickets');
 
 const ctx: TicketSourceContext = {

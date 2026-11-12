@@ -10,6 +10,8 @@
 
 export function toStatus(link, baseUrl) {
   if (!link) return { connected: false };
+  // Redmine refused the key (#734 step 7): not connected until a new one is pasted.
+  if (link.rejectedAt) return { connected: false, rejected: true, baseUrl: baseUrl ?? null };
   const fullName = `${link.firstname ?? ''} ${link.lastname ?? ''}`.trim();
   return {
     connected: true,

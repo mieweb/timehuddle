@@ -6,6 +6,7 @@
  * linked, by `tickets.carryIssue`. The timer or board entry then names that
  * ticket, so what gets timed and boarded is always a TimeHuddle ticket.
  */
+import { isOutsideSource } from '@timehuddle/ticket-sources';
 import { ticketApi } from '../../lib/api';
 
 import { ticketKey, ticketRefOf } from './sources';
@@ -26,7 +27,7 @@ export class NoTeamError extends Error {
  */
 export async function carriedKey(key: string, teamId: string | null): Promise<string> {
   const { sourceId, ticketId } = ticketRefOf(key);
-  if (sourceId !== 'redmine') return key;
+  if (!isOutsideSource(sourceId)) return key;
   if (!teamId) throw new NoTeamError();
   const { ticket } = await ticketApi.carryIssue(teamId, ticketId);
   return ticketKey('huddle', ticket.id);

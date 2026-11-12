@@ -30,9 +30,17 @@ export function readPath(raw, path) {
   return path.split('.').reduce((value, key) => (value == null ? undefined : value[key]), raw);
 }
 
-/** `template` with `{key}` and `{container}` filled from `ref`, each URL-encoded. */
+/**
+ * `template` with `{key}` and `{container}` filled from `ref`, each URL-encoded.
+ * A container may have parts (`owner/repo`), so its slashes stay.
+ */
 export function fillTemplate(template, ref) {
-  return template.replace(/\{(\w+)\}/g, (_, name) => encodeURIComponent(ref[name] ?? ''));
+  return template.replace(/\{(\w+)\}/g, (_, name) =>
+    String(ref[name] ?? '')
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/'),
+  );
 }
 
 function callHook(hooks, value, args, ctx) {
@@ -205,6 +213,36 @@ async function readRaw(definition, ref, request) {
   if (!definition.api.issue) throw new Error(`Source "${definition.kind}" names no issue address`);
   const answer = await request(fillTemplate(definition.api.issue, ref));
   return (definition.api.item ? readPath(answer, definition.api.item) : answer) ?? null;
+}
+
+/**
+ * What a list row shows of issue `ref`: its status and assignees, or null when
+ * it is missing or hidden. One answer, and no hook but the status's: a row
+ * needs none of the conversation.
+ */
+export async function readSummary({ definition, ref, request, hooks = {}, ctx = {} }) {
+  const raw = await readRaw(definition, ref, request);
+  if (!raw) return null;
+  const f = definition.fields;
+  return {
+    status: f.status
+      ? await toStatus(f.status, readPath(raw, f.status.path), hooks, ctx)
+      : { native: '', isClosed: false },
+    assignees: f.assignees ? toPeople(f.assignees, readPath(raw, f.assignees.path)) : [],
+  };
+}
+
+/**
+ * Whose key `request` asks with, by the definition's `connect.check`:
+ * `{ id, login }`, or null when the source names no one for it.
+ */
+export async function whoseKey(definition, request) {
+  const { check } = definition.connect;
+  if (!check) throw new EngineError('bad-request', `${definition.label} isn't connected with a key.`);
+  const answer = await request(check.path);
+  const user = check.item ? readPath(answer, check.item) : answer;
+  const id = readPath(user, check.id);
+  return id == null ? null : { id, login: readPath(user, check.login) ?? null };
 }
 
 /**

@@ -84,3 +84,49 @@ export function describeSetting(
       return S.systemDefault;
   }
 }
+
+export const SOURCES_STRINGS = {
+  description:
+    'Connect each server with your own API key, found on your account page on that server.',
+  empty: 'No servers are set up yet. An organization owner can register one in its settings.',
+  loading: 'Loading…',
+  mainServerName: 'Redmine',
+  connected: 'Connected',
+  notConnected: 'Not connected',
+  rejected: "Couldn't reach",
+  rejectedHelp:
+    'This server rejected your API key. It may have been reset: paste your current key to reconnect.',
+  keyPlaceholder: 'API key',
+  keyLabel: (keyName: string, host: string) => `${keyName} for ${host}`,
+  connect: 'Connect',
+  connecting: 'Connecting…',
+  connectLabel: (host: string) => `Connect to ${host}`,
+  check: 'Check',
+  checkLabel: (host: string) => `Check your key on ${host}`,
+  keyWorks: 'Your key works.',
+  disconnect: 'Disconnect',
+  disconnectLabel: (host: string) => `Disconnect from ${host}`,
+  connectGithub: 'Connect GitHub',
+  githubAccess:
+    "GitHub will ask for repo access. It's GitHub's only option for private repos and also covers code; TimeHuddle reads and updates only issues and pull requests.",
+  githubOrgs:
+    "An org's private repos show once its owner approves TimeHuddle. You can request that on GitHub, under your authorized apps.",
+  githubOwnersLabel: 'Bring issues from',
+  githubOwnersPlaceholder: 'All your accounts and organizations',
+  githubOwnersHelp:
+    'Assigned issues and search come from these. Leave it empty for all of them. Only issues updated in the last 8 days are suggested.',
+  githubOwnersFailed: "Couldn't load your GitHub organizations. Try again.",
+  githubOwnersSaveFailed: "Couldn't save that. Try again.",
+  githubOwnLabel: (login: string) => `${login} (you)`,
+  githubConnected: 'GitHub connected.',
+  githubFailed: "Couldn't connect GitHub. Try again.",
+  githubNotSetUp: "GitHub isn't set up on this TimeHuddle yet. Whoever runs it can add it.",
+  urlLabel: 'Server URL',
+  urlPlaceholder: 'https://redmine.example.com',
+  urlHelp: 'The server your API key belongs to. Test deployments only.',
+  urlLocked: 'Clock out to connect to a different server.',
+  loadFailed: 'Failed to load your servers.',
+  connectFailed: 'Failed to connect.',
+  checkFailed: 'Failed to check your key.',
+  disconnectFailed: 'Failed to disconnect.',
+};

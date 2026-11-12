@@ -24,7 +24,7 @@ test.describe('Find a ticket by ID', () => {
     expect(ref, 'the new ticket shows its ID').toBeTruthy();
 
     const input = new TicketsPage(page).searchInput;
-    const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
+    const menu = page.getByRole('listbox', { name: 'Search results' });
     const option = menu.getByRole('option', { name: new RegExp(title) });
 
     // The prefix in any case, and the bare number, both find it.

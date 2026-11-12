@@ -43,9 +43,7 @@ test.describe('Tickets', () => {
     // Verify page components
     await expect(page.getByRole('heading', { level: 1, name: 'Tickets' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'New Ticket' })).toBeVisible();
-    await expect(
-      page.getByRole('combobox', { name: 'Search tickets and Redmine issues' }),
-    ).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Search tickets and issues' })).toBeVisible();
     // Open/Closed, and the sort and filter pills, sit in the list header.
     await expect(page.getByRole('radio', { name: /^Closed tickets/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Filter by Assignees/ })).toBeVisible();
@@ -86,11 +84,11 @@ test.describe('Tickets', () => {
 
     // Search for it by words in its title: it is listed in the dropdown (#736c)
     await page
-      .getByRole('combobox', { name: 'Search tickets and Redmine issues' })
+      .getByRole('combobox', { name: 'Search tickets and issues' })
       .fill(TICKET_TITLE_2.toLowerCase());
     await expect(
       page
-        .getByRole('listbox', { name: 'Redmine suggestions' })
+        .getByRole('listbox', { name: 'Search results' })
         .getByRole('option', { name: new RegExp(TICKET_TITLE_2) }),
     ).toBeVisible();
     // The table is not filtered by the search

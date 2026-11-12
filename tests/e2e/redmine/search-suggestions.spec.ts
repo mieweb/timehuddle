@@ -2,7 +2,7 @@
  * Redmine suggestions in the Tickets search bar (MVP2 Part B).
  *
  * One input, two jobs: it filters the table, and it opens a dropdown of Redmine
- * issues — "Suggested for you" on focus, "More from Redmine" from a server search.
+ * issues — "Suggested for you" on focus, each server's search results under its address.
  * Redmine is stubbed at the wormhole boundary (`fixtures/redmine.ts`), so these
  * assert what the UI does with a given answer, not how the server ranks.
  *
@@ -64,7 +64,7 @@ async function openTickets(page: Page, overrides: Record<string, StubValue> = {}
   const tickets = new TicketsPage(page);
   await tickets.goto();
   const input = tickets.searchInput;
-  const menu = page.getByRole('listbox', { name: 'Redmine suggestions' });
+  const menu = page.getByRole('listbox', { name: 'Search results' });
   const option = (name: string | RegExp) => menu.getByRole('option', { name });
   return { rm, tickets, input, menu, option };
 }
@@ -102,7 +102,7 @@ test.describe('Redmine search suggestions', () => {
     await expect(input).toHaveValue('alpha');
   });
 
-  test('adds new issues from a server search under "More from Redmine"', async ({ page }) => {
+  test("adds new issues from a server search under the server's address", async ({ page }) => {
     const { rm, input, menu, option } = await openTickets(page, {
       'issues.search': searchResult('text', [
         redmineIssue({ id: 15, subject: 'Alpha intake validation' }),
@@ -112,7 +112,7 @@ test.describe('Redmine search suggestions', () => {
 
     await input.fill('alpha');
 
-    await expect(menu.getByText('More from Redmine')).toBeVisible();
+    await expect(menu.getByText(/^From /)).toBeVisible();
     await expect(option(/Alpha printer queue/)).toBeVisible();
     // #15 is already in the suggestions, so it is not offered twice.
     await expect(option(/Alpha intake validation/)).toHaveCount(1);
@@ -206,7 +206,7 @@ test.describe('Redmine search suggestions', () => {
     });
 
     await input.click();
-    await option('Connect Redmine to see your issues').click();
+    await option('Connect your servers in Settings to see your issues').click();
 
     await expect(page).toHaveURL(/\/app\/settings/);
   });
@@ -219,7 +219,7 @@ test.describe('Redmine search suggestions', () => {
     await input.click();
 
     await expect(
-      page.getByRole('status').getByText('Some Redmine results are still unavailable.'),
+      page.getByRole('status').getByText('Some results are still unavailable.'),
     ).toBeVisible();
     await expect(menu.getByRole('option')).toHaveCount(3);
   });

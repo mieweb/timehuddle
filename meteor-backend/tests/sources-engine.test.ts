@@ -5,8 +5,10 @@
  */
 import { readFileSync } from 'node:fs';
 
-import { github, redmine } from '@timehuddle/ticket-sources';
+import { defineSource, github, redmine, timehuddle } from '@timehuddle/ticket-sources';
 import { describe, it, expect, vi } from 'vitest';
+
+import { withStatus } from '../server/sources/github-hooks';
 
 import {
   EngineError,
@@ -15,6 +17,7 @@ import {
   readPath,
   statusChoices,
   toRecord,
+  whoseKey,
   writeRecord,
 } from '../server/sources/engine';
 
@@ -57,6 +60,25 @@ const hooks = {
   redmineJournals: () => [],
 };
 
+describe('whoseKey', () => {
+  it("asks each source's own who-am-I, as its definition says", async () => {
+    const redmineAsk = vi.fn().mockResolvedValue({ user: { id: 42, login: 'jdoe' } });
+    const githubAsk = vi.fn().mockResolvedValue({ id: 7, login: 'octocat' });
+    expect(await whoseKey(redmine, redmineAsk)).toEqual({ id: 42, login: 'jdoe' });
+    expect(await whoseKey(github, githubAsk)).toEqual({ id: 7, login: 'octocat' });
+    expect(redmineAsk).toHaveBeenCalledWith('/users/current.json');
+    expect(githubAsk).toHaveBeenCalledWith('/user');
+  });
+
+  it('is null when the source names no one for the key', async () => {
+    expect(await whoseKey(redmine, vi.fn().mockResolvedValue(null))).toBeNull();
+  });
+
+  it('refuses a source with no key check', async () => {
+    await expect(whoseKey(timehuddle, vi.fn())).rejects.toThrow(EngineError);
+  });
+});
+
 describe('readPath and fillTemplate', () => {
   it('reads a dotted path, and nothing past a missing step', () => {
     expect(readPath(rawIssue, 'priority.name')).toBe('High');
@@ -66,7 +88,7 @@ describe('readPath and fillTemplate', () => {
 
   it('fills an address, encoding each part', () => {
     expect(fillTemplate('/repos/{container}/issues/{key}', { container: 'a b/c', key: '1' })).toBe(
-      '/repos/a%20b%2Fc/issues/1',
+      '/repos/a%20b/c/issues/1',
     );
   });
 });
@@ -125,17 +147,26 @@ describe('toRecord', () => {
     });
   });
 
-  it("reads a GitHub issue by GitHub's, with no hook at all", async () => {
-    const record = await toRecord(github, {
+  it("reads a GitHub issue by GitHub's, as a named status with its moves", async () => {
+    const raw = withStatus({
       title: 'Crash',
       state: 'closed',
       assignees: [{ id: 1, login: 'octo' }],
       labels: [{ name: 'bug', color: 'd73a4a' }],
     });
-    expect(record.status).toEqual({ native: 'closed', isClosed: true });
+    const record = await toRecord(github, raw, { hooks: { githubConversation: async () => [] } });
+    expect(record.status).toEqual({ id: 'closed', native: 'closed', isClosed: true });
+    expect(record.type).toEqual({ id: 'issue', name: 'Issue' });
     expect(record.assignees).toEqual([{ id: '1', name: 'octo' }]);
     expect(record.labels).toEqual([{ name: 'bug', color: 'd73a4a' }]);
   });
+});
+
+const readOnly = defineSource({
+  kind: 'read-only',
+  label: 'Read only',
+  id: { show: '#{key}' },
+  fields: { title: { path: 'title', edit: true } },
 });
 
 describe('statusChoices', () => {
@@ -148,7 +179,7 @@ describe('statusChoices', () => {
   });
 
   it('is empty for a source whose status is not edited by allowed moves', async () => {
-    expect(await statusChoices(github, { state: 'open' })).toEqual([]);
+    expect(await statusChoices(timehuddle, { status: 'open' })).toEqual([]);
   });
 });
 
@@ -261,7 +292,7 @@ describe('writeRecord', () => {
     const { request, hooks: all } = setup();
     const base = { ref, request, hooks: all, expectedUpdatedAt };
     await expect(
-      writeRecord({ ...base, definition: github, edits: { title: 'x' } }),
+      writeRecord({ ...base, definition: readOnly, edits: { title: 'x' } }),
     ).rejects.toMatchObject({ code: 'bad-request' });
     await expect(writeRecord({ ...base, definition: redmine, edits: {} })).rejects.toMatchObject({
       code: 'bad-request',

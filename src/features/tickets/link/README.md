@@ -3,16 +3,16 @@
 A TimeHuddle ticket can be linked to one Redmine issue (#636). The ticket stays
 a TimeHuddle ticket; the link says which Redmine issue it stands for.
 
-| File                     | Role                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| `TicketLinkFields.tsx`   | The one control for a link: one field, a convert offer, or a Redmine issue (existing/new) |
-| `ticketLinkForm.ts`      | That control's state, and when it is complete enough to save                              |
-| `applyTicketLink.ts`     | Carries the choice out: link, unlink, set the GitHub URL, or create a Redmine issue       |
-| `LinkedIssueSection.tsx` | The "Linked issue" section at the top of the ticket page: show, change, remove            |
-| `linkWarnings.ts`        | What a link change means for time already logged                                          |
-| `useLinkStatus.ts`       | Reads the lock and the viewer's time figures before a link is changed                     |
-| `linkErrors.ts`          | Turns a refused link into a message                                                       |
-| `ticketLinkStrings.ts`   | All user-facing text                                                                      |
+| File                     | Role                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `TicketLinkFields.tsx`   | The one control for a link: one field, a display-as offer, or a Redmine issue (existing/new) |
+| `ticketLinkForm.ts`      | That control's state, and when it is complete enough to save                                 |
+| `applyTicketLink.ts`     | Carries the choice out: link, unlink, set the GitHub URL, or create a Redmine issue          |
+| `LinkedIssueSection.tsx` | The "Linked issue" section at the top of the ticket page: show, change, remove               |
+| `linkWarnings.ts`        | What a link change means for time already logged                                             |
+| `useLinkStatus.ts`       | Reads the lock and the viewer's time figures before a link is changed                        |
+| `linkErrors.ts`          | Turns a refused link into a message                                                          |
+| `ticketLinkStrings.ts`   | All user-facing text                                                                         |
 
 **One control, two places.** `TicketLinkFields` is used by the New Ticket dialog
 (`../TicketCreateModal.tsx`) and by `LinkedIssueSection`, so creating a ticket
@@ -22,10 +22,10 @@ either.
 **A link can be any https address**: a doc, a folder or a tracker. There is
 no choice of system to make first, just one field. When the address names an
 issue (a GitHub issue or pull request, or an issue on one of the org's
-registered servers) a button offers to convert the ticket to it: "Convert to PM
-issue". Converted, the ticket goes by that issue's ID (`pulse-250`, `PM-233`);
-saved without converting, it is a plain link and the ticket keeps its own `TH-`
-ID. An issue on the connected Redmine converts to a Redmine link, so its status
+registered servers) a button offers to display the ticket as it: "Display as
+PM-233". Displayed that way, the ticket goes by that issue's ID (`pulse-250`,
+`PM-233`); saved without it, it is a plain link and the ticket keeps its own
+`TH-` ID. An issue on the connected Redmine becomes a Redmine link, so its status
 and history show here. "Link a Redmine issue instead" finds one by number or
 creates a new one.
 

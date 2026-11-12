@@ -54,9 +54,9 @@ export class TicketsPage extends BasePage {
     // A combobox: its results are tickets and Redmine issues in a dropdown
     // (#736c), and it no longer filters the table.
     this.searchInput = this.page.getByRole('combobox', {
-      name: 'Search tickets and Redmine issues',
+      name: 'Search tickets and issues',
     });
-    this.searchMenu = this.page.getByRole('listbox', { name: 'Redmine suggestions' });
+    this.searchMenu = this.page.getByRole('listbox', { name: 'Search results' });
     // Open/Closed sits in the list header at every width, labelled with its counts.
     this.showAllControlsButton = this.page.getByRole('button', {
       name: /^Show all sort and filter controls/,
@@ -206,14 +206,14 @@ export class TicketsPage extends BasePage {
 
   /**
    * Create a ticket with the given title, optionally with a link to `githubUrl`.
-   * `convert` clicks "Convert to …", so the ticket goes by the ID the link names.
+   * `displayAs` clicks "Display as …", so the ticket goes by the ID the link names.
    */
-  async createTicket(title: string, githubUrl?: string, { convert = false } = {}) {
+  async createTicket(title: string, githubUrl?: string, { displayAs = false } = {}) {
     await this.openCreateForm();
     await this.page.getByPlaceholder('Ticket title').fill(title);
     if (githubUrl) {
       await this.page.getByLabel('Link', { exact: true }).fill(githubUrl);
-      if (convert) await this.page.getByRole('button', { name: /^Convert to / }).click();
+      if (displayAs) await this.page.getByRole('button', { name: /^Display as / }).click();
       // Wait for title fetch
       await this.page.waitForTimeout(1500);
     }

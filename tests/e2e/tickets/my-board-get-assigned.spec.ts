@@ -1,5 +1,5 @@
 /**
- * "Get issues assigned to me" on an empty My Board (#633, #736).
+ * "Bring your recent tickets from … Fetch" on an empty My Board (#633, #736).
  *
  * The first fill of a board: one press asks Redmine for the user's assigned
  * issues and adds up to ten of them, each as the TimeHuddle ticket carrying it,
@@ -127,7 +127,10 @@ async function openEmptyBoard(page: Page, count: number): Promise<BoardRef[]> {
   return board;
 }
 
-const getAssigned = (page: Page) => page.getByRole('button', { name: 'Get issues assigned to me' });
+const getAssigned = (page: Page) =>
+  page.getByRole('button', {
+    name: 'Fetch your recent assigned tickets from the chosen sources onto My Board',
+  });
 const ticketRows = (page: Page) =>
   page.locator('.tickets-view-panel:visible [data-ticket-source="huddle"]');
 

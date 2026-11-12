@@ -51,6 +51,7 @@ import { buildRelevantIssues } from './redmine-relevance';
 import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
 import { MyBoard, Teams, Tickets, Timers, WorkItems, isValidId } from './collections';
 import { enforceRedmineLimit as enforceLimit, toRedmineMeteorError } from './redmine';
+import { hostOf } from './ticket-ids';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
 import { redminePrefixesFor } from './ticket-search';
 
@@ -126,7 +127,7 @@ Meteor.startup(async () => {
  * thing the user would be told if that colleague had left.
  */
 function projectMembersFor(userId, account) {
-  return projectMembersCache.get(userId, 'members', async () => {
+  return projectMembersCache.get(userId, `${account.baseUrl}|members`, async () => {
     const projects = (await listProjects(account)).slice(0, MAX_PROJECTS_FOR_MEMBERS);
     const memberships = await mapInChunks(projects, MEMBERSHIP_CONCURRENCY, (project) =>
       listProjectMemberships(account, project.id).catch(() => []),
@@ -146,7 +147,7 @@ function projectMembersFor(userId, account) {
  * same as a number that does not exist. Telling those two apart would confirm the
  * existence of an issue to someone Redmine has decided must not see it.
  */
-async function runSearch(userId, account, kind, value) {
+export async function runSearch(userId, account, kind, value) {
   if (value === null) return [];
 
   if (kind === 'id' || kind === 'url') {
@@ -211,10 +212,11 @@ async function boardRedmineIssueIds(userId) {
 }
 
 /**
- * The Redmine issues that tickets the caller can see are linked to. Fetched
- * with the caller's own key, so each viewer sees a linked issue as Redmine
- * shows it to them, and not at all when Redmine would not. Same visibility as
- * the `tickets.byTeam` publication.
+ * The Redmine issues that tickets the caller can see are linked to, on
+ * `account`'s server: another server's issue of the same number is a different
+ * issue. Fetched with the caller's own key, so each viewer sees a linked issue
+ * as Redmine shows it to them, and not at all when Redmine would not. Same
+ * visibility as the `tickets.byTeam` publication.
  */
 async function linkedRedmineIssueIds(userId, account) {
   if (!onDefaultRedmine(account)) return [];
@@ -228,6 +230,8 @@ async function linkedRedmineIssueIds(userId, account) {
       teamId: { $in: teams.map((team) => team._id.toHexString()) },
       status: { $ne: 'deleted' },
       'linkedIssue.source': REDMINE,
+      // A link saved before servers were stored is on the main server.
+      'linkedIssue.host': { $in: [null, hostOf(account.baseUrl)] },
     },
     { fields: { linkedIssue: 1 } },
   ).fetchAsync();

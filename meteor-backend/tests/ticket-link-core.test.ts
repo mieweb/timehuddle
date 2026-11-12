@@ -16,6 +16,8 @@ import {
   matchesExpectedLink,
   redmineLinkFor,
   sessionIssuesAfterMove,
+  issueServerOf,
+  onServer,
 } from '../server/ticket-link-core';
 
 const linked = { linkedIssue: { source: 'redmine', id: '482' } };
@@ -233,5 +235,73 @@ describe('isHttpsUrl', () => {
     ]) {
       expect(isHttpsUrl(bad), String(bad)).toBe(false);
     }
+  });
+});
+
+describe('time on another server (#734 step 6)', () => {
+  const MAIN = 'redmine0.example.com';
+  const closed = (fields: Record<string, unknown>) => ({
+    _id: 's',
+    date: '2026-10-28',
+    endTime: 2,
+    durationSeconds: 600,
+    ...fields,
+  });
+
+  it('names a carried issue\'s server only when it isn\'t the deployment\'s own', () => {
+    expect(issueServerOf({ linkedIssue: { source: 'redmine', id: '233', host: MAIN } }, MAIN)).toBeNull();
+    expect(issueServerOf({ linkedIssue: { source: 'redmine', id: '233' } }, MAIN)).toBeNull();
+    expect(
+      issueServerOf({ linkedIssue: { source: 'redmine', id: '233', host: 'other.example.com' } }, MAIN),
+    ).toBe('other.example.com');
+  });
+
+  it('selects the deployment\'s own records as those with no host', () => {
+    expect(onServer(null, 'host')).toEqual({ host: { $exists: false } });
+    expect(onServer('other.example.com', 'redmineHost')).toEqual({ redmineHost: 'other.example.com' });
+  });
+
+  it('keeps the same issue number on two servers apart in the time at stake', () => {
+    const sessions = [closed({ redmineIssueId: '233' }), closed({ redmineIssueId: '233', redmineHost: 'other.example.com' })];
+    expect(linkedTimeSummary({ sessions, issueId: '233' }).unsentSeconds).toBe(600);
+    expect(
+      linkedTimeSummary({ sessions, issueId: '233', host: 'other.example.com' }).unsentSeconds,
+    ).toBe(600);
+  });
+
+  it('moves a session to an issue on another server, with its host', () => {
+    const moved = sessionIssuesAfterMove({
+      sessions: [closed({})],
+      date: '2026-10-28',
+      previousIssueId: null,
+      nextIssueId: '9',
+      nextHost: 'other.example.com',
+      ledger: new Map(),
+    });
+    expect(moved).toEqual([{ sessionId: 's', issueId: '9', host: 'other.example.com' }]);
+  });
+
+  it("keeps a session whose day was sent on another server, read against that server's ledger", () => {
+    const session = closed({ redmineIssueId: '233', redmineHost: 'other.example.com' });
+    const sentThere = new Map([['233|2026-10-28', { seconds: 600 }]]);
+    const stays = sessionIssuesAfterMove({
+      sessions: [session],
+      date: '2026-10-28',
+      previousIssueId: null,
+      nextIssueId: '9',
+      ledger: new Map(),
+      otherLedgers: new Map([['other.example.com', sentThere]]),
+    });
+    expect(stays).toEqual([{ sessionId: 's', issueId: '233', host: 'other.example.com' }]);
+
+    // The same day sent on the deployment's own Redmine says nothing about it.
+    const follows = sessionIssuesAfterMove({
+      sessions: [session],
+      date: '2026-10-28',
+      previousIssueId: null,
+      nextIssueId: '9',
+      ledger: sentThere,
+    });
+    expect(follows).toEqual([{ sessionId: 's', issueId: '9' }]);
   });
 });

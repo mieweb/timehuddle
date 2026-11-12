@@ -8,6 +8,7 @@
  *   • Copy from previous day
  *   • Soft-deleted ticket rows render as "Unassociated Timer"
  */
+import { isOutsideSource, sourceLabel } from '@timehuddle/ticket-sources';
 import {
   faCheck,
   faChevronLeft,
@@ -550,7 +551,7 @@ export const WorkWeek: React.FC = () => {
     const parsedSeconds = hhmmToSeconds(editDuration);
     const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
     const ticketChanged =
-      editEntry.entry.source !== 'redmine' && editTicketId !== editEntry.entry.ticketId;
+      !isOutsideSource(editEntry.entry.source) && editTicketId !== editEntry.entry.ticketId;
     setEditLoading(true);
     setEditError(null);
     try {
@@ -646,7 +647,7 @@ export const WorkWeek: React.FC = () => {
       // Redmine subjects only ever arrive resolved from the server; the local
       // ticket cache holds Huddle tickets, so it is a Huddle-only fallback.
       if (entry.displayTitle) return entry.displayTitle;
-      if (entry.source === 'redmine') return `#${entry.ticketId}`;
+      if (isOutsideSource(entry.source)) return `#${entry.ticketId}`;
       return ticketsById.get(entry.ticketId)?.title || '(untitled)';
     },
     [ticketsById],
@@ -690,7 +691,7 @@ export const WorkWeek: React.FC = () => {
   const openWorkItemTicket = useCallback(
     (entry: DayEntry['entry']) => {
       const url = entry.displayUrl ?? `/app/tickets/${entry.ticketId}`;
-      if (entry.source === 'redmine') {
+      if (isOutsideSource(entry.source)) {
         if (entry.displayUrl) window.open(entry.displayUrl, '_blank', 'noopener,noreferrer');
         return;
       }
@@ -962,9 +963,9 @@ export const WorkWeek: React.FC = () => {
                             </Text>
                           )}
                         </div>
-                        {de.entry.source === 'redmine' && (
+                        {isOutsideSource(de.entry.source) && (
                           <Badge variant="outline" size="sm">
-                            Redmine
+                            {sourceLabel(de.entry.source)}
                           </Badge>
                         )}
                         {isRunning && (
@@ -1084,7 +1085,7 @@ export const WorkWeek: React.FC = () => {
               <ModalBody className="flex flex-col gap-4">
                 {/* Retargeting picks from Huddle tickets, so a Redmine-sourced
                     entry shows its issue instead of an unusable picker. */}
-                {editEntry.entry.source === 'redmine' ? (
+                {isOutsideSource(editEntry.entry.source) ? (
                   <Input
                     label="Issue"
                     value={getWorkItemLabel(editEntry.entry)}
