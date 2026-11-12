@@ -1494,7 +1494,11 @@ export const huddleApi = {
     deliverAt?: string;
     /** The conversation to post into (#866); omitted, the team's open workday. */
     conversationId?: string;
-  }) => wormholeCall<{ id: string; clockEventId?: string }>('huddle.createPost', { ...params }),
+  }) =>
+    wormholeCall<{ id: string; clockEventId?: string; conversationId?: string }>(
+      'huddle.createPost',
+      { ...params },
+    ),
 
   /** The conversations I can see on a team (#866), each with the name I see. */
   listConversations: (teamId: string) =>

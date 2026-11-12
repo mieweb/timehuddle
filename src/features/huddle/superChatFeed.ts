@@ -417,7 +417,19 @@ function ticketLinkMarkdown(ticket: { id: string; name: string }): string {
 /** A post's Conversation thread key: its topic; a not-yet-delivered scheduled post shows in the open workday. */
 const NO_TOPIC = 'none';
 function topicKeyFor(post: HuddlePost, topics: ConversationTopics | undefined): string {
-  return post.conversationId ?? topics?.openWorkdayId ?? NO_TOPIC;
+  if (post.conversationId) return post.conversationId;
+  // A scheduled post gets its conversation when it is delivered; until then
+  // its author sees it in the open workday.
+  if (isAwaitingDelivery(post)) return topics?.openWorkdayId ?? NO_TOPIC;
+  // Anything else without one (written while a deploy was rolling out, before
+  // the backfill reached it) waits in "Earlier updates" — a key that doesn't
+  // move when the topic list loads, so a link to it stays put.
+  return NO_TOPIC;
+}
+
+/** Id of the Conversation thread `post` is shown in — the same key the grouping uses. */
+export function conversationThreadIdForPost(post: HuddlePost, topics: ConversationTopics): string {
+  return `conversation:${topicKeyFor(post, topics)}`;
 }
 
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy, topics?: ConversationTopics): string {

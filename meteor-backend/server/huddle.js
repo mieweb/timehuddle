@@ -823,7 +823,13 @@ export async function createHuddlePost(
       .catch((err) => console.error('[huddle] post notifications failed:', err));
   }
 
-  return { id: doc._id.toHexString(), ...(sessionId ? { clockEventId: sessionId } : {}) };
+  return {
+    id: doc._id.toHexString(),
+    ...(sessionId ? { clockEventId: sessionId } : {}),
+    // Where it went (#866), so the composer can open it: the open workday may
+    // have been made just now for this post.
+    ...(conversationId ? { conversationId } : {}),
+  };
 }
 
 /**

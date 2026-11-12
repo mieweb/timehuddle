@@ -62,8 +62,7 @@ import {
 import { UPLOAD_TEXT } from '../features/huddle/uploadText';
 import {
   conversationThreadId,
-  dayConversationId,
-  dayConversationIdForPost,
+  conversationThreadIdForPost,
   defaultConversation,
   keptAttachments,
   isAwaitingDelivery,
@@ -81,7 +80,6 @@ import {
   reasonsPostWontShow,
   topicIdOfThread,
   topicTitle,
-  withTodayConversation,
   withTopicConversations,
 } from '../features/huddle/superChatFeed';
 import { useConversationTopics } from '../features/huddle/useConversationTopics';
@@ -147,8 +145,14 @@ const COMPOSER_MAX_FILES = 10;
 /** The send button's "Send later…" option id. */
 const SEND_LATER = 'schedule';
 const HUDDLE_PATH = '/app/huddle';
+/**
+ * The groupings the inbox offers. Day is gone (#866): a workday conversation
+ * replaces the calendar-day thread, and an old `day:` link opens the workday
+ * for that date.
+ */
+type InboxGrouping = Exclude<ThreadBy, 'day'>;
 // All comes first and sits apart: it is the one option that doesn't group.
-const THREAD_BY_OPTIONS: ThreadBy[] = ['all', 'conversation', 'day', 'session', 'person', 'ticket'];
+const THREAD_BY_OPTIONS: InboxGrouping[] = ['all', 'conversation', 'session', 'person', 'ticket'];
 /** The "won't show here" warning before sending (#866). */
 const SEND_ELSEWHERE_TEXT = {
   title: "This post won't show in the thread you're reading",
@@ -156,27 +160,22 @@ const SEND_ELSEWHERE_TEXT = {
   send: 'Send and open it',
 } as const;
 
-/**
- * The grouping for someone who hasn't picked one. Day until #866's open
- * question (replace Day with Conversation?) is decided.
- */
-const DEFAULT_THREAD_BY: ThreadBy = 'day';
+/** The grouping for someone who hasn't picked one (or had picked the retired Day). */
+const DEFAULT_THREAD_BY: InboxGrouping = 'conversation';
 /** Kept stable so the inbox's rows don't re-render for it. */
 const EDIT_MEDIA_LABELS = { removeAttachment: UPLOAD_TEXT.remove };
 
-const THREAD_BY_LABELS: Record<ThreadBy, string> = {
+const THREAD_BY_LABELS: Record<InboxGrouping, string> = {
   all: 'All',
   conversation: 'Conversation',
   session: 'Session',
-  day: 'Day',
   person: 'Person',
   ticket: 'Ticket',
 };
 // Must not contain another option's label: e2e picks menu items by name.
-const THREAD_BY_DESCRIPTIONS: Record<ThreadBy, string> = {
+const THREAD_BY_DESCRIPTIONS: Record<InboxGrouping, string> = {
   all: 'Every update in one thread, oldest first',
   conversation: 'Stand-up to stand-up threads, team conversations and direct messages',
-  day: "Everyone's updates, one thread per date",
   session: 'Each clock-in to clock-out with its plan, updates and wrap-up',
   person: 'One thread per teammate',
   ticket: 'Updates grouped by the work item they link to',
@@ -201,11 +200,11 @@ function SelectedCheck({ selected }: { selected: boolean }) {
   return <FontAwesomeIcon icon={faCheck} className={selected ? undefined : 'invisible'} />;
 }
 
-function loadStoredThreadBy(): ThreadBy {
+function loadStoredThreadBy(): InboxGrouping {
   try {
     const stored = localStorage.getItem(THREAD_BY_KEY);
     return (THREAD_BY_OPTIONS as string[]).includes(stored ?? '')
-      ? (stored as ThreadBy)
+      ? (stored as InboxGrouping)
       : DEFAULT_THREAD_BY;
   } catch {
     return DEFAULT_THREAD_BY;
@@ -213,9 +212,9 @@ function loadStoredThreadBy(): ThreadBy {
 }
 
 /** The grouping a conversation id belongs to — ids are `${threadBy}:${key}`. */
-function threadByOf(conversationId: string | null): ThreadBy | null {
+function threadByOf(conversationId: string | null): InboxGrouping | null {
   const prefix = conversationId?.split(':')[0] ?? '';
-  return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as ThreadBy) : null;
+  return (THREAD_BY_OPTIONS as string[]).includes(prefix) ? (prefix as InboxGrouping) : null;
 }
 
 /** Local midnight (epoch ms) of a `day:YYYY-MM-DD` conversation id; null for any other id. */
@@ -305,14 +304,14 @@ export default function Huddle() {
   // function below, it never refetches. A linked conversation or post brings
   // its own grouping without overwriting the saved one (posts are found by
   // session).
-  const [storedThreadBy, _setThreadBy] = useState<ThreadBy>(loadStoredThreadBy);
+  const [storedThreadBy, _setThreadBy] = useState<InboxGrouping>(loadStoredThreadBy);
   // A post link opens the post's session, even when All is the saved grouping:
   // SuperChatInbox can't scroll to a message yet, and a session's short thread
   // keeps the post in view (see docs/superchat-inbox-gaps.md).
   const threadBy =
     threadByOf(conversationParam) ?? (postParam ? 'session' : null) ?? storedThreadBy;
   const setThreadBy = useCallback(
-    (next: ThreadBy) => {
+    (next: InboxGrouping) => {
       _setThreadBy(next);
       // The open conversation belongs to the old grouping.
       setParams({ conversation: null });
@@ -761,13 +760,7 @@ export default function Huddle() {
     );
     if (!user) return grouped;
     const me = { userId: user.id, name: user.name };
-    return withTopicConversations(
-      withTodayConversation(grouped, threadBy, me, scope, nowMinute),
-      threadBy,
-      topics,
-      me,
-      nowMinute,
-    );
+    return withTopicConversations(grouped, threadBy, topics, me, nowMinute);
   }, [activePosts, threadBy, viewer, nowMinute, user, scope, videoNamesVersion, topics]);
   // Search runs over whole conversations (titles, people, clock lines, post
   // fields), after grouping, so a match keeps its thread intact. All has just
@@ -1023,6 +1016,16 @@ export default function Huddle() {
   // The topic behind the open thread, when it is one (Conversation grouping).
   const activeTopicId = topicIdOfThread(activeConversation?.id);
   const activeTopic = activeTopicId ? (topics.byId.get(activeTopicId) ?? null) : null;
+  // An old `day:YYYY-MM-DD` link (the Day grouping, retired in #866) opens the
+  // workday for that date once the topics are in.
+  useEffect(() => {
+    const day = /^day:(\d{4}-\d{2}-\d{2})$/.exec(conversationParam ?? '')?.[1];
+    if (!day) return;
+    const workday = [...topics.byId.values()].find(
+      (t) => t.kind === 'workday' && t.dateKey === day,
+    );
+    if (workday) setParams({ conversation: conversationThreadId(workday.id) });
+  }, [conversationParam, topics, setParams]);
   // Where the composer's next post goes, always shown beside it (#866).
   // The team names it too (a direct message names the person, its audience).
   const composerDestination = postDestination(activeConversation?.id, topics);
@@ -1124,12 +1127,12 @@ export default function Huddle() {
   useEffect(() => {
     if (!postParam || !targetPostLoaded || threadBy !== 'session') return;
     const match = allConversations.find((c) => c.thread.some((m) => m.id === postParam));
-    // A post made off the clock has no Session thread: its Day thread holds it.
+    // A post made off the clock has no Session thread: its conversation holds it.
     const offClock = match ? null : activePosts.find((p) => p.id === postParam && !p.clockEventId);
-    const conversation = match?.id ?? (offClock && dayConversationIdForPost(offClock));
+    const conversation = match?.id ?? (offClock && conversationThreadIdForPost(offClock, topics));
     if (!conversation) return;
     setParams({ conversation, post: null, postId: null, q: null });
-  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams]);
+  }, [postParam, targetPostLoaded, threadBy, allConversations, activePosts, setParams, topics]);
 
   // A deleted post, or one from a team this link didn't carry, never resolves
   // above — without this the inbox would quietly show its default conversation
@@ -1190,6 +1193,8 @@ export default function Huddle() {
     setInboxError(null);
     let id: string;
     let clockEventId: string | undefined;
+    // The conversation the server put it in (#866).
+    let landedTopicId: string | undefined;
     // Snapshot what's staged now: anything picked while this posts belongs to
     // the *next* post, not this one.
     const ticketIds = selectedTicketIds;
@@ -1208,7 +1213,11 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
-      ({ id, clockEventId } = await huddleApi.createPost({
+      ({
+        id,
+        clockEventId,
+        conversationId: landedTopicId,
+      } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
@@ -1238,31 +1247,23 @@ export default function Huddle() {
       sendingRef.current = false;
       setSending(false);
     }
-    // Where the post landed: in Day grouping, its day's thread, which isn't
-    // necessarily the one it was sent from (an older day's). Opened only now
-    // it's posted, so a failed send restores its draft where it was written.
-    const dayId = dayConversationId(postDate);
-    if (
-      threadBy === 'day' &&
-      dayId !== conversationId &&
-      conversations.some((c) => c.id === dayId)
-    ) {
-      openConversation(dayId);
-    }
-    // In Conversation grouping, likewise its conversation: the open workday
-    // when it was sent from a closed one (the reader was warned and agreed).
-    if (
-      threadBy === 'conversation' &&
-      postTopicId &&
-      conversationThreadId(postTopicId) !== conversationId
-    ) {
-      openConversation(conversationThreadId(postTopicId));
+    // Where the post landed. In Conversation grouping, its conversation: the
+    // open workday when it was sent from a closed one (the reader was warned
+    // and agreed). Opened only now it's posted, so a failed send restores its
+    // draft where it was written.
+    const landedThread = landedTopicId ? conversationThreadId(landedTopicId) : null;
+    if (threadBy === 'conversation' && landedThread && landedThread !== conversationId) {
+      openConversation(landedThread);
     }
     // In Session grouping, the server put it in the live shift, or in no shift
-    // when clocked out — then it's only in Day, so its Day thread opens. Opened
-    // after the refresh below, once the post (maybe a shift's first) is in.
+    // when clocked out — then its conversation opens. Opened after the refresh
+    // below, once the post (maybe a shift's first) is in.
     const sessionLanding =
-      threadBy !== 'session' ? null : clockEventId ? sessionConversationId(clockEventId) : dayId;
+      threadBy !== 'session'
+        ? null
+        : clockEventId
+          ? sessionConversationId(clockEventId)
+          : landedThread;
     // Clear only what this post actually took: a ticket picked while it was in
     // flight belongs to the next one.
     setSelectedTickets((prev) => prev.filter((t) => !ticketIds.includes(t.id)));

@@ -165,7 +165,7 @@ export async function openPostInInbox(
 /** Pick how the inbox groups posts into conversations. */
 export async function groupInboxBy(
   page: Page,
-  option: 'All' | 'Conversation' | 'Session' | 'Day' | 'Person' | 'Ticket',
+  option: 'All' | 'Conversation' | 'Session' | 'Person' | 'Ticket',
 ): Promise<void> {
   await page.getByRole('button', { name: /^Group by:/ }).click();
   await page.getByRole('menuitem', { name: option }).click();
@@ -285,6 +285,56 @@ export async function insertPost(params: {
     }),
   );
   return insertedId.toHexString();
+}
+
+/**
+ * A closed workday dated `dateKey` (#866) holding one post by `userId`,
+ * straight into the test DB — one conversation thread per call. Pair with
+ * {@link deleteWorkdayPost}.
+ */
+export async function seedWorkdayPost(params: {
+  teamId: string;
+  userId: string;
+  text: string;
+  dateKey: string;
+}): Promise<{ postId: string; workdayId: string }> {
+  const { ObjectId } = await import('mongodb');
+  const workdayId = new ObjectId();
+  const postId = new ObjectId();
+  const createdAt = new Date();
+  await withDb(async (db) => {
+    await db.collection('huddleConversations').insertOne({
+      _id: workdayId,
+      teamId: params.teamId,
+      kind: 'workday',
+      dateKey: params.dateKey,
+      startedAt: null,
+      closedAt: createdAt,
+      createdAt,
+    });
+    await db.collection('huddlePosts').insertOne({
+      _id: postId,
+      teamId: params.teamId,
+      userId: params.userId,
+      content: { text: params.text, mentions: [] },
+      attachments: [],
+      likes: [],
+      commentCount: 0,
+      postDate: params.dateKey,
+      conversationId: workdayId.toHexString(),
+      createdAt,
+      updatedAt: createdAt,
+    });
+  });
+  return { postId: postId.toHexString(), workdayId: workdayId.toHexString() };
+}
+
+export async function deleteWorkdayPost(ids: { postId: string; workdayId: string }): Promise<void> {
+  const { ObjectId } = await import('mongodb');
+  await withDb(async (db) => {
+    await db.collection('huddlePosts').deleteOne({ _id: new ObjectId(ids.postId) });
+    await db.collection('huddleConversations').deleteOne({ _id: new ObjectId(ids.workdayId) });
+  });
 }
 
 export async function deletePost(postId: string): Promise<void> {

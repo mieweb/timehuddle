@@ -19,6 +19,8 @@ import {
   openPostInInbox,
   seedPost,
   seedPostDaysAgo,
+  seedWorkdayPost,
+  deleteWorkdayPost,
 } from './helpers';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -102,14 +104,17 @@ test.describe('Huddle stays mounted', () => {
     page,
   }) => {
     test.setTimeout(180000);
-    const postIds: string[] = [];
+    // One past workday per date, so the list is long enough to scroll.
+    const seeded: { postId: string; workdayId: string }[] = [];
+    const userId = await getUserIdByEmail(TEST_USERS.owner1.email);
     try {
       for (let daysBack = 1; daysBack <= 25; daysBack++) {
-        postIds.push(
-          await seedPost(page, {
+        seeded.push(
+          await seedWorkdayPost({
             teamId,
+            userId,
             text: uniqueToken(`scroll-${daysBack}`),
-            postDate: dateKey(-daysBack),
+            dateKey: dateKey(-daysBack),
           }),
         );
       }
@@ -128,7 +133,7 @@ test.describe('Huddle stays mounted', () => {
 
       await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(before);
     } finally {
-      for (const id of postIds) await deletePost(id);
+      for (const ids of seeded) await deleteWorkdayPost(ids);
     }
   });
 
