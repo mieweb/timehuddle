@@ -56,6 +56,7 @@ import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
+import './conversations';
 // M8 — Live collaborative editing relay (Yjs) on /yjs
 import './yjs';
 // M3 — Org & profiles

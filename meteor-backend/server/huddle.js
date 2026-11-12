@@ -35,6 +35,7 @@ import {
   sweepDiscardedUploads,
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
+import { conversationForNewPost } from './conversations';
 
 /**
  * A session can hold several posts (the plan plus replies sent from the Huddle
@@ -301,6 +302,7 @@ async function enrichPost(post) {
     commentCount: post.commentCount ?? 0,
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
+    conversationId: post.conversationId ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
     // Always a boolean: a live `changed` that left it out would keep a promoted
     // plan's stale `true` in the client cache, which merges fields.
@@ -731,6 +733,10 @@ export async function createHuddlePost(
     !clockEventId && joinOpenSession && !schedule ? await openSessionId(userId, teamId) : null;
   const sessionId = clockEventId || updateSessionId;
 
+  // #866: every visible post belongs to a conversation. A scheduled post gets
+  // its conversation when it is delivered (deliverScheduledPost).
+  const conversationId = schedule ? null : await conversationForNewPost(teamId, { postDate });
+
   const { text, media } = await externalizeInlineImages(content.text, userId);
   // An upload or image a post dropped, waiting to be deleted, stays for this text.
   await keepReferencedUploads([text]);
@@ -748,6 +754,7 @@ export async function createHuddlePost(
     likes: [],
     commentCount: 0,
     ...(postDate ? { postDate } : {}),
+    ...(conversationId ? { conversationId } : {}),
     // Optionally link to a clock session (per-session gate) and/or stamp a
     // wrap-up at creation — used by the clock-out recovery path when a
     // session somehow has no plan post.

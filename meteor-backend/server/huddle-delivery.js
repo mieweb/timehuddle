@@ -8,6 +8,7 @@ import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
+import { conversationForNewPost } from './conversations';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -240,7 +241,7 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { projection: { userId: 1, teamId: 1 } },
+      { projection: { userId: 1, teamId: 1, postDate: 1 } },
     );
   if (!pending) return { delivered: false };
   const team = await findPostTeam(pending.teamId);
@@ -250,6 +251,11 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
     await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
     return { delivered: false };
   }
+  // #866: the conversation is chosen at delivery, and written in the same
+  // update that claims the delivery, so only the winning delivery sets it (R11).
+  const conversationId = await conversationForNewPost(String(pending.teamId), {
+    postDate: pending.postDate,
+  });
   const post = await rawDb()
     .collection('huddlePosts')
     .findOneAndUpdate(
@@ -260,7 +266,7 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         // findPostTeam() above was in flight must not still be revealed early.
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { $set: { deliveredAt: new Date() }, $inc: { scheduleVersion: 1 } },
+      { $set: { deliveredAt: new Date(), conversationId }, $inc: { scheduleVersion: 1 } },
       { returnDocument: 'after' },
     );
   if (!post) return { delivered: false }; // raced with something else (send now, delete, reschedule) between the checks above

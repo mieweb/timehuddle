@@ -17,6 +17,7 @@ import { hostOf, ticketIdsForTeams } from './ticket-ids';
 import { huddleTicketLabel, redmineIssueLabel } from './ticket-label';
 import { normalizeSource } from './ticket-refs';
 import { timerUpdateText } from './timer-updates-core';
+import { conversationForNewPost } from './conversations';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -98,6 +99,8 @@ export async function postTimerUpdate(action, session, { remember = false, at } 
     const post = {
       _id: new ObjectId(),
       teamId: audience.teamId,
+      // #866: written straight to huddlePosts, so it picks its conversation here.
+      conversationId: await conversationForNewPost(audience.teamId, { at: now }),
       userId: session.userId,
       content: { text: timerUpdateText(action, label), mentions: [] },
       attachments: [],

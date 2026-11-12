@@ -1356,6 +1356,8 @@ export interface HuddlePost {
   commentCount: number;
   /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
   postDate?: string;
+  /** The conversation topic this post belongs to (#866). Absent on a scheduled post until it is delivered. */
+  conversationId?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
   clockEventId?: string;
   /** Joined its session because it was posted while clocked in: never the session's plan. */
