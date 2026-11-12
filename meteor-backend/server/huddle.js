@@ -35,7 +35,7 @@ import {
   sweepDiscardedUploads,
 } from './post-attachments-core.js';
 import { ObjectId } from 'mongodb';
-import { conversationForNewPost } from './conversations';
+import { resolvePostConversation } from './conversations';
 
 /**
  * A session can hold several posts (the plan plus replies sent from the Huddle
@@ -677,6 +677,8 @@ export async function createHuddlePost(
     clockEventId,
     wrapUp,
     deliverAt,
+    conversationId: requestedConversationId,
+    onClosed = 'redirect',
     joinOpenSession = false,
   },
 ) {
@@ -733,9 +735,18 @@ export async function createHuddlePost(
     !clockEventId && joinOpenSession && !schedule ? await openSessionId(userId, teamId) : null;
   const sessionId = clockEventId || updateSessionId;
 
-  // #866: every visible post belongs to a conversation. A scheduled post gets
-  // its conversation when it is delivered (deliverScheduledPost).
-  const conversationId = schedule ? null : await conversationForNewPost(teamId, { postDate });
+  // #866: every visible post belongs to a checked conversation. A scheduled
+  // post bound for a workday gets one when it is delivered
+  // (deliverScheduledPost), since the open workday may have changed by then.
+  let conversationId = null;
+  if (!schedule || requestedConversationId) {
+    const conversation = await resolvePostConversation(userId, team, {
+      conversationId: requestedConversationId,
+      postDate,
+      onClosed,
+    });
+    if (!schedule || conversation.kind !== 'workday') conversationId = conversation._id.toHexString();
+  }
 
   const { text, media } = await externalizeInlineImages(content.text, userId);
   // An upload or image a post dropped, waiting to be deleted, stays for this text.
@@ -958,7 +969,7 @@ Meteor.methods({
     return { posts: enriched, hasMore };
   },
 
-  async 'huddle.createPost'({ teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt }) {
+  async 'huddle.createPost'({ teamId, content, ticketIds, ticketId, attachments, postDate, clockEventId, wrapUp, draft, deliverAt, conversationId }) {
     // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
     // REST matters on mobile — WKWebView tears down the DDP socket whenever the
     // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
@@ -980,6 +991,10 @@ Meteor.methods({
       clockEventId,
       wrapUp,
       deliverAt,
+      conversationId,
+      // The composer keeps its draft and says why when the workday it showed
+      // has closed meanwhile (#866 R5), rather than posting somewhere else.
+      onClosed: 'refuse',
       joinOpenSession: true,
     });
   },

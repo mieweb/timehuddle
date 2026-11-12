@@ -82,6 +82,32 @@ export function displayLabel(conversation, viewerId, { personalLabel = null, nam
   return null;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Why `dateKey` can't start a huddle, or null if it can. It is the starter's
+ * local date, so it must be a real YYYY-MM-DD within a day of the server's UTC
+ * date (every time zone is), and not earlier than the open workday's — a
+ * device with the wrong date must not close today's workday (#866 R9).
+ *
+ * @param {unknown} dateKey
+ * @param {string | null} openDateKey  the open workday's date, if one is open
+ * @param {Date} now
+ */
+export function checkStartDateKey(dateKey, openDateKey, now) {
+  if (typeof dateKey !== 'string' || !DATE_KEY_RE.test(dateKey)) {
+    return 'dateKey must be a YYYY-MM-DD date';
+  }
+  const ms = Date.parse(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(ms) || utcDateKey(ms) !== dateKey) return 'dateKey is not a real date';
+  const today = Date.parse(`${utcDateKey(now)}T00:00:00Z`);
+  if (Math.abs(ms - today) > DAY_MS) return "dateKey must be within a day of today's date";
+  if (openDateKey && dateKey < openDateKey) {
+    return 'dateKey is earlier than the workday already open';
+  }
+  return null;
+}
+
 /** "2026-11-12" for `date`, in UTC — the server has no team timezone to use. */
 export function utcDateKey(date) {
   return new Date(date).toISOString().slice(0, 10);

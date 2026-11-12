@@ -1863,12 +1863,42 @@ Meteor.startup(async () => {
           description:
             'ISO date to schedule the post for; only the author sees it, and nobody is notified, until then',
         },
+        conversationId: {
+          type: 'string',
+          description:
+            "Conversation to post into (#866). Omitted: the team's open workday. A closed workday is refused with conversation-closed",
+        },
       },
       required: ['teamId', 'content'],
     },
     outputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.startWorkday', {
+    description:
+      "Start the team's huddle (#866): close the open workday and open one for dateKey. Starting again on the same day returns the open workday",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        dateKey: { type: 'string', description: "The starter's local date, YYYY-MM-DD" },
+      },
+      required: ['teamId', 'dateKey'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        teamId: { type: 'string' },
+        kind: { type: 'string' },
+        dateKey: { type: 'string' },
+        startedAt: { type: ['string', 'null'] },
+        startedBy: { type: ['string', 'null'] },
+        closedAt: { type: ['string', 'null'] },
+      },
     },
   });
 

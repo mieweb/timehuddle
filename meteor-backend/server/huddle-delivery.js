@@ -8,7 +8,7 @@ import { rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
 import { usersFollowingTeam } from './notification-prefs';
 import { isAwaitingDelivery } from './huddle-schedule-core';
-import { conversationForNewPost } from './conversations';
+import { resolvePostConversation } from './conversations';
 
 /** In-app link to a post, in the URL scheme of src/ui/ROUTING.md. */
 export function huddlePostUrl(teamId, postId) {
@@ -241,21 +241,32 @@ export async function deliverScheduledPost(postId, { force = false } = {}) {
         deliveredAt: null,
         deliverAt: force ? { $exists: true } : { $lte: new Date() },
       },
-      { projection: { userId: 1, teamId: 1, postDate: 1 } },
+      { projection: { userId: 1, teamId: 1, postDate: 1, conversationId: 1 } },
     );
   if (!pending) return { delivered: false };
-  const team = await findPostTeam(pending.teamId);
-  if (!team || !isTeamMember(team, pending.userId)) {
-    // Never shown to anyone — drop it rather than leave it stranded with no
-    // way to ever be delivered or managed.
+  // Never shown to anyone — drop it rather than leave it stranded with no
+  // way to ever be delivered or managed.
+  const drop = async () => {
     await rawDb().collection('huddlePosts').deleteOne({ _id: pending._id, deliveredAt: null });
     return { delivered: false };
+  };
+  const team = await findPostTeam(pending.teamId);
+  if (!team || !isTeamMember(team, pending.userId)) return drop();
+  // #866: a post scheduled into a team or direct conversation keeps it (if the
+  // author can still see it, R13); one bound for a workday joins the workday
+  // open now. Written in the same update that claims the delivery, so only the
+  // winning delivery sets it (R11).
+  let conversationId;
+  try {
+    const conversation = await resolvePostConversation(pending.userId, team, {
+      conversationId: pending.conversationId,
+      postDate: pending.postDate,
+    });
+    conversationId = conversation._id.toHexString();
+  } catch (err) {
+    if (err?.error === 'forbidden') return drop();
+    throw err;
   }
-  // #866: the conversation is chosen at delivery, and written in the same
-  // update that claims the delivery, so only the winning delivery sets it (R11).
-  const conversationId = await conversationForNewPost(String(pending.teamId), {
-    postDate: pending.postDate,
-  });
   const post = await rawDb()
     .collection('huddlePosts')
     .findOneAndUpdate(

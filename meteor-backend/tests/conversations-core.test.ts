@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LABEL_MAX,
   canSee,
+  checkStartDateKey,
   cleanLabel,
   directKey,
   displayLabel,
@@ -139,6 +140,28 @@ describe('legacyDateKeyFor', () => {
     expect(legacyDateKeyFor({ postDate: 'Nov 11', createdAt: new Date('2026-11-12T07:00:00Z') })).toBe(
       '2026-11-12',
     );
+  });
+});
+
+describe('checkStartDateKey (R9)', () => {
+  const now = new Date('2026-11-12T15:00:00Z');
+
+  it("accepts the starter's date within a day of the server's", () => {
+    expect(checkStartDateKey('2026-11-12', null, now)).toBeNull();
+    expect(checkStartDateKey('2026-11-11', null, now)).toBeNull(); // far west of UTC
+    expect(checkStartDateKey('2026-11-13', '2026-11-12', now)).toBeNull(); // far east of UTC
+  });
+  it('refuses a malformed or impossible date', () => {
+    expect(checkStartDateKey('Nov 12', null, now)).toBeTruthy();
+    expect(checkStartDateKey('2026-02-30', null, now)).toBeTruthy();
+    expect(checkStartDateKey(undefined, null, now)).toBeTruthy();
+  });
+  it('refuses a device date more than a day off', () => {
+    expect(checkStartDateKey('2026-11-10', null, now)).toBeTruthy();
+    expect(checkStartDateKey('2026-11-14', null, now)).toBeTruthy();
+  });
+  it('refuses a date earlier than the workday already open', () => {
+    expect(checkStartDateKey('2026-11-11', '2026-11-12', now)).toBeTruthy();
   });
 });
 
