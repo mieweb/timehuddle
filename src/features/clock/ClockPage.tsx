@@ -30,8 +30,9 @@ import {
   useDropzone,
   type AttachmentUpload,
 } from '@mieweb/ui';
-import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import type { MarkdownEditorHandle } from '../huddle/MarkdownEditor';
+import { Ticket } from 'lucide-react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -47,7 +48,7 @@ import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
 import { useComposerUploads } from '../huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../huddle/uploadText';
-import { useTicketSelection } from '../huddle/useTicketSelection';
+import { ticketLine, type TicketRef } from '../huddle/useTicketSelection';
 import { toPostAttachment } from '../huddle/api';
 import {
   ComposerAttachButtons,
@@ -63,6 +64,8 @@ import { PulseChip } from '../pulse-upload/PulseButton';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload';
 import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
+import { onComposerSeed, takeComposerSeed, type ComposerSeed } from './composerSeed';
+import { checkOffTicket, onTicketDone, ticketLink, ticketPath, ticketsInText } from './planTickets';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
 import { useRecentSessions } from './useRecentSessions';
@@ -152,7 +155,11 @@ export const ClockPage: React.FC = () => {
   // Active ticket under the session timer — shared hook (getRunning + getDay).
   const runningTicket = useRunningTicket(isClockedIn);
   // A timer started while clocked out, waiting for this clock-in (#586).
-  const { pending: pendingStart, cancelPending: cancelPendingStart } = useTicketStart();
+  const {
+    pending: pendingStart,
+    cancelPending: cancelPendingStart,
+    startOnClockIn,
+  } = useTicketStart();
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -176,13 +183,6 @@ export const ClockPage: React.FC = () => {
   };
 
   // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
-  const {
-    tickets: selectedTickets,
-    ticketIds: selectedTicketIds,
-    setTickets: setSelectedTickets,
-    addTicket,
-    removeTicket,
-  } = useTicketSelection();
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
@@ -208,10 +208,6 @@ export const ClockPage: React.FC = () => {
   // (`textRef`, the text as of now, is declared below with the Pulse drafts.)
   const mentionsRef = useRef(mentions);
   mentionsRef.current = mentions;
-  const ticketIdsRef = useRef(selectedTicketIds);
-  ticketIdsRef.current = selectedTicketIds;
-  const ticketsRef = useRef(selectedTickets);
-  ticketsRef.current = selectedTickets;
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -238,6 +234,8 @@ export const ClockPage: React.FC = () => {
     }
     if (!textRef.current.trim() && uploads.current().length === 0) return null;
     const taken = uploads.take();
+    // The plan's tickets are its links (planTickets), as the text is now.
+    const tickets = ticketsInText(textRef.current);
     const media = taken.map((item) => item.result as MediaItem);
     return {
       media,
@@ -245,9 +243,9 @@ export const ClockPage: React.FC = () => {
       mentionUserIds: mentionsRef.current.length
         ? mentionsRef.current.map((m) => m.userId)
         : undefined,
-      ticketIds: ticketIdsRef.current,
+      ticketIds: tickets.map((t) => t.id),
       /** The tickets as they are now, with their titles, for the plan's cache. */
-      tickets: ticketsRef.current,
+      tickets,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -356,7 +354,7 @@ export const ClockPage: React.FC = () => {
   // the effect on it catches all of those. It has to be an effect rather than
   // the ref callback itself: RichEditor's `focus()` waits on a load it starts
   // in its own mount effect, which hasn't run yet when the ref is attached.
-  const [editorHandle, setEditorHandle] = useState<RichEditorHandle | null>(null);
+  const [editorHandle, setEditorHandle] = useState<MarkdownEditorHandle | null>(null);
   useEffect(() => {
     if (focusEditorOnMountRef.current) editorHandle?.focus();
   }, [editorHandle]);
@@ -420,6 +418,49 @@ export const ClockPage: React.FC = () => {
     setText((current) => (current.trim() ? current : seedText));
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText, submittingMode]);
+
+  // A plan handed over from elsewhere (My Board's Pinned "Clock in"), taken
+  // now or whenever one arrives while this page is open. It is applied once
+  // the composer has a mode (see below), after the reset that clears it.
+  const [handedSeed, setHandedSeed] = useState<ComposerSeed | null>(null);
+  useEffect(() => {
+    const take = () => {
+      const seed = takeComposerSeed();
+      if (seed) setHandedSeed(seed);
+    };
+    take();
+    return onComposerSeed(take);
+  }, []);
+
+  // A ticket goes into the plan itself, on the caret's line, as well as onto
+  // the post (its timers and Redmine time read the post's tickets). Before the
+  // editor is up it is appended to the text instead.
+  const [ticketPickerOpen, setTicketPickerOpen] = useState(false);
+  const placeTicket = useCallback(
+    (ticket: TicketRef) => {
+      if (editorHandle?.insertLine)
+        editorHandle.insertLine(ticketLine(ticket), ticketPath(ticket.id));
+      else {
+        const link = ticketLink(ticket);
+        setText((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${link}` : link));
+      }
+      setComposerExpanded(true);
+    },
+    [editorHandle],
+  );
+  // The tickets the plan links to now: marked in the picker, not offered twice.
+  const textTicketIds = useMemo(() => ticketsInText(text).map((t) => t.id), [text]);
+  const editorMenuItems = useMemo(
+    () => [
+      {
+        key: 'ticket',
+        label: clockText.insertTicket,
+        icon: <Ticket className="h-3.5 w-3.5" aria-hidden="true" />,
+        onSelect: () => setTicketPickerOpen(true),
+      },
+    ],
+    [],
+  );
 
   // Or record it: a Pulse video *is* the plan (clocks you in) or the wrap-up
   // (clocks you out) — the server does both when the upload lands. Owned here,
@@ -518,34 +559,41 @@ export const ClockPage: React.FC = () => {
     // A mode switch after a successful post finds nothing here: that post took
     // its files first (uploads.take). Anything left was never sent.
     clearUploads();
-    setSelectedTickets([]);
     setMentions([]);
     setComposerExpanded(false);
     focusEditorOnMountRef.current = false;
-  }, [composerMode, setSelectedTickets, clearUploads]);
+  }, [composerMode, clearUploads]);
 
-  // The wrap-up starts with the tickets the plan linked at clock-in, so
-  // clocking out keeps them unless removed here. Declared after the reset
-  // above so a same-commit mode switch can't clear the seed.
-  const sessionPlan =
-    composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch ?? postedPlan) : null;
-  const ticketsSeededForRef = useRef<string | null>(null);
+  // The handed-over plan: its checklist becomes the text (its links, the
+  // post's tickets). Declared after the reset above, so the reset can't clear it.
   useEffect(() => {
-    // Leaving wrap-up clears the selection (above), so the same plan must
-    // reseed when the composer reopens — else its wrap-up would send `[]`.
-    if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
-    if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
-    ticketsSeededForRef.current = sessionPlan.id;
-    // Seed with the plan's titles too, so the chips can name its tickets.
-    const planTickets = sessionPlan.tickets ?? [];
-    setSelectedTickets((prev) => [
-      ...planTickets,
-      ...prev.filter((t) => !planTickets.some((p) => p.id === t.id)),
-    ]);
-  }, [composerMode, sessionPlan, setSelectedTickets]);
+    if (!handedSeed || !composerMode) return;
+    // Added under anything already written, never in its place; a line
+    // already in the plan (a second Clock in) isn't added twice.
+    setText((prev) => {
+      const lines = handedSeed.markdown.split('\n').filter((line) => !prev.includes(line));
+      if (!prev.trim()) return lines.join('\n');
+      return lines.length ? `${prev.trimEnd()}\n\n${lines.join('\n')}` : prev;
+    });
+    setComposerExpanded(true);
+    setEditorKey((k) => k + 1);
+    setHandedSeed(null);
+  }, [handedSeed, composerMode]);
 
-  const showEditor =
-    composerExpanded || !!text.trim() || selectedTickets.length > 0 || uploads.items.length > 0;
+  // A ticket left for another is ticked here too, as it is in the plan post,
+  // so the wrap-up carries the tick. Remounts the editor only when it changes.
+  useEffect(
+    () =>
+      onTicketDone((id) => {
+        const ticked = checkOffTicket(textRef.current, id);
+        if (ticked === textRef.current) return;
+        setText(ticked);
+        setEditorKey((k) => k + 1);
+      }),
+    [],
+  );
+
+  const showEditor = composerExpanded || !!text.trim() || uploads.items.length > 0;
   // Something to post: words, or a file on its own (a screenshot, say).
   const hasContent = !!text.trim() || uploads.items.length > 0;
   // Editing pins it open: a seeded wrap-up shows only because it has content,
@@ -565,6 +613,7 @@ export const ClockPage: React.FC = () => {
     setPostError(null);
     let planPosted = false;
     let giveBack: (() => void) | null = null;
+    let queuedFirstTicket = false;
     try {
       const ready = await takeForPost();
       if (!ready) return;
@@ -594,6 +643,18 @@ export const ClockPage: React.FC = () => {
         attachments,
       });
       draftGenRef.current += 1;
+      // The plan's first ticket starts timing as the shift starts — unless a
+      // ticket's own Start sent the user here, which starts that one instead.
+      const first = ready.tickets[0];
+      if (first && !pendingStart) {
+        startOnClockIn({
+          kind: 'ticket',
+          ticket: { sourceId: 'huddle', id: first.id },
+          label: timerLabel('huddle', first.id, first.title),
+          onBoard: false,
+        });
+        queuedFirstTicket = true;
+      }
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId, at });
       // The editor keeps showing the plan while it posts, and the wrap-up
@@ -601,8 +662,10 @@ export const ClockPage: React.FC = () => {
       // doesn't remount to load the posted copy of the same text.
       seededTokenRef.current = `wrapup:${trimmed}`;
     } catch (e) {
-      // The post didn't go: its files come back, as they were.
+      // The post didn't go: its files come back, as they were. Nor does the
+      // first ticket's start wait for some later clock-in.
       giveBack?.();
+      if (queuedFirstTicket) cancelPendingStart();
       // Once the plan is posted, clear it even if clocking in failed, so a
       // retry can't post it twice.
       if (planPosted) setText('');
@@ -673,10 +736,11 @@ export const ClockPage: React.FC = () => {
             attachments: postAttachments.length
               ? [...planAttachments, ...postAttachments]
               : undefined,
-            // The list replaces the plan's, so send it only once it was seeded
-            // from the plan — otherwise just what was picked, if anything.
+            // The list replaces the plan's: the wrap-up's links, which it took
+            // over with the plan's text. A plan from before tickets were links
+            // has tickets but no links; an empty list then keeps them.
             ticketIds:
-              ticketsSeededForRef.current === effectivePostId || selectedTicketIds.length
+              selectedTicketIds.length || ticketsInText(planText).length
                 ? selectedTicketIds
                 : undefined,
           },
@@ -944,6 +1008,12 @@ export const ClockPage: React.FC = () => {
                     <MarkdownEditor
                       ref={setEditorHandle}
                       key={`${composerMode}-${editorKey}`}
+                      // The ticket description's field: one tidy box that grows,
+                      // toolbar on demand, the block `+` menu and markdown shortcuts.
+                      surface="textarea"
+                      blockMenuItems={editorMenuItems}
+                      placeholder={clockText.placeholder(composerMode)}
+                      label={clockText.writeLabel(composerMode)}
                       // `text`, not `seedText`: RichEditor reloads when `value` differs
                       // from its own last output, so a reset or a seed shows at once.
                       value={text}
@@ -960,8 +1030,6 @@ export const ClockPage: React.FC = () => {
 
                   {/* ── Ticket / mention / attachment chips ── */}
                   <ComposerChips
-                    selectedTickets={selectedTickets}
-                    onTicketRemove={removeTicket}
                     mentions={mentions}
                     onMentionRemove={handleMentionRemove}
                     attachments={uploads.items}
@@ -974,9 +1042,11 @@ export const ClockPage: React.FC = () => {
                     <ComposerAttachButtons
                       teamId={gateTeamId}
                       onFiles={attach}
-                      selectedTicketIds={selectedTicketIds}
-                      onTicketSelect={addTicket}
+                      selectedTicketIds={textTicketIds}
+                      onTicketSelect={placeTicket}
                       onMentionSelect={handleMentionSelect}
+                      ticketPickerOpen={ticketPickerOpen}
+                      onTicketPickerOpenChange={setTicketPickerOpen}
                     />
                   </div>
 

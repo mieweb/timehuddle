@@ -40,6 +40,9 @@ export const boardText = {
   restCount: (count: number) => `${count} more on My Board`,
   collapseRest: 'Collapse the rest of My Board',
   expandRest: 'Expand the rest of My Board',
-  clockIn: 'Clock in',
-  clockInLabel: (count: number) => `Clock in with ${count} pinned ticket${count === 1 ? '' : 's'}`,
+  startSession: 'Start session',
+  sessionInProgress: 'In progress',
+  sessionInProgressLabel: 'Session in progress. Open the clock page',
+  startSessionLabel: (count: number) =>
+    `Start a session with ${count} pinned ticket${count === 1 ? '' : 's'}`,
 };

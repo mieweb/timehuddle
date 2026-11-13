@@ -15,12 +15,16 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Checkbox, cn, Text, useMediaQuery } from '@mieweb/ui';
-import { Clock, Pin } from 'lucide-react';
+import { Pin } from 'lucide-react';
 import React from 'react';
 
 import { RowList } from '../../ui/RowList';
 
-import { BOARD_HEADING_HEIGHT, BoardSectionHeading } from './BoardSectionHeading';
+import {
+  BOARD_HEADING_HEIGHT,
+  BoardSectionHeading,
+  SessionInProgress,
+} from './BoardSectionHeading';
 import { boardText } from './boardStrings';
 import {
   arrangeFromIds,
@@ -132,7 +136,11 @@ export interface BoardPinning {
    */
   onArrange: (pinned: string[], rest: string[], reorderedRest: boolean) => void;
   onTogglePin: (ticket: UnifiedTicket) => void;
+  /** Start session: the pinned tickets become the plan in the Clock composer. */
   onClockIn: () => void;
+  /** The member is clocked in: Pinned shows the session in progress instead. */
+  sessionActive: boolean;
+  onOpenSession: () => void;
 }
 
 const ticketKey = (ticket: UnifiedTicket) => ticket.key;
@@ -212,7 +220,9 @@ export const TicketList: React.FC<TicketListProps> = ({
     check();
     scroller.addEventListener('scroll', check, { passive: true });
     return () => scroller.removeEventListener('scroll', check);
-  }, [showsSections, collapsed]);
+    // Re-measured when the sections change, not only on scroll: a ticket
+    // pinned or unpinned moves the Rest heading without any scrolling.
+  }, [showsSections, collapsed, tickets.length, pinning?.keys]);
   // Each mounted list needs its own switcher name: it ties the sliding highlight.
   const stateSwitcherName = `ticket-state-${React.useId()}`;
   const compact = useMediaQuery('(max-width: 767px)');
@@ -380,17 +390,20 @@ export const TicketList: React.FC<TicketListProps> = ({
                   : undefined
               }
               action={
-                pinned.length > 0 && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="board-pinned-clock-in rounded-full"
-                    leftIcon={<Clock className="h-3.5 w-3.5" aria-hidden="true" />}
-                    aria-label={boardText.clockInLabel(pinned.length)}
-                    onClick={pinning.onClockIn}
-                  >
-                    {boardText.clockIn}
-                  </Button>
+                pinning.sessionActive ? (
+                  <SessionInProgress onClick={pinning.onOpenSession} />
+                ) : (
+                  pinned.length > 0 && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="board-pinned-start-session rounded-full"
+                      aria-label={boardText.startSessionLabel(pinned.length)}
+                      onClick={pinning.onClockIn}
+                    >
+                      {boardText.startSession}
+                    </Button>
+                  )
                 )
               }
             />

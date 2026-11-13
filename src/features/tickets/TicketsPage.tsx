@@ -73,6 +73,7 @@ import {
   isOnBoard,
   linkedIssueKey,
   redmineSource,
+  ticketDetailPath,
   ticketKey,
   ticketRefOf,
   useUnifiedTickets,
@@ -85,6 +86,9 @@ import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useMyBoardKeys } from './useMyBoardKeys';
 import { useTicketStart } from '../timers/TicketStartProvider';
 import { timerLabel } from '../timers/ticketTimerStrings';
+import { offerComposerSeed, ticketChecklist } from '../clock/composerSeed';
+import { splitPinned } from './boardSections';
+import { leadingRefOf } from './ticketIds';
 import type { BoardPinning } from './TicketList';
 import { placeShownOrder } from './ticketFilters';
 import { useSavedKeyList } from './useSavedKeyList';
@@ -154,6 +158,7 @@ export const TicketsPage: React.FC = () => {
     teamsReady,
     selectedOrgId,
     organizations,
+    activeClockEvent,
   } = useTeam();
   // An organization owner also sees the teams they haven't joined; the board is
   // for the teams they work in, so only those load and show tickets here.
@@ -491,10 +496,28 @@ export const TicketsPage: React.FC = () => {
         setPinnedKeys((prev) =>
           prev.includes(ticket.key) ? prev.filter((k) => k !== ticket.key) : [ticket.key, ...prev],
         ),
-      // Cosmetic for now: the pinned tickets reach the composer in step 4.
-      onClockIn: () => navigate('/app/clock'),
+      // The pinned tickets, in their order, become the plan's checklist in the
+      // Clock page's composer: each a link to its page, which is also what
+      // attaches it to the post (planTickets).
+      sessionActive: !!activeClockEvent,
+      // In a session already: the clock page shows it (and its wrap-up).
+      onOpenSession: () => navigate('/app/clock'),
+      onClockIn: () => {
+        const pinned = splitPinned(boardTickets, pinnedKeys).pinned;
+        const lines = pinned.map((t) => `[${leadingRefOf(t)} ${t.title}](${ticketDetailPath(t)})`);
+        offerComposerSeed({ markdown: ticketChecklist(lines) });
+        navigate('/app/clock');
+      },
     }),
-    [pinnedKeys, setPinnedKeys, handleBoardReorder, setBoardOrder, navigate],
+    [
+      pinnedKeys,
+      setPinnedKeys,
+      handleBoardReorder,
+      setBoardOrder,
+      navigate,
+      boardTickets,
+      activeClockEvent,
+    ],
   );
 
   // Leaving selection mode drops the selection: with the checkboxes gone there

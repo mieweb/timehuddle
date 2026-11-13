@@ -14,6 +14,8 @@
  * - Leaving a Redmine issue with time to send then asks for a comment and sends
  *   it (`RedmineSendPrompt`, #688). That comes after the stop or the switch and
  *   never holds it up.
+ * - Switching from a TimeHuddle ticket ticks it off in this shift's plan: its
+ *   `- [ ]` item becomes `- [x]` in the plan post and in the Clock page's composer.
  * - Clocked out: one "Clock In Required" prompt, owned here. **Clock In Now**
  *   clocks in, then starts the timer.
  * - Clocked out on a plan-required team: the prompt sends the user to the Clock
@@ -37,11 +39,12 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { timerApi, type TimerUpdateRef, type UnsentRedmineTime } from '../../lib/api';
+import { huddleApi, timerApi, type TimerUpdateRef, type UnsentRedmineTime } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket, type RunningTicket } from '../../lib/useRunningTicket';
 import { useRouter } from '../../ui/router';
+import { announceTicketDone, checkOffTicket } from '../clock/planTickets';
 import { invalidateRedmineCache } from '../tickets/sources';
 import {
   SHORT_STINT_MS,
@@ -88,6 +91,11 @@ interface TicketStartContextValue {
   busyKey: string | null;
   pending: PendingTicketStart | null;
   cancelPending: () => void;
+  /**
+   * Start `request` the moment the user is clocked in (now, if they already
+   * are), staying where they are: a plan clocks in and starts its first ticket.
+   */
+  startOnClockIn: (request: TicketStartRequest) => void;
 }
 
 const TicketStartContext = createContext<TicketStartContextValue | null>(null);
@@ -125,7 +133,7 @@ function refreshTimerViews() {
 export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const toast = useToast();
   const { pathname, navigate } = useRouter();
-  const { memberTeamId } = useTeam();
+  const { memberTeamId, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading, planGate } = useClockToggle();
   const runningTicket = useRunningTicket(isClockedIn);
 
@@ -173,6 +181,28 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const runningRef = useRef<RunningTicket | null>(runningTicket);
   runningRef.current = runningTicket;
   const pendingRef = useRef<PendingTicketStart | null>(null);
+  const clockEventRef = useRef(activeClockEvent);
+  clockEventRef.current = activeClockEvent;
+
+  /**
+   * A ticket left for another is done in this shift's plan: tick its item in
+   * the plan post and in an open composer. Best effort: if the post can't be
+   * read or saved, the plan stays as it was and the switch still stands.
+   */
+  const checkOffInPlan = useCallback(async (ticketId: string) => {
+    announceTicketDone(ticketId);
+    const shift = clockEventRef.current;
+    if (!shift) return;
+    try {
+      const post = await huddleApi.getMyPostForSession(shift.teamId, shift.id);
+      if (!post) return;
+      const text = checkOffTicket(post.content.text, ticketId);
+      if (text === post.content.text) return;
+      await huddleApi.updatePost(post.id, { text, mentions: post.content.mentions ?? [] });
+    } catch {
+      // Left unticked; nothing else depends on it.
+    }
+  }, []);
 
   const setPendingStart = useCallback((next: PendingTicketStart | null) => {
     pendingRef.current = next;
@@ -255,10 +285,21 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
         toastTimerOutcome(toast, outcome, request.label, viewPostAction(update));
         refreshTimerViews();
         offerRedmineSend(unsentRedmine);
+        if (outcome.startsWith('started') && running?.source === 'huddle' && running.key !== key) {
+          void checkOffInPlan(running.id);
+        }
         return outcome;
       });
     },
-    [toast, exclusive, askShortStint, viewPostAction, offerRedmineSend, memberTeamId],
+    [
+      toast,
+      exclusive,
+      askShortStint,
+      viewPostAction,
+      offerRedmineSend,
+      memberTeamId,
+      checkOffInPlan,
+    ],
   );
 
   const start = useCallback(
@@ -345,11 +386,17 @@ export const TicketStartProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [isClockedIn, runStart, navigate, setPendingStart]);
 
   const cancelPending = useCallback(() => setPendingStart(null), [setPendingStart]);
+  const startOnClockIn = useCallback(
+    (request: TicketStartRequest) => setPendingStart({ request, returnTo: pathname }),
+    [setPendingStart, pathname],
+  );
 
   const planFirst = planGate.planMissing;
 
   return (
-    <TicketStartContext.Provider value={{ start, stop, busyKey, pending, cancelPending }}>
+    <TicketStartContext.Provider
+      value={{ start, stop, busyKey, pending, cancelPending, startOnClockIn }}
+    >
       {children}
 
       <AppModal

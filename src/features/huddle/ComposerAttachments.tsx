@@ -29,6 +29,9 @@ interface ComposerAttachButtonsProps {
   /** Adds a ticket to the post; the picker won't offer one already attached. */
   onTicketSelect: (ticket: TicketRef) => void;
   onMentionSelect: (userId: string, name: string) => void;
+  /** The ticket picker's open state, when the host opens it too (see TicketPicker). */
+  ticketPickerOpen?: boolean;
+  onTicketPickerOpenChange?: (open: boolean) => void;
 }
 
 /** The Photo / Video / Doc / Ticket / @Mention button row. */
@@ -38,12 +41,20 @@ export function ComposerAttachButtons({
   selectedTicketIds,
   onTicketSelect,
   onMentionSelect,
+  ticketPickerOpen,
+  onTicketPickerOpenChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
       <AttachmentBar onFiles={onFiles} />
       {teamId && (
-        <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedIds={selectedTicketIds} />
+        <TicketPicker
+          teamId={teamId}
+          onSelect={onTicketSelect}
+          selectedIds={selectedTicketIds}
+          open={ticketPickerOpen}
+          onOpenChange={onTicketPickerOpenChange}
+        />
       )}
       {teamId && <MentionMenu teamId={teamId} onSelect={onMentionSelect} />}
     </>
@@ -51,8 +62,9 @@ export function ComposerAttachButtons({
 }
 
 interface ComposerChipsProps {
-  selectedTickets: TicketRef[];
-  onTicketRemove: (ticketId: string) => void;
+  /** Tickets as chips. The Clock composer has none: its tickets are links in its text. */
+  selectedTickets?: TicketRef[];
+  onTicketRemove?: (ticketId: string) => void;
   mentions: MentionRef[];
   onMentionRemove: (userId: string) => void;
   /** Files staged in the composer, each uploading in place (useComposerUploads). */
@@ -65,7 +77,7 @@ interface ComposerChipsProps {
 
 /** Ticket / mention / attachment chips selected in the composer so far. */
 export function ComposerChips({
-  selectedTickets,
+  selectedTickets = [],
   onTicketRemove,
   mentions,
   onMentionRemove,
@@ -109,7 +121,7 @@ export function ComposerChips({
                 </span>
                 <button
                   type="button"
-                  onClick={() => onTicketRemove(ticket.id)}
+                  onClick={() => onTicketRemove?.(ticket.id)}
                   className="shrink-0 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
                   aria-label={TICKET_CHIP_TEXT.remove(label)}
                 >

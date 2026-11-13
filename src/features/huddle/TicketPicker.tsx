@@ -1,20 +1,45 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTeam } from '@lib/TeamContext';
 import { Badge, Input } from '@mieweb/ui';
 import { ComposerChipButton } from './ComposerChipButton';
 import { AnchoredMenu } from '@ui/AnchoredMenu';
 import { fetchTeamTickets } from './api';
 import type { Ticket } from './types';
 import type { TicketRef } from './useTicketSelection';
+import { huddleTicketRef } from '../tickets/sources';
 
 interface TicketPickerProps {
   teamId: string;
   onSelect: (ticket: TicketRef) => void;
   /** Tickets already attached — marked in the list and not pickable again. */
   selectedIds?: string[];
+  /**
+   * Open state, when the host opens the picker itself too (a composer's `+`
+   * menu entry). Uncontrolled without it: the Ticket button toggles it.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPickerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function TicketPicker({
+  teamId,
+  onSelect,
+  selectedIds = [],
+  open,
+  onOpenChange,
+}: TicketPickerProps) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const isOpen = open ?? ownOpen;
+  const setIsOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const value = typeof next === 'function' ? next(isOpen) : next;
+      setOwnOpen(value);
+      onOpenChange?.(value);
+    },
+    [isOpen, onOpenChange],
+  );
+  const { allTeams } = useTeam();
+  const prefix = allTeams.find((team) => team.id === teamId)?.ticketPrefix;
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,12 +75,12 @@ export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPicke
   };
 
   const handleSelect = (ticket: Ticket) => {
-    onSelect({ id: ticket.id, title: ticket.title });
+    onSelect({ id: ticket.id, title: ticket.title, ref: huddleTicketRef(ticket, prefix) });
     setIsOpen(false);
     setSearchQuery('');
   };
 
-  const handleClose = useCallback(() => setIsOpen(false), []);
+  const handleClose = useCallback(() => setIsOpen(false), [setIsOpen]);
 
   const filteredTickets = tickets.filter((ticket) =>
     ticket.title.toLowerCase().includes(searchQuery.toLowerCase()),

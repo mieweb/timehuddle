@@ -12,6 +12,8 @@ import { Badge, Button } from '@mieweb/ui';
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import React from 'react';
 
+import { boardText } from './boardStrings';
+
 /**
  * A heading's height, borders included: Rest of My Board sticks this far down,
  * under the Pinned heading. Kept exact by the heading's fixed `h-10`.
@@ -72,3 +74,24 @@ export const BoardSectionHeading: React.FC<BoardSectionHeadingProps> = ({
     </div>
   );
 };
+
+/**
+ * In Pinned's heading while the member is clocked in, in place of Start
+ * session: a quiet pill with a softly pulsing green dot. It opens the clock
+ * page, where the session (and its wrap-up) is.
+ */
+export const SessionInProgress: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <Button
+    variant="ghost"
+    size="sm"
+    className="board-session-in-progress h-7 gap-1.5 rounded-full border border-green-500/30 bg-green-500/10 px-2.5 text-xs font-medium text-green-700 hover:bg-green-500/15 dark:text-green-400 dark:hover:bg-green-500/15 [&_[data-slot=button-label]]:flex [&_[data-slot=button-label]]:items-center [&_[data-slot=button-label]]:gap-1.5"
+    aria-label={boardText.sessionInProgressLabel}
+    onClick={onClick}
+  >
+    <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-50 motion-reduce:animate-none" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+    </span>
+    {boardText.sessionInProgress}
+  </Button>
+);
