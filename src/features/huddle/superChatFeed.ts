@@ -261,6 +261,11 @@ export function ticketPath(ticketId: string): string {
   return `/app/tickets/${encodeURIComponent(ticketId)}`;
 }
 
+/** Whether a post's own text links to a ticket's page. */
+function linksTo(post: HuddlePost, ticketId: string): boolean {
+  return (post.content.text ?? '').includes(`${ticketPath(ticketId)})`);
+}
+
 /** Escape text so markdown punctuation in it (`[`, `*`, …) shows as typed. */
 function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_[\]<>]/g, '\\$&');
@@ -431,7 +436,10 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean): string[] {
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
+  // A ticket the text already links to (a plan's checklist) is shown there,
+  // not again under it; older posts, with no such links, keep their list.
   for (const ticket of existingTickets(post)) {
+    if (linksTo(post, ticket.id)) continue;
     parts.push(ticketLinkMarkdown(ticket));
   }
   return parts;

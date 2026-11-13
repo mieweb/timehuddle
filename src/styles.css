@@ -11,6 +11,19 @@ html[data-theme='dark'] {
   background-color: #0a0a0a; /* neutral-950 */
 }
 
+/* The native app has no long-press text selection or callout, except where the
+   member types (main.tsx marks <html data-native>). */
+html[data-native] body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html[data-native] :is(input, textarea, [contenteditable='true'], [contenteditable='true'] *) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 /* Push app header below the device status bar on mobile (notch / Dynamic Island) */
 .app-header {
   padding-top: max(env(safe-area-inset-top), 0px);
@@ -37,6 +50,11 @@ html[data-theme='dark'] {
 @media not (min-width: 768px) {
   .app-main-scroll {
     padding-bottom: calc(var(--bottom-nav-height) + max(env(safe-area-inset-bottom), 0px));
+  }
+  /* A page whose list scrolls under the nav keeps that room inside the list
+     instead (RowList's bottomNavInset), so no dead strip sits above the nav. */
+  .app-main-scroll[data-under-nav] {
+    padding-bottom: 0;
   }
 }
 

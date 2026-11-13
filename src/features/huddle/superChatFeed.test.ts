@@ -495,6 +495,30 @@ describe('postsToConversations', () => {
       expect(conversation.thread[0].label).toContain('[Onboarding checklist](/app/tickets/tkt-1)');
     });
 
+    it('leaves out a ticket the post text already links to', () => {
+      const [conversation] = postsToConversations(
+        [
+          makePost({
+            id: 'p1',
+            content: {
+              text: '- [ ] [TH-1 Onboarding checklist](/app/tickets/tkt-1)',
+              mentions: [],
+            },
+            tickets: [
+              { id: 'tkt-1', title: 'Onboarding checklist' },
+              { id: 'tkt-2', title: 'Fix login' },
+            ],
+          }),
+        ],
+        'day',
+        VIEWER_MEMBER,
+        NOW,
+      );
+      const { label } = conversation.thread[0];
+      expect(label).not.toContain('/app/tickets/tkt-1');
+      expect(label).toContain('[Fix login](/app/tickets/tkt-2)');
+    });
+
     it('links each existing ticket to its page and skips deleted ones', () => {
       for (const threadBy of ['session', 'day', 'person', 'ticket'] as const) {
         const [conversation] = postsToConversations(

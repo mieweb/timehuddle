@@ -24,6 +24,7 @@ import {
   useToast,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
+import { blurOnTapAway } from '@ui/blurOnTapAway';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { teamApi, ticketApi, type TeamMember } from '../../lib/api';
@@ -208,7 +209,8 @@ export function TicketCreateModal({
         <ModalTitle>New ticket</ModalTitle>
         <ModalClose />
       </ModalHeader>
-      <ModalBody>
+      {/* A tap anywhere but a field closes the phone keyboard. */}
+      <ModalBody onPointerDown={blurOnTapAway}>
         {form && (
           // Plain <form>: @mieweb/ui has no Form primitive, and this gives Enter-to-submit.
           <form

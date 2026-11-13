@@ -121,4 +121,18 @@ describe('PullToRefresh', () => {
 
     await waitFor(() => expect(refreshMocks.triggerRefresh).toHaveBeenCalledTimes(1));
   });
+
+  it('leaves a lifted reorder row’s drag alone', () => {
+    renderPullToRefresh();
+
+    const thread = screen.getByTestId('thread');
+    dispatchTouch(thread, 'touchstart', 100);
+    // The hold completes and the list lifts the row under the finger.
+    thread.setAttribute('data-sortable-id', 'a');
+    thread.setAttribute('data-dragging', 'true');
+    dispatchTouch(thread, 'touchmove', 300);
+    dispatchTouch(thread, 'touchend', 300);
+
+    expect(refreshMocks.triggerRefresh).not.toHaveBeenCalled();
+  });
 });

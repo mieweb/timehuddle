@@ -6,8 +6,15 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 
-/** A staged ticket. `title` is null when it can't be resolved (e.g. deleted). */
-export type TicketRef = { id: string; title: string | null };
+/**
+ * A staged ticket. `title` is null when it can't be resolved (e.g. deleted).
+ * `ref` is its ID as people read it (`TH-146`), when known.
+ */
+export type TicketRef = { id: string; title: string | null; ref?: string };
+
+/** A ticket as a line of a plan: `TH-146 Fix login`, or its title alone. */
+export const ticketLine = (ticket: TicketRef) =>
+  [ticket.ref, ticket.title].filter(Boolean).join(' ');
 
 export function useTicketSelection() {
   const [tickets, setTickets] = useState<TicketRef[]>([]);

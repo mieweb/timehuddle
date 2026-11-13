@@ -10,6 +10,8 @@ import { describe, it, expect } from 'vitest';
 import type { UnifiedTicket } from './sources';
 import {
   applyFilters,
+  arrangeByOrder,
+  placeShownOrder,
   sortTickets,
   toggleSort,
   DEFAULT_SORT,
@@ -312,5 +314,44 @@ describe('toggleSort', () => {
     expect(toggleSort(DEFAULT_SORT, 'title').direction).toBe('asc');
     expect(toggleSort({ field: 'title', direction: 'asc' }, 'updated').direction).toBe('desc');
     expect(toggleSort({ field: 'title', direction: 'asc' }, 'priority').direction).toBe('desc');
+  });
+});
+
+describe('arrangeByOrder', () => {
+  const a = make({ key: 'a', title: 'A', updatedAt: '2026-01-01T00:00:00.000Z' });
+  const b = make({ key: 'b', title: 'B', updatedAt: '2026-01-02T00:00:00.000Z' });
+  const c = make({ key: 'c', title: 'C', updatedAt: '2026-01-03T00:00:00.000Z' });
+
+  it('lists tickets in the saved order', () => {
+    expect(arrangeByOrder([a, b, c], ['c', 'a', 'b']).map((t) => t.key)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('puts tickets the order lacks first, newest first', () => {
+    expect(arrangeByOrder([a, b, c], ['a']).map((t) => t.key)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('ignores saved keys that are no longer listed', () => {
+    expect(arrangeByOrder([a, b], ['gone', 'b', 'a']).map((t) => t.key)).toEqual(['b', 'a']);
+  });
+});
+
+describe('placeShownOrder', () => {
+  it('rearranges the shown keys within the slots they held', () => {
+    // b and d were shown (filtered list); hidden a, c, e keep their places.
+    expect(placeShownOrder(['a', 'b', 'c', 'd', 'e'], ['d', 'b'])).toEqual([
+      'a',
+      'd',
+      'c',
+      'b',
+      'e',
+    ]);
+  });
+
+  it('puts shown keys the order lacks first', () => {
+    expect(placeShownOrder(['a', 'b'], ['new', 'b', 'a'])).toEqual(['new', 'b', 'a']);
+  });
+
+  it('builds the order from scratch when none is saved', () => {
+    expect(placeShownOrder([], ['b', 'a'])).toEqual(['b', 'a']);
   });
 });

@@ -28,8 +28,13 @@
  * whole document, so the mirrored `value` can lag the last keystroke. Read the
  * editor, not the mirror, when the text is about to be persisted.
  */
-import { RichEditor } from '@mieweb/ui/kerebron';
-import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import { RichEditor, TextAreaRich } from '@mieweb/ui/kerebron';
+import type {
+  CollabConfig,
+  RichEditorHandle,
+  TextAreaRichBlockMenuItem,
+  TextAreaRichHandle,
+} from '@mieweb/ui/kerebron';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
@@ -48,11 +53,41 @@ interface MarkdownEditorProps {
    * listener below for why.
    */
   onFiles?: (files: File[]) => void;
+  /**
+   * `toolbar` (default): the full editor, toolbar always shown, and the only
+   * surface that co-edits (`collab`). `textarea`: `TextAreaRich`, the surface
+   * a ticket's description uses — it rests as one tidy field that grows with
+   * its text, its toolbar hidden until asked for, with the block `+` menu and
+   * markdown shortcuts. Same Markdown in and out either way.
+   */
+  surface?: 'toolbar' | 'textarea';
+  /** The field's accessible name (the `textarea` surface); the placeholder otherwise. */
+  label?: string;
+  /** The `textarea` surface's own `+` menu entries (e.g. Ticket), after the formats. */
+  blockMenuItems?: readonly TextAreaRichBlockMenuItem[];
 }
 
-export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
+/**
+ * The editor's handle. `insertLine` works on the `textarea` surface only: on
+ * the toolbar surface it is absent, and callers fall back to editing `value`.
+ */
+export type MarkdownEditorHandle = RichEditorHandle &
+  Partial<Pick<TextAreaRichHandle, 'insertLine'>>;
+
+export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles },
+    {
+      value = '',
+      onChange,
+      onSubmit,
+      className,
+      collab,
+      placeholder,
+      onFiles,
+      surface = 'toolbar',
+      label,
+      blockMenuItems,
+    },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -111,6 +146,35 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
       };
     }, [onFiles]);
 
+    const onKeyDown = (e: React.KeyboardEvent) => {
+      if (onSubmit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        onSubmit();
+      }
+    };
+
+    // TextAreaRich draws its own field and placeholder; the wrapper only adds
+    // the file interception (above) and ⌘/Ctrl+Enter.
+    if (surface === 'textarea') {
+      return (
+        <div
+          ref={containerRef}
+          className={['markdown-editor-textarea', className ?? ''].join(' ')}
+          onKeyDown={onKeyDown}
+        >
+          <TextAreaRich
+            editorRef={ref as React.Ref<TextAreaRichHandle>}
+            blockMenuItems={blockMenuItems}
+            valueType="text/x-markdown"
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            aria-label={label ?? placeholder}
+          />
+        </div>
+      );
+    }
+
     return (
       <div
         ref={containerRef}
@@ -142,14 +206,14 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
             e.preventDefault();
           }
         }}
-        onKeyDown={(e) => {
-          if (onSubmit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
+        onKeyDown={onKeyDown}
       >
-        <RichEditor ref={ref} value={value} onChange={onChange} collab={collab} />
+        <RichEditor
+          ref={ref as React.Ref<RichEditorHandle>}
+          value={value}
+          onChange={onChange}
+          collab={collab}
+        />
       </div>
     );
   },

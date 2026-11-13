@@ -27,4 +27,22 @@ export const boardText = {
       : `${count} Redmine issues couldn't be added to My Board. Try again in a moment.`,
   undo: 'Undo',
   columnHeading: 'My Board and timer',
+
+  // Pinned: the tickets picked for today, at the top of My Board.
+  pin: 'Pin to top',
+  unpin: 'Unpin',
+  pinnedHeading: 'Pinned',
+  restHeading: 'Rest of My Board',
+  pinnedCount: (count: number) => `${count} pinned`,
+  collapsePinned: 'Collapse pinned tickets',
+  expandPinned: 'Expand pinned tickets',
+  revealPinned: 'Scroll up to the pinned tickets',
+  restCount: (count: number) => `${count} more on My Board`,
+  collapseRest: 'Collapse the rest of My Board',
+  expandRest: 'Expand the rest of My Board',
+  startSession: 'Start session',
+  sessionInProgress: 'In progress',
+  sessionInProgressLabel: 'Session in progress. Open the clock page',
+  startSessionLabel: (count: number) =>
+    `Start a session with ${count} pinned ticket${count === 1 ? '' : 's'}`,
 };

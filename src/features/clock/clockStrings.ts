@@ -61,6 +61,8 @@ export const clockText = {
   placeholder: (mode: ComposerMode) => (mode === 'plan' ? "Today I'll…" : 'I worked on…'),
   /** The collapsed one-line stand-in's accessible name. */
   writeLabel: (mode: ComposerMode) => (mode === 'plan' ? 'Write a plan' : 'Write a wrap-up'),
+  /** The editor's `+` menu entry that puts a ticket on the line. */
+  insertTicket: 'Ticket',
   submit: (mode: ComposerMode) =>
     mode === 'plan' ? 'Clock in with a plan' : 'Clock out with a wrap-up',
   pulse: (clockedIn: boolean) => (clockedIn ? 'Clock out with Pulse' : 'Clock in with Pulse'),

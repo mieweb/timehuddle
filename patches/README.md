@@ -9,11 +9,11 @@ They are not written here. Each one is a copy of the patch of the same name in
 `@mieweb/ui` asks host apps to apply. Kerebron is a peer dependency, so the app's
 copy is the one the editor runs, and a fix made only in the library never reaches it.
 
-| Patch                 | Without it                                                                             |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `extension-menu`      | The toolbar's Heading and List dropdowns do nothing, and buttons never show as pressed |
-| `extension-markdown`  | Highlight, superscript and subscript are dropped when a document is saved as Markdown  |
-| `extension-codecrock` | The code-block language picker has no accessible name                                  |
+| Patch                 | Without it                                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `extension-menu`      | The toolbar's Heading and List dropdowns do nothing, and buttons never show as pressed                                      |
+| `extension-markdown`  | Highlight, superscript and subscript are dropped when a document is saved as Markdown; a ticked `- [x]` item opens unticked |
+| `extension-codecrock` | The code-block language picker has no accessible name                                                                       |
 
 ## Keeping them in step
 

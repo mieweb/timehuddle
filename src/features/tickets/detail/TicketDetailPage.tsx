@@ -1,11 +1,4 @@
-import {
-  faCopy,
-  faLink,
-  faPen,
-  faTrash,
-  faCheck,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
+import { faLink, faPen, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -13,6 +6,7 @@ import {
   Badge,
   type BadgeProps,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   Checkbox,
@@ -23,7 +17,8 @@ import {
   Input,
 } from '@mieweb/ui';
 import { SOURCES } from '@timehuddle/ticket-sources';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pencil } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   activityApi,
@@ -54,6 +49,7 @@ import { settingsPath } from '../../settings/settingsSections';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
 import { ticketLinkText } from '../link/ticketLinkStrings';
 import { huddleTicketRef, invalidateRedmineCache, ticketKey } from '../sources';
+import { carriedRefOf, linkRefOf } from '../ticketIds';
 
 import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
@@ -136,13 +132,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const copyLink = useCopyLink();
   const { user } = useSession();
   // Every team, not the selected org's: a ticket link can lead into another org.
-  const { allTeams: teams } = useTeam();
+  const { allTeams: teams, organizations } = useTeam();
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [activity, setActivity] = useState<ActivityLogItem[]>([]);
   const [sessions, setSessions] = useState<TicketSession[]>([]);
-  const [idCopied, setIdCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Set when the ticket can't be shown at all: forbidden vs. doesn't exist.
@@ -150,6 +145,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   // Edit state
   const [editingTitle, setEditingTitle] = useState(false);
+  // Set while Enter's save runs, so the field's blur doesn't drop the edit and
+  // flash the old title before the new one lands.
+  const savingTitle = useRef(false);
+  // The heading's width when the edit opened, which the field takes.
+  const titleDisplayRef = useRef<HTMLDivElement>(null);
+  const [titleWidth, setTitleWidth] = useState<number | null>(null);
   const [titleDraft, setTitleDraft] = useState('');
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
@@ -312,17 +313,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   );
 
   // ── Handlers ──
-
-  const copyTicketId = async () => {
-    if (!ticket) return;
-    try {
-      await navigator.clipboard.writeText(ticket.id);
-      setIdCopied(true);
-      window.setTimeout(() => setIdCopied(false), 2000);
-    } catch {
-      setActionError('Could not copy the ticket id.');
-    }
-  };
 
   /**
    * The version an edit opened now is checked against: the carried issue's,
@@ -541,6 +531,16 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   }
 
   const team = teams.find((t) => t.id === ticket.teamId);
+  // The ID the Tickets row shows: the issue it carries or links to, named by
+  // its source (`timehuddle-58`, `RM0-214`), else the ticket's own.
+  const prefixes =
+    team?.sourcePrefixes ??
+    organizations.find((org) => org.id === team?.orgId)?.sourcePrefixes ??
+    [];
+  const shownRef =
+    carriedRefOf(ticket.linkedIssue ?? null, prefixes, null) ??
+    linkRefOf(ticket, prefixes) ??
+    huddleTicketRef(ticket, team?.ticketPrefix);
 
   const assigneeOptions = [
     { value: '', label: 'Unassigned' },
@@ -569,16 +569,37 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     <AppPage>
       <BackToTicketsButton
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            aria-label="Copy link to this ticket"
-            className="rounded-full"
-            onClick={() => void copyLink(`/app/tickets/${ticket.id}`)}
-            leftIcon={<FontAwesomeIcon icon={faLink} size="sm" />}
-          >
-            Copy Link
-          </Button>
+          <ButtonGroup orientation="horizontal" className="ticket-detail-top-actions gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Copy link to this ticket"
+              className="rounded-full"
+              onClick={() => void copyLink(`/app/tickets/${ticket.id}`)}
+              leftIcon={<FontAwesomeIcon icon={faLink} size="sm" />}
+            >
+              Copy Link
+            </Button>
+            {/* Stays while the title is open, so nothing beside it shifts. */}
+            {canEditText && (
+              <Button
+                variant="secondary"
+                size="icon"
+                aria-label="Edit title"
+                title="Edit title"
+                disabled={editingTitle}
+                className="ticket-title-edit-button h-8 w-8 rounded-full p-0 [&_[data-slot=button-label]]:flex [&_[data-slot=button-label]]:items-center [&_[data-slot=button-label]]:justify-center"
+                onClick={() => {
+                  setTitleDraft(title);
+                  setTitleBase(draftBaseNow());
+                  setTitleWidth(titleDisplayRef.current?.offsetWidth ?? null);
+                  setEditingTitle(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            )}
+          </ButtonGroup>
         }
       />
 
@@ -586,52 +607,42 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       <div className="ticket-detail-title-section mb-6">
         <div className="ticket-title-row flex flex-wrap items-start justify-between gap-3">
           {editingTitle ? (
-            <div className="ticket-title-edit flex min-w-0 flex-1 items-start gap-2">
+            // The field takes the heading's type and width, so the buttons beside
+            // it stay where they were. Enter saves; leaving it (or Escape) drops the edit.
+            <div
+              className="ticket-title-edit min-w-0 max-w-full flex-1"
+              style={titleWidth ? { flex: `1 1 ${titleWidth}px` } : undefined}
+            >
               <Input
                 aria-label="Ticket title"
-                className="flex-1 text-xl font-semibold"
+                className="h-auto w-full py-1 text-2xl font-semibold"
                 value={titleDraft}
+                enterKeyHint="done"
+                readOnly={saving}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitleDraft(e.target.value)}
                 onKeyDown={(e: React.KeyboardEvent) => {
-                  if (e.key === 'Enter') void saveTitle();
+                  if (e.key === 'Enter' && !savingTitle.current) {
+                    savingTitle.current = true;
+                    void saveTitle().finally(() => {
+                      savingTitle.current = false;
+                    });
+                  }
                   if (e.key === 'Escape') setEditingTitle(false);
+                }}
+                onBlur={() => {
+                  if (!savingTitle.current) setEditingTitle(false);
                 }}
                 autoFocus
               />
-              <Button size="sm" aria-label="Save title" onClick={saveTitle} disabled={saving}>
-                <FontAwesomeIcon icon={faCheck} />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label="Cancel title edit"
-                onClick={() => {
-                  setEditingTitle(false);
-                  setTitleDraft(title);
-                }}
-              >
-                <FontAwesomeIcon icon={faXmark} />
-              </Button>
             </div>
           ) : (
-            <div className="ticket-title-display flex items-center gap-2">
+            <div ref={titleDisplayRef} className="ticket-title-display flex items-center gap-2">
               <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+                <span className="ticket-id-ref me-2 font-mono text-neutral-500 dark:text-neutral-400">
+                  {shownRef}
+                </span>
                 {title}
               </h1>
-              {canEditText && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Edit title"
-                  onClick={() => {
-                    setTitleDraft(title);
-                    setTitleBase(draftBaseNow());
-                    setEditingTitle(true);
-                  }}
-                >
-                  <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
-                </Button>
-              )}
             </div>
           )}
           <TicketQuickActions
@@ -646,25 +657,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           />
         </div>
 
-        {/* Id, status and priority under the title */}
+        {/* Status and priority under the title */}
         <div className="ticket-title-meta mt-1.5 flex flex-wrap items-center gap-2">
-          <span className="ticket-id inline-flex items-center gap-1">
-            <Text size="sm" variant="muted" className="font-mono">
-              {huddleTicketRef(ticket, team?.ticketPrefix)}
-            </Text>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Copy ticket id"
-              title="Copy the full ticket id"
-              onClick={() => void copyTicketId()}
-            >
-              <FontAwesomeIcon icon={idCopied ? faCheck : faCopy} className="h-3 w-3" />
-            </Button>
-            <span className="sr-only" aria-live="polite">
-              {idCopied ? 'Ticket id copied' : ''}
-            </span>
-          </span>
           {carried ? (
             <>
               <Badge variant={carried.record.status.isClosed ? 'default' : 'success'} size="sm">
@@ -990,15 +984,6 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               )}
             </CardContent>
           </Card>
-
-          {/* Team badge */}
-          {ticket.teamId && (
-            <div className="ticket-sidebar-badges flex flex-wrap gap-1.5">
-              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                Team: {team?.name ?? ticket.teamId}
-              </span>
-            </div>
-          )}
 
           {/* Danger zone */}
           {canEdit && (

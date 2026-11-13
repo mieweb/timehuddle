@@ -44,6 +44,12 @@ const INTERACTIVE_SELECTORS =
   // the WKWebView never gets a clean touch sequence to focus the editor.
   '[contenteditable="true"], .kb-custom-menu__editor';
 
+/**
+ * A row lifted for reordering (`@mieweb/ui`'s `SortableList` marks it): its
+ * touch is moving the row, never pulling the page.
+ */
+const DRAGGED_ROW_SELECTOR = '[data-sortable-id][data-dragging]';
+
 /** Whether any element from `target` up to (not including) `boundary` is scrolled down. */
 function scrolledAncestorBetween(target: Element | null, boundary: Element): boolean {
   for (let node = target; node && node !== boundary; node = node.parentElement) {
@@ -135,6 +141,15 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
 
     const onTouchMove = (e: TouchEvent) => {
       if (blockedRef.current) return;
+
+      // A held row was lifted: the rest of this touch is the drag's.
+      if ((e.target as Element | null)?.closest(DRAGGED_ROW_SELECTOR)) {
+        blockedRef.current = true;
+        activeRef.current = false;
+        pullYRef.current = 0;
+        setPullY(0);
+        return;
+      }
 
       const dy = e.touches[0].clientY - startYRef.current;
       const dx = Math.abs(e.touches[0].clientX - startXRef.current);

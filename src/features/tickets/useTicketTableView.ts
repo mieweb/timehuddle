@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from 'react';
 
 import {
   applyFilters,
+  arrangeByOrder,
   sortTickets,
   toggleSort,
   DEFAULT_SORT,
@@ -51,9 +52,13 @@ export interface TicketTableView {
 export function useTicketTableView(
   tickets: UnifiedTicket[],
   meKeys: readonly string[] = [],
+  /** A saved order of ticket keys: the tab then opens in it, sorted `manual`. */
+  order?: readonly string[],
 ): TicketTableView {
   const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
-  const [sort, setSort] = useState<SortSpec>(DEFAULT_SORT);
+  const [sort, setSort] = useState<SortSpec>(
+    order ? { field: 'manual', direction: 'asc' } : DEFAULT_SORT,
+  );
   const [showClosed, setShowClosed] = useState(false);
   const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -75,14 +80,10 @@ export function useTicketTableView(
     [filteredTickets],
   );
 
-  const sortedTickets = useMemo(
-    () =>
-      sortTickets(
-        filteredTickets.filter((t) => t.status.isClosed === showClosed),
-        sort,
-      ),
-    [filteredTickets, showClosed, sort],
-  );
+  const sortedTickets = useMemo(() => {
+    const shown = filteredTickets.filter((t) => t.status.isClosed === showClosed);
+    return sort.field === 'manual' ? arrangeByOrder(shown, order ?? []) : sortTickets(shown, sort);
+  }, [filteredTickets, showClosed, sort, order]);
 
   const onSortChange = useCallback((field: SortField) => {
     setSort((current) => toggleSort(current, field));

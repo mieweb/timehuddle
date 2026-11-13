@@ -479,11 +479,25 @@ const AppLayoutContent: React.FC = () => {
 
                   {/* Content column */}
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader />
+                    {/* A ticket's page on a phone gives the header's room to the
+                        ticket; only the status-bar inset stays. */}
+                    {ticketDetailId ? (
+                      <>
+                        <div className="app-header-inset pt-[env(safe-area-inset-top)] md:hidden" />
+                        <div className="app-header-wrap max-md:hidden">
+                          <AppHeader />
+                        </div>
+                      </>
+                    ) : (
+                      <AppHeader />
+                    )}
                     <TopNav />
                     <WhatsNewBanner />
                     <main
                       ref={mainRef}
+                      // Tickets' list scrolls on its own, under the bottom nav,
+                      // so the page reserves no room for the nav (styles.css).
+                      data-under-nav={isTicketsRoute || undefined}
                       className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"
                     >
                       <PullToRefresh>
