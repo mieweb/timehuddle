@@ -1,5 +1,21 @@
+diff --git a/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js b/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
+index f25b814..1bf5c43 100644
+--- a/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
++++ b/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
+@@ -31,7 +31,10 @@ export async function mdToPmConverterText(content, config, schema) {
+         },
+         blockquote: { block: 'blockquote' },
+         paragraph: { block: 'paragraph' },
+-        task_item: { block: 'task_item' },
++        task_item: {
++            block: 'task_item',
++            getAttrs: (tok) => ({ checked: !!tok.attrGet('checked') }),
++        },
+         task_list: {
+             block: 'task_list',
+         },
 diff --git a/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js b/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
-index 0bd4e5e36caf3e94a9148ac20b757c68e0940894..8d3eaa9099343f2994ab8f11635fb31685d8d076 100644
+index 0bd4e5e..8d3eaa9 100644
 --- a/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
 +++ b/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
 @@ -372,6 +372,34 @@ export async function extPmToMdConverter(origDocument, config, schema, eventTarg
@@ -38,7 +54,7 @@ index 0bd4e5e36caf3e94a9148ac20b757c68e0940894..8d3eaa9099343f2994ab8f11635fb316
              open: 'math_inline_open',
              close: 'math_inline_close',
 diff --git a/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js b/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
-index b9f690609ab8f219284d671d03f46c79899dd34d..6a910124c79eb49cbaf185405d821cd1b43abdea 100644
+index b9f6906..6a91012 100644
 --- a/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
 +++ b/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
 @@ -1,5 +1,15 @@
