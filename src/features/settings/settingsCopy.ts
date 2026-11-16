@@ -57,6 +57,37 @@ export const SETTINGS_STRINGS = {
   manageTeam: 'Rename or delete this team',
 } as const;
 
+/** Settings → Sources → GitHub (#873): a member's own GitHub connection. */
+export const GITHUB_SOURCE_STRINGS = {
+  title: 'GitHub',
+  description: 'Connect your GitHub account to work on your GitHub issues and pull requests here.',
+  loading: 'Loading…',
+  loadFailed: "Couldn't load your GitHub connection.",
+  connected: 'Connected',
+  notConnected: 'Not connected',
+  rejected: "Couldn't reach",
+  rejectedHelp: 'GitHub stopped accepting your connection. Connect again to fix it.',
+  connect: 'Connect GitHub',
+  connectFailed: "Couldn't start connecting GitHub. Try again.",
+  disconnect: 'Disconnect',
+  disconnectLabel: 'Disconnect GitHub',
+  disconnectFailed: "Couldn't disconnect GitHub. Try again.",
+  connectedAs: (login: string) => `Connected as @${login}`,
+  access:
+    "GitHub will ask for repo access. It's GitHub's only option for private repos and also covers code; TimeHuddle reads and updates only issues and pull requests.",
+  orgs: "An org's private repos show once its owner approves TimeHuddle. You can request that on GitHub, under your authorized apps.",
+  ownersLabel: 'Bring issues from',
+  ownersPlaceholder: 'All your accounts and organizations',
+  ownersHelp:
+    'Assigned issues and search come from these. Leave it empty for all of them. Only issues updated in the last 8 days are suggested.',
+  ownersFailed: "Couldn't load your GitHub organizations. Try again.",
+  ownersSaveFailed: "Couldn't save that. Try again.",
+  ownLabel: (login: string) => `${login} (you)`,
+  justConnected: 'GitHub connected.',
+  failed: "Couldn't connect GitHub. Try again.",
+  notSetUp: "GitHub isn't set up on this TimeHuddle yet. Whoever runs it can add it.",
+} as const;
+
 /** One line saying where a setting's value comes from, as seen from `level`. */
 export function describeSetting(
   setting: ResolvedSetting,

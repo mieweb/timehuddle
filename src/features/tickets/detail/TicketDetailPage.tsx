@@ -54,6 +54,7 @@ import { settingsPath } from '../../settings/settingsSections';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
 import { ticketLinkText } from '../link/ticketLinkStrings';
 import { huddleTicketRef, invalidateRedmineCache, ticketKey } from '../sources';
+import { carriedKeyOf, carriedRefOf, linkRefOf } from '../ticketIds';
 
 import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
@@ -192,11 +193,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   }, [ticketId]);
   // The issue the ticket carries, read from its source: when there is one, its
   // status, priority, description and history are the source's.
-  const outside = useOutsideIssue(
-    ticketId,
-    ticket?.linkedIssue ? ticketKey(ticket.linkedIssue.source, ticket.linkedIssue.id) : null,
-    reloadTicket,
-  );
+  const outside = useOutsideIssue(ticketId, ticket ? carriedKeyOf(ticket) : null, reloadTicket);
   const carried = outside.state.kind === 'loaded' ? outside.state.issue : null;
   const { reload: reloadOutside } = outside;
   const carriedBase = carried ? baseOf(carried) : null;
@@ -541,6 +538,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   }
 
   const team = teams.find((t) => t.id === ticket.teamId);
+  // The ID the ticket goes by on its source (`timehuddle-222`, `RMX-150`), shown
+  // beside its own; the issue's server is the one it was just read from.
+  const prefixes = team?.sourcePrefixes ?? [];
+  const outsideRef =
+    carriedRefOf(ticket.linkedIssue ?? null, prefixes, carried?.record.ref?.server ?? null) ??
+    linkRefOf(ticket, prefixes);
 
   const assigneeOptions = [
     { value: '', label: 'Unassigned' },
@@ -649,6 +652,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
         {/* Id, status and priority under the title */}
         <div className="ticket-title-meta mt-1.5 flex flex-wrap items-center gap-2">
           <span className="ticket-id inline-flex items-center gap-1">
+            {outsideRef && (
+              <Text size="sm" className="ticket-outside-id font-mono font-medium">
+                {outsideRef}
+              </Text>
+            )}
             <Text size="sm" variant="muted" className="font-mono">
               {huddleTicketRef(ticket, team?.ticketPrefix)}
             </Text>

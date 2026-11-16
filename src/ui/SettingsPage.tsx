@@ -62,6 +62,8 @@ import { NotificationEventSettings } from '../features/notifications/Notificatio
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { GitHubSourceCard } from '../features/settings/GitHubSourceCard';
+import { GITHUB_SOURCE_STRINGS } from '../features/settings/settingsCopy';
 import { TeamSettings, useManageableTeams } from '../features/settings/TeamSettings';
 import {
   canManageSelectedOrganization,
@@ -1309,9 +1311,20 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     integrations: (
-      <Section title="Redmine" description="Link your personal Redmine account with your API key.">
-        <RedmineConnection />
-      </Section>
+      <>
+        <Section
+          title="Redmine"
+          description="Link your personal Redmine account with your API key."
+        >
+          <RedmineConnection />
+        </Section>
+        <Section
+          title={GITHUB_SOURCE_STRINGS.title}
+          description={GITHUB_SOURCE_STRINGS.description}
+        >
+          <GitHubSourceCard />
+        </Section>
+      </>
     ),
     activity: (
       <Section>

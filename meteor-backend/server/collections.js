@@ -28,6 +28,11 @@ export const TimesheetChangeRequests = new Mongo.Collection('timesheetchangerequ
 // The personal API key is stored encrypted at rest (see redmine-crypto.js) and
 // is never returned to the client.
 export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration: 'MONGO' });
+// One row per TimeHuddle user who has connected GitHub in Settings → Sources
+// (github-connect.js): their OAuth token, encrypted like a Redmine key, and the
+// accounts they bring issues from. Separate from sign-in's `services.github`,
+// which keeps no token.
+export const GithubLinks = new Mongo.Collection('github_links', { idGeneration: 'MONGO' });
 // One row per (user, ticket) a user has added to their personal "My Board".
 // Identity only — { userId, sourceId, ticketId, addedAt } — no title/status
 // snapshot. Display fields are resolved client-side against already-fetched
