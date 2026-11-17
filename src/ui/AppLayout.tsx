@@ -38,6 +38,7 @@ import { useOwnPresence } from '../lib/usePresence';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
+import { AppPrompt } from '../features/app-prompt/AppPrompt';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
@@ -427,6 +428,7 @@ const AppLayoutContent: React.FC = () => {
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <AppPrompt />
         <TicketStartProvider>
           <ShiftReminderProvider>
             <AppFeedbackContext.Provider

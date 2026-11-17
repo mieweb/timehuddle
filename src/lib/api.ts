@@ -73,6 +73,11 @@ export interface TimecoreUser {
    * Drives the "New" flags on /app/release-notes and the menu badge.
    */
   releaseNotesSeenVersion: string | null;
+  /**
+   * True when this person used the iOS app in the last 30 days. Decides
+   * whether a browser asks them to install the app or offers to open it.
+   */
+  hasIosApp?: boolean;
   organizationMembership?: {
     organizationId: string;
     organizationSlug: string;
