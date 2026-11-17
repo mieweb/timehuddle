@@ -87,10 +87,13 @@ _log(
 _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.messageHandlers?.bridge}`);
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
+import { GetAppPage } from './features/app-prompt/GetAppPage';
 import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { WatchPage, watchPathVideoId } from './features/pulse-upload/WatchPage';
 import { enterpriseApi } from './lib/api';
+import { GET_APP_PATH, storeUrlFor } from './lib/appLinks';
+import { getMobileOS } from './lib/device';
 import { markTappedNotificationRead } from './features/notifications/notificationEvents';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
@@ -501,6 +504,17 @@ function renderRoot() {
       // aren't signed in (see WatchPage).
       _root = createRoot(el);
       _root.render(<WatchPage videoId={watchPathVideoId(window.location.pathname)!} />);
+      return;
+    } else if (window.location.pathname === GET_APP_PATH) {
+      // The install QR code's link: a phone goes on to its own store, anything
+      // else picks one on GetAppPage.
+      const os = getMobileOS();
+      if (os) {
+        window.location.replace(storeUrlFor(os));
+        return;
+      }
+      _root = createRoot(el);
+      _root.render(<GetAppPage />);
       return;
     } else if (window.location.pathname === '/release-notes') {
       // Public on purpose: linked from the landing page, so someone deciding

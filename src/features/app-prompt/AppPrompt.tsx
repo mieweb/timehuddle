@@ -29,7 +29,7 @@ import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useId, useState } from 'react';
 
-import { APP_STORE_URL, PLAY_STORE_URL, openInAppUrl, storeUrlFor } from '../../lib/appLinks';
+import { getAppUrl, openInAppUrl, storeUrlFor } from '../../lib/appLinks';
 import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
@@ -56,27 +56,11 @@ const COPY = {
   openTitle: 'Open in the TimeHuddle app',
   openAction: 'Open in App',
   qrTitle: 'Get TimeHuddle for your phone',
-  qrBody: 'Point your phone camera at the code for your phone to get TimeHuddle.',
+  qrBody: 'Point your iPhone or Android camera at the code to get TimeHuddle from your app store.',
+  qrAlt: 'QR code linking to the TimeHuddle app for iPhone and Android',
+  qrAction: 'Get the App',
   dismiss: 'Not Now',
 } as const;
-
-/** The desktop modal's two QR codes, one per store. */
-const QR_STORES = [
-  {
-    os: 'ios',
-    label: 'iPhone',
-    url: APP_STORE_URL,
-    alt: 'QR code linking to TimeHuddle on the App Store',
-    action: 'Open App Store',
-  },
-  {
-    os: 'android',
-    label: 'Android',
-    url: PLAY_STORE_URL,
-    alt: 'QR code linking to TimeHuddle on Google Play',
-    action: 'Open Google Play',
-  },
-] as const;
 
 const SHOWN_KEY = 'timehuddle.appPromptShown';
 
@@ -199,10 +183,12 @@ const PhoneSheet: React.FC<{
 
 const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const descriptionId = useId();
+  // One link for both phones: /get-app sends each to its own store.
+  const url = getAppUrl();
   return (
     <AppModal
       open
-      size="md"
+      size="sm"
       onOpenChange={(isOpen) => !isOpen && onClose()}
       aria-describedby={descriptionId}
     >
@@ -211,40 +197,26 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <ModalClose />
       </ModalHeader>
       <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
+        <div className="app-prompt-qr-tile rounded-xl bg-white p-3.5">
+          <QRCodeSVG value={url} size={176} role="img" aria-label={COPY.qrAlt} className="block" />
+        </div>
         <p id={descriptionId} className="text-muted-foreground max-w-xs text-sm">
           {COPY.qrBody}
         </p>
-        <ul className="app-prompt-qr-stores flex flex-wrap justify-center gap-6">
-          {QR_STORES.map((store) => (
-            <li key={store.os} className="app-prompt-qr-store flex flex-col items-center gap-2">
-              <span className="text-sm font-semibold">{store.label}</span>
-              <div className="app-prompt-qr-tile rounded-xl bg-white p-3">
-                <QRCodeSVG
-                  value={store.url}
-                  size={140}
-                  role="img"
-                  aria-label={store.alt}
-                  className="block"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={<ExternalLinkIcon size={14} aria-hidden="true" />}
-                onClick={() => {
-                  void openExternalUrl(store.url);
-                  onClose();
-                }}
-              >
-                {store.action}
-              </Button>
-            </li>
-          ))}
-        </ul>
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onClose}>
           {COPY.dismiss}
+        </Button>
+        <Button
+          variant="primary"
+          leftIcon={<ExternalLinkIcon size={16} aria-hidden="true" />}
+          onClick={() => {
+            void openExternalUrl(url);
+            onClose();
+          }}
+        >
+          {COPY.qrAction}
         </Button>
       </ModalFooter>
     </AppModal>

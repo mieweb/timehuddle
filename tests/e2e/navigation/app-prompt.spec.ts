@@ -10,14 +10,15 @@
  * of the suite; these tests clear it so the prompt shows as it would for a
  * person.
  *
- * 1. Laptop, no app: QR modal (App Store + Google Play) once per tab, not on
- *    reload or in-app navigation
+ * 1. Laptop, no app: one QR code (to /get-app) once per tab, not on reload or
+ *    in-app navigation
  * 2. Laptop, has either app: no prompt
  * 3. iPhone, no app: install sheet
  * 4. iPhone, has the app: open-in-app sheet that links to the current page
  * 5. Android, no app (even with the iOS app): Google Play install sheet
  * 6. Android, has the app: open-in-app sheet
  * 7. Automated browser: no prompt
+ * 8. /get-app: a phone goes on to its store, a laptop is offered both
  */
 import { test, expect, devices, type Page } from '@playwright/test';
 import { MongoClient } from 'mongodb';
@@ -70,10 +71,8 @@ test.describe('App prompt on a laptop', () => {
 
     const modal = page.getByRole('dialog', { name: QR_TITLE });
     await expect(modal).toBeVisible();
-    await expect(modal.getByRole('img', { name: /App Store/ })).toBeVisible();
-    await expect(modal.getByRole('img', { name: /Google Play/ })).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Open App Store' })).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Open Google Play' })).toBeVisible();
+    await expect(modal.getByRole('img', { name: /QR code/ })).toHaveCount(1);
+    await expect(modal.getByRole('button', { name: 'Get the App' })).toBeVisible();
 
     await modal.getByRole('button', { name: 'Not Now' }).click();
     await expect(modal).toBeHidden();
@@ -167,4 +166,34 @@ test('an automated browser never sees the prompt', async ({ page }) => {
   await loginAs(page, USER);
 
   await expect(page.getByRole('dialog', { name: QR_TITLE })).toHaveCount(0);
+});
+
+test.describe('The get-the-app link', () => {
+  test('offers a laptop both stores', async ({ page }) => {
+    await page.goto('/get-app');
+    const stores = page.getByRole('navigation', { name: 'App stores' });
+    await expect(stores.getByRole('link', { name: 'App Store' })).toHaveAttribute(
+      'href',
+      /apps\.apple\.com/,
+    );
+    await expect(stores.getByRole('link', { name: 'Google Play' })).toHaveAttribute(
+      'href',
+      /play\.google\.com/,
+    );
+  });
+
+  for (const [name, device, store] of [
+    ['an iPhone', IPHONE, /^https:\/\/apps\.apple\.com\//],
+    ['an Android phone', ANDROID, /^https:\/\/play\.google\.com\//],
+  ] as const) {
+    test(`sends ${name} on to its store`, async ({ browser }) => {
+      const context = await browser.newContext({ userAgent: device.userAgent });
+      const page = await context.newPage();
+      // Stop at the store: the test only needs to see where it was sent.
+      await page.route(store, (route) => route.fulfill({ body: 'store' }));
+      await page.goto('/get-app');
+      await expect(page).toHaveURL(store);
+      await context.close();
+    });
+  }
 });

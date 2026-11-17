@@ -11,6 +11,18 @@ export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657
 /** TimeHuddle on Google Play (Android). */
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.mieweb.timehuddle';
 
+/**
+ * TimeHuddle's own "get the app" page: a phone that opens it goes straight to
+ * its store, anything else is offered both (main.tsx, GetAppPage). One link —
+ * and one QR code — for every phone.
+ */
+export const GET_APP_PATH = '/get-app';
+
+/** The absolute get-the-app link on the site the person is using. */
+export function getAppUrl(origin: string = window.location.origin): string {
+  return `${origin}${GET_APP_PATH}`;
+}
+
 /** The store that sells the app for `os`. */
 export function storeUrlFor(os: MobileOS): string {
   return os === 'android' ? PLAY_STORE_URL : APP_STORE_URL;

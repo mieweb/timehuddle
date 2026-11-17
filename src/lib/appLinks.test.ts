@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { APP_STORE_URL, PLAY_STORE_URL, openInAppUrl, storeUrlFor } from './appLinks';
+import { APP_STORE_URL, PLAY_STORE_URL, getAppUrl, openInAppUrl, storeUrlFor } from './appLinks';
 
 describe('openInAppUrl', () => {
   it('opens an in-app route, query and all', () => {
@@ -20,5 +20,11 @@ describe('storeUrlFor', () => {
   it('sends Android to Google Play and iOS to the App Store', () => {
     expect(storeUrlFor('android')).toBe(PLAY_STORE_URL);
     expect(storeUrlFor('ios')).toBe(APP_STORE_URL);
+  });
+});
+
+describe('getAppUrl', () => {
+  it('points at the get-the-app page on the given site', () => {
+    expect(getAppUrl('https://timehuddle.example')).toBe('https://timehuddle.example/get-app');
   });
 });
