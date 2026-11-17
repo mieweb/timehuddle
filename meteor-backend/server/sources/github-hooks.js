@@ -170,12 +170,14 @@ async function byRepoName(request, userId, repo, number, owners) {
 }
 
 async function byWords(request, userId, words, owners) {
-  const scopes = (await scopesFor(request, userId, owners)).join(' ');
+  const scopes = await scopesFor(request, userId, owners);
+  // No scope left would search all of public GitHub.
+  if (!scopes.length) return [];
   // GitHub asks for issues and pull requests separately.
   const pages = await Promise.all(
     ['is:issue', 'is:pull-request'].map((kind) => {
       const params = new URLSearchParams({
-        q: `${words} in:title ${kind} ${scopes}`,
+        q: `${words} in:title ${kind} ${scopes.join(' ')}`,
         sort: 'updated',
         per_page: String(MAX_RESULTS),
       });

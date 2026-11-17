@@ -135,6 +135,22 @@ describe('the accounts a member picks', () => {
     expect(searchScopes('me', repos, ['me', 'mieweb'])).toEqual(['user:me', 'user:mieweb']);
   });
 
+  it('searches nothing when no picked account is reachable any more', async () => {
+    const asked: string[] = [];
+    const request = async (path: string) => {
+      asked.push(path);
+      if (path === '/user') return { login: 'me' };
+      return path.startsWith('/user/repos') ? [{ owner: { login: 'other' } }] : { items: [] };
+    };
+    const found = await githubHooks.githubSearch('login page', {
+      request,
+      userId: 'u-gone',
+      owners: ['mieweb'],
+    });
+    expect(found).toEqual([]);
+    expect(asked.some((path) => path.startsWith('/search/'))).toBe(false);
+  });
+
   it('stores logins only, each once, and none as all', () => {
     expect(cleanOwners(['mieweb', 'mieweb', 'me'])).toEqual(['mieweb', 'me']);
     expect(cleanOwners([])).toBeNull();

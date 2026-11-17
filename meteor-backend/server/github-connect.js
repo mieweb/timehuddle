@@ -59,6 +59,7 @@ export async function stageGithubConnect(connectToken, tokens) {
       'User-Agent': 'TimeHuddle',
     },
     redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
   });
   const githubUser = await res.json().catch(() => null);
   if (!res.ok || !Number.isInteger(githubUser?.id)) return { error: 'refused' };

@@ -4,11 +4,11 @@ Each member connects their own GitHub account in **Settings → Sources**, in on
 
 ## Setting Up a Deployment
 
-Connect GitHub uses the OAuth app GitHub sign-in uses, so a deployment with sign-in working needs nothing more. Otherwise, once per deployment:
+Connect GitHub uses the OAuth app GitHub sign-in uses, and stores tokens encrypted with `REDMINE_ENCRYPTION_KEY`. A deployment with sign-in working and that key set needs nothing more. Otherwise, once per deployment:
 
 1. Register an OAuth app under the org that runs the deployment: **Settings → Developer settings → OAuth Apps**. Members see this app's name and owner on GitHub's approval page.
 2. Set its redirect URI to `<ROOT_URL>/auth/github/callback`.
-3. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the backend's environment, then restart it.
+3. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the backend's environment, and `REDMINE_ENCRYPTION_KEY` if Redmine hasn't already set it, then restart it. Without the key, Connect fails when GitHub sends the member back.
 
 Until both are set, the GitHub card in Settings says GitHub isn't set up, and everything else works.
 

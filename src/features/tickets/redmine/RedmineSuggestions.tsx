@@ -327,15 +327,16 @@ export function RedmineSuggestions({
         return null;
       }
       try {
-        const { ticket, created } = await ticketApi.carryLink(selectedTeamId, row.issue.url);
-        if (created) sourceSearch.noteTicket(row.server.host, row.issue.url, ticket);
+        const { ticket } = await ticketApi.carryLink(selectedTeamId, row.issue.url);
+        // Made by this call or by someone else since the search: either way the row learns it.
+        if (!ticketHere(row.issue)) sourceSearch.noteTicket(row.server.host, row.issue.url, ticket);
         return ticket;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : text.carryFailed);
         return null;
       }
     },
-    [selectedTeamId, toast, sourceSearch.noteTicket],
+    [selectedTeamId, toast, sourceSearch.noteTicket, ticketHere],
   );
 
   const toggleSourceTimer = useCallback(
