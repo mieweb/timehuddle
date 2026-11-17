@@ -1,12 +1,15 @@
 /**
- * AppPrompt — asks browser users to install the TimeHuddle app (App Store or
- * Google Play), or offers
- * to open it when they already have it (#859). Which one, if any, is decided
- * by appPromptKind.ts.
+ * AppPrompt — a one-line strip under the navbar on the dashboard that tells
+ * browser users TimeHuddle has a phone app, or offers to open it when they
+ * already have it (#859). Which one, if any, is decided by appPromptKind.ts.
  *
- * Shown once per browser tab: the first time TimeHuddle opens in a tab it
- * shows, and a session-storage flag keeps reloads and in-app navigation from
- * bringing it back. A new tab or window shows it again.
+ * Download does what fits the device: on a laptop it opens a QR code to
+ * scan with a phone; on an iPhone it goes to the App Store; on Android it
+ * opens the app when it's installed and Google Play when it isn't.
+ *
+ * Shown once per browser tab: the first time the dashboard renders in a tab,
+ * and a session-storage flag keeps reloads and coming back to the dashboard
+ * from bringing it back. A new tab or window shows it again.
  */
 import {
   Button,
@@ -17,11 +20,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Sheet,
-  SheetClose,
-  SheetDescription,
-  SheetFooter,
-  SheetTitle,
+  XIcon,
   buttonVariants,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
@@ -40,32 +39,19 @@ import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
 
-/** Phone-sheet copy that names the person's platform and its store. */
-const PHONE_COPY: Record<
-  MobileOS,
-  { installTitle: string; installBody: string; openBody: string }
-> = {
-  ios: {
-    installTitle: 'Get TimeHuddle for iPhone',
-    installBody: 'The app is on the App Store. Install it for a faster TimeHuddle on your phone.',
-    openBody: 'You have TimeHuddle on this iPhone. Pick up on this same page in the app.',
-  },
-  android: {
-    installTitle: 'Get TimeHuddle for Android',
-    installBody: 'The app is on Google Play. Install it for a faster TimeHuddle on your phone.',
-    openBody: 'You have TimeHuddle on this phone. Pick up on this same page in the app.',
-  },
-};
-
+// Short enough to stay on one line beside the button on a phone.
 const COPY = {
-  installAction: 'Get the App',
-  openTitle: 'Open in the TimeHuddle app',
+  installText: 'TimeHuddle is on mobile.',
+  installAction: 'Download',
+  openText: 'Continue in the app.',
   openAction: 'Open in App',
+  stripLabel: 'TimeHuddle mobile app',
+  dismissLabel: 'Dismiss',
   qrTitle: 'Get TimeHuddle for your phone',
   qrBody: 'Scan with your iPhone or Android camera to open your app store.',
   qrAlt: 'QR code to get the TimeHuddle app for iPhone or Android',
   storesLabel: 'App stores',
-  dismiss: 'Not Now',
+  close: 'Close',
 } as const;
 
 /**
@@ -107,7 +93,7 @@ function markShownThisSession(): void {
   }
 }
 
-/** Decided once per page load: the device can't change, and the prompt shouldn't swap mid-view. */
+/** Decided once per mount: the device can't change, and the card shouldn't swap mid-view. */
 function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null } {
   const { user } = useSession();
   const [prompt] = useState(() => {
@@ -128,89 +114,88 @@ function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null
 
 export const AppPrompt: React.FC = () => {
   const { kind, mobileOS } = useAppPrompt();
-  const { needsUsernameClaim } = useSession();
-  const [open, setOpen] = useState(true);
-  // A new social signup must pick a username first (main.tsx); don't stack a second dialog on it.
-  const visible = Boolean(kind) && open && !needsUsernameClaim;
+  const [dismissed, setDismissed] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const visible = Boolean(kind) && !dismissed;
   useEffect(() => {
     if (visible) markShownThisSession();
   }, [visible]);
   if (!kind || !visible) return null;
 
-  const close = () => setOpen(false);
-  if (kind === 'install-desktop' || !mobileOS) return <InstallQrModal onClose={close} />;
-  return <PhoneSheet kind={kind} os={mobileOS} onClose={close} />;
+  const install = kind !== 'open-in-app';
+  return (
+    <>
+      <section
+        aria-label={COPY.stripLabel}
+        className="app-prompt-strip flex shrink-0 items-center gap-2 border-b border-primary-200 bg-primary-50 py-1.5 ps-4 pe-2 text-primary-900 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-100"
+      >
+        <p className="app-prompt-strip-text min-w-0 flex-1 truncate text-sm">
+          {install ? COPY.installText : COPY.openText}
+        </p>
+        <AppPromptAction kind={kind} os={mobileOS} onShowQr={() => setQrOpen(true)} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={COPY.dismissLabel}
+          onClick={() => setDismissed(true)}
+          className="app-prompt-strip-dismiss shrink-0"
+        >
+          <XIcon size={16} aria-hidden="true" />
+        </Button>
+      </section>
+      {qrOpen && <InstallQrModal onClose={() => setQrOpen(false)} />}
+    </>
+  );
 };
 
-const AppIcon: React.FC<{ className: string }> = ({ className }) => (
-  <img src="/logo.png" alt="" className={className} />
-);
-
-const PhoneSheet: React.FC<{
-  kind: 'install-phone' | 'open-in-app';
-  os: MobileOS;
-  onClose: () => void;
-}> = ({ kind, os, onClose }) => {
-  const descriptionId = useId();
+/** The strip's button: whatever gets this device to the app in one step. */
+const AppPromptAction: React.FC<{
+  kind: AppPromptKind;
+  os: MobileOS | null;
+  onShowQr: () => void;
+}> = ({ kind, os, onShowQr }) => {
   const { pathname, search } = useRouter();
-  const install = kind === 'install-phone';
-  const copy = PHONE_COPY[os];
   const route = `${pathname}${search}`;
+  const install = kind !== 'open-in-app';
+  const label = install ? COPY.installAction : COPY.openAction;
+  // The icon is dropped on narrow phones so the strip stays on one line.
+  const icon = install ? (
+    <DownloadIcon size={14} aria-hidden="true" className="hidden sm:block" />
+  ) : (
+    <ExternalLinkIcon size={14} aria-hidden="true" className="hidden sm:block" />
+  );
 
+  if (kind === 'install-desktop' || !os) {
+    return (
+      <Button variant="primary" size="sm" className="shrink-0" leftIcon={icon} onClick={onShowQr}>
+        {label}
+      </Button>
+    );
+  }
+  if (install && os === 'ios') {
+    return (
+      <Button
+        variant="primary"
+        size="sm"
+        className="shrink-0"
+        leftIcon={icon}
+        onClick={() => void openExternalUrl(APP_STORE_URL)}
+      >
+        {label}
+      </Button>
+    );
+  }
+  // A real link: an app link only opens the app when it's navigated to. On
+  // Android it opens the app when installed and Google Play when not, so
+  // Download never strands someone who already has it.
   return (
-    <Sheet
-      open
-      side="bottom"
-      onOpenChange={(isOpen) => !isOpen && onClose()}
-      aria-describedby={descriptionId}
-      className="app-prompt-sheet gap-0 rounded-t-3xl pb-[env(safe-area-inset-bottom)]"
+    <a
+      href={os === 'android' ? androidAppLink(route) : openInAppUrl(route)}
+      className={buttonVariants({ variant: 'primary', size: 'sm', className: 'shrink-0' })}
     >
-      <div className="app-prompt-header relative flex flex-col items-center gap-3 px-6 pt-8 pb-6 text-center">
-        <SheetClose className="absolute top-3 right-3 flex h-11 w-11 items-center justify-center" />
-        <AppIcon className="h-[72px] w-[72px] rounded-2xl shadow-md" />
-        <SheetTitle className="text-xl leading-tight font-extrabold">
-          {install ? copy.installTitle : COPY.openTitle}
-        </SheetTitle>
-        <SheetDescription id={descriptionId} className="max-w-xs">
-          {install ? copy.installBody : copy.openBody}
-        </SheetDescription>
-      </div>
-      <SheetFooter className="app-prompt-actions flex-col gap-2 sm:flex-col">
-        {install && os === 'ios' ? (
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            leftIcon={<DownloadIcon size={18} aria-hidden="true" />}
-            onClick={() => {
-              void openExternalUrl(APP_STORE_URL);
-              onClose();
-            }}
-          >
-            {COPY.installAction}
-          </Button>
-        ) : (
-          // A real link: an app link only opens the app when it's navigated to.
-          // On Android it opens the app when installed and Google Play when not,
-          // so Get the App never strands someone who already has it.
-          <a
-            href={os === 'android' ? androidAppLink(route) : openInAppUrl(route)}
-            onClick={onClose}
-            className={buttonVariants({ variant: 'primary', size: 'lg', fullWidth: true })}
-          >
-            {install ? (
-              <DownloadIcon size={18} aria-hidden="true" />
-            ) : (
-              <ExternalLinkIcon size={18} aria-hidden="true" />
-            )}
-            {install ? COPY.installAction : COPY.openAction}
-          </a>
-        )}
-        <Button variant="secondary" size="lg" fullWidth onClick={onClose}>
-          {COPY.dismiss}
-        </Button>
-      </SheetFooter>
-    </Sheet>
+      {icon}
+      {label}
+    </a>
   );
 };
 
@@ -227,7 +212,11 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <ModalTitle>{COPY.qrTitle}</ModalTitle>
         <ModalClose />
       </ModalHeader>
-      <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
+      {/* Sized to the window so the whole popup fits without scrolling, down to
+          a phone held sideways: the code shrinks with the height, and short
+          screens get tighter spacing, smaller badges and no footer (the ✕ in the
+          header still closes it). */}
+      <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center [@media(max-height:520px)]:gap-2 [@media(max-height:520px)]:py-3">
         {/* One code for both phones: the backend's /get-app redirects each to its store. */}
         <div className="app-prompt-qr-tile rounded-xl bg-white">
           <QRCodeSVG
@@ -236,13 +225,19 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             marginSize={4}
             role="img"
             aria-label={COPY.qrAlt}
-            className="block"
+            className="block h-auto w-[min(176px,30dvh)] min-w-24"
           />
         </div>
-        <p id={descriptionId} className="text-muted-foreground max-w-xs text-sm">
+        <p
+          id={descriptionId}
+          className="text-muted-foreground max-w-xs text-sm [@media(max-height:520px)]:text-xs"
+        >
           {COPY.qrBody}
         </p>
-        <nav aria-label={COPY.storesLabel} className="app-prompt-store-badges flex gap-3">
+        <nav
+          aria-label={COPY.storesLabel}
+          className="app-prompt-store-badges flex flex-wrap justify-center gap-3 [@media(max-height:520px)]:gap-2"
+        >
           {STORE_BADGES.map((badge) => (
             <a
               key={badge.store}
@@ -251,14 +246,18 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               rel="noopener noreferrer"
               className="rounded-lg focus-visible:ring-2 focus-visible:ring-orange-500/60 focus-visible:outline-none"
             >
-              <img src={badge.src} alt={badge.alt} className="block h-10 w-auto" />
+              <img
+                src={badge.src}
+                alt={badge.alt}
+                className="block h-10 w-auto [@media(max-height:520px)]:h-8"
+              />
             </a>
           ))}
         </nav>
       </ModalBody>
-      <ModalFooter>
+      <ModalFooter className="[@media(max-height:520px)]:hidden">
         <Button variant="secondary" onClick={onClose}>
-          {COPY.dismiss}
+          {COPY.close}
         </Button>
       </ModalFooter>
     </AppModal>

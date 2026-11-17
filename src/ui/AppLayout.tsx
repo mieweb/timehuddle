@@ -28,6 +28,7 @@ import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
+import { AppPrompt } from '../features/app-prompt/AppPrompt';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
@@ -38,7 +39,6 @@ import { useOwnPresence } from '../lib/usePresence';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
-import { AppPrompt } from '../features/app-prompt/AppPrompt';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
@@ -428,7 +428,6 @@ const AppLayoutContent: React.FC = () => {
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-        <AppPrompt />
         <TicketStartProvider>
           <ShiftReminderProvider>
             <AppFeedbackContext.Provider
@@ -483,6 +482,8 @@ const AppLayoutContent: React.FC = () => {
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
                     <TopNav />
+                    {/* The phone-app strip, on the dashboard only (#859). */}
+                    {pathname === '/app/dashboard' && <AppPrompt />}
                     <WhatsNewBanner />
                     <main
                       ref={mainRef}
