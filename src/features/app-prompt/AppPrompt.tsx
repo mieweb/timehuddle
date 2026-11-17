@@ -29,7 +29,13 @@ import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useId, useState } from 'react';
 
-import { APP_STORE_URL, PLAY_STORE_URL, androidAppLink, openInAppUrl } from '../../lib/appLinks';
+import {
+  APP_STORE_URL,
+  PLAY_STORE_URL,
+  androidAppLink,
+  getAppUrl,
+  openInAppUrl,
+} from '../../lib/appLinks';
 import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
@@ -56,25 +62,29 @@ const COPY = {
   openTitle: 'Open in the TimeHuddle app',
   openAction: 'Open in App',
   qrTitle: 'Get TimeHuddle for your phone',
-  qrBody: 'Point your phone camera at the code for your phone to get TimeHuddle.',
+  qrBody: 'Scan with your iPhone or Android camera to open your app store.',
+  qrAlt: 'QR code to get the TimeHuddle app for iPhone or Android',
+  storesLabel: 'App stores',
   dismiss: 'Not Now',
 } as const;
 
-/** The desktop modal's two QR codes, one per store. */
-const QR_STORES = [
+/**
+ * The official store badges under the QR code. Apple's is its SVG as
+ * published; Google's PNG is cropped to the badge, without its transparent
+ * margin, so both render at the same height.
+ */
+const STORE_BADGES = [
   {
-    os: 'ios',
-    label: 'iPhone',
+    store: 'App Store',
     url: APP_STORE_URL,
-    alt: 'QR code linking to TimeHuddle on the App Store',
-    action: 'Open App Store',
+    src: '/store-badges/app-store.svg',
+    alt: 'Download on the App Store',
   },
   {
-    os: 'android',
-    label: 'Android',
+    store: 'Google Play',
     url: PLAY_STORE_URL,
-    alt: 'QR code linking to TimeHuddle on Google Play',
-    action: 'Open Google Play',
+    src: '/store-badges/google-play.png',
+    alt: 'Get it on Google Play',
   },
 ] as const;
 
@@ -209,7 +219,7 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <AppModal
       open
-      size="md"
+      size="sm"
       onOpenChange={(isOpen) => !isOpen && onClose()}
       aria-describedby={descriptionId}
     >
@@ -218,36 +228,32 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <ModalClose />
       </ModalHeader>
       <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
+        {/* One code for both phones: the backend's /get-app redirects each to its store. */}
+        <div className="app-prompt-qr-tile rounded-xl bg-white p-3.5">
+          <QRCodeSVG
+            value={getAppUrl()}
+            size={176}
+            role="img"
+            aria-label={COPY.qrAlt}
+            className="block"
+          />
+        </div>
         <p id={descriptionId} className="text-muted-foreground max-w-xs text-sm">
           {COPY.qrBody}
         </p>
-        <ul className="app-prompt-qr-stores flex flex-wrap justify-center gap-6">
-          {QR_STORES.map((store) => (
-            <li key={store.os} className="app-prompt-qr-store flex flex-col items-center gap-2">
-              <span className="text-sm font-semibold">{store.label}</span>
-              <div className="app-prompt-qr-tile rounded-xl bg-white p-3">
-                <QRCodeSVG
-                  value={store.url}
-                  size={140}
-                  role="img"
-                  aria-label={store.alt}
-                  className="block"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={<ExternalLinkIcon size={14} aria-hidden="true" />}
-                onClick={() => {
-                  void openExternalUrl(store.url);
-                  onClose();
-                }}
-              >
-                {store.action}
-              </Button>
-            </li>
+        <nav aria-label={COPY.storesLabel} className="app-prompt-store-badges flex gap-3">
+          {STORE_BADGES.map((badge) => (
+            <a
+              key={badge.store}
+              href={badge.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg focus-visible:ring-2 focus-visible:ring-orange-500/60 focus-visible:outline-none"
+            >
+              <img src={badge.src} alt={badge.alt} className="block h-10 w-auto" />
+            </a>
           ))}
-        </ul>
+        </nav>
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onClose}>

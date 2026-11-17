@@ -10,8 +10,8 @@
  * of the suite; these tests clear it so the prompt shows as it would for a
  * person.
  *
- * 1. Laptop, no app: QR modal (App Store + Google Play) once per tab, not on
- *    reload or in-app navigation
+ * 1. Laptop, no app: one QR code (to the backend's /get-app) and both store
+ *    badges, once per tab, not on reload or in-app navigation
  * 2. Laptop, has either app: no prompt
  * 3. iPhone, no app: install sheet
  * 4. iPhone, has the app: open-in-app sheet that links to the current page
@@ -70,10 +70,17 @@ test.describe('App prompt on a laptop', () => {
 
     const modal = page.getByRole('dialog', { name: QR_TITLE });
     await expect(modal).toBeVisible();
-    await expect(modal.getByRole('img', { name: /App Store/ })).toBeVisible();
-    await expect(modal.getByRole('img', { name: /Google Play/ })).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Open App Store' })).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Open Google Play' })).toBeVisible();
+    // One code for both phones, pointing at the backend's /get-app redirect.
+    await expect(modal.getByRole('img', { name: /QR code/ })).toHaveCount(1);
+    const stores = modal.getByRole('navigation', { name: 'App stores' });
+    await expect(stores.getByRole('link', { name: 'Download on the App Store' })).toHaveAttribute(
+      'href',
+      /apps\.apple\.com/,
+    );
+    await expect(stores.getByRole('link', { name: 'Get it on Google Play' })).toHaveAttribute(
+      'href',
+      /play\.google\.com/,
+    );
 
     await modal.getByRole('button', { name: 'Not Now' }).click();
     await expect(modal).toBeHidden();

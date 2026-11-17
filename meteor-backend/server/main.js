@@ -41,6 +41,8 @@ import './notification-prefs';
 import './presence';
 import './activity';
 import './usage';
+// The laptop install QR code's link: GET /get-app sends a phone to its store.
+import './get-app';
 // M2 — Collaboration
 import './teams';
 import './team-join-requests';

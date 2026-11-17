@@ -1,18 +1,28 @@
 /**
  * Links to TimeHuddle's native apps — the store listings, and links that open a
  * page in the app someone already has. Shared by the account menu's store item
- * and the install / open-in-app prompt (#859).
+ * and the install / open-in-app prompt (#859). The listings themselves live in
+ * @timehuddle/app-links, which the backend's /get-app redirect also reads.
  */
+import {
+  ANDROID_PACKAGE,
+  APP_STORE_URL,
+  GET_APP_PATH,
+  PLAY_STORE_URL,
+} from '@timehuddle/app-links';
+
+import { METEOR_BASE_URL } from './api';
 import type { MobileOS } from './device';
 
-/** TimeHuddle on the App Store (iPhone and iPad). */
-export const APP_STORE_URL = 'https://apps.apple.com/us/app/timehuddle/id6763657217';
+export { APP_STORE_URL, PLAY_STORE_URL };
 
-/** The Android app's package name, as listed on Google Play. */
-export const ANDROID_PACKAGE = 'com.mieweb.timehuddle';
-
-/** TimeHuddle on Google Play (Android). */
-export const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+/**
+ * The link the laptop install QR code holds: the backend's /get-app, which
+ * redirects an iPhone to the App Store and an Android phone to Google Play.
+ */
+export function getAppUrl(): string {
+  return `${METEOR_BASE_URL.replace(/\/$/, '')}${GET_APP_PATH}`;
+}
 
 /** The store that sells the app for `os`. */
 export function storeUrlFor(os: MobileOS): string {
