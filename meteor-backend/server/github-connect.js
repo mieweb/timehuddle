@@ -145,12 +145,9 @@ Meteor.methods({
         login: pending.login,
         token: pending.token,
         linkedAt: new Date(),
-        ...(pending.refreshToken ? { refreshToken: pending.refreshToken } : {}),
-        ...(pending.tokenExpiresAt ? { tokenExpiresAt: pending.tokenExpiresAt } : {}),
       },
       $unset: {
         rejectedAt: '',
-        ...(pending.refreshToken ? {} : { refreshToken: '', tokenExpiresAt: '' }),
         // Another GitHub account's picks don't apply to this one.
         ...(previous && previous.githubId !== pending.githubId ? { owners: '' } : {}),
       },

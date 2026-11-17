@@ -16,7 +16,7 @@ Until both are set, the GitHub card in Settings says GitHub isn't set up, and ev
 
 GitHub's `repo` scope, its only one that covers private repos. It also covers code, which the GitHub card says up front. TimeHuddle calls only GitHub's issue, pull request, search, repo list and user APIs.
 
-The token is encrypted with `REDMINE_ENCRYPTION_KEY`, the same as a Redmine key (see [redmine-integration.md](redmine-integration.md)), never reaches the browser, and is refreshed if GitHub gave it an expiry. Disconnecting revokes it at GitHub. A token GitHub stops accepting is marked rejected, stops being sent, and the card asks the member to connect again.
+The token is encrypted with `REDMINE_ENCRYPTION_KEY`, the same as a Redmine key (see [redmine-integration.md](redmine-integration.md)), and never reaches the browser. Disconnecting revokes it at GitHub. A token GitHub stops accepting is marked rejected, stops being sent, and the card asks the member to connect again.
 
 ## Org Approval
 
