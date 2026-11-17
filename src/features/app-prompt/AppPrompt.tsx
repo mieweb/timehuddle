@@ -29,7 +29,7 @@ import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useId, useState } from 'react';
 
-import { APP_STORE_URL, PLAY_STORE_URL, openInAppUrl, storeUrlFor } from '../../lib/appLinks';
+import { APP_STORE_URL, PLAY_STORE_URL, androidAppLink, openInAppUrl } from '../../lib/appLinks';
 import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
@@ -145,6 +145,7 @@ const PhoneSheet: React.FC<{
   const { pathname, search } = useRouter();
   const install = kind === 'install-phone';
   const copy = PHONE_COPY[os];
+  const route = `${pathname}${search}`;
 
   return (
     <Sheet
@@ -165,28 +166,34 @@ const PhoneSheet: React.FC<{
         </SheetDescription>
       </div>
       <SheetFooter className="app-prompt-actions flex-col gap-2 sm:flex-col">
-        {install ? (
+        {install && os === 'ios' ? (
           <Button
             variant="primary"
             size="lg"
             fullWidth
             leftIcon={<DownloadIcon size={18} aria-hidden="true" />}
             onClick={() => {
-              void openExternalUrl(storeUrlFor(os));
+              void openExternalUrl(APP_STORE_URL);
               onClose();
             }}
           >
             {COPY.installAction}
           </Button>
         ) : (
-          // A real link: a custom-scheme URL only opens the app when it's navigated to.
+          // A real link: an app link only opens the app when it's navigated to.
+          // On Android it opens the app when installed and Google Play when not,
+          // so Get the App never strands someone who already has it.
           <a
-            href={openInAppUrl(`${pathname}${search}`)}
+            href={os === 'android' ? androidAppLink(route) : openInAppUrl(route)}
             onClick={onClose}
             className={buttonVariants({ variant: 'primary', size: 'lg', fullWidth: true })}
           >
-            <ExternalLinkIcon size={18} aria-hidden="true" />
-            {COPY.openAction}
+            {install ? (
+              <DownloadIcon size={18} aria-hidden="true" />
+            ) : (
+              <ExternalLinkIcon size={18} aria-hidden="true" />
+            )}
+            {install ? COPY.installAction : COPY.openAction}
           </a>
         )}
         <Button variant="secondary" size="lg" fullWidth onClick={onClose}>

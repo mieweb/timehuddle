@@ -142,7 +142,11 @@ test.describe('App prompt on an Android phone', () => {
     const sheet = page.getByRole('dialog', { name: 'Get TimeHuddle for Android' });
     await expect(sheet).toBeVisible();
     await expect(sheet).toContainText('Google Play');
-    await expect(sheet.getByRole('button', { name: 'Get the App' })).toBeVisible();
+    // Opens the app when it's installed after all, Google Play when it isn't.
+    await expect(sheet.getByRole('link', { name: 'Get the App' })).toHaveAttribute(
+      'href',
+      /^intent:\/\/open\/app\/dashboard.*package=com\.mieweb\.timehuddle;S\.browser_fallback_url=https%3A%2F%2Fplay\.google\.com/,
+    );
 
     await sheet.getByRole('button', { name: 'Not Now' }).click();
     await expect(sheet).toBeHidden();
@@ -157,7 +161,7 @@ test.describe('App prompt on an Android phone', () => {
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole('link', { name: 'Open in App' })).toHaveAttribute(
       'href',
-      /^timehuddle:\/\/open\/app\/dashboard/,
+      /^intent:\/\/open\/app\/dashboard.*scheme=timehuddle;package=com\.mieweb\.timehuddle;/,
     );
   });
 });
