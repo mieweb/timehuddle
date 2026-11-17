@@ -58,7 +58,8 @@ export const TicketPulseButton: React.FC<{ ticketId: string; title: string }> = 
     // the row through React, and the row opens its ticket on a click.
     <div
       ref={ref}
-      className="ticket-row-pulse me-1 inline-flex"
+      // No margin of its own: it sits in the row's ButtonGroup, whose gap spaces it.
+      className="ticket-row-pulse inline-flex"
       onClick={(e) => e.stopPropagation()}
     >
       <PulseButton

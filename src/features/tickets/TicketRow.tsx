@@ -273,12 +273,12 @@ export const TicketRow: React.FC<TicketRowProps> = ({
 
   const actions = (
     <>
-      {/* A video for this ticket, straight from the list (Huddle tickets only). */}
-      {ticket.sourceId === 'huddle' && (
-        <TicketPulseButton ticketId={ticket.id} title={ticket.title} />
-      )}
       {/* The row's own actions, side by side: one group, as adjacent buttons are. */}
       <ButtonGroup orientation="horizontal" className="ticket-row-actions gap-1">
+        {/* A video for this ticket, straight from the list (Huddle tickets only). */}
+        {ticket.sourceId === 'huddle' && (
+          <TicketPulseButton ticketId={ticket.id} title={ticket.title} />
+        )}
         <BoardToggleButton
           onBoard={onBoard}
           isLoading={boardLoading}
