@@ -229,10 +229,11 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       </ModalHeader>
       <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
         {/* One code for both phones: the backend's /get-app redirects each to its store. */}
-        <div className="app-prompt-qr-tile rounded-xl bg-white p-3.5">
+        <div className="app-prompt-qr-tile rounded-xl bg-white">
           <QRCodeSVG
             value={getAppUrl()}
             size={176}
+            marginSize={4}
             role="img"
             aria-label={COPY.qrAlt}
             className="block"

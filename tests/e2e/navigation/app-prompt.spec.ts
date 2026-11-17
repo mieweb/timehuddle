@@ -58,6 +58,15 @@ async function asPerson(page: Page) {
   });
 }
 
+/**
+ * Wait for the signed-in app to render. `loginAs` only waits for the dashboard
+ * URL, which is set before AppPrompt mounts, so a "no prompt" check made
+ * straight after it would pass before a wrong prompt could appear.
+ */
+async function expectSignedInShell(page: Page) {
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+}
+
 test.afterAll(async () => {
   await setNativeApps();
 });
@@ -102,6 +111,7 @@ test.describe('App prompt on a laptop', () => {
     await asPerson(page);
     await loginAs(page, USER);
 
+    await expectSignedInShell(page);
     await expect(page.getByRole('dialog', { name: QR_TITLE })).toHaveCount(0);
   });
 });
@@ -177,5 +187,6 @@ test('an automated browser never sees the prompt', async ({ page }) => {
   await setNativeApps();
   await loginAs(page, USER);
 
+  await expectSignedInShell(page);
   await expect(page.getByRole('dialog', { name: QR_TITLE })).toHaveCount(0);
 });

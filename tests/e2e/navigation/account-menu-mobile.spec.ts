@@ -14,7 +14,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const PHONE = { width: 390, height: 844 };
-const HELP_ITEMS = ['Report an Issue', 'Share Your Feedback', 'App Store'];
+// A narrow desktop browser, not a phone: with no phone to pick a store for, the
+// store item offers both through /get-app.
+const HELP_ITEMS = ['Report an Issue', 'Share Your Feedback', 'Get the App'];
 const MOVED_ITEMS = ['Enterprise', 'Members', 'Usage', 'Seeder'];
 
 async function openAccountMenu(page: Page) {

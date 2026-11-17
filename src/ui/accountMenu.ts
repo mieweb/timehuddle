@@ -18,7 +18,7 @@ import {
 } from '@mieweb/ui';
 import { useMemo } from 'react';
 
-import { storeUrlFor } from '../lib/appLinks';
+import { getAppUrl, storeUrlFor } from '../lib/appLinks';
 import { getMobileOS, openExternalUrl } from '../lib/device';
 import { useAppFeedback } from './AppLayout';
 
@@ -41,7 +41,7 @@ export interface AccountMenuActions {
   openReportIssue: () => void;
   openFeedback: () => void;
   openAppStore: () => void;
-  /** The store item's name: "Google Play" on Android, "App Store" everywhere else. */
+  /** The store item's name: "App Store", "Google Play", or "Get the App" when the device is unknown. */
   storeLabel?: string;
 }
 
@@ -67,9 +67,12 @@ export function buildAccountMenuSections({
 }
 
 // The device can't change while the app runs, so the store is picked once.
-const isAndroid = getMobileOS() === 'android';
-const storeLabel = isAndroid ? 'Google Play' : 'App Store';
-const openAppStore = () => void openExternalUrl(storeUrlFor(isAndroid ? 'android' : 'ios'));
+// When it can't be told (a laptop, or Android Chrome in Desktop site mode),
+// /get-app offers both stores rather than guessing one.
+const mobileOS = getMobileOS();
+const STORE_LABELS = { ios: 'App Store', android: 'Google Play' } as const;
+const storeLabel = mobileOS ? STORE_LABELS[mobileOS] : 'Get the App';
+const openAppStore = () => void openExternalUrl(mobileOS ? storeUrlFor(mobileOS) : getAppUrl());
 
 /** Account-menu sections, wired to the app's feedback modals. */
 export function useAccountMenuSections(): AccountMenuSection[] {
