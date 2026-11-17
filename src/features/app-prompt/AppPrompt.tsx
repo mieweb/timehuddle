@@ -76,8 +76,15 @@ const STORE_BADGES = [
 
 const SHOWN_KEY = 'timehuddle.appPromptShown';
 
-/** Session storage can throw (private mode, blocked storage); treat that as "not shown yet". */
+/**
+ * Also kept in memory: session storage can throw (private mode, blocked
+ * storage), and without this, coming back to the dashboard would show the
+ * strip again. Memory lasts until the page reloads, storage for the tab.
+ */
+let shownThisPageLoad = false;
+
 function wasShownThisSession(): boolean {
+  if (shownThisPageLoad) return true;
   try {
     return sessionStorage.getItem(SHOWN_KEY) === '1';
   } catch {
@@ -86,10 +93,11 @@ function wasShownThisSession(): boolean {
 }
 
 function markShownThisSession(): void {
+  shownThisPageLoad = true;
   try {
     sessionStorage.setItem(SHOWN_KEY, '1');
   } catch {
-    // Without storage it simply shows again on the next load.
+    // Memory still covers this page load; a reload shows it again.
   }
 }
 
@@ -114,9 +122,12 @@ function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null
 
 export const AppPrompt: React.FC = () => {
   const { kind, mobileOS } = useAppPrompt();
+  const { needsUsernameClaim } = useSession();
   const [dismissed, setDismissed] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
-  const visible = Boolean(kind) && !dismissed;
+  // A new social signup must pick a username first (main.tsx), in a popup over
+  // the page; hold the strip, unmarked, until that's done.
+  const visible = Boolean(kind) && !dismissed && !needsUsernameClaim;
   useEffect(() => {
     if (visible) markShownThisSession();
   }, [visible]);
