@@ -129,7 +129,9 @@ export const AppPrompt: React.FC = () => {
         aria-label={COPY.stripLabel}
         className="app-prompt-strip flex shrink-0 items-center gap-2 border-b border-primary-200 bg-primary-50 py-1.5 ps-4 pe-2 text-primary-900 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-100"
       >
-        <p className="app-prompt-strip-text min-w-0 flex-1 truncate text-sm">
+        {/* Polite status, like WhatsNewBanner: the strip can appear after in-app
+            navigation, with focus still on the nav, so screen readers hear it. */}
+        <p role="status" className="app-prompt-strip-text min-w-0 flex-1 truncate text-sm">
           {install ? COPY.installText : COPY.openText}
         </p>
         <AppPromptAction kind={kind} os={mobileOS} onShowQr={() => setQrOpen(true)} />
