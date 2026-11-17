@@ -62,6 +62,8 @@ import { NotificationEventSettings } from '../features/notifications/Notificatio
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { GitHubSourceCard } from '../features/settings/GitHubSourceCard';
+import { GITHUB_SOURCE_STRINGS } from '../features/settings/settingsCopy';
 import { TeamSettings, useManageableTeams } from '../features/settings/TeamSettings';
 import {
   canManageSelectedOrganization,
@@ -73,6 +75,8 @@ import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
+import { LEGAL_TEXT, PRIVACY_URL, TERMS_URL } from './legal';
+import { LegalLink } from './LegalLink';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -1052,6 +1056,19 @@ const AccountSettings: React.FC = () => {
       </Section>
 
       <Section>
+        <Row label={LEGAL_TEXT.terms} hint={LEGAL_TEXT.termsHint}>
+          <LegalLink href={TERMS_URL} name={LEGAL_TEXT.terms}>
+            {LEGAL_TEXT.view}
+          </LegalLink>
+        </Row>
+        <Row label={LEGAL_TEXT.privacy} hint={LEGAL_TEXT.privacyHint}>
+          <LegalLink href={PRIVACY_URL} name={LEGAL_TEXT.privacy}>
+            {LEGAL_TEXT.view}
+          </LegalLink>
+        </Row>
+      </Section>
+
+      <Section>
         <Row label="Sign out" hint="You will be returned to the login screen">
           <Button
             variant="danger"
@@ -1309,9 +1326,20 @@ export const SettingsPage: React.FC = () => {
       </Section>
     ),
     integrations: (
-      <Section title="Redmine" description="Link your personal Redmine account with your API key.">
-        <RedmineConnection />
-      </Section>
+      <>
+        <Section
+          title="Redmine"
+          description="Link your personal Redmine account with your API key."
+        >
+          <RedmineConnection />
+        </Section>
+        <Section
+          title={GITHUB_SOURCE_STRINGS.title}
+          description={GITHUB_SOURCE_STRINGS.description}
+        >
+          <GitHubSourceCard />
+        </Section>
+      </>
     ),
     activity: (
       <Section>
