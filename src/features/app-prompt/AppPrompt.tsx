@@ -1,5 +1,6 @@
 /**
- * AppPrompt — asks browser users to install the TimeHuddle iOS app, or offers
+ * AppPrompt — asks browser users to install the TimeHuddle app (App Store or
+ * Google Play), or offers
  * to open it when they already have it (#859). Which one, if any, is decided
  * by appPromptKind.ts.
  *
@@ -28,23 +29,54 @@ import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useId, useState } from 'react';
 
-import { APP_STORE_URL, openInAppUrl } from '../../lib/appLinks';
-import { getMobileOS, isNativeApp, openExternalUrl } from '../../lib/device';
+import { APP_STORE_URL, PLAY_STORE_URL, openInAppUrl, storeUrlFor } from '../../lib/appLinks';
+import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
 
+/** Phone-sheet copy that names the person's platform and its store. */
+const PHONE_COPY: Record<
+  MobileOS,
+  { installTitle: string; installBody: string; openBody: string }
+> = {
+  ios: {
+    installTitle: 'Get TimeHuddle for iPhone',
+    installBody: 'The app is on the App Store. Install it for a faster TimeHuddle on your phone.',
+    openBody: 'You have TimeHuddle on this iPhone. Pick up on this same page in the app.',
+  },
+  android: {
+    installTitle: 'Get TimeHuddle for Android',
+    installBody: 'The app is on Google Play. Install it for a faster TimeHuddle on your phone.',
+    openBody: 'You have TimeHuddle on this phone. Pick up on this same page in the app.',
+  },
+};
+
 const COPY = {
-  installTitle: 'Get TimeHuddle for iPhone',
-  installBody: 'The app is on the App Store. Install it for a faster TimeHuddle on your phone.',
   installAction: 'Get the App',
   openTitle: 'Open in the TimeHuddle app',
-  openBody: 'You have TimeHuddle on this iPhone. Pick up on this same page in the app.',
   openAction: 'Open in App',
-  qrBody: 'Point your iPhone camera at the code to get TimeHuddle from the App Store.',
-  qrAlt: 'QR code linking to TimeHuddle on the App Store',
-  qrAction: 'Open App Store',
+  qrTitle: 'Get TimeHuddle for your phone',
+  qrBody: 'Point your phone camera at the code for your phone to get TimeHuddle.',
   dismiss: 'Not Now',
 } as const;
+
+/** The desktop modal's two QR codes, one per store. */
+const QR_STORES = [
+  {
+    os: 'ios',
+    label: 'iPhone',
+    url: APP_STORE_URL,
+    alt: 'QR code linking to TimeHuddle on the App Store',
+    action: 'Open App Store',
+  },
+  {
+    os: 'android',
+    label: 'Android',
+    url: PLAY_STORE_URL,
+    alt: 'QR code linking to TimeHuddle on Google Play',
+    action: 'Open Google Play',
+  },
+] as const;
 
 const SHOWN_KEY = 'timehuddle.appPromptShown';
 
@@ -66,23 +98,26 @@ function markShownThisSession(): void {
 }
 
 /** Decided once per page load: the device can't change, and the prompt shouldn't swap mid-view. */
-function useAppPromptKind(): AppPromptKind | null {
+function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null } {
   const { user } = useSession();
-  const [kind] = useState(() =>
-    wasShownThisSession()
+  const [prompt] = useState(() => {
+    const mobileOS = getMobileOS();
+    const kind = wasShownThisSession()
       ? null
       : appPromptKind({
           isNativeApp: isNativeApp(),
           automated: typeof navigator !== 'undefined' && navigator.webdriver === true,
-          mobileOS: getMobileOS(),
+          mobileOS,
           hasIosApp: user?.hasIosApp ?? false,
-        }),
-  );
-  return kind;
+          hasAndroidApp: user?.hasAndroidApp ?? false,
+        });
+    return { kind, mobileOS };
+  });
+  return prompt;
 }
 
 export const AppPrompt: React.FC = () => {
-  const kind = useAppPromptKind();
+  const { kind, mobileOS } = useAppPrompt();
   const { needsUsernameClaim } = useSession();
   const [open, setOpen] = useState(true);
   // A new social signup must pick a username first (main.tsx); don't stack a second dialog on it.
@@ -93,24 +128,23 @@ export const AppPrompt: React.FC = () => {
   if (!kind || !visible) return null;
 
   const close = () => setOpen(false);
-  return kind === 'install-desktop' ? (
-    <InstallQrModal onClose={close} />
-  ) : (
-    <PhoneSheet kind={kind} onClose={close} />
-  );
+  if (kind === 'install-desktop' || !mobileOS) return <InstallQrModal onClose={close} />;
+  return <PhoneSheet kind={kind} os={mobileOS} onClose={close} />;
 };
 
 const AppIcon: React.FC<{ className: string }> = ({ className }) => (
   <img src="/logo.png" alt="" className={className} />
 );
 
-const PhoneSheet: React.FC<{ kind: 'install-phone' | 'open-in-app'; onClose: () => void }> = ({
-  kind,
-  onClose,
-}) => {
+const PhoneSheet: React.FC<{
+  kind: 'install-phone' | 'open-in-app';
+  os: MobileOS;
+  onClose: () => void;
+}> = ({ kind, os, onClose }) => {
   const descriptionId = useId();
   const { pathname, search } = useRouter();
   const install = kind === 'install-phone';
+  const copy = PHONE_COPY[os];
 
   return (
     <Sheet
@@ -124,10 +158,10 @@ const PhoneSheet: React.FC<{ kind: 'install-phone' | 'open-in-app'; onClose: () 
         <SheetClose className="absolute top-3 right-3 flex h-11 w-11 items-center justify-center" />
         <AppIcon className="h-[72px] w-[72px] rounded-2xl shadow-md" />
         <SheetTitle className="text-xl leading-tight font-extrabold">
-          {install ? COPY.installTitle : COPY.openTitle}
+          {install ? copy.installTitle : COPY.openTitle}
         </SheetTitle>
         <SheetDescription id={descriptionId} className="max-w-xs">
-          {install ? COPY.installBody : COPY.openBody}
+          {install ? copy.installBody : copy.openBody}
         </SheetDescription>
       </div>
       <SheetFooter className="app-prompt-actions flex-col gap-2 sm:flex-col">
@@ -138,7 +172,7 @@ const PhoneSheet: React.FC<{ kind: 'install-phone' | 'open-in-app'; onClose: () 
             fullWidth
             leftIcon={<DownloadIcon size={18} aria-hidden="true" />}
             onClick={() => {
-              void openExternalUrl(APP_STORE_URL);
+              void openExternalUrl(storeUrlFor(os));
               onClose();
             }}
           >
@@ -168,41 +202,49 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   return (
     <AppModal
       open
-      size="sm"
+      size="md"
       onOpenChange={(isOpen) => !isOpen && onClose()}
       aria-describedby={descriptionId}
     >
       <ModalHeader>
-        <ModalTitle>{COPY.installTitle}</ModalTitle>
+        <ModalTitle>{COPY.qrTitle}</ModalTitle>
         <ModalClose />
       </ModalHeader>
       <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
-        <div className="app-prompt-qr-tile rounded-xl bg-white p-3.5">
-          <QRCodeSVG
-            value={APP_STORE_URL}
-            size={176}
-            role="img"
-            aria-label={COPY.qrAlt}
-            className="block"
-          />
-        </div>
         <p id={descriptionId} className="text-muted-foreground max-w-xs text-sm">
           {COPY.qrBody}
         </p>
+        <ul className="app-prompt-qr-stores flex flex-wrap justify-center gap-6">
+          {QR_STORES.map((store) => (
+            <li key={store.os} className="app-prompt-qr-store flex flex-col items-center gap-2">
+              <span className="text-sm font-semibold">{store.label}</span>
+              <div className="app-prompt-qr-tile rounded-xl bg-white p-3">
+                <QRCodeSVG
+                  value={store.url}
+                  size={140}
+                  role="img"
+                  aria-label={store.alt}
+                  className="block"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<ExternalLinkIcon size={14} aria-hidden="true" />}
+                onClick={() => {
+                  void openExternalUrl(store.url);
+                  onClose();
+                }}
+              >
+                {store.action}
+              </Button>
+            </li>
+          ))}
+        </ul>
       </ModalBody>
       <ModalFooter>
         <Button variant="secondary" onClick={onClose}>
           {COPY.dismiss}
-        </Button>
-        <Button
-          variant="primary"
-          leftIcon={<ExternalLinkIcon size={16} aria-hidden="true" />}
-          onClick={() => {
-            void openExternalUrl(APP_STORE_URL);
-            onClose();
-          }}
-        >
-          {COPY.qrAction}
         </Button>
       </ModalFooter>
     </AppModal>

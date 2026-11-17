@@ -87,6 +87,8 @@ interface DdpCurrentUser {
   releaseNotesSeenVersion: string | null;
   /** Used the iOS app recently: the web app offers to open it instead of installing it. */
   hasIosApp?: boolean;
+  /** Used the Android app recently: same as `hasIosApp`, for Android browsers. */
+  hasAndroidApp?: boolean;
 }
 
 class DdpClient {

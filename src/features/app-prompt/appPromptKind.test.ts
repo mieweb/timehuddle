@@ -7,6 +7,7 @@ const browser = (overrides: Partial<AppPromptContext>): AppPromptContext => ({
   automated: false,
   mobileOS: null,
   hasIosApp: false,
+  hasAndroidApp: false,
   ...overrides,
 });
 
@@ -19,12 +20,28 @@ describe('appPromptKind', () => {
     expect(appPromptKind(browser({ mobileOS: 'ios', hasIosApp: true }))).toBe('open-in-app');
   });
 
-  it('shows a desktop browser without the app the QR code', () => {
+  it('asks an Android browser without the app to install it', () => {
+    expect(appPromptKind(browser({ mobileOS: 'android' }))).toBe('install-phone');
+  });
+
+  it('offers to open the app to an Android browser that has it', () => {
+    expect(appPromptKind(browser({ mobileOS: 'android', hasAndroidApp: true }))).toBe(
+      'open-in-app',
+    );
+  });
+
+  it('judges each phone by its own platform’s app', () => {
+    expect(appPromptKind(browser({ mobileOS: 'android', hasIosApp: true }))).toBe('install-phone');
+    expect(appPromptKind(browser({ mobileOS: 'ios', hasAndroidApp: true }))).toBe('install-phone');
+  });
+
+  it('shows a desktop browser without either app the QR codes', () => {
     expect(appPromptKind(browser({}))).toBe('install-desktop');
   });
 
-  it('leaves a desktop browser alone once the person has the app', () => {
+  it('leaves a desktop browser alone once the person has either app', () => {
     expect(appPromptKind(browser({ hasIosApp: true }))).toBeNull();
+    expect(appPromptKind(browser({ hasAndroidApp: true }))).toBeNull();
   });
 
   it('never shows inside the native app', () => {
@@ -32,13 +49,9 @@ describe('appPromptKind', () => {
     expect(appPromptKind(browser({ isNativeApp: true, mobileOS: 'android' }))).toBeNull();
   });
 
-  it('never shows on Android, which has no store listing yet', () => {
-    expect(appPromptKind(browser({ mobileOS: 'android' }))).toBeNull();
-    expect(appPromptKind(browser({ mobileOS: 'android', hasIosApp: true }))).toBeNull();
-  });
-
   it('never shows to an automated browser', () => {
     expect(appPromptKind(browser({ automated: true }))).toBeNull();
     expect(appPromptKind(browser({ automated: true, mobileOS: 'ios' }))).toBeNull();
+    expect(appPromptKind(browser({ automated: true, mobileOS: 'android' }))).toBeNull();
   });
 });

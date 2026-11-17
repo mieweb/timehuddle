@@ -1,20 +1,23 @@
 /**
  * Install / open-in-app prompt (#859)
  *
- * The first time TimeHuddle opens in a browser tab it asks people without the iOS app
- * to install it, and offers to open the app to people on an iPhone who have
- * it. Who "has it" comes from the server (`nativeAppLastSeenAt`, written by the
+ * The first time TimeHuddle opens in a browser tab it asks people without the app
+ * to install it, and offers to open the app to people on an iPhone or Android
+ * phone who have it. Who "has it" comes from the server (`nativeAppLastSeenAt`, written by the
  * native app on launch), so these tests set that field directly.
  *
  * Playwright sets `navigator.webdriver`, which hides the prompt for the rest
  * of the suite; these tests clear it so the prompt shows as it would for a
  * person.
  *
- * 1. Laptop, no app: QR modal once per tab, not on reload or in-app navigation
- * 2. Laptop, has the app: no prompt
+ * 1. Laptop, no app: QR modal (App Store + Google Play) once per tab, not on
+ *    reload or in-app navigation
+ * 2. Laptop, has either app: no prompt
  * 3. iPhone, no app: install sheet
  * 4. iPhone, has the app: open-in-app sheet that links to the current page
- * 5. Automated browser: no prompt
+ * 5. Android, no app (even with the iOS app): Google Play install sheet
+ * 6. Android, has the app: open-in-app sheet
+ * 7. Automated browser: no prompt
  */
 import { test, expect, devices, type Page } from '@playwright/test';
 import { MongoClient } from 'mongodb';
@@ -25,15 +28,22 @@ const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 const USER = TEST_USERS.admin1;
 const IPHONE = devices['iPhone 13'];
+const ANDROID = devices['Pixel 7'];
+const QR_TITLE = 'Get TimeHuddle for your phone';
 
-async function setHasIosApp(hasApp: boolean) {
+/** Set which native apps the user has opened recently; none clears them all. */
+async function setNativeApps(...platforms: Array<'ios' | 'android'>) {
   const client = await MongoClient.connect(MONGO_URL);
   try {
     const users = client.db().collection('users');
     await users.updateOne(
       { 'emails.address': USER.email },
-      hasApp
-        ? { $set: { 'nativeAppLastSeenAt.ios': new Date() } }
+      platforms.length
+        ? {
+            $set: {
+              nativeAppLastSeenAt: Object.fromEntries(platforms.map((p) => [p, new Date()])),
+            },
+          }
         : { $unset: { nativeAppLastSeenAt: '' } },
     );
   } finally {
@@ -49,19 +59,21 @@ async function asPerson(page: Page) {
 }
 
 test.afterAll(async () => {
-  await setHasIosApp(false);
+  await setNativeApps();
 });
 
 test.describe('App prompt on a laptop', () => {
   test('asks to install once per tab, not on reload or in-app navigation', async ({ page }) => {
-    await setHasIosApp(false);
+    await setNativeApps();
     await asPerson(page);
     await loginAs(page, USER);
 
-    const modal = page.getByRole('dialog', { name: 'Get TimeHuddle for iPhone' });
+    const modal = page.getByRole('dialog', { name: QR_TITLE });
     await expect(modal).toBeVisible();
-    await expect(modal.getByRole('img', { name: /QR code/ })).toBeVisible();
+    await expect(modal.getByRole('img', { name: /App Store/ })).toBeVisible();
+    await expect(modal.getByRole('img', { name: /Google Play/ })).toBeVisible();
     await expect(modal.getByRole('button', { name: 'Open App Store' })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Open Google Play' })).toBeVisible();
 
     await modal.getByRole('button', { name: 'Not Now' }).click();
     await expect(modal).toBeHidden();
@@ -79,11 +91,11 @@ test.describe('App prompt on a laptop', () => {
   });
 
   test('leaves someone who has the app alone', async ({ page }) => {
-    await setHasIosApp(true);
+    await setNativeApps('android');
     await asPerson(page);
     await loginAs(page, USER);
 
-    await expect(page.getByRole('dialog', { name: 'Get TimeHuddle for iPhone' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: QR_TITLE })).toHaveCount(0);
   });
 });
 
@@ -91,7 +103,7 @@ test.describe('App prompt on an iPhone', () => {
   test.use({ userAgent: IPHONE.userAgent, viewport: IPHONE.viewport, hasTouch: true });
 
   test('asks someone without the app to install it', async ({ page }) => {
-    await setHasIosApp(false);
+    await setNativeApps();
     await asPerson(page);
     await loginAs(page, USER);
 
@@ -104,7 +116,40 @@ test.describe('App prompt on an iPhone', () => {
   });
 
   test('offers someone with the app to open this page in it', async ({ page }) => {
-    await setHasIosApp(true);
+    await setNativeApps('ios');
+    await asPerson(page);
+    await loginAs(page, USER);
+
+    const sheet = page.getByRole('dialog', { name: 'Open in the TimeHuddle app' });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole('link', { name: 'Open in App' })).toHaveAttribute(
+      'href',
+      /^timehuddle:\/\/open\/app\/dashboard/,
+    );
+  });
+});
+
+test.describe('App prompt on an Android phone', () => {
+  test.use({ userAgent: ANDROID.userAgent, viewport: ANDROID.viewport, hasTouch: true });
+
+  test('asks someone without the Android app to install it, even with the iOS app', async ({
+    page,
+  }) => {
+    await setNativeApps('ios');
+    await asPerson(page);
+    await loginAs(page, USER);
+
+    const sheet = page.getByRole('dialog', { name: 'Get TimeHuddle for Android' });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText('Google Play');
+    await expect(sheet.getByRole('button', { name: 'Get the App' })).toBeVisible();
+
+    await sheet.getByRole('button', { name: 'Not Now' }).click();
+    await expect(sheet).toBeHidden();
+  });
+
+  test('offers someone with the app to open this page in it', async ({ page }) => {
+    await setNativeApps('android');
     await asPerson(page);
     await loginAs(page, USER);
 
@@ -118,8 +163,8 @@ test.describe('App prompt on an iPhone', () => {
 });
 
 test('an automated browser never sees the prompt', async ({ page }) => {
-  await setHasIosApp(false);
+  await setNativeApps();
   await loginAs(page, USER);
 
-  await expect(page.getByRole('dialog', { name: 'Get TimeHuddle for iPhone' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: QR_TITLE })).toHaveCount(0);
 });
