@@ -4,8 +4,8 @@
  * per member, like a Redmine key.
  *
  * Only GitHub's own addresses are called, with no redirects, a time limit and a
- * size limit. OAuth-app tokens don't expire, so there is nothing to refresh;
- * one GitHub no longer accepts marks the connection rejected. Tokens and query strings are
+ * size limit. An expiring token is refreshed here when it runs out; one GitHub
+ * no longer accepts marks the connection rejected. Tokens and query strings are
  * never logged.
  */
 import { GithubLinks } from './collections';
@@ -14,6 +14,7 @@ import { decryptStoredSecret, encryptSecret, envKey } from './redmine-crypto';
 export const GITHUB_HOST = 'github.com';
 const REQUEST_MS = 10_000;
 const MAX_ANSWER_CHARS = 20 * 1024 * 1024;
+const REFRESH_EARLY_MS = 60_000;
 
 /** Overridable for tests only: production always talks to GitHub itself. */
 const overridable = (name, fallback) =>
@@ -25,12 +26,17 @@ export const githubWebUrl = () => overridable('GITHUB_WEB_URL', 'https://github.
 export const githubConfigured = () =>
   Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
 
-/** The stored field for the token GitHub answered with, encrypted. */
-export function tokenFields({ access_token }) {
-  return { token: encryptSecret(access_token, envKey()) };
+/** The stored fields for the tokens GitHub answered with, encrypted. */
+export function tokenFields({ access_token, refresh_token, expires_in }) {
+  const encrypted = (value) => encryptSecret(value, envKey());
+  return {
+    token: encrypted(access_token),
+    ...(refresh_token ? { refreshToken: encrypted(refresh_token) } : {}),
+    ...(expires_in ? { tokenExpiresAt: new Date(Date.now() + expires_in * 1000) } : {}),
+  };
 }
 
-/** Trade an OAuth code for a token at GitHub's OAuth endpoint. */
+/** Trade a code or refresh token for tokens at GitHub's OAuth endpoint. */
 export async function requestGithubToken(grant) {
   const res = await fetch(`${githubWebUrl()}/login/oauth/access_token`, {
     method: 'POST',
@@ -47,7 +53,28 @@ export async function requestGithubToken(grant) {
   return data?.access_token ? data : null;
 }
 
+const linkOf = (userId) => GithubLinks.findOneAsync({ userId });
 const tokenOf = (link) => decryptStoredSecret(link.token).secret;
+
+/**
+ * A fresh access token for `userId`, saved, or null when GitHub won't give one.
+ * Refresh tokens are single-use, so when another request refreshed first this
+ * one's fails: the stored token is then the good one.
+ */
+async function refreshedToken(userId) {
+  const link = await linkOf(userId);
+  if (!link?.refreshToken) return null;
+  const answer = await requestGithubToken({
+    grant_type: 'refresh_token',
+    refresh_token: decryptStoredSecret(link.refreshToken).secret,
+  }).catch(() => null);
+  if (!answer) {
+    const now = await linkOf(userId);
+    return now && now.token !== link.token ? tokenOf(now) : null;
+  }
+  await GithubLinks.updateAsync(link._id, { $set: tokenFields(answer) });
+  return answer.access_token;
+}
 
 async function send(path, token, { method = 'GET', body } = {}) {
   return fetch(`${githubApiUrl()}${path}`, {
@@ -66,10 +93,15 @@ async function send(path, token, { method = 'GET', body } = {}) {
   });
 }
 
-/** The member's token; null when not connected. */
+/** The current token, refreshed first when it's about to run out; null when not connected. */
 async function currentToken(userId) {
-  const link = await GithubLinks.findOneAsync({ userId });
-  return link ? tokenOf(link) : null;
+  const link = await linkOf(userId);
+  if (!link) return null;
+  const expires = link.tokenExpiresAt?.getTime?.();
+  if (expires && expires - Date.now() < REFRESH_EARLY_MS) {
+    return (await refreshedToken(userId)) ?? tokenOf(link);
+  }
+  return tokenOf(link);
 }
 
 /** Whether GitHub refused for its rate limit, which it answers as a 403 or a 429. */
@@ -82,14 +114,18 @@ const markRejected = (userId) =>
 
 /**
  * GitHub's answer for `path`, as `userId`. Throws an Error with `status` on a
- * refusal (and `rateLimited` for GitHub's rate limit); a 401 marks the
- * connection rejected.
+ * refusal (and `rateLimited` for GitHub's rate limit); a 401 is retried once
+ * with a refreshed token, then marks the connection rejected.
  */
 export async function githubRequest(path, userId, options) {
   const token = await currentToken(userId);
   if (!token) throw Object.assign(new Error('GitHub is not connected'), { status: 401 });
-  const res = await send(path, token, options);
-  if (res.status === 401) await markRejected(userId);
+  let res = await send(path, token, options);
+  if (res.status === 401) {
+    const fresh = await refreshedToken(userId);
+    if (fresh) res = await send(path, fresh, options);
+    if (res.status === 401) await markRejected(userId);
+  }
   if (!res.ok) {
     throw Object.assign(new Error(`GitHub answered ${res.status}`), {
       status: res.status,

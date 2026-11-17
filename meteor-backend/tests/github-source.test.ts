@@ -1,8 +1,8 @@
 /**
  * GitHub through the engine (#873), end to end against a stand-in GitHub:
  * connecting in one click, confirmed by the member who started it; search;
- * tickets carrying an issue's or PR's address; reading and editing; losing a
- * token; and a member with no connection still seeing a plain link.
+ * tickets carrying an issue's or PR's address; reading and editing; refreshing
+ * and losing a token; and a member with no connection still seeing a plain link.
  *
  * The test backend must run with GITHUB_API_URL and GITHUB_WEB_URL pointing at
  * GITHUB_TEST_SERVER (e.g. http://host.docker.internal:3998), which this process
@@ -45,7 +45,7 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
   const searched: string[] = [];
   const patched: unknown[] = [];
   const revoked: unknown[] = [];
-  const tokens = { valid: new Set(['token-1']) };
+  const tokens = { valid: new Set(['token-1']), next: 'token-2' };
   let issueState = 'open';
   let twinRepo = false;
   let rateLimited = false;
@@ -82,7 +82,20 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
       req.on('data', (chunk) => (raw += chunk));
       req.on('end', () => {
         if (url.pathname === '/login/oauth/access_token') {
-          return json(200, { access_token: 'token-1' });
+          const body = JSON.parse(raw);
+          if (body.grant_type === 'refresh_token') {
+            tokens.valid.add(tokens.next);
+            return json(200, {
+              access_token: tokens.next,
+              refresh_token: 'refresh-2',
+              expires_in: 28800,
+            });
+          }
+          return json(200, {
+            access_token: 'token-1',
+            refresh_token: 'refresh-1',
+            expires_in: 28800,
+          });
         }
         if (url.pathname.startsWith('/applications/')) {
           revoked.push(JSON.parse(raw));
@@ -258,6 +271,7 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
     expect(JSON.stringify(connected)).not.toContain('token-1');
     const link = await linkOf();
     expect(JSON.stringify(link)).not.toContain('token-1');
+    expect(JSON.stringify(link)).not.toContain('refresh-1');
   });
 
   it('searches by words in titles, within the member and their orgs, issues and PRs both', async () => {
@@ -462,8 +476,25 @@ describe.skipIf(!SERVER || !PORT)('GitHub through the engine', () => {
     expect(res.error).toMatch(/Connect this source/);
   });
 
+  it('refreshes a token that ran out', async () => {
+    const db = await getDb();
+    await db
+      .collection('github_links')
+      .updateOne({ userId }, { $set: { tokenExpiresAt: new Date(Date.now() - 1000) } });
+    const before = await linkOf();
+    const res = await wormhole('sources.githubOwners', {}, jwt);
+    expect(res.ok).toBe(true);
+    const after = await linkOf();
+    expect(after?.token).not.toBe(before?.token);
+    expect(after?.tokenExpiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
   it('marks a connection rejected once GitHub stops accepting it, and stops asking', async () => {
+    const db = await getDb();
     tokens.valid.clear();
+    await db
+      .collection('github_links')
+      .updateOne({ userId }, { $unset: { refreshToken: '', tokenExpiresAt: '' } });
     const res = await wormhole('sources.githubOwners', {}, jwt);
     expect(res.ok).toBe(false);
     expect(await status()).toMatchObject({ connected: false, rejected: true });
