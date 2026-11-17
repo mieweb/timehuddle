@@ -7,7 +7,7 @@ Each member connects their own GitHub account in **Settings → Sources**, in on
 Connect GitHub uses the OAuth app GitHub sign-in uses, so a deployment with sign-in working needs nothing more. Otherwise, once per deployment:
 
 1. Register an OAuth app under the org that runs the deployment: **Settings → Developer settings → OAuth Apps**. Members see this app's name and owner on GitHub's approval page.
-2. Set its redirect URI to `<ROOT_URL>/auth/github/callback`, and leave **Expire user access tokens** on.
+2. Set its redirect URI to `<ROOT_URL>/auth/github/callback`.
 3. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the backend's environment, then restart it.
 
 Until both are set, the GitHub card in Settings says GitHub isn't set up, and everything else works.
@@ -16,7 +16,7 @@ Until both are set, the GitHub card in Settings says GitHub isn't set up, and ev
 
 GitHub's `repo` scope, its only one that covers private repos. It also covers code, which the GitHub card says up front. TimeHuddle calls only GitHub's issue, pull request, search, repo list and user APIs.
 
-The token is encrypted with `REDMINE_ENCRYPTION_KEY`, the same as a Redmine key (see [redmine-integration.md](redmine-integration.md)), never reaches the browser, and refreshes when it expires. Disconnecting revokes it at GitHub. A token GitHub stops accepting is marked rejected, stops being sent, and the card asks the member to connect again.
+The token is encrypted with `REDMINE_ENCRYPTION_KEY`, the same as a Redmine key (see [redmine-integration.md](redmine-integration.md)), never reaches the browser, and is refreshed if GitHub gave it an expiry. Disconnecting revokes it at GitHub. A token GitHub stops accepting is marked rejected, stops being sent, and the card asks the member to connect again.
 
 ## Org Approval
 
