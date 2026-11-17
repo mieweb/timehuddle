@@ -309,8 +309,25 @@ and uploads with `GOOGLE_PLAY_JSON_KEY_BASE64`. Google re-signs for the store (P
 upload keystore is backed up in the team password manager. If it is ever lost, reset the upload
 key from Play Console rather than creating a new app.
 
-To build a signed bundle by hand: `npm run build:android:prod`, then Android Studio →
-**Build → Generate Signed App Bundle**.
+To build a signed bundle by hand, prefer the workflow; a manual bundle needs a `versionCode` Play has
+not seen, and Gradle reads it from the environment of whatever starts it:
+
+1. In Play Console → **App bundle explorer**, find the highest version code, and use one higher.
+2. Quit Android Studio, then start it from a terminal with the code, so its Gradle builds inherit it:
+
+   ```bash
+   npm run build:android:prod
+   ANDROID_VERSION_CODE=<code> "/Applications/Android Studio.app/Contents/MacOS/studio" android
+   ```
+
+   Opening it from the Dock or with `npx cap open android` leaves the variable out, and the bundle
+   gets `versionCode` 1, which Play rejects.
+
+3. **Build → Generate Signed App Bundle**, and upload it in Play Console, which shows the bundle's
+   version code before you roll it out.
+
+The workflow's next run would then pick `run_number + 1`, which may be lower than the code you used,
+so fill in **version_code** on that run with a higher one.
 
 ### Seeds
 
