@@ -1801,7 +1801,7 @@ Meteor.startup(async () => {
 
   Wormhole.expose('huddle.getMyPosts', {
     description:
-      "The caller's own published posts across every team they belong to, from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
+      "The caller's published posts in their personal team (the Huddle Personal view), from `since` (default: last 30 days). `hasMore` is true when older posts exist.",
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string', description: 'ISO date string' } },
@@ -2496,6 +2496,15 @@ Meteor.startup(async () => {
       type: 'object',
       properties: { version: { type: 'string' } },
       required: ['version'],
+    },
+  });
+
+  Wormhole.expose('users.markNativeAppSeen', {
+    description: 'Record that this user just opened the native app',
+    inputSchema: {
+      type: 'object',
+      properties: { platform: { type: 'string', enum: ['ios', 'android'] } },
+      required: ['platform'],
     },
   });
 

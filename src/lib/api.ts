@@ -73,6 +73,11 @@ export interface TimecoreUser {
    * Drives the "New" flags on /app/release-notes and the menu badge.
    */
   releaseNotesSeenVersion: string | null;
+  /**
+   * True when this person used the iOS app in the last 30 days. Decides
+   * whether a browser asks them to install the app or offers to open it.
+   */
+  hasIosApp?: boolean;
   organizationMembership?: {
     organizationId: string;
     organizationSlug: string;
@@ -1358,6 +1363,8 @@ export interface HuddlePost {
   postDate?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
   clockEventId?: string;
+  /** Joined its session because it was posted while clocked in: never the session's plan. */
+  sessionUpdate?: boolean;
   /** Resolved from `clockEventId` at read time; absent if the session is gone. */
   session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
@@ -1426,8 +1433,8 @@ export const huddleApi = {
       (r) => r.hasMore,
     ),
 
-  /** The caller's own published posts across every team they belong to (the
-   *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
+  /** The caller's posts in their personal team (the Huddle inbox's Personal
+   *  view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
     wormholeCall<HuddleFeedPage>('huddle.getMyPosts', since ? { since } : {}),
 
@@ -1464,7 +1471,7 @@ export const huddleApi = {
     wrapUp?: boolean;
     /** ISO date to schedule the post for. */
     deliverAt?: string;
-  }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+  }) => wormholeCall<{ id: string; clockEventId?: string }>('huddle.createPost', { ...params }),
 
   /** Deliver one of my scheduled posts now. */
   sendScheduledNow: (postId: string) =>

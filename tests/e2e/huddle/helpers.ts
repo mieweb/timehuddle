@@ -165,7 +165,7 @@ export async function openPostInInbox(
 /** Pick how the inbox groups posts into conversations. */
 export async function groupInboxBy(
   page: Page,
-  option: 'Session' | 'Day' | 'Person' | 'Ticket',
+  option: 'All' | 'Session' | 'Day' | 'Person' | 'Ticket',
 ): Promise<void> {
   await page.getByRole('button', { name: /^Group by:/ }).click();
   await page.getByRole('menuitem', { name: option }).click();
