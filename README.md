@@ -273,6 +273,62 @@ npm run testflight:ios    # build + sync for TestFlight
 npm run ota:testflight    # publish an over-the-air update to the testflight channel
 ```
 
+### Android releases
+
+The Android app is `com.mieweb.timehuddle` on Google Play. Most changes never need a store release:
+
+| Change                                                               | How it ships                                                                                                 |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Web code only (`src/`, styles, release notes)                        | **OTA.** Every push to `main` publishes the bundle ([`ota-publish.yml`](.github/workflows/ota-publish.yml)). |
+| Native (manifest, permissions, Capacitor plugins or upgrades, icons) | **Play Store release** with [`play-store.yml`](.github/workflows/play-store.yml), below.                     |
+
+Devices only take an OTA bundle whose version is newer than the installed app's `versionName`, so
+bump `package.json` before merging a bundle production devices should pick up.
+
+**Shipping a Play Store release**
+
+1. Merge the native change to `main`.
+2. Actions → **Play Store Build** → Run workflow on `main`, then pick:
+   - **track** — `internal` to try it first, `production` for everyone
+   - **release_status** — `completed` goes live on that track; `draft` waits for you in Play Console
+   - **version_code** — leave empty
+3. Check the release in [Play Console](https://play.google.com/console), and promote it from
+   `internal` to `production` when it's ready.
+
+**Versions**
+
+- `versionName` is read from `package.json` `version` by `android/app/build.gradle`. Never edit it there.
+- `versionCode` is the workflow's run number + 1, passed in as `ANDROID_VERSION_CODE`. Play rejects
+  a code it has seen before, so only fill in **version_code** to skip past one. Local builds use `1`.
+
+**Signing**
+
+The workflow signs with the upload key from the `production` environment's secrets
+(`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`)
+and uploads with `GOOGLE_PLAY_JSON_KEY_BASE64`. Google re-signs for the store (Play App Signing). The
+upload keystore is backed up in the team password manager. If it is ever lost, reset the upload
+key from Play Console rather than creating a new app.
+
+To build a signed bundle by hand, prefer the workflow; a manual bundle needs a `versionCode` Play has
+not seen, and Gradle reads it from the environment of whatever starts it:
+
+1. In Play Console → **App bundle explorer**, find the highest version code, and use one higher.
+2. Quit Android Studio, then start it from a terminal with the code, so its Gradle builds inherit it:
+
+   ```bash
+   npm run build:android:prod
+   ANDROID_VERSION_CODE=<code> "/Applications/Android Studio.app/Contents/MacOS/studio" android
+   ```
+
+   Opening it from the Dock or with `npx cap open android` leaves the variable out, and the bundle
+   gets `versionCode` 1, which Play rejects.
+
+3. **Build → Generate Signed App Bundle**, and upload it in Play Console, which shows the bundle's
+   version code before you roll it out.
+
+The workflow's next run would then pick `run_number + 1`, which may be lower than the code you used,
+so fill in **version_code** on that run with a higher one.
+
 ### Seeds
 
 Seed the database with demo teams and users:

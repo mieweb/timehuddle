@@ -77,7 +77,7 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'account',
     label: 'Account and privacy',
-    description: 'Sign-in, password and deleting your account.',
+    description: 'Sign-in, password, terms of use and deleting your account.',
     icon: ShieldIcon,
   },
 ];

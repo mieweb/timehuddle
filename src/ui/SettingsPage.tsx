@@ -73,6 +73,8 @@ import { ActivityLog } from '../features/activity/ActivityLog';
 import { RedmineHiddenSuggestions } from '../features/tickets/redmine/RedmineHiddenSuggestions';
 import { invalidateSuggestionsCache } from '../features/tickets/redmine/useRedmineSuggestions';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
+import { LEGAL_TEXT, PRIVACY_URL, TERMS_URL } from './legal';
+import { LegalLink } from './LegalLink';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -1049,6 +1051,19 @@ const AccountSettings: React.FC = () => {
             </Text>
           </div>
         )}
+      </Section>
+
+      <Section>
+        <Row label={LEGAL_TEXT.terms} hint={LEGAL_TEXT.termsHint}>
+          <LegalLink href={TERMS_URL} name={LEGAL_TEXT.terms}>
+            {LEGAL_TEXT.view}
+          </LegalLink>
+        </Row>
+        <Row label={LEGAL_TEXT.privacy} hint={LEGAL_TEXT.privacyHint}>
+          <LegalLink href={PRIVACY_URL} name={LEGAL_TEXT.privacy}>
+            {LEGAL_TEXT.view}
+          </LegalLink>
+        </Row>
       </Section>
 
       <Section>
