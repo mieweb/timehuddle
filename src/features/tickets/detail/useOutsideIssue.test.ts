@@ -16,6 +16,7 @@ const ApiError = vi.hoisted(
 vi.mock('../../../lib/api', () => ({
   ApiError,
   outsideIssueKey: () => '',
+  outsideRefKey: (ref: { key: string } | null) => ref?.key ?? '',
   ticketApi: { outsideIssue: api.outsideIssue },
 }));
 
@@ -95,6 +96,21 @@ describe('useOutsideIssue', () => {
       await waitFor(() => expect(result.current.state.kind).toBe('denied'));
     },
   );
+
+  it('says why a link shown as an issue is only a link: no connection, or no access', async () => {
+    for (const [code, state] of [
+      ['plain-link-connect', { kind: 'plain', reason: 'connect' }],
+      ['plain-link', { kind: 'plain', reason: 'no-access' }],
+      ['rate-limited', { kind: 'unreachable', rateLimited: true }],
+    ] as const) {
+      api.outsideIssue.mockRejectedValueOnce(new ApiError('refused', 500, code));
+      const { result, unmount } = renderHook(() =>
+        useOutsideIssue('t1', 'github:acme/pulse#1', () => {}),
+      );
+      await waitFor(() => expect(result.current.state).toEqual(state));
+      unmount();
+    }
+  });
 
   it('is unreachable, not denied, when the source can’t be reached', async () => {
     api.outsideIssue.mockImplementation(() =>

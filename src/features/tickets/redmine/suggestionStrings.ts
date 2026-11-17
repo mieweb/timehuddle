@@ -45,6 +45,16 @@ export const suggestionText = {
   partial: 'Some Redmine results are still unavailable.',
   unreachable: "Redmine didn't respond.",
   retry: 'Try again',
+
+  /** GitHub results (#873): a GitHub issue acts through the ticket carrying its address. */
+  github: 'GitHub',
+  fromSource: (name: string) => `From ${name}`,
+  pullRequest: 'Pull request',
+  sourcesFailed: (names: string[]) => `${names.join(', ')} didn't respond.`,
+  sourcesRateLimited: (names: string[]) =>
+    `Rate limit reached on ${names.join(', ')}. Try again in a few minutes.`,
+  noTeam: 'Select a team first.',
+  carryFailed: "Couldn't make a ticket for that issue.",
   connect: 'Connect Redmine to see your issues',
   noSuggestions: 'No suggestions right now. Type to search Redmine.',
 

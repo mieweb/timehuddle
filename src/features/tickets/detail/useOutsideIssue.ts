@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   outsideIssueKey,
+  outsideRefKey,
   ticketApi,
   type OutsideEdits,
   type OutsideIssue,
@@ -23,7 +24,9 @@ export type OutsideState =
   | { kind: 'loading' }
   | { kind: 'loaded'; issue: OutsideIssue }
   | { kind: 'denied' }
-  | { kind: 'unreachable' };
+  /** A link this viewer can't read as an issue: shown as the plain link it is, saying why. */
+  | { kind: 'plain'; reason: 'connect' | 'no-access' }
+  | { kind: 'unreachable'; rateLimited?: boolean };
 
 /** The answers that mean the viewer's own key can't read the issue. */
 const DENIED_CODES = new Set([
@@ -38,6 +41,10 @@ const DENIED_CODES = new Set([
 /** Anything but a refusal (an outage, a rate limit) says nothing about access. */
 function failedState(err: unknown): OutsideState {
   const code = err instanceof ApiError ? err.code : undefined;
+  // A link this viewer can't read as an issue is just a link for them.
+  if (code === 'plain-link') return { kind: 'plain', reason: 'no-access' };
+  if (code === 'plain-link-connect') return { kind: 'plain', reason: 'connect' };
+  if (code === 'rate-limited') return { kind: 'unreachable', rateLimited: true };
   return code && DENIED_CODES.has(code) ? { kind: 'denied' } : { kind: 'unreachable' };
 }
 
@@ -77,7 +84,7 @@ export function useOutsideIssue(
       const issue = await ticketApi.outsideIssue(ticketId);
       if (request !== latest.current) return true;
       // `source:id`, as `ticketKey` builds `linkedKey`.
-      if (`${issue.kind}:${issue.record.ref?.key ?? ''}` !== linkedKey) {
+      if (`${issue.kind}:${outsideRefKey(issue.record.ref)}` !== linkedKey) {
         setState({ kind: 'loading' });
         relinked.current();
         return false;
