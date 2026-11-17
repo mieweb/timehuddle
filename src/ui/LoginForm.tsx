@@ -16,6 +16,8 @@ import { getDdpClient, type DevRole } from '../lib/ddp';
 import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Text } from '@mieweb/ui';
+import { LEGAL_TEXT, PRIVACY_URL, TERMS_URL } from './legal';
+import { LegalLink } from './LegalLink';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -748,6 +750,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                   </>
                 )}
               </p>
+
+              {/* Shown on sign-in too: Continue with a provider creates an account. */}
+              <Text
+                as="p"
+                size="xs"
+                className="login-legal-notice mt-4 text-center text-neutral-500 dark:text-neutral-400"
+              >
+                {LEGAL_TEXT.agreeBefore} <LegalLink href={TERMS_URL}>{LEGAL_TEXT.terms}</LegalLink>{' '}
+                {LEGAL_TEXT.and} <LegalLink href={PRIVACY_URL}>{LEGAL_TEXT.privacy}</LegalLink>.
+              </Text>
             </>
           )}
 
