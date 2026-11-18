@@ -27,6 +27,8 @@ import {
 } from './huddle-schedule-core';
 import { cancelPostDelivery, scheduleMentionRetry, schedulePostDelivery } from './agenda';
 import { videoIdOf, videoNamesFor } from './video-names.js';
+import { captionsUrlOf } from './pulse-captions-core.js';
+import { publicVideoMarks } from './pulse-clock-core.js';
 import {
   AttachmentError,
   cleanPostAttachments,
@@ -266,7 +268,7 @@ async function enrichPost(post) {
   // A video's name is its media item's (video-names.js), shown on its card
   // here as everywhere else. A feed looked them all up at once
   // (attachEnrichment); a single post looks up its own, none without a video.
-  const videoNames = post.videoNames ?? (await videoNamesFor(postVideoIds(post)));
+  const videoNames = post.videoNames ?? (await videoFactsFor(postVideoIds(post)));
 
   return {
     id,
@@ -285,7 +287,11 @@ async function enrichPost(post) {
       ...(att.type === 'video'
         ? (() => {
             const video = videoNames.get(videoIdOf(att.url));
-            return { name: video?.name ?? null, ownerId: video?.ownerId ?? null };
+            return {
+              name: video?.name ?? null,
+              ownerId: video?.ownerId ?? null,
+              captionsUrl: att.captionsUrl ?? video?.captionsUrl ?? null,
+            };
           })()
         : {}),
       url: att.url && /^https?:\/\//i.test(att.url)
@@ -305,6 +311,9 @@ async function enrichPost(post) {
     // Always a boolean: a live `changed` that left it out would keep a promoted
     // plan's stale `true` in the client cache, which merges fields.
     sessionUpdate: post.sessionUpdate === true,
+    // Pulse clock videos on their way to this post, or that won't come (pulse-clock.js).
+    pendingVideos: publicVideoMarks(post.pendingVideos),
+    missingVideos: publicVideoMarks(post.missingVideos),
     session,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
@@ -368,6 +377,29 @@ function postVideoIds(post) {
 }
 
 /**
+ * videoNamesFor, with each video's captionsUrl (pulse-captions-core.js) from
+ * its media item, so a post's video plays with its captions wherever it came
+ * from.
+ */
+async function videoFactsFor(videoIds) {
+  const ids = [...new Set(videoIds.filter(Boolean))];
+  const [names, captioned] = await Promise.all([
+    videoNamesFor(ids),
+    ids.length
+      ? rawDb()
+          .collection('mediaitems')
+          .find({ videoid: { $in: ids }, captionsId: { $type: 'string' } }, { projection: { videoid: 1, captionsId: 1 } })
+          .toArray()
+      : [],
+  ]);
+  for (const item of captioned) {
+    const captionsUrl = captionsUrlOf(item);
+    if (captionsUrl) names.set(item.videoid, { ...names.get(item.videoid), captionsUrl });
+  }
+  return names;
+}
+
+/**
  * Batch lookups for a list of posts — one `$in` query each for sessions,
  * authors and ticket titles instead of one per post, since
  * `huddlePosts.byTeam`, `huddle.getPosts` and `huddle.getMyPosts` enrich an
@@ -384,7 +416,7 @@ async function attachEnrichment(posts) {
       .find({ _id: { $in: userIds } }, { projection: { 'profile.name': 1 } })
       .toArray(),
     fetchPostTickets(ticketIds),
-    videoNamesFor(posts.flatMap(postVideoIds)),
+    videoFactsFor(posts.flatMap(postVideoIds)),
     attachSessions(posts),
   ]);
   const usersById = new Map(users.map((u) => [String(u._id), u]));
@@ -676,6 +708,7 @@ export async function createHuddlePost(
     wrapUp,
     deliverAt,
     joinOpenSession = false,
+    pendingVideos,
   },
 ) {
   if (!content || typeof content.text !== 'string') {
@@ -754,6 +787,8 @@ export async function createHuddlePost(
     ...(sessionId ? { clockEventId: sessionId } : {}),
     ...(updateSessionId ? { sessionUpdate: true } : {}),
     ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
+    // Pulse clock videos on their way to this post (pulse-clock.js).
+    ...(pendingVideos?.length ? { pendingVideos } : {}),
     ...(schedule ?? {}),
     // Bumped on every write that changes deliverAt/deliveredAt/postDate, so a
     // client merging a cached REST snapshot against a live DDP copy can tell
@@ -798,11 +833,12 @@ export async function createHuddlePost(
 
 /**
  * Add a wrap-up to `userId`'s post for a clock session: `line` goes under the
- * plan text and `attachment` joins its attachments. A session with no post
- * yet gets one, stamped as the wrap-up. Shared with server-side callers — a
- * Pulse wrap-up video that lands on its own.
+ * plan text and `attachment`, if any, joins its attachments. A session with no
+ * post yet gets one, stamped as the wrap-up. Shared with server-side callers —
+ * a Pulse wrap-up video that lands on its own, or one on its way
+ * (`pendingVideo`, pulse-clock.js). Returns the post's id.
  */
-export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment }) {
+export async function appendWrapUp(userId, { teamId, clockEventId, postDate, line, attachment, pendingVideo }) {
   await requireTeamMember(userId, teamId);
   const posts = rawDb().collection('huddlePosts');
   // Legacy posts carry the team id as an ObjectId; the feed matches both forms, so this does too.
@@ -817,15 +853,16 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
     { sort: SESSION_POST_SORT },
   );
   if (!sessionPost) {
-    await createHuddlePost(userId, {
+    const created = await createHuddlePost(userId, {
       teamId,
       content: { text: line, mentions: [] },
-      attachments: [attachment],
+      attachments: attachment ? [attachment] : [],
       postDate,
       clockEventId,
       wrapUp: true,
+      pendingVideos: pendingVideo ? [pendingVideo] : undefined,
     });
-    return;
+    return created.id;
   }
   // Appended to the post as stored at write time (an update pipeline), so an
   // edit to the plan made meanwhile isn't overwritten. `$literal`: text
@@ -837,12 +874,16 @@ export async function appendWrapUp(userId, { teamId, clockEventId, postDate, lin
         'content.text': {
           $cond: [{ $eq: [text, ''] }, { $literal: line }, { $concat: [text, '\n\n', { $literal: line }] }],
         },
-        attachments: { $concatArrays: [{ $ifNull: ['$attachments', []] }, [{ $literal: attachment }]] },
+        attachments: { $concatArrays: [{ $ifNull: ['$attachments', []] }, { $literal: attachment ? [attachment] : [] }] },
+        ...(pendingVideo
+          ? { pendingVideos: { $concatArrays: [{ $ifNull: ['$pendingVideos', []] }, [{ $literal: pendingVideo }]] } }
+          : {}),
         wrapUpAt: '$$NOW',
         updatedAt: '$$NOW',
       },
     },
   ]);
+  return sessionPost._id.toHexString?.() ?? String(sessionPost._id);
 }
 
 /**
