@@ -3,7 +3,8 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
-import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { CANONICAL_ITEM, mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { captionsUrlOf } from './pulse-captions-core.js';
 import { keepReferencedUploads } from './uploads';
 import { existingOnDuplicate, pulseFieldsOf, videoTargetFilter } from './attachments-dedupe-core.js';
 import { runPulseAttachmentsDedupe } from './migrations/pulse-attachments-dedupe.js';
@@ -107,6 +108,23 @@ export async function createAttachment({
   }
 }
 
+/**
+ * Each video's captions URL (pulse-captions-core.js), by video id, from its
+ * media item's `captionsId`: null for a video with none, or none known yet.
+ */
+async function captionsUrlsFor(videoIds) {
+  const ids = [...new Set(videoIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const items = await rawDb()
+    .collection('mediaitems')
+    .find({ videoid: { $in: ids } }, { projection: { videoid: 1, captionsId: 1 }, ...CANONICAL_ITEM })
+    .toArray();
+  const urls = new Map();
+  // The first is CANONICAL_ITEM's, where old data has duplicates.
+  for (const item of items) if (!urls.has(item.videoid)) urls.set(item.videoid, captionsUrlOf(item));
+  return urls;
+}
+
 /** The team document, by either id shape a team can have. */
 async function findTeam(teamId) {
   const teams = rawDb().collection('teams');
@@ -157,7 +175,8 @@ Meteor.methods({
       .sort({ addedAt: 1 })
       .toArray();
     // A video's name is its media item's (video-names.js), renamed by its owner.
-    const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
+    const videoIds = docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null));
+    const [videos, captions] = await Promise.all([videoNamesFor(videoIds), captionsUrlsFor(videoIds)]);
     return {
       attachments: docs.map((a) => {
         const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
@@ -171,6 +190,8 @@ Meteor.methods({
                 // item, whoever PulseVault says uploaded it (videoNamesFor) —
                 // the rule videos.rename applies (attaching a URL proves nothing).
                 canRename: mayRenameVideo({ item: video ? { userId: video.ownerId } : null, userId }),
+                // Its captions (huddle-server §11), played with it; null for none.
+                captionsUrl: (videoId && captions.get(videoId)) ?? null,
               }
             : {}),
         };
