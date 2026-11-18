@@ -96,12 +96,12 @@ jobs:
       MAILPIT_URL: http://localhost:8025
       # Throwaway values for the suites that skip without them: the Redmine and
       # GitHub stand-ins are HTTP servers inside the test process, and the
-      # backend reads the key the tests store with.
+      # backend reads the key the tests store with. GITHUB_API_URL is set in the
+      # backend step instead: the runner resets GITHUB_* defaults in every step.
       REDMINE_ENCRYPTION_KEY: ci-only-throwaway-key
       REDMINE_BASE_URL: http://127.0.0.1:3998
       GITHUB_TEST_PORT: 3997
       GITHUB_TEST_SERVER: http://127.0.0.1:3997
-      GITHUB_API_URL: http://127.0.0.1:3997
       GITHUB_WEB_URL: http://127.0.0.1:3997
       GITHUB_CLIENT_ID: ci-client-id
       GITHUB_CLIENT_SECRET: ci-client-secret
@@ -129,9 +129,9 @@ jobs:
           echo "::error::MongoDB replica set has no primary after 30s"
           exit 1
 
-      - name: Cache Meteor
+      - name: Restore Meteor cache
         id: meteor-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.meteor
           key: meteor-${{ runner.os }}-${{ hashFiles('meteor-backend/.meteor/release', 'meteor-backend/.meteor/versions') }}
@@ -153,10 +153,15 @@ jobs:
         env:
           PORT: 3101
         run: |
+          # Exported here, not in env: GITHUB_API_URL is a runner default that
+          # the runner sets again for every step, over the job's env.
+          export GITHUB_API_URL=http://127.0.0.1:3997
           nohup npm start > "$RUNNER_TEMP/meteor.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/meteor.pid"
           deadline=$((SECONDS + 600))
-          until curl -sf "$METEOR_URL/health" > /dev/null 2>&1; do
+          # Only the app's own JSON answer counts: after a crash, `meteor run`
+          # keeps running and its proxy serves an error page with a 200.
+          until curl -sf -m 10 "$METEOR_URL/health" 2> /dev/null | grep -q '"status":"ok"'; do
             if ! kill -0 "$(cat "$RUNNER_TEMP/meteor.pid")" 2> /dev/null; then
               echo "::error::The test backend exited before it was healthy"
               tail -n 200 "$RUNNER_TEMP/meteor.log"
@@ -170,6 +175,15 @@ jobs:
             sleep 5
           done
           echo "Test backend healthy at $METEOR_URL"
+
+      # Saved once the backend has built (its Atmosphere packages are then in
+      # ~/.meteor), so a failing test run still leaves the cache for the next.
+      - name: Save Meteor cache
+        if: steps.meteor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.meteor
+          key: ${{ steps.meteor-cache.outputs.cache-primary-key }}
 
       - name: Test
         working-directory: meteor-backend
