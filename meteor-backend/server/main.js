@@ -58,6 +58,7 @@ import './pulsevault';
 import './pulse-captions';
 import { createCorsMiddleware, createOriginPolicy } from './pulse-cors-core.js';
 import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
+import { exposePulseUploads } from './pulse-uploads-expose.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
@@ -3063,6 +3064,8 @@ Meteor.startup(async () => {
       },
     },
   });
+
+  exposePulseUploads(Wormhole);
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

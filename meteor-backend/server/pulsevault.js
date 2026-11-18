@@ -47,6 +47,9 @@ import { createPulseReserve, PULSE_RESERVE_LIMIT, TOO_MANY_RESERVES } from './pu
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { createRateLimiter } from './rate-limit';
+import { PULSE_MAX_UPLOAD_BYTES } from './pulse-upload-types.js';
+import { pulseArtifactEvent, pulseUploadAuthorized } from './pulse-uploads.js';
+import { deliverPulseUpload } from './pulse-upload-delivery.js';
 import path from 'path';
 import { persistentDir } from './storage-paths';
 
@@ -276,7 +279,8 @@ const core = createPulseVaultCore({
   // WebApp.connectHandlers.use('/pulsevault', ...) already strips the mount
   // prefix before calling the handler — per the package's Meteor integration docs.
   stripBasePath: false,
-  maxUploadSize: 500 * 1024 * 1024, // 500 MB
+  // 500 MB: the size every Pulse upload type also refuses at begin.
+  maxUploadSize: PULSE_MAX_UPLOAD_BYTES,
   // Uploads a client abandoned, and the captions, manifest or thumbnail of a
   // video that never finished, are removed after a day: well above the
   // capability token's lifetime, past which no upload can continue anyway.
@@ -317,6 +321,19 @@ const core = createPulseVaultCore({
       // Returns the token's context on `create`, which PulseVault stores with
       // the upload and hands back to `onUploadComplete`.
       const result = await verifyUploadToken(request, ctx);
+      // An upload Pulse in the app sends (its token names a pulseUploads row):
+      // the row refuses it once cancelled or abandoned, and moves when the
+      // video's upload starts. Read back from storage after the create.
+      const context = result?.context ?? ctx.context;
+      if (typeof context?.uploadId === 'string') {
+        await pulseUploadAuthorized({
+          uploadId: context.uploadId,
+          userId: context.userId,
+          artifactId: ctx.artifactId,
+          phase: ctx.phase,
+          kind: ctx.kind,
+        });
+      }
       console.log('[pulsevault][hook] authorize PASSED', ctx.phase, ctx.artifactId);
       return result;
     } catch (err) {
@@ -340,6 +357,15 @@ const core = createPulseVaultCore({
     // Only the video is attached: its manifest and thumbnail are separate
     // artifacts, found from the video at read time.
     if (ctx.kind !== 'video') return;
+    // Sent from Pulse in the app: its row says where it goes (pulse-upload-delivery.js).
+    const uploadId = ctx.context?.uploadId;
+    if (typeof uploadId === 'string') {
+      const sent = await deliverPulseUpload(uploadId, describeVideo(ctx));
+      await storeCaptionsId(ctx.artifactId);
+      await core.recordOutcome(ctx.artifactId, { ...sent, uploadId });
+      console.log('[pulsevault]', sent.state, ctx.artifactId, uploadId, sent.note ?? sent.reason);
+      return;
+    }
     const userId = ctx.context?.userId;
     const destination = destinationOf(ctx.context ?? {});
     if (!userId || !destination) {
@@ -355,9 +381,15 @@ const core = createPulseVaultCore({
     await core.recordOutcome(ctx.artifactId, outcome);
     console.log('[pulsevault]', outcome.state, ctx.artifactId, outcome.note ?? outcome.reason);
   },
-  onArtifactEvent: (event) => {
+  onArtifactEvent: async (event) => {
     if (event.phase === 'processed' && event.webReady?.action !== 'none') {
       console.log('[pulsevault] web-ready', event.artifactId, event.webReady);
+    }
+    // A Pulse-in-the-app row follows its video: bytes in, or the upload abandoned.
+    try {
+      await pulseArtifactEvent(event);
+    } catch (err) {
+      console.error('[pulsevault] pulseUploads did not follow', event.phase, event.artifactId, err);
     }
   },
 });
@@ -496,6 +528,27 @@ function mintUploadToken(artifactId, context, ref) {
     context,
     ...(ref ? { ref } : {}),
   });
+}
+
+/** How long a Pulse-in-the-app upload token lives: a long video on a slow network finishes under one. */
+export const PULSE_UPLOAD_TOKEN_SECONDS = 2 * 60 * 60;
+
+/**
+ * The capability token for one `pulseUploads` row's artifact, and when it
+ * expires (ms). Its context is only who and which row: everything else is
+ * read from the row, so the token stays far under PulseVault's context cap,
+ * and a row that is cancelled refuses its token at once (authorize). No
+ * `ref`: that is for pairing links.
+ */
+export function mintPulseUploadToken(artifactId, uploadId, userId) {
+  const expiresAt = Date.now() + PULSE_UPLOAD_TOKEN_SECONDS * 1000;
+  const token = issueCapabilityToken(artifactId, CAPABILITY_SECRET, {
+    keyId: CAPABILITY_KEY_ID,
+    issuer: ISSUER,
+    expirySeconds: PULSE_UPLOAD_TOKEN_SECONDS,
+    context: { userId, uploadId },
+  });
+  return { token, expiresAt };
 }
 
 /**
