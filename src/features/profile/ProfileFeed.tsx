@@ -9,6 +9,7 @@ import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
 import { pulseArtifactId } from '../pulse-upload/artifact';
+import { CAPTIONS_CROSS_ORIGIN, trackProps } from '../pulse-upload/captions';
 import { usePoster } from '../pulse-upload/PulseVideoPlayer';
 import { isVideoFile, uploadVideoTo, VIDEO_FILE_ACCEPT } from '../pulse-upload/videoFile';
 
@@ -21,6 +22,29 @@ const VideoTileIcon: React.FC = () => (
     <FontAwesomeIcon icon={faFileVideo} className="text-4xl" />
   </div>
 );
+
+/**
+ * A library video, playing, with its captions when it has some (captions.ts).
+ * Keyed by the captions, so the video's CORS mode, set only with a track, is
+ * there before it loads.
+ */
+const MediaVideo: React.FC<{ item: MediaItem }> = ({ item }) => {
+  const track = trackProps(item.captionsUrl);
+  return (
+    <video
+      key={track?.src ?? ''}
+      src={item.url}
+      crossOrigin={track ? CAPTIONS_CROSS_ORIGIN : undefined}
+      controls
+      autoPlay
+      playsInline
+      className="h-full w-full object-contain"
+      aria-label={item.title ?? 'Video preview'}
+    >
+      {track && <track {...track} />}
+    </video>
+  );
+};
 
 /**
  * A PulseVault video's poster, as its cards show it. Whole, not cropped: a
@@ -281,14 +305,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
         >
           <div className="flex h-full min-h-0 items-center justify-center bg-black">
             {selectedItem.type === 'video' ? (
-              <video
-                src={selectedItem.url}
-                controls
-                autoPlay
-                playsInline
-                className="h-full w-full object-contain"
-                aria-label={selectedItem.title ?? 'Video preview'}
-              />
+              <MediaVideo item={selectedItem} />
             ) : (
               <img
                 src={selectedItem.url}

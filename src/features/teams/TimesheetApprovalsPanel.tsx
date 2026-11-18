@@ -31,6 +31,7 @@ import {
   ApiError,
   resolveMediaUrl,
   timesheetApprovalApi,
+  videoApi,
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -159,6 +160,29 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   const [watching, setWatching] = useState(false);
   // Closed for each request the window shows.
   useEffect(() => setWatching(false), [active?.id]);
+  // The walkthrough's captions. A request doesn't carry them, so they're looked
+  // up as the video's own page does (`videos.publicInfo`), once per walkthrough
+  // and before its ▶ is likely tapped; until then, and if that fails, it plays
+  // without.
+  const [walkthroughCaptions, setWalkthroughCaptions] = useState<{
+    video: string;
+    url: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!walkthroughVideo) return;
+    let current = true;
+    videoApi.publicInfo(walkthroughVideo).then(
+      (info) =>
+        current &&
+        setWalkthroughCaptions({ video: walkthroughVideo, url: info.captionsUrl ?? null }),
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [walkthroughVideo]);
+  const walkthroughCaptionsUrl =
+    walkthroughCaptions?.video === walkthroughVideo ? walkthroughCaptions.url : null;
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -549,7 +573,13 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
 
       {walkthroughVideo && (
         <VideoFeedView
-          videos={[{ id: walkthroughVideo, name: active?.videoName ?? null }]}
+          videos={[
+            {
+              id: walkthroughVideo,
+              name: active?.videoName ?? null,
+              captionsUrl: walkthroughCaptionsUrl,
+            },
+          ]}
           openId={watching ? walkthroughVideo : null}
           onClose={() => setWatching(false)}
         />

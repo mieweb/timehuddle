@@ -112,6 +112,7 @@ function postMedia(post: HuddlePost): SuperChatMediaAttachment[] {
           src: resolveMediaUrl(artifactPath(video)),
           poster: resolveMediaUrl(posterPath(video)),
           ...(name ? { title: name } : {}),
+          ...(att.captionsUrl ? { captionsUrl: att.captionsUrl } : {}),
           caption,
         },
       ];
