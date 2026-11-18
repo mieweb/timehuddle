@@ -10,7 +10,13 @@ import { Meteor } from 'meteor/meteor';
 
 import { requireIdentity } from './auth-bridge.js';
 import { rawDb } from './collections.js';
-import { artifactBelongsTo, artifactUploader, videoArtifactExists, videoArtifactStatus } from './pulsevault.js';
+import {
+  artifactBelongsTo,
+  artifactUploader,
+  captionsIdFor,
+  videoArtifactExists,
+  videoArtifactStatus,
+} from './pulsevault.js';
 import {
   ANY_ORIGIN,
   CANONICAL_ITEM,
@@ -97,16 +103,19 @@ async function viewerOf(methodContext) {
 Meteor.methods({
   /**
    * What a video's watch page (`/watch/:videoId`) shows, to anyone with its
-   * link — playback itself is public. Its name and when it was added; who
-   * added it only to someone signed in, since a shared link can travel
-   * outside the team. Not found when PulseVault has no such video.
+   * link — playback itself is public. Its name, when it was added and its
+   * captions; who added it only to someone signed in, since a shared link can
+   * travel outside the team. Not found when PulseVault has no such video.
    */
   async 'videos.publicInfo'({ videoId } = {}) {
     const id = videoIdOf(`/pulsevault/artifacts/${videoId}`);
     if (!id) throw new Meteor.Error('not-found', 'Video not found');
     const item = await rawDb()
       .collection('mediaitems')
-      .findOne({ videoid: id }, { projection: { title: 1, userId: 1, uploadedAt: 1 }, ...CANONICAL_ITEM });
+      .findOne(
+        { videoid: id },
+        { projection: { title: 1, userId: 1, uploadedAt: 1, captionsId: 1 }, ...CANONICAL_ITEM }
+      );
     if (!item && !(await videoArtifactExists(id))) {
       throw new Meteor.Error('not-found', 'Video not found');
     }
@@ -122,7 +131,10 @@ Meteor.methods({
       userId: viewer?.userId,
       uploadedByUser: viewer && !item ? await artifactBelongsTo(id, viewer.userId) : false,
     });
-    return publicVideoInfo({ id, item, viewerId: viewer?.userId, owner, canRename });
+    // Looked up now for a video with no item, or one the backfill hasn't reached.
+    const captionsId =
+      item?.captionsId !== undefined ? item.captionsId : await captionsIdFor(id).catch(() => null);
+    return publicVideoInfo({ id, item, viewerId: viewer?.userId, owner, canRename, captionsId });
   },
 
   /**

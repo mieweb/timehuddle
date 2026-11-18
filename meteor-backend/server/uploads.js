@@ -9,6 +9,7 @@ import { discardVideo, removeVideoArtifacts } from './pulsevault';
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from './media-library-core.js';
 import { keepForReference, markUnusedUploads, uploadUseQueries } from './post-attachments-core.js';
+import { captionsUrlOf } from './pulse-captions-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -745,6 +746,8 @@ function toPublicMediaItem(m, names = new Map()) {
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
+    // A Pulse video's captions (pulse-captions-core.js), null when it has none or none known yet.
+    captionsUrl: captionsUrlOf(m),
     // A video named before it had a media item has no known upload time.
     uploadedAt:
       m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : m.uploadedAt ? String(m.uploadedAt) : null,

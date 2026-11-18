@@ -126,6 +126,7 @@ describe('publicVideoInfo', () => {
       addedAt: item.uploadedAt,
       author: null,
       canRename: false,
+      captionsUrl: null,
     });
   });
 
@@ -143,6 +144,33 @@ describe('publicVideoInfo', () => {
       addedAt: null,
       author: null,
     });
+  });
+
+  it("carries the video's captions, to anyone with the link", () => {
+    const CAPTIONS = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    const captioned = { ...item, captionsId: CAPTIONS };
+    expect(publicVideoInfo({ id: ID, item: captioned, viewerId: null, owner }).captionsUrl).toBe(
+      `/pulsevault/artifacts/${CAPTIONS}`,
+    );
+    expect(publicVideoInfo({ id: ID, item: captioned, viewerId: 'u2', owner }).captionsUrl).toBe(
+      `/pulsevault/artifacts/${CAPTIONS}`,
+    );
+  });
+
+  it('carries captions looked up for a video without a media item, or one not yet backfilled', () => {
+    const CAPTIONS = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    expect(publicVideoInfo({ id: ID, item: null, viewerId: null, owner: null, captionsId: CAPTIONS }).captionsUrl).toBe(
+      `/pulsevault/artifacts/${CAPTIONS}`,
+    );
+    expect(publicVideoInfo({ id: ID, item, viewerId: null, owner, captionsId: CAPTIONS }).captionsUrl).toBe(
+      `/pulsevault/artifacts/${CAPTIONS}`,
+    );
+  });
+
+  it('has a null captionsUrl for a video with none, or none known', () => {
+    expect(publicVideoInfo({ id: ID, item: { ...item, captionsId: null }, viewerId: null, owner }).captionsUrl).toBeNull();
+    expect(publicVideoInfo({ id: ID, item, viewerId: null, owner }).captionsUrl).toBeNull();
+    expect(publicVideoInfo({ id: ID, item: null, viewerId: null, owner: null }).captionsUrl).toBeNull();
   });
 });
 

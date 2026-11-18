@@ -55,6 +55,7 @@ import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+import './pulse-captions';
 import { createCorsMiddleware, createOriginPolicy } from './pulse-cors-core.js';
 import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)

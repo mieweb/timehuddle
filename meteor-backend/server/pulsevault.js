@@ -40,6 +40,7 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
+import { captionsIdOf, captionsUrlOf } from './pulse-captions-core.js';
 import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { createPulseReserve, PULSE_RESERVE_LIMIT, TOO_MANY_RESERVES } from './pulse-reserve-core.js';
@@ -114,6 +115,34 @@ export async function videoArtifactStatus(artifactId) {
 /** Whether PulseVault holds a video by this id (an upload under way counts). */
 export async function videoArtifactExists(artifactId) {
   return (await videoArtifactStatus(artifactId)) !== null;
+}
+
+/**
+ * The id of a video's captions artifact (a finished `.vtt` `relatedTo` it, see
+ * captionsIdOf), else null — also for an id that isn't a video's. Throws when
+ * PulseVault's storage can't be read, so a caller can tell "none" from "don't
+ * know". Waits for the storage to be ready, for a caller at startup.
+ */
+export async function captionsIdFor(videoId) {
+  await storageReady;
+  return captionsIdOf(await core.getPulse(videoId));
+}
+
+/**
+ * Record on a video's media items which captions it has (`captionsId`: the
+ * artifact's id, or null for none), for every API that returns the video to
+ * give its `captionsUrl`. Best-effort: when the lookup fails the field stays
+ * unset, and the startup backfill (pulse-captions.js) tries again.
+ */
+export async function storeCaptionsId(videoId) {
+  try {
+    const captionsId = await captionsIdFor(videoId);
+    await rawDb().collection('mediaitems').updateMany({ videoid: videoId }, { $set: { captionsId } });
+    return captionsId;
+  } catch (err) {
+    console.error(`[pulsevault] looking up captions of ${videoId} failed:`, err);
+    return undefined;
+  }
 }
 
 /**
@@ -235,6 +264,12 @@ function describeVideo({ artifactId, ext, size, name, webReady }) {
 
 const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
 
+/** Resolves once `storage.initialize()` has run at startup (see captionsIdFor). */
+let storageIsReady;
+const storageReady = new Promise((resolve) => {
+  storageIsReady = resolve;
+});
+
 const core = createPulseVaultCore({
   storage,
   basePath: '/pulsevault',
@@ -295,8 +330,15 @@ const core = createPulseVaultCore({
   validatePayload: createVideoValidator(),
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind, ctx.replay ? '(replay)' : '');
-    // Only the video is attached: its captions, manifest and thumbnail are
-    // separate artifacts, found from the video at read time.
+    // Pulse sends a video's captions before the video, so the video's own
+    // completion finds them (below). Captions that finish after it (a retry)
+    // are recorded on its media item now.
+    if (ctx.kind === 'captions' && ctx.relatedTo) {
+      await storeCaptionsId(ctx.relatedTo);
+      return;
+    }
+    // Only the video is attached: its manifest and thumbnail are separate
+    // artifacts, found from the video at read time.
     if (ctx.kind !== 'video') return;
     const userId = ctx.context?.userId;
     const destination = destinationOf(ctx.context ?? {});
@@ -308,6 +350,8 @@ const core = createPulseVaultCore({
     // `kept` when the destination is gone for good; anything else throws, so
     // PulseVault replays the completion.
     const outcome = await deliverPulseVideo(userId, destination, describeVideo(ctx));
+    // On the media item delivery made, for every API that returns the video.
+    await storeCaptionsId(ctx.artifactId);
     await core.recordOutcome(ctx.artifactId, outcome);
     console.log('[pulsevault]', outcome.state, ctx.artifactId, outcome.note ?? outcome.reason);
   },
@@ -431,6 +475,7 @@ Wormhole.use({
 
 Meteor.startup(async () => {
   await storage.initialize();
+  storageIsReady();
   // Completions that never finished (the attach threw, or the server restarted
   // between the final byte and the attach) are delivered now, and every five
   // minutes after.
@@ -510,6 +555,7 @@ Meteor.methods({
       size: doc.size ?? 0,
       thumbnail: doc.thumbnail ?? null,
       uploadedAt: doc.uploadedAt ?? null,
+      captionsUrl: captionsUrlOf(doc),
     };
   },
 
@@ -540,6 +586,7 @@ Meteor.methods({
         size: doc.size ?? 0,
         thumbnail: doc.thumbnail ?? null,
         uploadedAt: doc.uploadedAt ?? null,
+        captionsUrl: captionsUrlOf(doc),
       })),
     };
   },
