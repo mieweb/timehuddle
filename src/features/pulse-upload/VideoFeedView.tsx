@@ -232,17 +232,22 @@ function FeedPlayerVideo({
     [captioned],
   );
 
+  // A Play request (a tap on a card's ▶) is handled once, by the active item.
+  const handledRequest = useRef<string | number | undefined>(undefined);
+
   // Only the active item plays: it starts on its own when the feed autoplays,
-  // and stops when another item takes over.
+  // and stops when another item takes over. A Play request not yet handled
+  // starts it below instead, so it isn't started twice (as MediaFeed's own
+  // player leaves autoplay to a pending request).
   useEffect(() => {
     const el = element.current;
     if (!el) return;
-    if (active && autoPlay) play(el);
+    const requestPending =
+      playbackRequestId !== undefined && playbackRequestId !== handledRequest.current;
+    if (active && autoPlay && !requestPending) play(el);
     else if (!active) el.pause();
-  }, [active, autoPlay]);
+  }, [active, autoPlay, playbackRequestId]);
 
-  // A Play request (a tap on a card's ▶) is handled once, by the active item.
-  const handledRequest = useRef<string | number | undefined>(undefined);
   useEffect(() => {
     if (!active || playbackRequestId === undefined || playbackRequestId === handledRequest.current)
       return;

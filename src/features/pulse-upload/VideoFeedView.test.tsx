@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React, { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { VideoFeedView, type FeedVideo } from './VideoFeedView';
+import { FeedPlayer, VideoFeedView, type FeedPlayerContext, type FeedVideo } from './VideoFeedView';
 
 vi.mock('@lib/api', () => ({
   resolveMediaUrl: (path: string) => path,
@@ -188,5 +188,67 @@ describe('VideoFeedView captions', () => {
       />,
     );
     expect(document.querySelector('track')).toBeNull();
+  });
+});
+
+describe('FeedPlayer', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const CAPTIONS_URL = '/pulsevault/artifacts/7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const MEDIA = { kind: 'video', src: `/pulsevault/artifacts/${FIRST}` } as const;
+  const context = (over: Partial<FeedPlayerContext>): FeedPlayerContext => ({
+    active: true,
+    autoPlay: false,
+    muted: false,
+    loop: false,
+    playbackRequestId: undefined,
+    ...over,
+  });
+  const spies = () => ({
+    play: vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined),
+    pause: vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}),
+  });
+
+  it('starts once when the feed both autoplays and asks it to play', () => {
+    const { play } = spies();
+    render(
+      <FeedPlayer
+        media={MEDIA}
+        context={context({ autoPlay: true, playbackRequestId: 'open' })}
+        captionsUrl={CAPTIONS_URL}
+      />,
+    );
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles each Play request once, and a new one again', () => {
+    const { play } = spies();
+    const { rerender } = render(
+      <FeedPlayer media={MEDIA} context={context({ playbackRequestId: 1 })} />,
+    );
+    rerender(<FeedPlayer media={MEDIA} context={context({ playbackRequestId: 1 })} />);
+    expect(play).toHaveBeenCalledTimes(1);
+    rerender(<FeedPlayer media={MEDIA} context={context({ playbackRequestId: 2 })} />);
+    expect(play).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses when another item takes over', () => {
+    const { pause } = spies();
+    const { container, rerender } = render(
+      <FeedPlayer media={MEDIA} context={context({ autoPlay: true })} captionsUrl={CAPTIONS_URL} />,
+    );
+    const video = container.querySelector('video');
+    pause.mockClear();
+    rerender(
+      <FeedPlayer
+        media={MEDIA}
+        context={context({ active: false, autoPlay: true })}
+        captionsUrl={CAPTIONS_URL}
+      />,
+    );
+    expect(pause.mock.contexts).toContain(video);
   });
 });
