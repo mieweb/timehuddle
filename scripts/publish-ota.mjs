@@ -20,6 +20,13 @@
  * native API older shells lack). Shells below it keep getting the newest bundle
  * published at a floor they meet. Omit it to keep the floor already in force;
  * it carries over to every later bundle, like --min-version.
+ *
+ * Once a floor is in force, --min-version (and ota-min-version.mjs) reaches only
+ * shells at the newest floor whose running bundle sends its native build to
+ * /ota/latest; the rest are never gated onto a bundle they cannot run. To
+ * replace a bad bundle an older floor still serves, publish a fix with
+ * --native-floor set to that floor, then pass the higher floor again on the
+ * next publish.
  */
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
