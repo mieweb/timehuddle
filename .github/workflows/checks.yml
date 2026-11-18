@@ -71,11 +71,12 @@ jobs:
         working-directory: meteor-backend
         run: npm run test:unit
 
-  # The backend tests that need a running server (every tests/*.test.ts that
-  # imports ./helpers or mongodb): the same `meteor run` test backend people run
-  # locally on :3101, against its own timehuddle_test database. Opt-in for now:
-  # it runs on a PR labelled `backend-integration`, from the next push after the
-  # label is added.
+  # The whole backend vitest suite (vitest.config.ts: tests/**/*.test.ts), so
+  # the server-backed tests that import ./helpers or mongodb run too, against
+  # the same `meteor run` test backend people run locally on :3101 and its own
+  # timehuddle_test database. It also re-runs the tests backend-unit runs.
+  # Opt-in for now: it runs on a PR labelled `backend-integration`, from the
+  # next push after the label is added.
   backend-integration:
     name: Backend Integration Tests
     if: contains(github.event.pull_request.labels.*.name, 'backend-integration')
@@ -112,23 +113,42 @@ jobs:
         run: git submodule update --init vendor/meteor-wormhole
 
       # A service container can't be given mongod's --replSet, and Meteor tails
-      # the oplog of a replica set, as the local and preview backends do.
-      - name: Start MongoDB (single-node replica set)
+      # the oplog of a replica set. MongoDB 7.0, as the Dockerfile installs and
+      # main.yml pins: mongo:8 crashes on startup on ubuntu-latest runners
+      # (SERVER-121912, see main.yml).
+      - name: Start MongoDB 7.0 (single-node replica set)
         run: |
-          docker run -d --name mongo -p 27017:27017 mongo:8 --replSet rs0 --bind_ip_all
+          mongo_failed() {
+            echo "::error::$1"
+            docker logs mongo 2>&1 | tail -n 100 || true
+            exit 1
+          }
+          mongo_running() {
+            [ "$(docker inspect -f '{{.State.Running}}' mongo 2> /dev/null)" = "true" ]
+          }
+          docker run -d --name mongo -p 27017:27017 mongo:7.0 --replSet rs0 --bind_ip_all
+          ready=false
           for _ in $(seq 1 30); do
-            docker exec mongo mongosh --quiet --eval "db.adminCommand('ping').ok" > /dev/null 2>&1 && break
+            mongo_running || mongo_failed "The MongoDB container exited during startup"
+            if docker exec mongo mongosh --quiet --eval "db.adminCommand('ping').ok" > /dev/null 2>&1; then
+              ready=true
+              break
+            fi
             sleep 2
           done
+          [ "$ready" = true ] || mongo_failed "MongoDB did not answer a ping within 60s"
           docker exec mongo mongosh --quiet --eval \
-            "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
+            "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })" \
+            || mongo_failed "rs.initiate failed"
           for _ in $(seq 1 30); do
+            mongo_running || mongo_failed "The MongoDB container exited during replica set init"
             [ "$(docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary')" = "true" ] && exit 0
             sleep 1
           done
-          echo "::error::MongoDB replica set has no primary after 30s"
-          exit 1
+          mongo_failed "MongoDB replica set has no primary after 30s"
 
+      # Saved under this PR's ref, so it helps this PR's later runs only: other
+      # PRs can restore caches from main, and this job never runs on main.
       - name: Restore Meteor cache
         id: meteor-cache
         uses: actions/cache/restore@v4
@@ -160,10 +180,16 @@ jobs:
           echo $! > "$RUNNER_TEMP/meteor.pid"
           deadline=$((SECONDS + 600))
           # Only the app's own JSON answer counts: after a crash, `meteor run`
-          # keeps running and its proxy serves an error page with a 200.
+          # keeps running, waiting for a file change, and its proxy serves an
+          # error page. So a crash is caught from Meteor's own log line too.
           until curl -sf -m 10 "$METEOR_URL/health" 2> /dev/null | grep -q '"status":"ok"'; do
             if ! kill -0 "$(cat "$RUNNER_TEMP/meteor.pid")" 2> /dev/null; then
               echo "::error::The test backend exited before it was healthy"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            if grep -q 'Your application is crashing' "$RUNNER_TEMP/meteor.log"; then
+              echo "::error::The test backend crashed on startup"
               tail -n 200 "$RUNNER_TEMP/meteor.log"
               exit 1
             fi
