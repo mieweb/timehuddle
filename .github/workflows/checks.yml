@@ -300,6 +300,19 @@ jobs:
       - name: Patch Package.swift for CapgoCapacitorUpdater transitive SPM deps
         run: python3 scripts/patch-ios-spm.py
 
+      - name: Cache SwiftPM packages
+        # Xcode resolves SwiftPM packages into DerivedData/<project>/SourcePackages and keeps clones
+        # in ~/Library/Caches/org.swift.swiftpm. Keyed on the generated Package.swift (after the
+        # patch above) and Package.resolved, so a dependency change starts a fresh cache.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-checks-${{ runner.os }}-${{ hashFiles('ios/App/CapApp-SPM/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-checks-${{ runner.os }}-
+
       - name: Build for simulator
         run: |
           xcodebuild \
