@@ -3,8 +3,9 @@
  *
  *   POST /ota/check?channel=<channel>          → update descriptor for a device
  *   GET  /ota/latest?channel=<channel>[&nativeBuild=<native version>]
- *                                              → current bundle metadata (latest.json), or
- *                                                with nativeBuild the newest that shell can run
+ *                                              → metadata of the newest bundle that shell can
+ *                                                run (latest.json until a floor is published;
+ *                                                without nativeBuild, the newest floor-free one)
  *   GET  /ota/bundles/<channel>/<version>.zip  → bundle download
  *   POST /ota/publish?channel=&version=[&minVersion=][&nativeFloor=]
  *                                              → publish a bundle (Bearer token)
@@ -19,6 +20,15 @@
  * and /ota/check offers a device the newest bundle whose floor is at or below
  * its native build (ota-floors-core.js). Until a floor is published, every
  * answer is what it was before floors existed.
+ *
+ * After a floor is published the kill switch narrows. /ota/min-version
+ * rewrites latest.json only, so it reaches shells at the newest floor, and only
+ * through a forced-update gate that sends nativeBuild to /ota/latest; a gate
+ * that does not is answered as the oldest shell, so it is never handed a
+ * bundle its shell cannot run. A bad bundle that an older floor serves from
+ * floors/<floor>.json is replaced only by a new publish at that floor, which
+ * moves the floor in force down: pass the higher --native-floor again on the
+ * publish after it.
  *
  * Layout on disk (OTA_DIR, default data/ota):
  *   <channel>/latest.json            { version, file, checksum, size, publishedAt, minVersion, nativeFloor }
@@ -35,9 +45,9 @@ import fsp from 'fs/promises';
 import path from 'path';
 import {
   checkAnswer,
-  compatibleManifest,
   floorFileName,
   floorFromFileName,
+  latestAnswer,
   publishPlan,
 } from './ota-floors-core';
 import { persistentDir } from './storage-paths';
@@ -214,12 +224,16 @@ WebApp.connectHandlers.use('/ota/latest', async (req, res) => {
     return;
   }
 
-  // With the shell's native build, answer with the newest bundle it can run,
-  // so the forced-update gate never pulls a bundle above the shell's floor.
-  const nativeBuild = queryOf(req).get('nativeBuild');
+  // The newest bundle the caller's shell can run, so the forced-update gate
+  // never pulls a bundle above the shell's floor. A caller that does not send
+  // its native build is answered as the oldest shell (ota-floors-core.js).
   let latest = await readLatest(channel);
-  if (latest && nativeBuild !== null) {
-    latest = compatibleManifest(latest, await readFloors(channel), nativeBuild);
+  if (latest) {
+    latest = latestAnswer({
+      latest,
+      floors: await readFloors(channel),
+      nativeBuild: queryOf(req).get('nativeBuild'),
+    });
   }
   if (!latest) {
     sendJson(res, 404, { error: 'no_bundle', message: 'No bundle published for this channel' });

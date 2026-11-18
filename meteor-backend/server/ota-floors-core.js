@@ -63,6 +63,25 @@ export function compatibleManifest(latest, floors, nativeBuild) {
 }
 
 /**
+ * The /ota/latest answer: the manifest the forced-update gate (src/lib/ota.ts)
+ * compares its running bundle with, or null when there is none.
+ *
+ * With `nativeBuild` it is the newest bundle that shell can run. Without one it
+ * is the newest floor-free bundle: the gate force-downloads whatever this
+ * answers once the running bundle is below its minVersion, and a caller that
+ * does not say which shell it runs in may be an old one. Every bundle built
+ * before the gate sent its native build is such a caller, old shells included,
+ * so this must hold however the client changes. With no floor published the
+ * answer is latest.json, exactly as before floors.
+ *
+ * The cost of the safe default: once a floor is published, minVersion on
+ * latest.json reaches only callers that send their native build.
+ */
+export function latestAnswer({ latest, floors, nativeBuild }) {
+  return compatibleManifest(latest, floors, nativeBuild || NO_FLOOR);
+}
+
+/**
  * The /ota/check answer: the update descriptor, or null for "up to date".
  *
  * `device` is the capgo plugin's device info. `bundleUrl(file)` builds the

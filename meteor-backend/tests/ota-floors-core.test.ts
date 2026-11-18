@@ -12,6 +12,7 @@ import {
   floorFileName,
   floorFromFileName,
   isValidFloor,
+  latestAnswer,
   publishPlan,
 } from '../server/ota-floors-core';
 
@@ -292,6 +293,60 @@ describe('publishPlan', () => {
     });
     expect(old?.version).toBe('1.5.0');
     expect(fresh?.version).toBe('1.6.0');
+  });
+});
+
+describe('latestAnswer (GET /ota/latest, read by the forced-update gate)', () => {
+  /** The gate's decision in src/lib/ota.ts: force this download, or let the user in. */
+  function gate(manifest: Manifest | null, running: string) {
+    if (!manifest?.minVersion || !isNewer(manifest.minVersion, running)) return null;
+    return manifest.version;
+  }
+
+  // A floor published together with a gate above what old shells are running.
+  const previous = bundle('1.5.0');
+  const plan = planned({
+    previous,
+    manifest: bundle('1.6.0', { minVersion: '1.6.0' }),
+    requestedFloor: '1.2.0',
+  });
+  const floors = plan.floorWrites.map((write) => write.manifest);
+
+  it('is latest.json, as before floors, when no floor is published', () => {
+    const latest = bundle('1.0.5', { minVersion: '1.0.4' });
+    for (const nativeBuild of [null, undefined, '', '1.0.0', '9.9.9']) {
+      expect(latestAnswer({ latest, floors: [], nativeBuild })).toBe(latest);
+    }
+  });
+
+  it('never gates a caller that sends no native build onto a floored bundle', () => {
+    for (const nativeBuild of [null, undefined, '']) {
+      const answer = latestAnswer({ latest: plan.latest, floors, nativeBuild });
+      expect(answer?.version).toBe('1.5.0');
+      expect(answer?.minVersion).toBeUndefined();
+      // An old shell still running 1.5.0 is let in, not sent to 1.6.0.
+      expect(gate(answer, '1.5.0')).toBeNull();
+    }
+  });
+
+  it('answers a shell below the floor with its newest compatible bundle', () => {
+    const answer = latestAnswer({ latest: plan.latest, floors, nativeBuild: '1.0.0' });
+    expect(answer?.version).toBe('1.5.0');
+    expect(gate(answer, '1.5.0')).toBeNull();
+  });
+
+  it('keeps the kill switch for a shell at the floor that sends its native build', () => {
+    const answer = latestAnswer({ latest: plan.latest, floors, nativeBuild: '1.2.0' });
+    expect(answer).toBe(plan.latest);
+    expect(gate(answer, '1.5.0')).toBe('1.6.0');
+  });
+
+  it('has nothing for an unreported shell when every bundle carries a floor', () => {
+    const first = planned({ previous: null, manifest: bundle('1.6.0'), requestedFloor: '1.2.0' });
+    const firstFloors = first.floorWrites.map((write) => write.manifest);
+    expect(latestAnswer({ latest: first.latest, floors: firstFloors, nativeBuild: null })).toBe(
+      null,
+    );
   });
 });
 
