@@ -12,7 +12,14 @@
  *    over, whatever clientKey that Send ended up with.
  *  - `clientKey` = `<draftKey>:<16 hex>`, one export of that draft. A begin
  *    with the same one is a retry and gets the same artifact; a new one
- *    (after an Edit) replaces the row's artifact.
+ *    (after an Edit) replaces the row's artifact and retires the old key
+ *    (`replacedClientKeys`), so a late begin, cancel or token call for the
+ *    older export changes nothing.
+ *
+ * One row per draftKey, whose clientKey moves to each new export. The
+ * contract (huddle-server §3.2) has a row per clientKey, with the newer
+ * cancelling the older; the draft's row here is the same record without the
+ * extra rows, and `replacedClientKeys` keeps the older exports from acting.
  *
  * Time never abandons a row (O14): 24 h after Send it is only overdue, and a
  * video that arrives later still attaches. A row is abandoned when its draft
@@ -92,15 +99,13 @@ export function draftKeyOf(clientKey) {
 /** How far back a Send may be: receipts are kept 7 days (Q5). */
 export const MAX_SEND_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** How far ahead of the server a phone's clock may run and still read as now. */
-export const MAX_SEND_SKEW_MS = 30 * 1000;
-
 /**
  * When a video was sent, as the server files it: the phone's `sentAt` (ms),
- * held to the last 7 days. A time in the future is a fast clock, taken as
- * `now` (up to 30 s ahead, as clock calls take one; further ahead is no time
- * at all, also `now`). Not a number: `now`. The worst a wrong clock can do is
- * file a video into another workday of the same team, and this bounds it.
+ * held to the last 7 days. Any time in the future reads as `now`: a phone a
+ * few seconds fast and one hours fast both get the server's time, so there is
+ * no separate "30 s ahead" bound to keep. Not a number: `now`. The worst a
+ * wrong clock can do is file a video into another workday of the same team,
+ * and this bounds it.
  */
 export function sendTime(sentAt, now) {
   if (typeof sentAt !== 'number' || !Number.isFinite(sentAt) || sentAt > now) return now;
@@ -133,7 +138,48 @@ export const PULSE_UPLOAD_REFUSALS = Object.freeze({
   otherTarget: { error: 'conflict', reason: 'That video is already being sent somewhere else' },
   clockBound: { error: 'conflict', reason: 'That video belongs to its clock action' },
   uploaded: { error: 'conflict', reason: 'That video has already been uploaded' },
+  superseded: { error: 'conflict', reason: 'A newer send of that video replaced this one' },
+  sentWithoutClock: { error: 'conflict', reason: 'That video is already being sent without its clock action' },
 });
+
+/** Whether `row` retired `clientKey`: an Edit's newer clientKey took the row from it. */
+const retiredKey = (row, clientKey) => (row.replacedClientKeys ?? []).includes(clientKey);
+
+/**
+ * Whether a cancel or token call naming `clientKey` is about an attempt
+ * `row` has moved past, so it must change nothing: a key the row retired
+ * (`replacedClientKeys`), or, once the row has adopted one, any key but its
+ * own. A late release of the pre-Edit export lands here, since every attempt
+ * of a draft shares one uploadId. An `intent` row takes any key it hasn't
+ * retired (the next begin adopts it), and a call with no `clientKey` (by
+ * uploadId alone) is never stale.
+ */
+export function isStaleAttempt(row, clientKey) {
+  if (!row || clientKey == null) return false;
+  if (retiredKey(row, clientKey)) return true;
+  return row.state !== 'intent' && row.clientKey != null && row.clientKey !== clientKey;
+}
+
+/**
+ * Whether a row and a begin's arguments name the same place: the same type
+ * and key and, for a key that groups several places (huddle.post's
+ * `huddle:<teamId>` holds every conversation of the team, Q14), the same
+ * normalised target too. A stored target that no longer normalises is
+ * matched by key alone.
+ */
+function samePlace(row, args) {
+  if (row.type !== args.type || row.targetKey !== args.targetKey) return false;
+  const stored = row.target == null ? null : normalizeTarget(row.type, row.target);
+  if (!stored || !args.target) return true;
+  return placeSignature(stored) === placeSignature(args.target);
+}
+
+const placeSignature = (target) =>
+  JSON.stringify(
+    Object.keys(target)
+      .sort()
+      .map((key) => [key, target[key]]),
+  );
 
 const badRequest = (reason) => ({ error: 'bad-request', reason });
 
@@ -229,6 +275,10 @@ function isClockBound(row) {
  *       state, and Pulse retires the draft.
  *  - `mintArtifact`: a new artifactId for the row; `retireArtifactId` (if
  *    any) moves to `replacedArtifactIds` and is removed from PulseVault.
+ *  - `retireClientKey`: the row's clientKey this begin replaces (an Edit's
+ *    new export), pushed to `replacedClientKeys`. A later begin, cancel or
+ *    token call naming it changes nothing (isStaleAttempt): the row keeps one
+ *    current attempt, so a delayed call for an older one can't undo a newer.
  *  - For every action but `reuse` and `returnOutcome`, the row takes `args`'
  *    clientKey, type, target and targetKey, `state`, `sentAt` and `fallback`.
  *    `resolveSendContext`: `sentAt` is new, so the session (and conversation)
@@ -245,9 +295,7 @@ export function beginDecision(rows, args) {
   if (tooLarge) return refusal('refuse', tooLarge);
 
   const sameKey = rows.find((row) => row.clientKey === args.clientKey) ?? null;
-  if (sameKey && (sameKey.type !== args.type || sameKey.targetKey !== args.targetKey)) {
-    return refusal('conflict', PULSE_UPLOAD_REFUSALS.otherTarget);
-  }
+  if (sameKey && !samePlace(sameKey, args)) return refusal('conflict', PULSE_UPLOAD_REFUSALS.otherTarget);
   // The row this begin acts on: a video that landed wins (a draft is sent
   // once, Q15), then this very attempt, then the draft's latest one under way.
   const current =
@@ -277,9 +325,15 @@ export function beginDecision(rows, args) {
 
   if (OUTCOME.has(current.state)) return decision('returnOutcome', current, args, { cancel });
 
+  // A late or replayed begin of an export an Edit replaced: never turn the
+  // row back to it, which would retire the newer export's artifact.
+  if (!sameKey && rows.some((row) => retiredKey(row, args.clientKey))) {
+    return refusal('conflict', PULSE_UPLOAD_REFUSALS.superseded);
+  }
+
   // Everything about the row stays but its artifact.
   const kept = { cancel, sentAt: current.sentAt, deliverAs: deliverAsOf(current), fallback: current.fallback ?? null };
-  const moved = current.type !== args.type || current.targetKey !== args.targetKey;
+  const moved = !samePlace(current, args);
   if (isClockBound(current)) {
     // Its clock action ran for that place: the video can't go anywhere else (O13).
     if (moved) return refusal('conflict', PULSE_UPLOAD_REFUSALS.clockBound);
@@ -322,6 +376,7 @@ export function beginDecision(rows, args) {
  * @property {string | null} [state]
  * @property {boolean} [mintArtifact]
  * @property {string | null} [retireArtifactId]
+ * @property {string | null} [retireClientKey]
  * @property {boolean} [resolveTarget]
  * @property {boolean} [resolveSendContext]
  * @property {any} [sentAt] ms for a new Send, else the row's own
@@ -346,13 +401,15 @@ function decision(
   { cancel, sentAt, resolveTarget = false, resolveSendContext = false, deliverAs, fallback = null },
 ) {
   const replaces = action === 'reissue' || action === 'renew';
+  const takesKey = action !== 'reuse' && action !== 'returnOutcome';
   const event = { type: 'begin', edited: !!row && row.clientKey !== args.clientKey, renew: action === 'renew' };
   return {
     action,
     row,
     state: nextState(row, event),
-    mintArtifact: action !== 'reuse' && action !== 'returnOutcome',
+    mintArtifact: takesKey,
     retireArtifactId: replaces ? (row.artifactId ?? null) : null,
+    retireClientKey: takesKey && row?.clientKey != null && row.clientKey !== args.clientKey ? row.clientKey : null,
     resolveTarget,
     resolveSendContext,
     sentAt: sentAt ?? row?.sentAt ?? null,
@@ -366,16 +423,41 @@ function decision(
  * What a clock call at Send (clock.stopWithVideo / clock.startWithPlan) does
  * with the caller's rows for its draftKey: `insert` an intent row,
  * `repeat` (the call already ran for this draft: return its first answer and
- * change nothing), or a refusal: too large (before any clock action, O15),
- * or a draft already sent somewhere else.
+ * change nothing), or a refusal: a type with no clock action (`bad-request`),
+ * too large (before any clock action, O15), a draft already sent somewhere
+ * else, or one a begin already sent without its clock action (its Send-time
+ * call never got through, so the video goes as the fallback type; `repeat`
+ * there would tell the caller a clock action ran that never did).
  */
 export function intentDecision(rows, { type, targetKey, bytes }) {
+  if (!isClockType(type)) return badRefusal('Not a clock upload type');
   const tooLarge = uploadSizeRefusal(type, bytes);
   if (tooLarge) return refusal('refuse', tooLarge);
   const row = rows.find((r) => isClockBound(r)) ?? newestOf(rows);
   if (!row) return { action: 'insert', state: nextState(null, { type: 'intent' }) };
   if (row.type !== type || row.targetKey !== targetKey) return refusal('conflict', PULSE_UPLOAD_REFUSALS.otherTarget);
+  if (!isClockBound(row)) return refusal('conflict', PULSE_UPLOAD_REFUSALS.sentWithoutClock);
   return { action: 'repeat', row };
+}
+
+function badRefusal(reason) {
+  return { action: 'refuse', ...badRequest(reason) };
+}
+
+/**
+ * What `pulseUploads.token` does for `row` (the caller's, found by
+ * uploadId) and the `clientKey` the call names, if any: `{ action: 'mint' }`
+ * for the row's current artifact, or `conflict` for a row that refuses
+ * uploads (canceled, abandoned; §5.2), one with no artifact yet (an intent, a
+ * refusal), or a clientKey the row moved past (isStaleAttempt), whose token
+ * would be for an artifact that isn't that export's.
+ */
+export function tokenDecision(row, { clientKey } = {}) {
+  if (isStaleAttempt(row, clientKey)) return refusal('conflict', PULSE_UPLOAD_REFUSALS.superseded);
+  if (REFUSES_UPLOADS.has(row.state) || !row.artifactId) {
+    return refusal('conflict', { error: 'conflict', reason: 'That upload is no longer open' });
+  }
+  return { action: 'mint' };
 }
 
 // ─── States ──────────────────────────────────────────────────────────────────
@@ -391,7 +473,8 @@ export function intentDecision(rows, { type, targetKey, bytes }) {
  *  - `authorize`: PulseVault authorized the video's upload.
  *  - `complete`: the video's bytes landed.
  *  - `deliver` (`outcome: 'done' | 'kept'`): onUploadComplete's delivery.
- *  - `cancel` (`reason: 'canceled' | 'edited' | 'deleted'`).
+ *  - `cancel` (`reason: 'canceled' | 'edited' | 'deleted'`; `clientKey`, when
+ *    the call names one: a stale one, isStaleAttempt, leaves the row as it is).
  *  - `artifactAbandoned`: PulseVault removed the unfinished upload.
  *  - `retarget`: a kept video delivered somewhere else.
  *  - `refused`: a begin-time refusal recorded for support.
@@ -426,6 +509,8 @@ export function nextState(row, event) {
       return null;
     }
     case 'cancel':
+      // A release of an export an Edit replaced: the newer one goes on.
+      if (isStaleAttempt(row, event.clientKey)) return from;
       if (CANCELLABLE.has(from) || from === 'canceled') return event.reason === 'deleted' ? 'abandoned' : 'canceled';
       // Bytes in, an outcome, or already given up: unchanged (§5.3).
       return from;
@@ -551,7 +636,9 @@ export const PULSE_ERROR_CODES = Object.freeze({
  * The Pulse code for a failed server call: `{ error?, status? }`, as a
  * Meteor.Error (`error`) or a Wormhole HTTP reply (`status`) gives it.
  * HTTP 401 is signed out; a network failure (no reply), 429 and 5xx are
- * `host.unavailable`.
+ * `host.unavailable`. A reply with a status and no known `error` reads by
+ * its status (PULSE_HTTP_STATUS_CODES), so a bare 403 or 404 is
+ * `destination.gone`, not a retry forever.
  */
 export function serverErrorToPulseCode(failure) {
   const status = typeof failure?.status === 'number' ? failure.status : null;
@@ -559,5 +646,17 @@ export function serverErrorToPulseCode(failure) {
   if (status === 429 || (status != null && status >= 500)) return 'host.unavailable';
   const code = failure?.error;
   if (typeof code === 'string' && Object.hasOwn(PULSE_ERROR_CODES, code)) return PULSE_ERROR_CODES[code];
+  if (status != null && Object.hasOwn(PULSE_HTTP_STATUS_CODES, status)) return PULSE_HTTP_STATUS_CODES[status];
   return 'host.unavailable';
 }
+
+/** The Pulse code for an HTTP reply that carries no Meteor `error`, by status. */
+export const PULSE_HTTP_STATUS_CODES = Object.freeze({
+  400: 'upload.refused',
+  403: 'destination.gone',
+  404: 'destination.gone',
+  409: 'upload.refused',
+  410: 'destination.gone',
+  413: 'upload.too_large',
+  422: 'upload.refused',
+});

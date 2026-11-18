@@ -14,6 +14,7 @@ import {
   isClientKey,
   isDraftKey,
   isOverdue,
+  isStaleAttempt,
   nextState,
   overdueQuery,
   PULSE_MAX_UPLOAD_BYTES,
@@ -23,6 +24,7 @@ import {
   sendContextRule,
   sendTime,
   serverErrorToPulseCode,
+  tokenDecision,
   uploadSizeRefusal,
 } from '../server/pulse-uploads-core';
 
@@ -490,6 +492,64 @@ describe('beginDecision', () => {
     expect(decision.cancel).toEqual([{ _id: older._id, reason: 'edited' }]);
   });
 
+  it("retires the replaced clientKey on an Edit and on an intent's adoption, never on a retry", () => {
+    expect(beginDecision([row({ state: 'uploading' })], begin({ clientKey: KEY_B })).retireClientKey).toBe(KEY_A);
+    const intent = wrapupIntent({ clientKey: KEY_A });
+    expect(beginDecision([intent], wrapupBegin({ clientKey: KEY_B })).retireClientKey).toBe(KEY_A);
+    expect(beginDecision([wrapupIntent()], wrapupBegin()).retireClientKey).toBeNull();
+    expect(beginDecision([row({ state: 'uploading' })], begin()).retireClientKey).toBeNull();
+    expect(beginDecision([row({ state: 'canceled' })], begin()).retireClientKey).toBeNull();
+    expect(beginDecision([row({ state: 'uploading' })], begin({ artifactGone: true })).retireClientKey).toBeNull();
+  });
+
+  it("refuses a late begin of the export an Edit replaced, keeping the newer one's artifact", () => {
+    // The row moved A → B; a delayed or replayed begin for A arrives after.
+    for (const state of ['reserved', 'uploading', 'canceled', 'failed']) {
+      const edited = row({
+        clientKey: KEY_B,
+        artifactId: 'art-B',
+        replacedArtifactIds: ['art-A'],
+        replacedClientKeys: [KEY_A],
+        state,
+      });
+      expect(beginDecision([edited], begin()), state).toEqual({
+        action: 'conflict',
+        error: 'conflict',
+        reason: 'A newer send of that video replaced this one',
+      });
+    }
+    // The newer export still goes on as it was.
+    const edited = row({ clientKey: KEY_B, artifactId: 'art-B', replacedClientKeys: [KEY_A], state: 'uploading' });
+    expect(beginDecision([edited], begin({ clientKey: KEY_B })).action).toBe('reuse');
+    // A landed video still reports its outcome, whichever export asks.
+    const done = row({ clientKey: KEY_B, replacedClientKeys: [KEY_A], state: 'delivered' });
+    expect(beginDecision([done], begin()).action).toBe('returnOutcome');
+    // A clock row the Edit moved on from refuses the old export too.
+    const adopted = wrapupIntent({ state: 'reserved', clientKey: KEY_B, artifactId: 'art-B', replacedClientKeys: [KEY_A] });
+    expect(beginDecision([adopted], wrapupBegin())).toMatchObject({ action: 'conflict', error: 'conflict' });
+  });
+
+  it('tells conversations of one team apart (Q14): same clientKey refuses, a new one moves and re-checks', () => {
+    const team = { kind: 'huddle', teamId: TEAM };
+    const posted = row({
+      type: 'huddle.post',
+      target: { ...team, conversationId: 'convA1' },
+      targetKey: `huddle:${TEAM.toLowerCase()}`,
+      state: 'uploading',
+    });
+    const sameConversation = begin({ type: 'huddle.post', target: { ...team, conversationId: 'convA1' } });
+    expect(beginDecision([posted], sameConversation).action).toBe('reuse');
+    const otherConversation = begin({ type: 'huddle.post', target: { ...team, conversationId: 'convB2' } });
+    expect(beginDecision([posted], otherConversation)).toMatchObject({ action: 'conflict', error: 'conflict' });
+    expect(beginDecision([posted], { ...otherConversation, clientKey: KEY_B })).toMatchObject({
+      action: 'reissue',
+      resolveTarget: true,
+      deliverAs: 'huddle.post',
+    });
+    // The team's own channel (no conversationId) is another place too.
+    expect(beginDecision([posted], begin({ type: 'huddle.post', target: team })).action).toBe('conflict');
+  });
+
   it('refuses a too-large video before anything else, row or not', () => {
     const tooLarge = begin({ bytes: PULSE_MAX_UPLOAD_BYTES + 1 });
     for (const rows of [[], [row({ state: 'reserved' })], [row({ state: 'delivered' })]]) {
@@ -520,6 +580,67 @@ describe('intentDecision', () => {
   it('refuses a draft already sent elsewhere, and a too-large video before any clock action', () => {
     expect(intentDecision([row()], wrapup)).toMatchObject({ action: 'conflict', error: 'conflict' });
     expect(intentDecision([], { ...wrapup, bytes: PULSE_MAX_UPLOAD_BYTES + 1 })).toMatchObject({ error: 'too-large' });
+  });
+
+  it('never repeats for a draft a begin already sent without its clock action', () => {
+    for (const state of ['reserved', 'uploading', 'failed']) {
+      const fallback = wrapupIntent({ state, clientKey: KEY_A, fallback: 'no-clock-action' });
+      expect(intentDecision([fallback], wrapup), state).toEqual({
+        action: 'conflict',
+        error: 'conflict',
+        reason: 'That video is already being sent without its clock action',
+      });
+    }
+  });
+
+  it('refuses a type with no clock action', () => {
+    for (const type of ['ticket.video', 'clock.session', 'huddle.post', 'library.video', 'nope']) {
+      expect(intentDecision([], { type, targetKey: `ticket:${TICKET}`, bytes: 1 }), type).toMatchObject({
+        action: 'refuse',
+        error: 'bad-request',
+      });
+    }
+  });
+});
+
+describe('stale attempts (an Edit moved the row to a newer clientKey)', () => {
+  const edited = () => row({ clientKey: KEY_B, replacedClientKeys: [KEY_A], state: 'uploading' });
+
+  it('reads which calls are about an older export', () => {
+    expect(isStaleAttempt(edited(), KEY_A)).toBe(true);
+    expect(isStaleAttempt(edited(), KEY_B)).toBe(false);
+    expect(isStaleAttempt(edited(), undefined)).toBe(false); // by uploadId alone
+    expect(isStaleAttempt(row({ clientKey: KEY_A }), KEY_B)).toBe(true);
+    // An intent takes whichever export comes, unless it retired that one.
+    expect(isStaleAttempt(wrapupIntent(), KEY_B)).toBe(false);
+    expect(isStaleAttempt(wrapupIntent({ clientKey: KEY_A }), KEY_B)).toBe(false);
+    expect(isStaleAttempt(wrapupIntent({ replacedClientKeys: [KEY_A] }), KEY_A)).toBe(true);
+    expect(isStaleAttempt(null, KEY_A)).toBe(false);
+  });
+
+  it("leaves the row as it is on a late release of the older export", () => {
+    for (const reason of ['canceled', 'edited', 'deleted']) {
+      for (const state of ['reserved', 'uploading']) {
+        const current = { ...edited(), state };
+        expect(nextState(current, { type: 'cancel', reason, clientKey: KEY_A }), `${state} ${reason}`).toBe(state);
+      }
+    }
+    expect(nextState(edited(), { type: 'cancel', reason: 'canceled', clientKey: KEY_B })).toBe('canceled');
+    expect(nextState(edited(), { type: 'cancel', reason: 'deleted' })).toBe('abandoned');
+    expect(nextState(wrapupIntent(), { type: 'cancel', reason: 'canceled', clientKey: KEY_B })).toBe('canceled');
+  });
+
+  it('mints a token only for the current export of an open row', () => {
+    expect(tokenDecision(edited(), { clientKey: KEY_B })).toEqual({ action: 'mint' });
+    expect(tokenDecision(edited())).toEqual({ action: 'mint' });
+    expect(tokenDecision(row({ state: 'processing' }))).toEqual({ action: 'mint' });
+    expect(tokenDecision(edited(), { clientKey: KEY_A })).toMatchObject({
+      action: 'conflict',
+      reason: 'A newer send of that video replaced this one',
+    });
+    for (const closed of [row({ state: 'canceled' }), row({ state: 'abandoned' }), wrapupIntent()]) {
+      expect(tokenDecision(closed), String(closed.state)).toMatchObject({ action: 'conflict', error: 'conflict' });
+    }
   });
 });
 
@@ -633,6 +754,15 @@ describe('serverErrorToPulseCode', () => {
     [{ status: 429, error: 'bad-request' }, 'host.unavailable'],
     [{ status: 502 }, 'host.unavailable'],
     [{ status: 404, error: 'not-found' }, 'destination.gone'],
+    [{ status: 403 }, 'destination.gone'],
+    [{ status: 404 }, 'destination.gone'],
+    [{ status: 410 }, 'destination.gone'],
+    [{ status: 400 }, 'upload.refused'],
+    [{ status: 409 }, 'upload.refused'],
+    [{ status: 422 }, 'upload.refused'],
+    [{ status: 413 }, 'upload.too_large'],
+    [{ status: 403, error: 'conflict' }, 'upload.refused'],
+    [{ status: 418 }, 'host.unavailable'],
     [{ error: 'constructor' }, 'host.unavailable'],
     [{ error: 'something-new' }, 'host.unavailable'],
     [null, 'host.unavailable'],
