@@ -2,7 +2,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React, { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FeedPlayer, VideoFeedView, type FeedPlayerContext, type FeedVideo } from './VideoFeedView';
+import type { MediaFeedRenderContext } from '@mieweb/ui';
+import type { SuperChatMediaAttachment, SuperChatMediaItem } from '@mieweb/ui/components/SuperChat';
+import {
+  FeedPlayer,
+  renderSuperChatMedia,
+  VideoFeedView,
+  type FeedPlayerContext,
+  type FeedVideo,
+} from './VideoFeedView';
 
 vi.mock('@lib/api', () => ({
   resolveMediaUrl: (path: string) => path,
@@ -250,5 +258,63 @@ describe('FeedPlayer', () => {
       />,
     );
     expect(pause.mock.contexts).toContain(video);
+  });
+});
+
+describe('renderSuperChatMedia', () => {
+  afterEach(cleanup);
+
+  const CAPTIONS_URL = '/pulsevault/artifacts/7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  /** Huddle's media view rendering one message's media item, as SuperChat's MediaFeed does. */
+  const renderItem = (attachment: SuperChatMediaAttachment) => {
+    const context = {
+      item: { id: `c:m:${attachment.id}`, conversationId: 'c', attachment } as SuperChatMediaItem,
+      active: true,
+      autoPlay: false,
+      muted: false,
+      loop: false,
+    } satisfies MediaFeedRenderContext<SuperChatMediaItem>;
+    return render(<>{renderSuperChatMedia(attachment, context)}</>).container;
+  };
+  const pulseVideo = (extra: object = {}): SuperChatMediaAttachment => ({
+    id: FIRST,
+    kind: 'video',
+    src: `/pulsevault/artifacts/${FIRST}`,
+    title: 'Standup',
+    ...extra,
+  });
+
+  it('plays a Pulse video that carries captions with its track, asking for it with CORS', () => {
+    const video = renderItem(pulseVideo({ captionsUrl: CAPTIONS_URL })).querySelector('video');
+    expect(video?.getAttribute('src')).toBe(`/pulsevault/artifacts/${FIRST}`);
+    expect(video?.getAttribute('crossorigin')).toBe('anonymous');
+    const tracks = video?.querySelectorAll('track') ?? [];
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].getAttribute('kind')).toBe('captions');
+    expect(tracks[0].getAttribute('src')).toBe(CAPTIONS_URL);
+    expect(tracks[0].getAttribute('label')).toBe('Captions');
+  });
+
+  it('plays a video without captions with no track and no CORS mode', () => {
+    for (const extra of [{}, { captionsUrl: null }]) {
+      const video = renderItem(pulseVideo(extra)).querySelector('video');
+      expect(video?.getAttribute('src')).toBe(`/pulsevault/artifacts/${FIRST}`);
+      expect(video?.hasAttribute('crossorigin')).toBe(false);
+      expect(video?.querySelector('track')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('shows a picture as it is', () => {
+    const container = renderItem({
+      id: 'photo',
+      kind: 'image',
+      src: '/uploads/whiteboard.jpg',
+      alt: 'whiteboard.jpg',
+    });
+    expect(container.querySelector('video')).toBeNull();
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('/uploads/whiteboard.jpg');
+    expect(img?.getAttribute('alt')).toBe('whiteboard.jpg');
   });
 });

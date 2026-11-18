@@ -9,7 +9,9 @@
  * A video with captions plays with them (captions.ts). MediaFeed's own player
  * has no place for a track yet, so a feed with a captioned video plays its
  * videos in {@link FeedPlayer} through MediaFeed's `renderMedia`; a feed
- * without one keeps MediaFeed's player.
+ * without one keeps MediaFeed's player. Huddle's media view (SuperChat's
+ * MediaFeed) plays its items the same way, through
+ * {@link renderSuperChatMedia}.
  */
 import {
   ArrowLeftIcon,
@@ -20,13 +22,19 @@ import {
   type MediaFeedMedia,
   type MediaFeedRenderContext,
 } from '@mieweb/ui';
+import type { SuperChatMediaItem } from '@mieweb/ui/components/SuperChat';
 import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { resolveMediaUrl } from '@lib/api';
 import { useEscapeWithin } from '@lib/useEscapeWithin';
 import { artifactPath, posterPath, videoLabel } from './artifact';
-import { CAPTIONS_CROSS_ORIGIN, trackProps, type CaptionTrackProps } from './captions';
+import {
+  CAPTIONS_CROSS_ORIGIN,
+  captionsOfMedia,
+  trackProps,
+  type CaptionTrackProps,
+} from './captions';
 import { VideoMenu } from './VideoMenu';
 
 /** User-facing copy, kept together for translation. */
@@ -203,6 +211,32 @@ export function FeedPlayer(props: FeedPlayerProps) {
   }
   return (
     <FeedPlayerVideo key={`${props.media.src} ${track?.src ?? ''}`} {...props} track={track} />
+  );
+}
+
+/**
+ * Huddle's media view (SuperChat's `mediaFeedProps.renderMedia`): each item
+ * in {@link FeedPlayer}, a Pulse video with the captions superChatFeed.ts
+ * carried on its media item (captionsOfMedia) and anything else as it is, a
+ * picture shown, a video played without a track or CORS mode.
+ *
+ * Every item, captioned or not, since a SuperChat feed's items change as
+ * posts arrive: a renderer that came and went with them would swap the player
+ * under a video playing and start it over. A module function, so the feed's
+ * props keep their identity.
+ */
+export function renderSuperChatMedia(
+  media: MediaFeedMedia,
+  context: MediaFeedRenderContext<SuperChatMediaItem>,
+): React.ReactNode {
+  const { attachment } = context.item;
+  return (
+    <FeedPlayer
+      media={media}
+      context={context}
+      captionsUrl={captionsOfMedia(attachment)}
+      title={attachment.title ?? attachment.alt}
+    />
   );
 }
 

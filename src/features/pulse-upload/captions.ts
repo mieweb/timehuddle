@@ -63,11 +63,10 @@ export function trackProps(captionsUrl: string | null | undefined): CaptionTrack
  * a Pulse video's `captionsUrl` along on its media item, since SuperChat's own
  * type has no field for them yet.
  *
- * Not in use yet, so Huddle's media view still plays without captions. Two
- * changes outside this module finish it: the server sending `captionsUrl` on a
- * post's video attachments (huddle.js), and Huddle.tsx's `mediaFeedProps`
- * playing its items through FeedPlayer (VideoFeedView.tsx) with
- * `captionsOfMedia(item.attachment)`, from SuperChat's `renderMedia`.
+ * Read by VideoFeedView's `renderSuperChatMedia`, Huddle's media view's
+ * `renderMedia`. Until Huddle.tsx sets it in `mediaFeedProps`, and the server
+ * sends `captionsUrl` on a post's video attachments (huddle.js), that view
+ * still plays without captions.
  */
 export function captionsOfMedia(attachment: SuperChatMediaAttachment): string | null {
   const captionsUrl = (attachment as { captionsUrl?: unknown }).captionsUrl;
