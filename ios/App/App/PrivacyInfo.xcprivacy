@@ -6,8 +6,38 @@
     <false/>
     <key>NSPrivacyTrackingDomains</key>
     <array/>
+    <!-- Videos recorded with Pulse (picture and sound) upload to the person's tickets, clock
+         sessions and messages, under their account. Saving to Photos is add-only and on the
+         device, so it is not collection and needs only NSPhotoLibraryAddUsageDescription.
+         Required-reason APIs used inside PulseKit belong in PulseKit's own manifest, not here.
+         Pending the owner's review with the App Privacy labels (TH-6). -->
     <key>NSPrivacyCollectedDataTypes</key>
-    <array/>
+    <array>
+      <dict>
+        <key>NSPrivacyCollectedDataType</key>
+        <string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+        <key>NSPrivacyCollectedDataTypeLinked</key>
+        <true/>
+        <key>NSPrivacyCollectedDataTypeTracking</key>
+        <false/>
+        <key>NSPrivacyCollectedDataTypePurposes</key>
+        <array>
+          <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        </array>
+      </dict>
+      <dict>
+        <key>NSPrivacyCollectedDataType</key>
+        <string>NSPrivacyCollectedDataTypeAudioData</string>
+        <key>NSPrivacyCollectedDataTypeLinked</key>
+        <true/>
+        <key>NSPrivacyCollectedDataTypeTracking</key>
+        <false/>
+        <key>NSPrivacyCollectedDataTypePurposes</key>
+        <array>
+          <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        </array>
+      </dict>
+    </array>
     <key>NSPrivacyAccessedAPITypes</key>
     <array>
       <!-- @capgo/capacitor-updater stores bundle state in UserDefaults. -->
