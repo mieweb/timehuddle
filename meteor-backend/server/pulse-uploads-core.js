@@ -21,6 +21,12 @@
  * cancelling the older; the draft's row here is the same record without the
  * extra rows, and `replacedClientKeys` keeps the older exports from acting.
  *
+ * A Move to… keeps the clientKey when nothing was edited (Pulse builds it
+ * from the clips alone), so the same clientKey naming another place is a
+ * move, not the contract's §5.1 `conflict`: the row goes to the new place,
+ * checked first. It stays a conflict once the bytes are in, or when the
+ * row's clock action ran (O13).
+ *
  * Time never abandons a row (O14): 24 h after Send it is only overdue, and a
  * video that arrives later still attaches. A row is abandoned when its draft
  * is deleted or PulseVault drops its unfinished upload.
@@ -269,7 +275,10 @@ function isClockBound(row) {
  *     - `renew`: the artifact is gone at PulseVault; a new one.
  *     - `reissue`: a new artifact for the draft's row, after a cancel, an
  *       abandon or a refusal, or for an Edit's new clientKey. A Move to…
- *       (another target) also lands here, with `resolveTarget`.
+ *       (another type or target) also lands here, with `resolveTarget`,
+ *       whether or not its clientKey is new: Pulse builds the clientKey
+ *       from the clips alone (pulse-schema §3.1), so a Move to… with no Edit
+ *       sends the same one with the new place.
  *     - `adoptIntent`: the clock call's row takes this clientKey and an artifact.
  *     - `returnOutcome`: the video already landed; the reply carries its
  *       state, and Pulse retires the draft.
@@ -286,6 +295,10 @@ function isClockBound(row) {
  *  - `cancel`: older attempts of this draft still under way, to cancel with
  *    `reason: 'edited'`.
  *
+ * A video that landed answers with its outcome whatever place the begin
+ * names: after a `retarget` the row's place is the new one, and a resend
+ * after a kill still names the first.
+ *
  * @param {object[]} rows
  * @param {object} args
  * @returns {BeginDecision}
@@ -295,7 +308,6 @@ export function beginDecision(rows, args) {
   if (tooLarge) return refusal('refuse', tooLarge);
 
   const sameKey = rows.find((row) => row.clientKey === args.clientKey) ?? null;
-  if (sameKey && !samePlace(sameKey, args)) return refusal('conflict', PULSE_UPLOAD_REFUSALS.otherTarget);
   // The row this begin acts on: a video that landed wins (a draft is sent
   // once, Q15), then this very attempt, then the draft's latest one under way.
   const current =
@@ -310,16 +322,12 @@ export function beginDecision(rows, args) {
     .map((row) => ({ _id: row._id, reason: 'edited' }));
 
   if (!current) {
-    // A clock type with no row: its Send-time call never succeeded, so no
-    // clock action ran. The video still lands, as the fallback type would (§9.3).
-    const clock = isClockType(args.type);
     return decision('insert', null, args, {
       cancel,
       sentAt: args.sentAt,
       resolveTarget: true,
       resolveSendContext: true,
-      deliverAs: clock ? pulseUploadType(args.type).fallbackType : args.type,
-      fallback: clock ? 'no-clock-action' : null,
+      ...freshSend(args.type),
     });
   }
 
@@ -342,7 +350,26 @@ export function beginDecision(rows, args) {
     if (current.state === 'intent') return decision('adoptIntent', current, args, kept);
   }
 
+  // A Send of its own to a new place: its time, its place checked, and the
+  // clock rule of a row with none (freshSend).
+  const moveTo = (extra = {}) =>
+    decision('reissue', current, args, {
+      cancel,
+      sentAt: args.sentAt,
+      resolveTarget: true,
+      resolveSendContext: true,
+      moved: true,
+      ...freshSend(args.type),
+      ...extra,
+    });
+
   if (current.clientKey === args.clientKey) {
+    // A Move to… with no Edit: the same clientKey names the new place. Once
+    // the bytes are in, the video is going to the old one.
+    if (moved) {
+      if (current.state === 'processing') return refusal('conflict', PULSE_UPLOAD_REFUSALS.otherTarget);
+      return moveTo();
+    }
     if (RESTARTABLE.has(current.state)) {
       // A refusal is checked again: the place may be back. A clock row's
       // place is its post, made at Send.
@@ -356,15 +383,31 @@ export function beginDecision(rows, args) {
   // A new clientKey for this draft: an Edit, or a Move to….
   if (current.state === 'processing') return refusal('conflict', PULSE_UPLOAD_REFUSALS.uploaded);
   if (isClockBound(current)) return decision('reissue', current, args, kept);
-  // A Send of its own: its time, and its place checked again when it moved.
+  if (moved) return moveTo();
+  // An Edit in place: a Send of its own, and a refused place checked again.
   return decision('reissue', current, args, {
     cancel,
     sentAt: args.sentAt,
-    resolveTarget: moved || current.state === 'failed',
+    resolveTarget: current.state === 'failed',
     resolveSendContext: true,
-    deliverAs: moved ? args.type : deliverAsOf(current),
-    fallback: moved ? null : (current.fallback ?? null),
+    deliverAs: deliverAsOf(current),
+    fallback: current.fallback ?? null,
   });
+}
+
+/**
+ * How a Send to `type` with no clock action of its own is delivered: as
+ * itself, or, for a clock type, as its fallback type and flagged (§9.3).
+ * A clock type's action runs only at Send (intentDecision); a begin that
+ * finds no clock-bound row for it never ran one, whether the draft had no
+ * row or was moved onto the clock type.
+ */
+function freshSend(type) {
+  const clock = isClockType(type);
+  return {
+    deliverAs: clock ? pulseUploadType(type).fallbackType : type,
+    fallback: clock ? 'no-clock-action' : null,
+  };
 }
 
 /**
@@ -398,11 +441,16 @@ function decision(
   action,
   row,
   args,
-  { cancel, sentAt, resolveTarget = false, resolveSendContext = false, deliverAs, fallback = null },
+  { cancel, sentAt, resolveTarget = false, resolveSendContext = false, moved = false, deliverAs, fallback = null },
 ) {
   const replaces = action === 'reissue' || action === 'renew';
   const takesKey = action !== 'reuse' && action !== 'returnOutcome';
-  const event = { type: 'begin', edited: !!row && row.clientKey !== args.clientKey, renew: action === 'renew' };
+  const event = {
+    type: 'begin',
+    edited: !!row && row.clientKey !== args.clientKey,
+    renew: action === 'renew',
+    moved,
+  };
   return {
     action,
     row,
@@ -469,7 +517,8 @@ export function tokenDecision(row, { clientKey } = {}) {
  *
  * Events:
  *  - `intent`: a clock call at Send.
- *  - `begin` (`edited`: a new clientKey for the draft; `renew`: a new artifact).
+ *  - `begin` (`edited`: a new clientKey for the draft; `renew`: a new
+ *    artifact; `moved`: a Move to… another place, a new artifact too).
  *  - `authorize`: PulseVault authorized the video's upload.
  *  - `complete`: the video's bytes landed.
  *  - `deliver` (`outcome: 'done' | 'kept'`): onUploadComplete's delivery.
@@ -489,9 +538,11 @@ export function nextState(row, event) {
       return from ?? 'intent';
     case 'begin':
       if (from === null || from === 'intent' || RESTARTABLE.has(from)) return 'reserved';
-      if (from === 'reserved' || from === 'uploading') return event.renew || event.edited ? 'reserved' : from;
-      // The bytes are in: an Edit can't replace them.
-      if (from === 'processing') return event.edited ? null : from;
+      if (from === 'reserved' || from === 'uploading') {
+        return event.renew || event.edited || event.moved ? 'reserved' : from;
+      }
+      // The bytes are in: an Edit or a Move to… can't replace them.
+      if (from === 'processing') return event.edited || event.moved ? null : from;
       return OUTCOME.has(from) ? from : null;
     case 'authorize':
       return from === 'reserved' || from === 'uploading' ? 'uploading' : null;

@@ -235,6 +235,9 @@ describe('nextState', () => {
     ['uploading', { type: 'begin', edited: true }, 'reserved'],
     ['processing', { type: 'begin', renew: true }, 'processing'],
     ['processing', { type: 'begin', edited: true }, null],
+    ['uploading', { type: 'begin', moved: true }, 'reserved'],
+    ['reserved', { type: 'begin', moved: true }, 'reserved'],
+    ['processing', { type: 'begin', moved: true }, null],
     ['delivered', { type: 'begin' }, 'delivered'],
     ['kept', { type: 'begin', edited: true }, 'kept'],
 
@@ -377,7 +380,7 @@ describe('beginDecision', () => {
     });
   });
 
-  it('checks the new place on a Move to…', () => {
+  it('checks the new place on a Move to… after an Edit', () => {
     const existing = row({ state: 'failed' });
     const args = begin({ clientKey: KEY_B, target: { kind: 'ticket', id: OTHER_TICKET } });
     expect(beginDecision([existing], args)).toMatchObject({
@@ -385,6 +388,66 @@ describe('beginDecision', () => {
       resolveTarget: true,
       deliverAs: 'ticket.video',
     });
+  });
+
+  it('moves the row on a Move to… with no Edit: the same clientKey names the new place', () => {
+    // Pulse builds the clientKey from the clips alone, so Cancel sending →
+    // Move to… → Send, or a Move to… of a failed job, resends KEY_A.
+    const args = begin({ target: { kind: 'ticket', id: OTHER_TICKET } });
+    for (const state of ['reserved', 'uploading', 'canceled', 'failed', 'abandoned']) {
+      const existing = row({ state });
+      expect(beginDecision([existing], args), state).toMatchObject({
+        action: 'reissue',
+        row: existing,
+        state: 'reserved',
+        mintArtifact: true,
+        retireArtifactId: existing.artifactId,
+        retireClientKey: null,
+        resolveTarget: true,
+        resolveSendContext: true,
+        sentAt: args.sentAt,
+        deliverAs: 'ticket.video',
+        fallback: null,
+      });
+    }
+    // To another type: My library.
+    const toLibrary = begin({ type: 'library.video', target: { kind: 'library' } });
+    expect(beginDecision([row({ state: 'failed' })], toLibrary)).toMatchObject({
+      action: 'reissue',
+      resolveTarget: true,
+      deliverAs: 'library.video',
+    });
+  });
+
+  it('refuses a Move to… once the bytes are in, and of a clock video whose clock action ran', () => {
+    const args = begin({ target: { kind: 'ticket', id: OTHER_TICKET } });
+    expect(beginDecision([row({ state: 'processing' })], args)).toMatchObject({
+      action: 'conflict',
+      reason: 'That video is already being sent somewhere else',
+    });
+    const clockRow = wrapupIntent({ state: 'canceled', clientKey: KEY_A, artifactId: 'a1' });
+    expect(beginDecision([clockRow], args)).toMatchObject({
+      action: 'conflict',
+      reason: 'That video belongs to its clock action',
+    });
+  });
+
+  it('never moves a row onto a clock type as clock-bound: no clock action ran (§9.3)', () => {
+    const toWrapup = (clientKey: string) => wrapupBegin({ clientKey });
+    for (const clientKey of [KEY_A, KEY_B]) {
+      const decision = beginDecision([row({ state: 'canceled' })], toWrapup(clientKey));
+      expect(decision, clientKey).toMatchObject({
+        action: 'reissue',
+        resolveTarget: true,
+        deliverAs: 'clock.session',
+        fallback: 'no-clock-action',
+      });
+      // So a later clock call for the draft can't read as one that ran.
+      const moved = row({ clientKey, type: 'clock.wrapup', targetKey: `clock:${SESSION}`, fallback: decision.fallback });
+      expect(intentDecision([moved], { type: 'clock.wrapup', targetKey: `clock:${SESSION}`, bytes: 1 }).action).toBe(
+        'conflict',
+      );
+    }
   });
 
   it('adopts the clock intent by draftKey after an Edit gave the Send a new clientKey', () => {
@@ -457,10 +520,19 @@ describe('beginDecision', () => {
     });
   });
 
-  it('refuses a clientKey already used for another type or place', () => {
-    const existing = row({ state: 'reserved' });
-    const other = begin({ target: { kind: 'ticket', id: OTHER_TICKET } });
-    expect(beginDecision([existing], other)).toMatchObject({ action: 'conflict', error: 'conflict' });
+  it('returns the outcome of a landed video whatever place the begin names', () => {
+    // After pulseUploads.retarget the row's place is the new one; a resend
+    // after a kill still names the first.
+    const retargeted = row({
+      state: 'delivered',
+      type: 'library.video',
+      target: { kind: 'library' },
+      targetKey: `library:${USER.toLowerCase()}`,
+    });
+    expect(beginDecision([retargeted], begin())).toMatchObject({ action: 'returnOutcome', row: retargeted });
+    expect(beginDecision([row({ state: 'kept' })], begin({ target: { kind: 'ticket', id: OTHER_TICKET } })).action).toBe(
+      'returnOutcome',
+    );
   });
 
   it('refuses an Edit once the bytes are in', () => {
@@ -529,7 +601,7 @@ describe('beginDecision', () => {
     expect(beginDecision([adopted], wrapupBegin())).toMatchObject({ action: 'conflict', error: 'conflict' });
   });
 
-  it('tells conversations of one team apart (Q14): same clientKey refuses, a new one moves and re-checks', () => {
+  it('tells conversations of one team apart (Q14): another conversation is a move, checked again', () => {
     const team = { kind: 'huddle', teamId: TEAM };
     const posted = row({
       type: 'huddle.post',
@@ -540,14 +612,20 @@ describe('beginDecision', () => {
     const sameConversation = begin({ type: 'huddle.post', target: { ...team, conversationId: 'convA1' } });
     expect(beginDecision([posted], sameConversation).action).toBe('reuse');
     const otherConversation = begin({ type: 'huddle.post', target: { ...team, conversationId: 'convB2' } });
-    expect(beginDecision([posted], otherConversation)).toMatchObject({ action: 'conflict', error: 'conflict' });
-    expect(beginDecision([posted], { ...otherConversation, clientKey: KEY_B })).toMatchObject({
+    for (const clientKey of [KEY_A, KEY_B]) {
+      expect(beginDecision([posted], { ...otherConversation, clientKey }), clientKey).toMatchObject({
+        action: 'reissue',
+        resolveTarget: true,
+        deliverAs: 'huddle.post',
+      });
+    }
+    // The team's own channel (no conversationId) is another place too.
+    expect(beginDecision([posted], begin({ type: 'huddle.post', target: team }))).toMatchObject({
       action: 'reissue',
       resolveTarget: true,
-      deliverAs: 'huddle.post',
     });
-    // The team's own channel (no conversationId) is another place too.
-    expect(beginDecision([posted], begin({ type: 'huddle.post', target: team })).action).toBe('conflict');
+    // Once the bytes are in, it is going to the first conversation.
+    expect(beginDecision([{ ...posted, state: 'processing' }], otherConversation).action).toBe('conflict');
   });
 
   it('refuses a too-large video before anything else, row or not', () => {
