@@ -116,6 +116,20 @@ describe('pulseSettingsForTeams', () => {
     expect(result.child).toEqual({ pulseInApp: true, pulseClockInOut: true, pulseSharedDevice: false });
   });
 
+  it('inherits from an ancestor team it does not answer for', () => {
+    const orgs = [org('o1', { settings: { pulseSharedDevice: false } })];
+    const child = team('child', { orgId: 'o1', parentTeamId: 'parent' });
+    const parent = team('parent', { orgId: 'o1', parentTeamId: 'grand' });
+    const grand = team('grand', { orgId: 'o1', settings: { pulseSharedDevice: true } });
+
+    // A member of the sub-team only: without its parents, the chain skips to the org.
+    expect(pulseSettingsForTeams({ teams: [child], orgs }).child.pulseSharedDevice).toBe(false);
+
+    const result = pulseSettingsForTeams({ teams: [child], ancestorTeams: [parent, grand], orgs });
+    expect(result.child.pulseSharedDevice).toBe(true);
+    expect(Object.keys(result)).toEqual(['child']);
+  });
+
   it('resolves a team without an org from its own values alone', () => {
     const result = pulseSettingsForTeams({
       teams: [team('solo', { settings: { pulseSharedDevice: true } }), team('missing-org', { orgId: 'gone' })],
