@@ -33,6 +33,12 @@ import { appendWrapUp, createHuddlePost, POST_DATE_RE, requireTeamMember } from 
 import { CANONICAL_ITEM, cleanVideoName, isDuplicateKey } from './video-names.js';
 import { requireTeamMembership } from './permissions.js';
 import { resolvedPlace, teamPlace } from './pulse-link-hints-core.js';
+import {
+  deliveredPostUpdate,
+  huddlePostOptions,
+  postAttachment,
+  pulseAttachmentFields,
+} from './pulse-delivery-core.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -66,15 +72,19 @@ const attachment = (kind, check) => ({
   async delivered(_userId, { id }, video) {
     return (await existingAttachment({ kind, id }, video)) ? attachedNote(kind, id) : null;
   },
-  async deliver(userId, { id }, video) {
+  async deliver(userId, destination, video) {
+    const { id } = destination;
     // The video's name lives on its media item (video-names.js), not here.
     // Embedded: a ticket's or session's video isn't for the library.
     await addToLibrary(userId, video, { embedded: true });
+    // Idempotent (attachments.js): a replay gets the attachment already there.
+    // The Pulse fields say which video and which in-app upload it is (§12).
     await createAttachment({
       url: video.url,
       type: 'video',
       attachedTo: { kind, id },
       addedBy: userId,
+      ...pulseAttachmentFields(video, destination),
     });
     return attachedNote(kind, id);
   },
@@ -96,7 +106,7 @@ const attachment = (kind, check) => ({
  * was sent, such as a clock session, a timesheet walkthrough or a Huddle post
  * — one recorded for a post stays out of the library once the post is gone.
  */
-async function addToLibrary(userId, video, { embedded = false } = {}) {
+export async function addToLibrary(userId, video, { embedded = false } = {}) {
   const media = rawDb().collection('mediaitems');
   // An item made before this delivery: an earlier one, or a rename while the
   // video was still uploading (videos.rename), which knows only the name.
@@ -186,20 +196,67 @@ async function ownSession(userId, rawId) {
   return session;
 }
 
-/** The attachment shape a Huddle post stores for a Pulse video. */
-function postAttachment(mediaId, video) {
-  return { mediaId, type: 'video', url: video.url, filename: video.title };
+// The attachment shape a Huddle post stores for a Pulse video (with its
+// captions when delivery found them): pulse-delivery-core.js.
+export { postAttachment };
+
+/** `userId`'s open clock session in `teamId` now, or null. */
+async function openSessionIdOf(userId, teamId) {
+  const open = await rawDb()
+    .collection('clockevents')
+    .findOne({ userId, teamId, endTime: null }, { projection: { _id: 1 } });
+  return open ? open._id.toHexString() : null;
 }
 
-/** A new Huddle post carrying the video, with the Pulse draft's name as its text. */
-async function postVideo(userId, video, { teamId, postDate }) {
+/**
+ * Finish a Huddle post carrying the video (deliveredPostUpdate): linked to
+ * the session it was sent in (`sessionUpdateId`, H4) as an update post, and
+ * the video's captions on its attachment. A session that is no longer the
+ * uploader's in this team leaves the post unlinked. Also run by a replay,
+ * for a delivery that stopped after the post was made.
+ */
+async function finishPost(userId, teamId, post, { sessionUpdateId, captionsUrl, videoUrl }) {
+  let sessionId = null;
+  if (sessionUpdateId && isObjectIdHex(sessionUpdateId)) {
+    const session = await rawDb()
+      .collection('clockevents')
+      .findOne({ _id: new ObjectId(sessionUpdateId.toLowerCase()), userId, teamId }, { projection: { _id: 1 } });
+    sessionId = session ? session._id.toHexString() : null;
+  }
+  const write = deliveredPostUpdate({ post: { ...post, userId }, sessionId, captionsUrl, videoUrl });
+  if (write) await rawDb().collection('huddlePosts').updateOne(write.filter, write.update, write.options);
+}
+
+/**
+ * A new Huddle post carrying the video, with the Pulse draft's name as its
+ * text. Sent from the app while clocked in (`sessionUpdateId`, the session at
+ * Send), it joins that session as an update, as a typed post does (Q8):
+ * through main's `joinOpenSession` while that session is still the open one,
+ * else linked to it right after (finishPost). The link flow passes neither,
+ * so its posts are made as before.
+ */
+async function postVideo(userId, video, { teamId, postDate, sessionUpdateId = null }) {
   const mediaId = await addToLibrary(userId, video, { embedded: true });
-  return createHuddlePost(userId, {
+  const openSessionId = sessionUpdateId ? await openSessionIdOf(userId, teamId) : null;
+  const created = await createHuddlePost(userId, {
     teamId,
     content: { text: video.name ?? '', mentions: [] },
     attachments: [postAttachment(mediaId, video)],
     ...(postDate ? { postDate } : {}),
+    ...(huddlePostOptions({ sessionId: sessionUpdateId, openSessionId }).joinOpenSession
+      ? { joinOpenSession: true }
+      : {}),
   });
+  if (sessionUpdateId || video.captionsUrl) {
+    const post = await rawDb()
+      .collection('huddlePosts')
+      .findOne(
+        { _id: new ObjectId(created.id) },
+        { projection: { _id: 1, clockEventId: 1, sessionUpdate: 1, attachments: 1 } },
+      );
+    if (post) await finishPost(userId, teamId, post, { sessionUpdateId, captionsUrl: video.captionsUrl, videoUrl: video.url });
+  }
+  return created;
 }
 
 /** This uploader's post in this team carrying the video, if any. */
@@ -307,14 +364,26 @@ const DESTINATIONS = {
     },
     // This uploader's post in this team: a post elsewhere carrying the same
     // video (huddle.createPost takes attachment URLs) isn't this delivery.
-    async delivered(userId, { teamId }, video) {
+    // Sent from the app, a replay also finishes a post whose delivery
+    // stopped before it joined its session.
+    async delivered(userId, { teamId, sessionUpdateId = null }, video) {
       const post = await rawDb()
         .collection('huddlePosts')
-        .findOne({ teamId, userId, 'attachments.url': video.url }, { projection: { _id: 1 } });
-      return post ? HUDDLE_NOTE : null;
+        .findOne(
+          { teamId, userId, 'attachments.url': video.url },
+          { projection: { _id: 1, clockEventId: 1, sessionUpdate: 1, attachments: 1 } },
+        );
+      if (!post) return null;
+      if (sessionUpdateId || video.captionsUrl) {
+        await finishPost(userId, teamId, post, { sessionUpdateId, captionsUrl: video.captionsUrl, videoUrl: video.url });
+      }
+      return HUDDLE_NOTE;
     },
-    async deliver(userId, { teamId }, video) {
-      await postVideo(userId, video, { teamId });
+    // `sessionUpdateId` and `conversationId` are what was current at Send
+    // (H4), from the app's row (pulse-upload-delivery.js); a link has
+    // neither. `conversationId` is null until #871, and PR3-R passes it on.
+    async deliver(userId, { teamId, sessionUpdateId = null }, video) {
+      await postVideo(userId, video, { teamId, sessionUpdateId });
       return HUDDLE_NOTE;
     },
   },
