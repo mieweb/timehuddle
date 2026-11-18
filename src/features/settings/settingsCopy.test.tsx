@@ -223,6 +223,26 @@ describe('TeamSettingsRows, Pulse', () => {
     await waitFor(() => expect(teamContext.refetchTeams).toHaveBeenCalledOnce());
   });
 
+  it('shows a failed save under the row that failed, not under the Clock group', async () => {
+    vi.mocked(teamApi.updateSettings).mockRejectedValue(new Error('Not allowed'));
+    render(
+      <TeamSettingsRows
+        team={makeTeam({ pulseInApp: off(), pulseClockInOut: off(), pulseSharedDevice: off() })}
+      />,
+    );
+    const pulseClock = document.querySelector('.team-setting-pulse-clock');
+    fireEvent.click(
+      screen.getByRole('switch', {
+        name: SETTINGS_STRINGS.teamSettings.pulseClockInOut.switchLabel,
+      }),
+    );
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('Not allowed');
+    // The alert follows the failed row directly.
+    expect(pulseClock?.nextElementSibling).toBe(alert);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
   it('shows no Pulse rows when the team carries no Pulse settings (publicTeamSettings without them)', () => {
     render(<TeamSettingsRows team={makeTeam()} />);
     expect(screen.queryByText(SETTINGS_STRINGS.teamSettings.pulseGroup)).toBeNull();
@@ -230,25 +250,34 @@ describe('TeamSettingsRows, Pulse', () => {
   });
 });
 
-describe('DefaultsCard, Pulse', () => {
+describe.each([
+  ['org' as const, 'an organization', TEAM_DEFAULT_ROWS, SETTINGS_STRINGS.lockForTeams],
+  [
+    'enterprise' as const,
+    'an enterprise',
+    ENTERPRISE_DEFAULT_ROWS,
+    SETTINGS_STRINGS.lockForOrgsAndTeams,
+  ],
+])('DefaultsCard, Pulse, level %s', (level, where, rows, lockLabel) => {
   afterEach(cleanup);
 
   const view = (): SettingsEditView => ({
     settings: {},
     settingsLocks: {},
-    effectiveSettings: Object.fromEntries(
-      TEAM_DEFAULT_ROWS.map((row) => [row.key, off()]),
-    ) as Record<DefaultSettingKey, ResolvedSetting>,
+    effectiveSettings: Object.fromEntries(rows.map((row) => [row.key, off()])) as Record<
+      DefaultSettingKey,
+      ResolvedSetting
+    >,
   });
 
-  it.each(PULSE_SETTING_KEYS)('sets and locks %s on an organization', (key) => {
+  it.each(PULSE_SETTING_KEYS)(`sets and locks %s on ${where}`, (key) => {
     const onSave = vi.fn();
     render(
       <DefaultsCard
-        level="org"
-        title="Team defaults"
+        level={level}
+        title="Defaults"
         description="Defaults"
-        rows={TEAM_DEFAULT_ROWS}
+        rows={rows}
         view={view()}
         names={{}}
         saving={false}
@@ -259,9 +288,7 @@ describe('DefaultsCard, Pulse', () => {
     const title = SETTINGS_STRINGS.pulseDefaults[key].title;
     fireEvent.click(screen.getByRole('switch', { name: title }));
     expect(onSave).toHaveBeenLastCalledWith({ settings: { [key]: true } });
-    fireEvent.click(
-      screen.getByRole('switch', { name: `${SETTINGS_STRINGS.lockForTeams}: ${title}` }),
-    );
+    fireEvent.click(screen.getByRole('switch', { name: `${lockLabel}: ${title}` }));
     expect(onSave).toHaveBeenLastCalledWith({ settings: { [key]: false }, locks: { [key]: true } });
   });
 });
