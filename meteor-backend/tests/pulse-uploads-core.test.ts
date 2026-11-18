@@ -352,14 +352,39 @@ describe('beginDecision', () => {
   it('reissues a cancelled, abandoned or refused row with the same clientKey', () => {
     for (const state of ['canceled', 'abandoned', 'failed']) {
       const existing = row({ state });
-      expect(beginDecision([existing], begin()), state).toMatchObject({
+      // A Send after Cancel sending is a new job with its own time (H4):
+      // the row takes it and finds the session at that Send again.
+      const args = begin();
+      expect(beginDecision([existing], args), state).toMatchObject({
         action: 'reissue',
         row: existing,
         state: 'reserved',
         mintArtifact: true,
         retireArtifactId: existing.artifactId,
+        retireClientKey: null,
         resolveTarget: state === 'failed',
+        resolveSendContext: true,
+        sentAt: args.sentAt,
+      });
+      // A Retry sends the job's first time back: nothing to find again.
+      const retry = begin({ sentAt: (existing.sentAt as Date).getTime() });
+      expect(beginDecision([existing], retry), state).toMatchObject({
+        action: 'reissue',
+        resolveSendContext: false,
         sentAt: existing.sentAt,
+      });
+    }
+  });
+
+  it('keeps the clock action time of a clock-bound row restarted with the same clientKey (O13)', () => {
+    for (const state of ['canceled', 'abandoned', 'failed']) {
+      const clockRow = wrapupIntent({ state, clientKey: KEY_A, artifactId: 'a1', sentAt: new Date(NOW - 2 * HOUR) });
+      expect(beginDecision([clockRow], wrapupBegin()), state).toMatchObject({
+        action: 'reissue',
+        resolveTarget: false,
+        resolveSendContext: false,
+        sentAt: clockRow.sentAt,
+        deliverAs: 'clock.wrapup',
       });
     }
   });
@@ -572,11 +597,19 @@ describe('beginDecision', () => {
     expect(beginDecision([row({ state: 'uploading' })], begin()).retireClientKey).toBeNull();
     expect(beginDecision([row({ state: 'canceled' })], begin()).retireClientKey).toBeNull();
     expect(beginDecision([row({ state: 'uploading' })], begin({ artifactGone: true })).retireClientKey).toBeNull();
+    // Only a key the row retired is ever taken back.
+    for (const decision of [
+      beginDecision([row({ state: 'uploading' })], begin({ clientKey: KEY_B })),
+      beginDecision([row({ state: 'canceled' })], begin()),
+      beginDecision([wrapupIntent({ clientKey: KEY_A })], wrapupBegin({ clientKey: KEY_B })),
+    ]) {
+      expect(decision.reviveClientKey).toBeNull();
+    }
   });
 
   it("refuses a late begin of the export an Edit replaced, keeping the newer one's artifact", () => {
-    // The row moved A → B; a delayed or replayed begin for A arrives after.
-    for (const state of ['reserved', 'uploading', 'canceled', 'failed']) {
+    // The row moved A → B; a delayed or replayed begin for A arrives while B is under way.
+    for (const state of ['reserved', 'uploading']) {
       const edited = row({
         clientKey: KEY_B,
         artifactId: 'art-B',
@@ -599,6 +632,60 @@ describe('beginDecision', () => {
     // A clock row the Edit moved on from refuses the old export too.
     const adopted = wrapupIntent({ state: 'reserved', clientKey: KEY_B, artifactId: 'art-B', replacedClientKeys: [KEY_A] });
     expect(beginDecision([adopted], wrapupBegin())).toMatchObject({ action: 'conflict', error: 'conflict' });
+  });
+
+  it('sends an Edit that was undone (A → B → A) once nothing is under way, and takes the key back', () => {
+    // Send A, Cancel sending, Edit (B), Send, Cancel sending, undo the Edit,
+    // Send: the clips are A's again, and so is the clientKey.
+    for (const state of ['canceled', 'failed', 'abandoned']) {
+      const edited = row({
+        clientKey: KEY_B,
+        artifactId: 'art-B',
+        replacedArtifactIds: ['art-A'],
+        replacedClientKeys: [KEY_A],
+        state,
+      });
+      const args = begin();
+      expect(beginDecision([edited], args), state).toMatchObject({
+        action: 'reissue',
+        row: edited,
+        state: 'reserved',
+        mintArtifact: true,
+        retireArtifactId: 'art-B',
+        retireClientKey: KEY_B,
+        reviveClientKey: KEY_A,
+        resolveSendContext: true,
+        sentAt: args.sentAt,
+        deliverAs: 'ticket.video',
+      });
+      // A Move to… with A goes too.
+      const toLibrary = begin({ type: 'library.video', target: { kind: 'library' } });
+      expect(beginDecision([edited], toLibrary), state).toMatchObject({
+        action: 'reissue',
+        resolveTarget: true,
+        retireClientKey: KEY_B,
+        reviveClientKey: KEY_A,
+        deliverAs: 'library.video',
+      });
+    }
+    // A clock row whose clock action ran takes A back too, at its own time (O13).
+    const clockRow = wrapupIntent({
+      state: 'canceled',
+      clientKey: KEY_B,
+      artifactId: 'art-B',
+      replacedClientKeys: [KEY_A],
+      sentAt: new Date(NOW - 2 * HOUR),
+    });
+    expect(beginDecision([clockRow], wrapupBegin())).toMatchObject({
+      action: 'reissue',
+      retireClientKey: KEY_B,
+      reviveClientKey: KEY_A,
+      resolveSendContext: false,
+      sentAt: clockRow.sentAt,
+    });
+    // Once the bytes are in, it is still the newer export's video.
+    const landing = row({ clientKey: KEY_B, replacedClientKeys: [KEY_A], state: 'processing' });
+    expect(beginDecision([landing], begin())).toMatchObject({ action: 'conflict', error: 'conflict' });
   });
 
   it('tells conversations of one team apart (Q14): another conversation is a move, checked again', () => {
@@ -694,6 +781,11 @@ describe('stale attempts (an Edit moved the row to a newer clientKey)', () => {
     expect(isStaleAttempt(wrapupIntent({ clientKey: KEY_A }), KEY_B)).toBe(false);
     expect(isStaleAttempt(wrapupIntent({ replacedClientKeys: [KEY_A] }), KEY_A)).toBe(true);
     expect(isStaleAttempt(null, KEY_A)).toBe(false);
+    // A key the row took back (an Edit undone) is its own again.
+    const undone = row({ clientKey: KEY_A, replacedClientKeys: [KEY_B], state: 'reserved' });
+    expect(isStaleAttempt(undone, KEY_A)).toBe(false);
+    expect(isStaleAttempt(undone, KEY_B)).toBe(true);
+    expect(isStaleAttempt({ ...undone, replacedClientKeys: [KEY_A, KEY_B] }, KEY_A)).toBe(false);
   });
 
   it("leaves the row as it is on a late release of the older export", () => {
@@ -755,18 +847,26 @@ describe('hookDecision', () => {
   });
 
   it('refuses an older artifact of the row, video or not', () => {
-    const renewed = row({ artifactId: 'video-2', replacedArtifactIds: ['video-1', 'captions-1'], state: 'reserved' });
+    // replacedArtifactIds holds the row's older videos only (retireArtifactId).
+    const renewed = row({ artifactId: 'video-2', replacedArtifactIds: ['video-1'], state: 'reserved' });
     expect(hookDecision(renewed, authorize('video-1'), true)).toEqual({ action: 'refuse' });
-    expect(hookDecision(renewed, authorize('captions-1'), false)).toEqual({ action: 'refuse' });
     expect(hookDecision(renewed, { type: 'complete', artifactId: 'video-1' }, true)).toEqual({ action: 'none' });
   });
 
-  it('never replaces the artifactId, whatever the event', () => {
-    const events = TABLE.map(([, , event, isVideo]) => [event, isVideo] as const);
+  it('never moves or delivers a row for captions, the manifest or the thumbnail, in any state', () => {
+    const related = ['captions-1', 'manifest-1', 'thumb-1'].flatMap((artifactId) => [
+      authorize(artifactId),
+      authorize(artifactId, 'patch'),
+      { type: 'complete', artifactId },
+      { type: 'remove', reason: 'abandoned', artifactId },
+      { type: 'uploadComplete', artifactId },
+    ]);
     for (const state of PULSE_UPLOAD_STATES) {
-      for (const [event, isVideo] of events) {
-        const decision = hookDecision({ ...reserved(), state }, event, isVideo);
-        expect(Object.keys(decision).every((key) => key === 'action' || key === 'state')).toBe(true);
+      for (const event of related) {
+        const decision = hookDecision({ ...reserved(), state }, event, false);
+        // A cancelled or abandoned row refuses every upload under its token.
+        const expected = event.type === 'authorize' && (state === 'canceled' || state === 'abandoned') ? 'refuse' : 'none';
+        expect(decision, `${state} ${event.type} ${event.artifactId}`).toEqual({ action: expected });
       }
     }
   });

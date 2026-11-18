@@ -14,7 +14,8 @@
  *    with the same one is a retry and gets the same artifact; a new one
  *    (after an Edit) replaces the row's artifact and retires the old key
  *    (`replacedClientKeys`), so a late begin, cancel or token call for the
- *    older export changes nothing.
+ *    older export changes nothing while the newer one is under way. Once
+ *    nothing is, the older key is a new Send again (an Edit undone).
  *
  * One row per draftKey, whose clientKey moves to each new export. The
  * contract (huddle-server §3.2) has a row per clientKey, with the newer
@@ -72,6 +73,9 @@ const OUTCOME = new Set(['delivered', 'kept']);
 
 /** Rows a begin starts again, with a new artifact. */
 const RESTARTABLE = new Set(['canceled', 'abandoned', 'failed']);
+
+/** Rows with an artifact attempt under way, whose bytes haven't landed. */
+const LIVE_ATTEMPT = new Set(['reserved', 'uploading']);
 
 /** Rows that refuse every PulseVault request made under their token. */
 const REFUSES_UPLOADS = new Set(['canceled', 'abandoned']);
@@ -162,6 +166,8 @@ const retiredKey = (row, clientKey) => (row.replacedClientKeys ?? []).includes(c
  */
 export function isStaleAttempt(row, clientKey) {
   if (!row || clientKey == null) return false;
+  // A key the row took back (an Edit undone) is its own again.
+  if (row.clientKey != null && row.clientKey === clientKey) return false;
   if (retiredKey(row, clientKey)) return true;
   return row.state !== 'intent' && row.clientKey != null && row.clientKey !== clientKey;
 }
@@ -251,6 +257,9 @@ function clientFacts(client) {
   };
 }
 
+/** A stored time (Date or ms) in ms, or null. */
+const timeMs = (value) => (value == null ? null : new Date(value).getTime());
+
 /** A row's time for ordering: its last change. */
 const timeOf = (row) => new Date(row.updatedAt ?? row.createdAt ?? 0).getTime();
 const newestOf = (rows) => rows.reduce((newest, row) => (!newest || timeOf(row) > timeOf(newest) ? row : newest), null);
@@ -288,10 +297,18 @@ function isClockBound(row) {
  *    new export), pushed to `replacedClientKeys`. A later begin, cancel or
  *    token call naming it changes nothing (isStaleAttempt): the row keeps one
  *    current attempt, so a delayed call for an older one can't undo a newer.
+ *    A retired clientKey is refused while the row's attempt is under way
+ *    (reserved, uploading); once nothing is (cancelled, refused, abandoned),
+ *    it is a new Send, as after an Edit that was undone: the row takes it
+ *    back (`reviveClientKey`, pulled from `replacedClientKeys`) and retires
+ *    the one it had.
  *  - For every action but `reuse` and `returnOutcome`, the row takes `args`'
  *    clientKey, type, target and targetKey, `state`, `sentAt` and `fallback`.
  *    `resolveSendContext`: `sentAt` is new, so the session (and conversation)
- *    at Send are found again (sendContextRule).
+ *    at Send are found again (sendContextRule). A row that isn't clock-bound
+ *    and restarts with the same clientKey takes the begin's `sentAt` when it
+ *    differs (a Send after Cancel sending is a new job); a clock-bound row
+ *    keeps its clock action's (O13).
  *  - `cancel`: older attempts of this draft still under way, to cancel with
  *    `reason: 'edited'`.
  *
@@ -333,14 +350,27 @@ export function beginDecision(rows, args) {
 
   if (OUTCOME.has(current.state)) return decision('returnOutcome', current, args, { cancel });
 
-  // A late or replayed begin of an export an Edit replaced: never turn the
-  // row back to it, which would retire the newer export's artifact.
-  if (!sameKey && rows.some((row) => retiredKey(row, args.clientKey))) {
+  // A late or replayed begin of an export an Edit replaced, while the newer
+  // export is under way: never turn the row back to it, which would retire
+  // the newer export's artifact. With nothing under way (cancelled, refused,
+  // abandoned) the same clientKey is a new Send: undoing the Edit gives the
+  // older clips, and so the older clientKey, back (pulse-schema §3.1). It
+  // goes on below as any new clientKey does, and takes the key back.
+  if (!sameKey && rows.some((row) => retiredKey(row, args.clientKey) && LIVE_ATTEMPT.has(row.state))) {
     return refusal('conflict', PULSE_UPLOAD_REFUSALS.superseded);
   }
 
   // Everything about the row stays but its artifact.
   const kept = { cancel, sentAt: current.sentAt, deliverAs: deliverAsOf(current), fallback: current.fallback ?? null };
+  // Cancel sending ends the job; Pulse's next Send is a new job with its
+  // own time (pulse-schema §3), so a restarted row takes it, and finds the
+  // session (and conversation) at that Send again (H4). A Retry of a refused
+  // job sends its first time back, which changes nothing. A clock-bound row
+  // keeps its clock action's time (O13).
+  const resent =
+    !isClockBound(current) && args.sentAt !== timeMs(current.sentAt)
+      ? { sentAt: args.sentAt, resolveSendContext: true }
+      : {};
   const moved = !samePlace(current, args);
   if (isClockBound(current)) {
     // Its clock action ran for that place: the video can't go anywhere else (O13).
@@ -374,7 +404,7 @@ export function beginDecision(rows, args) {
       // A refusal is checked again: the place may be back. A clock row's
       // place is its post, made at Send.
       const recheck = current.state === 'failed' && !isClockBound(current);
-      return decision('reissue', current, args, { ...kept, resolveTarget: recheck });
+      return decision('reissue', current, args, { ...kept, ...resent, resolveTarget: recheck });
     }
     if (args.renew && current.state !== 'processing') return decision('renew', current, args, kept);
     return decision('reuse', current, args, kept);
@@ -420,6 +450,7 @@ function freshSend(type) {
  * @property {boolean} [mintArtifact]
  * @property {string | null} [retireArtifactId]
  * @property {string | null} [retireClientKey]
+ * @property {string | null} [reviveClientKey]
  * @property {boolean} [resolveTarget]
  * @property {boolean} [resolveSendContext]
  * @property {any} [sentAt] ms for a new Send, else the row's own
@@ -458,6 +489,7 @@ function decision(
     mintArtifact: takesKey,
     retireArtifactId: replaces ? (row.artifactId ?? null) : null,
     retireClientKey: takesKey && row?.clientKey != null && row.clientKey !== args.clientKey ? row.clientKey : null,
+    reviveClientKey: takesKey && row && retiredKey(row, args.clientKey) ? args.clientKey : null,
     resolveTarget,
     resolveSendContext,
     sentAt: sentAt ?? row?.sentAt ?? null,
