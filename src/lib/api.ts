@@ -1356,7 +1356,8 @@ export interface HuddlePostAttachment {
   ownerId?: string | null;
   /**
    * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
-   * null or absent: none. Videos only.
+   * null or absent: none. Videos only. Not sent yet: the server's post
+   * attachments don't carry it.
    */
   captionsUrl?: string | null;
 }
@@ -2133,7 +2134,8 @@ export interface Attachment {
   canRename?: boolean;
   /**
    * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
-   * null or absent: none. Videos only.
+   * null or absent: none. Videos only. Not sent yet: `attachments.list`
+   * doesn't return it.
    */
   captionsUrl?: string | null;
 }
