@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { teamApi, type Team, type TeamSettingKey } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { TeamSettingRow } from './TeamSettingRow';
-import { SETTINGS_STRINGS } from './settingsCopy';
+import { PULSE_SETTING_KEYS, SETTINGS_STRINGS } from './settingsCopy';
 
 const GroupLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <Text variant="muted" size="xs" weight="semibold" className="mb-3 uppercase tracking-widest">
@@ -12,8 +12,15 @@ const GroupLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </Text>
 );
 
+// Semantic classes for the Pulse rows; e2e specs find a setting by its row's class.
+const PULSE_ROW_CLASS = {
+  pulseInApp: 'team-setting-pulse-in-app',
+  pulseClockInOut: 'team-setting-pulse-clock',
+  pulseSharedDevice: 'team-setting-pulse-shared-phones',
+} as const;
+
 /**
- * A team's own settings (plan requirement, auto-accept), each with where its
+ * A team's own settings (plan requirement, auto-accept, Pulse), each with where its
  * value comes from. Shared by the Teams page's Settings tab and Settings → Team,
  * so both read and write the same team document.
  */
@@ -55,6 +62,8 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
   const row = (key: TeamSettingKey, className: string) => {
     const copy = SETTINGS_STRINGS.teamSettings[key];
     const setting = team.resolvedSettings[key];
+    // A server that predates the Pulse settings sends none: show no row for them.
+    if (!setting) return null;
     return (
       <TeamSettingRow
         className={className}
@@ -82,6 +91,14 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
       )}
       <GroupLabel>{SETTINGS_STRINGS.teamSettings.membershipGroup}</GroupLabel>
       {row('autoAcceptJoins', 'team-setting-auto-accept')}
+      {PULSE_SETTING_KEYS.some((key) => team.resolvedSettings[key]) && (
+        <>
+          <GroupLabel>{SETTINGS_STRINGS.teamSettings.pulseGroup}</GroupLabel>
+          {PULSE_SETTING_KEYS.map((key) => (
+            <React.Fragment key={key}>{row(key, PULSE_ROW_CLASS[key])}</React.Fragment>
+          ))}
+        </>
+      )}
     </div>
   );
 };

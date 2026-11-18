@@ -1,5 +1,6 @@
 // Every user-facing string for the settings UI, in one place until the app has i18n.
-import type { ResolvedSetting } from '../../lib/api';
+import type { PulseSettingKey, ResolvedSetting } from '../../lib/api';
+import type { DefaultSettingRow } from './DefaultsCard';
 
 export type SettingsLevel = 'team' | 'org' | 'enterprise';
 
@@ -45,6 +46,44 @@ export const SETTINGS_STRINGS = {
         'Anyone joining with the team code is added immediately — no pending approval from an admin.',
       switchLabel: 'Toggle auto-accepting join requests',
     },
+    pulseGroup: 'Pulse',
+    pulseInApp: {
+      title: 'Record with Pulse in the iPhone app',
+      description:
+        'Members record videos for tickets, sessions and posts with Pulse. Off hides the record buttons; videos already recorded still send.',
+      switchLabel: 'Toggle recording with Pulse in the iPhone app',
+    },
+    pulseClockInOut: {
+      title: 'Clock in and out with a Pulse video',
+      description:
+        'Members can record their plan or wrap-up as a Pulse video when they clock in or out in the iPhone app.',
+      switchLabel: 'Toggle clocking in and out with a Pulse video',
+    },
+    pulseSharedDevice: {
+      title: 'This team uses shared phones',
+      description:
+        'When someone signs out, videos they haven’t sent are deleted from the phone instead of kept for their next sign-in.',
+      switchLabel: 'Toggle shared phones for this team',
+    },
+  },
+  /** The Pulse defaults an organization or enterprise sets; each row adds who follows it. */
+  pulseDefaults: {
+    pulseInApp: {
+      title: 'Record with Pulse in the iPhone app',
+      description: 'Off hides the record buttons; videos already recorded still send.',
+    },
+    pulseClockInOut: {
+      title: 'Clock in and out with a Pulse video',
+      description: 'Members can record their plan or wrap-up as a Pulse video in the iPhone app.',
+    },
+    pulseSharedDevice: {
+      title: 'Teams use shared phones',
+      description: 'Videos not yet sent are deleted from the phone when someone signs out.',
+    },
+  },
+  followsDefault: {
+    org: 'Teams without their own choice follow this.',
+    enterprise: 'Organizations and teams without their own choice follow this.',
   },
   teamPicker: 'Team',
   teamPickerHint: 'Which team’s settings to change.',
@@ -56,6 +95,23 @@ export const SETTINGS_STRINGS = {
       : 'Choose a team you manage.',
   manageTeam: 'Rename or delete this team',
 } as const;
+
+/** The Pulse settings, in the order every settings surface lists them. */
+export const PULSE_SETTING_KEYS: readonly PulseSettingKey[] = [
+  'pulseInApp',
+  'pulseClockInOut',
+  'pulseSharedDevice',
+];
+
+/** The Pulse rows of an organization's or enterprise's defaults, each lockable. */
+export function pulseDefaultRows(level: Exclude<SettingsLevel, 'team'>): DefaultSettingRow[] {
+  return PULSE_SETTING_KEYS.map((key) => ({
+    key,
+    title: SETTINGS_STRINGS.pulseDefaults[key].title,
+    description: `${SETTINGS_STRINGS.followsDefault[level]} ${SETTINGS_STRINGS.pulseDefaults[key].description}`,
+    lockable: true,
+  }));
+}
 
 /** Settings → Sources → GitHub (#873): a member's own GitHub connection. */
 export const GITHUB_SOURCE_STRINGS = {

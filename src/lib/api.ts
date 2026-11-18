@@ -1542,7 +1542,10 @@ export interface ResolvedSetting {
   sourceId?: string;
 }
 
-export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
+/** Pulse in the iPhone app: off unless a team, org or enterprise turns it on. */
+export type PulseSettingKey = 'pulseInApp' | 'pulseClockInOut' | 'pulseSharedDevice';
+
+export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins' | PulseSettingKey;
 
 /** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
 export type DefaultSettingKey =
@@ -1577,8 +1580,10 @@ export interface Team {
   /** The servers the team's organization has named, for outside IDs like `RM0-214`. */
   sourcePrefixes: SourcePrefix[];
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
-  settings: Record<TeamSettingKey, boolean>;
-  resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;
+  settings: Record<Exclude<TeamSettingKey, PulseSettingKey>, boolean>;
+  /** The Pulse keys are absent from a server that predates them. */
+  resolvedSettings: Record<Exclude<TeamSettingKey, PulseSettingKey>, ResolvedSetting> &
+    Partial<Record<PulseSettingKey, ResolvedSetting>>;
   createdAt: string;
   updatedAt: string | null;
 }

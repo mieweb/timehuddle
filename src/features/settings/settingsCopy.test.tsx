@@ -1,9 +1,30 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ResolvedSetting } from '../../lib/api';
+import {
+  teamApi,
+  type DefaultSettingKey,
+  type ResolvedSetting,
+  type SettingsEditView,
+  type Team,
+} from '../../lib/api';
+import { ENTERPRISE_DEFAULT_ROWS } from '../enterprise/EnterpriseSettings';
+import { TEAM_DEFAULT_ROWS } from '../org/OrganizationSettings';
+import { DefaultsCard } from './DefaultsCard';
 import { TeamSettingRow } from './TeamSettingRow';
-import { describeSetting } from './settingsCopy';
+import { TeamSettingsRows } from './TeamSettingsRows';
+import { PULSE_SETTING_KEYS, SETTINGS_STRINGS, describeSetting } from './settingsCopy';
+
+const teamContext = vi.hoisted(() => ({ refetchTeams: vi.fn() }));
+vi.mock('../../lib/TeamContext', () => ({
+  useTeam: () => ({ organizations: [], enterprises: [], refetchTeams: teamContext.refetchTeams }),
+}));
+vi.mock('../../lib/api', () => ({
+  ApiError: class ApiError extends Error {},
+  teamApi: { updateSettings: vi.fn() },
+  orgApi: {},
+  enterpriseApi: {},
+}));
 
 const names = { org: 'Acme Org', enterprise: 'Acme Enterprise' };
 const setting = (overrides: Partial<ResolvedSetting>): ResolvedSetting => ({
@@ -96,5 +117,145 @@ describe('TeamSettingRow', () => {
     expect(
       (screen.getByRole('switch', { name: 'Toggle plan' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe('Pulse settings copy', () => {
+  it('words the team rows as agreed', () => {
+    const team = SETTINGS_STRINGS.teamSettings;
+    expect(team.pulseInApp.title).toBe('Record with Pulse in the iPhone app');
+    expect(team.pulseClockInOut.title).toBe('Clock in and out with a Pulse video');
+    expect(team.pulseSharedDevice.title).toBe('This team uses shared phones');
+  });
+
+  it.each(PULSE_SETTING_KEYS)('has team copy for %s', (key) => {
+    const copy = SETTINGS_STRINGS.teamSettings[key];
+    expect(copy.title).toMatch(/\S/);
+    expect(copy.description).toMatch(/\S/);
+    expect(copy.switchLabel).toMatch(/\S/);
+  });
+
+  it.each([
+    ['organization', TEAM_DEFAULT_ROWS, 'Teams without their own choice follow this.'],
+    [
+      'enterprise',
+      ENTERPRISE_DEFAULT_ROWS,
+      'Organizations and teams without their own choice follow this.',
+    ],
+  ] as const)('lists every Pulse default on the %s, lockable', (_, rows, follows) => {
+    for (const key of PULSE_SETTING_KEYS) {
+      const row = rows.find((r) => r.key === key);
+      expect(row?.title).toBe(SETTINGS_STRINGS.pulseDefaults[key].title);
+      expect(row?.description.startsWith(`${follows} `)).toBe(true);
+      expect(row?.description.length).toBeGreaterThan(follows.length + 1);
+      expect(row?.lockable).toBe(true);
+    }
+  });
+});
+
+const off = (): ResolvedSetting => ({ value: false, source: 'system', locked: false });
+
+function makeTeam(resolved: Partial<Team['resolvedSettings']> = {}): Team {
+  return {
+    id: 'team-1',
+    orgId: 'org-1',
+    parentTeamId: null,
+    name: 'Team',
+    description: null,
+    members: [],
+    admins: [],
+    code: 'T1',
+    isPersonal: false,
+    ticketPrefix: 'TH',
+    sourcePrefixes: [],
+    settings: { requirePlanForClock: true, autoAcceptJoins: false },
+    resolvedSettings: {
+      requirePlanForClock: { value: true, source: 'system', locked: false },
+      autoAcceptJoins: off(),
+      ...resolved,
+    },
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: null,
+  };
+}
+
+describe('TeamSettingsRows, Pulse', () => {
+  beforeEach(() => {
+    vi.mocked(teamApi.updateSettings)
+      .mockReset()
+      .mockResolvedValue({} as never);
+    teamContext.refetchTeams.mockReset();
+  });
+  afterEach(cleanup);
+
+  it('shows each Pulse setting off by default, under its own group', () => {
+    render(
+      <TeamSettingsRows
+        team={makeTeam({ pulseInApp: off(), pulseClockInOut: off(), pulseSharedDevice: off() })}
+      />,
+    );
+    expect(screen.getByText(SETTINGS_STRINGS.teamSettings.pulseGroup)).toBeTruthy();
+    for (const key of PULSE_SETTING_KEYS) {
+      const copy = SETTINGS_STRINGS.teamSettings[key];
+      expect(screen.getByText(copy.title)).toBeTruthy();
+      expect(
+        screen.getByRole('switch', { name: copy.switchLabel }).getAttribute('aria-checked'),
+      ).toBe('false');
+    }
+  });
+
+  it.each(PULSE_SETTING_KEYS)('saves %s on the team when toggled', async (key) => {
+    render(
+      <TeamSettingsRows
+        team={makeTeam({ pulseInApp: off(), pulseClockInOut: off(), pulseSharedDevice: off() })}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('switch', { name: SETTINGS_STRINGS.teamSettings[key].switchLabel }),
+    );
+    expect(teamApi.updateSettings).toHaveBeenCalledWith('team-1', { [key]: true });
+    await waitFor(() => expect(teamContext.refetchTeams).toHaveBeenCalledOnce());
+  });
+
+  it('shows no Pulse rows when the server sends no Pulse settings', () => {
+    render(<TeamSettingsRows team={makeTeam()} />);
+    expect(screen.queryByText(SETTINGS_STRINGS.teamSettings.pulseGroup)).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(2);
+  });
+});
+
+describe('DefaultsCard, Pulse', () => {
+  afterEach(cleanup);
+
+  const view = (): SettingsEditView => ({
+    settings: {},
+    settingsLocks: {},
+    effectiveSettings: Object.fromEntries(
+      TEAM_DEFAULT_ROWS.map((row) => [row.key, off()]),
+    ) as Record<DefaultSettingKey, ResolvedSetting>,
+  });
+
+  it.each(PULSE_SETTING_KEYS)('sets and locks %s on an organization', (key) => {
+    const onSave = vi.fn();
+    render(
+      <DefaultsCard
+        level="org"
+        title="Team defaults"
+        description="Defaults"
+        rows={TEAM_DEFAULT_ROWS}
+        view={view()}
+        names={{}}
+        saving={false}
+        error={null}
+        onSave={onSave}
+      />,
+    );
+    const title = SETTINGS_STRINGS.pulseDefaults[key].title;
+    fireEvent.click(screen.getByRole('switch', { name: title }));
+    expect(onSave).toHaveBeenLastCalledWith({ settings: { [key]: true } });
+    fireEvent.click(
+      screen.getByRole('switch', { name: `${SETTINGS_STRINGS.lockForTeams}: ${title}` }),
+    );
+    expect(onSave).toHaveBeenLastCalledWith({ settings: { [key]: false }, locks: { [key]: true } });
   });
 });
