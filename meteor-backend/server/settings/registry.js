@@ -39,6 +39,28 @@ export const SETTINGS = {
     levels: ['enterprise', 'org', 'team'],
     personalExempt: false,
   },
+  // Pulse in the iPhone app, off unless a team, org or enterprise turns it on.
+  // pulseInApp off hides the record buttons only: videos already on a phone still send.
+  pulseInApp: {
+    type: 'boolean',
+    default: false,
+    levels: ['enterprise', 'org', 'team'],
+    personalExempt: false,
+  },
+  // The clock page's "with a Pulse video" clock-in and clock-out buttons.
+  pulseClockInOut: {
+    type: 'boolean',
+    default: false,
+    levels: ['enterprise', 'org', 'team'],
+    personalExempt: false,
+  },
+  // Shared phones: unsent videos are deleted at sign-out instead of kept for the next sign-in.
+  pulseSharedDevice: {
+    type: 'boolean',
+    default: false,
+    levels: ['enterprise', 'org', 'team'],
+    personalExempt: false,
+  },
 };
 
 export const SETTING_KEYS = Object.keys(SETTINGS);
