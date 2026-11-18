@@ -29,7 +29,8 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
   // The switch shows the value being saved until the server confirms it.
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<Partial<Record<TeamSettingKey, boolean>>>({});
-  const [error, setError] = useState<string | null>(null);
+  // A failed save's message, shown under the row that failed.
+  const [error, setError] = useState<{ key: TeamSettingKey; message: string } | null>(null);
 
   // Names for "Inherited from …" / "Locked by …"; absent when the viewer can't see them.
   const names = useMemo(() => {
@@ -50,7 +51,7 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
         await teamApi.updateSettings(team.id, { [key]: value });
         refetchTeams();
       } catch (e: any) {
-        setError(e.message || SETTINGS_STRINGS.failedToSave);
+        setError({ key, message: e.message || SETTINGS_STRINGS.failedToSave });
       } finally {
         setSaving(false);
         setPending({});
@@ -66,18 +67,25 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
     // lists them; without them there is nothing to show or save, so no row.
     if (!setting) return null;
     return (
-      <TeamSettingRow
-        className={className}
-        title={copy.title}
-        description={copy.description}
-        switchLabel={copy.switchLabel}
-        setting={setting}
-        names={names}
-        checked={pending[key] ?? setting.value}
-        saving={saving}
-        onToggle={(checked) => void update(key, checked)}
-        onReset={() => void update(key, null)}
-      />
+      <>
+        <TeamSettingRow
+          className={className}
+          title={copy.title}
+          description={copy.description}
+          switchLabel={copy.switchLabel}
+          setting={setting}
+          names={names}
+          checked={pending[key] ?? setting.value}
+          saving={saving}
+          onToggle={(checked) => void update(key, checked)}
+          onReset={() => void update(key, null)}
+        />
+        {error?.key === key && (
+          <Text variant="destructive" size="xs" className="mb-4" role="alert">
+            {error.message}
+          </Text>
+        )}
+      </>
     );
   };
 
@@ -85,11 +93,6 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
     <div className="team-settings-rows">
       <GroupLabel>{SETTINGS_STRINGS.teamSettings.clockGroup}</GroupLabel>
       {row('requirePlanForClock', 'team-setting-plan-for-clock')}
-      {error && (
-        <Text variant="destructive" size="xs" className="mb-4" role="alert">
-          {error}
-        </Text>
-      )}
       <GroupLabel>{SETTINGS_STRINGS.teamSettings.membershipGroup}</GroupLabel>
       {row('autoAcceptJoins', 'team-setting-auto-accept')}
       {PULSE_SETTING_KEYS.some((key) => team.resolvedSettings[key]) && (
