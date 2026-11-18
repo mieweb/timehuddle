@@ -1354,6 +1354,11 @@ export interface HuddlePostAttachment {
    * posted it (null: a video from before every video had a media item). Videos only.
    */
   ownerId?: string | null;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only.
+   */
+  captionsUrl?: string | null;
 }
 
 export interface HuddlePost {
@@ -2126,6 +2131,11 @@ export interface Attachment {
   name?: string | null;
   /** Whether the caller owns the video and so may rename it. Videos only. */
   canRename?: boolean;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only.
+   */
+  captionsUrl?: string | null;
 }
 
 export const attachmentApi = {
@@ -2420,6 +2430,8 @@ export interface VideoPublicInfo {
   author: { name: string | null; image: string | null } | null;
   /** The caller added it, so they may rename it. */
   canRename: boolean;
+  /** Its captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`); null or absent: none. */
+  captionsUrl?: string | null;
 }
 
 export const videoApi = {
@@ -2557,6 +2569,11 @@ export interface MediaItem {
   altText: string | null;
   thumbnail: string | null;
   uploadedAt: string;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only.
+   */
+  captionsUrl?: string | null;
 }
 
 function withAbsoluteMediaItem(item: MediaItem): MediaItem {
