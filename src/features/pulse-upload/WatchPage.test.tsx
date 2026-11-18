@@ -49,6 +49,20 @@ describe('WatchPage captions', () => {
     expect(video()?.getAttribute('src')).toBe(`/pulsevault/artifacts/${VIDEO}`);
   });
 
+  it('shows only its poster until its details arrive, so its player never swaps mid-play', async () => {
+    let answer: (found: VideoPublicInfo) => void = () => {};
+    publicInfo.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<WatchPage videoId={VIDEO} />);
+    const article = screen.getByRole('article');
+    expect(article.querySelector('video')).toBeNull();
+    expect(article.querySelector('img')?.getAttribute('src')).toBe(
+      `/pulsevault/artifacts/${VIDEO}/poster`,
+    );
+    answer(info(`/pulsevault/artifacts/${CAPTIONS}`));
+    await waitFor(() => expect(video()?.querySelector('track')).not.toBeNull());
+    expect(video()?.getAttribute('crossorigin')).toBe('anonymous');
+  });
+
   it.each([
     ['null', null],
     ['absent (a server from before captions)', undefined],

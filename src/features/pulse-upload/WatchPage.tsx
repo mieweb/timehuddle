@@ -91,6 +91,11 @@ export function WatchPage({ videoId }: { videoId: string }) {
   );
   const back = cameFromApp();
   const captionsUrl = info?.captionsUrl ?? null;
+  // Which player plays it waits on its details: a captioned video plays in
+  // FeedPlayer, any other in MediaFeed's own, and swapping one for the other
+  // would stop a video already started (and fetch it again). Until they
+  // arrive, or it turns out missing, it shows its poster.
+  const settled = info !== null || missing;
 
   return (
     <ToastProvider>
@@ -135,16 +140,24 @@ export function WatchPage({ videoId }: { videoId: string }) {
             })}
             getTitle={(id) => videoLabel(name, id)}
             renderMedia={
-              trackProps(captionsUrl)
-                ? (media, context) => (
-                    <FeedPlayer
-                      media={media}
-                      context={context}
-                      captionsUrl={captionsUrl}
-                      title={videoLabel(name, context.item)}
+              !settled
+                ? (media) => (
+                    <img
+                      src={media.poster}
+                      alt=""
+                      className="watch-page-poster h-full w-full object-contain"
                     />
                   )
-                : undefined
+                : trackProps(captionsUrl)
+                  ? (media, context) => (
+                      <FeedPlayer
+                        media={media}
+                        context={context}
+                        captionsUrl={captionsUrl}
+                        title={videoLabel(name, context.item)}
+                      />
+                    )
+                  : undefined
             }
             getAuthor={
               info?.author?.name

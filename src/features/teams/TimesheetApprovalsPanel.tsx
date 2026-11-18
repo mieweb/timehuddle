@@ -163,7 +163,9 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   // The walkthrough's captions. A request doesn't carry them, so they're looked
   // up as the video's own page does (`videos.publicInfo`), once per walkthrough
   // and before its ▶ is likely tapped; until then, and if that fails, it plays
-  // without.
+  // without. The feed keeps the captions it opened with (feedCaptionsUrl): an
+  // answer that comes while it's open waits for the next ▶, since a track
+  // arriving mid-play swaps the player and starts the video over.
   const [walkthroughCaptions, setWalkthroughCaptions] = useState<{
     video: string;
     url: string | null;
@@ -183,6 +185,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   }, [walkthroughVideo]);
   const walkthroughCaptionsUrl =
     walkthroughCaptions?.video === walkthroughVideo ? walkthroughCaptions.url : null;
+  const [feedCaptionsUrl, setFeedCaptionsUrl] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -488,7 +491,10 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                 video={walkthroughVideo}
                 title={active.videoName ?? 'Walkthrough'}
                 caption={active.videoName}
-                onOpen={() => setWatching(true)}
+                onOpen={() => {
+                  setFeedCaptionsUrl(walkthroughCaptionsUrl);
+                  setWatching(true);
+                }}
               />
             ) : (
               <video
@@ -577,7 +583,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             {
               id: walkthroughVideo,
               name: active?.videoName ?? null,
-              captionsUrl: walkthroughCaptionsUrl,
+              captionsUrl: feedCaptionsUrl,
             },
           ]}
           openId={watching ? walkthroughVideo : null}
