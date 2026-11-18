@@ -31,7 +31,8 @@ export function useSessionPost(teamId: string | null, clockEventId: string | nul
       const match = ddp
         .docs('huddlePosts')
         .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
-        .filter((p) => p.teamId === teamId && p.clockEventId === clockEventId)
+        // An update joins the session but is never its plan (SESSION_POST_FILTER).
+        .filter((p) => p.teamId === teamId && p.clockEventId === clockEventId && !p.sessionUpdate)
         // Same pick as the server's SESSION_POST_SORT: the wrap-up post, else the
         // earliest (the plan) — later posts are inbox replies, not the plan.
         .sort(

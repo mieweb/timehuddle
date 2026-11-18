@@ -73,6 +73,11 @@ export interface TimecoreUser {
    * Drives the "New" flags on /app/release-notes and the menu badge.
    */
   releaseNotesSeenVersion: string | null;
+  /**
+   * True when this person used the iOS app in the last 30 days. Decides
+   * whether a browser asks them to install the app or offers to open it.
+   */
+  hasIosApp?: boolean;
   organizationMembership?: {
     organizationId: string;
     organizationSlug: string;
@@ -1155,7 +1160,12 @@ export interface OutsideIssue {
 /** Which issue `issue` is, as `tickets.writeOutside` checks it: `kind:server:key`. */
 export function outsideIssueKey(issue: OutsideIssue): string {
   const ref = issue.record.ref;
-  return `${issue.kind}:${ref?.server ?? ''}:${ref?.key ?? ''}`;
+  return `${issue.kind}:${ref?.server ?? ''}:${outsideRefKey(ref)}`;
+}
+
+/** An issue's number within its source: with its repo where numbers are per repo. */
+export function outsideRefKey(ref: { container?: string; key: string } | null): string {
+  return ref ? `${ref.container ? `${ref.container}#` : ''}${ref.key}` : '';
 }
 
 /** Edits to an outside issue, by record field; ids as the source gives them. */
@@ -1241,6 +1251,16 @@ export const ticketApi = {
       issueId,
       expectedIssueId,
     }).then(toTicket),
+
+  /**
+   * The team's ticket carrying GitHub issue or pull request address `url`,
+   * created with that address when there is none (#873). Nothing is converted.
+   */
+  carryLink: (teamId: string, url: string) =>
+    wormholeCall<{ ticket: Record<string, unknown>; created: boolean }>('tickets.carryLink', {
+      teamId,
+      url,
+    }).then(({ ticket, created }) => ({ ticket: toTicket(ticket), created })),
 
   /**
    * The team's ticket carrying Redmine issue `issueId`, created from the issue
@@ -1358,6 +1378,8 @@ export interface HuddlePost {
   postDate?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
   clockEventId?: string;
+  /** Joined its session because it was posted while clocked in: never the session's plan. */
+  sessionUpdate?: boolean;
   /** Resolved from `clockEventId` at read time; absent if the session is gone. */
   session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
@@ -1426,8 +1448,8 @@ export const huddleApi = {
       (r) => r.hasMore,
     ),
 
-  /** The caller's own published posts across every team they belong to (the
-   *  Huddle inbox's Personal view), from `since` (the last 30 days when omitted). */
+  /** The caller's posts in their personal team (the Huddle inbox's Personal
+   *  view), from `since` (the last 30 days when omitted). */
   getMyPosts: (since?: string) =>
     wormholeCall<HuddleFeedPage>('huddle.getMyPosts', since ? { since } : {}),
 
@@ -1464,7 +1486,7 @@ export const huddleApi = {
     wrapUp?: boolean;
     /** ISO date to schedule the post for. */
     deliverAt?: string;
-  }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+  }) => wormholeCall<{ id: string; clockEventId?: string }>('huddle.createPost', { ...params }),
 
   /** Deliver one of my scheduled posts now. */
   sendScheduledNow: (postId: string) =>
@@ -3006,6 +3028,68 @@ export const githubApi = {
 
   disconnect: (): Promise<GitHubLinkStatus> =>
     wormholeCall<GitHubLinkStatus>('github.disconnect', {}),
+};
+
+/** The member's GitHub connection (#873), made in one click from Settings → Sources. */
+export interface GitHubSourceConnection {
+  /** This TimeHuddle has an OAuth app to connect through. */
+  configured: boolean;
+  connected: boolean;
+  /** GitHub stopped accepting the token: connect again. */
+  rejected: boolean;
+  login: string | null;
+  /** The accounts and organizations the member brings issues from; null for all of them. */
+  owners: string[] | null;
+}
+
+/** A GitHub account or organization the member can bring issues from. */
+export interface GitHubOwner {
+  login: string;
+  /** The member's own account. */
+  own: boolean;
+}
+
+/** An issue found on a connected source, with the member's tickets carrying its address. */
+export interface SourceSearchIssue extends RedmineIssue {
+  url: string;
+  /** Its own ID, where the source names one (`pulse-223`). */
+  ref?: string;
+  pull?: boolean;
+  tickets: { id: string; teamId: string }[];
+}
+
+export interface SourceSearchAnswer {
+  host: string;
+  prefix: string;
+  type: string;
+  /** The source was slow or refused: it found nothing, rather than nothing to find. */
+  failed: boolean;
+  /** Why it failed, when that was its rate limit. */
+  rateLimited?: boolean;
+  issues: SourceSearchIssue[];
+}
+
+export const sourcesApi = {
+  /** What `query` finds on the member's connected GitHub; what's assigned to them with none. */
+  search: (query: string): Promise<{ servers: SourceSearchAnswer[] }> =>
+    wormholeCall('sources.search', { query }),
+  github: (): Promise<GitHubSourceConnection> => wormholeCall('sources.github', {}),
+  /** Where to send the browser to connect GitHub; it comes back with `?github_connect=`. */
+  githubConnectUrl: async (): Promise<string> => {
+    const { token } = await wormholeCall<{ token: string }>('sources.githubConnectToken', {});
+    return `${METEOR_BASE_URL}/auth/github?${new URLSearchParams({ connect: token })}`;
+  },
+  /** Finish the GitHub connection, as the user who started it. */
+  confirmGithub: (code: string): Promise<GitHubSourceConnection> =>
+    wormholeCall('sources.confirmGithub', { code }),
+  /** Remove the GitHub connection; its token is revoked at GitHub. */
+  disconnectGithub: (): Promise<GitHubSourceConnection> =>
+    wormholeCall('sources.disconnectGithub', {}),
+  /** The GitHub accounts and organizations the member can bring issues from. */
+  githubOwners: (): Promise<{ owners: GitHubOwner[] }> => wormholeCall('sources.githubOwners', {}),
+  /** Bring GitHub issues only from `owners`; null or empty for all of them. */
+  setGithubOwners: (owners: string[] | null): Promise<{ owners: string[] | null }> =>
+    wormholeCall('sources.setGithubOwners', { owners }),
 };
 
 export const redmineApi = {

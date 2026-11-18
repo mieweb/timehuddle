@@ -140,15 +140,20 @@ export async function gotoTeamsPage(page: Page, user: TestUser = TEST_USERS.owne
 }
 
 /**
- * Create a team, which becomes the selected one, and turn on the plan gate.
+ * Create a team, which becomes the selected one, and leave its page open.
  * Named `Test Team …` so global teardown removes it with the other test teams.
  */
-export async function createPlanRequiredTeam(page: Page): Promise<void> {
+export async function createTestTeam(page: Page, label: string): Promise<void> {
   await page.goto('/app/teams');
   await page.getByRole('button', { name: 'Create Team' }).click();
-  await page.getByPlaceholder('Team name').fill(`Test Team PlanTimer-${Date.now()}`);
+  await page.getByPlaceholder('Team name').fill(`Test Team ${label}-${Date.now()}`);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
+}
+
+/** Create a team, which becomes the selected one, and turn on the plan gate. */
+export async function createPlanRequiredTeam(page: Page): Promise<void> {
+  await createTestTeam(page, 'PlanTimer');
   await page.getByRole('tab', { name: 'Settings', exact: true }).first().click({ timeout: 5000 });
   const settings = new TeamSettingsPage(page);
   await settings.waitForModal();

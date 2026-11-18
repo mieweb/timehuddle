@@ -63,9 +63,10 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
     icon: KeyIcon,
   },
   {
+    // Still `integrations` in the URL, so existing links keep working (#873).
     id: 'integrations',
-    label: 'Integrations',
-    description: 'Your Redmine connection.',
+    label: 'Sources',
+    description: 'Your Redmine and GitHub connections.',
     icon: LinkIcon,
   },
   {
@@ -77,7 +78,7 @@ export const PERSONAL_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'account',
     label: 'Account and privacy',
-    description: 'Sign-in, password and deleting your account.',
+    description: 'Sign-in, password, terms of use and deleting your account.',
     icon: ShieldIcon,
   },
 ];

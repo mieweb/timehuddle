@@ -793,6 +793,17 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, carrierByIssueId, addToBoard, removeFromBoard],
   );
 
+  // A GitHub search result, which acts through the ticket carrying its address.
+  const handleFoundTicketBoard = useCallback(
+    (ticket: Ticket) => {
+      const key = ticketKey('huddle', ticket.id);
+      return boardKeys.has(key)
+        ? removeFromBoard([key], timerLabel('huddle', ticket.id, ticket.title))
+        : addToBoard([key]);
+    },
+    [boardKeys, addToBoard, removeFromBoard],
+  );
+
   // One row's board button: on puts it there, off takes it away again.
   const [boardLoadingKey, setBoardLoadingKey] = useState<string | null>(null);
   const handleToggleBoard = useCallback(
@@ -996,6 +1007,8 @@ export const TicketsPage: React.FC = () => {
                 boardIssueIds={boardRedmineIssueIds}
                 boardKnown={boardKnown}
                 onToggleBoard={handleSuggestionBoard}
+                boardKeys={boardKeys}
+                onToggleTicketBoard={handleFoundTicketBoard}
                 inputClassName={`ps-8 rounded-lg ${noFocusRingClass}`}
               />
             </div>
