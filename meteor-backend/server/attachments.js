@@ -5,11 +5,22 @@ import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
 import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
 import { keepReferencedUploads } from './uploads';
+import { existingOnDuplicate, pulseFieldsOf, videoTargetFilter } from './attachments-dedupe-core.js';
+import { runPulseAttachmentsDedupe } from './migrations/pulse-attachments-dedupe.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const VALID_KINDS = ['clock', 'ticket'];
 const VALID_TYPES = ['video', 'image', 'link'];
+
+// A video lands on a ticket or session once (huddle-server §12): old
+// duplicates go, then the unique index on its target comes. `DRY_RUN=1` only
+// logs how many duplicates there are. Not awaited: startup doesn't wait on it.
+Meteor.startup(() => {
+  runPulseAttachmentsDedupe(rawDb(), { dryRun: process.env.DRY_RUN === '1' }).catch((error) =>
+    console.error('[attachments] video dedupe or its unique index failed:', error.message),
+  );
+});
 
 function toPublic(a) {
   return {
@@ -46,14 +57,31 @@ async function fetchYouTubeTitle(url) {
  * caller-identity resolution. Used by upload pipelines (PulseVault) that
  * already know the owning userId from their own reservation/auth context
  * rather than the current Meteor method invocation.
+ *
+ * A video lands on its target once: a replay (same url, kind and id) returns
+ * the attachment already there instead of throwing. Links and images may
+ * repeat. Pulse deliveries also pass `source: 'pulse'`, `videoid`,
+ * `pulseUploadId` and `uploadType`, which are stored but not returned.
  */
-export async function createAttachment({ url, type, title, attachedTo, addedBy }) {
+export async function createAttachment({
+  url,
+  type,
+  title,
+  attachedTo,
+  addedBy,
+  source,
+  videoid,
+  pulseUploadId,
+  uploadType,
+}) {
   if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
   if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
   if (!attachedTo?.kind || typeof attachedTo.id !== 'string' || !attachedTo.id) {
     throw new Meteor.Error('bad-request', 'attachedTo is required');
   }
   if (!VALID_KINDS.includes(attachedTo.kind)) throw new Meteor.Error('bad-request', 'Invalid attachedTo.kind');
+  const pulse = pulseFieldsOf(type, { source, videoid, pulseUploadId, uploadType });
+  if (pulse.error) throw new Meteor.Error('bad-request', pulse.error);
 
   const resolvedTitle = title ?? (isYouTubeUrl(url) ? await fetchYouTubeTitle(url) : undefined);
 
@@ -65,11 +93,18 @@ export async function createAttachment({ url, type, title, attachedTo, addedBy }
     attachedTo,
     addedBy,
     addedAt: new Date(),
+    ...pulse.fields,
   };
   // An upload a post dropped, waiting to be deleted, stays for this.
   await keepReferencedUploads([doc.url]);
-  await rawDb().collection('attachments').insertOne(doc);
-  return toPublic(doc);
+  const attachments = rawDb().collection('attachments');
+  try {
+    await attachments.insertOne(doc);
+    return toPublic(doc);
+  } catch (error) {
+    const existing = await existingOnDuplicate(error, () => attachments.findOne(videoTargetFilter(doc)));
+    return toPublic(existing);
+  }
 }
 
 /** The team document, by either id shape a team can have. */
