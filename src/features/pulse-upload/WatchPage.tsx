@@ -10,7 +10,9 @@
  * Laid out as Huddle's media view is — it is the same MediaFeed, holding one
  * video: the clip fills the screen at its own shape, upright or sideways, its
  * name (and who added it) sit at the bottom start above the player's
- * controls, as in short-video apps, and its ⋯ menu beside them.
+ * controls, as in short-video apps, and its ⋯ menu beside them. With its
+ * captions when it has some (`captionsUrl`, captions.ts), played by
+ * VideoFeedView's FeedPlayer until MediaFeed's own player takes a track.
  */
 import { ArrowLeftIcon, Button, MediaFeed, ToastProvider } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -18,6 +20,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { resolveMediaUrl, videoApi, type VideoPublicInfo } from '@lib/api';
 import { Logo } from '../../ui/Logo';
 import { ARTIFACT_ID, artifactPath, posterPath, videoLabel } from './artifact';
+import { trackProps } from './captions';
+import { FeedPlayer } from './VideoFeedView';
 import { VideoMenu } from './VideoMenu';
 
 /** User-facing copy, kept together for translation. */
@@ -86,6 +90,7 @@ export function WatchPage({ videoId }: { videoId: string }) {
     [],
   );
   const back = cameFromApp();
+  const captionsUrl = info?.captionsUrl ?? null;
 
   return (
     <ToastProvider>
@@ -129,6 +134,18 @@ export function WatchPage({ videoId }: { videoId: string }) {
               poster: resolveMediaUrl(posterPath(id)),
             })}
             getTitle={(id) => videoLabel(name, id)}
+            renderMedia={
+              trackProps(captionsUrl)
+                ? (media, context) => (
+                    <FeedPlayer
+                      media={media}
+                      context={context}
+                      captionsUrl={captionsUrl}
+                      title={videoLabel(name, context.item)}
+                    />
+                  )
+                : undefined
+            }
             getAuthor={
               info?.author?.name
                 ? () => ({ name: info.author!.name!, avatar: info.author!.image ?? undefined })
