@@ -71,6 +71,114 @@ jobs:
         working-directory: meteor-backend
         run: npm run test:unit
 
+  # The backend tests that need a running server (every tests/*.test.ts that
+  # imports ./helpers or mongodb): the same `meteor run` test backend people run
+  # locally on :3101, against its own timehuddle_test database. Opt-in for now:
+  # it runs on a PR labelled `backend-integration`, from the next push after the
+  # label is added.
+  backend-integration:
+    name: Backend Integration Tests
+    if: contains(github.event.pull_request.labels.*.name, 'backend-integration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # teams.test.ts reads the invitation emails the backend sends.
+      mailpit:
+        image: axllent/mailpit:v1.31.3
+        ports:
+          - 1025:1025
+          - 8025:8025
+    env:
+      METEOR_URL: http://localhost:3101
+      MONGO_URL: mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0
+      MONGO_OPLOG_URL: mongodb://127.0.0.1:27017/local?replicaSet=rs0
+      MONGODB_URI: mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0
+      MAILPIT_URL: http://localhost:8025
+      # Throwaway values for the suites that skip without them: the Redmine and
+      # GitHub stand-ins are HTTP servers inside the test process, and the
+      # backend reads the key the tests store with.
+      REDMINE_ENCRYPTION_KEY: ci-only-throwaway-key
+      REDMINE_BASE_URL: http://127.0.0.1:3998
+      GITHUB_TEST_PORT: 3997
+      GITHUB_TEST_SERVER: http://127.0.0.1:3997
+      GITHUB_API_URL: http://127.0.0.1:3997
+      GITHUB_WEB_URL: http://127.0.0.1:3997
+      GITHUB_CLIENT_ID: ci-client-id
+      GITHUB_CLIENT_SECRET: ci-client-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init meteor-wormhole submodule
+        run: git submodule update --init vendor/meteor-wormhole
+
+      # A service container can't be given mongod's --replSet, and Meteor tails
+      # the oplog of a replica set, as the local and preview backends do.
+      - name: Start MongoDB (single-node replica set)
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:8 --replSet rs0 --bind_ip_all
+          for _ in $(seq 1 30); do
+            docker exec mongo mongosh --quiet --eval "db.adminCommand('ping').ok" > /dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec mongo mongosh --quiet --eval \
+            "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
+          for _ in $(seq 1 30); do
+            [ "$(docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary')" = "true" ] && exit 0
+            sleep 1
+          done
+          echo "::error::MongoDB replica set has no primary after 30s"
+          exit 1
+
+      - name: Cache Meteor
+        id: meteor-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.meteor
+          key: meteor-${{ runner.os }}-${{ hashFiles('meteor-backend/.meteor/release', 'meteor-backend/.meteor/versions') }}
+
+      - name: Install Meteor
+        if: steps.meteor-cache.outputs.cache-hit != 'true'
+        run: curl -fsSL "https://install.meteor.com/?release=$(sed 's/^METEOR@//' meteor-backend/.meteor/release)" | sh
+
+      - name: Put Meteor on PATH
+        run: echo "$HOME/.meteor" >> "$GITHUB_PATH"
+
+      # With Meteor's own Node, so native modules (bcrypt) match the server.
+      - name: Install dependencies
+        working-directory: meteor-backend
+        run: meteor npm ci
+
+      - name: Start test backend on :3101
+        working-directory: meteor-backend
+        env:
+          PORT: 3101
+        run: |
+          nohup npm start > "$RUNNER_TEMP/meteor.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/meteor.pid"
+          deadline=$((SECONDS + 600))
+          until curl -sf "$METEOR_URL/health" > /dev/null 2>&1; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/meteor.pid")" 2> /dev/null; then
+              echo "::error::The test backend exited before it was healthy"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::The test backend was not healthy within 600s"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Test backend healthy at $METEOR_URL"
+
+      - name: Test
+        working-directory: meteor-backend
+        run: meteor npm run test:integration
+
+      - name: Backend log
+        if: failure()
+        run: tail -n 300 "$RUNNER_TEMP/meteor.log" || true
+
   backend:
     if: false # Disabled - Fastify backend removed, Meteor backend doesn't have these npm scripts
     name: Backend Checks
