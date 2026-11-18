@@ -28,7 +28,13 @@ const USERS = {
   member: { name: 'Set Member', email: 'wh-set-member@test.dev', password: 'Password1!' },
 };
 
-type Settings = { requirePlanForClock: SettingValue; autoAcceptJoins: SettingValue };
+type Settings = {
+  requirePlanForClock: SettingValue;
+  autoAcceptJoins: SettingValue;
+  pulseInApp: SettingValue;
+  pulseClockInOut: SettingValue;
+  pulseSharedDevice: SettingValue;
+};
 type TeamsList = {
   teams: Array<{ id: string; settings: Record<string, boolean>; resolvedSettings: Settings }>;
 };
@@ -279,6 +285,79 @@ describe('reset to inherited', () => {
     const db = await getDb();
     const team = await db.collection('teams').findOne({ _id: teamId });
     expect(team?.settings).not.toHaveProperty('requirePlanForClock');
+  });
+});
+
+describe('Pulse settings on a team', () => {
+  const PULSE_KEYS = ['pulseInApp', 'pulseClockInOut', 'pulseSharedDevice'] as const;
+
+  it('a team carries all three, off, when no level sets them', async () => {
+    const settings = await teamSettings();
+    for (const key of PULSE_KEYS) {
+      expect(settings[key]).toEqual({ value: false, source: 'system', locked: false });
+    }
+  });
+
+  it('a team admin saves each one on the team, and null resets it to the org default', async () => {
+    await wormhole(
+      'orgs.updateSettings',
+      { orgId: orgId.toHexString(), settings: { pulseInApp: true } },
+      jwts.orgOwner,
+    );
+    expect((await teamSettings()).pulseInApp).toMatchObject({ value: true, source: 'org' });
+
+    const save = await wormhole<{
+      team: { settings: Record<string, boolean>; resolvedSettings: Settings };
+    }>(
+      'teams.updateSettings',
+      {
+        teamId: teamId.toHexString(),
+        pulseInApp: false,
+        pulseClockInOut: true,
+        pulseSharedDevice: true,
+      },
+      jwts.teamAdmin,
+    );
+    expect(save.ok).toBe(true);
+    // The saved team comes back with the new values; the plain-boolean copy leaves them out.
+    expect(save.result.team.resolvedSettings.pulseClockInOut).toMatchObject({
+      value: true,
+      source: 'team',
+    });
+    expect(save.result.team.settings).not.toHaveProperty('pulseInApp');
+
+    const saved = await teamSettings();
+    expect(saved.pulseInApp).toMatchObject({ value: false, source: 'team' });
+    expect(saved.pulseClockInOut).toMatchObject({ value: true, source: 'team' });
+    expect(saved.pulseSharedDevice).toMatchObject({ value: true, source: 'team' });
+
+    const db = await getDb();
+    expect((await db.collection('teams').findOne({ _id: teamId }))?.settings).toEqual({
+      pulseInApp: false,
+      pulseClockInOut: true,
+      pulseSharedDevice: true,
+    });
+
+    const reset = await wormhole(
+      'teams.updateSettings',
+      { teamId: teamId.toHexString(), pulseInApp: null, pulseClockInOut: null },
+      jwts.teamAdmin,
+    );
+    expect(reset.ok).toBe(true);
+    const after = await teamSettings();
+    expect(after.pulseInApp).toMatchObject({ value: true, source: 'org' });
+    expect(after.pulseClockInOut).toMatchObject({ value: false, source: 'system' });
+    expect(after.pulseSharedDevice).toMatchObject({ value: true, source: 'team' });
+  });
+
+  it('a plain member cannot save them on the team', async () => {
+    const res = await wormhole(
+      'teams.updateSettings',
+      { teamId: teamId.toHexString(), pulseInApp: true },
+      jwts.member,
+    );
+    expect(res.ok).toBe(false);
+    expect((await teamSettings()).pulseInApp).toMatchObject({ value: false, source: 'system' });
   });
 });
 
