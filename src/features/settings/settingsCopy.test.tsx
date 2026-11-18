@@ -179,12 +179,12 @@ function makeTeam(resolved: Partial<Team['resolvedSettings']> = {}): Team {
   };
 }
 
-// These hand the component the resolvedSettings shape a server sends once its
-// publicTeamSettings lists the Pulse keys, and mock teamApi, so they cover the
-// rows and the call they make, not the server. The team path also needs the
-// server to send the keys (publicTeamSettings, settings/index.js) and accept
-// them (teams.updateSettings in teams.js and its schema in main.js); that is
-// checked in the browser, not here. The last test pins the rows without them.
+// These hand the component the resolvedSettings shape publicTeamSettings sends
+// and mock teamApi, so they cover the rows and the call they make, not the
+// server. The server side is meteor-backend/tests/pulse-settings-core.test.ts
+// (publicPulseSettings) and, against a running server, the team round trip in
+// meteor-backend/tests/settings-hierarchy.test.ts. The last test pins the rows
+// for a server that predates the Pulse keys.
 describe('TeamSettingsRows, Pulse', () => {
   beforeEach(() => {
     vi.mocked(teamApi.updateSettings)
@@ -243,7 +243,7 @@ describe('TeamSettingsRows, Pulse', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
-  it('shows no Pulse rows when the team carries no Pulse settings (publicTeamSettings without them)', () => {
+  it('shows no Pulse rows when the team carries no Pulse settings (a server that predates them)', () => {
     render(<TeamSettingsRows team={makeTeam()} />);
     expect(screen.queryByText(SETTINGS_STRINGS.teamSettings.pulseGroup)).toBeNull();
     expect(screen.getAllByRole('switch')).toHaveLength(2);

@@ -7,6 +7,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from '../collections';
 import { addOrgMember } from '../org-helpers';
+import { publicPulseSettings } from '../pulse-settings-core';
 import { resolveFromChain } from './resolve';
 import { SettingsInputError, buildSettingsUpdate, toMongoUpdate } from './write';
 
@@ -82,6 +83,7 @@ export function publicTeamSettings(resolved) {
   return {
     requirePlanForClock: resolved.requirePlanForClock,
     autoAcceptJoins: resolved.autoAcceptJoins,
+    ...publicPulseSettings(resolved),
   };
 }
 

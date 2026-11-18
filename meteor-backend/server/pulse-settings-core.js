@@ -48,6 +48,21 @@ export function pulseSettingsOf(resolved) {
 }
 
 /**
+ * The Pulse entries of one resolveFromChain() result as a team's
+ * `resolvedSettings` carries them to the client, each `{ value, source, locked,
+ * sourceId? }`. publicTeamSettings (settings/index.js) spreads this in, which is
+ * what gives Settings → Team its Pulse rows.
+ * @template T
+ * @param {Record<string, T>} resolved
+ * @returns {Record<PulseSettingKey, T>}
+ */
+export function publicPulseSettings(resolved) {
+  return /** @type {Record<PulseSettingKey, T>} */ (
+    Object.fromEntries(PULSE_SETTING_KEYS.map((key) => [key, resolved[key]]))
+  );
+}
+
+/**
  * `{ [teamId]: { pulseInApp, pulseClockInOut, pulseSharedDevice } }` for every
  * team in `levels.teams`.
  *

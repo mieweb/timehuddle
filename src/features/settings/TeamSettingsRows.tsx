@@ -63,8 +63,8 @@ export const TeamSettingsRows: React.FC<{ team: Team }> = ({ team }) => {
   const row = (key: TeamSettingKey, className: string) => {
     const copy = SETTINGS_STRINGS.teamSettings[key];
     const setting = team.resolvedSettings[key];
-    // The Pulse keys reach resolvedSettings only from a server whose publicTeamSettings
-    // lists them; without them there is nothing to show or save, so no row.
+    // publicTeamSettings sends the Pulse keys; a server that predates them does not,
+    // and then there is nothing to show or save, so no row.
     if (!setting) return null;
     return (
       <>

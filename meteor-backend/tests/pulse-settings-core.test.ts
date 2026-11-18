@@ -6,7 +6,11 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { PULSE_SETTING_KEYS, pulseSettingsForTeams } from '../server/pulse-settings-core';
+import {
+  PULSE_SETTING_KEYS,
+  publicPulseSettings,
+  pulseSettingsForTeams,
+} from '../server/pulse-settings-core';
 import { SETTINGS } from '../server/settings/registry';
 import { resolveFromChain } from '../server/settings/resolve';
 import { buildSettingsUpdate } from '../server/settings/write';
@@ -159,5 +163,40 @@ describe('pulseSettingsForTeams', () => {
     const result = pulseSettingsForTeams({ teams: [{ _id: objectId, settings: { pulseInApp: true } }] });
     expect(Object.keys(result)).toEqual(['a'.repeat(24)]);
     expect(result['a'.repeat(24)].pulseInApp).toBe(true);
+  });
+});
+
+// What publicTeamSettings (settings/index.js) adds to a team's resolvedSettings.
+describe('publicPulseSettings', () => {
+  it('carries all three, off from the system default, when nothing is set', () => {
+    const resolved = resolveFromChain([{ level: 'team', id: 'team1' }]) as Record<string, unknown>;
+    expect(publicPulseSettings(resolved)).toEqual({
+      pulseInApp: { value: false, source: 'system', locked: false },
+      pulseClockInOut: { value: false, source: 'system', locked: false },
+      pulseSharedDevice: { value: false, source: 'system', locked: false },
+    });
+  });
+
+  it('keeps where each value comes from and its lock', () => {
+    const resolved = resolveFromChain([
+      { level: 'team', id: 'team1', settings: { pulseClockInOut: true } },
+      { level: 'org', id: 'org1', settings: { pulseInApp: true } },
+      {
+        level: 'enterprise',
+        id: 'ent1',
+        settings: { pulseSharedDevice: true },
+        settingsLocks: { pulseSharedDevice: true },
+      },
+    ]) as Record<string, unknown>;
+    expect(publicPulseSettings(resolved)).toEqual({
+      pulseInApp: { value: true, source: 'org', sourceId: 'org1', locked: false },
+      pulseClockInOut: { value: true, source: 'team', sourceId: 'team1', locked: false },
+      pulseSharedDevice: { value: true, source: 'enterprise', sourceId: 'ent1', locked: true },
+    });
+  });
+
+  it('leaves out every other setting', () => {
+    const resolved = resolveFromChain([{ level: 'team', id: 'team1' }]) as Record<string, unknown>;
+    expect(Object.keys(publicPulseSettings(resolved))).toEqual(PULSE_SETTING_KEYS);
   });
 });

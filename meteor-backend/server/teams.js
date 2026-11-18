@@ -642,12 +642,25 @@ Meteor.methods({
     return { team: await toPublicTeam(updated) };
   },
 
-  async 'teams.updateSettings'({ teamId, requirePlanForClock, autoAcceptJoins }) {
+  async 'teams.updateSettings'({
+    teamId,
+    requirePlanForClock,
+    autoAcceptJoins,
+    pulseInApp,
+    pulseClockInOut,
+    pulseSharedDevice,
+  }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const settings = Object.fromEntries(
-      Object.entries({ requirePlanForClock, autoAcceptJoins }).filter(([, value]) => value !== undefined),
+      Object.entries({
+        requirePlanForClock,
+        autoAcceptJoins,
+        pulseInApp,
+        pulseClockInOut,
+        pulseSharedDevice,
+      }).filter(([, value]) => value !== undefined),
     );
     if (Object.keys(settings).length === 0) {
       throw new Meteor.Error('bad-request', 'No settings provided');
