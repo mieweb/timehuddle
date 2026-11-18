@@ -197,6 +197,15 @@ export function pulseUploadTypeInfo(id) {
 }
 
 /**
+ * What `pulseUploadTypes.list` offers a person: every type's info, the clock
+ * types only when they may clock (they are on a team; huddle-server §5.7). A
+ * type left out falls back to the link flow on the client.
+ */
+export function pulseUploadTypesFor({ mayClock }) {
+  return PULSE_UPLOAD_TYPE_IDS.filter((id) => mayClock || !isClockType(id)).map(pulseUploadTypeInfo);
+}
+
+/**
  * `target` in the form a row stores, when it is one `type` takes: the
  * fields of its kind and nothing else, ids checked. Null otherwise.
  */
