@@ -2,17 +2,27 @@
  * OTA live updates for the Capacitor apps (@capgo/capacitor-updater, self-hosted).
  *
  *   POST /ota/check?channel=<channel>          → update descriptor for a device
- *   GET  /ota/latest?channel=<channel>         → current bundle metadata (latest.json)
+ *   GET  /ota/latest?channel=<channel>[&nativeBuild=<native version>]
+ *                                              → current bundle metadata (latest.json), or
+ *                                                with nativeBuild the newest that shell can run
  *   GET  /ota/bundles/<channel>/<version>.zip  → bundle download
- *   POST /ota/publish?channel=&version=        → publish a bundle (Bearer token)
+ *   POST /ota/publish?channel=&version=[&minVersion=][&nativeFloor=]
+ *                                              → publish a bundle (Bearer token)
  *   POST /ota/min-version?channel=&version=    → gate stale clients (Bearer token)
  *
  * minVersion is the kill switch: clients running older than it must update
  * before they can be used, rather than picking the bundle up whenever they
  * happen to background the app.
  *
+ * nativeFloor is the lowest native build a bundle runs on, for web code that
+ * needs something only newer shells carry. Each floor keeps its newest bundle,
+ * and /ota/check offers a device the newest bundle whose floor is at or below
+ * its native build (ota-floors-core.js). Until a floor is published, every
+ * answer is what it was before floors existed.
+ *
  * Layout on disk (OTA_DIR, default data/ota):
- *   <channel>/latest.json   { version, file, checksum, size, publishedAt, minVersion }
+ *   <channel>/latest.json            { version, file, checksum, size, publishedAt, minVersion, nativeFloor }
+ *   <channel>/floors/<floor>.json    the newest bundle published at that floor (same shape)
  *   <channel>/<version>.zip
  *
  * Protocol: https://capgo.app/docs/plugin/self-hosted/auto-update/
@@ -23,6 +33,13 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
+import {
+  checkAnswer,
+  compatibleManifest,
+  floorFileName,
+  floorFromFileName,
+  publishPlan,
+} from './ota-floors-core';
 import { persistentDir } from './storage-paths';
 
 const OTA_DIR = persistentDir(process.env.OTA_DIR, 'data/ota');
@@ -84,13 +101,47 @@ async function readLatest(channel) {
   }
 }
 
+/** Every floor manifest of a channel, each with its floor; [] when none. */
+async function readFloors(channel) {
+  const dir = path.join(OTA_DIR, channel, 'floors');
+  let names;
+  try {
+    names = await fsp.readdir(dir);
+  } catch {
+    return [];
+  }
+  const floors = [];
+  for (const name of names) {
+    const floor = floorFromFileName(name);
+    if (!floor) continue;
+    try {
+      const manifest = JSON.parse(await fsp.readFile(path.join(dir, name), 'utf8'));
+      floors.push({ ...manifest, nativeFloor: floor });
+    } catch {
+      // A damaged floor file only takes that floor out of the running.
+    }
+  }
+  return floors;
+}
+
 /** Rename-based write so a concurrent check never reads a half-written file. */
-async function writeLatest(channel, manifest) {
-  const dir = path.join(OTA_DIR, channel);
+async function writeManifest(dir, name, manifest) {
   await fsp.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `latest.json.${randomBytes(8).toString('hex')}.tmp`);
+  const tmp = path.join(dir, `${name}.${randomBytes(8).toString('hex')}.tmp`);
   await fsp.writeFile(tmp, JSON.stringify(manifest, null, 2));
-  await fsp.rename(tmp, path.join(dir, 'latest.json'));
+  await fsp.rename(tmp, path.join(dir, name));
+}
+
+async function writeLatest(channel, manifest) {
+  await writeManifest(path.join(OTA_DIR, channel), 'latest.json', manifest);
+}
+
+async function writeFloor(channel, floor, manifest) {
+  await writeManifest(path.join(OTA_DIR, channel, 'floors'), floorFileName(floor), manifest);
+}
+
+function bundleUrl(channel, file) {
+  return `${PUBLIC_URL}/ota/bundles/${channel}/${encodeURIComponent(file)}`;
 }
 
 function isAuthorized(req) {
@@ -135,24 +186,18 @@ WebApp.connectHandlers.use('/ota/check', async (req, res) => {
     return;
   }
 
-  // version_name is the running OTA bundle, or "builtin" straight after a
-  // store install — in which case the native build version is the baseline.
-  const installed =
-    device.version_name && device.version_name !== 'builtin'
-      ? device.version_name
-      : device.version_build;
-
-  if (!isNewer(latest.version, installed)) {
+  // The newest bundle this device's native shell can run (ota-floors-core.js).
+  const answer = checkAnswer({
+    latest,
+    floors: await readFloors(channel),
+    device,
+    bundleUrl: (file) => bundleUrl(channel, file),
+  });
+  if (!answer) {
     upToDate(res);
     return;
   }
-
-  sendJson(res, 200, {
-    version: latest.version,
-    url: `${PUBLIC_URL}/ota/bundles/${channel}/${encodeURIComponent(latest.file)}`,
-    checksum: latest.checksum,
-    ...(latest.minVersion ? { minVersion: latest.minVersion } : {}),
-  });
+  sendJson(res, 200, answer);
 });
 
 // ── Latest bundle metadata ────────────────────────────────────────────────────
@@ -169,15 +214,19 @@ WebApp.connectHandlers.use('/ota/latest', async (req, res) => {
     return;
   }
 
-  const latest = await readLatest(channel);
+  // With the shell's native build, answer with the newest bundle it can run,
+  // so the forced-update gate never pulls a bundle above the shell's floor.
+  const nativeBuild = queryOf(req).get('nativeBuild');
+  let latest = await readLatest(channel);
+  if (latest && nativeBuild !== null) {
+    latest = compatibleManifest(latest, await readFloors(channel), nativeBuild);
+  }
   if (!latest) {
     sendJson(res, 404, { error: 'no_bundle', message: 'No bundle published for this channel' });
     return;
   }
 
-  const url = PUBLIC_URL
-    ? `${PUBLIC_URL}/ota/bundles/${channel}/${encodeURIComponent(latest.file)}`
-    : undefined;
+  const url = PUBLIC_URL ? bundleUrl(channel, latest.file) : undefined;
   sendJson(res, 200, { ...latest, url });
 });
 
@@ -282,14 +331,11 @@ WebApp.connectHandlers.use('/ota/publish', async (req, res) => {
     });
     return;
   }
-  const minVersion = requestedMin ?? (await readLatest(channel))?.minVersion;
+  const previous = await readLatest(channel);
+  const minVersion = requestedMin ?? previous?.minVersion;
 
   const checksum = createHash('sha256').update(zip).digest('hex');
   const file = `${version}.zip`;
-  const dir = path.join(OTA_DIR, channel);
-  await fsp.mkdir(dir, { recursive: true });
-  await fsp.writeFile(path.join(dir, file), zip);
-
   const manifest = {
     version,
     file,
@@ -298,10 +344,32 @@ WebApp.connectHandlers.use('/ota/publish', async (req, res) => {
     publishedAt: new Date().toISOString(),
     ...(minVersion ? { minVersion } : {}),
   };
-  await writeLatest(channel, manifest);
 
-  console.log(`[ota] published ${channel} ${version} (${zip.length} bytes)`);
-  sendJson(res, 200, manifest);
+  // The native floor carries over like minVersion when not given; with none
+  // given and none in force, the plan is latest.json alone, as before floors.
+  const plan = publishPlan({
+    previous,
+    manifest,
+    requestedFloor: queryOf(req).get('nativeFloor') ?? undefined,
+  });
+  if (plan.error) {
+    sendJson(res, 400, { error: plan.error, message: plan.message });
+    return;
+  }
+
+  const dir = path.join(OTA_DIR, channel);
+  await fsp.mkdir(dir, { recursive: true });
+  await fsp.writeFile(path.join(dir, file), zip);
+
+  // Floors first: a check that lands in between still finds every bundle.
+  for (const { floor, manifest: floorManifest } of plan.floorWrites) {
+    await writeFloor(channel, floor, floorManifest);
+  }
+  await writeLatest(channel, plan.latest);
+
+  const floorNote = plan.latest.nativeFloor ? `, native floor ${plan.latest.nativeFloor}` : '';
+  console.log(`[ota] published ${channel} ${version} (${zip.length} bytes${floorNote})`);
+  sendJson(res, 200, plan.latest);
 });
 
 // ── Minimum version gate ──────────────────────────────────────────────────────
