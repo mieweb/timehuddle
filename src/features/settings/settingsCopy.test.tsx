@@ -179,6 +179,12 @@ function makeTeam(resolved: Partial<Team['resolvedSettings']> = {}): Team {
   };
 }
 
+// These hand the component the resolvedSettings shape a server sends once its
+// publicTeamSettings lists the Pulse keys, and mock teamApi, so they cover the
+// rows and the call they make, not the server. The team path also needs the
+// server to send the keys (publicTeamSettings, settings/index.js) and accept
+// them (teams.updateSettings in teams.js and its schema in main.js); that is
+// checked in the browser, not here. The last test pins the rows without them.
 describe('TeamSettingsRows, Pulse', () => {
   beforeEach(() => {
     vi.mocked(teamApi.updateSettings)
@@ -217,7 +223,7 @@ describe('TeamSettingsRows, Pulse', () => {
     await waitFor(() => expect(teamContext.refetchTeams).toHaveBeenCalledOnce());
   });
 
-  it('shows no Pulse rows when the server sends no Pulse settings', () => {
+  it('shows no Pulse rows when the team carries no Pulse settings (publicTeamSettings without them)', () => {
     render(<TeamSettingsRows team={makeTeam()} />);
     expect(screen.queryByText(SETTINGS_STRINGS.teamSettings.pulseGroup)).toBeNull();
     expect(screen.getAllByRole('switch')).toHaveLength(2);
