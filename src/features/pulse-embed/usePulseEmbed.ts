@@ -173,6 +173,13 @@ let wanted: PulseAccount | null | undefined;
 let binding: AccountBinding | null = null;
 /** The account each client has applied (its userId, or null when signed out). */
 let appliedFor = new WeakMap<object, string | null>();
+/**
+ * The error `setAccount` answered when it applied `appliedFor`'s account
+ * (`restart_required`), kept so a provider that attaches later hears it too:
+ * the call may have gone through an unmounted provider's binding (one person
+ * signed out and another signed in before the new provider started).
+ */
+let appliedWithError = new WeakMap<object, unknown>();
 let chain: Promise<void> = Promise.resolve();
 /** `setAccount` answered `busy`: it is tried again once the flow on screen ends. */
 let waitingForFlow = false;
@@ -202,8 +209,10 @@ function sync(): Promise<void> {
     if (!b || account === undefined) return;
     const key = account?.userId ?? null;
     if (appliedFor.has(b.client) && appliedFor.get(b.client) === key) {
-      // Already applied on this client (a provider mounted again): say so.
+      // Already applied on this client (a provider mounted again): say so,
+      // with the error it was applied with.
       b.onApplied?.(account);
+      if (appliedWithError.has(b.client)) b.onError?.(appliedWithError.get(b.client), account);
       return;
     }
     // Signed out or the session expired: Pulse closes from Huddle's side
@@ -213,6 +222,7 @@ function sync(): Promise<void> {
       await b.client.setAccount(account);
       waitingForFlow = false;
       appliedFor.set(b.client, key);
+      appliedWithError.delete(b.client);
       b.onApplied?.(account);
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
@@ -230,6 +240,7 @@ function sync(): Promise<void> {
       // for reads; only recording waits for the app to reopen (§6.4).
       if (code === 'restart_required') {
         appliedFor.set(b.client, key);
+        appliedWithError.set(b.client, error);
         b.onApplied?.(account);
       }
       b.onError?.(error, account);
@@ -296,6 +307,7 @@ export function resetPulseAccount(): void {
   wanted = undefined;
   binding = null;
   appliedFor = new WeakMap();
+  appliedWithError = new WeakMap();
   chain = Promise.resolve();
   waitingForFlow = false;
   watching = false;

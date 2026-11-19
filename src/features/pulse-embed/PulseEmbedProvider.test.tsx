@@ -1,5 +1,6 @@
 import type { FlowResult, PulseClient, PulseContext } from '@mieweb/pulse-embed';
 import { createFakePulse, type FakePulseHandle } from '@mieweb/pulse-embed/testing';
+import { ToastProvider, useToast } from '@mieweb/ui';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -274,6 +275,67 @@ describe('PulseEmbedProvider', () => {
     expect(accounts).toHaveLength(2);
     expect(accounts[1]).not.toHaveProperty('userId');
     expect(status()).toBe('starting');
+  });
+
+  it('keeps restart_required for the next person when they sign in before the new app mounts', async () => {
+    // The runtime booted for u1 this load: switching to anyone else takes for
+    // reads, but recording needs the app reopened.
+    const fake = fakePulse({ account: null, flows: [{ result: 'kept' }] });
+    const client = fake.client;
+    const realSetAccount = client.setAccount.bind(client);
+    client.setAccount = async (account) => {
+      const applied = await realSetAccount(account);
+      if (account?.userId === 'u2') throw { code: 'restart_required', message: 'test' };
+      return applied;
+    };
+
+    void setPulseAccount('u1');
+    const first = render(
+      <PulseEmbedProvider
+        enabled
+        client={client}
+        services={noServices}
+        loadTypes={() => Promise.resolve(typesList())}
+      >
+        <Probe />
+      </PulseEmbedProvider>,
+    );
+    await vi.waitFor(() => expect(status()).toBe('ready'));
+    expect(embed.restartRequired).toBe(false);
+
+    // Sign-out unmounts the app (AppLayout is keyed by the user); the next
+    // person's sign-in reaches Pulse before their app has mounted.
+    first.unmount();
+    await act(() => setPulseAccount(null));
+    await act(() => setPulseAccount('u2'));
+
+    let toasts: string[] = [];
+    function Toasts() {
+      toasts = useToast().toasts.map((t) => String(t.message));
+      return null;
+    }
+    render(
+      <ToastProvider>
+        <Toasts />
+        <PulseEmbedProvider
+          enabled
+          client={client}
+          services={noServices}
+          loadTypes={() => Promise.resolve(typesList())}
+        >
+          <Probe />
+        </PulseEmbedProvider>
+      </ToastProvider>,
+    );
+    await vi.waitFor(() => expect(status()).toBe('ready'));
+    expect(embed.restartRequired).toBe(true);
+    expect(toasts).toContain('Close and reopen TimeHuddle to record');
+
+    const opens = count(fake, 'open');
+    await act(async () => {
+      expect(await embed.open({ entry: 'record', context })).toBeNull();
+    });
+    expect(count(fake, 'open')).toBe(opens);
   });
 
   it('closes an open flow with reason "host" at logout, before forgetting the account', async () => {
