@@ -44,6 +44,7 @@ COPY scripts ./scripts
 # the file: dependency; the submodule itself isn't needed here.
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 COPY vendor/mieweb-pulse-embed.tgz ./vendor/mieweb-pulse-embed.tgz
+COPY vendor/mieweb-capacitor-pulse.tgz ./vendor/mieweb-capacitor-pulse.tgz
 
 # Kerebron fixes the RichEditor needs, applied by the postinstall step
 # (scripts/apply-patches.cjs) — see patches/README.md.
@@ -116,6 +117,7 @@ RUN bash scripts/install-ffmpeg.sh
 # into dist/, but npm needs the tarball present to satisfy the manifest).
 COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 COPY vendor/mieweb-pulse-embed.tgz ./vendor/mieweb-pulse-embed.tgz
+COPY vendor/mieweb-capacitor-pulse.tgz ./vendor/mieweb-capacitor-pulse.tgz
 RUN npm install --production
 
 # Copy pre-built artifacts from builder — no source, no Meteor, no vendor

@@ -9,6 +9,7 @@ Code TimeHuddle builds from source instead of installing from npm.
 | `mieweb-ui.tgz`   | `@mieweb/ui` packed from `ui`. The app installs it (`"@mieweb/ui": "file:vendor/mieweb-ui.tgz"`). |
 | `.ui-tarball-commit` | The `ui` commit the tarball was built from, so `ui:build` can skip an unchanged rebuild.        |
 | `mieweb-pulse-embed.tgz` | `@mieweb/pulse-embed` (Pulse's host client) packed from the Pulse repo. The app installs it (`"@mieweb/pulse-embed": "file:vendor/mieweb-pulse-embed.tgz"`). |
+| `mieweb-capacitor-pulse.tgz` | `@mieweb/capacitor-pulse` (the native Pulse plugin) packed from the Pulse repo at a `pulsekit-v*` release tag. The app installs it (`"@mieweb/capacitor-pulse": "file:vendor/mieweb-capacitor-pulse.tgz"`). |
 
 ## Why `@mieweb/ui` is vendored
 
@@ -53,6 +54,25 @@ that change, and a Docker build to confirm it, are still to come. To refresh it,
 here as `mieweb-pulse-embed.tgz`, and run `npm install --package-lock-only --ignore-scripts` so
 `package-lock.json` records its new integrity; commit both. Once the package is published, set the
 dependency back to its npm version and delete the tarball (and its `COPY` lines in the `Dockerfile`).
+
+## Why `@mieweb/capacitor-pulse` is vendored
+
+`@mieweb/capacitor-pulse` is the Capacitor plugin that runs Pulse (PulseKit) inside the iOS app; on
+Android it is a stub with no permissions and no dependencies. It isn't on npm yet, so the tarball is
+packed from the Pulse repo (`embed/packages/capacitor-pulse`) at a `pulsekit-v<version>` tag, the
+way the release workflow (`release-embed.yml`) would publish it: the tag's version stamped into its
+`package.json`, and its `Package.swift` written by `embed/scripts/write-package-swift.mjs` from that
+GitHub Release's `SHA256SUMS`. That `Package.swift` downloads PulseKit's xcframeworks from the
+release as SwiftPM binary targets, each checked against its SHA-256, so nothing large is committed
+here. The tarball now is `0.1.0-rc.4`, from the `pulsekit-v0.1.0-rc.4` prerelease.
+
+To refresh it, pack the plugin at the new tag the same way, copy it here as
+`mieweb-capacitor-pulse.tgz`, run `npm install --package-lock-only --ignore-scripts`, then
+`npm run build && npx cap sync && python3 scripts/patch-ios-spm.py`, and commit the tarball, the
+lockfile and the regenerated native files. `scripts/check-native-sync.sh` fails on a stale lockfile,
+on the unreleased plugin's placeholder checksums, and on a `Package.swift` that downloads from a
+release other than the plugin's own version. Keep `@mieweb/pulse-embed` at the same version: the
+two are released together.
 
 ## Working on the library
 
