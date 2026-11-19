@@ -59,20 +59,24 @@ function decodeId(id: string): string | null {
   }
 }
 
-/** Ids of the tickets `text` links to, in order, each once. */
+// What renders as something other than a link: code (fenced or inline) and images.
+const NOT_A_LINK = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)/g;
+
+/** Ids of the tickets `text` links to, in order, each once; links quoted in code or images don't count. */
 export function ticketIdsInText(text: string): string[] {
-  const ids = [...text.matchAll(TICKET_LINK)].flatMap((match) => decodeId(match[1]) ?? []);
+  const links = text.replace(NOT_A_LINK, ' ');
+  const ids = [...links.matchAll(TICKET_LINK)].flatMap((match) => decodeId(match[1]) ?? []);
   return [...new Set(ids)];
 }
 
 /**
  * The ids `text` links to that a post in the team may carry: a link to another
  * team's ticket (or a deleted one) stays a plain link, since the server
- * refuses a post that carries one. Unfiltered until the team's tickets load.
+ * refuses a post that carries one. `teamTicketIds` is read fresh at send
+ * (`fetchTeamTicketIds`).
  */
-export function teamTicketIdsInText(text: string, teamTicketIds: ReadonlySet<string> | null) {
-  const ids = ticketIdsInText(text);
-  return teamTicketIds ? ids.filter((id) => teamTicketIds.has(id)) : ids;
+export function teamTicketIdsInText(text: string, teamTicketIds: ReadonlySet<string>) {
+  return ticketIdsInText(text).filter((id) => teamTicketIds.has(id));
 }
 
 /**

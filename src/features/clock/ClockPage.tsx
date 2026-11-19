@@ -57,7 +57,7 @@ import {
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../huddle/useBoardTicketMentionOptions';
-import { toPostAttachment } from '../huddle/api';
+import { fetchTeamTicketIds, toPostAttachment } from '../huddle/api';
 import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
@@ -188,12 +188,10 @@ export const ClockPage: React.FC = () => {
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
   // Typing `@` in the editor offers teammates and the tickets on My Board.
-  const boardTickets = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
-  const teamTicketIdsRef = useRef(boardTickets.teamTicketIds);
-  teamTicketIdsRef.current = boardTickets.teamTicketIds;
+  const boardTicketOptions = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
   const mentionOptions = useMemo(
-    () => [...teamMentions.options, ...boardTickets.options],
-    [teamMentions.options, boardTickets.options],
+    () => [...teamMentions.options, ...boardTicketOptions],
+    [teamMentions.options, boardTicketOptions],
   );
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
@@ -232,7 +230,9 @@ export const ClockPage: React.FC = () => {
    * can't take them back — with the text, mentions and tickets as they are
    * now. Throws naming a file that didn't upload (it stays, for
    * Retry or removal); null when the page went away meanwhile, or everything
-   * was cleared while it waited (the button says why: it's disabled).
+   * was cleared while it waited (the button says why: it's disabled). The
+   * team's tickets are read fresh first, before anything is taken, so a
+   * failed lookup fails the submit with the files still in place.
    */
   const takeForPost = async () => {
     if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
@@ -244,6 +244,8 @@ export const ClockPage: React.FC = () => {
       if (aliveRef.current) setAwaitingUploads(false);
     }
     if (!textRef.current.trim() && uploads.current().length === 0) return null;
+    const teamTicketIds = gateTeamId ? await fetchTeamTicketIds(gateTeamId) : new Set<string>();
+    if (!aliveRef.current) return null;
     const taken = uploads.take();
     const media = taken.map((item) => item.result as MediaItem);
     const postText = textRef.current.trim();
@@ -251,7 +253,9 @@ export const ClockPage: React.FC = () => {
       media,
       text: postText,
       mentionUserIds: detectMentionsRef.current(postText),
-      ticketIds: teamTicketIdsInText(postText, teamTicketIdsRef.current),
+      ticketIds: teamTicketIdsInText(postText, teamTicketIds),
+      /** For a wrap-up whose saved text differs from the draft (the plan put back). */
+      teamTicketIds,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -706,7 +710,7 @@ export const ClockPage: React.FC = () => {
             ticketIds: [
               ...new Set([
                 ...attachedOnly,
-                ...teamTicketIdsInText(textToSave, teamTicketIdsRef.current),
+                ...teamTicketIdsInText(textToSave, ready.teamTicketIds),
               ]),
             ],
           },

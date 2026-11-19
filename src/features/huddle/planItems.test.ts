@@ -30,6 +30,16 @@ describe('planItems', () => {
     expect(ticketIdsInText(text)).toEqual(['tkt-1', 'tkt-2']);
   });
 
+  it('ignores ticket links quoted in code or used as an image', () => {
+    const quoted = [
+      '`[a](/app/tickets/in-code)`',
+      '```\n[b](/app/tickets/in-fence)\n```',
+      '![shot](/app/tickets/as-image)',
+      item,
+    ].join('\n');
+    expect(ticketIdsInText(quoted)).toEqual(['tkt-1']);
+  });
+
   it('skips a link whose id is not valid URL encoding', () => {
     expect(ticketIdsInText(`[x](/app/tickets/%) ${item}`)).toEqual(['tkt-1']);
   });
@@ -41,9 +51,8 @@ describe('planItems', () => {
     expect(editedTicketIds(['picked', 'tkt-1'], item, added, team)).toEqual(['picked', 'tkt-2']);
   });
 
-  it("keeps only the team's tickets once they are known", () => {
+  it("keeps only the team's tickets", () => {
     const text = `${item}\n- [ ] [Other](/app/tickets/elsewhere)`;
     expect(teamTicketIdsInText(text, new Set(['tkt-1']))).toEqual(['tkt-1']);
-    expect(teamTicketIdsInText(text, null)).toEqual(['tkt-1', 'elsewhere']);
   });
 });

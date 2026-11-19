@@ -42,7 +42,7 @@ import { createPortal } from 'react-dom';
 import {
   discardMedia,
   fetchTeamMembers,
-  fetchTeamTickets,
+  fetchTeamTicketIds,
   uploadedMedia,
   toPostAttachment,
 } from '../features/huddle/api';
@@ -353,7 +353,7 @@ export default function Huddle() {
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
   // `@` also offers the tickets on My Board, inserted as links to them.
-  const boardTickets = useBoardTicketMentionOptions(
+  const boardTicketOptions = useBoardTicketMentionOptions(
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId)?.ticketPrefix,
   );
@@ -1112,7 +1112,10 @@ export default function Huddle() {
         },
         // Picked with the Ticket button, or linked in the text with @.
         ticketIds: [
-          ...new Set([...ticketIds, ...teamTicketIdsInText(text, boardTickets.teamTicketIds)]),
+          ...new Set([
+            ...ticketIds,
+            ...teamTicketIdsInText(text, await fetchTeamTicketIds(postingTeamId)),
+          ]),
         ],
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
@@ -1226,21 +1229,16 @@ export default function Huddle() {
     // would save `mentions: []` and deliver a scheduled post silently. A failed
     // fetch here fails the save instead.
     try {
-      const [members, teamTickets] = await Promise.all([
+      const [members, teamTicketIds] = await Promise.all([
         fetchTeamMembers(post.teamId),
-        fetchTeamTickets(post.teamId),
+        fetchTeamTicketIds(post.teamId),
       ]);
       const editedMentions = detectMentions(body, members).filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
       // Ticket links added or deleted in the edit; sent only when that changes them.
       const carried = (post.tickets ?? []).map((t) => t.id);
-      const ticketIds = editedTicketIds(
-        carried,
-        post.content.text,
-        body,
-        new Set(teamTickets.map((t) => t.id)),
-      );
+      const ticketIds = editedTicketIds(carried, post.content.text, body, teamTicketIds);
       const ticketsChanged =
         ticketIds.length !== carried.length || ticketIds.some((id) => !carried.includes(id));
       await huddleApi.updatePost(
@@ -1441,7 +1439,7 @@ export default function Huddle() {
                       mentionOptions: [
                         ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                         ...mentions.options,
-                        ...boardTickets.options,
+                        ...boardTicketOptions,
                       ],
                       sendOptions: postingTeamId
                         ? [

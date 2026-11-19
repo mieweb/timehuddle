@@ -2,8 +2,8 @@
  * useBoardTicketMentionOptions — the signed-in user's My Board tickets in a
  * team, most recently updated first, as `@` suggestions for a composer.
  * Choosing one writes the ticket into the text as a link to its page, which is
- * how a post's tickets are read back out of it (planItems). Also returns the
- * ids of every ticket in the team (null until loaded), for `teamTicketIdsInText`.
+ * how a post's tickets are read back out of it (planItems). Suggestions only:
+ * what a post carries is checked against fresh data when it is sent.
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { MentionOption } from '@mieweb/ui/kerebron';
@@ -21,7 +21,7 @@ const updatedTime = (ticket: Ticket) => (ticket.updatedAt ? Date.parse(ticket.up
 export function useBoardTicketMentionOptions(
   teamId: string | null | undefined,
   ticketPrefix?: string,
-): { options: MentionOption[]; teamTicketIds: ReadonlySet<string> | null } {
+): MentionOption[] {
   const { user } = useSession();
   const { boardKeys } = useMyBoardKeys(user?.id ?? null);
   const [loaded, setLoaded] = useState<{ teamId: string; tickets: Ticket[] } | null>(null);
@@ -43,10 +43,6 @@ export function useBoardTicketMentionOptions(
 
   // Keyed by team, as useTeamMentions is: never another team's tickets.
   const tickets = teamId && loaded?.teamId === teamId ? loaded.tickets : null;
-  const teamTicketIds = useMemo(
-    () => (tickets ? new Set(tickets.map((t) => t.id)) : null),
-    [tickets],
-  );
   const options = useMemo(
     () =>
       (tickets ?? [])
@@ -60,5 +56,5 @@ export function useBoardTicketMentionOptions(
         })),
     [tickets, ticketPrefix, boardKeys],
   );
-  return { options, teamTicketIds };
+  return options;
 }
