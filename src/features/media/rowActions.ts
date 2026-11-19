@@ -89,6 +89,16 @@ export function rowFacts(row: PulseRow, options: { headless?: boolean } = {}): R
   };
 }
 
+/**
+ * States whose job is waiting in Pulse's outbox, which can start it at any
+ * moment (the job ahead finishes, the network comes back, `resumeOutbox`).
+ * Deleting one stops the job first (`cancelUpload`): once it is uploading,
+ * `deleteDraft` is refused (§6.1 lock rule) and the video would still go.
+ */
+export function jobWaiting(state: RowState): boolean {
+  return state === 'queued' || state === 'waiting_network' || state === 'needs_credentials';
+}
+
 /** Where tapping the row goes. */
 export function rowTap(f: RowFacts): RowTap {
   switch (f.state) {

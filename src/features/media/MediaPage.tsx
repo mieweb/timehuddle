@@ -13,7 +13,9 @@
  *
  * Send from the list starts at once and Delete hides the row; both say so in
  * a toast with Undo for about 5 s (§5.3: undo, not confirm). A delete commits
- * when the toast's time is up, or when the page is left.
+ * when the toast's time is up, or when the page is left. A video whose job is
+ * waiting in the outbox has its job stopped at Delete, so it can't start
+ * sending during the undo window; Undo sends it again.
  */
 import { useOptionalToast } from '@mieweb/ui';
 import type { DraftState } from '@mieweb/pulse-embed';
@@ -33,7 +35,7 @@ import { MEDIA_TEXT } from './mediaStrings';
 import { MEDIA_GATE_WAIT_MS, mediaGate, mediaRedirectTarget } from './mediaVisibility';
 import { MoveToSheet } from './MoveToSheet';
 import { RenameDialog } from './RenameDialog';
-import { rowFacts, rowTap, type MenuAction, type SheetAction } from './rowActions';
+import { jobWaiting, rowFacts, rowTap, type MenuAction, type SheetAction } from './rowActions';
 import { UnsentVideosSection } from './UnsentVideosSection';
 import { clockActionOf, inOrder, isClockBound, parseFilter, stableOrder } from './unsentRows';
 import { UploadSheet } from './UploadSheet';
@@ -242,8 +244,23 @@ function MediaContent() {
     };
   }, [commitDelete]);
 
-  const deleteWithUndo = (row: PulseRow) => {
+  const unhide = (key: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+
+  const deleteWithUndo = async (row: PulseRow) => {
+    if (!actions) return;
     setHidden((prev) => new Set(prev).add(row.key));
+    // A job waiting in the outbox could start within the undo window, and an
+    // uploading draft can't be deleted (§6.1): stop it now; Undo sends it again.
+    const stopped = jobWaiting(rowFacts(row, { headless }).state);
+    if (stopped && !(await actions.unsend(row))) {
+      unhide(row.key);
+      return;
+    }
     const timer = window.setTimeout(() => void commitDelete(row.key), UNDO_MS);
     pendingDeletes.current.set(row.key, { row, timer });
     say(T.undo.deleted(row.name || T.row.untitled), {
@@ -253,12 +270,9 @@ function MediaContent() {
         if (!pending) return;
         window.clearTimeout(pending.timer);
         pendingDeletes.current.delete(row.key);
-        setHidden((prev) => {
-          const next = new Set(prev);
-          next.delete(row.key);
-          return next;
-        });
-        say(T.undo.undone);
+        unhide(row.key);
+        if (!stopped) say(T.undo.undone);
+        else void actions.send(row).then((ok) => ok && say(T.undo.undone));
       },
     });
   };
@@ -302,7 +316,7 @@ function MediaContent() {
         setRenameKey(row.key);
         return;
       case 'delete':
-        deleteWithUndo(row);
+        void deleteWithUndo(row);
         return;
     }
   };
@@ -313,7 +327,7 @@ function MediaContent() {
     if (!sheetRow || !sheetFacts) return;
     setSheetKey(null);
     if (action === 'move') setMoveKey(sheetRow.key);
-    else if (action === 'delete') deleteWithUndo(sheetRow);
+    else if (action === 'delete') void deleteWithUndo(sheetRow);
     else void actions?.sheet(action, sheetRow, sheetFacts.state);
   };
 

@@ -59,18 +59,37 @@ window.matchMedia ??= (query: string) =>
 
 // ── A Pulse whose drafts the test sets ────────────────────────────────────────
 
+/** The states Pulse refuses `deleteDraft` in (§6.1 lock rule). */
+const LOCKED = new Set(['preparing', 'uploading', 'delivering']);
+
 function stubPulse(initial: DraftSummary[]) {
   let drafts = initial;
   const listeners = new Set<() => void>();
+  const emit = () => listeners.forEach((cb) => cb());
+  const setState = (id: string, state: DraftSummary['state']) => {
+    drafts = drafts.map((d) => (d.id === id ? { ...d, state } : d));
+  };
+  const stateOf = (id: string) => drafts.find((d) => d.id === id)?.state;
+  /** Drafts whose upload the outbox started. */
+  const started: string[] = [];
   const client = {
     listDrafts: vi.fn(async () => drafts),
     on: vi.fn((_event: string, cb: () => void) => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     }),
-    upload: vi.fn(async () => ({ clientKey: 'k', draftKey: 'dk', sentAt: 1 })),
-    cancelUpload: vi.fn(async () => {}),
-    deleteDraft: vi.fn(async () => {}),
+    upload: vi.fn(async (id: string) => {
+      setState(id, 'queued');
+      return { clientKey: 'k', draftKey: 'dk', sentAt: 1 };
+    }),
+    cancelUpload: vi.fn(async (id: string) => {
+      if (stateOf(id) === 'delivering') throw { code: 'draft.locked' };
+      setState(id, 'draft');
+    }),
+    deleteDraft: vi.fn(async (id: string) => {
+      if (LOCKED.has(stateOf(id) ?? '')) throw { code: 'draft.locked' };
+      drafts = drafts.filter((d) => d.id !== id);
+    }),
     renameDraft: vi.fn(async () => {}),
     setDraftContext: vi.fn(async () => {}),
     dismissReceipt: vi.fn(async () => {}),
@@ -79,11 +98,19 @@ function stubPulse(initial: DraftSummary[]) {
   /** Pulse's list changed (draftsChanged). */
   const set = async (next: DraftSummary[]) => {
     drafts = next;
-    await act(async () => {
-      listeners.forEach((cb) => cb());
-    });
+    await act(async () => emit());
   };
-  return { client, set };
+  /** The outbox runs: every job waiting in it starts uploading. */
+  const runOutbox = async () => {
+    for (const d of drafts) {
+      if (d.state === 'queued' || d.state === 'waiting_network') {
+        setState(d.id, 'uploading');
+        started.push(d.id);
+      }
+    }
+    await act(async () => emit());
+  };
+  return { client, set, runOutbox, started, stateOf };
 }
 
 function renderPage(client: Partial<PulseClient>) {
@@ -119,6 +146,13 @@ const lastToast = () => toasts.toast.mock.calls.at(-1)![0];
 const menu = (name: string, item: string) => {
   fireEvent.click(screen.getByRole('button', { name: `More for ${name}` }));
   fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(item) }));
+};
+
+/** `menu`, for an item whose action waits on Pulse before it shows anything. */
+const menuAsync = async (name: string, item: string) => {
+  fireEvent.click(screen.getByRole('button', { name: `More for ${name}` }));
+  const choice = screen.getByRole('menuitem', { name: new RegExp(item) });
+  await act(async () => fireEvent.click(choice));
 };
 
 describe('MediaPage', () => {
@@ -172,6 +206,61 @@ describe('MediaPage', () => {
     await act(async () => {
       vi.advanceTimersByTime(UNDO_MS * 2);
     });
+    expect(client.deleteDraft).not.toHaveBeenCalled();
+  });
+
+  it("Delete stops a queued video's job at once, so it can't start sending during the undo", async () => {
+    const pulse = stubPulse([draftAt(PLACES.ticket, 'queued', { id: 'q' })]);
+    const { client } = pulse;
+    const { embed } = renderPage(client);
+    await screen.findByRole('button', { name: 'Open Video q' });
+
+    vi.useFakeTimers();
+    await menuAsync('Video q', 'Delete');
+    expect(client.cancelUpload).toHaveBeenCalledWith('q');
+    expect(screen.queryByRole('button', { name: 'Open Video q' })).toBeNull();
+    expect(lastToast()).toMatchObject({ message: 'Deleted Video q', action: { label: 'Undo' } });
+
+    // The job ahead finishes, or the network comes back, within the undo window.
+    await pulse.runOutbox();
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_MS);
+    });
+    expect(pulse.started).toEqual([]);
+    expect(client.deleteDraft).toHaveBeenCalledWith('q');
+    expect(pulse.stateOf('q')).toBeUndefined();
+    expect(embed.reportError).not.toHaveBeenCalled();
+  });
+
+  it('Undo after deleting a queued video sends it again, and nothing is deleted', async () => {
+    const pulse = stubPulse([draftAt(PLACES.ticket, 'waiting_network', { id: 'q' })]);
+    const { client } = pulse;
+    renderPage(client);
+    await screen.findByRole('button', { name: 'Open Video q' });
+
+    vi.useFakeTimers();
+    await menuAsync('Video q', 'Delete');
+    expect(client.cancelUpload).toHaveBeenCalledWith('q');
+    await act(async () => lastToast().action!.onClick());
+    expect(client.upload).toHaveBeenCalledWith('q');
+    expect(pulse.stateOf('q')).toBe('queued');
+    expect(lastToast()).toMatchObject({ message: 'Undone' });
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_MS * 2);
+    });
+    expect(client.deleteDraft).not.toHaveBeenCalled();
+  });
+
+  it('a queued video whose job Pulse will not stop stays, with the reason shown', async () => {
+    const { client } = stubPulse([draftAt(PLACES.ticket, 'queued', { id: 'q' })]);
+    client.cancelUpload.mockRejectedValueOnce({ code: 'draft.locked' });
+    const { embed } = renderPage(client);
+    await screen.findByRole('button', { name: 'Open Video q' });
+
+    await menuAsync('Video q', 'Delete');
+    expect(embed.reportError).toHaveBeenCalledWith({ code: 'draft.locked' });
+    expect(screen.getByRole('button', { name: 'Open Video q' })).toBeTruthy();
+    expect(toasts.toast).not.toHaveBeenCalled();
     expect(client.deleteDraft).not.toHaveBeenCalled();
   });
 
