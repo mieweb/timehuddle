@@ -357,16 +357,28 @@ it in M2; there's no hand-rolled drag-and-drop here.
 
 **Owner:** Poonam · **Issue:** [#885](https://github.com/mieweb/timehuddle/issues/885)
 
-- [ ] The composer's **Ticket** action inserts a checklist item holding the ticket
-      link (`- [ ] [TH-923: …](/app/tickets/…)`) using the `RichEditor`
-      `task_list` / `task_item` nodes; free text and @mentions are items too
+The plan's text is the one source of its tickets and mentions: the ids a plan
+posts are read back out of it (`src/features/huddle/planItems.ts`), so there are
+no ticket or mention chips on the Clock page.
+
+- [x] The composer's **Ticket** action adds a checklist item holding the ticket
+      link (`- [ ] [TH-923: …](/app/tickets/…)`) as the plan's last item, using
+      the `RichEditor` `task_list` / `task_item` nodes; free-text lines are items
+      too
+- [x] **@Mention** writes `@Name` at the caret; a picked person is kept even when
+      two teammates share a first name
 - [ ] The clock-in composer opens pre-filled with one item per pinned ticket, in
-      pin order
-- [ ] A plan of ticket items alone satisfies **Require a plan**
-- [ ] Removing an item is deleting its text — no ✕ buttons
-- [ ] Done when: starting a ticket under "Require a plan" lands on a composer that
+      pin order — waits on M2 ([#884](https://github.com/mieweb/timehuddle/issues/884))
+- [x] A plan of ticket items alone satisfies **Require a plan**
+- [x] Removing an item is deleting its text — no ✕ buttons
+- [x] Huddle shows the plan as a checklist, and its label no longer repeats
+      tickets the text already links
+- [ ] Follow-up: Huddle's message markdown (`@mieweb/ui`) draws a bullet beside
+      each checkbox — fix upstream through `vendor/ui`
+- [x] Done when: starting a ticket under "Require a plan" lands on a composer that
       already contains it, and clock-in works without typing more
-- [ ] Done when: mentions notify once, and older plan posts render unchanged
+- [ ] Done when: mentions notify once (ids are sent once; notification count not
+      yet checked end to end), and older plan posts render unchanged
 
 ### M4 — Coordinate the Plan Across Board, Clock Page and Huddle
 
