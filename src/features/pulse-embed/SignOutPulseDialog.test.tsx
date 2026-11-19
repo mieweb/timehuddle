@@ -224,6 +224,25 @@ describe('usePulseSignOut', () => {
     expect(methods()).not.toContain('purge');
   });
 
+  it('a second tap while the count is read is ignored', async () => {
+    let answer: (usage: { unsent: number }) => void = () => {};
+    const usage = vi.fn(() => new Promise<{ unsent: number }>((resolve) => (answer = resolve)));
+    const client = { usage } as unknown as PulseClient;
+    render(
+      <PulseEmbedContext.Provider value={{ ...PULSE_EMBED_OFF, status: 'ready', client }}>
+        <SignOutButton userId="u1" signOut={signOut} />
+      </PulseEmbedContext.Provider>,
+    );
+    await tapSignOut();
+    await tapSignOut();
+    expect(usage).toHaveBeenCalledTimes(1);
+    await act(async () => answer({ unsent: 0 }));
+    expect(signOut).toHaveBeenCalledTimes(1);
+    // Once the first request is done, Sign out works again.
+    await tapSignOut();
+    expect(usage).toHaveBeenCalledTimes(2);
+  });
+
   it('with unsent videos, asks first and does not sign out yet', async () => {
     mountFake([draft('d1', 'draft'), draft('d2', 'ready')]);
     await tapSignOut();

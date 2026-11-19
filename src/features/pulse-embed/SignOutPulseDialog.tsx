@@ -260,22 +260,30 @@ export function usePulseSignOut({
     await live.current.signOut();
   }, []);
 
+  // A second tap while the count is read (up to usageWaitMs) is the same request.
+  const checking = useRef(false);
   const requestSignOut = useCallback(async () => {
-    const { client: c, shared: isShared, knownUnsent: known, online: isOnline } = live.current;
-    // A fresh count: the provider's is read a moment after each change.
-    const unsent = c ? await freshUnsent(c, known, live.current.usageWaitMs) : known;
-    const plan = decideSignOut({
-      initiator: 'user',
-      available: c !== null,
-      shared: isShared,
-      unsent,
-      online: isOnline(),
-    });
-    if (plan.kind !== 'ask') {
-      await finish();
-      return;
+    if (checking.current) return;
+    checking.current = true;
+    try {
+      const { client: c, shared: isShared, knownUnsent: known, online: isOnline } = live.current;
+      // A fresh count: the provider's is read a moment after each change.
+      const unsent = c ? await freshUnsent(c, known, live.current.usageWaitMs) : known;
+      const plan = decideSignOut({
+        initiator: 'user',
+        available: c !== null,
+        shared: isShared,
+        unsent,
+        online: isOnline(),
+      });
+      if (plan.kind !== 'ask') {
+        await finish();
+        return;
+      }
+      setAsking({ variant: plan.variant, unsent: plan.unsent, step: 'choose', error: null });
+    } finally {
+      checking.current = false;
     }
-    setAsking({ variant: plan.variant, unsent: plan.unsent, step: 'choose', error: null });
   }, [finish]);
 
   const purgeDeletedAccount = useCallback(async () => {
