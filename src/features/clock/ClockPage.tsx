@@ -31,9 +31,10 @@ import {
   type AttachmentUpload,
 } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import type { CoreEditor } from '@kerebron/editor';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 
-import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
+import { huddleApi, ticketApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDuration,
@@ -47,13 +48,18 @@ import { useRunningTicket } from '../../lib/useRunningTicket';
 import { ticketDetailPath } from '../tickets/sources/types';
 import { useComposerUploads } from '../huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../huddle/uploadText';
-import { useTicketSelection } from '../huddle/useTicketSelection';
-import { toPostAttachment } from '../huddle/api';
+import type { TicketRef } from '../huddle/useTicketSelection';
 import {
-  ComposerAttachButtons,
-  ComposerChips,
-  type MentionRef,
-} from '../huddle/ComposerAttachments';
+  appendMention,
+  appendPlanItem,
+  mentionToken,
+  planTicketItem,
+  planTicketName,
+  ticketIdsInText,
+} from '../huddle/planItems';
+import { useTeamMentions } from '../huddle/useTeamMentions';
+import { toPostAttachment } from '../huddle/api';
+import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
@@ -116,6 +122,7 @@ const MarkdownEditor = lazy(() =>
 export const ClockPage: React.FC = () => {
   const {
     selectedTeamId,
+    allTeams,
     isSelectedTeamMember,
     activeClockEvent,
     currentTime,
@@ -175,15 +182,12 @@ export const ClockPage: React.FC = () => {
     setComposerExpanded(true);
   };
 
-  // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
-  const {
-    tickets: selectedTickets,
-    ticketIds: selectedTicketIds,
-    setTickets: setSelectedTickets,
-    addTicket,
-    removeTicket,
-  } = useTicketSelection();
-  const [mentions, setMentions] = useState<MentionRef[]>([]);
+  // ── Attach/ticket/mention controls — same action bar as the Huddle composer.
+  // Tickets and mentions are written into the plan's text, which is the one
+  // source of both: the ids posted are read back out of it (planItems). ──
+  const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
+  const teamMentions = useTeamMentions(gateTeamId);
+  const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -206,12 +210,19 @@ export const ClockPage: React.FC = () => {
   // the text typed meanwhile, the mentions and tickets as they are then —
   // read here, and only while the page is still open.
   // (`textRef`, the text as of now, is declared below with the Pulse drafts.)
-  const mentionsRef = useRef(mentions);
-  mentionsRef.current = mentions;
-  const ticketIdsRef = useRef(selectedTicketIds);
-  ticketIdsRef.current = selectedTicketIds;
-  const ticketsRef = useRef(selectedTickets);
-  ticketsRef.current = selectedTickets;
+  const detectMentionsRef = useRef(teamMentions.detect);
+  detectMentionsRef.current = teamMentions.detect;
+  // People picked from @Mention, kept while their `@Name` is still written:
+  // the text alone can't tell two teammates with one first name apart.
+  const pickedMentionsRef = useRef<{ userId: string; token: string }[]>([]);
+  const mentionIdsIn = (postText: string) => [
+    ...new Set([
+      ...detectMentionsRef.current(postText),
+      ...pickedMentionsRef.current
+        .filter((picked) => postText.includes(picked.token))
+        .map((picked) => picked.userId),
+    ]),
+  ];
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -239,15 +250,12 @@ export const ClockPage: React.FC = () => {
     if (!textRef.current.trim() && uploads.current().length === 0) return null;
     const taken = uploads.take();
     const media = taken.map((item) => item.result as MediaItem);
+    const postText = textRef.current.trim();
     return {
       media,
-      text: textRef.current.trim(),
-      mentionUserIds: mentionsRef.current.length
-        ? mentionsRef.current.map((m) => m.userId)
-        : undefined,
-      ticketIds: ticketIdsRef.current,
-      /** The tickets as they are now, with their titles, for the plan's cache. */
-      tickets: ticketsRef.current,
+      text: postText,
+      mentionUserIds: mentionIdsIn(postText),
+      ticketIds: ticketIdsInText(postText),
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -256,12 +264,31 @@ export const ClockPage: React.FC = () => {
     };
   };
 
-  const handleMentionSelect = (userId: string, name: string) =>
-    setMentions((prev) =>
-      prev.some((m) => m.userId === userId) ? prev : [...prev, { userId, name }],
+  // Picking writes into the plan. A mention goes in at the caret, through the
+  // editor; without one yet it ends the plan. A ticket is a new last item —
+  // the editor reloads `value`, so it shows at once.
+  const coreEditorRef = useRef<CoreEditor | null>(null);
+  const handleMentionSelect = (userId: string, name: string) => {
+    pickedMentionsRef.current.push({ userId, token: mentionToken(name) });
+    const view = coreEditorRef.current?.view;
+    // Not one a remount has torn down before the new editor reported ready.
+    if (view?.dom instanceof HTMLElement && view.dom.isConnected) {
+      const { from, to } = view.state.selection;
+      view.dispatch(view.state.tr.insertText(`${mentionToken(name)} `, from, to));
+    } else {
+      setText((current) => appendMention(current, name));
+    }
+    setComposerExpanded(true);
+  };
+  const handleTicketSelect = (ticket: TicketRef) => {
+    setText((current) =>
+      appendPlanItem(
+        current,
+        planTicketItem({ id: ticket.id, name: planTicketName(ticket, ticketPrefix) }),
+      ),
     );
-  const handleMentionRemove = (userId: string) =>
-    setMentions((prev) => prev.filter((m) => m.userId !== userId));
+    setComposerExpanded(true);
+  };
 
   // ── Recent sessions — the user's last completed sessions on this team ──
   const recentSessionsTeamId = gateTeamId ?? selectedTeamId;
@@ -518,34 +545,42 @@ export const ClockPage: React.FC = () => {
     // A mode switch after a successful post finds nothing here: that post took
     // its files first (uploads.take). Anything left was never sent.
     clearUploads();
-    setSelectedTickets([]);
-    setMentions([]);
+    pickedMentionsRef.current = [];
     setComposerExpanded(false);
     focusEditorOnMountRef.current = false;
-  }, [composerMode, setSelectedTickets, clearUploads]);
+  }, [composerMode, clearUploads]);
 
-  // The wrap-up starts with the tickets the plan linked at clock-in, so
-  // clocking out keeps them unless removed here. Declared after the reset
-  // above so a same-commit mode switch can't clear the seed.
-  const sessionPlan =
-    composerMode === 'wrapup' ? (sessionPost ?? sessionPostFetch ?? postedPlan) : null;
-  const ticketsSeededForRef = useRef<string | null>(null);
+  // A ticket started while clocked out (#586) is written into the plan it's
+  // waiting for, so clocking in doesn't ask for more than that ticket.
+  const pendingTicketId =
+    composerMode === 'plan' &&
+    pendingStart?.request.kind === 'ticket' &&
+    pendingStart.request.ticket.sourceId === 'huddle'
+      ? pendingStart.request.ticket.id
+      : null;
   useEffect(() => {
-    // Leaving wrap-up clears the selection (above), so the same plan must
-    // reseed when the composer reopens — else its wrap-up would send `[]`.
-    if (composerMode !== 'wrapup') ticketsSeededForRef.current = null;
-    if (!sessionPlan || ticketsSeededForRef.current === sessionPlan.id) return;
-    ticketsSeededForRef.current = sessionPlan.id;
-    // Seed with the plan's titles too, so the chips can name its tickets.
-    const planTickets = sessionPlan.tickets ?? [];
-    setSelectedTickets((prev) => [
-      ...planTickets,
-      ...prev.filter((t) => !planTickets.some((p) => p.id === t.id)),
-    ]);
-  }, [composerMode, sessionPlan, setSelectedTickets]);
+    if (!pendingTicketId) return;
+    let cancelled = false;
+    ticketApi
+      .getTicket(pendingTicketId)
+      .then((ticket) => {
+        if (cancelled) return;
+        const item = planTicketItem({
+          id: ticket.id,
+          name: planTicketName(ticket, ticketPrefix),
+        });
+        setText((current) =>
+          ticketIdsInText(current).includes(ticket.id) ? current : appendPlanItem(current, item),
+        );
+        setComposerExpanded(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingTicketId, ticketPrefix]);
 
-  const showEditor =
-    composerExpanded || !!text.trim() || selectedTickets.length > 0 || uploads.items.length > 0;
+  const showEditor = composerExpanded || !!text.trim() || uploads.items.length > 0;
   // Something to post: words, or a file on its own (a screenshot, say).
   const hasContent = !!text.trim() || uploads.items.length > 0;
   // Editing pins it open: a seeded wrap-up shows only because it has content,
@@ -575,7 +610,7 @@ export const ClockPage: React.FC = () => {
       const attachments = media.map(toPostAttachment);
       const created = await huddleApi.createPost({
         teamId: gateTeamId,
-        content: { text: trimmed, mentions: mentionUserIds ?? [] },
+        content: { text: trimmed, mentions: mentionUserIds },
         ticketIds: ready.ticketIds,
         attachments,
         postDate: toDateString(new Date(at)),
@@ -589,8 +624,7 @@ export const ClockPage: React.FC = () => {
       handedOverRef.current = { draft, plan: trimmed };
       setPostedPlan({
         id: planPostId,
-        content: { text: trimmed, mentions: mentionUserIds ?? [] },
-        tickets: ready.tickets,
+        content: { text: trimmed, mentions: mentionUserIds },
         attachments,
       });
       draftGenRef.current += 1;
@@ -658,12 +692,22 @@ export const ClockPage: React.FC = () => {
           !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+        const linkedInPlan = ticketIdsInText(planText);
+        const attachedOnly = (sessionPost?.tickets ?? sessionPostFetch?.tickets ?? [])
+          .map((t) => t.id)
+          .filter((id) => !linkedInPlan.includes(id));
 
         await huddleApi.updatePost(
           effectivePostId,
           {
             text: textToSave,
-            mentions: mentionUserIds ?? sessionPost?.content.mentions ?? [],
+            // The plan's own mentions stay: the wrap-up is the same post.
+            mentions: [
+              ...new Set([
+                ...mentionUserIds,
+                ...(sessionPost?.content.mentions ?? sessionPostFetch?.content.mentions ?? []),
+              ]),
+            ],
           },
           {
             wrapUp: true,
@@ -673,12 +717,10 @@ export const ClockPage: React.FC = () => {
             attachments: postAttachments.length
               ? [...planAttachments, ...postAttachments]
               : undefined,
-            // The list replaces the plan's, so send it only once it was seeded
-            // from the plan — otherwise just what was picked, if anything.
-            ticketIds:
-              ticketsSeededForRef.current === effectivePostId || selectedTicketIds.length
-                ? selectedTicketIds
-                : undefined,
+            // The list replaces the plan's. Tickets the plan's text links are
+            // the wrap-up's to keep or delete; ones a plan only attached
+            // (posted before plans linked them) were never shown, so stay.
+            ticketIds: [...new Set([...attachedOnly, ...selectedTicketIds])],
           },
         );
       } else {
@@ -689,7 +731,7 @@ export const ClockPage: React.FC = () => {
         if (!gateTeamId) throw new Error(clockText.noWrapUpTeam);
         await huddleApi.createPost({
           teamId: gateTeamId,
-          content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds ?? [] },
+          content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds },
           postDate: toDateString(new Date()),
           clockEventId: activeClockEvent.id,
           wrapUp: true,
@@ -955,15 +997,14 @@ export const ClockPage: React.FC = () => {
                       }
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
+                      onReady={(editor) => {
+                        coreEditorRef.current = editor;
+                      }}
                     />
                   </Suspense>
 
-                  {/* ── Ticket / mention / attachment chips ── */}
+                  {/* ── Attachment tiles (tickets and mentions are in the text) ── */}
                   <ComposerChips
-                    selectedTickets={selectedTickets}
-                    onTicketRemove={removeTicket}
-                    mentions={mentions}
-                    onMentionRemove={handleMentionRemove}
                     attachments={uploads.items}
                     onAttachmentRemove={uploads.remove}
                     onAttachmentRetry={uploads.retry}
@@ -974,8 +1015,8 @@ export const ClockPage: React.FC = () => {
                     <ComposerAttachButtons
                       teamId={gateTeamId}
                       onFiles={attach}
-                      selectedTicketIds={selectedTicketIds}
-                      onTicketSelect={addTicket}
+                      selectedTicketIds={planTicketIds}
+                      onTicketSelect={handleTicketSelect}
                       onMentionSelect={handleMentionSelect}
                     />
                   </div>

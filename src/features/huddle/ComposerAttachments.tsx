@@ -51,10 +51,11 @@ export function ComposerAttachButtons({
 }
 
 interface ComposerChipsProps {
-  selectedTickets: TicketRef[];
-  onTicketRemove: (ticketId: string) => void;
-  mentions: MentionRef[];
-  onMentionRemove: (userId: string) => void;
+  /** Omitted where tickets and mentions are written into the text (the Clock page's plan). */
+  selectedTickets?: TicketRef[];
+  onTicketRemove?: (ticketId: string) => void;
+  mentions?: MentionRef[];
+  onMentionRemove?: (userId: string) => void;
   /** Files staged in the composer, each uploading in place (useComposerUploads). */
   attachments: AttachmentUpload<MediaItem>[];
   /** Takes a file off: cancels its upload, or takes a finished one back. */
@@ -65,9 +66,9 @@ interface ComposerChipsProps {
 
 /** Ticket / mention / attachment chips selected in the composer so far. */
 export function ComposerChips({
-  selectedTickets,
+  selectedTickets = [],
   onTicketRemove,
-  mentions,
+  mentions = [],
   onMentionRemove,
   attachments,
   onAttachmentRemove,
@@ -109,7 +110,7 @@ export function ComposerChips({
                 </span>
                 <button
                   type="button"
-                  onClick={() => onTicketRemove(ticket.id)}
+                  onClick={() => onTicketRemove?.(ticket.id)}
                   className="shrink-0 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
                   aria-label={TICKET_CHIP_TEXT.remove(label)}
                 >
@@ -139,7 +140,7 @@ export function ComposerChips({
               @{m.name}
               <button
                 type="button"
-                onClick={() => onMentionRemove(m.userId)}
+                onClick={() => onMentionRemove?.(m.userId)}
                 className="hover:text-indigo-900 dark:hover:text-indigo-200 transition-colors"
                 aria-label={`Remove mention of ${m.name}`}
               >

@@ -6,8 +6,8 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 
-/** A staged ticket. `title` is null when it can't be resolved (e.g. deleted). */
-export type TicketRef = { id: string; title: string | null };
+/** A staged ticket. `title` is null when it can't be resolved (e.g. deleted); `number` names it as `TH-12`. */
+export type TicketRef = { id: string; title: string | null; number?: number };
 
 export function useTicketSelection() {
   const [tickets, setTickets] = useState<TicketRef[]>([]);

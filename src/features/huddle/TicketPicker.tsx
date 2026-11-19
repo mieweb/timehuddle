@@ -50,7 +50,7 @@ export function TicketPicker({ teamId, onSelect, selectedIds = [] }: TicketPicke
   };
 
   const handleSelect = (ticket: Ticket) => {
-    onSelect({ id: ticket.id, title: ticket.title });
+    onSelect({ id: ticket.id, title: ticket.title, number: ticket.number });
     setIsOpen(false);
     setSearchQuery('');
   };

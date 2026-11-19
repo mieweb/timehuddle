@@ -5,9 +5,20 @@
  * ticket writes it into the plan, and deleting its line drops it.
  */
 
+import { huddleTicketRef } from '../tickets/sources/huddleSource';
+
 /** In-app path of a ticket's page (see src/ui/ROUTING.md). */
 export function ticketPath(ticketId: string): string {
   return `/app/tickets/${encodeURIComponent(ticketId)}`;
+}
+
+/** How a plan names a ticket, as Huddle labels do: `TH-12: Fix login`. */
+export function planTicketName(
+  ticket: { id: string; title: string | null; number?: number },
+  ticketPrefix?: string,
+): string {
+  const ref = huddleTicketRef(ticket, ticketPrefix);
+  return ticket.title ? `${ref}: ${ticket.title}` : ref;
 }
 
 /** Escape text so markdown punctuation in it (`[`, `*`, …) shows as typed. */
@@ -36,11 +47,15 @@ export function appendPlanItem(text: string, item: string): string {
   return /^\s*[-*+] /.test(lastLine) ? `${trimmed}\n${item}` : `${trimmed}\n\n${item}`;
 }
 
-/** `text` with ` @name` added to its last line — a mention written into the plan. */
+/** How a mention of `name` is written: `@` and the first name, as `detectMentions` reads it. */
+export function mentionToken(name: string): string {
+  return `@${name.split(' ')[0]}`;
+}
+
+/** `text` with a mention of `name` added to its last line. */
 export function appendMention(text: string, name: string): string {
   const trimmed = text.replace(/\s+$/, '');
-  const token = `@${name.split(' ')[0]}`;
-  return trimmed ? `${trimmed} ${token}` : token;
+  return trimmed ? `${trimmed} ${mentionToken(name)}` : mentionToken(name);
 }
 
 // A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.

@@ -30,6 +30,7 @@
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { CoreEditor } from '@kerebron/editor';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
@@ -48,11 +49,13 @@ interface MarkdownEditorProps {
    * listener below for why.
    */
   onFiles?: (files: File[]) => void;
+  /** Called with the Kerebron editor once its document has loaded. */
+  onReady?: (editor: CoreEditor) => void;
 }
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles },
+    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, onReady },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -149,7 +152,7 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           }
         }}
       >
-        <RichEditor ref={ref} value={value} onChange={onChange} collab={collab} />
+        <RichEditor ref={ref} value={value} onChange={onChange} onReady={onReady} collab={collab} />
       </div>
     );
   },
