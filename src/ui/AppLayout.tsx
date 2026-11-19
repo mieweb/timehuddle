@@ -28,6 +28,8 @@ import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
+import { PulseEmbedProvider } from '../features/pulse-embed/PulseEmbedProvider';
+import { useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
@@ -182,7 +184,9 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const { pathname, navigate } = useRouter();
+  const { pathname, navigate: routerNavigate } = useRouter();
+  // While Pulse is open, a push tap or a timehuddle:// link opens once it closes.
+  const navigate = useQueuedNavigate(routerNavigate);
 
   // A web push clicked while the app was closed opens it with ?notification=<id>
   // (public/sw.js): mark that one read, then drop the param.
@@ -566,7 +570,9 @@ export const AppLayout: React.FC = () => {
       <ToastProvider>
         <AppToasts />
         <TeamProvider>
-          <AppLayoutContent />
+          <PulseEmbedProvider>
+            <AppLayoutContent />
+          </PulseEmbedProvider>
         </TeamProvider>
       </ToastProvider>
     </RouterProvider>

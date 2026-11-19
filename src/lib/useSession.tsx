@@ -8,6 +8,7 @@
 import { Capacitor } from '@capacitor/core';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
+import { setPulseAccount } from '../features/pulse-embed/usePulseEmbed';
 import { authApi, orgApi, type TimecoreUser } from './api';
 import { DdpTimeoutError, getDdpClient } from './ddp';
 import { isNativeApp } from './device';
@@ -172,6 +173,13 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .markNativeAppSeen(platform)
       .catch(() => {});
   }, [nativeAppUserId]);
+
+  // Pulse in the app keeps each person's videos apart, so it learns who is
+  // signed in (sign-in, restore, sign-out, expiry) before it reads anything.
+  const pulseUserId = loading && !user ? undefined : (user?.id ?? null);
+  useEffect(() => {
+    if (pulseUserId !== undefined) void setPulseAccount(pulseUserId);
+  }, [pulseUserId]);
 
   const signOut = useCallback(async () => {
     // Clear token FIRST so no wormhole calls fire with invalidated token
