@@ -42,6 +42,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useRouter } from '../../ui/router';
 import { MEDIA_TEXT } from '../media/mediaStrings';
 import { MEDIA_PATH } from '../media/mediaVisibility';
+import { clockFlowAnnounced, noteClockSend } from './clockFlows';
 import { getPulse } from './client';
 import { createGrants } from './grants';
 import { PULSE_HOST_ID, staleNamespaces } from './namespaces';
@@ -211,7 +212,9 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
       if (handled.current.has(result.requestId)) return;
       handled.current.add(result.requestId);
       setIsOpen(false);
-      if (result.status === 'completed' && result.mode === 'pulse') {
+      if (clockFlowAnnounced(result)) {
+        // The Clock page says it, with the time the server clocked (clockFlows.ts).
+      } else if (result.status === 'completed' && result.mode === 'pulse') {
         say(PULSE_EMBED_TEXT.flow.sending(result.context?.label ?? ''));
       } else if (result.status === 'closed' && result.reason === 'user') {
         // "Saved to Unsent videos · View": View opens the Media page (§5.1 Back navigation).
@@ -340,8 +343,12 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
                     platform: pulseInfo.platform,
                   }
                 : null,
-            // The server clocked in or out at Send: the clock state changed.
-            onClockSend: () => live.current.refetchClock(),
+            // The server clocked in or out at Send: the clock state changed,
+            // and the Clock page's toast says when (clockFlows.ts).
+            onClockSend: (outcome) => {
+              noteClockSend(outcome);
+              live.current.refetchClock();
+            },
           }),
       );
       configuredRef.current = true;
