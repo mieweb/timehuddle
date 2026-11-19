@@ -45,45 +45,72 @@ export interface LiveUploadsOptions {
   onLanded?: () => void;
 }
 
+/** Rows read for one place; dropped as soon as the hook shows another. */
+interface ForKey<T> {
+  key: string | null;
+  rows: T[];
+}
+
+/** The caller's own rows for one place, with the read's error. */
+interface Listed extends ForKey<PulseUploadPublic> {
+  error: unknown;
+}
+
+const NONE: PulseUploadPublic[] = [];
+const NO_LISTED: Listed = { key: null, rows: NONE, error: null };
+const NO_LIVE: ForKey<PulseUploadPublic> = { key: null, rows: NONE };
+
 /** The server's uploads for `targetKey`; null reads nothing. */
 export function useLiveUploads(
   targetKey: string | null,
   options: LiveUploadsOptions = {},
 ): LiveUploads {
   const enabled = (options.enabled ?? true) && !!targetKey;
-  const [listed, setListed] = useState<PulseUploadPublic[]>([]);
-  const [live, setLive] = useState<PulseUploadPublic[]>([]);
-  const [loading, setLoading] = useState(enabled);
-  const [error, setError] = useState<unknown>(null);
+  const key = enabled ? targetKey : null;
+  // Each read and each live list is tagged with its place: a place's rows
+  // never show on another, even for one render.
+  const [listed, setListed] = useState<Listed>(NO_LISTED);
+  const [live, setLive] = useState<ForKey<PulseUploadPublic>>(NO_LIVE);
 
   const onLanded = useRef(options.onLanded);
   onLanded.current = options.onLanded;
 
-  const reading = useRef<Promise<void> | null>(null);
+  /** The read in flight, for its place; `again` asks for one more after it. */
+  const reading = useRef<{ key: string; again: boolean } | null>(null);
   const refresh = useCallback(() => {
-    if (!enabled || !targetKey || reading.current) return;
-    reading.current = (async () => {
-      try {
-        const { uploads } = await pulseUploadApi.list({ targetKey });
-        setListed(uploads);
-        setError(null);
-      } catch (err) {
-        setError(err);
-      } finally {
-        setLoading(false);
-        reading.current = null;
-      }
+    if (!key) return;
+    const current = reading.current;
+    if (current?.key === key) {
+      // A read for this place is on its way: it may predate the change, so
+      // one more follows it.
+      current.again = true;
+      return;
+    }
+    // None, or one for another place, which is dropped when it answers.
+    const read = { key, again: false };
+    reading.current = read;
+    void (async () => {
+      do {
+        read.again = false;
+        let next: Listed;
+        try {
+          const { uploads } = await pulseUploadApi.list({ targetKey: key });
+          next = { key, rows: uploads, error: null };
+        } catch (error) {
+          next = { key, rows: NONE, error };
+        }
+        if (reading.current !== read) return;
+        setListed((prev) =>
+          next.error !== null && prev.key === key ? { ...prev, error: next.error } : next,
+        );
+      } while (read.again && reading.current === read);
+      if (reading.current === read) reading.current = null;
     })();
-  }, [enabled, targetKey]);
+  }, [key]);
 
   // The caller's own rows: now, on reconnect, and back in the foreground.
   useEffect(() => {
-    if (!enabled) {
-      setListed([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+    if (!key) return;
     refresh();
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh();
@@ -91,60 +118,73 @@ export function useLiveUploads(
     document.addEventListener('visibilitychange', onVisible);
     const offReconnect = getDdpClient().onReconnect(refresh);
     return () => {
+      // A read still on its way is for a place no longer shown.
+      reading.current = null;
       document.removeEventListener('visibilitychange', onVisible);
       offReconnect();
     };
-  }, [enabled, refresh]);
+  }, [key, refresh]);
 
   // Everyone's videos on their way, live over DDP.
   useEffect(() => {
-    if (!enabled || !targetKey) {
-      setLive([]);
-      return;
-    }
+    if (!key) return;
     const ddp = getDdpClient();
     const read = () =>
-      setLive(
-        ddp
+      setLive({
+        key,
+        rows: ddp
           .docs(COLLECTION)
           .map((doc) => uploadFromDoc(doc as Record<string, unknown>))
           .filter(
             (u): u is PulseUploadPublic =>
-              !!u && u.targetKey === targetKey && IN_FLIGHT_STATES.has(u.state),
+              !!u && u.targetKey === key && IN_FLIGHT_STATES.has(u.state),
           ),
-      );
+      });
     const offChange = ddp.onCollectionChange(COLLECTION, read);
-    const unsubscribe = ddp.subscribe(PUBLICATION, [targetKey], read);
+    const unsubscribe = ddp.subscribe(PUBLICATION, [key], read);
     read();
     return () => {
       offChange();
       unsubscribe();
     };
-  }, [enabled, targetKey]);
+  }, [key]);
 
-  const uploads = useMemo(() => mergeServerRows(listed, live), [listed, live]);
+  const listedRows = key !== null && listed.key === key ? listed.rows : NONE;
+  const liveRows = key !== null && live.key === key ? live.rows : NONE;
+  const uploads = useMemo(() => mergeServerRows(listedRows, liveRows), [listedRows, liveRows]);
+  const loading = key !== null && listed.key !== key;
+  const error = key !== null && listed.key === key ? listed.error : null;
 
-  // A video landed: the place refetches, and so do the caller's rows.
-  const seenStates = useRef(new Map<string, PulseUploadState>());
-  const seenLive = useRef(new Set<string>());
+  // A video landed: the place refetches, and so do the caller's rows. The
+  // first rows of a place are where it starts, not changes.
+  const seen = useRef<{
+    key: string | null;
+    states: Map<string, PulseUploadState>;
+    live: Set<string>;
+  }>({ key: null, states: new Map(), live: new Set() });
   useEffect(() => {
-    const landed = newlyDelivered(seenStates.current, uploads);
-    const left = leftPublication(seenLive.current, live);
-    seenStates.current = new Map(uploads.map((u) => [u.id, u.state]));
-    seenLive.current = new Set(live.map((u) => u.id));
+    const before = seen.current;
+    seen.current = {
+      key,
+      states: new Map(uploads.map((u) => [u.id, u.state])),
+      live: new Set(liveRows.map((u) => u.id)),
+    };
+    if (before.key !== key) return;
+    const landed = newlyDelivered(before.states, uploads);
+    const left = leftPublication(before.live, liveRows);
     if (left.length > 0) refresh();
     if (landed.length > 0 || left.length > 0) onLanded.current?.();
-  }, [uploads, live, refresh]);
+  }, [key, uploads, liveRows, refresh]);
 
   // Every 10 s while a video is on its way.
   const moving = uploads.some((u) => IN_FLIGHT_STATES.has(u.state));
   useEffect(() => {
-    if (!enabled || !moving) return;
+    if (!key || !moving) return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') refresh();
     }, LIVE_UPLOADS_POLL_MS);
     return () => clearInterval(timer);
-  }, [enabled, moving, refresh]);
+  }, [key, moving, refresh]);
 
   return { uploads, loading, error, refresh };
 }

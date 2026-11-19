@@ -1,7 +1,9 @@
 import type { DraftState, DraftSummary } from '@mieweb/pulse-embed';
-import { describe, expect, it } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { PulseUploadPublic, PulseUploadState } from '../../lib/api';
+import { pulseUploadApi, type PulseUploadPublic, type PulseUploadState } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import {
   isMoving,
   leftPublication,
@@ -10,6 +12,7 @@ import {
   newlyDelivered,
   uploadFromDoc,
 } from './mergeRows';
+import { useLiveUploads } from './useLiveUploads';
 
 const draft = (id: string, state: DraftState, extra: Partial<DraftSummary> = {}): DraftSummary => ({
   id,
@@ -237,5 +240,102 @@ describe('newlyDelivered / leftPublication', () => {
 
   it('names rows the live publication dropped', () => {
     expect(leftPublication(new Set(['a', 'b']), [{ id: 'b' }, { id: 'c' }])).toEqual(['a']);
+  });
+});
+
+describe('useLiveUploads', () => {
+  /** A `pulseUploads.list` reply the test answers when it chooses. */
+  function deferredLists() {
+    const pending: {
+      targetKey: string;
+      resolve: (rows: PulseUploadPublic[]) => void;
+    }[] = [];
+    vi.spyOn(pulseUploadApi, 'list').mockImplementation(
+      (args) =>
+        new Promise((resolve) => {
+          pending.push({
+            targetKey: args?.targetKey ?? '',
+            resolve: (uploads) => resolve({ uploads }),
+          });
+        }),
+    );
+    return pending;
+  }
+
+  function quietDdp() {
+    const ddp = getDdpClient();
+    vi.spyOn(ddp, 'subscribe').mockReturnValue(() => {});
+    vi.spyOn(ddp, 'onCollectionChange').mockReturnValue(() => {});
+    vi.spyOn(ddp, 'onReconnect').mockReturnValue(() => {});
+    vi.spyOn(ddp, 'docs').mockReturnValue([]);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('drops a read for the previous place and reads the new one at once', async () => {
+    quietDdp();
+    const pending = deferredLists();
+    const onLanded = vi.fn();
+    const { result, rerender } = renderHook(({ key }) => useLiveUploads(key, { onLanded }), {
+      initialProps: { key: 'ticket:a' },
+    });
+    expect(pending.map((p) => p.targetKey)).toEqual(['ticket:a']);
+
+    // Another place while the first read is still on its way.
+    rerender({ key: 'ticket:b' });
+    expect(pending.map((p) => p.targetKey)).toEqual(['ticket:a', 'ticket:b']);
+    expect(result.current.loading).toBe(true);
+
+    // The old place answers last but one: its rows never show.
+    await act(async () => {
+      pending[0].resolve([server('old', 'delivered', { targetKey: 'ticket:a' })]);
+    });
+    expect(result.current.uploads).toEqual([]);
+
+    await act(async () => {
+      pending[1].resolve([server('new', 'uploading', { targetKey: 'ticket:b' })]);
+    });
+    expect(result.current.uploads.map((u) => u.id)).toEqual(['new']);
+    expect(result.current.loading).toBe(false);
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  it("clears the previous place's rows as soon as the key changes", async () => {
+    quietDdp();
+    const pending = deferredLists();
+    const onLanded = vi.fn();
+    const { result, rerender } = renderHook(({ key }) => useLiveUploads(key, { onLanded }), {
+      initialProps: { key: 'ticket:a' },
+    });
+    await act(async () => {
+      pending[0].resolve([server('a1', 'uploading', { targetKey: 'ticket:a' })]);
+    });
+    expect(result.current.uploads.map((u) => u.id)).toEqual(['a1']);
+
+    rerender({ key: 'ticket:b' });
+    expect(result.current.uploads).toEqual([]);
+    await act(async () => {
+      pending[1].resolve([]);
+    });
+    expect(result.current.uploads).toEqual([]);
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  it('reads once more when asked during a read for the same place', async () => {
+    quietDdp();
+    const pending = deferredLists();
+    const { result } = renderHook(() => useLiveUploads('ticket:a'));
+    act(() => result.current.refresh());
+    expect(pending).toHaveLength(1);
+    await act(async () => {
+      pending[0].resolve([server('a1', 'uploading', { targetKey: 'ticket:a' })]);
+    });
+    expect(pending).toHaveLength(2);
+    await act(async () => {
+      pending[1].resolve([server('a1', 'delivered', { targetKey: 'ticket:a' })]);
+    });
+    expect(result.current.uploads.map((u) => u.state)).toEqual(['delivered']);
   });
 });
