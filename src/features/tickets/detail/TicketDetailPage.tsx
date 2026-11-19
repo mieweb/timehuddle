@@ -806,7 +806,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </CardContent>
           </Card>
 
-          <TicketAttachmentsCard kind="ticket" ticketId={ticket.id} />
+          <TicketAttachmentsCard
+            kind="ticket"
+            ticketId={ticket.id}
+            title={ticket.title}
+            teamId={ticket.teamId}
+          />
 
           {/* Activity: the ticket's history plus your own timer sessions */}
           <TicketActivityCard
