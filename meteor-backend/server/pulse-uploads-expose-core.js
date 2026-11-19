@@ -198,10 +198,11 @@ export const PULSE_UPLOAD_METHODS = Object.freeze({
   ),
   'pulseUploads.adminList': spec(
     PULSE_UPLOAD_LIMITS.adminList,
-    "Pulse uploads for support: your own, and those of teams you administer (team admin or org owner). With the uploader's name.",
+    "Pulse uploads for support: your own, and those of teams you administer (team admin or org owner). With the uploader's name. teamId keeps one team's rows.",
     {
       type: 'object',
       properties: {
+        teamId: ID,
         userId: ID,
         targetKey: { type: 'string', maxLength: 128 },
         clockEventId: ID,
@@ -363,6 +364,12 @@ export function checkRetargetArgs(userId, args) {
  */
 export function checkAdminListArgs(args = {}) {
   const query = {};
+  // One team's rows (stored as the team's string id), so a page of `limit`
+  // isn't spent on the caller's other teams.
+  if (args.teamId != null) {
+    if (!isNonEmptyString(args.teamId)) return badRequest('Invalid teamId');
+    query.teamId = args.teamId;
+  }
   if (args.userId != null) {
     if (!isNonEmptyString(args.userId)) return badRequest('Invalid userId');
     query.userId = args.userId;

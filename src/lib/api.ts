@@ -2760,7 +2760,70 @@ export const pulseUploadApi = {
   /** Send a video kept in the library (its place was gone) somewhere else. */
   retarget: (args: { uploadId: string; type: PulseUploadTypeId; target: PulseUploadTarget }) =>
     wormholeCall<{ state: 'delivered'; note: string }>('pulseUploads.retarget', { ...args }),
+
+  /**
+   * Support: the caller's uploads and those of the teams they administer, newest first;
+   * with `teamId`, only that team's.
+   */
+  adminList: (
+    args: {
+      teamId?: string;
+      userId?: string;
+      targetKey?: string;
+      clockEventId?: string;
+      limit?: number;
+    } = {},
+  ) => wormholeCall<{ uploads: PulseUploadAdmin[] }>('pulseUploads.adminList', { ...args }),
+
+  /** Support: how a team's videos are doing since `since` (default 30 days). Team admins only. */
+  metrics: (args: { teamId: string; since?: number }) =>
+    wormholeCall<PulseUploadMetrics>('pulseUploads.metrics', { ...args }),
 };
+
+/** A row as `pulseUploads.adminList` shows it to support: every stored field, dates as ISO. */
+export interface PulseUploadAdmin extends Omit<PulseUploadPublic, 'clientKey' | 'draftKey'> {
+  userName: string | null;
+  teamId?: string | null;
+  label?: string | null;
+  clockEventId?: string | null;
+  artifactId?: string | null;
+  attempts?: number;
+  platform?: 'ios' | 'android' | null;
+  appVersion?: string | null;
+  createdAt?: string | null;
+  deliveredAt?: string | null;
+  /** Set by the sweep 24 h after Send while the video hasn't landed; delivery clears it. */
+  overdueAt?: string | null;
+}
+
+/** `pulseUploads.metrics` counts, for a team or one upload type. */
+export interface PulseUploadCounts {
+  total: number;
+  /** All but the cancelled: the rates are of this. */
+  sent: number;
+  canceled: number;
+  inFlight: number;
+  delivered: number;
+  kept: number;
+  failed: number;
+  abandoned: number;
+  overdue: number;
+}
+
+export interface PulseUploadMetrics {
+  teamId: string;
+  since: string;
+  until: string;
+  /** The window held more rows than one call reads. */
+  truncated: boolean;
+  counts: PulseUploadCounts;
+  /** 0–1 of sent; null when nothing was sent. */
+  rates: Record<'success' | 'kept' | 'failed' | 'abandoned' | 'overdue', number | null>;
+  timeToAttachMs: { count: number; p50: number | null; p95: number | null };
+  /** Must be 0. */
+  duplicateAttachments: { sets: number; extra: number };
+  byType: Record<string, PulseUploadCounts>;
+}
 
 // ─── Media Library ────────────────────────────────────────────────────────────
 

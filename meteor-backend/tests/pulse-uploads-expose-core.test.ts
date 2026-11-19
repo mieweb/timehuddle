@@ -260,6 +260,12 @@ describe('arguments', () => {
       limit: 50,
     });
     expect((checkAdminListArgs({ targetKey: 'nope' }) as Checked).error).toBe('bad-request');
+    expect((checkAdminListArgs({ teamId: TEAM, userId: OTHER, limit: 100 }) as Checked).value).toEqual({
+      query: { teamId: TEAM, userId: OTHER },
+      limit: 100,
+    });
+    expect((checkAdminListArgs({ teamId: '' }) as Checked).error).toBe('bad-request');
+    expect((checkAdminListArgs({ teamId: 7 }) as Checked).error).toBe('bad-request');
     expect(adminScopeQuery(USER, [])).toEqual({ $or: [{ userId: USER }] });
     expect(adminScopeQuery(USER, ['t1', 't2'])).toEqual({ $or: [{ userId: USER }, { teamId: { $in: ['t1', 't2'] } }] });
   });
