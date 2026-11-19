@@ -8,6 +8,7 @@ Code TimeHuddle builds from source instead of installing from npm.
 | `ui`              | Submodule: [mieweb/ui](https://github.com/mieweb/ui) on `timehuddle/next`, ahead of its release.  |
 | `mieweb-ui.tgz`   | `@mieweb/ui` packed from `ui`. The app installs it (`"@mieweb/ui": "file:vendor/mieweb-ui.tgz"`). |
 | `.ui-tarball-commit` | The `ui` commit the tarball was built from, so `ui:build` can skip an unchanged rebuild.        |
+| `mieweb-pulse-embed.tgz` | `@mieweb/pulse-embed` (Pulse's host client) packed from the Pulse repo. The app installs it (`"@mieweb/pulse-embed": "file:vendor/mieweb-pulse-embed.tgz"`). |
 
 ## Why `@mieweb/ui` is vendored
 
@@ -39,6 +40,16 @@ graph LR
   class Upstream,Branch lib
   class Tarball,App app
 ```
+
+## Why `@mieweb/pulse-embed` is vendored
+
+Pulse inside the TimeHuddle app (`src/features/pulse-embed/`) talks to the native Pulse plugin
+through `@mieweb/pulse-embed`, which is built in the Pulse repo (`embed/packages/pulse-embed`) and
+not yet on npm. The tarball is that package's `npm pack` (its built `dist/`), so CI and Docker
+install it like any dependency. To refresh it, pack the package in the Pulse repo, copy the `.tgz`
+here as `mieweb-pulse-embed.tgz`, and run `npm install --package-lock-only --ignore-scripts` so
+`package-lock.json` records its new integrity; commit both. Once the package is published, set the
+dependency back to its npm version and delete the tarball.
 
 ## Working on the library
 
