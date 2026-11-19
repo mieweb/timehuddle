@@ -1440,8 +1440,6 @@ export default function Huddle() {
                             <ComposerChips
                               selectedTickets={selectedTickets}
                               onTicketRemove={removeTicket}
-                              mentions={[]}
-                              onMentionRemove={() => {}}
                               attachments={[]}
                               onAttachmentRemove={() => {}}
                             />

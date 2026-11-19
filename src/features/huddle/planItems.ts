@@ -47,17 +47,6 @@ export function appendPlanItem(text: string, item: string): string {
   return /^\s*[-*+] /.test(lastLine) ? `${trimmed}\n${item}` : `${trimmed}\n\n${item}`;
 }
 
-/** How a mention of `name` is written: `@` and the first name, as `detectMentions` reads it. */
-export function mentionToken(name: string): string {
-  return `@${name.split(' ')[0]}`;
-}
-
-/** `text` with a mention of `name` added to its last line. */
-export function appendMention(text: string, name: string): string {
-  const trimmed = text.replace(/\s+$/, '');
-  return trimmed ? `${trimmed} ${mentionToken(name)}` : mentionToken(name);
-}
-
 // A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.
 const TICKET_LINK = /\]\(\/app\/tickets\/(?!redmine\/)([^)/\s]+)\)/g;
 

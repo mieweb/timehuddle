@@ -29,8 +29,7 @@
  * editor, not the mirror, when the text is about to be persisted.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
-import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
-import type { CoreEditor } from '@kerebron/editor';
+import type { CollabConfig, MentionOption, RichEditorHandle } from '@mieweb/ui/kerebron';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
@@ -49,13 +48,13 @@ interface MarkdownEditorProps {
    * listener below for why.
    */
   onFiles?: (files: File[]) => void;
-  /** Called with the Kerebron editor once its document has loaded. */
-  onReady?: (editor: CoreEditor) => void;
+  /** `@` suggestions — people, or records with an `href` (inserted as links). */
+  mentionOptions?: MentionOption[];
 }
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, onReady },
+    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, mentionOptions },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -152,7 +151,13 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           }
         }}
       >
-        <RichEditor ref={ref} value={value} onChange={onChange} onReady={onReady} collab={collab} />
+        <RichEditor
+          ref={ref}
+          value={value}
+          onChange={onChange}
+          collab={collab}
+          mentionOptions={mentionOptions}
+        />
       </div>
     );
   },

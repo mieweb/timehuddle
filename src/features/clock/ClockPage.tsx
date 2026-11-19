@@ -31,7 +31,6 @@ import {
   type AttachmentUpload,
 } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import type { CoreEditor } from '@kerebron/editor';
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 
 import { huddleApi, ticketApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
@@ -50,14 +49,13 @@ import { useComposerUploads } from '../huddle/useComposerUploads';
 import { UPLOAD_TEXT } from '../huddle/uploadText';
 import type { TicketRef } from '../huddle/useTicketSelection';
 import {
-  appendMention,
   appendPlanItem,
-  mentionToken,
   planTicketItem,
   planTicketName,
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
+import { useTicketMentionOptions } from '../huddle/useTicketMentionOptions';
 import { toPostAttachment } from '../huddle/api';
 import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
@@ -188,6 +186,12 @@ export const ClockPage: React.FC = () => {
   const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
+  // Typing `@` in the editor offers teammates and the team's open tickets.
+  const ticketOptions = useTicketMentionOptions(gateTeamId, ticketPrefix);
+  const mentionOptions = useMemo(
+    () => [...teamMentions.options, ...ticketOptions],
+    [teamMentions.options, ticketOptions],
+  );
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -212,17 +216,6 @@ export const ClockPage: React.FC = () => {
   // (`textRef`, the text as of now, is declared below with the Pulse drafts.)
   const detectMentionsRef = useRef(teamMentions.detect);
   detectMentionsRef.current = teamMentions.detect;
-  // People picked from @Mention, kept while their `@Name` is still written:
-  // the text alone can't tell two teammates with one first name apart.
-  const pickedMentionsRef = useRef<{ userId: string; token: string }[]>([]);
-  const mentionIdsIn = (postText: string) => [
-    ...new Set([
-      ...detectMentionsRef.current(postText),
-      ...pickedMentionsRef.current
-        .filter((picked) => postText.includes(picked.token))
-        .map((picked) => picked.userId),
-    ]),
-  ];
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -254,7 +247,7 @@ export const ClockPage: React.FC = () => {
     return {
       media,
       text: postText,
-      mentionUserIds: mentionIdsIn(postText),
+      mentionUserIds: detectMentionsRef.current(postText),
       ticketIds: ticketIdsInText(postText),
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
@@ -264,22 +257,7 @@ export const ClockPage: React.FC = () => {
     };
   };
 
-  // Picking writes into the plan. A mention goes in at the caret, through the
-  // editor; without one yet it ends the plan. A ticket is a new last item —
-  // the editor reloads `value`, so it shows at once.
-  const coreEditorRef = useRef<CoreEditor | null>(null);
-  const handleMentionSelect = (userId: string, name: string) => {
-    pickedMentionsRef.current.push({ userId, token: mentionToken(name) });
-    const view = coreEditorRef.current?.view;
-    // Not one a remount has torn down before the new editor reported ready.
-    if (view?.dom instanceof HTMLElement && view.dom.isConnected) {
-      const { from, to } = view.state.selection;
-      view.dispatch(view.state.tr.insertText(`${mentionToken(name)} `, from, to));
-    } else {
-      setText((current) => appendMention(current, name));
-    }
-    setComposerExpanded(true);
-  };
+  // A picked ticket is a new last item; the editor reloads `value`, so it shows at once.
   const handleTicketSelect = (ticket: TicketRef) => {
     setText((current) =>
       appendPlanItem(
@@ -545,7 +523,6 @@ export const ClockPage: React.FC = () => {
     // A mode switch after a successful post finds nothing here: that post took
     // its files first (uploads.take). Anything left was never sent.
     clearUploads();
-    pickedMentionsRef.current = [];
     setComposerExpanded(false);
     focusEditorOnMountRef.current = false;
   }, [composerMode, clearUploads]);
@@ -997,9 +974,7 @@ export const ClockPage: React.FC = () => {
                       }
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
-                      onReady={(editor) => {
-                        coreEditorRef.current = editor;
-                      }}
+                      mentionOptions={mentionOptions}
                     />
                   </Suspense>
 
@@ -1017,7 +992,6 @@ export const ClockPage: React.FC = () => {
                       onFiles={attach}
                       selectedTicketIds={planTicketIds}
                       onTicketSelect={handleTicketSelect}
-                      onMentionSelect={handleMentionSelect}
                     />
                   </div>
 

@@ -1,7 +1,8 @@
 /**
- * Shared attach/ticket/mention controls and chips for post composers — the
- * Clock page's plan/wrap-up composer and the Huddle inbox's message box offer
- * the same Photo/Video/Doc/Ticket/@Mention affordances from here. Pulse is not
+ * Shared attach/ticket controls and chips for post composers — the Clock
+ * page's plan/wrap-up composer offers Media and Ticket from here, and the
+ * Huddle inbox's message box shares the ticket chips. Mentions are typed
+ * (`@`), not picked from a button. Pulse is not
  * a composer attachment: a Pulse video is delivered by the server to where its
  * link was reserved for (see PulseButton), so it has its own button.
  */
@@ -9,12 +10,9 @@ import { AttachmentPreviewItem, Badge, UploadAnnouncer, type AttachmentUpload } 
 import { UPLOAD_TEXT } from './uploadText';
 import { AttachmentBar } from './AttachmentBar';
 import { TicketPicker } from './TicketPicker';
-import { MentionMenu } from './MentionMenu';
 import { timerLabel } from '../timers/ticketTimerStrings';
 import type { MediaItem } from './types';
 import type { TicketRef } from './useTicketSelection';
-
-export type MentionRef = { userId: string; name: string };
 
 /** User-facing text for the ticket chips, kept in one place for translation. */
 export const TICKET_CHIP_TEXT = {
@@ -28,16 +26,14 @@ interface ComposerAttachButtonsProps {
   selectedTicketIds: string[];
   /** Adds a ticket to the post; the picker won't offer one already attached. */
   onTicketSelect: (ticket: TicketRef) => void;
-  onMentionSelect: (userId: string, name: string) => void;
 }
 
-/** The Photo / Video / Doc / Ticket / @Mention button row. */
+/** The Media / Ticket button row. */
 export function ComposerAttachButtons({
   teamId,
   onFiles,
   selectedTicketIds,
   onTicketSelect,
-  onMentionSelect,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -45,17 +41,14 @@ export function ComposerAttachButtons({
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedIds={selectedTicketIds} />
       )}
-      {teamId && <MentionMenu teamId={teamId} onSelect={onMentionSelect} />}
     </>
   );
 }
 
 interface ComposerChipsProps {
-  /** Omitted where tickets and mentions are written into the text (the Clock page's plan). */
+  /** Omitted where tickets are written into the text (the Clock page's plan). */
   selectedTickets?: TicketRef[];
   onTicketRemove?: (ticketId: string) => void;
-  mentions?: MentionRef[];
-  onMentionRemove?: (userId: string) => void;
   /** Files staged in the composer, each uploading in place (useComposerUploads). */
   attachments: AttachmentUpload<MediaItem>[];
   /** Takes a file off: cancels its upload, or takes a finished one back. */
@@ -64,17 +57,15 @@ interface ComposerChipsProps {
   onAttachmentRetry?: (id: string) => void;
 }
 
-/** Ticket / mention / attachment chips selected in the composer so far. */
+/** Ticket and attachment chips selected in the composer so far. */
 export function ComposerChips({
   selectedTickets = [],
   onTicketRemove,
-  mentions = [],
-  onMentionRemove,
   attachments,
   onAttachmentRemove,
   onAttachmentRetry,
 }: ComposerChipsProps) {
-  const hasChips = selectedTickets.length > 0 || mentions.length > 0 || attachments.length > 0;
+  const hasChips = selectedTickets.length > 0 || attachments.length > 0;
   if (!hasChips) return null;
 
   return (
@@ -126,35 +117,6 @@ export function ComposerChips({
               </Badge>
             );
           })}
-        </div>
-      )}
-
-      {mentions.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {mentions.map((m) => (
-            <Badge
-              key={m.userId}
-              size="sm"
-              className="gap-1.5 border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300"
-            >
-              @{m.name}
-              <button
-                type="button"
-                onClick={() => onMentionRemove?.(m.userId)}
-                className="hover:text-indigo-900 dark:hover:text-indigo-200 transition-colors"
-                aria-label={`Remove mention of ${m.name}`}
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </Badge>
-          ))}
         </div>
       )}
 

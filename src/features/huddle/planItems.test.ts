@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendMention, appendPlanItem, planTicketItem, ticketIdsInText } from './planItems';
+import { appendPlanItem, planTicketItem, ticketIdsInText } from './planItems';
 
 describe('planItems', () => {
   const item = planTicketItem({ id: 'tkt-1', name: 'TH-1: Fix [beta] login' });
@@ -12,13 +12,6 @@ describe('planItems', () => {
     expect(appendPlanItem('', item)).toBe(item);
     expect(appendPlanItem('Today I will\n', item)).toBe(`Today I will\n\n${item}`);
     expect(appendPlanItem('- [ ] Call Pam', item)).toBe(`- [ ] Call Pam\n${item}`);
-  });
-
-  it('adds a mention by first name to the last line', () => {
-    expect(appendMention('- [ ] Discuss photos with', 'Pam Beesly')).toBe(
-      '- [ ] Discuss photos with @Pam',
-    );
-    expect(appendMention('', 'Pam Beesly')).toBe('@Pam');
   });
 
   it('reads the linked ticket ids back, once each, skipping Redmine issues', () => {
