@@ -28,6 +28,7 @@ import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
+import { MEDIA_TEXT } from '../features/media/mediaStrings';
 import { PulseEmbedProvider } from '../features/pulse-embed/PulseEmbedProvider';
 import { usePulseEmbed, useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
@@ -106,6 +107,7 @@ const EnterprisePage = lazyNamed(
   () => import('../features/enterprise/EnterprisePage'),
   'EnterprisePage',
 );
+const MediaPage = lazyNamed(() => import('../features/media/MediaPage'), 'MediaPage');
 
 /** Shown in place of a page while its chunk downloads. */
 const PageLoading: React.FC = () => (
@@ -129,6 +131,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
+  '/app/media': { title: MEDIA_TEXT.title, component: MediaPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'People', component: PeoplePage },

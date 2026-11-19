@@ -42,14 +42,17 @@ export const useRouter = () => useContext(RouterContext);
  * default view, silently losing what the link was pointing at.
  *
  *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
- *   /app/messages, /app/media → withdrawn for MVP; no replacement surface, so
- *     old bookmarks and already-delivered push notifications land on Dashboard
+ *   /app/messages → withdrawn for MVP; no replacement surface, so old
+ *     bookmarks and already-delivered push notifications land on Dashboard
  *     rather than silently rendering it under the wrong URL.
+ *
+ * `/app/media` is a page again (Unsent videos, features/media), but only
+ * under Pulse's visibility rule: where it doesn't hold, MediaPage sends the
+ * route to the Dashboard just as this table did.
  */
 const RETIRED_ROUTES: Record<string, string> = {
   '/app/timesheet': '/app/dashboard?view=timesheet',
   '/app/messages': '/app/dashboard',
-  '/app/media': '/app/dashboard',
   '/app/activity': '/app/settings?section=activity',
   '/app/org/members': '/app/organization?tab=members',
   '/app/org/usage': '/app/settings?section=usage',
