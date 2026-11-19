@@ -15,6 +15,7 @@ import { avatarColorToCss, getUserColor } from './avatar';
 import { formatDuration } from '@lib/timeUtils';
 import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
 import { knownVideoName } from '../pulse-upload/videoNames';
+import { pulsePendingNote } from './PulsePendingNote';
 import type {
   Participant,
   SuperChatConversation,
@@ -432,6 +433,9 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean): string[] {
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
+  // A Pulse video sent with its clock action: on its way, late, or not coming.
+  const pulseNote = pulsePendingNote(post);
+  if (pulseNote) parts.push(pulseNote);
   for (const ticket of existingTickets(post)) {
     parts.push(ticketLinkMarkdown(ticket));
   }
