@@ -6,6 +6,9 @@
  * It always edits the selected team, the one in the header and in `?team=`
  * (TeamContext treats this section as team-scoped). When that is a team the
  * viewer doesn't manage, it says so and offers the ones they do.
+ *
+ * Below the switches, admins find a stuck Pulse upload of the team
+ * (PulseSupportSection), on a server that knows Pulse in the app.
  */
 import { Button, Card, CardContent, Select, Text } from '@mieweb/ui';
 import React, { useMemo } from 'react';
@@ -14,6 +17,7 @@ import { canManageTeam } from '../../lib/organizationAccess';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
+import { PulseSupportSection, teamHasPulse } from '../pulse-embed/support/PulseSupportSection';
 import { TeamSettingsRows } from './TeamSettingsRows';
 import { SETTINGS_STRINGS } from './settingsCopy';
 
@@ -64,6 +68,7 @@ export const TeamSettings: React.FC = () => {
           <>
             {/* Keyed by team, so a save in flight can't show on the next team's switch. */}
             <TeamSettingsRows key={team.id} team={team} />
+            {teamHasPulse(team) && <PulseSupportSection key={`pulse-${team.id}`} team={team} />}
             <Button
               variant="link"
               size="sm"
