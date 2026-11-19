@@ -74,3 +74,19 @@ export function teamTicketIdsInText(text: string, teamTicketIds: ReadonlySet<str
   const ids = ticketIdsInText(text);
   return teamTicketIds ? ids.filter((id) => teamTicketIds.has(id)) : ids;
 }
+
+/**
+ * A post's ticket ids after its text is edited: tickets it carried without a
+ * link in the old text (picked with the Ticket button) stay, and the team's
+ * tickets the new text links are the rest — so deleting a link drops its ticket.
+ */
+export function editedTicketIds(
+  carried: string[],
+  oldText: string,
+  newText: string,
+  teamTicketIds: ReadonlySet<string>,
+): string[] {
+  const linkedBefore = new Set(ticketIdsInText(oldText));
+  const kept = carried.filter((id) => !linkedBefore.has(id));
+  return [...new Set([...kept, ...teamTicketIdsInText(newText, teamTicketIds)])];
+}

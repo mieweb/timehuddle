@@ -42,6 +42,7 @@ import { createPortal } from 'react-dom';
 import {
   discardMedia,
   fetchTeamMembers,
+  fetchTeamTickets,
   uploadedMedia,
   toPostAttachment,
 } from '../features/huddle/api';
@@ -98,7 +99,7 @@ import {
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../features/huddle/useBoardTicketMentionOptions';
-import { teamTicketIdsInText } from '../features/huddle/planItems';
+import { editedTicketIds, teamTicketIdsInText } from '../features/huddle/planItems';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
@@ -1225,13 +1226,29 @@ export default function Huddle() {
     // would save `mentions: []` and deliver a scheduled post silently. A failed
     // fetch here fails the save instead.
     try {
-      const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
+      const [members, teamTickets] = await Promise.all([
+        fetchTeamMembers(post.teamId),
+        fetchTeamTickets(post.teamId),
+      ]);
+      const editedMentions = detectMentions(body, members).filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
+      // Ticket links added or deleted in the edit; sent only when that changes them.
+      const carried = (post.tickets ?? []).map((t) => t.id);
+      const ticketIds = editedTicketIds(
+        carried,
+        post.content.text,
+        body,
+        new Set(teamTickets.map((t) => t.id)),
+      );
+      const ticketsChanged =
+        ticketIds.length !== carried.length || ticketIds.some((id) => !carried.includes(id));
       await huddleApi.updatePost(
         messageId,
         { text: body, mentions: editedMentions, groupMentions: detectGroupMentions(body) },
-        attachments ? { attachments } : undefined,
+        attachments || ticketsChanged
+          ? { ...(attachments && { attachments }), ...(ticketsChanged && { ticketIds }) }
+          : undefined,
       );
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
