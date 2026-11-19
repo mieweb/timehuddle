@@ -361,10 +361,6 @@ The plan's text is the one source of its tickets and mentions: the ids a plan
 posts are read back out of it (`src/features/huddle/planItems.ts`), so there are
 no ticket or mention chips on the Clock page.
 
-| Plan composer                                                      | `@` a ticket in Huddle                                                | Require a plan                                                    |
-| ------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| <img src="mvp-gap-plan/m3/plan-composer.gif" width="220" alt="" /> | <img src="mvp-gap-plan/m3/huddle-at-ticket.gif" width="220" alt="" /> | <img src="mvp-gap-plan/m3/require-plan.gif" width="220" alt="" /> |
-
 - [x] The composer's **Ticket** action adds a checklist item holding the ticket
       link (`- [ ] [TH-923: …](/app/tickets/…)`) as the plan's last item, using
       the `RichEditor` `task_list` / `task_item` nodes; free-text lines are items
