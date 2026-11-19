@@ -4,9 +4,11 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PulseTeamSettings } from '../../lib/api';
+import { orgApi, type PulseTeamSettings } from '../../lib/api';
+import { SessionProvider, useSession } from '../../lib/useSession';
 import {
   noteSessionExpired,
+  rememberPulseForSignOut,
   reportPulseAccount,
   resetPulseSignOut,
   SIGN_OUT_TEXT,
@@ -23,6 +25,13 @@ import {
   resetPulseAccount,
   type PulseEmbed,
 } from './usePulseEmbed';
+
+// The session tests hand SessionProvider a fake DDP client; nothing else here uses it.
+const fakeDdp = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../lib/ddp', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../lib/ddp')>();
+  return { ...real, getDdpClient: () => fakeDdp.current ?? real.getDdpClient() };
+});
 
 const context = { key: 'ticket:a', kind: 'ticket', id: 'a', label: 'Fix login' } as const;
 
@@ -382,5 +391,93 @@ describe('usePulseSignOut', () => {
     expect(methods()).not.toContain('purge');
     expect(methods()).not.toContain('close');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+// ─── The session: which "no one signed in" answers are an expiry ──────────────
+
+describe('SessionProvider and a shared phone', () => {
+  const TOKEN = 'meteor_resume_token';
+  let fake: FakePulseHandle;
+  let refetch: () => Promise<void>;
+  let getCurrentUser: ReturnType<typeof vi.fn>;
+
+  function Probe() {
+    const session = useSession();
+    refetch = session.refetch;
+    return (
+      <span data-testid="who">{session.loading ? 'loading' : (session.user?.id ?? 'none')}</span>
+    );
+  }
+
+  const notice = () => screen.queryByRole('alert')?.textContent ?? null;
+  /** The order of reports drains: a repeat of "no one" acts on nothing. */
+  const settled = () => act(() => reportPulseAccount(null));
+
+  beforeEach(async () => {
+    resetPulseSignOut();
+    resetPulseAccount();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(orgApi, 'listOrganizations').mockResolvedValue([]);
+    localStorage.setItem(TOKEN, 'resume-1');
+    getCurrentUser = vi.fn(async () => ({
+      id: 'u1',
+      email: 'a@example.com',
+      name: 'A',
+      username: 'a',
+      image: null,
+      emailVerified: true,
+      createdAt: null,
+      releaseNotesSeenVersion: null,
+    }));
+    fakeDdp.current = {
+      getCurrentUser,
+      onReconnect: () => () => {},
+      logout: async () => {},
+      markNativeAppSeen: async () => {},
+    };
+    fake = createFakePulse({ drafts: [draft('d1', 'draft')] });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>,
+    );
+    await vi.waitFor(() => expect(screen.getByTestId('who').textContent).toBe('u1'));
+    // What the signed-in app keeps fresh (usePulseSignOut): this phone is shared.
+    rememberPulseForSignOut({ userId: 'u1', client: fake.client, shared: true });
+  });
+  afterEach(() => {
+    cleanup();
+    fake.dispose();
+    fakeDdp.current = null;
+    localStorage.removeItem(TOKEN);
+    vi.restoreAllMocks();
+  });
+
+  it('a network error (the token is kept) signs out for now and keeps the videos', async () => {
+    // A dropped socket or failed connect: getCurrentUser answers null and leaves the token.
+    getCurrentUser.mockResolvedValue(null);
+    await act(() => refetch());
+    expect(screen.getByTestId('who').textContent).toBe('none');
+    await settled();
+    expect(fake.calls.map((c) => c.method)).not.toContain('purge');
+    expect((await fake.client.usage()).unsent).toBe(1);
+    expect(localStorage.getItem(TOKEN)).toBe('resume-1');
+    expect(notice()).toBeNull();
+  });
+
+  it('a refused session (the token is dropped) deletes the unsent videos and says so', async () => {
+    // The server refused the resume login: the client drops the token, then answers null.
+    getCurrentUser.mockImplementation(async () => {
+      localStorage.removeItem(TOKEN);
+      return null;
+    });
+    await act(() => refetch());
+    expect(screen.getByTestId('who').textContent).toBe('none');
+    await settled();
+    expect(fake.calls.map((c) => c.method)).toContain('purge');
+    expect((await fake.client.usage()).unsent).toBe(0);
+    expect(notice()).toBe(SIGN_OUT_TEXT.deletedOnExpiry(1));
   });
 });

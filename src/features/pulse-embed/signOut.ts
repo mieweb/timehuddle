@@ -253,9 +253,15 @@ export function rememberPulseForSignOut(next: PulseSignOutSnapshot | null): void
 }
 
 /**
- * The server answered that no one is signed in: the account going away now
- * is an expiry. Nothing else is (a `signOut` call, a network error that
- * drops the session for now): those keep the drafts.
+ * The server refused the stored session (the session module calls this only
+ * when the resume token was dropped by a refused login): the account going
+ * away now is an expiry. Nothing else is (a `signOut` call, a network error
+ * that leaves the token in place): those keep the drafts.
+ *
+ * Known gap: an expiry while the app is closed isn't seen here (this state
+ * starts empty at launch), so a shared phone keeps that account's unsent
+ * videos, unreadable to anyone else, until that account signs in again (the
+ * PLAN §6.4 stale-namespace sweep skips namespaces with unsent drafts).
  */
 export function noteSessionExpired(): void {
   serverEnded = true;
