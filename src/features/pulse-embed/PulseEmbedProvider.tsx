@@ -168,6 +168,8 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
   const configuredRef = useRef(false);
   const handled = useRef(new Set<string>());
   const cleanedFor = useRef<string | null>(null);
+  /** This page's `setAccount` has applied a signed-in account: usage may be read. */
+  const accountApplied = useRef(false);
 
   const say = useCallback((message: string, variant: 'info' | 'error' = 'info') => {
     live.current.toast?.toast({ message, variant });
@@ -189,7 +191,9 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
 
   const readUsage = useCallback(async () => {
     const c = clientRef.current;
-    if (!c) return;
+    // Before the account is applied (or while `setAccount` waits on a flow
+    // left open across a reload) usage would count another account's videos.
+    if (!c || !accountApplied.current) return;
     try {
       setUsage(await c.usage());
     } catch (error) {
@@ -211,13 +215,17 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
         reportError(result.error);
       }
       queue.flowEnded();
-      // A `setAccount` refused as `busy` (the page reloaded under an open flow) goes now.
-      void retryPulseAccount();
+      // Acknowledged at once, even while this page's `setAccount` waits: the
+      // result sits in the namespace the flow ran in, which is still active.
       void clientRef.current?.acknowledge(result.requestId).catch((error) => {
         // Unacknowledged, it comes back from the inbox at the next start, and is shown again.
         console.warn('[pulse-embed] acknowledge failed:', error);
       });
-      void readUsage();
+      // A `setAccount` refused as `busy` (the page reloaded under an open flow)
+      // goes now; usage is read once it is applied.
+      void retryPulseAccount()
+        .catch((error) => console.warn('[pulse-embed] setAccount retry failed:', error))
+        .then(readUsage);
     },
     [queue, readUsage, reportError, say],
   );
@@ -341,6 +349,7 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
         queue,
         onApplied: (applied) => {
           if (!alive) return;
+          accountApplied.current = applied !== null;
           setAccount(applied);
           if (applied) setClient(c);
         },

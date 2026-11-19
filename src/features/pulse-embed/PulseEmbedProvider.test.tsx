@@ -171,6 +171,9 @@ describe('PulseEmbedProvider', () => {
     expect(embed.isOpen).toBe(false);
     await vi.waitFor(() => expect(methods(fake)).toContain('resumeOutbox'));
     await settle();
+    // Usage is read only once this page's account is applied.
+    const order = methods(fake);
+    expect(order.indexOf('usage')).toBeGreaterThan(order.lastIndexOf('setAccount'));
     expect(count(fake, 'acknowledge')).toBe(1);
     expect(await page.pendingResults()).toEqual([]);
     expect(embed.usage).not.toBeNull();
