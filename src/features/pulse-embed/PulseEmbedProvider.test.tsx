@@ -5,6 +5,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PulseUploadTypesList } from '../../lib/api';
+import { RouterProvider, useRouter } from '../../ui/router';
 import { cssColorToHex, PulseEmbedProvider, pulseConfigureOptions } from './PulseEmbedProvider';
 import {
   resetPulseAccount,
@@ -115,6 +116,42 @@ describe('PulseEmbedProvider', () => {
     expect(methods(fake)).not.toContain('setAccount');
     expect(methods(fake)).not.toContain('listDrafts');
     expect(status()).toBe('starting');
+  });
+
+  it('a kept take says "Saved to Unsent videos" with View, which opens the Media page', async () => {
+    const fake = fakePulse({ flows: [{ result: 'kept' }] });
+    void setPulseAccount('u1');
+    let toasts: { message: unknown; action?: { label: string; onClick: () => void } }[] = [];
+    let path = '';
+    function Toasts() {
+      toasts = useToast().toasts;
+      path = useRouter().pathname;
+      return null;
+    }
+    window.history.replaceState(null, '', '/app/tickets');
+    render(
+      <RouterProvider>
+        <ToastProvider>
+          <Toasts />
+          <PulseEmbedProvider
+            enabled
+            client={fake.client}
+            services={noServices}
+            loadTypes={() => Promise.resolve(typesList())}
+          >
+            <Probe />
+          </PulseEmbedProvider>
+        </ToastProvider>
+      </RouterProvider>,
+    );
+    await vi.waitFor(() => expect(status()).toBe('ready'));
+    await act(async () => {
+      await embed.open({ entry: 'record', context });
+    });
+    const kept = toasts.find((t) => t.message === 'Saved to Unsent videos');
+    expect(kept?.action?.label).toBe('View');
+    act(() => kept!.action!.onClick());
+    expect(path).toBe('/app/media');
   });
 
   it('drains the inbox after a reload and acknowledges each result once', async () => {

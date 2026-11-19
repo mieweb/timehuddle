@@ -39,6 +39,9 @@ import {
 } from '../../lib/api';
 import { isNativeApp } from '../../lib/device';
 import { useTeam } from '../../lib/TeamContext';
+import { useRouter } from '../../ui/router';
+import { MEDIA_TEXT } from '../media/mediaStrings';
+import { MEDIA_PATH } from '../media/mediaVisibility';
 import { getPulse } from './client';
 import { createGrants } from './grants';
 import { PULSE_HOST_ID, staleNamespaces } from './namespaces';
@@ -146,6 +149,7 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
 }) => {
   const toast = useOptionalToast();
   const { refetchClock } = useTeam();
+  const { navigate: routerNavigate } = useRouter();
 
   const [status, setStatus] = useState<PulseEmbedStatus>(enabled ? 'starting' : 'off');
   const [client, setClient] = useState<PulseClient | null>(null);
@@ -159,8 +163,8 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
   const [isOpen, setIsOpen] = useState(false);
 
   // What callbacks registered once read now.
-  const live = useRef({ toast, refetchClock, loadTypes, now, restartRequired });
-  live.current = { toast, refetchClock, loadTypes, now, restartRequired };
+  const live = useRef({ toast, refetchClock, loadTypes, now, restartRequired, routerNavigate });
+  live.current = { toast, refetchClock, loadTypes, now, restartRequired, routerNavigate };
   /** The server's pause, as soon as it answers (state lags a render behind). */
   const pausedRef = useRef<boolean | null>(null);
 
@@ -210,7 +214,15 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
       if (result.status === 'completed' && result.mode === 'pulse') {
         say(PULSE_EMBED_TEXT.flow.sending(result.context?.label ?? ''));
       } else if (result.status === 'closed' && result.reason === 'user') {
-        say(PULSE_EMBED_TEXT.flow.kept);
+        // "Saved to Unsent videos · View": View opens the Media page (§5.1 Back navigation).
+        live.current.toast?.toast({
+          message: PULSE_EMBED_TEXT.flow.kept,
+          variant: 'info',
+          action: {
+            label: MEDIA_TEXT.view,
+            onClick: () => queue.request(MEDIA_PATH, live.current.routerNavigate),
+          },
+        });
       } else if (result.status === 'failed') {
         reportError(result.error);
       }
