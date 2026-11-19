@@ -31,7 +31,7 @@ import {
   type AttachmentUpload,
 } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useId, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost, type PulseUploadStatus } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -62,6 +62,10 @@ import { ticketTimerText as timerText, timerLabel } from '../timers/ticketTimerS
 import { PulseChip } from '../pulse-upload/PulseButton';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import { usePulseUpload, type PulseUpload } from '../pulse-upload/usePulseUpload';
+import { PulseIcon } from '../pulse-upload/PulseIcon';
+import { useClockPulse, useClockUnsent, type ClockPulse } from '../pulse-embed/clockFlows';
+import { UnsentVideosLink } from '../pulse-embed/UnsentVideosLink';
+import { PulsePendingNote } from '../huddle/PulsePendingNote';
 import { CLOCK_LOCALE, HUDDLE_LINK_TOKEN, clockText, type ComposerMode } from './clockStrings';
 import { RecentSessionsPanel } from './RecentSessionsPanel';
 import { RedminePushPanel } from './RedminePushPanel';
@@ -93,17 +97,60 @@ function uploadsLabel(items: AttachmentUpload<MediaItem>[]): string {
   return UPLOAD_TEXT.waiting(Math.floor(total > 0 ? (sent / total) * 100 : 0));
 }
 
-/** "or Clock in/out with Pulse" — beside every way this page clocks in or out. */
-const PulseAlternative: React.FC<{ pulse: PulseUpload | null; label: string }> = ({
-  pulse,
-  label,
-}) =>
-  pulse && (
+/**
+ * "Clock in/out with a Pulse video" where Pulse runs in the app and the team
+ * has it on (clockFlows.ts): disabled offline, saying why.
+ */
+const PulseVideoButton: React.FC<{ video: ClockPulse }> = ({ video }) => {
+  const reasonId = useId();
+  return (
+    <>
+      <Button
+        ref={video.buttonRef}
+        type="button"
+        variant="primary"
+        leftIcon={<PulseIcon white className="h-4" />}
+        className={cn('clock-pulse-video', COMPACT_PILL)}
+        onClick={video.start}
+        disabled={!video.online}
+        aria-describedby={video.disabledReason ? reasonId : undefined}
+        // Not `disabled` while Pulse is open: focus comes back to it after.
+        aria-disabled={video.busy || undefined}
+        aria-busy={video.busy || undefined}
+      >
+        {video.label}
+      </Button>
+      {video.disabledReason && (
+        <Text id={reasonId} variant="muted" size="sm" className="shrink-0 text-center">
+          {video.disabledReason}
+        </Text>
+      )}
+      {video.prompt}
+    </>
+  );
+};
+
+/**
+ * "or Clock in/out with Pulse" — beside every way this page clocks in or out:
+ * Pulse in the app (`video`), else today's Pulse link.
+ */
+const PulseAlternative: React.FC<{
+  pulse: PulseUpload | null;
+  label: string;
+  video: ClockPulse | null;
+}> = ({ pulse, label, video }) =>
+  (video || pulse) && (
     <>
       <Text variant="muted" size="sm" className="shrink-0 text-center">
         {clockText.or}
       </Text>
-      <PulseChip pulse={pulse} ariaLabel={label} main={{ label, className: COMPACT_PILL }} />
+      {video ? (
+        <PulseVideoButton video={video} />
+      ) : (
+        pulse && (
+          <PulseChip pulse={pulse} ariaLabel={label} main={{ label, className: COMPACT_PILL }} />
+        )
+      )}
     </>
   );
 
@@ -511,6 +558,16 @@ export const ClockPage: React.FC = () => {
       ? planPulse
       : null;
   const clockPulseLabel = clockText.pulse(isClockedIn);
+  // Pulse in the app, with "Clock in and out with a Pulse video" on: the clock
+  // action runs at Send (clockFlows.ts); null keeps today's link above.
+  const clockPulseVideo = useClockPulse({
+    session: activeClockEvent,
+    teamId: isSelectedTeamMember ? gateTeamId : null,
+    teamName,
+    postDate: todayStr,
+    onClockOutNow: () => void clockOut(),
+  });
+  const clockUnsent = useClockUnsent();
 
   // Clear attach/ticket/mention selections whenever the composer opens fresh
   // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
@@ -936,7 +993,11 @@ export const ClockPage: React.FC = () => {
                   <Button variant="primary" onClick={expandComposer} className={COMPACT_PILL}>
                     {clockText.submit(composerMode)}
                   </Button>
-                  <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
+                  <PulseAlternative
+                    pulse={clockPulse}
+                    label={clockPulseLabel}
+                    video={clockPulseVideo}
+                  />
                 </div>
               ) : (
                 <>
@@ -1005,7 +1066,11 @@ export const ClockPage: React.FC = () => {
                         ? uploadsLabel(uploads.items)
                         : clockText.submit(composerMode)}
                     </Button>
-                    <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
+                    <PulseAlternative
+                      pulse={clockPulse}
+                      label={clockPulseLabel}
+                      video={clockPulseVideo}
+                    />
                     <Text variant="muted" size="sm" className="font-mono">
                       {clockText.shortcutHint(composerMode, !hasContent)}
                     </Text>
@@ -1056,9 +1121,18 @@ export const ClockPage: React.FC = () => {
                 {clockText.clockOut}
               </Button>
             )}
-            <PulseAlternative pulse={clockPulse} label={clockPulseLabel} />
+            <PulseAlternative pulse={clockPulse} label={clockPulseLabel} video={clockPulseVideo} />
           </div>
         )}
+
+        {/* This phone's clock videos not yet sent, and the session post's video on its way. */}
+        <UnsentVideosLink
+          count={clockUnsent.count}
+          attention={clockUnsent.attention}
+          onOpen={() => navigate('/app/media')}
+          className="shrink-0"
+        />
+        {sessionPost && <PulsePendingNote post={sessionPost} className="shrink-0" />}
 
         {/* An organization owner can open a team they haven't joined; clocking in needs membership. */}
         {!isClockedIn && !!selectedTeamId && !isSelectedTeamMember && (
