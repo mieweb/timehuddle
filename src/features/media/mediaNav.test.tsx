@@ -1,19 +1,26 @@
 import type { PulseClient } from '@mieweb/pulse-embed';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BottomNav } from '../../ui/BottomNav';
 import { RouterProvider } from '../../ui/router';
 import { TopNav } from '../../ui/TopNav';
 import { PULSE_EMBED_OFF, PulseEmbedContext, type PulseEmbed } from '../pulse-embed/usePulseEmbed';
+import { MediaNavProvider } from './MediaNavContext';
 import { mediaGate } from './mediaVisibility';
 import { PLACES, draftAt } from './testRows';
 import { clockActionOf, parseFilter, placeGroupOf, stableOrder } from './unsentRows';
 
-function client(attention: Record<string, number>): Partial<PulseClient> {
+function client(attention: Record<string, number>) {
+  const listeners = new Set<() => void>();
   return {
     countDrafts: vi.fn(async () => attention),
-    on: vi.fn(() => () => {}),
+    on: vi.fn((_event: string, cb: () => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    }),
+    /** Pulse's list changed. */
+    emit: () => listeners.forEach((cb) => cb()),
   };
 }
 
@@ -22,17 +29,19 @@ function renderNav(embed: PulseEmbed) {
   return render(
     <RouterProvider>
       <PulseEmbedContext.Provider value={embed}>
-        <TopNav />
-        <BottomNav />
+        <MediaNavProvider>
+          <TopNav />
+          <BottomNav />
+        </MediaNavProvider>
       </PulseEmbedContext.Provider>
     </RouterProvider>,
   );
 }
 
-const visible = (c: Partial<PulseClient>): PulseEmbed => ({
+const visible = (c: ReturnType<typeof client>): PulseEmbed => ({
   ...PULSE_EMBED_OFF,
   status: 'ready',
-  client: c as PulseClient,
+  client: c as unknown as PulseClient,
   surfacesVisible: true,
 });
 
@@ -61,6 +70,16 @@ describe('the Media nav entry', () => {
     expect(
       screen.getAllByRole('button', { name: 'Media, 2 videos need attention' }).length,
     ).toBeGreaterThan(1);
+  });
+
+  it('counts once for both navs, on each change', async () => {
+    const c = client({ failed: 1 });
+    renderNav(visible(c));
+    await screen.findByRole('button', { name: 'Media, 1 video needs attention' });
+    expect(c.countDrafts).toHaveBeenCalledTimes(1);
+    expect(c.on).toHaveBeenCalledTimes(1);
+    await act(async () => c.emit());
+    expect(c.countDrafts).toHaveBeenCalledTimes(2);
   });
 
   it('carries no badge when nothing needs attention', async () => {

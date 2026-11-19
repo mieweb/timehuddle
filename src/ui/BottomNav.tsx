@@ -39,7 +39,8 @@ import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu';
 import { MEDIA_TEXT } from '../features/media/mediaStrings';
-import { MEDIA_PATH, useMediaNav } from '../features/media/mediaVisibility';
+import { useMediaNav } from '../features/media/MediaNavContext';
+import { MEDIA_PATH } from '../features/media/mediaVisibility';
 import { settingsPath } from '../features/settings/settingsSections';
 import { isActivePath, useRouter } from './router';
 

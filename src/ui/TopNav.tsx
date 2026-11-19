@@ -24,7 +24,8 @@ import { Film } from 'lucide-react';
 import React from 'react';
 
 import { MEDIA_TEXT } from '../features/media/mediaStrings';
-import { MEDIA_PATH, useMediaNav } from '../features/media/mediaVisibility';
+import { useMediaNav } from '../features/media/MediaNavContext';
+import { MEDIA_PATH } from '../features/media/mediaVisibility';
 import { isActivePath, useRouter } from './router';
 
 interface NavItem {

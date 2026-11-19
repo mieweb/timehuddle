@@ -91,8 +91,16 @@ export function useMediaAttention(): number {
   return count;
 }
 
-/** The Media nav entry: whether it shows, and its attention badge. */
-export function useMediaNav(): { visible: boolean; attention: number } {
+export interface MediaNavState {
+  visible: boolean;
+  attention: number;
+}
+
+/**
+ * The Media nav entry: whether it shows, and its attention badge. Read once,
+ * by MediaNavProvider; the navs read it with MediaNavContext's useMediaNav.
+ */
+export function useMediaNavState(): MediaNavState {
   const { surfacesVisible } = usePulseEmbed();
   const attention = useMediaAttention();
   return { visible: surfacesVisible, attention: surfacesVisible ? attention : 0 };

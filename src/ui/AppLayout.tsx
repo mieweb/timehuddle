@@ -28,6 +28,7 @@ import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
+import { MediaNavProvider } from '../features/media/MediaNavContext';
 import { MEDIA_TEXT } from '../features/media/mediaStrings';
 import { PulseEmbedProvider } from '../features/pulse-embed/PulseEmbedProvider';
 import { usePulseEmbed, useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
@@ -575,7 +576,9 @@ export const AppLayout: React.FC = () => {
         <AppToasts />
         <TeamProvider>
           <PulseEmbedProvider>
-            <AppLayoutContent />
+            <MediaNavProvider>
+              <AppLayoutContent />
+            </MediaNavProvider>
           </PulseEmbedProvider>
         </TeamProvider>
       </ToastProvider>
