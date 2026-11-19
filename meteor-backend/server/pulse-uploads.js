@@ -443,10 +443,29 @@ async function begin({ userId }, args, retry = 0) {
 }
 
 /**
+ * The team a refused row is filed under: the target's team, but only when the
+ * person is a member of it. A refusal from outside the team (a removed member,
+ * a stale link) stays team-less, so it never reaches that team's admins.
+ */
+async function refusalTeam(userId, target) {
+  const teamId = await teamOfPlace(target);
+  if (!teamId) return null;
+  try {
+    await requireTeamMembership(userId, String(teamId));
+    return String(teamId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A place refused at begin (not found, forbidden): recorded as a `failed`
  * row for support when the draft has none yet, and on the draft's failed
  * row when it is one, so a retry checks the place again. A row under way
  * that a Move to… was refused for stays as it is. Nothing else is written.
+ * The row carries the team the target names (a Huddle post's or a plan's
+ * teamId, or the ticket's or session's team while it still exists) when the
+ * person belongs to it, so that team's admins find it and count it as failed.
  */
 async function recordRefusal(userId, value, row, err) {
   if (!(err instanceof Meteor.Error) || (err.error !== 'not-found' && err.error !== 'forbidden')) return;
@@ -469,7 +488,7 @@ async function recordRefusal(userId, value, row, err) {
       target: value.target,
       targetKey: value.targetKey,
       destination: null,
-      teamId: null,
+      teamId: await refusalTeam(userId, value.target),
       label: plainLabelOf(value.type),
       sentAt: new Date(value.sentAt),
       name: cleanVideoName(value.name),

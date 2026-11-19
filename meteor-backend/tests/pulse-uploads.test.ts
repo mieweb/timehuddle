@@ -291,7 +291,9 @@ describe('pulseUploads.begin', () => {
       );
       expect(res).toMatchObject({ ok: false, code: 'forbidden' });
       const row = await db.collection('pulseUploads').findOne({ draftKey: draft.draftKey });
-      expect(row).toMatchObject({ state: 'failed', artifactId: null });
+      // The caller isn't in the ticket's team, so the refusal stays team-less:
+      // a team's admins only see refusals from their own members.
+      expect(row).toMatchObject({ state: 'failed', artifactId: null, teamId: null });
     } finally {
       await db.collection('tickets').deleteOne({ _id: hidden });
       await db.collection('teams').deleteOne({ _id: elsewhere });
