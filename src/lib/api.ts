@@ -1362,18 +1362,6 @@ export interface HuddlePostAttachment {
   captionsUrl?: string | null;
 }
 
-/**
- * A Pulse video a post is waiting for, or won't get: sent with a clock-out
- * (`wrapup`) or clock-in (`plan`) at `at`. `overdueAt` is set once it is 24 h
- * late; delivery removes the entry.
- */
-export interface PulseVideoMark {
-  uploadId: string;
-  role: 'plan' | 'wrapup';
-  at: string | null;
-  overdueAt?: string | null;
-}
-
 export interface HuddlePost {
   id: string;
   teamId: string;
@@ -2715,6 +2703,19 @@ export interface PulseUploadPublic {
 }
 
 export type PulseUploadCancelReason = 'canceled' | 'edited' | 'deleted';
+
+/**
+ * A Pulse video a post is waiting for, or won't get (HuddlePost's
+ * `pendingVideos` / `missingVideos`): sent with a clock-out (`wrapup`) or
+ * clock-in (`plan`) at `at`. `overdueAt` is set once it is 24 h late;
+ * delivery removes the entry.
+ */
+export interface PulseVideoMark {
+  uploadId: string;
+  role: 'plan' | 'wrapup';
+  at: string | null;
+  overdueAt?: string | null;
+}
 
 /** What `clock.stopWithVideo` / `clock.startWithPlan` answer. */
 export interface PulseClockSend {
