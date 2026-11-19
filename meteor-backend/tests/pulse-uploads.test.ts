@@ -54,8 +54,23 @@ type Grant = {
 };
 type PublicUpload = { id: string; state: string; targetKey: string; clientKey?: string };
 
+/**
+ * helpers' wormhole, plus the Meteor.Error's code: Wormhole answers every
+ * refusal with HTTP 500 and puts the code in the body, so the code is what
+ * tells one refusal from another.
+ */
+async function call<T = unknown>(method: string, params: Record<string, unknown>, jwt: string) {
+  const res = await fetch(`${METEOR_URL}/api/${method.replace(/\./g, '_')}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify(params),
+  });
+  const body = (await res.json().catch(() => ({}))) as { result?: T; error?: string; reason?: string; message?: string };
+  return { status: res.status, ok: res.ok, result: body.result as T, error: body.reason ?? body.message, code: body.error };
+}
+
 function beginTicket(clientKey: string, draftKey: string, extra: Record<string, unknown> = {}, jwt = ownerJwt) {
-  return wormhole<Grant>(
+  return call<Grant>(
     'pulseUploads.begin',
     {
       clientKey,
@@ -244,9 +259,9 @@ describe('pulseUploads.begin', () => {
 
     // A late call for the older export changes nothing while the newer one is under way.
     const lateBegin = await beginTicket(older, draft.draftKey);
-    expect(lateBegin.status).toBe(409);
-    const lateToken = await wormhole('pulseUploads.token', { uploadId: first.result.uploadId, clientKey: older }, ownerJwt);
-    expect(lateToken.status).toBe(409);
+    expect(lateBegin).toMatchObject({ ok: false, code: 'conflict' });
+    const lateToken = await call('pulseUploads.token', { uploadId: first.result.uploadId, clientKey: older }, ownerJwt);
+    expect(lateToken).toMatchObject({ ok: false, code: 'conflict' });
     const lateCancel = await wormhole<{ state: string }>('pulseUploads.cancel', { clientKey: older }, ownerJwt);
     expect(lateCancel.result.state).toBe('reserved');
     expect((await rowOf(first.result.uploadId))!.clientKey).toBe(newer);
@@ -255,7 +270,7 @@ describe('pulseUploads.begin', () => {
   it('refuses a too-large video before writing anything', async () => {
     const draft = newDraft();
     const res = await beginTicket(draft.clientKey(), draft.draftKey, { bytes: 600 * 1024 * 1024 });
-    expect(res.status).toBe(400);
+    expect(res).toMatchObject({ ok: false, code: 'too-large' });
     expect(res.error).toMatch(/Too large/);
     const db = await getDb();
     expect(await db.collection('pulseUploads').countDocuments({ draftKey: draft.draftKey })).toBe(0);
@@ -269,12 +284,12 @@ describe('pulseUploads.begin', () => {
     await db.collection('tickets').insertOne({ _id: hidden, teamId: elsewhere.toHexString(), title: 'Hidden', status: 'open', createdAt: new Date() });
     try {
       const draft = newDraft();
-      const res = await wormhole(
+      const res = await call(
         'pulseUploads.begin',
         { clientKey: draft.clientKey(), draftKey: draft.draftKey, type: 'ticket.video', target: { kind: 'ticket', id: hidden.toHexString() }, sentAt: Date.now() },
         ownerJwt,
       );
-      expect(res.status).toBe(403);
+      expect(res).toMatchObject({ ok: false, code: 'forbidden' });
       const row = await db.collection('pulseUploads').findOne({ draftKey: draft.draftKey });
       expect(row).toMatchObject({ state: 'failed', artifactId: null });
     } finally {
@@ -329,8 +344,8 @@ describe('pulseUploads.token and cancel', () => {
     const own = await wormhole<{ token: string; expiresAt: number }>('pulseUploads.token', { uploadId: grant.uploadId }, ownerJwt);
     expect(own.ok, own.error).toBe(true);
     expect(own.result.token).toBeTruthy();
-    const theirs = await wormhole('pulseUploads.token', { uploadId: grant.uploadId }, mateJwt);
-    expect(theirs.status).toBe(404);
+    const theirs = await call('pulseUploads.token', { uploadId: grant.uploadId }, mateJwt);
+    expect(theirs).toMatchObject({ ok: false, code: 'not-found' });
   });
 
   it('a cancelled row refuses PulseVault, and a token', async () => {
@@ -340,8 +355,8 @@ describe('pulseUploads.token and cancel', () => {
     expect(cancelled.result.state).toBe('canceled');
     const create = await tusCreate(grant.token, videoFields(grant.artifactId), VIDEO.length);
     expect(create.status).toBe(403);
-    const token = await wormhole('pulseUploads.token', { uploadId: grant.uploadId }, ownerJwt);
-    expect(token.status).toBe(409);
+    const token = await call('pulseUploads.token', { uploadId: grant.uploadId }, ownerJwt);
+    expect(token).toMatchObject({ ok: false, code: 'conflict' });
   });
 });
 
