@@ -35,6 +35,8 @@ export const SUPPORT_TEXT = {
   badTicket: "That isn't a ticket link or id.",
   badSession: "That isn't a clock session id.",
   noRows: 'No Pulse uploads match.',
+  incomplete: (limit: number) =>
+    `Showing the newest ${limit} matches, so older uploads may be missing. Find by person, ticket or clock session to narrow it.`,
   gridTitle: 'Pulse uploads',
   gridLabel: 'Pulse uploads for support',
 
@@ -47,6 +49,7 @@ export const SUPPORT_TEXT = {
   metric: {
     sent: 'Sent',
     attached: 'Attached',
+    kept: 'Kept in library',
     timeToAttach: 'Time to attach (median · p95)',
     failed: 'Failed',
     overdue: 'Overdue',

@@ -139,7 +139,8 @@ describe('PulseSupportSection', () => {
   it("shows the team's metrics and its recent uploads with their flags", async () => {
     await openSection();
     expect(metricsCall).toHaveBeenCalledWith({ teamId: TEAM_ID });
-    expect(adminList).toHaveBeenCalledWith({ limit: SUPPORT_LIMIT });
+    // The server keeps the team's rows, so the page isn't spent on other teams.
+    expect(adminList).toHaveBeenCalledWith({ teamId: TEAM_ID, limit: SUPPORT_LIMIT });
 
     await screen.findByText(T.metric.attached);
     expect(screen.getByText('50%')).toBeTruthy();
@@ -155,6 +156,22 @@ describe('PulseSupportSection', () => {
     expect(within(rows[1]).getByText('Draft deleted')).toBeTruthy();
     expect(screen.queryByText('Not Shown')).toBeNull();
     expect(screen.getByRole('status').textContent).toBe(T.found(2));
+    expect(screen.queryByText(T.incomplete(SUPPORT_LIMIT))).toBeNull();
+  });
+
+  it('says the list may be incomplete when a search filled a whole page', async () => {
+    adminList.mockResolvedValue({
+      uploads: [
+        row({ id: 'stuck' }),
+        ...Array.from({ length: SUPPORT_LIMIT - 1 }, (_, i) =>
+          row({ id: `elsewhere${i}`, teamId: 'other-team', userName: 'Not Shown' }),
+        ),
+      ],
+    });
+    await openSection();
+    expect(await screen.findByText(T.incomplete(SUPPORT_LIMIT))).toBeTruthy();
+    expect(screen.getAllByTestId('support-row')).toHaveLength(1);
+    expect(screen.queryByText('Not Shown')).toBeNull();
   });
 
   it('finds the uploads of one ticket from a pasted link', async () => {
@@ -171,6 +188,7 @@ describe('PulseSupportSection', () => {
     fireEvent.click(screen.getByRole('button', { name: T.find }));
     await waitFor(() =>
       expect(adminList).toHaveBeenLastCalledWith({
+        teamId: TEAM_ID,
         targetKey: `ticket:${TICKET}`,
         limit: SUPPORT_LIMIT,
       }),

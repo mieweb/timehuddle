@@ -15,6 +15,7 @@ export type SupportMode = 'recent' | 'person' | 'ticket' | 'session';
 
 /** What an `adminList` call takes. */
 export interface SupportQuery {
+  teamId?: string;
   userId?: string;
   targetKey?: string;
   clockEventId?: string;
@@ -45,27 +46,30 @@ export function sessionIdOf(input: string): string | null {
 }
 
 /**
- * The `adminList` query for a search, or an error to show. `recent` has no
- * filter; the section keeps the selected team's rows (supportRowsForTeam).
+ * The `adminList` query for a search in `teamId`, or an error to show.
+ * Every search asks the server for that team's rows only, so a page of
+ * SUPPORT_LIMIT isn't spent on the caller's other teams; `recent` has no
+ * other filter.
  */
 export function supportQuery(
   mode: SupportMode,
   { userId, ticket, session }: { userId?: string; ticket?: string; session?: string },
+  teamId: string,
 ): { query: SupportQuery } | { error: string } {
-  const limit = SUPPORT_LIMIT;
+  const base = { teamId, limit: SUPPORT_LIMIT };
   switch (mode) {
     case 'person':
-      return userId ? { query: { userId, limit } } : { error: T.personPlaceholder };
+      return userId ? { query: { ...base, userId } } : { error: T.personPlaceholder };
     case 'ticket': {
       const id = ticketIdOf(ticket ?? '');
-      return id ? { query: { targetKey: `ticket:${id}`, limit } } : { error: T.badTicket };
+      return id ? { query: { ...base, targetKey: `ticket:${id}` } } : { error: T.badTicket };
     }
     case 'session': {
       const id = sessionIdOf(session ?? '');
-      return id ? { query: { clockEventId: id, limit } } : { error: T.badSession };
+      return id ? { query: { ...base, clockEventId: id } } : { error: T.badSession };
     }
     default:
-      return { query: { limit } };
+      return { query: base };
   }
 }
 
@@ -126,7 +130,11 @@ export function toSupportRow(upload: PulseUploadAdmin, now: number): SupportRow 
   };
 }
 
-/** The rows of `uploads` in `teamId` (adminList also returns the caller's own rows anywhere). */
+/**
+ * The rows of `uploads` in `teamId`. The query already asks for that team
+ * only; this also keeps out the caller's own rows elsewhere from a server
+ * that doesn't know the `teamId` filter yet.
+ */
 export function supportRowsForTeam(
   uploads: PulseUploadAdmin[],
   teamId: string,
@@ -135,6 +143,21 @@ export function supportRowsForTeam(
   return uploads
     .filter((upload) => upload.teamId === teamId)
     .map((upload) => toSupportRow(upload, now));
+}
+
+/**
+ * One search's page as the section shows it: the team's rows, and whether
+ * the list may be missing some. A full page (`limit` rows) means older
+ * matches weren't read, and on a server without the `teamId` filter, rows of
+ * the caller's other teams may have filled it.
+ */
+export function supportPage(
+  uploads: PulseUploadAdmin[],
+  teamId: string,
+  now: number,
+  limit = SUPPORT_LIMIT,
+): { rows: SupportRow[]; incomplete: boolean } {
+  return { rows: supportRowsForTeam(uploads, teamId, now), incomplete: uploads.length >= limit };
 }
 
 // ─── Metrics as text ──────────────────────────────────────────────────────────
@@ -166,6 +189,7 @@ export function metricItems(metrics: PulseUploadMetrics): Array<{ label: string;
       label: T.metric.timeToAttach,
       value: `${durationText(timeToAttachMs.p50)} · ${durationText(timeToAttachMs.p95)}`,
     },
+    { label: T.metric.kept, value: percentText(rates.kept) },
     { label: T.metric.failed, value: percentText(rates.failed) },
     { label: T.metric.overdue, value: percentText(rates.overdue) },
     { label: T.metric.abandoned, value: percentText(rates.abandoned) },

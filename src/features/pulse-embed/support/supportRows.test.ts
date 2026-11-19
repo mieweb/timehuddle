@@ -9,6 +9,7 @@ import {
   sessionIdOf,
   SUPPORT_LIMIT,
   supportFlags,
+  supportPage,
   supportQuery,
   supportRowsForTeam,
   ticketIdOf,
@@ -56,23 +57,24 @@ describe('what the admin types', () => {
     expect(sessionIdOf('yesterday')).toBeNull();
   });
 
-  it('builds the adminList query for each way to search', () => {
-    expect(supportQuery('recent', {})).toEqual({ query: { limit: SUPPORT_LIMIT } });
-    expect(supportQuery('person', { userId: 'u9' })).toEqual({
-      query: { userId: 'u9', limit: SUPPORT_LIMIT },
+  it("builds the adminList query for each way to search, always for the team's rows only", () => {
+    const team = { teamId: 'team1', limit: SUPPORT_LIMIT };
+    expect(supportQuery('recent', {}, 'team1')).toEqual({ query: team });
+    expect(supportQuery('person', { userId: 'u9' }, 'team1')).toEqual({
+      query: { ...team, userId: 'u9' },
     });
-    expect(supportQuery('ticket', { ticket: TICKET })).toEqual({
-      query: { targetKey: `ticket:${TICKET}`, limit: SUPPORT_LIMIT },
+    expect(supportQuery('ticket', { ticket: TICKET }, 'team1')).toEqual({
+      query: { ...team, targetKey: `ticket:${TICKET}` },
     });
-    expect(supportQuery('session', { session: SESSION })).toEqual({
-      query: { clockEventId: SESSION, limit: SUPPORT_LIMIT },
+    expect(supportQuery('session', { session: SESSION }, 'team1')).toEqual({
+      query: { ...team, clockEventId: SESSION },
     });
   });
 
   it('says what is wrong instead of searching for nothing', () => {
-    expect(supportQuery('person', {})).toEqual({ error: T.personPlaceholder });
-    expect(supportQuery('ticket', { ticket: 'nope' })).toEqual({ error: T.badTicket });
-    expect(supportQuery('session', { session: '' })).toEqual({ error: T.badSession });
+    expect(supportQuery('person', {}, 'team1')).toEqual({ error: T.personPlaceholder });
+    expect(supportQuery('ticket', { ticket: 'nope' }, 'team1')).toEqual({ error: T.badTicket });
+    expect(supportQuery('session', { session: '' }, 'team1')).toEqual({ error: T.badSession });
   });
 });
 
@@ -161,6 +163,20 @@ describe('the table rows', () => {
     );
     expect(rows.map((row) => row.id)).toEqual(['a']);
   });
+
+  it('says a full page may be missing rows, even when none of them were the team’s', () => {
+    const others = Array.from({ length: 4 }, (_, i) => upload({ id: `o${i}`, teamId: 'other' }));
+    // A server without the teamId filter filled the page with other teams' rows.
+    expect(supportPage(others, 'team1', NOW, 4)).toEqual({ rows: [], incomplete: true });
+    const page = supportPage([upload({ id: 'a' }), ...others.slice(1)], 'team1', NOW, 4);
+    expect(page.rows.map((row) => row.id)).toEqual(['a']);
+    expect(page.incomplete).toBe(true);
+    // Fewer rows than the limit: that's every match.
+    expect(supportPage([upload({ id: 'a' })], 'team1', NOW, 4)).toMatchObject({
+      incomplete: false,
+    });
+    expect(supportPage([], 'team1', NOW).incomplete).toBe(false);
+  });
 });
 
 describe('the metrics as text', () => {
@@ -200,6 +216,7 @@ describe('the metrics as text', () => {
       { label: T.metric.sent, value: '11' },
       { label: T.metric.attached, value: '45%' },
       { label: T.metric.timeToAttach, value: '3 min · 30 h' },
+      { label: T.metric.kept, value: '9%' },
       { label: T.metric.failed, value: '9%' },
       { label: T.metric.overdue, value: '18%' },
       { label: T.metric.abandoned, value: '9%' },

@@ -7,8 +7,9 @@
  *
  * Nothing loads until the admin opens it: the metrics and the search are
  * admin calls (`pulseUploads.metrics`, `pulseUploads.adminList`), and the
- * table is a lazily loaded NITRO grid. `adminList` also returns the caller's
- * own rows in other places, so only the selected team's rows are shown.
+ * table is a lazily loaded NITRO grid. Every search asks `adminList` for the
+ * selected team's rows only, and says so when a full page means some may be
+ * missing.
  */
 import { Button, Input, Select, Spinner, Text } from '@mieweb/ui';
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
@@ -23,8 +24,8 @@ import {
 import {
   metricItems,
   SUPPORT_LIMIT,
+  supportPage,
   supportQuery,
-  supportRowsForTeam,
   type SupportMode,
   type SupportRow,
 } from './supportRows';
@@ -34,8 +35,13 @@ const PulseSupportGrid = lazy(() => import('./PulseSupportGrid'));
 
 const MODES: SupportMode[] = ['recent', 'person', 'ticket', 'session'];
 
-/** "Most recent": no filter, the most rows one call returns. */
-const RECENT = { limit: SUPPORT_LIMIT };
+type SupportQuery = Parameters<typeof pulseUploadApi.adminList>[0];
+
+/** "Most recent": the team's newest rows, no other filter. */
+const recentQuery = (teamId: string): SupportQuery => {
+  const built = supportQuery('recent', {}, teamId);
+  return 'query' in built ? built.query : { teamId, limit: SUPPORT_LIMIT };
+};
 
 const messageOf = (error: unknown, fallback: string) =>
   (error as { message?: unknown } | null)?.message && typeof (error as Error).message === 'string'
@@ -95,15 +101,16 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
   const [members, setMembers] = useState<TeamMember[] | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
   const [rows, setRows] = useState<SupportRow[]>([]);
+  const [incomplete, setIncomplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   // Only the latest search may set the rows.
   const searchId = useRef(0);
-  const lastQuery = useRef<Parameters<typeof pulseUploadApi.adminList>[0]>({});
+  const lastQuery = useRef<SupportQuery>({});
 
   const run = useCallback(
-    async (query: Parameters<typeof pulseUploadApi.adminList>[0]) => {
+    async (query: SupportQuery) => {
       const id = (searchId.current += 1);
       lastQuery.current = query;
       setLoading(true);
@@ -111,12 +118,14 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
       try {
         const { uploads } = await pulseUploadApi.adminList(query);
         if (id !== searchId.current) return;
-        const next = supportRowsForTeam(uploads, team.id, Date.now());
-        setRows(next);
-        setAnnouncement(T.found(next.length));
+        const page = supportPage(uploads, team.id, Date.now(), query?.limit ?? SUPPORT_LIMIT);
+        setRows(page.rows);
+        setIncomplete(page.incomplete);
+        setAnnouncement(T.found(page.rows.length));
       } catch (e) {
         if (id !== searchId.current) return;
         setRows([]);
+        setIncomplete(false);
         setError(messageOf(e, T.loadFailed));
       } finally {
         if (id === searchId.current) setLoading(false);
@@ -133,7 +142,7 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
       .catch(
         (e) => alive && setMetrics({ status: 'error', message: messageOf(e, T.metricsFailed) }),
       );
-    void run(RECENT);
+    void run(recentQuery(team.id));
     return () => {
       alive = false;
     };
@@ -154,7 +163,7 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
 
   const find = (event?: React.FormEvent) => {
     event?.preventDefault();
-    const built = supportQuery(mode, { userId, ticket, session });
+    const built = supportQuery(mode, { userId, ticket, session }, team.id);
     if ('error' in built) {
       setInputError(built.error);
       return;
@@ -167,7 +176,7 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
     setMode(next);
     setInputError(null);
     // "Most recent" needs nothing typed: run it at once.
-    if (next === 'recent') void run(RECENT);
+    if (next === 'recent') void run(recentQuery(team.id));
   };
 
   return (
@@ -241,6 +250,11 @@ const SupportPanel: React.FC<{ team: Team }> = ({ team }) => {
           onRetry={() => void run(lastQuery.current)}
         />
       </Suspense>
+      {incomplete && !loading && !error && (
+        <Text variant="muted" size="xs" className="pulse-support-incomplete">
+          {T.incomplete(SUPPORT_LIMIT)}
+        </Text>
+      )}
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
