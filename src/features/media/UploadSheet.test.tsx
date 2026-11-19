@@ -2,10 +2,11 @@ import type { DraftState, DraftSummary } from '@mieweb/pulse-embed';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { PulseUploadPublic } from '../../lib/api';
 import { mergeRows } from '../pulse-embed/mergeRows';
 import { PULSE_EMBED_TEXT } from '../pulse-embed/pulseEmbedStrings';
 import { createMediaActions } from './mediaActions';
-import { rowFacts, type SheetAction } from './rowActions';
+import { rowFacts, sheetActions, type SheetAction } from './rowActions';
 import { PLACES, draftAt } from './testRows';
 import { UploadSheet } from './UploadSheet';
 
@@ -89,6 +90,50 @@ describe('UploadSheet', () => {
     expect(client.setDraftContext.mock.invocationCallOrder[0]).toBeLessThan(
       client.upload.mock.invocationCallOrder[0],
     );
+  });
+
+  it("a kept video this phone hasn't polled yet moves with no receipt to dismiss", async () => {
+    const client = spyClient();
+    const reportError = vi.fn();
+    const uploads = {
+      retarget: vi.fn(async () => ({ state: 'delivered' as const, note: '' })),
+      cancel: vi.fn(),
+    };
+    const actions = createMediaActions({
+      client,
+      open: vi.fn(),
+      reportError,
+      uploads: uploads as never,
+    });
+    const kept: PulseUploadPublic = {
+      id: 'up1',
+      userId: 'me',
+      type: 'ticket.video',
+      targetKey: PLACES.ticket.context.key,
+      state: 'kept',
+      name: null,
+      durationMs: null,
+      sentAt: null,
+      updatedAt: null,
+      reason: 'ticket was deleted',
+      note: null,
+      attachmentId: null,
+      mediaId: 'm1',
+      draftKey: 'inst:d1',
+    };
+    const row = mergeRows([at('delivering')], [kept])[0];
+    const facts = rowFacts(row);
+    expect(facts.state).toBe('kept');
+    expect(sheetActions(facts)).not.toContain('dismiss');
+
+    expect(await actions.move(row, PLACES.post, facts.state)).toBe(true);
+    expect(uploads.retarget).toHaveBeenCalledWith({
+      uploadId: 'up1',
+      type: PLACES.post.type,
+      target: PLACES.post.target,
+    });
+    expect(client.dismissReceipt).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it('a refused call is shown, never swallowed', async () => {

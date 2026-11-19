@@ -126,7 +126,8 @@ export function createMediaActions(deps: MediaActionDeps): MediaActions {
           const uploadId = row.local?.sent?.uploadId || row.server?.id;
           if (!uploadId) throw { code: 'not_found' };
           await uploads.retarget({ uploadId, type: place.type, target: place.target });
-          await client.dismissReceipt(id);
+          // A phone that hasn't polled the outcome yet holds no receipt to dismiss.
+          if (row.local?.sent) await client.dismissReceipt(id);
           return;
         }
         await client.setDraftContext(id, place.context);

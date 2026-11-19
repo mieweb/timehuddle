@@ -5,6 +5,7 @@ import type { PulseUploadPublic } from '../../lib/api';
 import { mergeRows } from '../pulse-embed/mergeRows';
 import { pulsePlace } from '../pulse-embed/place';
 import {
+  jobWaiting,
   menuActions,
   rowFacts,
   rowTap,
@@ -172,7 +173,15 @@ describe('rowActions: the special cases', () => {
     };
     const f = factsOf(draft('delivering'), [server]);
     expect(f.state).toBe('kept');
-    expect(sheetActions(f)).toEqual(['move', 'dismiss']);
+    // No receipt on this phone yet: nothing to dismiss (Pulse would say not_found).
+    expect(f.hasReceipt).toBe(false);
+    expect(sheetActions(f)).toEqual(['move']);
+    expect(menuActions(f)).toEqual(['move']);
+  });
+
+  it('only a waiting job is stopped at Delete', () => {
+    const waiting = TABLE.map(([, d]) => factsOf(d).state).filter(jobWaiting);
+    expect(waiting).toEqual(['queued', 'waiting_network', 'needs_credentials']);
   });
 
   it('an unknown state reads as a draft', () => {

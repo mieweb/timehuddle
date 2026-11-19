@@ -52,6 +52,12 @@ export interface RowFacts {
   hasVideo: boolean;
   /** A kept receipt the person already dismissed. */
   dismissed: boolean;
+  /**
+   * This phone holds the receipt. A kept outcome the phone hasn't polled yet
+   * (the draft is still delivering here) has none, so there is nothing to
+   * dismiss: Pulse refuses `dismissReceipt` with `not_found`.
+   */
+  hasReceipt: boolean;
 }
 
 const ROW_STATES: ReadonlySet<string> = new Set<RowState>([
@@ -86,6 +92,7 @@ export function rowFacts(row: PulseRow, options: { headless?: boolean } = {}): R
     tooLarge: local?.upload?.error?.code === 'upload.too_large',
     hasVideo: !!videoIdOf(row),
     dismissed: !!local?.sent?.dismissed || (state === 'kept' && !chip.attention),
+    hasReceipt: !!local?.sent,
   };
 }
 
@@ -150,7 +157,7 @@ export function sheetActions(f: RowFacts): SheetAction[] {
       return [
         ...move,
         ...(f.hasVideo ? (['open'] as SheetAction[]) : []),
-        ...(f.dismissed ? [] : (['dismiss'] as SheetAction[])),
+        ...(f.hasReceipt && !f.dismissed ? (['dismiss'] as SheetAction[]) : []),
       ];
     default:
       // draft, ready (they open the editor), preparing and delivering (progress
