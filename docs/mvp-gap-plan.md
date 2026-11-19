@@ -371,7 +371,10 @@ no ticket or mention chips on the Clock page.
       your My Board tickets, most recently updated first; a ticket goes in as an
       inline link, and the post links that ticket. Built in `@mieweb/ui`
       (`mentionOptions` with `href` in `RichEditor` and `ChatComposer`; branch
-      `feat/rich-editor-mentions`, upstream PR to open)
+      `feat/rich-editor-mentions`)
+- [ ] Upstream: the `@mieweb/ui` changes ship on `timehuddle/next` for now; their
+      PR to `mieweb/ui` `main` will be bundled with other pending library work
+      into one or two PRs, not opened per feature
 - [ ] Known limit: a first name two teammates share mentions no one, as in the
       Huddle composer (`detectMentions`)
 - [ ] The clock-in composer opens pre-filled with one item per pinned ticket, in

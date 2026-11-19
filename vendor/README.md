@@ -25,8 +25,9 @@ app's first load, [#700](https://github.com/mieweb/ui/pull/700), which hands Sup
 attachment's `File` so Huddle can post large videos, and upload on attach (`useAttachmentUploads`,
 ChatComposer's `uploadAttachment`, `UploadAnnouncer`), committed straight to `timehuddle/next`
 for now, with no PR to `main` yet. `RichEditor`'s `@mention` autocomplete (`mentionOptions`, for TimeHuddle #885) is on
-`feat/rich-editor-mentions`, cut from `main` for its PR and cherry-picked onto `timehuddle/next`, so this bump doesn't
-also pull in `main`'s other unreleased changes. As those merge, `timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
+`feat/rich-editor-mentions`, cut from `main` and cherry-picked onto `timehuddle/next`, so this bump doesn't
+also pull in `main`'s other unreleased changes. Its upstream PR is deferred: it will go to `main` bundled with
+other pending library work in one or two PRs. As those merge, `timehuddle/next` shrinks back toward `main`. CI and Docker never check the submodule out: they
 install the committed tarball.
 
 ```mermaid
