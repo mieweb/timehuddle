@@ -8,7 +8,8 @@
 import { Capacitor } from '@capacitor/core';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-import { setPulseAccount } from '../features/pulse-embed/usePulseEmbed';
+import { noteSessionExpired, reportPulseAccount } from '../features/pulse-embed/signOut';
+import { PulseSignOutNotice } from '../features/pulse-embed/SignOutPulseDialog';
 import { authApi, orgApi, type TimecoreUser } from './api';
 import { DdpTimeoutError, getDdpClient } from './ddp';
 import { isNativeApp } from './device';
@@ -115,6 +116,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.log(
           `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`,
         );
+        // The server ended the session: on a shared phone Pulse deletes what's unsent.
+        noteSessionExpired();
         setUser(null);
       }
     } catch (err) {
@@ -178,7 +181,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // signed in (sign-in, restore, sign-out, expiry) before it reads anything.
   const pulseUserId = loading && !user ? undefined : (user?.id ?? null);
   useEffect(() => {
-    if (pulseUserId !== undefined) void setPulseAccount(pulseUserId);
+    if (pulseUserId !== undefined) void reportPulseAccount(pulseUserId);
   }, [pulseUserId]);
 
   const signOut = useCallback(async () => {
@@ -224,6 +227,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }}
     >
       {children}
+      <PulseSignOutNotice />
     </SessionContext.Provider>
   );
 };
