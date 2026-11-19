@@ -9,7 +9,7 @@ posts, never as edits to the plan post.
 - [ ] **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
 - [ ] **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
 - [ ] **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
-- [ ] **[M4 Plan progress](#m4--plan-progress-on-board-and-clock-new-posts-in-huddle)** — Board and Clock page show live progress; Huddle gets new posts
+- [ ] **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** — Board and Clock page show live progress; Huddle gets new posts, never edits
 - [ ] **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
 - [ ] **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
 
@@ -79,21 +79,21 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 
 ## What Is In and Out
 
-| Area                                               | Status | Decision                                                                                    |
-| -------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| Dashboard, one board across sources, Take a break  | ✅     | Nothing to do                                                                               |
-| My Board header (My Board / 🔭 / My Week, Select)  | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
-| New ticket form                                    | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
-| **Reorderable list (drag to pin and order)**       | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
-| **Pinned section + Start session**                 | ❌     | **M2**                                                                                      |
-| **Tickets inline in the plan composer**            | 🟡     | **M3**                                                                                      |
-| **Plan progress on Board, Clock; posts in Huddle** | 🟡     | **M4**                                                                                      |
-| **Clock-out carry-over of unchecked items**        | ❌     | **M5**                                                                                      |
-| **Actionable toasts (assigned, mentioned)**        | 🟡     | **M6** (issue later)                                                                        |
-| Edit plan with ✕ per item + Done                   | 🎨     | Illustrative only. Plan edits happen on the Clock page; the Huddle post isn't rewritten     |
-| Pulse recording, progress, Huddle ↔ Pulse switch   | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
-| Ticket beats / video counts on rows                | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
-| What "checked off" means                           | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
+| Area                                                  | Status | Decision                                                                                    |
+| ----------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| Dashboard, one board across sources, Take a break     | ✅     | Nothing to do                                                                               |
+| My Board header (My Board / 🔭 / My Week, Select)     | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
+| New ticket form                                       | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
+| **Reorderable list (drag to pin and order)**          | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
+| **Pinned section + Start session**                    | ❌     | **M2**                                                                                      |
+| **Tickets inline in the plan composer**               | 🟡     | **M3**                                                                                      |
+| **Coordinating the plan across Board, Clock, Huddle** | 🟡     | **M4**                                                                                      |
+| **Clock-out carry-over of unchecked items**           | ❌     | **M5**                                                                                      |
+| **Actionable toasts (assigned, mentioned)**           | 🟡     | **M6** (issue later)                                                                        |
+| Edit plan with ✕ per item + Done                      | 🎨     | Illustrative only. Plan edits happen on the Clock page; the Huddle post isn't rewritten     |
+| Pulse recording, progress, Huddle ↔ Pulse switch      | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
+| Ticket beats / video counts on rows                   | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
+| What "checked off" means                              | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
 
 ---
 
@@ -183,7 +183,7 @@ What the MVP needs:
 
 - **M3:** tickets go **into** the editor as checklist items, and the
   composer opens pre-filled with the pinned tickets.
-- **M4:** the Board and Clock page show the plan's progress; Huddle records it as
+- **M4:** coordinate the plan — the Board and Clock page show its progress; Huddle records it as
   new posts.
 
 ### Scene 5 — The Plan Lives in Huddle 🟡 → M4
@@ -298,11 +298,11 @@ graph LR
     classDef later fill:#334155,stroke:#94a3b8,color:#fff
     Reorder["M1 Reorderable list"]:::mvp --> Pins["M2 Pinned section + Start session"]:::mvp
     Pins --> Inline["M3 Tickets inline in the plan"]:::mvp
-    Inline --> Sync["M4 Plan progress, appended to Huddle"]:::mvp
-    Sync --> Carry["M5 Clock-out carry-over"]:::mvp
+    Inline --> Coordinate["M4 Coordinate the plan"]:::mvp
+    Coordinate --> Carry["M5 Clock-out carry-over"]:::mvp
     Toasts["M6 Actionable toasts"]:::mvp
     Beats["Ticket beats + video counts"]:::later
-    Sync -.-> Beats
+    Coordinate -.-> Beats
 ```
 
 ### M1 — Reorderable List for Pins
@@ -360,7 +360,7 @@ What it doesn't cover yet:
       already contains it, and clock-in works without typing more
 - [ ] Done when: mentions notify once, and older plan posts render unchanged
 
-### M4 — Plan Progress on Board and Clock, New Posts in Huddle
+### M4 — Coordinate the Plan Across Board, Clock Page and Huddle
 
 Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
 post is not edited to show progress.
