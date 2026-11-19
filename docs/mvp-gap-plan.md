@@ -6,11 +6,11 @@
 page and is posted once to Huddle; progress through the day shows as new Huddle
 posts, never as edits to the plan post.
 
-- [ ] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
-- [ ] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
-- [ ] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
-- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** — Board and Clock page show live progress; Huddle gets new posts, never edits
-- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
+- [ ] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** ([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) — `ReorderableList` in `@mieweb/ui`, with touch drag
+- [ ] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** ([#884](https://github.com/mieweb/timehuddle/issues/884)) — ordered pins, one tap to start the day
+- [ ] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** ([#885](https://github.com/mieweb/timehuddle/issues/885)) — tickets become checklist items, pre-filled from pins
+- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** ([#886](https://github.com/mieweb/timehuddle/issues/886)) — Board and Clock page show live progress; Huddle gets new posts, never edits
+- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** ([#887](https://github.com/mieweb/timehuddle/issues/887)) — checked items unpin, unchecked stay pinned
 - [ ] `Unassigned` **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
 
 **Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
@@ -90,7 +90,7 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 | Dashboard, one board across sources, Take a break     | ✅     | Nothing to do                                                                               |
 | My Board header (My Board / 🔭 / My Week, Select)     | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
 | New ticket form                                       | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
-| **Reorderable list (drag to pin and order)**          | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
+| **Reorderable list (drag to pin and order)**          | 🟡     | **M1** — `ReorderableList` in [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)      |
 | **Pinned section + Start session**                    | ❌     | **M2**                                                                                      |
 | **Tickets inline in the plan composer**               | 🟡     | **M3**                                                                                      |
 | **Coordinating the plan across Board, Clock, Huddle** | 🟡     | **M4**                                                                                      |
@@ -107,19 +107,19 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 ## Reusing `@mieweb/ui` (0.11.0)
 
 Checked against the installed `@mieweb/ui` and its Kerebron editor. Most of the MVP
-is wiring, not new components; the one partial gap is drag-to-reorder (M1).
+is wiring, not new components; the one new component is `ReorderableList` (M1), built upstream in `@mieweb/ui`.
 
-| Need                                        | Component                                                    | Fit                                                                                                                                                                                                                                               |
-| ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plan as an inline checklist in the composer | `RichEditor` (Kerebron, already the composer)                | ✅ `BasicEditorKit` ships `task_list` / `task_item` nodes, the menu has **Wrap in task list**, and markdown round-trips as `- [ ]` / `- [x]`. Ticket items are task items holding a ticket link. Removing an item is just deleting its text.      |
-| Plan checklist rendered in Huddle           | `MarkdownContent` (`react-markdown` + `remark-gfm`)          | ✅ GFM task lists already render as checkboxes                                                                                                                                                                                                    |
-| Read view of today's plan with progress     | `ActionPlan`                                                 | ✅ Steps with `todo` / `in_progress` / `done`, `progress(done, total)` ("3 of 4 done"), `onStatusChange`, `getHref` for the ticket link, `renderStepMeta` for a timer pill, `arrange="manual"`. Fits the Clock page card and the wrap-up summary. |
-| Pinned / Rest of my board sections          | `Collapsible` around the existing `TicketList`; `CountBadge` | ✅ Collapsible headers with counts. (`ListView` also offers `groupBy` + `defaultCollapsedGroups`, but the Tickets page uses its own `TicketList` / `TicketRow`)                                                                                   |
-| Start session                               | `Button` (in a `ButtonGroup` if it gains siblings)           | ✅                                                                                                                                                                                                                                                |
-| **Drag to pin and reorder**                 | `useDragReorder` hook                                        | 🟡 Drag, Move up / Move down, Alt+↑/↓ and announcements exist (used by `AllergyList`, `ProblemList`, `MedicationList`). Cross-section moves and touch drag are unproven — see [M1](#m1--reorderable-list-for-pins).                               |
-| Actionable toasts                           | `Toast` (`action: { label, onClick }`)                       | ✅ Already used for "Started … · View post"                                                                                                                                                                                                       |
-| Running-ticket timer pill, video count      | `Badge`, `CountBadge`                                        | ✅                                                                                                                                                                                                                                                |
-| Video playback, upload progress             | `MediaFeed` / `VideoCard`, `Progress`                        | ✅ Already used by `VideoFeedView` and Pulse uploads                                                                                                                                                                                              |
+| Need                                        | Component                                                                                             | Fit                                                                                                                                                                                                                                               |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan as an inline checklist in the composer | `RichEditor` (Kerebron, already the composer)                                                         | ✅ `BasicEditorKit` ships `task_list` / `task_item` nodes, the menu has **Wrap in task list**, and markdown round-trips as `- [ ]` / `- [x]`. Ticket items are task items holding a ticket link. Removing an item is just deleting its text.      |
+| Plan checklist rendered in Huddle           | `MarkdownContent` (`react-markdown` + `remark-gfm`)                                                   | ✅ GFM task lists already render as checkboxes                                                                                                                                                                                                    |
+| Read view of today's plan with progress     | `ActionPlan`                                                                                          | ✅ Steps with `todo` / `in_progress` / `done`, `progress(done, total)` ("3 of 4 done"), `onStatusChange`, `getHref` for the ticket link, `renderStepMeta` for a timer pill, `arrange="manual"`. Fits the Clock page card and the wrap-up summary. |
+| Pinned / Rest of my board sections          | `Collapsible` around the existing `TicketList`; `CountBadge`                                          | ✅ Collapsible headers with counts. (`ListView` also offers `groupBy` + `defaultCollapsedGroups`, but the Tickets page uses its own `TicketList` / `TicketRow`)                                                                                   |
+| Start session                               | `Button` (in a `ButtonGroup` if it gains siblings)                                                    | ✅                                                                                                                                                                                                                                                |
+| **Drag to pin and reorder**                 | `ReorderableList` (new, [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)) on `useDragReorder` | 🟡 The hook already gives drag, Move up / Move down, Alt+↑/↓ and announcements. #782 adds a ready-made list, sliding rows and touch drag — see [M1](#m1--reorderable-list-for-pins).                                                              |
+| Actionable toasts                           | `Toast` (`action: { label, onClick }`)                                                                | ✅ Already used for "Started … · View post"                                                                                                                                                                                                       |
+| Running-ticket timer pill, video count      | `Badge`, `CountBadge`                                                                                 | ✅                                                                                                                                                                                                                                                |
+| Video playback, upload progress             | `MediaFeed` / `VideoCard`, `Progress`                                                                 | ✅ Already used by `VideoFeedView` and Pulse uploads                                                                                                                                                                                              |
 
 ---
 
@@ -301,8 +301,9 @@ A per-day video count and a stories player are not in the MVP.
 
 ## Milestones
 
-Each milestone is meant to become one GitHub issue. The checklist under it is its
-definition of done.
+Each milestone has its own issue, all sub-issues of #880. The checklist under it is
+its definition of done. **Stacked PRs:** branch from and target
+`docs/880-mvp-gap-plan` (PR #883), not `main`.
 
 ```mermaid
 graph LR
@@ -321,37 +322,24 @@ graph LR
 
 ### M1 — Reorderable List for Pins
 
-**Owner:** Shubh
+**Owner:** Shubh · **Issue:** [mieweb/ui#782](https://github.com/mieweb/ui/issues/782)
 
 The prototype's "hold one and drag it into Pinned, in the order you'll do them"
-needs a reorderable list. `@mieweb/ui` has the core of one already: the exported
-**`useDragReorder`** hook gives rows drag-and-drop, Move up / Move down button
-props, optional Alt+↑/↓, and "Moved to position 2 of 4" announcements. It is used
-today by `AllergyList`, `ProblemList` and `MedicationList`.
+needs a reorderable list. It's being built in `@mieweb/ui` as **`ReorderableList`**
+([mieweb/ui#782](https://github.com/mieweb/ui/issues/782)), on top of the existing
+`useDragReorder` hook: `@dnd-kit/sortable` dragging with rows that slide aside,
+**touch drag**, keyboard and move-button moves, and announcements. TimeHuddle uses
+it in M2; there's no hand-rolled drag-and-drop here.
 
-What it doesn't cover yet:
-
-- **Dragging between two sections** (Rest of my board → Pinned). The hook orders
-  one flat list of ids and can only restrict drops (`canDropOn`).
-- **Touch drag on phones.** It uses native HTML5 drag-and-drop, which is
-  pointer-based. The prototype is a phone, and the app ships in Capacitor.
-- **A ready-made list.** It is a hook; there is no generic sortable list component.
-
-- [ ] Wire `useDragReorder` into the Pinned section of `TicketList`, with Move up /
-      Move down in the row ⋯ menu as the keyboard path
-- [ ] Spike: pin by dragging from Rest of my board into Pinned using one combined id
-      list and `canDropOn`
-- [ ] Spike: drag-reorder on iPhone and Android in the Capacitor app
-- [ ] For whatever the spikes can't do, open a `mieweb/ui` issue and PR through
-      `vendor/ui` (cross-list moves and/or touch drag) following
-      [Rule 15](https://github.com/mieweb/ui/blob/main/CONTRIBUTING.md#developing-components-from-a-consuming-application)
-      — no hand-rolled drag-and-drop in TimeHuddle
-- [ ] Done when: pins reorder by drag on desktop and phone, and by ⋯ menu /
-      keyboard everywhere, with the new position announced
+- [ ] `ReorderableList` lands in `@mieweb/ui` and TimeHuddle's `vendor/ui` picks it up
+- [ ] Confirm it can move a row from Rest of my board into Pinned (two sections);
+      if not, raise it on mieweb/ui#782
+- [ ] Done when: pins reorder by drag on desktop and phone, and by keyboard /
+      move buttons, with the new position announced
 
 ### M2 — Pinned Section and Start Session on My Board
 
-**Owner:** Shubh
+**Owner:** Shubh · **Issue:** [#884](https://github.com/mieweb/timehuddle/issues/884)
 
 - [ ] Model: an ordered per-user pin list next to My Board — ticket keys and
       position only (Core Model Data Discipline); pin, unpin and reorder methods
@@ -367,7 +355,7 @@ What it doesn't cover yet:
 
 ### M3 — Tickets Inline in the Plan Composer
 
-**Owner:** Poonam
+**Owner:** Poonam · **Issue:** [#885](https://github.com/mieweb/timehuddle/issues/885)
 
 - [ ] The composer's **Ticket** action inserts a checklist item holding the ticket
       link (`- [ ] [TH-923: …](/app/tickets/…)`) using the `RichEditor`
@@ -382,7 +370,7 @@ What it doesn't cover yet:
 
 ### M4 — Coordinate the Plan Across Board, Clock Page and Huddle
 
-**Owner:** Poonam
+**Owner:** Poonam · **Issue:** [#886](https://github.com/mieweb/timehuddle/issues/886)
 
 Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
 post is not edited to show progress.
@@ -414,7 +402,7 @@ post is not edited to show progress.
 
 ### M5 — Clock-Out Carry-Over
 
-**Owner:** Shubh
+**Owner:** Shubh · **Issue:** [#887](https://github.com/mieweb/timehuddle/issues/887)
 
 - [ ] On clock-out — with a plan or with Pulse — **checked** items unpin and return
       to Rest of my board
