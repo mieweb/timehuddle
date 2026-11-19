@@ -98,7 +98,7 @@ import {
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../features/huddle/useBoardTicketMentionOptions';
-import { ticketIdsInText } from '../features/huddle/planItems';
+import { teamTicketIdsInText } from '../features/huddle/planItems';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
@@ -352,7 +352,7 @@ export default function Huddle() {
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
   // `@` also offers the tickets on My Board, inserted as links to them.
-  const boardTicketOptions = useBoardTicketMentionOptions(
+  const boardTickets = useBoardTicketMentionOptions(
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId)?.ticketPrefix,
   );
@@ -1110,7 +1110,9 @@ export default function Huddle() {
           groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
         // Picked with the Ticket button, or linked in the text with @.
-        ticketIds: [...new Set([...ticketIds, ...ticketIdsInText(text)])],
+        ticketIds: [
+          ...new Set([...ticketIds, ...teamTicketIdsInText(text, boardTickets.teamTicketIds)]),
+        ],
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
@@ -1422,7 +1424,7 @@ export default function Huddle() {
                       mentionOptions: [
                         ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                         ...mentions.options,
-                        ...boardTicketOptions,
+                        ...boardTickets.options,
                       ],
                       sendOptions: postingTeamId
                         ? [

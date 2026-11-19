@@ -50,8 +50,27 @@ export function appendPlanItem(text: string, item: string): string {
 // A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.
 const TICKET_LINK = /\]\(\/app\/tickets\/(?!redmine\/)([^)/\s]+)\)/g;
 
+/** `id` URL-decoded, or null when it isn't valid encoding (a typed `%`). */
+function decodeId(id: string): string | null {
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return null;
+  }
+}
+
 /** Ids of the tickets `text` links to, in order, each once. */
 export function ticketIdsInText(text: string): string[] {
-  const ids = [...text.matchAll(TICKET_LINK)].map((match) => decodeURIComponent(match[1]));
+  const ids = [...text.matchAll(TICKET_LINK)].flatMap((match) => decodeId(match[1]) ?? []);
   return [...new Set(ids)];
+}
+
+/**
+ * The ids `text` links to that a post in the team may carry: a link to another
+ * team's ticket (or a deleted one) stays a plain link, since the server
+ * refuses a post that carries one. Unfiltered until the team's tickets load.
+ */
+export function teamTicketIdsInText(text: string, teamTicketIds: ReadonlySet<string> | null) {
+  const ids = ticketIdsInText(text);
+  return teamTicketIds ? ids.filter((id) => teamTicketIds.has(id)) : ids;
 }

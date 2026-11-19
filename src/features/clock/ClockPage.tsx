@@ -52,6 +52,7 @@ import {
   appendPlanItem,
   planTicketItem,
   planTicketName,
+  teamTicketIdsInText,
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
@@ -187,10 +188,12 @@ export const ClockPage: React.FC = () => {
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
   // Typing `@` in the editor offers teammates and the tickets on My Board.
-  const ticketOptions = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
+  const boardTickets = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
+  const teamTicketIdsRef = useRef(boardTickets.teamTicketIds);
+  teamTicketIdsRef.current = boardTickets.teamTicketIds;
   const mentionOptions = useMemo(
-    () => [...teamMentions.options, ...ticketOptions],
-    [teamMentions.options, ticketOptions],
+    () => [...teamMentions.options, ...boardTickets.options],
+    [teamMentions.options, boardTickets.options],
   );
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
@@ -248,7 +251,7 @@ export const ClockPage: React.FC = () => {
       media,
       text: postText,
       mentionUserIds: detectMentionsRef.current(postText),
-      ticketIds: ticketIdsInText(postText),
+      ticketIds: teamTicketIdsInText(postText, teamTicketIdsRef.current),
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -541,7 +544,9 @@ export const ClockPage: React.FC = () => {
     ticketApi
       .getTicket(pendingTicketId)
       .then((ticket) => {
-        if (cancelled) return;
+        // Only into a plan for the ticket's own team: the server refuses
+        // another team's ticket on this team's post.
+        if (cancelled || ticket.teamId !== gateTeamId) return;
         const item = planTicketItem({
           id: ticket.id,
           name: planTicketName(ticket, ticketPrefix),
@@ -555,7 +560,7 @@ export const ClockPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [pendingTicketId, ticketPrefix]);
+  }, [pendingTicketId, ticketPrefix, gateTeamId]);
 
   const showEditor = composerExpanded || !!text.trim() || uploads.items.length > 0;
   // Something to post: words, or a file on its own (a screenshot, say).
@@ -697,7 +702,13 @@ export const ClockPage: React.FC = () => {
             // The list replaces the plan's. Tickets the plan's text links are
             // the wrap-up's to keep or delete; ones a plan only attached
             // (posted before plans linked them) were never shown, so stay.
-            ticketIds: [...new Set([...attachedOnly, ...selectedTicketIds])],
+            // Read from the text saved, which may have the plan put back in.
+            ticketIds: [
+              ...new Set([
+                ...attachedOnly,
+                ...teamTicketIdsInText(textToSave, teamTicketIdsRef.current),
+              ]),
+            ],
           },
         );
       } else {

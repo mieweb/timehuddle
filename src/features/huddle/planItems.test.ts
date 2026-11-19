@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendPlanItem, planTicketItem, ticketIdsInText } from './planItems';
+import { appendPlanItem, planTicketItem, teamTicketIdsInText, ticketIdsInText } from './planItems';
 
 describe('planItems', () => {
   const item = planTicketItem({ id: 'tkt-1', name: 'TH-1: Fix [beta] login' });
@@ -22,5 +22,15 @@ describe('planItems', () => {
       '- [ ] [RMX-5](/app/tickets/redmine/5)',
     ].join('\n');
     expect(ticketIdsInText(text)).toEqual(['tkt-1', 'tkt-2']);
+  });
+
+  it('skips a link whose id is not valid URL encoding', () => {
+    expect(ticketIdsInText(`[x](/app/tickets/%) ${item}`)).toEqual(['tkt-1']);
+  });
+
+  it("keeps only the team's tickets once they are known", () => {
+    const text = `${item}\n- [ ] [Other](/app/tickets/elsewhere)`;
+    expect(teamTicketIdsInText(text, new Set(['tkt-1']))).toEqual(['tkt-1']);
+    expect(teamTicketIdsInText(text, null)).toEqual(['tkt-1', 'elsewhere']);
   });
 });
