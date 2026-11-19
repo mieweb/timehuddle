@@ -60,7 +60,12 @@ export interface StartPulseFacts {
   isIPad: boolean;
   /** Pulse is paused for everyone (`pulseUploadTypes.list`'s `runtimePaused`). */
   runtimePaused: boolean;
-  /** The place's team has "Pulse in the app" on (pulseSettingFor). */
+  /**
+   * The place's team has Pulse on for this type: "Pulse in the app", and for
+   * a clock type (`clock.wrapup`, `clock.plan`) "Clock in and out with Pulse"
+   * as well (Gate 0b, TH-11). Take it from `pulseSettingsOnFor(teams, teamId,
+   * type)`, not from `pulseSettingFor` with one key.
+   */
   settingOn: boolean;
   /** What is being recorded. */
   type: PulseUploadTypeId;
@@ -109,6 +114,22 @@ export function pulseSettingFor(
   if (!teams) return false;
   if (teamId == null) return Object.values(teams).some((settings) => settings?.[key] === true);
   return Object.hasOwn(teams, teamId) && teams[teamId]?.[key] === true;
+}
+
+/** The upload types that are clock buttons, behind `pulseClockInOut` as well as `pulseInApp`. */
+export const CLOCK_BUTTON_TYPES: readonly PulseUploadTypeId[] = ['clock.wrapup', 'clock.plan'];
+
+/**
+ * The `settingOn` fact for recording `type` in a place: `pulseInApp`, and
+ * `pulseClockInOut` too for a clock button type, each read by pulseSettingFor.
+ */
+export function pulseSettingsOnFor(
+  teams: Readonly<Record<string, PulseTeamSettings>> | null | undefined,
+  teamId: string | null,
+  type: PulseUploadTypeId,
+): boolean {
+  if (!pulseSettingFor(teams, teamId, 'pulseInApp')) return false;
+  return !CLOCK_BUTTON_TYPES.includes(type) || pulseSettingFor(teams, teamId, 'pulseClockInOut');
 }
 
 /**

@@ -205,6 +205,9 @@ export function createGrants(options: GrantOptions = {}): HostServices {
     if (!place || place.type !== type) {
       throw new HostServiceFailure('upload.refused', `No clock action for ${String(type)}`);
     }
+    // No `name`: Pulse's ConfirmSendRequest doesn't carry the draft's name, so
+    // the wrap-up line is a bare "Wrap-up" and a plan post has no text until
+    // the contract adds it (then pass `name: r.name || null` here).
     const common = { at: r.sentAt, draftKey: r.draftKey, bytes: r.bytes };
     if (type === 'clock.wrapup' && place.target.kind === 'clock' && place.clock) {
       const { teamId, postDate } = place.clock;

@@ -4,6 +4,7 @@ import type { PulseTeamSettings } from '../../lib/api';
 import {
   isIPadAgent,
   pulseSettingFor,
+  pulseSettingsOnFor,
   startPulse,
   type StartPulseDecision,
   type StartPulseFacts,
@@ -127,6 +128,47 @@ describe('pulseSettingFor', () => {
     expect(pulseSettingFor(teams, null)).toBe(true);
     expect(pulseSettingFor({ teamOff: off }, null)).toBe(false);
     expect(pulseSettingFor({}, null)).toBe(false);
+  });
+});
+
+describe('pulseSettingsOnFor', () => {
+  const settings = (pulseInApp: boolean, pulseClockInOut: boolean): PulseTeamSettings => ({
+    pulseInApp,
+    pulseClockInOut,
+    pulseSharedDevice: false,
+  });
+  const teams = {
+    both: settings(true, true),
+    appOnly: settings(true, false),
+    clockOnly: settings(false, true),
+  };
+
+  it('needs only "Pulse in the app" for a type that is not a clock button', () => {
+    for (const type of ['ticket.video', 'clock.session', 'huddle.post'] as const) {
+      expect(pulseSettingsOnFor(teams, 'appOnly', type)).toBe(true);
+      expect(pulseSettingsOnFor(teams, 'clockOnly', type)).toBe(false);
+    }
+    expect(pulseSettingsOnFor(teams, null, 'library.video')).toBe(true);
+  });
+
+  it('needs "Clock in and out with Pulse" as well for the clock buttons (Gate 0b)', () => {
+    for (const type of ['clock.wrapup', 'clock.plan'] as const) {
+      expect(pulseSettingsOnFor(teams, 'both', type)).toBe(true);
+      expect(pulseSettingsOnFor(teams, 'appOnly', type)).toBe(false);
+      expect(pulseSettingsOnFor(teams, 'clockOnly', type)).toBe(false);
+      expect(pulseSettingsOnFor(teams, 'elsewhere', type)).toBe(false);
+      expect(pulseSettingsOnFor(null, 'both', type)).toBe(false);
+    }
+  });
+
+  it('feeds startPulse: a clock button with only "Pulse in the app" on keeps the link', () => {
+    const facts = (teamId: string): Partial<StartPulseFacts> => ({
+      type: 'clock.wrapup',
+      supportedTypes: ['clock.wrapup'],
+      settingOn: pulseSettingsOnFor(teams, teamId, 'clock.wrapup'),
+    });
+    expect(decide(facts('appOnly'))).toEqual(link('setting-off'));
+    expect(decide(facts('both'))).toEqual({ mode: 'embed', reason: 'embed' });
   });
 });
 
