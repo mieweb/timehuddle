@@ -1,0 +1,444 @@
+# MVP Gap Plan
+
+## TL;DR
+
+**Goal:** the plan is one checklist that shows in three places — Pinned on My
+Board, the Clock page and the Huddle post — and stays in sync.
+
+- [ ] **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
+- [ ] **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
+- [ ] **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
+- [ ] **[M4 One plan in sync](#m4--one-plan-in-sync-across-board-clock-page-and-huddle)** — Board, Clock page and Huddle show the same plan
+- [ ] **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
+- [ ] **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
+
+**Decide first:** what "checked off" means — see [Open Questions](#open-questions).
+What is deliberately left out is in [What Is In and Out](#what-is-in-and-out).
+
+## Overview
+
+The "day in the office" prototype video (`export.mp4`, 2:45) walks through one day with
+TimeHuddle: pin today's tickets, start a session, work through them while the plan
+keeps itself current, absorb a new ticket mid-day, and clock out with a Pulse
+wrap-up. Its tagline: **Plan it. Clock it. Done.**
+
+This document compares the prototype with `main`, separates what is **prototype
+styling** from what is **real product work**, maps that work onto existing
+`@mieweb/ui` components, and lists the MVP milestones.
+
+**The core gap:** in the video the plan is **one checklist** that lives in three
+places — the board's Pinned section, the Clock page and the Huddle post — and all
+three stay in sync. On `main`, tickets are attached to the plan as chips beside a
+free-text editor, and editing the plan on the Clock page while clocked in does not
+update the Huddle post.
+
+### How This Was Produced
+
+- **Video:** frames sampled every 3 s (0.5 s around "Edit plan") and the audio
+  transcribed on-device with Whisper — see the [Appendix](#appendix--transcript).
+- **App:** `origin/main` @ `4f5cbb40` captured with Playwright at a 390×844 phone
+  viewport, signed in as the dev Member in **Dev Team** with the video's tickets
+  recreated, and run through clock in → start ticket → switch → clock out. The
+  frontend ran against the local Meteor backend on the `feat/866` branch, so
+  Huddle details may partly reflect that branch.
+- Names, avatars, ticket prefixes (`DM-` vs `TH-`) and org labels are seed data,
+  not gaps.
+
+Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling only — no issue · 🧪 experimental — not MVP
+
+---
+
+## What Is In and Out
+
+| Area                                              | Status | Decision                                                                                    |
+| ------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| Dashboard, one board across sources, Take a break | ✅     | Nothing to do                                                                               |
+| My Board header (My Board / 🔭 / My Week, Select) | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
+| New ticket form                                   | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
+| **Reorderable list (drag to pin and order)**      | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
+| **Pinned section + Start session**                | ❌     | **M2**                                                                                      |
+| **Tickets inline in the plan composer**           | 🟡     | **M3**                                                                                      |
+| **Plan in sync across Board, Clock, Huddle**      | 🟡     | **M4**                                                                                      |
+| **Clock-out carry-over of unchecked items**       | ❌     | **M5**                                                                                      |
+| **Actionable toasts (assigned, mentioned)**       | 🟡     | **M6** (issue later)                                                                        |
+| Edit plan with ✕ per item + Done                  | 🎨     | Illustrative only. Editing is plain text editing — delete an item like any other text       |
+| Pulse recording, progress, Huddle ↔ Pulse switch  | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
+| Ticket beats / video counts on rows               | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
+| What "checked off" means                          | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
+
+---
+
+## Reusing `@mieweb/ui` (0.11.0)
+
+Checked against the installed `@mieweb/ui` and its Kerebron editor. Most of the MVP
+is wiring, not new components; the one partial gap is drag-to-reorder (M1).
+
+| Need                                        | Component                                                    | Fit                                                                                                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan as an inline checklist in the composer | `RichEditor` (Kerebron, already the composer)                | ✅ `BasicEditorKit` ships `task_list` / `task_item` nodes, the menu has **Wrap in task list**, and markdown round-trips as `- [ ]` / `- [x]`. Ticket items are task items holding a ticket link. Removing an item is just deleting its text.      |
+| Plan checklist rendered in Huddle           | `MarkdownContent` (`react-markdown` + `remark-gfm`)          | ✅ GFM task lists already render as checkboxes                                                                                                                                                                                                    |
+| Read view of today's plan with progress     | `ActionPlan`                                                 | ✅ Steps with `todo` / `in_progress` / `done`, `progress(done, total)` ("3 of 4 done"), `onStatusChange`, `getHref` for the ticket link, `renderStepMeta` for a timer pill, `arrange="manual"`. Fits the Clock page card and the wrap-up summary. |
+| Pinned / Rest of my board sections          | `Collapsible` around the existing `TicketList`; `CountBadge` | ✅ Collapsible headers with counts. (`ListView` also offers `groupBy` + `defaultCollapsedGroups`, but the Tickets page uses its own `TicketList` / `TicketRow`)                                                                                   |
+| Start session                               | `Button` (in a `ButtonGroup` if it gains siblings)           | ✅                                                                                                                                                                                                                                                |
+| **Drag to pin and reorder**                 | `useDragReorder` hook                                        | 🟡 Drag, Move up / Move down, Alt+↑/↓ and announcements exist (used by `AllergyList`, `ProblemList`, `MedicationList`). Cross-section moves and touch drag are unproven — see [M1](#m1--reorderable-list-for-pins).                               |
+| Actionable toasts                           | `Toast` (`action: { label, onClick }`)                       | ✅ Already used for "Started … · View post"                                                                                                                                                                                                       |
+| Running-ticket timer pill, video count      | `Badge`, `CountBadge`                                        | ✅                                                                                                                                                                                                                                                |
+| Video playback, upload progress             | `MediaFeed` / `VideoCard`, `Progress`                        | ✅ Already used by `VideoFeedView` and Pulse uploads                                                                                                                                                                                              |
+
+---
+
+## Side-by-Side Walkthrough
+
+### Scene 1 — Morning Dashboard ✅
+
+> "Michael wants the company website updated, so naturally he picked the best man."
+
+| Prototype                                                            | `main`                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| <img src="mvp-gap-plan/video-01-dashboard.jpg" width="280" alt="" /> | <img src="mvp-gap-plan/app-01-dashboard.png" width="260" alt="" /> |
+
+Same layout. The prototype's one-line brief ("Pin today's tickets, then start your
+session") is copy, not an issue.
+
+### Scene 2 — Pinned Section and Start Session ❌ → M1, M2
+
+> "This is my board with all tickets from GitHub, Redmine and TimeHuddle. I pin the
+> catalog page and scrum … just drag and pin it to the rest of my list."
+
+| Prototype — drag to pin                                                      | Prototype — pinned + Start session                                      | `main`                                                           |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-02-board-drag-to-pin.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-06-pinned-three.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-02-tickets.png" width="230" alt="" /> |
+
+- **Real work:** a **Pinned (n)** section above **Rest of my board (n)**, an
+  order the user controls, and a **Start session** button on the Pinned header.
+- **Cosmetic only:** the prototype hides the My Board / 🔭 / My Week toggle and the
+  Select button, and shows lighter rows. No issue.
+- **Data model:** My Board on `main` is an unordered `Set` of
+  `${sourceId}:${id}` keys ([useMyBoardKeys.ts](../src/features/tickets/useMyBoardKeys.ts)).
+  Pins need an ordered list.
+
+### Scene 3 — New Ticket ✅
+
+The prototype's bottom sheet only illustrates "add one ticket of my own".
+**We keep the New ticket modal on `main`.** A new ticket can then be pinned like any
+other (M2).
+
+### Scene 4 — Starting a Session and the Plan Composer 🟡 → M3, M4
+
+> "Happy with the list — Start session, or just hit play on the first ticket.
+> Same thing … I tap clock in and my pinned tickets are already here. I can add
+> anything that isn't in a ticket, even mention someone. One tap: clocked in, plan
+> posted in Huddle, first ticket started."
+
+| Prototype — tickets inline in the plan                                          | Prototype — free text + @mention                                        | `main` — tickets as chips beside the editor                                |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-08-clock-plan-checklist.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-09-plan-mention.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-08-clock-plan-filled.png" width="230" alt="" /> |
+
+| Prototype — one tap from the board                                                    | `main` — Huddle plan post                                            |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-07-session-started-from-board.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-10-huddle-plan.png" width="230" alt="" /> |
+
+How it works on `main` today:
+
+- ▶ on a ticket starts it directly. When the team has **Require a plan** on, the
+  user is sent to the Clock page instead.
+- There the started ticket is attached as a **chip**, not written into the plan.
+  The editor is still empty, so the user must type something else before
+  **Clock in with a plan** is allowed.
+- The Ticket and @Mention buttons also add **attachments** beside the text, and
+  Huddle shows them as a "Plan · TH-923 · TH-922" line under the post.
+- After clocking in, editing the plan on the Clock page does **not** update the
+  Huddle post, so the Board, the Clock page and Huddle drift apart.
+
+What the MVP needs:
+
+- **M3:** tickets go **into** the editor as checklist items, and the
+  composer opens pre-filled with the pinned tickets.
+- **M4:** one plan, kept in sync across Board, Clock page and Huddle post.
+
+### Scene 5 — The Plan Lives in Huddle 🟡 → M4
+
+> "We can see the time going. I see my teammates are sending messages."
+
+| Prototype — live plan post                                                  | `main` — plan post + separate start/switch posts                            |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-10-huddle-plan-live.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-13-huddle-after-start.png" width="230" alt="" /> |
+
+In the prototype the plan post is the checklist, with a live timer on the active
+item and "Plan · edited 11:35 AM" after changes. On `main` each ticket start or
+switch adds its own "Started …" / "Switched to …" post. Whether those posts stay
+once the plan post shows progress is a decision for M4.
+
+### Scene 6 — Ticket Beats and Videos 🧪
+
+> "I record a beat — a few seconds of Pulse saved right on the ticket."
+
+| Prototype — uploading on the row                                          | Prototype — "▶ 1 video" badge                                            | `main` — running row                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-12-beat-uploading.jpg" width="200" alt="" /> | <img src="mvp-gap-plan/video-13-beat-attached.jpg" width="200" alt="" /> | <img src="mvp-gap-plan/app-11-ticket-running.png" width="200" alt="" /> |
+
+See [Ticket Beats and Videos (Experimental)](#ticket-beats-and-videos-experimental).
+Not an immediate requirement, but the display is part of the design and should be
+kept.
+
+### Scene 7 — Checking Off and the Shared Editor ❓
+
+> "I start this from the ticket and the catalog ticket ticks itself off with its
+> hour and ten minutes."
+
+| Prototype — checked off on the board                                          | Prototype — Today's plan on the Clock page                                   | `main` — Clock page while working                                     |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-14-ticket-checked-off.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-17-clock-todays-plan.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-14-clock-during.png" width="230" alt="" /> |
+
+- This scene is about **the plan editor**, which is the same in both places it
+  appears: the Clock page and the Huddle post. Checking an item in one shows in
+  the other (M4).
+- **Open discussion — what does "checked off" mean?** Two readings came up:
+  1. **Done for good** — the work is finished and the ticket can close.
+  2. **Worked on, not coming back to it today** — the plan item is done; the
+     ticket stays open.
+
+  The video's "Closed today 0" tile never changes, which points to (2), but this
+  is undecided. It affects whether checking an item changes ticket status,
+  whether starting the next pinned ticket checks off the previous one
+  automatically, and what M5 unpins at clock-out.
+
+### Scene 8 — A Teammate's Ticket Joins the Plan; Editing the Plan 🟡 → M2, M4, M6
+
+> "Pam comes back about the photos and she's made me a ticket. It landed on my
+> board. I pin it and it joins my plan, here and in Huddle. … three dots, Edit
+> plan, gone — gone from my clock page too."
+
+| Assigned toast                                                            | Pinned → added to plan                                                     | ⋯ → Edit plan                                                              | `main` — ⋯ menu                                                             |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-19-assigned-toast.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20-plan-auto-added.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20b-edit-plan-menu.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/app-17-huddle-msg-actions.png" width="190" alt="" /> |
+
+- **Editing:** the prototype's ✕ per item and **Done** button only show that the
+  Huddle post is editable. **We don't want that UI.** Edit plan opens the same
+  editor, and an item is removed by deleting its text, like any other text.
+  `main` already has ⋯ → **Edit message**; it needs to edit the checklist and
+  keep the Clock page in sync (M4).
+- **Pinning mid-session adds the ticket to today's plan** (M2, M4).
+- **Toasts:** "Pam assigned you DM-307 · **View**" and "Pinned DM-307 · added to
+  your plan in Huddle" show toasts as a way to navigate to what changed and to
+  notice mentions. **M6** — issue to be created later.
+
+### Scene 9 — Clock Out ✅ (+ carry-over → M5)
+
+> "I clock out with a Pulse so Michael gets my update at scrum … my wrap-up is in
+> Huddle for tomorrow's scrum and Pam's photos stay pinned for the morning."
+
+| Prototype — wrap-up post with the plan summary                         | `main` — wrap-up in Huddle                                             |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-26-wrapup-post.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-20-huddle-wrapup.png" width="230" alt="" /> |
+
+- **Nothing to build for recording.** Pulse already handles screen and camera
+  capture, upload progress and the hand-off back to Huddle. The QR modal on
+  `main` is the **web** path; in the **Capacitor** app the switch to Pulse and
+  back is native and quick.
+- **Carry-over (M5):** at clock-out, with a plan or with Pulse:
+  - **checked** items unpin and move back to **Rest of my board**;
+  - **unchecked** items — not started, or manually unchecked — **stay pinned** as
+    tomorrow's plan.
+
+### Scene 10 — Scrum Review ✅
+
+> "At scrum Michael scrolls through yesterday's updates instead of making everyone
+> talk."
+
+| Prototype — day list with "▶ 3 videos"                                        | Prototype — stories player                                             | `main` — day list                                                    |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| <img src="mvp-gap-plan/video-15-huddle-days-videos.jpg" width="220" alt="" /> | <img src="mvp-gap-plan/video-16-day-stories.jpg" width="220" alt="" /> | <img src="mvp-gap-plan/app-16-huddle-days.png" width="220" alt="" /> |
+
+Videos play in Huddle today, and the day list is moving to Conversations in #866.
+A per-day video count and a stories player are not in the MVP.
+
+---
+
+## Milestones
+
+Each milestone is meant to become one GitHub issue. The checklist under it is its
+definition of done.
+
+```mermaid
+graph LR
+    classDef mvp fill:#9a3412,stroke:#fb923c,color:#fff
+    classDef later fill:#334155,stroke:#94a3b8,color:#fff
+    Reorder["M1 Reorderable list"]:::mvp --> Pins["M2 Pinned section + Start session"]:::mvp
+    Pins --> Inline["M3 Tickets inline in the plan"]:::mvp
+    Inline --> Sync["M4 One plan, in sync everywhere"]:::mvp
+    Sync --> Carry["M5 Clock-out carry-over"]:::mvp
+    Toasts["M6 Actionable toasts"]:::mvp
+    Beats["Ticket beats + video counts"]:::later
+    Sync -.-> Beats
+```
+
+### M1 — Reorderable List for Pins
+
+The prototype's "hold one and drag it into Pinned, in the order you'll do them"
+needs a reorderable list. `@mieweb/ui` has the core of one already: the exported
+**`useDragReorder`** hook gives rows drag-and-drop, Move up / Move down button
+props, optional Alt+↑/↓, and "Moved to position 2 of 4" announcements. It is used
+today by `AllergyList`, `ProblemList` and `MedicationList`.
+
+What it doesn't cover yet:
+
+- **Dragging between two sections** (Rest of my board → Pinned). The hook orders
+  one flat list of ids and can only restrict drops (`canDropOn`).
+- **Touch drag on phones.** It uses native HTML5 drag-and-drop, which is
+  pointer-based. The prototype is a phone, and the app ships in Capacitor.
+- **A ready-made list.** It is a hook; there is no generic sortable list component.
+
+- [ ] Wire `useDragReorder` into the Pinned section of `TicketList`, with Move up /
+      Move down in the row ⋯ menu as the keyboard path
+- [ ] Spike: pin by dragging from Rest of my board into Pinned using one combined id
+      list and `canDropOn`
+- [ ] Spike: drag-reorder on iPhone and Android in the Capacitor app
+- [ ] For whatever the spikes can't do, open a `mieweb/ui` issue and PR through
+      `vendor/ui` (cross-list moves and/or touch drag) following
+      [Rule 15](https://github.com/mieweb/ui/blob/main/CONTRIBUTING.md#developing-components-from-a-consuming-application)
+      — no hand-rolled drag-and-drop in TimeHuddle
+- [ ] Done when: pins reorder by drag on desktop and phone, and by ⋯ menu /
+      keyboard everywhere, with the new position announced
+
+### M2 — Pinned Section and Start Session on My Board
+
+- [ ] Model: an ordered per-user pin list next to My Board — ticket keys and
+      position only (Core Model Data Discipline); pin, unpin and reorder methods
+- [ ] UI: **Pinned (n)** above **Rest of my board (n)**, each a `Collapsible` with
+      a `CountBadge`, reusing `TicketList` / `TicketRow`, ordered with M1
+- [ ] **Start session** `Button` on the Pinned header: clock in with the pinned
+      plan (M3) and start the first unchecked ticket
+- [ ] While clocked in, pinning a ticket adds it to today's plan (M4)
+- [ ] Done when: pins persist across reloads and devices in the user's order, for
+      Huddle, Redmine and GitHub tickets alike
+- [ ] Done when: with pins set, one tap goes from a clocked-out board to a running
+      first ticket and a posted plan
+
+### M3 — Tickets Inline in the Plan Composer
+
+- [ ] The composer's **Ticket** action inserts a checklist item holding the ticket
+      link (`- [ ] [TH-923: …](/app/tickets/…)`) using the `RichEditor`
+      `task_list` / `task_item` nodes; free text and @mentions are items too
+- [ ] The clock-in composer opens pre-filled with one item per pinned ticket, in
+      pin order
+- [ ] A plan of ticket items alone satisfies **Require a plan**
+- [ ] Removing an item is deleting its text — no ✕ buttons
+- [ ] Done when: starting a ticket under "Require a plan" lands on a composer that
+      already contains it, and clock-in works without typing more
+- [ ] Done when: mentions notify once, and older plan posts render unchanged
+
+### M4 — One Plan, in Sync Across Board, Clock Page and Huddle
+
+- [ ] The session's plan post is the single source for the plan's items and
+      checked state
+- [ ] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
+      "x of y done", ticket links via `getHref`, timer via `renderStepMeta`), edited
+      with the same editor as M3
+- [ ] Huddle ⋯ → **Edit message** edits the same checklist
+- [ ] Live timer `Badge` on the running ticket's row and plan item
+- [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
+      have no socket)
+- [ ] Decide [open questions](#open-questions) 1–3 before any automatic check-off
+- [ ] Done when: an edit or check in any one place shows in the other two within
+      one refresh, without duplicating the plan post, and timers don't announce
+      every second
+
+### M5 — Clock-Out Carry-Over
+
+- [ ] On clock-out — with a plan or with Pulse — **checked** items unpin and return
+      to Rest of my board
+- [ ] **Unchecked** items (never started, or manually unchecked) stay pinned, in
+      order, for the next session
+- [ ] Read the checklist before the wrap-up replaces the plan text (see
+      [Incidental Findings](#incidental-findings-on-main))
+- [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked
+      item pinned, for both clock-out paths
+
+### M6 — Actionable Toasts (Issue Later)
+
+- [ ] "{name} assigned you TH-307 · **View**"
+- [ ] "{name} mentioned you · **View**" for plan and Huddle mentions
+- [ ] Confirmations that say where a change went, e.g. "Pinned TH-307 · added to
+      your plan in Huddle"
+- [ ] Use `Toast` with `action`, as "Started … · View post" already does
+
+---
+
+## Ticket Beats and Videos (Experimental)
+
+Not an immediate requirement — the Pulse side is still being worked on — but this
+is how ticket videos are meant to show, and the design should keep it.
+
+- **Beat:** a short Pulse clip recorded on a ticket ("a few seconds of Pulse
+  saved right on the ticket").
+- Each ticket row shows a count of its videos — uploaded, recorded, or saved as a
+  draft in Pulse — as a `Badge` such as **▶ 2 videos**, with drafts shown apart
+  from uploaded ones.
+- While a beat uploads, the row shows its progress (`Progress`) and then a
+  "Beat added to TH-123" toast.
+- A Pulse button on each row records a beat for that ticket. Today Pulse-on-a-
+  ticket lives on the ticket page's Videos card
+  ([TicketAttachmentsCard.tsx](../src/features/tickets/detail/TicketAttachmentsCard.tsx)).
+- Ticket videos already flow into the next Huddle post about the ticket
+  ([useTicketVideos.ts](../src/features/huddle/useTicketVideos.ts)).
+
+---
+
+## Open Questions
+
+1. **What does checking off a plan item mean** — done for good (close the ticket)
+   or "worked on, not returning today"? See [Scene 7](#scene-7--checking-off-and-the-shared-editor-).
+2. Should starting the next pinned ticket **automatically** check off the one that
+   was running? Depends on (1).
+3. Do "Started … / Switched to …" posts stay for tickets on the plan?
+4. Is **"beat"** user-facing wording?
+
+## Incidental Findings on `main`
+
+- **Seeder import is broken locally:** `/app/settings?section=seeder` posts to
+  `http://localhost:4000/v1/seed/import/parse` (the retired Fastify API) and fails
+  with "Failed to fetch".
+- **The wrap-up replaces the plan.** Clocking out with a wrap-up overwrites the
+  plan text in the session post ("(edited)", relabelled "Wrap-up"). Relevant to
+  M5.
+- **Wrap-up composer opens with the plan text.** After clocking in, "What did you
+  work on?" already contains the plan
+  ([app-14-clock-during.png](mvp-gap-plan/app-14-clock-during.png)).
+
+---
+
+## Appendix — Transcript
+
+Whisper output with obvious mis-hearings corrected (e.g. "Sandler … cross board" → "Stanley … crossword").
+
+```text
+[0:00] [Narrator], Assistant Regional Manager. Michael wants the company website updated, so naturally
+[0:05] he picked the best man. Here's how I run my day. Today's goal: get the new paper catalog live
+[0:12] on our website. This is my board with all tickets from GitHub, Redmine and TimeHuddle. I pin the
+[0:17] catalog page and scrum, and then one ticket of my own, and just drag and pin it to the rest of my list.
+[0:30] Happy with the list — Start session, or just hit play on the first ticket. Same thing. One last
+[0:34] step: I'm on the clock before Stanley finishes his crossword. Or to change the plan first,
+[0:40] I tap clock in and my pinned tickets are already here. I can add anything that isn't in a ticket,
+[0:46] even mention someone. One tap: clocked in, plan posted in Huddle, first ticket started, and
+[0:53] we can see the time going. I see my teammates are sending messages.
+[0:59] An hour later the catalog has this year's prices. I record a beat — a few seconds of Pulse saved right
+[1:05] on the ticket. Michael calls scrum. I start this from the ticket and the catalog ticket ticks itself
+[1:13] off with its hour and ten minutes. At scrum, Michael scrolls through yesterday's updates
+[1:20] instead of making everyone talk. Then he talks for 10 minutes anyway.
+[1:31] Scrum's done. I tick it off and I move on to the next ticket.
+[1:35] I fix the ticket and I record a beat for it.
+[1:41] Pam comes back about the photos and she's made me a ticket. It landed on my board.
+[1:46] I pin it and it joins my plan, here and in Huddle.
+[1:52] Pam's ticket covers the photos now, so my note about them goes: three dots, Edit plan, gone. Gone
+[1:58] from my clock page too. No loose ends. Loose ends are how they get you. And a quick thanks to Pam.
+[2:05] That's my morning. It's five o'clock. The catalog is live and my title is fixed. Pam's photos can
+[2:13] wait until tomorrow. I clock out with a Pulse so Michael gets my update at scrum. My wrap-up:
+[2:19] this year's prices live and my correct title, all of it in eight seconds. Michael's attention span is nine.
+[2:26] Anyways, eight hours. My wrap-up is in Huddle for tomorrow's scrum and Pam's photos stay pinned for
+[2:34] the morning. Time tracking is not a joke, Jim. That's how my day goes with TimeHuddle.
+[2:40] Plan it. Clock it. Done.
+```
+
+All captures live in [mvp-gap-plan/](mvp-gap-plan/): `video-*.jpg` are
+prototype frames and `app-*.png` are `main` captures.
