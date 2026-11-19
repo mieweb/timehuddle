@@ -365,8 +365,13 @@ no ticket or mention chips on the Clock page.
       link (`- [ ] [TH-923: …](/app/tickets/…)`) as the plan's last item, using
       the `RichEditor` `task_list` / `task_item` nodes; free-text lines are items
       too
-- [x] **@Mention** writes `@Name` at the caret; a picked person is kept even when
-      two teammates share a first name
+- [x] The composer has two buttons, **Media** (photo, video or document) and
+      **Ticket**; there is no @Mention button
+- [x] Typing `@` suggests teammates and the team's open tickets; a ticket goes in
+      as an inline link. Built in `@mieweb/ui` as `RichEditor`'s `mentionOptions`
+      (branch `feat/rich-editor-mentions`, upstream PR to open)
+- [ ] Known limit: a first name two teammates share mentions no one, as in the
+      Huddle composer (`detectMentions`)
 - [ ] The clock-in composer opens pre-filled with one item per pinned ticket, in
       pin order — waits on M2 ([#884](https://github.com/mieweb/timehuddle/issues/884))
 - [x] A plan of ticket items alone satisfies **Require a plan**
