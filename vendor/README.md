@@ -45,11 +45,14 @@ graph LR
 
 Pulse inside the TimeHuddle app (`src/features/pulse-embed/`) talks to the native Pulse plugin
 through `@mieweb/pulse-embed`, which is built in the Pulse repo (`embed/packages/pulse-embed`) and
-not yet on npm. The tarball is that package's `npm pack` (its built `dist/`), so CI and Docker
-install it like any dependency. To refresh it, pack the package in the Pulse repo, copy the `.tgz`
+not yet on npm. The tarball is that package's `npm pack` (its built `dist/`), committed so the app
+can install it like any dependency. The `Dockerfile` copies only `vendor/mieweb-ui.tgz` before its
+two `npm install` steps, so the image build also needs a
+`COPY vendor/mieweb-pulse-embed.tgz ./vendor/mieweb-pulse-embed.tgz` line next to each of them;
+that change, and a Docker build to confirm it, are still to come. To refresh it, pack the package in the Pulse repo, copy the `.tgz`
 here as `mieweb-pulse-embed.tgz`, and run `npm install --package-lock-only --ignore-scripts` so
 `package-lock.json` records its new integrity; commit both. Once the package is published, set the
-dependency back to its npm version and delete the tarball.
+dependency back to its npm version and delete the tarball (and its `COPY` lines in the `Dockerfile`).
 
 ## Working on the library
 
