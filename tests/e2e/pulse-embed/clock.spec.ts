@@ -18,8 +18,10 @@ import { expect, test, type Page } from '@playwright/test';
 import { selectSharedTestTeam } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { getSessionToken } from '../tickets/helpers';
+import { PULSE_FAKE_BROWSER } from './fake';
 
 test.skip(process.env.VITE_PULSE_FAKE !== '1', 'Needs a VITE_PULSE_FAKE=1 build of the frontend');
+test.use(PULSE_FAKE_BROWSER);
 
 // ─── The fake Pulse and the server's settings ─────────────────────────────────
 

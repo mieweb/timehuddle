@@ -13,8 +13,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, goToTickets, ticketRow } from '../tickets/helpers';
+import { PULSE_FAKE_BROWSER } from './fake';
 
 const FAKE_BUILD = process.env.VITE_PULSE_FAKE === '1';
+test.use(PULSE_FAKE_BROWSER);
 
 interface PulseWindow {
   __PULSE_ADAPTER__?: unknown;
@@ -77,7 +79,9 @@ test.describe('Record with Pulse falls back to the Pulse link', () => {
     ticketTitle = `Pulse fallback ${Date.now()}`;
   });
 
-  test.afterEach(async ({ page }) => {
+  // A case skipped for this build made no ticket, and its page never signed in.
+  test.afterEach(async ({ page }, testInfo) => {
+    if (testInfo.status === 'skipped') return;
     await deleteTicket(page, ticketTitle);
   });
 

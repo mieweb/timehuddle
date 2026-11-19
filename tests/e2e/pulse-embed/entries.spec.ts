@@ -24,8 +24,10 @@ import {
   goToTickets,
   ticketRow,
 } from '../tickets/helpers';
+import { PULSE_FAKE_BROWSER } from './fake';
 
 test.skip(process.env.VITE_PULSE_FAKE !== '1', 'Needs a VITE_PULSE_FAKE=1 build of the frontend');
+test.use(PULSE_FAKE_BROWSER);
 
 // ─── The fake Pulse and the server's settings ─────────────────────────────────
 
@@ -193,7 +195,8 @@ test.describe('Record with Pulse: session videos', () => {
     const started = await api('clock_start', { teamId });
     expect(started.ok()).toBe(true);
     try {
-      await page.goto('/app/dashboard');
+      // The session's row, with its Videos button, is on the timesheet.
+      await page.goto('/app/timesheet');
       await page.getByRole('button', { name: 'Videos for this session' }).first().click();
       const dialog = page.getByRole('dialog');
       const record = dialog.getByRole('button', { name: 'Record with Pulse' });

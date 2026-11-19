@@ -18,8 +18,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, goToTickets, ticketRow } from '../tickets/helpers';
+import { PULSE_FAKE_BROWSER, reachSeededDrafts, ticketAttachmentUrls, uploadForReal } from './fake';
 
 test.skip(process.env.VITE_PULSE_FAKE !== '1', 'Needs a VITE_PULSE_FAKE=1 build of the frontend');
+test.use(PULSE_FAKE_BROWSER);
 
 // ─── The fake Pulse and the server's settings ─────────────────────────────────
 
@@ -119,6 +121,7 @@ async function scriptFakePulse(
   page: Page,
   script: { flows?: FakeFlow[]; drafts?: SeedDraft[] },
 ): Promise<void> {
+  await reachSeededDrafts(page);
   await page.addInitScript((s) => {
     (window as unknown as FakeWindow).__PULSE_FAKE_SCRIPT__ = {
       flows: s.flows ?? [{ result: 'kept' }],
@@ -148,14 +151,25 @@ async function pulseInApp(page: Page, on: boolean): Promise<void> {
   });
 }
 
+/** The installed fake, once the page has put it in (it loads after the app starts). */
+const installed = (page: Page) =>
+  page.waitForFunction(() => Boolean((window as unknown as FakeWindow).__PULSE_FAKE__));
+
 const fake = (page: Page) => ({
-  transition: (draftId: string, e: FakeUploadEvent) =>
-    page.evaluate(
+  transition: async (draftId: string, e: FakeUploadEvent) => {
+    await installed(page);
+    await page.evaluate(
       ([id, ev]) => (window as unknown as FakeWindow).__PULSE_FAKE__!.transition(id, ev),
       [draftId, e] as const,
-    ),
-  setOnline: (online: boolean) =>
-    page.evaluate((o) => (window as unknown as FakeWindow).__PULSE_FAKE__!.setOnline(o), online),
+    );
+  },
+  setOnline: async (online: boolean) => {
+    await installed(page);
+    await page.evaluate(
+      (o) => (window as unknown as FakeWindow).__PULSE_FAKE__!.setOnline(o),
+      online,
+    );
+  },
   calls: (method: string) =>
     page.evaluate(
       (m) =>
@@ -216,6 +230,50 @@ test.describe('Media: when the page shows', () => {
     ).toBeVisible();
   });
 
+  test('every team off: Send from Unsent videos still sends the video to its ticket (AD25)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const title = `Pulse AD25 ${Date.now()}`;
+    await pulseInApp(page, false);
+    await loginAs(page, TEST_USERS.owner1);
+    try {
+      await createTicket(page, title);
+      await goToTickets(page);
+      const ticketId = await ticketRow(page, title).first().getAttribute('data-ticket-id');
+      expect(ticketId).toMatch(/^[0-9a-f]{24}$/);
+
+      // A take kept for that ticket earlier, then sent from the list with the
+      // fake in server mode: a real begin and TUS upload to the test backend.
+      await scriptFakePulse(page, {
+        // Its own draftKey: the server keeps the row it sends, and the page
+        // merges server rows by draftKey, so a seed reusing another case's
+        // key (`inst:s`) would show as already attached there.
+        drafts: [seed(`ad25-${Date.now()}`, 'Unsent take', ticketContext(ticketId!, title))],
+      });
+      await uploadForReal(page);
+      await page.goto('/app/media');
+      await expect(page.getByRole('heading', { name: 'Unsent videos (1)' })).toBeVisible({
+        timeout: 15_000,
+      });
+      await menu(page, 'Unsent take', 'Send');
+      await expect(page.getByText('Sending…').first()).toBeVisible();
+      await expect.poll(async () => (await fake(page).calls('upload')).length).toBe(1);
+
+      // The server attached it to the ticket, and the draft is now a receipt.
+      await expect
+        .poll(() => ticketAttachmentUrls(page, ticketId!), { timeout: 90_000 })
+        .toHaveLength(1);
+      await expect
+        .poll(() =>
+          page.evaluate(() => (window as unknown as FakeWindow).__PULSE_FAKE__?.drafts()[0]?.state),
+        )
+        .toBe('sent');
+    } finally {
+      await deleteTicket(page, title);
+    }
+  });
+
   test('nothing on this phone: the empty state says where videos come from', async ({ page }) => {
     await pulseInApp(page, true);
     await scriptFakePulse(page, { drafts: [] });
@@ -265,7 +323,8 @@ test.describe('Media: state chips (§5.2)', () => {
     const steps: [FakeUploadEvent, string][] = [
       [{ type: 'uploading', progress: 0.37 }, 'Uploading 37%'],
       [{ type: 'delivering' }, 'Processing…'],
-      [{ type: 'needs_credentials' }, 'Paused · Tap to resume'],
+      // The fake reports the `headless` capability: PulseKit resumes by itself.
+      [{ type: 'needs_credentials' }, 'Paused · resumes automatically'],
       [{ type: 'failed', code: 'upload.failed' }, "Didn't send"],
     ];
     for (const [event, chip] of steps) {
@@ -363,31 +422,34 @@ test.describe('Media: grouping', () => {
 
 test.describe('Media: Move to…', () => {
   test.setTimeout(90_000);
-  let ticketTitle: string;
+  // Only the case that makes a ticket deletes one.
+  let ticketTitle: string | null;
 
   test.beforeEach(() => {
-    ticketTitle = `Pulse move ${Date.now()}`;
+    ticketTitle = null;
   });
   test.afterEach(async ({ page }) => {
-    await deleteTicket(page, ticketTitle);
+    if (ticketTitle) await deleteTicket(page, ticketTitle);
   });
 
   test('an unsent video moves to a ticket found by search, then sends', async ({ page }) => {
+    const title = `Pulse move ${Date.now()}`;
+    ticketTitle = title;
     await pulseInApp(page, true);
     await scriptFakePulse(page, {
       drafts: [seed('m', 'Stray take', postContext(HEX('d'), 'Platform'))],
     });
     await loginAs(page, TEST_USERS.owner1);
-    await createTicket(page, ticketTitle);
+    await createTicket(page, title);
     await goToTickets(page);
-    const ticketId = await ticketRow(page, ticketTitle).first().getAttribute('data-ticket-id');
+    const ticketId = await ticketRow(page, title).first().getAttribute('data-ticket-id');
     expect(ticketId).toMatch(/^[0-9a-f]{24}$/);
 
     await page.goto('/app/media');
     await menu(page, 'Stray take', 'Move to…');
     const sheet = page.getByRole('dialog');
-    await sheet.getByRole('searchbox', { name: 'Search tickets' }).fill(ticketTitle);
-    await sheet.getByRole('button', { name: ticketTitle }).click();
+    await sheet.getByRole('searchbox', { name: 'Search tickets' }).fill(title);
+    await sheet.getByRole('button', { name: title }).click();
 
     await expect
       .poll(async () => (await fake(page).calls('setDraftContext')).length)
@@ -395,7 +457,7 @@ test.describe('Media: Move to…', () => {
     const [moved] = await fake(page).calls('setDraftContext');
     expect((moved.context as { key: string }).key).toBe(`ticket:${ticketId}`);
     await expect.poll(async () => (await fake(page).calls('upload')).length).toBe(1);
-    await expect(page.getByText(`Moved to ${ticketTitle} · Sending`).first()).toBeVisible();
+    await expect(page.getByText(`Moved to ${title} · Sending`).first()).toBeVisible();
   });
 
   test('a clock video whose clock action ran is never offered Move to…', async ({ page }) => {
