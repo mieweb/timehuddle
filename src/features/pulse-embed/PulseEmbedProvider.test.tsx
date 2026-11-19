@@ -149,6 +149,52 @@ describe('PulseEmbedProvider', () => {
     expect(await page.pendingResults()).toEqual([]);
   });
 
+  it('waits for a flow still open across a reload, then applies the account (busy is not an error)', async () => {
+    // A capgo reload while Pulse is on screen: the new page's setAccount is
+    // refused as busy until the flow ends.
+    const fake = fakePulse({ flows: [{ result: 'kept', afterMs: 300 }] });
+    void fake.client.record(context, { requestId: 'reload-open-1' });
+    await vi.waitFor(async () => expect(await fake.client.isOpen()).toBe(true));
+    const page = fake.reload();
+
+    void setPulseAccount('u1');
+    mount(page, { drafts: true });
+    await vi.waitFor(() => expect(count(fake, 'setAccount')).toBe(1));
+    await settle();
+    expect(status()).toBe('starting');
+    expect(embed.isOpen).toBe(true);
+    expect(methods(fake)).not.toContain('listDrafts');
+
+    await vi.waitFor(() => expect(status()).toBe('ready'), { timeout: 2000 });
+    expect(count(fake, 'setAccount')).toBe(2);
+    expect(embed.isOpen).toBe(false);
+    await vi.waitFor(() => expect(methods(fake)).toContain('resumeOutbox'));
+    await settle();
+    expect(count(fake, 'acknowledge')).toBe(1);
+    expect(await page.pendingResults()).toEqual([]);
+    expect(embed.usage).not.toBeNull();
+    // Nothing reached the person as an error (reportError logs every one it shows).
+    const shown = vi.mocked(console.warn).mock.calls.filter((args) => args[0] === '[pulse-embed]');
+    expect(shown).toEqual([]);
+  });
+
+  it('applies the account once isOpen turns false when no flowResult reaches the page', async () => {
+    const fake = fakePulse({ flows: [{ result: 'kept', afterMs: 200 }] });
+    fake.dropNextResult();
+    void fake.client.record(context, { requestId: 'reload-open-2' });
+    await vi.waitFor(async () => expect(await fake.client.isOpen()).toBe(true));
+    const page = fake.reload();
+
+    void setPulseAccount('u1');
+    mount(page);
+    await vi.waitFor(() => expect(status()).toBe('ready'), { timeout: 3000 });
+    await vi.waitFor(() => expect(count(fake, 'acknowledge')).toBe(1));
+    await settle();
+    expect(count(fake, 'acknowledge')).toBe(1);
+    expect(await page.pendingResults()).toEqual([]);
+    expect(embed.isOpen).toBe(false);
+  });
+
   it('skips resumeOutbox, prewarm and cleanup while Pulse is paused for everyone', async () => {
     const fake = fakePulse();
     void setPulseAccount('u1');
@@ -199,6 +245,22 @@ describe('PulseEmbedProvider', () => {
     await vi.waitFor(() => expect(loadTypes).toHaveBeenCalled());
     await settle();
     expect(methods(fake)).not.toContain('resumeOutbox');
+    // The person's own tap still opens: only a pause the server stated refuses it.
+    expect(embed.runtimePaused).toBeNull();
+    await act(async () => {
+      expect(await embed.open({ entry: 'record', context })).not.toBeNull();
+    });
+  });
+
+  it('refuses a flow while the server says Pulse is paused', async () => {
+    const fake = fakePulse({ flows: [{ result: 'kept' }] });
+    void setPulseAccount('u1');
+    mount(fake.client, { loadTypes: () => Promise.resolve(typesList({ runtimePaused: true })) });
+    await vi.waitFor(() => expect(embed.runtimePaused).toBe(true));
+    await act(async () => {
+      expect(await embed.open({ entry: 'record', context })).toBeNull();
+    });
+    expect(methods(fake)).not.toContain('open');
   });
 
   it('sets the account to null on sign-out', async () => {

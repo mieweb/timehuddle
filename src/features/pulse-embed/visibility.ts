@@ -40,7 +40,8 @@ export interface BackgroundFacts {
    * `pulseUploadTypes.list().runtimePaused`; null while the server hasn't
    * answered. Unknown counts as paused: the pause exists to stop a crash in
    * Pulse's background work, so nothing wakes Pulse before the server says
-   * it may.
+   * it may. A flow the person opens is refused only on a stated pause
+   * (PulseEmbedProvider's `open`).
    */
   runtimePaused: boolean | null;
 }

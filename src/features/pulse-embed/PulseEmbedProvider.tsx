@@ -49,6 +49,7 @@ import { installTestAdapter, pulseFakeEnabled } from './testAdapter';
 import {
   attachPulseAccount,
   PulseEmbedContext,
+  retryPulseAccount,
   type PulseEmbed,
   type PulseEmbedStatus,
 } from './usePulseEmbed';
@@ -210,6 +211,8 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
         reportError(result.error);
       }
       queue.flowEnded();
+      // A `setAccount` refused as `busy` (the page reloaded under an open flow) goes now.
+      void retryPulseAccount();
       void clientRef.current?.acknowledge(result.requestId).catch((error) => {
         // Unacknowledged, it comes back from the inbox at the next start, and is shown again.
         console.warn('[pulse-embed] acknowledge failed:', error);
@@ -411,7 +414,12 @@ export const PulseEmbedProvider: React.FC<PulseEmbedProviderProps> = ({
         reportError({ code: 'unavailable' });
         return null;
       }
-      if (pausedRef.current) {
+      // Only a pause the server has stated refuses a flow. Unknown (offline
+      // since launch) still opens: background work waits for the server
+      // (visibility.ts), but the person's own tap may reach their drafts
+      // offline, and record buttons stay hidden until the server has sent
+      // the team settings (startPulse).
+      if (pausedRef.current === true) {
         reportError({ code: 'runtime.paused' });
         return null;
       }

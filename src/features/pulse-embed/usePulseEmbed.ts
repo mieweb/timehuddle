@@ -174,6 +174,14 @@ let binding: AccountBinding | null = null;
 /** The account each client has applied (its userId, or null when signed out). */
 let appliedFor = new WeakMap<object, string | null>();
 let chain: Promise<void> = Promise.resolve();
+/** `setAccount` answered `busy`: it is tried again once the flow on screen ends. */
+let waitingForFlow = false;
+/** Bumped by resetPulseAccount, so a watch from before stops. */
+let generation = 0;
+let watching = false;
+
+/** How often `isOpen` is asked while `setAccount` waits for a flow to end. */
+export const FLOW_END_POLL_MS = 500;
 
 /** The server's origin (scheme, host, port), which with the user id names the account. */
 export function pulseServerOrigin(): string {
@@ -203,12 +211,24 @@ function sync(): Promise<void> {
     if (account === null) await closeForSignOut(b.client, b.queue);
     try {
       await b.client.setAccount(account);
+      waitingForFlow = false;
       appliedFor.set(b.client, key);
       b.onApplied?.(account);
     } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code === 'busy') {
+        // A flow is still on screen: the page reloaded (a capgo update) while
+        // Pulse was open. Not a failure: the account is applied once the
+        // flow ends (its result, or `isOpen` turning false), and nothing is
+        // shown to the person meanwhile.
+        waitingForFlow = true;
+        watchForFlowEnd(b.client);
+        return;
+      }
+      waitingForFlow = false;
       // After the runtime booted for another account the switch still takes
       // for reads; only recording waits for the app to reopen (§6.4).
-      if ((error as { code?: unknown } | null)?.code === 'restart_required') {
+      if (code === 'restart_required') {
         appliedFor.set(b.client, key);
         b.onApplied?.(account);
       }
@@ -216,6 +236,36 @@ function sync(): Promise<void> {
     }
   });
   return chain;
+}
+
+/**
+ * While `setAccount` waits on an open flow: ask `isOpen` every
+ * FLOW_END_POLL_MS and try again once it is false. The flow's result
+ * usually comes first (retryPulseAccount); this covers a result that no
+ * event carried.
+ */
+function watchForFlowEnd(client: AccountBinding['client']): void {
+  if (watching) return;
+  watching = true;
+  const mine = generation;
+  void (async () => {
+    let open = true;
+    while (open && waitingForFlow && mine === generation && binding?.client === client) {
+      await new Promise((resolve) => setTimeout(resolve, FLOW_END_POLL_MS));
+      open = await client.isOpen().catch(() => false);
+    }
+    if (mine !== generation) return;
+    watching = false;
+    if (waitingForFlow) void sync();
+  })();
+}
+
+/**
+ * A Pulse flow ended (its result arrived): if `setAccount` was refused as
+ * `busy` while the flow was on screen, apply the account now.
+ */
+export function retryPulseAccount(): Promise<void> {
+  return waitingForFlow ? sync() : chain;
 }
 
 /**
@@ -247,4 +297,7 @@ export function resetPulseAccount(): void {
   binding = null;
   appliedFor = new WeakMap();
   chain = Promise.resolve();
+  waitingForFlow = false;
+  watching = false;
+  generation += 1;
 }
