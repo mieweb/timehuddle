@@ -29,7 +29,7 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 import { PulseEmbedProvider } from '../features/pulse-embed/PulseEmbedProvider';
-import { useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
+import { usePulseEmbed, useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
@@ -187,6 +187,7 @@ const AppLayoutContent: React.FC = () => {
   const { pathname, navigate: routerNavigate } = useRouter();
   // While Pulse is open, a push tap or a timehuddle:// link opens once it closes.
   const navigate = useQueuedNavigate(routerNavigate);
+  const { navigate: queueWhilePulseOpen } = usePulseEmbed();
 
   // A web push clicked while the app was closed opens it with ?notification=<id>
   // (public/sw.js): mark that one read, then drop the param.
@@ -208,10 +209,10 @@ const AppLayoutContent: React.FC = () => {
       console.log('[handleNotificationData] received:', JSON.stringify(data));
       markTappedNotificationRead(data);
       if (data.type === 'shift-end-reminder') {
-        window.dispatchEvent(
-          new CustomEvent('timehuddle:openShiftReminder', {
-            detail: { clockEventId: data.clockEventId, teamId: data.teamId },
-          }),
+        const detail = { clockEventId: data.clockEventId, teamId: data.teamId };
+        // Held like a navigation while Pulse is open, so the dialog isn't behind it.
+        queueWhilePulseOpen('shift-end-reminder', () =>
+          window.dispatchEvent(new CustomEvent('timehuddle:openShiftReminder', { detail })),
         );
       } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
         // data.url carries ?postId=... so Huddle opens the conversation holding it.
@@ -234,7 +235,7 @@ const AppLayoutContent: React.FC = () => {
         }
       }
     },
-    [navigate],
+    [navigate, queueWhilePulseOpen],
   );
 
   // ── Foreground in-app notification banner state ───────────────────────────
