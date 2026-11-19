@@ -24,6 +24,10 @@ Readers must be able to rely on what they have already read in Huddle. A post
 does not change underneath them after it's posted, even if its author wishes it
 said something else.
 
+- **The plan post is the single source of what was agreed.** It records the
+  plan as the team read it that morning, and it is the easy launching point
+  when the day goes to plan: each ticket item in it can start that ticket's
+  timer.
 - **Progress is new posts, not edits.** Starting a clock, switching tickets,
   checking an item off or adding a ticket to the plan creates a new post in the
   timeline. It does not rewrite the plan post.
@@ -366,6 +370,8 @@ post is not edited to show progress.
 - [ ] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
       "x of y done", ticket links via `getHref`, timer via `renderStepMeta`), edited
       with the same editor as M3; the Pinned section reflects the same state
+- [ ] Ticket items in the plan post (and on the Clock page) start that ticket's
+      timer through `useTicketStart`, so the posted plan is the launching point
 - [ ] Starting, switching, checking off and adding to the plan each append a
       Huddle post (keep `main`'s "Started …" / "Switched to …"; add "Checked off …"
       and "Added … to today's plan")
