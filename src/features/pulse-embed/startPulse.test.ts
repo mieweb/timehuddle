@@ -72,6 +72,11 @@ describe('startPulse', () => {
       { info: { supported: true, contract: { major: 1, minor: 1 }, platform: 'android' } },
       link('platform'),
     ],
+    [
+      "Android, whose stub says it can't run",
+      { info: { supported: false, contract: { major: 1, minor: 1 }, platform: 'android' } },
+      link('platform'),
+    ],
     ['Pulse is paused for everyone', { runtimePaused: true }, link('runtime-paused')],
     ["the team's setting is off", { settingOn: false }, link('setting-off')],
     [

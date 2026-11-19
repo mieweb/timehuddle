@@ -91,8 +91,9 @@ export function startPulse(facts: StartPulseFacts): StartPulseDecision {
   const { info } = facts;
   if (!facts.pluginAvailable || !info) return no('no-plugin');
   if (info.contract?.major !== CONTRACT.major) return no('contract');
-  if (!info.supported) return no(info.unsupportedReason === 'ipad' ? 'ipad' : 'unsupported');
+  // Platform before `supported`, so Android before PR4 always reads as `platform`.
   if (!EMBED_PLATFORMS.includes(info.platform)) return no('platform');
+  if (!info.supported) return no(info.unsupportedReason === 'ipad' ? 'ipad' : 'unsupported');
   if (facts.isIPad) return no('ipad');
   if (facts.runtimePaused) return no('runtime-paused');
   if (!facts.settingOn) return no('setting-off');
