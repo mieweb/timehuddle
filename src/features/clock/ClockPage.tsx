@@ -52,12 +52,12 @@ import {
   appendPlanItem,
   planTicketItem,
   planTicketName,
-  teamTicketIdsInText,
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../huddle/useBoardTicketMentionOptions';
-import { fetchTeamTicketIds, toPostAttachment } from '../huddle/api';
+import { toPostAttachment } from '../huddle/api';
+import { fetchTeamRefs, postRefsIn } from '../huddle/postRefs';
 import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
@@ -215,8 +215,6 @@ export const ClockPage: React.FC = () => {
   // the text typed meanwhile, the mentions and tickets as they are then —
   // read here, and only while the page is still open.
   // (`textRef`, the text as of now, is declared below with the Pulse drafts.)
-  const detectMentionsRef = useRef(teamMentions.detect);
-  detectMentionsRef.current = teamMentions.detect;
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -231,10 +229,17 @@ export const ClockPage: React.FC = () => {
    * now. Throws naming a file that didn't upload (it stays, for
    * Retry or removal); null when the page went away meanwhile, or everything
    * was cleared while it waited (the button says why: it's disabled). The
-   * team's tickets are read fresh first, before anything is taken, so a
-   * failed lookup fails the submit with the files still in place.
+   * team's people and tickets are read fresh first (see below).
    */
   const takeForPost = async () => {
+    // The team's people and tickets first, read fresh: nothing waits on the
+    // network between the uploads settling and being taken, and a failed
+    // lookup leaves the draft and its files in place for a retry. Both are
+    // read even when the draft names none — it can gain one while files upload.
+    const refs = gateTeamId
+      ? await fetchTeamRefs(gateTeamId, { members: true, tickets: true })
+      : { members: [], ticketIds: new Set<string>() };
+    if (!aliveRef.current) return null;
     if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
     try {
       const { failed } = await uploads.settle();
@@ -244,18 +249,16 @@ export const ClockPage: React.FC = () => {
       if (aliveRef.current) setAwaitingUploads(false);
     }
     if (!textRef.current.trim() && uploads.current().length === 0) return null;
-    const teamTicketIds = gateTeamId ? await fetchTeamTicketIds(gateTeamId) : new Set<string>();
-    if (!aliveRef.current) return null;
     const taken = uploads.take();
     const media = taken.map((item) => item.result as MediaItem);
     const postText = textRef.current.trim();
     return {
       media,
       text: postText,
-      mentionUserIds: detectMentionsRef.current(postText),
-      ticketIds: teamTicketIdsInText(postText, teamTicketIds),
+      mentionUserIds: postRefsIn(postText, refs).mentions,
+      ticketIds: postRefsIn(postText, refs).ticketIds,
       /** For a wrap-up whose saved text differs from the draft (the plan put back). */
-      teamTicketIds,
+      refs,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -708,10 +711,7 @@ export const ClockPage: React.FC = () => {
             // (posted before plans linked them) were never shown, so stay.
             // Read from the text saved, which may have the plan put back in.
             ticketIds: [
-              ...new Set([
-                ...attachedOnly,
-                ...teamTicketIdsInText(textToSave, ready.teamTicketIds),
-              ]),
+              ...new Set([...attachedOnly, ...postRefsIn(textToSave, ready.refs).ticketIds]),
             ],
           },
         );

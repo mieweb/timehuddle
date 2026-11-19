@@ -85,15 +85,6 @@ export async function fetchTeamTickets(teamId: string) {
   return ticketApi.getTickets(teamId);
 }
 
-/**
- * Ids of every ticket in the team, read fresh — what a post's linked tickets
- * are checked against when it is sent. Throws when the lookup fails, so the
- * send fails and can be retried rather than dropping the links.
- */
-export async function fetchTeamTicketIds(teamId: string): Promise<Set<string>> {
-  return new Set((await fetchTeamTickets(teamId)).map((ticket) => ticket.id));
-}
-
 /** Fraction (0–1) of an in-flight upload, reported as bytes go out. */
 export type UploadProgress = (fraction: number) => void;
 

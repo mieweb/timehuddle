@@ -39,13 +39,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  discardMedia,
-  fetchTeamMembers,
-  fetchTeamTicketIds,
-  uploadedMedia,
-  toPostAttachment,
-} from '../features/huddle/api';
+import { discardMedia, uploadedMedia, toPostAttachment } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
@@ -94,12 +88,12 @@ import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth'
 import {
   GROUP_MENTION_OPTIONS,
   detectGroupMentions,
-  detectMentions,
   isGroupMentionId,
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../features/huddle/useBoardTicketMentionOptions';
-import { editedTicketIds, teamTicketIdsInText } from '../features/huddle/planItems';
+import { editedTicketIds } from '../features/huddle/planItems';
+import { fetchTeamRefs, postRefsIn, refsNeeded } from '../features/huddle/postRefs';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
@@ -1097,6 +1091,11 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
+      // Linked tickets checked against the team's, read fresh; skipped without links.
+      const { ticketIds: linkedTicketIds } = postRefsIn(
+        text,
+        await fetchTeamRefs(postingTeamId, { members: false, tickets: refsNeeded(text).tickets }),
+      );
       ({ id, clockEventId } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
@@ -1111,12 +1110,7 @@ export default function Huddle() {
           groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
         // Picked with the Ticket button, or linked in the text with @.
-        ticketIds: [
-          ...new Set([
-            ...ticketIds,
-            ...teamTicketIdsInText(text, await fetchTeamTicketIds(postingTeamId)),
-          ]),
-        ],
+        ticketIds: [...new Set([...ticketIds, ...linkedTicketIds])],
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
@@ -1229,16 +1223,16 @@ export default function Huddle() {
     // would save `mentions: []` and deliver a scheduled post silently. A failed
     // fetch here fails the save instead.
     try {
-      const [members, teamTicketIds] = await Promise.all([
-        fetchTeamMembers(post.teamId),
-        fetchTeamTicketIds(post.teamId),
-      ]);
-      const editedMentions = detectMentions(body, members).filter(
+      const refs = await fetchTeamRefs(post.teamId, {
+        members: true,
+        tickets: refsNeeded(body).tickets || refsNeeded(post.content.text).tickets,
+      });
+      const editedMentions = postRefsIn(body, refs).mentions.filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
       // Ticket links added or deleted in the edit; sent only when that changes them.
       const carried = (post.tickets ?? []).map((t) => t.id);
-      const ticketIds = editedTicketIds(carried, post.content.text, body, teamTicketIds);
+      const ticketIds = editedTicketIds(carried, post.content.text, body, refs.ticketIds);
       const ticketsChanged =
         ticketIds.length !== carried.length || ticketIds.some((id) => !carried.includes(id));
       await huddleApi.updatePost(

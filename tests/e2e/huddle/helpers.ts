@@ -3,7 +3,7 @@
  *
  * The feed is a SuperChatInbox, and the Huddle page only shows its own rich
  * composer for a team's very first post. The full composer (MarkdownEditor +
- * the Photo/Video/Doc/Pulse/Ticket/@Mention bar) lives on the Clock tab as the
+ * the Media/Ticket bar, `@` typed for mentions) lives on the Clock tab as the
  * plan-before-clock-in composer, so the composer specs drive that one: turn the
  * shared team's plan gate on, write the plan, post it (which clocks in), then
  * find the post in the inbox by its unique body text.
@@ -297,23 +297,24 @@ export async function deleteClockSession(clockEventId: string): Promise<void> {
   await withDb((db) => db.collection('clockevents').deleteOne({ _id: new ObjectId(clockEventId) }));
 }
 
+/** The composer's one Media file input (photos, videos and documents). */
+export function mediaInput(page: Page) {
+  return page.locator(
+    'input[type="file"][aria-label="Choose photos, videos or documents to attach"]',
+  );
+}
+
 /**
- * Attach a file through one of the composer's hidden file inputs and wait for
- * its chip to appear.
+ * Attach a file through the composer's hidden Media input and wait for its
+ * chip to appear.
  *
  * `setInputFiles` on the hidden input rather than clicking the visible button
  * first: the click only forwards to the same input, and a real OS file dialog
  * isn't drivable anyway.
  */
 export async function attachFile(page: Page, kind: 'image' | 'doc' | 'video'): Promise<void> {
-  const accept = {
-    image: 'input[type="file"][accept="image/*"]',
-    doc: 'input[type="file"][accept=".pdf,.doc,.docx,.txt"]',
-    video: 'input[type="file"][aria-label="Choose a video to attach"]',
-  }[kind];
-
   const chipsBefore = await attachmentChipCount(page);
-  await page.locator(accept).setInputFiles(FIXTURE[kind]);
+  await mediaInput(page).setInputFiles(FIXTURE[kind]);
 
   // Video goes through a TUS upload of a ~770KB fixture, which is slower than
   // the single multipart POST images and docs take.
@@ -441,20 +442,25 @@ export async function pasteText(page: Page, text: string): Promise<void> {
   }, text);
 }
 
-/** Pick a team member in the @Mention menu. */
+/** Type `@` in the plan editor and pick a teammate from the suggestions. */
 export async function mentionMember(page: Page, memberName: string): Promise<void> {
-  await page.getByRole('button', { name: '@Mention', exact: true }).click();
-  await page.getByTestId('mention-menu').waitFor({ state: 'visible', timeout: 10000 });
+  const editor = composerEditor(page);
+  await editor.click();
+  await editor.press('End');
+  await page.keyboard.type(' @');
   await page
-    .getByTestId('mention-menu')
-    .getByRole('menuitem')
+    .getByRole('listbox', { name: 'Mention' })
+    .getByRole('option')
     .filter({ hasText: memberName })
     .first()
-    .click();
-  await expect(page.locator(`button[aria-label="Remove mention of ${memberName}"]`)).toBeVisible();
+    .dispatchEvent('mousedown');
+  await expect(editor).toContainText(`@${memberName.split(' ')[0]}`);
 }
 
-/** Pick a ticket in the Ticket menu, searching by title. */
+/**
+ * Pick a ticket in the Ticket menu, searching by title. The Clock page writes
+ * it into the plan as a link; the Huddle message box shows it as a chip.
+ */
 export async function attachTicket(page: Page, ticketTitle: string): Promise<void> {
   await page.getByRole('button', { name: 'Ticket', exact: true }).click();
   await page.getByTestId('ticket-picker-menu').waitFor({ state: 'visible', timeout: 10000 });
@@ -465,9 +471,11 @@ export async function attachTicket(page: Page, ticketTitle: string): Promise<voi
     .filter({ hasText: ticketTitle })
     .first()
     .click();
-  // The chip names the ticket by title, not its database id (#733).
+  // Named by title, not its database id (#733).
   await expect(
-    page.getByRole('button', { name: `Remove ticket ${ticketTitle}`, exact: true }),
+    page
+      .getByRole('button', { name: `Remove ticket ${ticketTitle}`, exact: true })
+      .or(composerEditor(page).getByRole('link').filter({ hasText: ticketTitle })),
   ).toBeVisible();
 }
 
