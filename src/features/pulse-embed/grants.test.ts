@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clockApi, pulseUploadApi, type PulseUploadTypeInfo } from '../../lib/api';
 import type { ConfirmSendRequest, PulseContext, UploadTargetRequest } from './client';
-import { CONFIRM_SEND_TIMEOUT_MS, createGrants, HostServiceFailure, pulseCodeOf } from './grants';
+import {
+  CONFIRM_SEND_TIMEOUT_MS,
+  createGrants,
+  HostServiceFailure,
+  PULSE_ERROR_CODES,
+  PULSE_HTTP_STATUS_CODES,
+  pulseCodeOf,
+} from './grants';
 import { pulsePlace, type PulsePlaceInput, uploadTypeSpecOf } from './place';
 
 vi.mock('../../lib/api', () => {
@@ -147,6 +154,7 @@ describe('pulseCodeOf', () => {
     ['not-found', new ApiError('Ticket not found', 400, 'not-found'), 'destination.gone'],
     ['forbidden', new ApiError('Not yours', 403, 'forbidden'), 'destination.gone'],
     ['bad-request', new ApiError('Invalid target', 400, 'bad-request'), 'upload.refused'],
+    ['validation-error', new ApiError('Bad name', 400, 'validation-error'), 'upload.refused'],
     ['conflict', new ApiError('Already sent', 409, 'conflict'), 'upload.refused'],
     ['too-large', new ApiError('Too large', 400, 'too-large'), 'upload.too_large'],
     ['HTTP 401', new ApiError('Unauthorized', 401), 'no_account'],
@@ -156,14 +164,31 @@ describe('pulseCodeOf', () => {
     ['HTTP 429', new ApiError('Slow down', 429), 'host.unavailable'],
     ['HTTP 500', new ApiError('Boom', 500), 'host.unavailable'],
     ['a 5xx with a code', new ApiError('Bad gateway', 502, 'not-found'), 'host.unavailable'],
+    ['a bare 400', new ApiError('Bad request', 400), 'upload.refused'],
+    ['a bare 403', new ApiError('Forbidden', 403), 'destination.gone'],
     ['a bare 404', new ApiError('Not found', 404), 'destination.gone'],
+    ['a bare 409', new ApiError('Conflict', 409), 'upload.refused'],
+    ['a bare 410', new ApiError('Gone', 410), 'destination.gone'],
     ['a bare 413', new ApiError('Too large', 413), 'upload.too_large'],
+    ['a bare 422', new ApiError('Unprocessable', 422), 'upload.refused'],
     ['an unknown status', new ApiError("I'm a teapot", 418), 'host.unavailable'],
     ['a network failure', new TypeError('Load failed'), 'host.unavailable'],
     ['a stalled call', new Error('Timed out'), 'host.unavailable'],
     ['anything else', 'nope', 'host.unavailable'],
   ])('maps %s', (_name, error, code) => {
     expect(pulseCodeOf(error)).toBe(code);
+  });
+
+  it("uses the server's tables (pulse-uploads-core.js), entry for entry", async () => {
+    // A runtime path, so tsc (whose project is src/) doesn't follow it into the backend.
+    const serverCore = new URL(
+      '../../../meteor-backend/server/pulse-uploads-core.js',
+      import.meta.url,
+    ).pathname;
+    const server = (await import(/* @vite-ignore */ serverCore)) as Record<string, unknown>;
+    expect(server.PULSE_ERROR_CODES).toBeDefined();
+    expect(PULSE_ERROR_CODES).toEqual(server.PULSE_ERROR_CODES);
+    expect(PULSE_HTTP_STATUS_CODES).toEqual(server.PULSE_HTTP_STATUS_CODES);
   });
 
   it('keeps a code grants already chose', () => {
