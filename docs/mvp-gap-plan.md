@@ -15,7 +15,7 @@ posts, never as edits to the plan post.
 
 **Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
 
-**Decide first:** what "checked off" means — see [Open Questions](#open-questions).
+**Check-off rule for the MVP:** [touch and go](#scene-7--checking-off-touch-and-go) — switching tickets checks the previous one off, coming back unchecks it. What a check-off does to the ticket's status is decided later.
 What is deliberately left out is in [What Is In and Out](#what-is-in-and-out).
 
 ## Principle: The Huddle Timeline Is Append-Only
@@ -99,7 +99,8 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 | Edit plan with ✕ per item + Done                      | 🎨     | Illustrative only. Plan edits happen on the Clock page; the Huddle post isn't rewritten     |
 | Pulse recording, progress, Huddle ↔ Pulse switch      | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
 | Ticket beats / video counts on rows                   | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
-| What "checked off" means                              | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
+| Check-off behaviour (touch and go)                    | 🟡     | **M4** — see [Scene 7](#scene-7--checking-off-touch-and-go)                                 |
+| What a check-off does to the ticket's status          | ❓     | Later — see [Open Questions](#open-questions)                                               |
 
 ---
 
@@ -218,7 +219,7 @@ See [Ticket Beats and Videos (Experimental)](#ticket-beats-and-videos-experiment
 Not an immediate requirement, but the display is part of the design and should be
 kept.
 
-### Scene 7 — Checking Off and the Shared Editor ❓
+### Scene 7 — Checking Off: Touch and Go
 
 > "I start this from the ticket and the catalog ticket ticks itself off with its
 > hour and ten minutes."
@@ -227,18 +228,23 @@ kept.
 | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | <img src="mvp-gap-plan/video-14-ticket-checked-off.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-17-clock-todays-plan.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-14-clock-during.png" width="230" alt="" /> |
 
-- Checking items off happens on the Clock page and the board, which show live
-  progress. In Huddle, checking an item off appends a post such as "Checked off
-  TH-301 · 1h 10m" instead of changing the plan post (M4).
-- **Open discussion — what does "checked off" mean?** Two readings came up:
-  1. **Done for good** — the work is finished and the ticket can close.
-  2. **Worked on, not coming back to it today** — the plan item is done; the
-     ticket stays open.
+For the MVP, checking off is kept simple: **touch and go**. Someone can move back
+and forth between tickets all day.
 
-  The video's "Closed today 0" tile never changes, which points to (2), but this
-  is undecided. It affects whether checking an item changes ticket status,
-  whether starting the next pinned ticket checks off the previous one
-  automatically, and what M5 unpins at clock-out.
+- **Switching checks off.** Start TH-1, then switch to TH-2: TH-1's timer stops
+  and TH-1 is checked off.
+- **Coming back unchecks.** Start TH-1 again: it's unchecked and its timer resumes,
+  adding to the time already logged.
+- **Manual check and uncheck** work on the Clock page and the Pinned section too.
+- **At clock-out,** checked items leave Pinned and unchecked items stay pinned for
+  the next session (M5).
+- **Ticket status doesn't change.** Whether a checked-off ticket is closed or
+  moves to another status is decided later
+  ([Open Questions](#open-questions)).
+- **Huddle:** each switch already appends a post; it now also says what was
+  checked off, e.g. "Switched to TH-2 · TH-1 checked off at 1h 10m". The plan
+  post is not changed
+  ([principle](#principle-the-huddle-timeline-is-append-only)).
 
 ### Scene 8 — A Teammate's Ticket Joins the Plan; Editing the Plan 🟡 → M2, M4, M6
 
@@ -378,18 +384,22 @@ post is not edited to show progress.
       with the same editor as M3; the Pinned section reflects the same state
 - [ ] Ticket items in the plan post (and on the Clock page) start that ticket's
       timer through `useTicketStart`, so the posted plan is the launching point
+- [ ] Check-off follows [touch and go](#scene-7--checking-off-touch-and-go):
+      switching checks the previous ticket off, returning unchecks it and resumes
+      its timer, and items can be checked or unchecked by hand
 - [ ] Starting, switching, checking off and adding to the plan each append a
-      Huddle post (keep `main`'s "Started …" / "Switched to …"; add "Checked off …"
-      and "Added … to today's plan")
+      Huddle post (keep `main`'s "Started …" / "Switched to …", noting what was
+      checked off; add "Added … to today's plan")
 - [ ] The plan post is edited only for a radical plan rewrite, and the edit is
       shown with its time and author per
       [#797](https://github.com/mieweb/timehuddle/issues/797)
 - [ ] Live timer `Badge` on the running ticket's row and plan item
 - [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
       have no socket)
-- [ ] Decide [open questions](#open-questions) 1–2 before any automatic check-off
-- [ ] Done when: a check on the Clock page shows on the Board within one refresh
-      and appears in Huddle as a new post, with the plan post unchanged
+- [ ] Done when: switching TH-1 → TH-2 → TH-1 leaves TH-1 unchecked with its
+      timer resumed and TH-2 checked off, on both the Clock page and the Board
+- [ ] Done when: each switch or check appears in Huddle as a new post, with the
+      plan post unchanged
 - [ ] Done when: timers don't announce every second
 
 ### M5 — Clock-Out Carry-Over
@@ -437,10 +447,11 @@ is how ticket videos are meant to show, and the design should keep it.
 
 ## Open Questions
 
-1. **What does checking off a plan item mean** — done for good (close the ticket)
-   or "worked on, not returning today"? See [Scene 7](#scene-7--checking-off-and-the-shared-editor-).
-2. Should starting the next pinned ticket **automatically** check off the one that
-   was running? Depends on (1).
+1. **What happens to a checked-off ticket's status** — closed, or moved to another
+   status? The MVP leaves status alone
+   ([touch and go](#scene-7--checking-off-touch-and-go)).
+2. Is the ticket that is still running at clock-out checked off, like a switch, or
+   left unchecked and pinned?
 3. Is **"beat"** user-facing wording?
 
 ## Incidental Findings on `main`
