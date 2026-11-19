@@ -6,12 +6,12 @@
 page and is posted once to Huddle; progress through the day shows as new Huddle
 posts, never as edits to the plan post.
 
-- [ ] **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
-- [ ] **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
-- [ ] **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
-- [ ] **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** — Board and Clock page show live progress; Huddle gets new posts, never edits
-- [ ] **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
-- [ ] **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
+- [ ] `Shubh` **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
+- [ ] `Shubh` **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
+- [ ] `Poonam` **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
+- [ ] `Poonam` **[M4 Coordinate the plan](#m4--coordinate-the-plan-across-board-clock-page-and-huddle)** — Board and Clock page show live progress; Huddle gets new posts, never edits
+- [ ] `Shubh` **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
+- [ ] `Unassigned` **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
 
 **Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
 
@@ -306,18 +306,22 @@ definition of done.
 
 ```mermaid
 graph LR
-    classDef mvp fill:#9a3412,stroke:#fb923c,color:#fff
+    classDef shubh fill:#9a3412,stroke:#fb923c,color:#fff
+    classDef poonam fill:#1e3a8a,stroke:#60a5fa,color:#fff
+    classDef open fill:#3f3f46,stroke:#a1a1aa,color:#fff
     classDef later fill:#334155,stroke:#94a3b8,color:#fff
-    Reorder["M1 Reorderable list"]:::mvp --> Pins["M2 Pinned section + Start session"]:::mvp
-    Pins --> Inline["M3 Tickets inline in the plan"]:::mvp
-    Inline --> Coordinate["M4 Coordinate the plan"]:::mvp
-    Coordinate --> Carry["M5 Clock-out carry-over"]:::mvp
-    Toasts["M6 Actionable toasts"]:::mvp
+    Reorder["M1 Reorderable list<br/>Shubh"]:::shubh --> Pins["M2 Pinned section + Start session<br/>Shubh"]:::shubh
+    Pins --> Inline["M3 Tickets inline in the plan<br/>Poonam"]:::poonam
+    Inline --> Coordinate["M4 Coordinate the plan<br/>Poonam"]:::poonam
+    Coordinate --> Carry["M5 Clock-out carry-over<br/>Shubh"]:::shubh
+    Toasts["M6 Actionable toasts<br/>Unassigned"]:::open
     Beats["Ticket beats + video counts"]:::later
     Coordinate -.-> Beats
 ```
 
 ### M1 — Reorderable List for Pins
+
+**Owner:** Shubh
 
 The prototype's "hold one and drag it into Pinned, in the order you'll do them"
 needs a reorderable list. `@mieweb/ui` has the core of one already: the exported
@@ -347,6 +351,8 @@ What it doesn't cover yet:
 
 ### M2 — Pinned Section and Start Session on My Board
 
+**Owner:** Shubh
+
 - [ ] Model: an ordered per-user pin list next to My Board — ticket keys and
       position only (Core Model Data Discipline); pin, unpin and reorder methods
 - [ ] UI: **Pinned (n)** above **Rest of my board (n)**, each a `Collapsible` with
@@ -361,6 +367,8 @@ What it doesn't cover yet:
 
 ### M3 — Tickets Inline in the Plan Composer
 
+**Owner:** Poonam
+
 - [ ] The composer's **Ticket** action inserts a checklist item holding the ticket
       link (`- [ ] [TH-923: …](/app/tickets/…)`) using the `RichEditor`
       `task_list` / `task_item` nodes; free text and @mentions are items too
@@ -373,6 +381,8 @@ What it doesn't cover yet:
 - [ ] Done when: mentions notify once, and older plan posts render unchanged
 
 ### M4 — Coordinate the Plan Across Board, Clock Page and Huddle
+
+**Owner:** Poonam
 
 Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
 post is not edited to show progress.
@@ -404,6 +414,8 @@ post is not edited to show progress.
 
 ### M5 — Clock-Out Carry-Over
 
+**Owner:** Shubh
+
 - [ ] On clock-out — with a plan or with Pulse — **checked** items unpin and return
       to Rest of my board
 - [ ] **Unchecked** items (never started, or manually unchecked) stay pinned, in
@@ -416,6 +428,8 @@ post is not edited to show progress.
       item pinned, for both clock-out paths
 
 ### M6 — Actionable Toasts (Issue Later)
+
+**Owner:** Unassigned
 
 - [ ] "{name} assigned you TH-307 · **View**"
 - [ ] "{name} mentioned you · **View**" for plan and Huddle mentions
