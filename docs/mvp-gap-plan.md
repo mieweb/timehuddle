@@ -2,18 +2,42 @@
 
 ## TL;DR
 
-**Goal:** the plan is one checklist that shows in three places — Pinned on My
-Board, the Clock page and the Huddle post — and stays in sync.
+**Goal:** the plan is one checklist that shows on Pinned on My Board and the Clock
+page and is posted once to Huddle; progress through the day shows as new Huddle
+posts, never as edits to the plan post.
 
 - [ ] **[M1 Reorderable list](#m1--reorderable-list-for-pins)** — wire `useDragReorder`; upstream only cross-section and touch drag if needed
 - [ ] **[M2 Pinned section + Start session](#m2--pinned-section-and-start-session-on-my-board)** — ordered pins, one tap to start the day
 - [ ] **[M3 Tickets inline in the plan](#m3--tickets-inline-in-the-plan-composer)** — tickets become checklist items, pre-filled from pins
-- [ ] **[M4 One plan in sync](#m4--one-plan-in-sync-across-board-clock-page-and-huddle)** — Board, Clock page and Huddle show the same plan
+- [ ] **[M4 Plan progress](#m4--plan-progress-on-board-and-clock-new-posts-in-huddle)** — Board and Clock page show live progress; Huddle gets new posts
 - [ ] **[M5 Clock-out carry-over](#m5--clock-out-carry-over)** — checked items unpin, unchecked stay pinned
 - [ ] **[M6 Actionable toasts](#m6--actionable-toasts-issue-later)** _(later)_
 
+**Principle:** [the Huddle timeline is append-only](#principle-the-huddle-timeline-is-append-only).
+
 **Decide first:** what "checked off" means — see [Open Questions](#open-questions).
 What is deliberately left out is in [What Is In and Out](#what-is-in-and-out).
+
+## Principle: The Huddle Timeline Is Append-Only
+
+Readers must be able to rely on what they have already read in Huddle. A post
+does not change underneath them after it's posted, even if its author wishes it
+said something else.
+
+- **Progress is new posts, not edits.** Starting a clock, switching tickets,
+  checking an item off or adding a ticket to the plan creates a new post in the
+  timeline. It does not rewrite the plan post.
+- **Edit a post only when the plan changes radically,** and only when it's
+  absolutely necessary. The edit stays visible ("edited").
+- **Keep the chronology.** The timeline reads in the order things happened, so
+  someone catching up at scrum sees the plan, then the progress, then the
+  wrap-up.
+- **Live state lives outside the post.** The Board's Pinned section and the Clock
+  page show the plan's current state. The Huddle post records what was posted
+  at the time.
+
+Any milestone that would edit a posted message should be checked against this
+principle first.
 
 ## Overview
 
@@ -27,8 +51,9 @@ styling** from what is **real product work**, maps that work onto existing
 `@mieweb/ui` components, and lists the MVP milestones.
 
 **The core gap:** in the video the plan is **one checklist** that lives in three
-places — the board's Pinned section, the Clock page and the Huddle post — and all
-three stay in sync. On `main`, tickets are attached to the plan as chips beside a
+places — the board's Pinned section, the Clock page and the Huddle post. The
+prototype edits the Huddle post to show progress; we won't (see the
+[principle](#principle-the-huddle-timeline-is-append-only)). On `main`, tickets are attached to the plan as chips beside a
 free-text editor, and editing the plan on the Clock page while clocked in does not
 update the Huddle post.
 
@@ -50,21 +75,21 @@ Legend: ✅ on `main` · 🟡 partial · ❌ missing · 🎨 prototype styling o
 
 ## What Is In and Out
 
-| Area                                              | Status | Decision                                                                                    |
-| ------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| Dashboard, one board across sources, Take a break | ✅     | Nothing to do                                                                               |
-| My Board header (My Board / 🔭 / My Week, Select) | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
-| New ticket form                                   | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
-| **Reorderable list (drag to pin and order)**      | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
-| **Pinned section + Start session**                | ❌     | **M2**                                                                                      |
-| **Tickets inline in the plan composer**           | 🟡     | **M3**                                                                                      |
-| **Plan in sync across Board, Clock, Huddle**      | 🟡     | **M4**                                                                                      |
-| **Clock-out carry-over of unchecked items**       | ❌     | **M5**                                                                                      |
-| **Actionable toasts (assigned, mentioned)**       | 🟡     | **M6** (issue later)                                                                        |
-| Edit plan with ✕ per item + Done                  | 🎨     | Illustrative only. Editing is plain text editing — delete an item like any other text       |
-| Pulse recording, progress, Huddle ↔ Pulse switch  | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
-| Ticket beats / video counts on rows               | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
-| What "checked off" means                          | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
+| Area                                               | Status | Decision                                                                                    |
+| -------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| Dashboard, one board across sources, Take a break  | ✅     | Nothing to do                                                                               |
+| My Board header (My Board / 🔭 / My Week, Select)  | 🎨     | The prototype just hides these. Cosmetic, no issue                                          |
+| New ticket form                                    | ✅     | The prototype's bottom sheet is illustrative. **Keep the modal on `main`**                  |
+| **Reorderable list (drag to pin and order)**       | 🟡     | **M1** — `useDragReorder` exists; cross-section and touch drag to verify                    |
+| **Pinned section + Start session**                 | ❌     | **M2**                                                                                      |
+| **Tickets inline in the plan composer**            | 🟡     | **M3**                                                                                      |
+| **Plan progress on Board, Clock; posts in Huddle** | 🟡     | **M4**                                                                                      |
+| **Clock-out carry-over of unchecked items**        | ❌     | **M5**                                                                                      |
+| **Actionable toasts (assigned, mentioned)**        | 🟡     | **M6** (issue later)                                                                        |
+| Edit plan with ✕ per item + Done                   | 🎨     | Illustrative only. Plan edits happen on the Clock page; the Huddle post isn't rewritten     |
+| Pulse recording, progress, Huddle ↔ Pulse switch   | ✅     | Works today. The QR modal is web-only; in the Capacitor app the hand-off to Pulse is native |
+| Ticket beats / video counts on rows                | 🧪     | Keep in the design; see [Ticket Beats](#ticket-beats-and-videos-experimental)               |
+| What "checked off" means                           | ❓     | Open discussion — see [Scene 7](#scene-7--checking-off-and-the-shared-editor-)              |
 
 ---
 
@@ -147,14 +172,15 @@ How it works on `main` today:
   **Clock in with a plan** is allowed.
 - The Ticket and @Mention buttons also add **attachments** beside the text, and
   Huddle shows them as a "Plan · TH-923 · TH-922" line under the post.
-- After clocking in, editing the plan on the Clock page does **not** update the
-  Huddle post, so the Board, the Clock page and Huddle drift apart.
+- After clocking in, the Clock page shows a wrap-up composer, not today's plan
+  and its progress.
 
 What the MVP needs:
 
 - **M3:** tickets go **into** the editor as checklist items, and the
   composer opens pre-filled with the pinned tickets.
-- **M4:** one plan, kept in sync across Board, Clock page and Huddle post.
+- **M4:** the Board and Clock page show the plan's progress; Huddle records it as
+  new posts.
 
 ### Scene 5 — The Plan Lives in Huddle 🟡 → M4
 
@@ -165,9 +191,10 @@ What the MVP needs:
 | <img src="mvp-gap-plan/video-10-huddle-plan-live.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-13-huddle-after-start.png" width="230" alt="" /> |
 
 In the prototype the plan post is the checklist, with a live timer on the active
-item and "Plan · edited 11:35 AM" after changes. On `main` each ticket start or
-switch adds its own "Started …" / "Switched to …" post. Whether those posts stay
-once the plan post shows progress is a decision for M4.
+item and "Plan · edited 11:35 AM" after changes. **We won't follow that part.**
+Per the [principle](#principle-the-huddle-timeline-is-append-only), the plan
+post stays as posted, and `main`'s separate "Started …" / "Switched to …" posts
+are the right model: progress is appended to the timeline.
 
 ### Scene 6 — Ticket Beats and Videos 🧪
 
@@ -190,9 +217,9 @@ kept.
 | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | <img src="mvp-gap-plan/video-14-ticket-checked-off.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/video-17-clock-todays-plan.jpg" width="230" alt="" /> | <img src="mvp-gap-plan/app-14-clock-during.png" width="230" alt="" /> |
 
-- This scene is about **the plan editor**, which is the same in both places it
-  appears: the Clock page and the Huddle post. Checking an item in one shows in
-  the other (M4).
+- Checking items off happens on the Clock page and the board, which show live
+  progress. In Huddle, checking an item off appends a post such as "Checked off
+  TH-301 · 1h 10m" instead of changing the plan post (M4).
 - **Open discussion — what does "checked off" mean?** Two readings came up:
   1. **Done for good** — the work is finished and the ticket can close.
   2. **Worked on, not coming back to it today** — the plan item is done; the
@@ -213,12 +240,13 @@ kept.
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | <img src="mvp-gap-plan/video-19-assigned-toast.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20-plan-auto-added.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/video-20b-edit-plan-menu.jpg" width="190" alt="" /> | <img src="mvp-gap-plan/app-17-huddle-msg-actions.png" width="190" alt="" /> |
 
-- **Editing:** the prototype's ✕ per item and **Done** button only show that the
-  Huddle post is editable. **We don't want that UI.** Edit plan opens the same
-  editor, and an item is removed by deleting its text, like any other text.
-  `main` already has ⋯ → **Edit message**; it needs to edit the checklist and
-  keep the Clock page in sync (M4).
-- **Pinning mid-session adds the ticket to today's plan** (M2, M4).
+- **Editing:** the prototype's ✕ per item and **Done** button are illustrative.
+  **We don't want that UI, and we don't edit the Huddle post to drop an item.**
+  Plan edits happen on the Clock page, where an item is removed by deleting its
+  text. Huddle's ⋯ → **Edit message** stays for radical rewrites only (see the
+  [principle](#principle-the-huddle-timeline-is-append-only)).
+- **Pinning mid-session adds the ticket to today's plan** on the Board and Clock
+  page, and appends a post such as "Added TH-307 to today's plan" (M2, M4).
 - **Toasts:** "Pam assigned you DM-307 · **View**" and "Pinned DM-307 · added to
   your plan in Huddle" show toasts as a way to navigate to what changed and to
   notice mentions. **M6** — issue to be created later.
@@ -266,7 +294,7 @@ graph LR
     classDef later fill:#334155,stroke:#94a3b8,color:#fff
     Reorder["M1 Reorderable list"]:::mvp --> Pins["M2 Pinned section + Start session"]:::mvp
     Pins --> Inline["M3 Tickets inline in the plan"]:::mvp
-    Inline --> Sync["M4 One plan, in sync everywhere"]:::mvp
+    Inline --> Sync["M4 Plan progress, appended to Huddle"]:::mvp
     Sync --> Carry["M5 Clock-out carry-over"]:::mvp
     Toasts["M6 Actionable toasts"]:::mvp
     Beats["Ticket beats + video counts"]:::later
@@ -328,21 +356,28 @@ What it doesn't cover yet:
       already contains it, and clock-in works without typing more
 - [ ] Done when: mentions notify once, and older plan posts render unchanged
 
-### M4 — One Plan, in Sync Across Board, Clock Page and Huddle
+### M4 — Plan Progress on Board and Clock, New Posts in Huddle
 
-- [ ] The session's plan post is the single source for the plan's items and
-      checked state
+Follows the [principle](#principle-the-huddle-timeline-is-append-only): the plan
+post is not edited to show progress.
+
+- [ ] Store the session's plan items and their checked state as session data,
+      separate from the posted message
 - [ ] Clock page while clocked in: **Today's plan** as an `ActionPlan` (status,
       "x of y done", ticket links via `getHref`, timer via `renderStepMeta`), edited
-      with the same editor as M3
-- [ ] Huddle ⋯ → **Edit message** edits the same checklist
+      with the same editor as M3; the Pinned section reflects the same state
+- [ ] Starting, switching, checking off and adding to the plan each append a
+      Huddle post (keep `main`'s "Started …" / "Switched to …"; add "Checked off …"
+      and "Added … to today's plan")
+- [ ] The plan post is edited only for a radical plan rewrite, and the edit is
+      visible ("edited")
 - [ ] Live timer `Badge` on the running ticket's row and plan item
 - [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
       have no socket)
-- [ ] Decide [open questions](#open-questions) 1–3 before any automatic check-off
-- [ ] Done when: an edit or check in any one place shows in the other two within
-      one refresh, without duplicating the plan post, and timers don't announce
-      every second
+- [ ] Decide [open questions](#open-questions) 1–2 before any automatic check-off
+- [ ] Done when: a check on the Clock page shows on the Board within one refresh
+      and appears in Huddle as a new post, with the plan post unchanged
+- [ ] Done when: timers don't announce every second
 
 ### M5 — Clock-Out Carry-Over
 
@@ -350,7 +385,9 @@ What it doesn't cover yet:
       to Rest of my board
 - [ ] **Unchecked** items (never started, or manually unchecked) stay pinned, in
       order, for the next session
-- [ ] Read the checklist before the wrap-up replaces the plan text (see
+- [ ] Read the plan state from the session data (M4), not from the posted
+      message
+- [ ] Post the wrap-up as its own message instead of replacing the plan text (see
       [Incidental Findings](#incidental-findings-on-main))
 - [ ] Done when: clocking out with 3 of 4 items checked leaves only the unchecked
       item pinned, for both clock-out paths
@@ -391,8 +428,7 @@ is how ticket videos are meant to show, and the design should keep it.
    or "worked on, not returning today"? See [Scene 7](#scene-7--checking-off-and-the-shared-editor-).
 2. Should starting the next pinned ticket **automatically** check off the one that
    was running? Depends on (1).
-3. Do "Started … / Switched to …" posts stay for tickets on the plan?
-4. Is **"beat"** user-facing wording?
+3. Is **"beat"** user-facing wording?
 
 ## Incidental Findings on `main`
 
@@ -400,8 +436,9 @@ is how ticket videos are meant to show, and the design should keep it.
   `http://localhost:4000/v1/seed/import/parse` (the retired Fastify API) and fails
   with "Failed to fetch".
 - **The wrap-up replaces the plan.** Clocking out with a wrap-up overwrites the
-  plan text in the session post ("(edited)", relabelled "Wrap-up"). Relevant to
-  M5.
+  plan text in the session post ("(edited)", relabelled "Wrap-up"). This breaks
+  the [principle](#principle-the-huddle-timeline-is-append-only): readers lose
+  the plan they read in the morning. Fixed in M5.
 - **Wrap-up composer opens with the plan text.** After clocking in, "What did you
   work on?" already contains the plan
   ([app-14-clock-during.png](mvp-gap-plan/app-14-clock-during.png)).
