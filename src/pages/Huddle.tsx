@@ -97,6 +97,8 @@ import {
   isGroupMentionId,
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
+import { useBoardTicketMentionOptions } from '../features/huddle/useBoardTicketMentionOptions';
+import { ticketIdsInText } from '../features/huddle/planItems';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
@@ -349,6 +351,11 @@ export default function Huddle() {
   const ticketVideos = useTicketVideos(selectedTicketIds);
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
+  // `@` also offers the tickets on My Board, inserted as links to them.
+  const boardTicketOptions = useBoardTicketMentionOptions(
+    postingTeamId,
+    allTeams.find((t) => t.id === postingTeamId)?.ticketPrefix,
+  );
   // A send is in flight. The ref is what guards re-entry; the state only
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
@@ -1102,7 +1109,8 @@ export default function Huddle() {
           // @team / @here only mean something in a team's Huddle, not Personal.
           groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
-        ticketIds,
+        // Picked with the Ticket button, or linked in the text with @.
+        ticketIds: [...new Set([...ticketIds, ...ticketIdsInText(text)])],
         attachments: [...media, ...staged].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
@@ -1411,10 +1419,11 @@ export default function Huddle() {
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
                       isSending: sending || ticketVideos.loading,
-                      mentionOptions:
-                        scope === 'team'
-                          ? [...GROUP_MENTION_OPTIONS, ...mentions.options]
-                          : mentions.options,
+                      mentionOptions: [
+                        ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
+                        ...mentions.options,
+                        ...boardTicketOptions,
+                      ],
                       sendOptions: postingTeamId
                         ? [
                             {

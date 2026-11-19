@@ -55,7 +55,7 @@ import {
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
-import { useTicketMentionOptions } from '../huddle/useTicketMentionOptions';
+import { useBoardTicketMentionOptions } from '../huddle/useBoardTicketMentionOptions';
 import { toPostAttachment } from '../huddle/api';
 import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
@@ -186,8 +186,8 @@ export const ClockPage: React.FC = () => {
   const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
-  // Typing `@` in the editor offers teammates and the team's open tickets.
-  const ticketOptions = useTicketMentionOptions(gateTeamId, ticketPrefix);
+  // Typing `@` in the editor offers teammates and the tickets on My Board.
+  const ticketOptions = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
   const mentionOptions = useMemo(
     () => [...teamMentions.options, ...ticketOptions],
     [teamMentions.options, ticketOptions],
