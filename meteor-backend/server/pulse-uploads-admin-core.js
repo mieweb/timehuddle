@@ -10,6 +10,16 @@
  *  - kept, failed, abandoned and overdue rates;
  *  - duplicate attachments, which must be 0.
  *
+ * A duplicate attachment is one upload whose video is attached more than
+ * once, whatever its url or place: an artifact sent again under a new url,
+ * or the same upload on two tickets or sessions. The unique index on
+ * {url, place} (huddle-server §12) can't see either. Only ticket and clock
+ * session videos are attachments; a Huddle post's video and a wrap-up's or
+ * plan's session post keep theirs on the post, so they aren't counted here.
+ *
+ * "Failed" rows are places refused at begin; they count for the team the
+ * target names (the row's `teamId`, set at the refusal).
+ *
  * "Sent" is every row of the team in the window but the cancelled ones: a
  * cancel is the person's choice (Cancel sending, Edit, Delete), not a lost
  * video. Pulse's `needs_credentials` is a state on the phone that the server
@@ -86,7 +96,7 @@ export const PULSE_UPLOAD_ADMIN_METHODS = Object.freeze({
         duplicateAttachments: {
           type: 'object',
           properties: {
-            sets: { type: 'integer', description: 'Places holding the same video more than once' },
+            sets: { type: 'integer', description: 'Uploads whose video is attached more than once' },
             extra: { type: 'integer', description: 'Copies beyond the first: must be 0' },
           },
         },
@@ -151,30 +161,40 @@ export function metricsPipeline({ teamId, since, limit = MAX_METRICS_ROWS + 1 })
 }
 
 /**
- * The aggregation over `attachments` that finds the same video attached to
- * the same place more than once, among the attachments of `uploadIds`: one
- * document `{ sets, extra }`, or none when there is no duplicate. The unique
- * index (huddle-server §12) should keep it empty.
+ * The `attachments` find for the video attachments of `uploadIds`: its
+ * filter, and a projection to the upload each came from (all
+ * duplicateCounts reads).
  * @param {string[]} uploadIds
  */
-export function duplicateAttachmentsPipeline(uploadIds) {
-  return [
-    { $match: { type: 'video', pulseUploadId: { $in: [...uploadIds] } } },
-    {
-      $group: {
-        _id: { url: '$url', kind: '$attachedTo.kind', id: '$attachedTo.id' },
-        n: { $sum: 1 },
-      },
-    },
-    { $match: { n: { $gt: 1 } } },
-    { $group: { _id: null, sets: { $sum: 1 }, extra: { $sum: { $subtract: ['$n', 1] } } } },
-  ];
+export function videoAttachmentsQuery(uploadIds) {
+  return {
+    filter: { type: 'video', pulseUploadId: { $in: [...uploadIds] } },
+    projection: { _id: 0, pulseUploadId: 1 },
+  };
 }
 
-/** The `{ sets, extra }` duplicateAttachmentsPipeline returned (none: zeros). */
-export function duplicateCounts(docs) {
-  const doc = Array.isArray(docs) ? docs[0] : null;
-  return { sets: Number(doc?.sets) || 0, extra: Number(doc?.extra) || 0 };
+/**
+ * The duplicates among video attachments (videoAttachmentsQuery's): `sets`,
+ * the uploads attached more than once, and `extra`, the copies beyond each
+ * one's first. Both must be 0.
+ * @param {Array<{ pulseUploadId?: unknown }>} attachments
+ */
+export function duplicateCounts(attachments) {
+  /** @type {Map<string, number>} */
+  const perUpload = new Map();
+  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+    const id = attachment?.pulseUploadId;
+    if (typeof id !== 'string' || !id) continue;
+    perUpload.set(id, (perUpload.get(id) ?? 0) + 1);
+  }
+  let sets = 0;
+  let extra = 0;
+  for (const n of perUpload.values()) {
+    if (n < 2) continue;
+    sets += 1;
+    extra += n - 1;
+  }
+  return { sets, extra };
 }
 
 // ─── Math ────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 /**
  * Unit tests for the admins' Pulse upload metrics
- * (server/pulse-uploads-admin-core.js): the argument check, the two
- * aggregation pipelines, and the math on a fixture team's rows (success
+ * (server/pulse-uploads-admin-core.js): the argument check, the rows'
+ * pipeline and the attachments' query, and the math on a fixture team's rows (success
  * rate, time to attach p50/p95, kept / failed / abandoned / overdue rates,
  * duplicate attachments).
  */
@@ -11,7 +11,6 @@ import {
   checkMetricsArgs,
   computeMetrics,
   DEFAULT_METRICS_WINDOW_MS,
-  duplicateAttachmentsPipeline,
   duplicateCounts,
   MAX_METRICS_ROWS,
   MAX_METRICS_WINDOW_MS,
@@ -19,6 +18,7 @@ import {
   metricsReport,
   percentile,
   PULSE_UPLOAD_ADMIN_METHODS,
+  videoAttachmentsQuery,
   wasOverdue,
 } from '../server/pulse-uploads-admin-core';
 import { exposePulseUploads, pulseUploadMethods } from '../server/pulse-uploads-expose-core';
@@ -118,19 +118,37 @@ describe('metricsPipeline', () => {
 });
 
 describe('duplicate attachments', () => {
-  it('groups video attachments of the uploads by url and place and counts the extra copies', () => {
-    const pipeline = duplicateAttachmentsPipeline(['u1', 'u2']);
-    expect(pipeline[0]).toEqual({ $match: { type: 'video', pulseUploadId: { $in: ['u1', 'u2'] } } });
-    expect(pipeline[1]).toEqual({
-      $group: { _id: { url: '$url', kind: '$attachedTo.kind', id: '$attachedTo.id' }, n: { $sum: 1 } },
+  it("reads the uploads' video attachments, only the upload each came from", () => {
+    expect(videoAttachmentsQuery(['u1', 'u2'])).toEqual({
+      filter: { type: 'video', pulseUploadId: { $in: ['u1', 'u2'] } },
+      projection: { _id: 0, pulseUploadId: 1 },
     });
-    expect(pipeline[2]).toEqual({ $match: { n: { $gt: 1 } } });
-    expect(pipeline[3]).toEqual({ $group: { _id: null, sets: { $sum: 1 }, extra: { $sum: { $subtract: ['$n', 1] } } } });
   });
 
-  it('reads none as zero', () => {
+  // Every attachment has its own {url, place}, so the unique index
+  // (huddle-server §12) lets them all in.
+  const attachments = [
+    // u1 sent again under a new url, onto the same ticket.
+    { pulseUploadId: 'u1', url: '/pulsevault/artifacts/a1/video', attachedTo: { kind: 'ticket', id: 't1' } },
+    { pulseUploadId: 'u1', url: '/pulsevault/artifacts/a1b/video', attachedTo: { kind: 'ticket', id: 't1' } },
+    // u2 on two tickets, then on a session as well.
+    { pulseUploadId: 'u2', url: '/pulsevault/artifacts/a2/video', attachedTo: { kind: 'ticket', id: 't1' } },
+    { pulseUploadId: 'u2', url: '/pulsevault/artifacts/a2/video', attachedTo: { kind: 'ticket', id: 't2' } },
+    { pulseUploadId: 'u2', url: '/pulsevault/artifacts/a2/video', attachedTo: { kind: 'clock', id: 'c1' } },
+    // u3 once.
+    { pulseUploadId: 'u3', url: '/pulsevault/artifacts/a3/video', attachedTo: { kind: 'ticket', id: 't1' } },
+  ];
+
+  it('counts an upload attached more than once, whatever its url or place', () => {
+    const keys = attachments.map(({ url, attachedTo }) => `${url}|${attachedTo.kind}|${attachedTo.id}`);
+    expect(new Set(keys).size).toBe(attachments.length);
+    expect(duplicateCounts(attachments)).toEqual({ sets: 2, extra: 3 });
+  });
+
+  it('reads none, or one each, as zero', () => {
     expect(duplicateCounts([])).toEqual({ sets: 0, extra: 0 });
-    expect(duplicateCounts([{ _id: null, sets: 2, extra: 3 }])).toEqual({ sets: 2, extra: 3 });
+    expect(duplicateCounts(attachments.slice(-1))).toEqual({ sets: 0, extra: 0 });
+    expect(duplicateCounts([{ pulseUploadId: null }, { pulseUploadId: null }, {}])).toEqual({ sets: 0, extra: 0 });
   });
 });
 

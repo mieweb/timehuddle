@@ -15,11 +15,11 @@ import { isObjectIdHex, rawDb } from './collections.js';
 import { isTeamAdminOrOrgOwner } from './org-helpers.js';
 import {
   checkMetricsArgs,
-  duplicateAttachmentsPipeline,
   duplicateCounts,
   metricsPipeline,
   metricsReport,
   PULSE_UPLOAD_ADMIN_METHODS,
+  videoAttachmentsQuery,
 } from './pulse-uploads-admin-core.js';
 import { pulseUploadMethods, TOO_MANY_PULSE_UPLOAD_CALLS } from './pulse-uploads-expose-core.js';
 import { pulseUploadsCollection } from './pulse-uploads.js';
@@ -54,11 +54,11 @@ async function metrics({ userId }, args) {
   const storedTeamId = idOf(team._id);
   const rows = await pulseUploadsCollection().aggregate(metricsPipeline({ teamId: storedTeamId, since })).toArray();
   const delivered = rows.filter((row) => row.state === 'delivered').map((row) => String(row._id));
-  const duplicates = delivered.length
-    ? duplicateCounts(
-        await rawDb().collection('attachments').aggregate(duplicateAttachmentsPipeline(delivered)).toArray(),
-      )
-    : undefined;
+  let duplicates;
+  if (delivered.length) {
+    const { filter, projection } = videoAttachmentsQuery(delivered);
+    duplicates = duplicateCounts(await rawDb().collection('attachments').find(filter, { projection }).toArray());
+  }
   return metricsReport({ teamId: storedTeamId, since, now, rows, duplicates });
 }
 
