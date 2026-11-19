@@ -31,8 +31,14 @@ said something else.
 - **Progress is new posts, not edits.** Starting a clock, switching tickets,
   checking an item off or adding a ticket to the plan creates a new post in the
   timeline. It does not rewrite the plan post.
-- **Edit a post only when the plan changes radically,** and only when it's
-  absolutely necessary. The edit stays visible ("edited").
+- **Once posted, the plan is the source of truth.** People aren't expected to
+  change it over and over. Edit it only when the plan changes radically and it's
+  absolutely necessary.
+- **An edit must be communicated, not silent.** Teammates and managers should be
+  able to see that the plan changed, when, and by whom — the edit is treated
+  like a post in its own right. The original and effective dates, the edited
+  time and author, and the edit window are covered by
+  [#797](https://github.com/mieweb/timehuddle/issues/797).
 - **Keep the chronology.** The timeline reads in the order things happened, so
   someone catching up at scrum sees the plan, then the progress, then the
   wrap-up.
@@ -376,7 +382,8 @@ post is not edited to show progress.
       Huddle post (keep `main`'s "Started …" / "Switched to …"; add "Checked off …"
       and "Added … to today's plan")
 - [ ] The plan post is edited only for a radical plan rewrite, and the edit is
-      visible ("edited")
+      shown with its time and author per
+      [#797](https://github.com/mieweb/timehuddle/issues/797)
 - [ ] Live timer `Badge` on the running ticket's row and plan item
 - [ ] After REST writes, refresh the feed rather than waiting for DDP (mobile may
       have no socket)
