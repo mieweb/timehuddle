@@ -50,6 +50,9 @@ export const SIGN_OUT_TEXT = {
   deleteFailed: "The videos couldn't be deleted. Try again.",
   /** A shared phone's session ended while a take was open. */
   discardedOnExpiry: 'Signed out. The recording was deleted because this phone is shared.',
+  /** A shared phone's session ended while a take was open, with other unsent videos too. */
+  discardedAndDeletedOnExpiry: (n: number) =>
+    `Signed out. The recording and ${videos(n)} that ${n === 1 ? "wasn't" : "weren't"} sent were deleted because this phone is shared.`,
   /** A shared phone's session ended with unsent videos. */
   deletedOnExpiry: (n: number) =>
     `Signed out. ${videos(n)} that ${n === 1 ? "wasn't" : "weren't"} sent ${
@@ -221,6 +224,7 @@ export async function discardOnSharedPhone(client: EndClient): Promise<string | 
   }
   // Unknown counts as some: a shared phone keeps nothing back.
   const purged = unsent !== 0 && (await deleteUnsent(client));
+  if (open && purged && unsent) return SIGN_OUT_TEXT.discardedAndDeletedOnExpiry(unsent);
   if (open) return SIGN_OUT_TEXT.discardedOnExpiry;
   if (purged && unsent) return SIGN_OUT_TEXT.deletedOnExpiry(unsent);
   return null;

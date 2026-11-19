@@ -222,13 +222,29 @@ describe('Pulse at sign-out (fake Pulse)', () => {
     const flow = fake.client.open({ entry: 'record', context });
     await vi.waitFor(async () => expect(await fake.client.isOpen()).toBe(true));
 
-    expect(await discardOnSharedPhone(fake.client)).toBe(SIGN_OUT_TEXT.discardedOnExpiry);
+    expect(await discardOnSharedPhone(fake.client)).toBe(
+      SIGN_OUT_TEXT.discardedAndDeletedOnExpiry(1),
+    );
+    expect(SIGN_OUT_TEXT.discardedAndDeletedOnExpiry(1)).toBe(
+      "Signed out. The recording and 1 video that wasn't sent were deleted because this phone is shared.",
+    );
     expect(await flow).toMatchObject({ status: 'canceled', reason: 'host' });
     expect(fake.calls.find((c) => c.method === 'close')?.args).toEqual({
       reason: 'host',
       discard: true,
     });
     expect((await fake.client.usage()).unsent).toBe(0);
+  });
+
+  it('with a take open and nothing else unsent, says only the recording was deleted', async () => {
+    fake = createFakePulse({
+      drafts: [],
+      flows: [{ result: 'kept', afterMs: 60_000 } as never],
+    });
+    void fake.client.open({ entry: 'record', context });
+    await vi.waitFor(async () => expect(await fake.client.isOpen()).toBe(true));
+    expect(await discardOnSharedPhone(fake.client)).toBe(SIGN_OUT_TEXT.discardedOnExpiry);
+    expect(fake.calls.map((c) => c.method)).not.toContain('purge');
   });
 
   it('with no take open, says how many unsent videos were deleted', async () => {
@@ -297,7 +313,7 @@ describe('reportPulseAccount', () => {
       'purge',
       'setAccount null',
     ]);
-    expect(pulseSignOutNotice()).toBe(SIGN_OUT_TEXT.discardedOnExpiry);
+    expect(pulseSignOutNotice()).toBe(SIGN_OUT_TEXT.discardedAndDeletedOnExpiry(2));
   });
 
   it('a sign-out the server did not state (signOut, a network error) keeps the drafts', async () => {

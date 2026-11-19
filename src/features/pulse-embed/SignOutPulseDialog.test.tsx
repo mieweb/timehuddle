@@ -375,7 +375,9 @@ describe('usePulseSignOut', () => {
 
     expect(await flow).toMatchObject({ status: 'canceled', reason: 'host' });
     expect((await fake.client.usage()).unsent).toBe(0);
-    expect(screen.getByRole('alert').textContent).toBe(SIGN_OUT_TEXT.discardedOnExpiry);
+    expect(screen.getByRole('alert').textContent).toBe(
+      SIGN_OUT_TEXT.discardedAndDeletedOnExpiry(1),
+    );
     fireEvent.click(button('Dismiss'));
     expect(screen.queryByRole('alert')).toBeNull();
   });
