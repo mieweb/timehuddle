@@ -45,6 +45,8 @@ export const ticketLinkText = {
   /** "Convert to PM issue": the ticket will go by the ID the link names. */
   convertTo: (prefix: string, pullRequest: boolean) =>
     `Convert to ${prefix} ${pullRequest ? 'pull request' : 'issue'}`,
+  /** A GitHub issue or pull request: the ticket shows it as one. */
+  displayAsGitHub: (pullRequest: boolean) => `Display as GitHub ${pullRequest ? 'PR' : 'issue'}`,
   orKeepAsLink: 'Or save it as a plain link.',
   convertedTo: (id: string) => `This ticket will go by ${id}.`,
   keepAsLink: 'Keep as a plain link',

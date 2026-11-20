@@ -1064,6 +1064,7 @@ export const TicketsPage: React.FC = () => {
               {...sharedListProps}
               view={boardView}
               loading={boardLoading}
+              hideBoardButton
               // Unresolvable board entries, announced politely.
               afterBulkBar={
                 <>

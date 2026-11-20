@@ -73,6 +73,8 @@ export interface TicketRowProps {
   boardKnown: boolean;
   boardLoading: boolean;
   onToggleBoard: (ticket: UnifiedTicket) => void;
+  /** On My Board every row is on it, so the row's own board button is left out; the menu still has it. */
+  hideBoardButton?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -125,6 +127,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   boardKnown,
   boardLoading,
   onToggleBoard,
+  hideBoardButton = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -279,18 +282,20 @@ export const TicketRow: React.FC<TicketRowProps> = ({
         {ticket.sourceId === 'huddle' && (
           <TicketPulseButton ticketId={ticket.id} title={ticket.title} />
         )}
-        <BoardToggleButton
-          onBoard={onBoard}
-          isLoading={boardLoading}
-          // Not while this row's timer is starting: the start decides whether to
-          // add the ticket from where the board stood when it was pressed.
-          disabled={timerLoading || !boardKnown}
-          onClick={() => onToggleBoard(ticket)}
-          ariaLabel={
-            onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
-          }
-          className="h-8 w-8 shrink-0"
-        />
+        {!hideBoardButton && (
+          <BoardToggleButton
+            onBoard={onBoard}
+            isLoading={boardLoading}
+            // Not while this row's timer is starting: the start decides whether to
+            // add the ticket from where the board stood when it was pressed.
+            disabled={timerLoading || !boardKnown}
+            onClick={() => onToggleBoard(ticket)}
+            ariaLabel={
+              onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
+            }
+            className="h-8 w-8 shrink-0"
+          />
+        )}
         {/* The same menu as the list header's: focus moves into it, the arrow
             keys walk it, Tab and Escape leave it, and a choice closes it. */}
         <FilterDropdown
