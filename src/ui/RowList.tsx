@@ -575,7 +575,9 @@ function RowListSections<T>({
         // Moves are announced below by section, not by place in the whole list.
         labels={{ moved: () => '' }}
         // A stuck heading's height (h-8 and its top border): the next one stacks under it, covering any rule beneath.
-        className="row-list-section-list"
+        // Clear of the scroll bar's lane: an overlay scroll bar (phones,
+        // macOS) can't be lifted above the stuck headings, so they keep off it.
+        className="row-list-section-list pe-1.5"
         style={{ '--row-list-stack-gap': STACK_GAP } as React.CSSProperties}
         // The gap between cards; a heading is the first thing in each.
         classNames={{
