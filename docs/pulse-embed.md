@@ -100,7 +100,7 @@ sent at 4:55 PM that uploads at 9:00 AM the next day still belongs to the 4:55 P
 - **The session a post joins.** A message-box video sent while clocked in joins that session
   as an update post, like a typed post. If `begin` comes within 5 minutes of Send, the server uses
   the session open now; later (the phone was offline), it uses the session whose interval holds
-  `sentAt`, else the latest one started before it, and never a later one.
+  `sentAt`, and never a later one. A video sent while clocked out joins no session.
 - **The conversation.** TimeHuddle has no conversations until #871 lands, so `conversationId` is
   stored as `null` and a message-box video posts to the team's Huddle as a typed post would.
   After #871, the conversation open at Send is recorded instead, and group and direct
