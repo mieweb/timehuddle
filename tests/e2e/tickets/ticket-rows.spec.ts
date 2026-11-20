@@ -432,8 +432,8 @@ test.describe('Ticket rows', () => {
   });
 
   test('My Board fits a 360px screen, board and timer buttons included', async ({ page }) => {
-    // Both views carry the ▶/⏸ button ahead of the row and the My Board toggle
-    // at its end; 360px is the narrowest phone the app supports.
+    // The ▶/⏸ button leads the row; My Board rows have no board toggle of their
+    // own (#890). 360px is the narrowest phone the app supports.
     const narrow = { width: 360, height: 740 };
     await new ClockPage(page).ensureClockedIn();
     await page.setViewportSize(narrow);
@@ -453,10 +453,9 @@ test.describe('Ticket rows', () => {
     expect(overflow).toBeLessThanOrEqual(1);
 
     // Every control on the row is on screen: select (in selection mode, the
-    // tightest the row gets), the board toggle, timer, and the row menu.
+    // tightest the row gets), timer, and the row menu.
     const controls = [
       row.getByRole('checkbox'),
-      tickets.removeFromBoardRowButton(title),
       tickets.timerButtonForRow(title),
       row.getByRole('button', { name: 'Ticket options' }),
     ];

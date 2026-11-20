@@ -33,9 +33,10 @@ test.describe('My Board', () => {
     const boardRow = tickets.rowByTitle(title);
     await expect(boardRow).toBeVisible();
 
-    // The row has its ▶/⏸ button, and a toggle that would take it off the board.
+    // The row has its ▶/⏸ button; every row here is on the board, so it has no
+    // board toggle of its own (#890) — the selection bar takes it off.
     await expect(tickets.timerButtonForRow(title)).toBeVisible();
-    await expect(tickets.removeFromBoardRowButton(title)).toBeVisible();
+    await expect(tickets.removeFromBoardRowButton(title)).toHaveCount(0);
 
     await tickets.selectTicket(title);
     await expect(tickets.removeFromBoardButton).toBeVisible();
