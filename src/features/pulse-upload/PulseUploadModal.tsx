@@ -16,7 +16,7 @@ import React, { useId } from 'react';
 
 import type { PulseDestination, PulseUploadStatus } from '../../lib/api';
 import { isMobileBrowser } from '../../lib/device';
-import { PulseLogo } from './PulseLogo';
+import { PulseIcon } from './PulseIcon';
 import { EXPIRED_MESSAGE, followUpNote, keptMessage, landedLabel, uploadHint } from './pulseStatus';
 
 export interface PulseUploadModalProps {
@@ -65,7 +65,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
       <ModalHeader className="border-b-0">
         <ModalTitle id={titleId}>
           <span className="pulse-modal-title flex items-center gap-2">
-            <PulseLogo className="h-5" />
+            <PulseIcon className="h-5" />
             Record with Pulse
           </span>
         </ModalTitle>
