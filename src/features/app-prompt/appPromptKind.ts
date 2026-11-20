@@ -1,12 +1,13 @@
 /**
  * Which native-app prompt a browser shows when TimeHuddle opens (#859), if any.
  *
- * - iPhone / iPad browser, no app → ask to install it from the App Store
- * - iPhone / iPad browser, has the app → offer to open this page in the app
- * - Laptop / desktop browser, no app → a QR code to install it on an iPhone
+ * - iPhone / iPad / Android browser, no app on that platform → ask to install
+ *   it from the App Store or Google Play
+ * - iPhone / iPad / Android browser, has the app → offer to open the dashboard in it
+ * - Laptop / desktop browser, no app on either platform → QR codes to install
+ *   it on an iPhone or an Android phone
  * - Everything else → nothing: inside the native app, people who already have
- *   it on a laptop, Android (no Play Store listing yet, #840), and automated
- *   browsers such as the Playwright suite.
+ *   it on a laptop, and automated browsers such as the Playwright suite.
  */
 import type { MobileOS } from '../../lib/device';
 
@@ -20,6 +21,8 @@ export interface AppPromptContext {
   mobileOS: MobileOS | null;
   /** The account used the iOS app recently (from the server). */
   hasIosApp: boolean;
+  /** The account used the Android app recently (from the server). */
+  hasAndroidApp: boolean;
 }
 
 export function appPromptKind({
@@ -27,8 +30,10 @@ export function appPromptKind({
   automated,
   mobileOS,
   hasIosApp,
+  hasAndroidApp,
 }: AppPromptContext): AppPromptKind | null {
-  if (isNativeApp || automated || mobileOS === 'android') return null;
+  if (isNativeApp || automated) return null;
   if (mobileOS === 'ios') return hasIosApp ? 'open-in-app' : 'install-phone';
-  return hasIosApp ? null : 'install-desktop';
+  if (mobileOS === 'android') return hasAndroidApp ? 'open-in-app' : 'install-phone';
+  return hasIosApp || hasAndroidApp ? null : 'install-desktop';
 }

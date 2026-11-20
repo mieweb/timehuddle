@@ -1,11 +1,15 @@
 /**
- * AppPrompt — asks browser users to install the TimeHuddle iOS app, or offers
- * to open it when they already have it (#859). Which one, if any, is decided
- * by appPromptKind.ts.
+ * AppPrompt — a one-line strip under the navbar on the dashboard that tells
+ * browser users TimeHuddle has a phone app, or offers to open it when they
+ * already have it (#859). Which one, if any, is decided by appPromptKind.ts.
  *
- * Shown once per browser tab: the first time TimeHuddle opens in a tab it
- * shows, and a session-storage flag keeps reloads and in-app navigation from
- * bringing it back. A new tab or window shows it again.
+ * Download does what fits the device: on a laptop it opens a QR code to
+ * scan with a phone; on an iPhone it goes to the App Store; on Android it
+ * opens the app when it's installed and Google Play when it isn't.
+ *
+ * Shown once per browser tab: the first time the dashboard renders in a tab,
+ * and a session-storage flag keeps reloads and coming back to the dashboard
+ * from bringing it back. A new tab or window shows it again.
  */
 import {
   Button,
@@ -16,11 +20,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Sheet,
-  SheetClose,
-  SheetDescription,
-  SheetFooter,
-  SheetTitle,
+  XIcon,
   buttonVariants,
 } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
@@ -28,28 +28,64 @@ import { useRouter } from '@ui/router';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useId, useState } from 'react';
 
-import { APP_STORE_URL, openInAppUrl } from '../../lib/appLinks';
-import { getMobileOS, isNativeApp, openExternalUrl } from '../../lib/device';
+import {
+  APP_STORE_URL,
+  PLAY_STORE_URL,
+  androidAppLink,
+  getAppUrl,
+  openInAppUrl,
+  storeUrlFor,
+} from '../../lib/appLinks';
+import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
 import { appPromptKind, type AppPromptKind } from './appPromptKind';
 
+// Short enough to stay on one line beside the button on a phone.
 const COPY = {
-  installTitle: 'Get TimeHuddle for iPhone',
-  installBody: 'The app is on the App Store. Install it for a faster TimeHuddle on your phone.',
-  installAction: 'Get the App',
-  openTitle: 'Open in the TimeHuddle app',
-  openBody: 'You have TimeHuddle on this iPhone. Pick up on this same page in the app.',
+  installText: 'TimeHuddle is on mobile.',
+  installAction: 'Download',
+  openText: 'Continue in the app.',
   openAction: 'Open in App',
-  qrBody: 'Point your iPhone camera at the code to get TimeHuddle from the App Store.',
-  qrAlt: 'QR code linking to TimeHuddle on the App Store',
-  qrAction: 'Open App Store',
-  dismiss: 'Not Now',
+  stripLabel: 'TimeHuddle mobile app',
+  dismissLabel: 'Dismiss',
+  qrTitle: 'Get TimeHuddle for your phone',
+  qrBody: 'Scan with your iPhone or Android camera to open your app store.',
+  qrAlt: 'QR code to get the TimeHuddle app for iPhone or Android',
+  storesLabel: 'App stores',
+  close: 'Close',
 } as const;
+
+/**
+ * The official store badges under the QR code. Apple's is its SVG as
+ * published; Google's PNG is cropped to the badge, without its transparent
+ * margin, so both render at the same height.
+ */
+const STORE_BADGES = [
+  {
+    store: 'App Store',
+    url: APP_STORE_URL,
+    src: '/store-badges/app-store.svg',
+    alt: 'Download on the App Store',
+  },
+  {
+    store: 'Google Play',
+    url: PLAY_STORE_URL,
+    src: '/store-badges/google-play.png',
+    alt: 'Get it on Google Play',
+  },
+] as const;
 
 const SHOWN_KEY = 'timehuddle.appPromptShown';
 
-/** Session storage can throw (private mode, blocked storage); treat that as "not shown yet". */
+/**
+ * Also kept in memory: session storage can throw (private mode, blocked
+ * storage), and without this, coming back to the dashboard would show the
+ * strip again. Memory lasts until the page reloads, storage for the tab.
+ */
+let shownThisPageLoad = false;
+
 function wasShownThisSession(): boolean {
+  if (shownThisPageLoad) return true;
   try {
     return sessionStorage.getItem(SHOWN_KEY) === '1';
   } catch {
@@ -58,108 +94,133 @@ function wasShownThisSession(): boolean {
 }
 
 function markShownThisSession(): void {
+  shownThisPageLoad = true;
   try {
     sessionStorage.setItem(SHOWN_KEY, '1');
   } catch {
-    // Without storage it simply shows again on the next load.
+    // Memory still covers this page load; a reload shows it again.
   }
 }
 
-/** Decided once per page load: the device can't change, and the prompt shouldn't swap mid-view. */
-function useAppPromptKind(): AppPromptKind | null {
+/** Decided once per mount: the device can't change, and the card shouldn't swap mid-view. */
+function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null } {
   const { user } = useSession();
-  const [kind] = useState(() =>
-    wasShownThisSession()
+  const [prompt] = useState(() => {
+    const mobileOS = getMobileOS();
+    const kind = wasShownThisSession()
       ? null
       : appPromptKind({
           isNativeApp: isNativeApp(),
           automated: typeof navigator !== 'undefined' && navigator.webdriver === true,
-          mobileOS: getMobileOS(),
+          mobileOS,
           hasIosApp: user?.hasIosApp ?? false,
-        }),
-  );
-  return kind;
+          hasAndroidApp: user?.hasAndroidApp ?? false,
+        });
+    return { kind, mobileOS };
+  });
+  return prompt;
 }
 
-export const AppPrompt: React.FC = () => {
-  const kind = useAppPromptKind();
+/**
+ * `focusAfterDismiss` takes focus when the strip is dismissed, since the
+ * dismiss button that held it is gone; without it keyboard users lose their place.
+ */
+export const AppPrompt: React.FC<{ focusAfterDismiss?: React.RefObject<HTMLElement | null> }> = ({
+  focusAfterDismiss,
+}) => {
+  const { kind, mobileOS } = useAppPrompt();
   const { needsUsernameClaim } = useSession();
-  const [open, setOpen] = useState(true);
-  // A new social signup must pick a username first (main.tsx); don't stack a second dialog on it.
-  const visible = Boolean(kind) && open && !needsUsernameClaim;
+  const [dismissed, setDismissed] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  // A new social signup must pick a username first (main.tsx), in a popup over
+  // the page; hold the strip, unmarked, until that's done.
+  const visible = Boolean(kind) && !dismissed && !needsUsernameClaim;
   useEffect(() => {
     if (visible) markShownThisSession();
   }, [visible]);
   if (!kind || !visible) return null;
 
-  const close = () => setOpen(false);
-  return kind === 'install-desktop' ? (
-    <InstallQrModal onClose={close} />
-  ) : (
-    <PhoneSheet kind={kind} onClose={close} />
+  const install = kind !== 'open-in-app';
+  return (
+    <>
+      <section
+        aria-label={COPY.stripLabel}
+        className="app-prompt-strip flex shrink-0 items-center gap-2 border-b border-primary-200 bg-primary-50 py-1.5 ps-4 pe-2 text-primary-900 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-100"
+      >
+        {/* Polite status, like WhatsNewBanner: the strip can appear after in-app
+            navigation, with focus still on the nav, so screen readers hear it. */}
+        <p role="status" className="app-prompt-strip-text min-w-0 flex-1 text-sm break-words">
+          {install ? COPY.installText : COPY.openText}
+        </p>
+        <AppPromptAction kind={kind} os={mobileOS} onShowQr={() => setQrOpen(true)} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={COPY.dismissLabel}
+          onClick={() => {
+            setDismissed(true);
+            focusAfterDismiss?.current?.focus();
+          }}
+          className="app-prompt-strip-dismiss shrink-0"
+        >
+          <XIcon size={16} aria-hidden="true" />
+        </Button>
+      </section>
+      {qrOpen && <InstallQrModal onClose={() => setQrOpen(false)} />}
+    </>
   );
 };
 
-const AppIcon: React.FC<{ className: string }> = ({ className }) => (
-  <img src="/logo.png" alt="" className={className} />
-);
-
-const PhoneSheet: React.FC<{ kind: 'install-phone' | 'open-in-app'; onClose: () => void }> = ({
-  kind,
-  onClose,
-}) => {
-  const descriptionId = useId();
+/** The strip's button: whatever gets this device to the app in one step. */
+const AppPromptAction: React.FC<{
+  kind: AppPromptKind;
+  os: MobileOS | null;
+  onShowQr: () => void;
+}> = ({ kind, os, onShowQr }) => {
   const { pathname, search } = useRouter();
-  const install = kind === 'install-phone';
+  const route = `${pathname}${search}`;
+  const install = kind !== 'open-in-app';
+  const label = install ? COPY.installAction : COPY.openAction;
+  // The icon is dropped on narrow phones so the strip stays on one line.
+  const icon = install ? (
+    <DownloadIcon size={14} aria-hidden="true" className="hidden sm:block" />
+  ) : (
+    <ExternalLinkIcon size={14} aria-hidden="true" className="hidden sm:block" />
+  );
 
+  if (kind === 'install-desktop' || !os) {
+    return (
+      <Button variant="primary" size="sm" className="shrink-0" leftIcon={icon} onClick={onShowQr}>
+        {label}
+      </Button>
+    );
+  }
+  // Download goes straight to the store. Not the Android intent link: browsers
+  // other than Chrome and Samsung Internet may ignore `intent://`, which would
+  // leave the button doing nothing.
+  if (install) {
+    return (
+      <Button
+        variant="primary"
+        size="sm"
+        className="shrink-0"
+        leftIcon={icon}
+        onClick={() => void openExternalUrl(storeUrlFor(os))}
+      >
+        {label}
+      </Button>
+    );
+  }
+  // A real link: an app link only opens the app when it's navigated to. On
+  // Android the intent link falls back to Google Play if the app is gone.
   return (
-    <Sheet
-      open
-      side="bottom"
-      onOpenChange={(isOpen) => !isOpen && onClose()}
-      aria-describedby={descriptionId}
-      className="app-prompt-sheet gap-0 rounded-t-3xl pb-[env(safe-area-inset-bottom)]"
+    <a
+      href={os === 'android' ? androidAppLink(route) : openInAppUrl(route)}
+      className={buttonVariants({ variant: 'primary', size: 'sm', className: 'shrink-0' })}
     >
-      <div className="app-prompt-header relative flex flex-col items-center gap-3 px-6 pt-8 pb-6 text-center">
-        <SheetClose className="absolute top-3 right-3 flex h-11 w-11 items-center justify-center" />
-        <AppIcon className="h-[72px] w-[72px] rounded-2xl shadow-md" />
-        <SheetTitle className="text-xl leading-tight font-extrabold">
-          {install ? COPY.installTitle : COPY.openTitle}
-        </SheetTitle>
-        <SheetDescription id={descriptionId} className="max-w-xs">
-          {install ? COPY.installBody : COPY.openBody}
-        </SheetDescription>
-      </div>
-      <SheetFooter className="app-prompt-actions flex-col gap-2 sm:flex-col">
-        {install ? (
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            leftIcon={<DownloadIcon size={18} aria-hidden="true" />}
-            onClick={() => {
-              void openExternalUrl(APP_STORE_URL);
-              onClose();
-            }}
-          >
-            {COPY.installAction}
-          </Button>
-        ) : (
-          // A real link: a custom-scheme URL only opens the app when it's navigated to.
-          <a
-            href={openInAppUrl(`${pathname}${search}`)}
-            onClick={onClose}
-            className={buttonVariants({ variant: 'primary', size: 'lg', fullWidth: true })}
-          >
-            <ExternalLinkIcon size={18} aria-hidden="true" />
-            {COPY.openAction}
-          </a>
-        )}
-        <Button variant="secondary" size="lg" fullWidth onClick={onClose}>
-          {COPY.dismiss}
-        </Button>
-      </SheetFooter>
-    </Sheet>
+      {icon}
+      {label}
+    </a>
   );
 };
 
@@ -173,36 +234,55 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       aria-describedby={descriptionId}
     >
       <ModalHeader>
-        <ModalTitle>{COPY.installTitle}</ModalTitle>
+        <ModalTitle>{COPY.qrTitle}</ModalTitle>
         <ModalClose />
       </ModalHeader>
-      <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center">
-        <div className="app-prompt-qr-tile rounded-xl bg-white p-3.5">
+      {/* Sized to the window so the whole popup fits without scrolling, down to
+          a phone held sideways: the code shrinks with the height, and short
+          screens get tighter spacing, smaller badges and no footer (the ✕ in the
+          header still closes it). */}
+      <ModalBody className="app-prompt-qr flex flex-col items-center gap-4 py-6 text-center [@media(max-height:520px)]:gap-2 [@media(max-height:520px)]:py-3">
+        {/* One code for both phones: the backend's /get-app redirects each to its store. */}
+        <div className="app-prompt-qr-tile rounded-xl bg-white">
           <QRCodeSVG
-            value={APP_STORE_URL}
+            value={getAppUrl()}
             size={176}
+            marginSize={4}
             role="img"
             aria-label={COPY.qrAlt}
-            className="block"
+            className="block h-auto w-[min(176px,30dvh)] min-w-24"
           />
         </div>
-        <p id={descriptionId} className="text-muted-foreground max-w-xs text-sm">
+        <p
+          id={descriptionId}
+          className="text-muted-foreground max-w-xs text-sm [@media(max-height:520px)]:text-xs"
+        >
           {COPY.qrBody}
         </p>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="secondary" onClick={onClose}>
-          {COPY.dismiss}
-        </Button>
-        <Button
-          variant="primary"
-          leftIcon={<ExternalLinkIcon size={16} aria-hidden="true" />}
-          onClick={() => {
-            void openExternalUrl(APP_STORE_URL);
-            onClose();
-          }}
+        <nav
+          aria-label={COPY.storesLabel}
+          className="app-prompt-store-badges flex flex-wrap justify-center gap-3 [@media(max-height:520px)]:gap-2"
         >
-          {COPY.qrAction}
+          {STORE_BADGES.map((badge) => (
+            <a
+              key={badge.store}
+              href={badge.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+            >
+              <img
+                src={badge.src}
+                alt={badge.alt}
+                className="block h-10 w-auto [@media(max-height:520px)]:h-8"
+              />
+            </a>
+          ))}
+        </nav>
+      </ModalBody>
+      <ModalFooter className="[@media(max-height:520px)]:hidden">
+        <Button variant="secondary" onClick={onClose}>
+          {COPY.close}
         </Button>
       </ModalFooter>
     </AppModal>

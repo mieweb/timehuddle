@@ -531,10 +531,11 @@ Meteor.methods({
       // about a release it has only ever known as present.
       createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
       releaseNotesSeenVersion: user.releaseNotesSeenVersion || null,
-      // Decides whether the web app asks this person to install the iOS app or
-      // offers to open it (#859). Worked out here rather than stored, so it
-      // lapses on its own when the app stops reporting in.
-      hasIosApp: usesNativeApp(user.nativeAppLastSeenAt, 'ios')
+      // Decide whether the web app asks this person to install the app or
+      // offers to open it (#859). Worked out here rather than stored, so they
+      // lapse on their own when the app stops reporting in.
+      hasIosApp: usesNativeApp(user.nativeAppLastSeenAt, 'ios'),
+      hasAndroidApp: usesNativeApp(user.nativeAppLastSeenAt, 'android')
     };
   }
 });

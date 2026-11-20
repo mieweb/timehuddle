@@ -261,7 +261,7 @@ Meteor.methods({
   /**
    * Records that this user just opened the native app on `platform`.
    *
-   * The web app reads it back (as `hasIosApp` on the current user) to choose
+   * The web app reads it back (as `hasIosApp` / `hasAndroidApp` on the current user) to choose
    * between asking someone to install the app and offering to open it (#859).
    * Called on every app start, whether or not notifications are allowed, so
    * it doesn't depend on a push token being registered.

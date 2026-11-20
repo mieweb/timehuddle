@@ -33,6 +33,11 @@ jobs:
       # - name: Test
       #   run: npm test
 
+      # Each shared package's own tests (packages/*): the frontend unit suite
+      # above stays off, but these are shared with the backend.
+      - name: Shared package tests
+        run: npm run test:packages
+
       - name: Release script tests
         run: npm run test:release-scripts
 

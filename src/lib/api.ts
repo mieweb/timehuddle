@@ -78,6 +78,8 @@ export interface TimecoreUser {
    * whether a browser asks them to install the app or offers to open it.
    */
   hasIosApp?: boolean;
+  /** Same as `hasIosApp`, for the Android app. */
+  hasAndroidApp?: boolean;
   organizationMembership?: {
     organizationId: string;
     organizationSlug: string;

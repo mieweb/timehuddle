@@ -107,6 +107,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           username: meteorUser.username ?? null,
           releaseNotesSeenVersion: meteorUser.releaseNotesSeenVersion ?? null,
           hasIosApp: meteorUser.hasIosApp ?? false,
+          hasAndroidApp: meteorUser.hasAndroidApp ?? false,
           organizationMembership: null,
           organizations,
         });

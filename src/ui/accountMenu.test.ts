@@ -21,6 +21,11 @@ describe('buildAccountMenuSections', () => {
     ).toEqual([['help', ['Report an Issue', 'Share Your Feedback', 'App Store']]]);
   });
 
+  it('names the store the device uses', () => {
+    const [help] = buildAccountMenuSections({ ...actions, storeLabel: 'Google Play' });
+    expect(help.items.at(-1)?.label).toBe('Google Play');
+  });
+
   it('wires each Help item to its action', () => {
     const [help] = buildAccountMenuSections(actions);
     help.items.forEach((item) => item.onSelect());
