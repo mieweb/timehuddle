@@ -718,13 +718,26 @@ export const ClockPage: React.FC = () => {
           !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+        // Mentions a plan only attached (posted before plans linked them, so
+        // no `@Name` in its text) were never shown, so stay — like tickets below.
+        const planMentions =
+          sessionPost?.content.mentions ?? sessionPostFetch?.content.mentions ?? [];
         // The text saved may have the plan put back, naming more than the draft.
-        const saveNeeds = refsNeeded(textToSave);
+        const textNeeds = refsNeeded(textToSave);
+        const saveNeeds = {
+          ...textNeeds,
+          members: textNeeds.members || planMentions.length > 0,
+        };
         const saveRefs =
           gateTeamId && !refsCover(ready.looked, saveNeeds)
             ? await fetchTeamRefs(gateTeamId, saveNeeds)
             : ready.refs;
         const saved = postRefsIn(textToSave, saveRefs);
+        const mentionedInPlan = postRefsIn(planText, saveRefs).mentions;
+        const memberIds = new Set(saveRefs.members.map((member) => member.id));
+        const attachedOnlyMentions = planMentions.filter(
+          (id) => memberIds.has(id) && !mentionedInPlan.includes(id),
+        );
         const linkedInPlan = ticketIdsInText(planText);
         const attachedOnly = (sessionPost?.tickets ?? sessionPostFetch?.tickets ?? [])
           .map((t) => t.id)
@@ -735,7 +748,7 @@ export const ClockPage: React.FC = () => {
           {
             text: textToSave,
             // Read from the text saved: a mention deleted in the wrap-up goes.
-            mentions: saved.mentions,
+            mentions: [...new Set([...attachedOnlyMentions, ...saved.mentions])],
           },
           {
             wrapUp: true,

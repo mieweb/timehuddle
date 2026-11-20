@@ -7,7 +7,12 @@
  */
 import { ticketApi } from '@lib/api';
 import { fetchTeamMembers } from './api';
-import { profileIdsInText, teamTicketIdsInText, ticketIdsInText } from './planItems';
+import {
+  profileIdsInText,
+  teamTicketIdsInText,
+  ticketIdsInText,
+  withoutProfileLinks,
+} from './planItems';
 import type { TeamMember } from './types';
 import { detectMentions } from './useTeamMentions';
 
@@ -54,7 +59,8 @@ export function postRefsIn(text: string, refs: TeamRefs) {
   const memberIds = new Set(refs.members.map((member) => member.id));
   const linked = profileIdsInText(text).filter((id) => memberIds.has(id));
   return {
-    mentions: [...new Set([...linked, ...detectMentions(text, refs.members)])],
+    // A link's label isn't scanned as typed: `@Ann-Marie Jones` would match `@Ann`.
+    mentions: [...new Set([...linked, ...detectMentions(withoutProfileLinks(text), refs.members)])],
     ticketIds: teamTicketIdsInText(text, refs.ticketIds),
   };
 }

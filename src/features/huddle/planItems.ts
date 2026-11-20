@@ -87,6 +87,11 @@ export function profileIdsInText(text: string): string[] {
   return linkedIds(text, PROFILE_LINK);
 }
 
+/** `text` without its profile links, label and all — what's left of it is typed. */
+export function withoutProfileLinks(text: string): string {
+  return text.replace(/\[[^\]]*\]\(\/app\/profile\/[^)\s]*\)/g, ' ');
+}
+
 /**
  * The ids `text` links to that a post in the team may carry: a link to another
  * team's ticket (or a deleted one) stays a plain link, since the server
