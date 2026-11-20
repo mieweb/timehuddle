@@ -92,6 +92,8 @@ export interface TicketListProps {
   /** `${sourceId}:${id}` of the row being put on or taken off the board, if any. */
   boardLoadingKey: string | null;
   onToggleBoard: (ticket: UnifiedTicket) => void;
+  /** Leaves out each row's board button — see `TicketRow`. */
+  hideBoardButton?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -131,6 +133,7 @@ export const TicketList: React.FC<TicketListProps> = ({
   boardKnown,
   boardLoadingKey,
   onToggleBoard,
+  hideBoardButton,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -313,6 +316,7 @@ export const TicketList: React.FC<TicketListProps> = ({
             boardKnown={boardKnown}
             boardLoading={boardLoadingKey === ticket.key}
             onToggleBoard={onToggleBoard}
+            hideBoardButton={hideBoardButton}
             onEditRequest={onEditRequest}
             onDeleteRequest={onDeleteRequest}
             onChangeStatusRequest={onChangeStatusRequest}

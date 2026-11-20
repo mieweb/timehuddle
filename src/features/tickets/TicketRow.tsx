@@ -8,7 +8,8 @@
  *
  * An open ticket leads with its timer button; a closed one has its purple mark
  * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
- * which offers the same in words. Every other action is in that menu and gated
+ * which offers the same in words; a Huddle ticket's Pulse chip comes before it
+ * (`TicketPulseButton`), for a video straight from the list. Every other action is in that menu and gated
  * on `ticket.capabilities`, so a source cannot render a control it is unable
  * to perform (Redmine issues, for instance, are never deleted).
  */
@@ -45,6 +46,7 @@ import { ticketTimerText } from '../timers/ticketTimerStrings';
 
 import { BoardToggleButton } from './BoardToggleButton';
 import { FilterDropdown } from './FilterDropdown';
+import { TicketPulseButton } from './TicketPulseButton';
 import { boardText } from './boardStrings';
 import { outsideRefOf } from './ticketIds';
 import { useShowHuddleIds } from './useShowHuddleIds';
@@ -71,6 +73,8 @@ export interface TicketRowProps {
   boardKnown: boolean;
   boardLoading: boolean;
   onToggleBoard: (ticket: UnifiedTicket) => void;
+  /** On My Board every row is on it, so the row's own board button is left out; the menu still has it. */
+  hideBoardButton?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -123,6 +127,7 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   boardKnown,
   boardLoading,
   onToggleBoard,
+  hideBoardButton = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -273,18 +278,24 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     <>
       {/* The row's own actions, side by side: one group, as adjacent buttons are. */}
       <ButtonGroup orientation="horizontal" className="ticket-row-actions gap-1">
-        <BoardToggleButton
-          onBoard={onBoard}
-          isLoading={boardLoading}
-          // Not while this row's timer is starting: the start decides whether to
-          // add the ticket from where the board stood when it was pressed.
-          disabled={timerLoading || !boardKnown}
-          onClick={() => onToggleBoard(ticket)}
-          ariaLabel={
-            onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
-          }
-          className="h-8 w-8 shrink-0"
-        />
+        {/* A video for this ticket, straight from the list (Huddle tickets only). */}
+        {ticket.sourceId === 'huddle' && (
+          <TicketPulseButton ticketId={ticket.id} title={ticket.title} />
+        )}
+        {!hideBoardButton && (
+          <BoardToggleButton
+            onBoard={onBoard}
+            isLoading={boardLoading}
+            // Not while this row's timer is starting: the start decides whether to
+            // add the ticket from where the board stood when it was pressed.
+            disabled={timerLoading || !boardKnown}
+            onClick={() => onToggleBoard(ticket)}
+            ariaLabel={
+              onBoard ? boardText.removeLabel(ticket.title) : boardText.addLabel(ticket.title)
+            }
+            className="h-8 w-8 shrink-0"
+          />
+        )}
         {/* The same menu as the list header's: focus moves into it, the arrow
             keys walk it, Tab and Escape leave it, and a choice closes it. */}
         <FilterDropdown

@@ -206,14 +206,17 @@ export class TicketsPage extends BasePage {
 
   /**
    * Create a ticket with the given title, optionally with a link to `githubUrl`.
-   * `convert` clicks "Convert to …", so the ticket goes by the ID the link names.
+   * `convert` clicks "Convert to …" (a GitHub link: "Display as GitHub …"), so
+   * the ticket goes by the ID the link names.
    */
   async createTicket(title: string, githubUrl?: string, { convert = false } = {}) {
     await this.openCreateForm();
     await this.page.getByPlaceholder('Ticket title').fill(title);
     if (githubUrl) {
       await this.page.getByLabel('Link', { exact: true }).fill(githubUrl);
-      if (convert) await this.page.getByRole('button', { name: /^Convert to / }).click();
+      if (convert) {
+        await this.page.getByRole('button', { name: /^(Convert to|Display as GitHub) / }).click();
+      }
       // Wait for title fetch
       await this.page.waitForTimeout(1500);
     }
