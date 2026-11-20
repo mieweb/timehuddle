@@ -30,9 +30,10 @@ interface ComposerChipButtonProps {
   'aria-label'?: string;
   /**
    * Below `sm`, just the icon in a circle: the label is kept for screen
-   * readers only, so a row of chips fits a phone.
+   * readers only, so a row of chips fits a phone. `'always'`: the icon alone
+   * at every width (a chip on each row of a list).
    */
-  compact?: boolean;
+  compact?: boolean | 'always';
 }
 
 export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButtonProps>(
@@ -50,11 +51,18 @@ export const ComposerChipButton = forwardRef<HTMLButtonElement, ComposerChipButt
           'gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700',
           // No gap below sm: the hidden label would still hold one, pushing
           // the icon off centre.
-          compact && 'max-sm:size-8 max-sm:shrink-0 max-sm:justify-center max-sm:gap-0 max-sm:p-0',
+          compact === 'always'
+            ? 'size-8 shrink-0 justify-center gap-0 p-0'
+            : compact &&
+                'max-sm:size-8 max-sm:shrink-0 max-sm:justify-center max-sm:gap-0 max-sm:p-0',
         )}
         {...aria}
       >
-        {compact ? <span className="max-sm:sr-only">{children}</span> : children}
+        {compact ? (
+          <span className={compact === 'always' ? 'sr-only' : 'max-sm:sr-only'}>{children}</span>
+        ) : (
+          children
+        )}
       </Button>
     );
   },

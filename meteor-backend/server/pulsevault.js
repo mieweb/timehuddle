@@ -42,9 +42,10 @@ import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
 import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
+import { createPulseReserve, PULSE_RESERVE_LIMIT, TOO_MANY_RESERVES } from './pulse-reserve-core.js';
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
-import { randomUUID } from 'crypto';
+import { createRateLimiter } from './rate-limit';
 import path from 'path';
 import { persistentDir } from './storage-paths';
 
@@ -437,12 +438,18 @@ Meteor.startup(async () => {
   if (replayed.length) console.log('[pulsevault] replayed', replayed.length, 'completion(s):', replayed.join(', '));
 });
 
-/** The capability token for one reservation: who, and where the video goes. */
-function mintUploadToken(artifactId, context) {
+/**
+ * The capability token for one reservation: who, and where the video goes.
+ * `ref`, when the destination is a place (pulse-link-hints-core.js), is its
+ * short opaque key, signed in the open for Pulse to read: which draft the
+ * link is for.
+ */
+function mintUploadToken(artifactId, context, ref) {
   return issueCapabilityToken(artifactId, CAPABILITY_SECRET, {
     keyId: CAPABILITY_KEY_ID,
     issuer: ISSUER,
     context,
+    ...(ref ? { ref } : {}),
   });
 }
 
@@ -459,23 +466,28 @@ function destinationOf({ destination, target, ticketId }) {
   return { kind: target, id: ticketId };
 }
 
+/** `pulsevault.reserve` behind its sign-in: see pulse-reserve-core.js. */
+const reservePulseUpload = createPulseReserve({
+  limiter: createRateLimiter(PULSE_RESERVE_LIMIT),
+  tooManyRequests: (retryAfterMs) =>
+    new Meteor.Error(TOO_MANY_RESERVES.error, TOO_MANY_RESERVES.reason, { timeToReset: retryAfterMs }),
+  resolveDestination: resolvePulseDestination,
+  mintToken: mintUploadToken,
+});
+
 Meteor.methods({
   /**
    * Reserve one Pulse upload: a fresh video id and a link token for it that
    * carries where the finished video goes (`destination`, see
    * pulse-destinations.js). The server delivers it there when the upload
-   * completes — the client has nothing left to do.
+   * completes — the client has nothing left to do. For a destination that is
+   * a place (pulse-link-hints-core.js) the token also signs its `ref`, and
+   * the result says what the link should call it (`label`) and a recording
+   * made for it (`name`), so Pulse opens on that place's draft.
    */
   async 'pulsevault.reserve'({ destination } = {}) {
     const identity = await requireIdentity(this);
-    const resolved = await resolvePulseDestination(identity.userId, destination);
-    // Always a fresh id: one link is one upload, and a re-scan of the same
-    // link resumes it (PulseVault's `reclaim`).
-    const videoid = randomUUID();
-    return {
-      videoid,
-      uploadToken: mintUploadToken(videoid, { userId: identity.userId, destination: resolved }),
-    };
+    return reservePulseUpload(identity.userId, destination);
   },
 
   /**
