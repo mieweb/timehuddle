@@ -270,12 +270,13 @@ const CARD_ROW = '[&_.row-list-item]:border-border/40';
 /**
  * A heading's part of its card. Always ruled at the bottom, so sticking
  * changes only the rule's colour and the corners: in place it rules off its
- * rows (or is the card's bottom edge); stuck to the top it closes into a
- * card of its own, the bottom corners rounding as it does.
+ * rows (or is the card's bottom edge); stuck to the top, once its rows have
+ * all gone out of sight under it, it closes into a card of its own, the
+ * bottom corners rounding as it does.
  */
 const CARD_HEADING = cn(
   'border-b transition-[border-radius,border-color] duration-200 motion-reduce:transition-none',
-  '[&:has([data-stuck])]:rounded-b-xl [&:has([data-stuck])]:border-b-border/50',
+  '[&:has([data-closed])]:rounded-b-xl [&:has([data-closed])]:border-b-border/50',
 );
 
 /**
@@ -319,6 +320,9 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
  */
 function useStuckToTop(ref: React.RefObject<HTMLElement | null>) {
   const [stuck, setStuck] = React.useState(false);
+  // Stuck, and its section's rows have all gone under it: nothing of the
+  // section is left in sight, so the heading closes into a card of its own.
+  const [closed, setClosed] = React.useState(false);
   /**
    * Where the heading would sit if it didn't stick: after the last row before
    * it, plus any headings in between (an empty section's), which stick too
@@ -346,8 +350,21 @@ function useStuckToTop(ref: React.RefObject<HTMLElement | null>) {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const offset = item.getBoundingClientRect().top - naturalTop(item);
-      setStuck(offset > 1);
+      const box = item.getBoundingClientRect();
+      const isStuck = box.top - naturalTop(item) > 1;
+      setStuck(isStuck);
+      // The section ends at the last item before the next heading.
+      let last: Element = item;
+      for (
+        let next = item.nextElementSibling;
+        next && !next.querySelector('.row-list-section-heading');
+        next = next.nextElementSibling
+      ) {
+        last = next;
+      }
+      setClosed(
+        isStuck && (last === item || last.getBoundingClientRect().bottom <= box.bottom + 1),
+      );
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -374,7 +391,7 @@ function useStuckToTop(ref: React.RefObject<HTMLElement | null>) {
     scroller.scrollBy({ top: by, behavior: smooth ? 'smooth' : 'auto' });
   }, [ref, naturalTop]);
 
-  return { stuck, jump };
+  return { stuck, closed, jump };
 }
 
 /** A section's heading: folds it, and says how many rows it has. */
@@ -391,12 +408,13 @@ function SectionHeading<T>({
   onToggle: () => void;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
-  const { stuck, jump } = useStuckToTop(ref);
+  const { stuck, closed, jump } = useStuckToTop(ref);
   return (
     <div
       ref={ref}
       className="row-list-section-heading"
       data-stuck={stuck || undefined}
+      data-closed={closed || undefined}
       data-heading-index={index}
     >
       <Button
