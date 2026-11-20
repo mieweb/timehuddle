@@ -62,18 +62,36 @@ function decodeId(id: string): string | null {
 // What renders as something other than a link: code (fenced or inline) and images.
 const NOT_A_LINK = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)/g;
 
-/** Ids of the tickets `text` links to, in order, each once; links quoted in code or images don't count. */
-export function ticketIdsInText(text: string): string[] {
+/** Ids `pattern` captures from `text`'s links, in order, each once; links quoted in code or images don't count. */
+function linkedIds(text: string, pattern: RegExp): string[] {
   const links = text.replace(NOT_A_LINK, ' ');
-  const ids = [...links.matchAll(TICKET_LINK)].flatMap((match) => decodeId(match[1]) ?? []);
+  const ids = [...links.matchAll(pattern)].flatMap((match) => decodeId(match[1]) ?? []);
   return [...new Set(ids)];
+}
+
+/** Ids of the tickets `text` links to, in order, each once. */
+export function ticketIdsInText(text: string): string[] {
+  return linkedIds(text, TICKET_LINK);
+}
+
+/** In-app path of a person's profile (see src/ui/ROUTING.md). */
+export function profilePath(userId: string): string {
+  return `/app/profile/${encodeURIComponent(userId)}`;
+}
+
+// A link to a person's profile: how a picked @mention is written.
+const PROFILE_LINK = /\]\(\/app\/profile\/([^)/\s]+)\)/g;
+
+/** Ids of the people `text` links to — its picked mentions — in order, each once. */
+export function profileIdsInText(text: string): string[] {
+  return linkedIds(text, PROFILE_LINK);
 }
 
 /**
  * The ids `text` links to that a post in the team may carry: a link to another
  * team's ticket (or a deleted one) stays a plain link, since the server
  * refuses a post that carries one. `teamTicketIds` is read fresh at send
- * (`fetchTeamTicketIds`).
+ * (`fetchTeamRefs`).
  */
 export function teamTicketIdsInText(text: string, teamTicketIds: ReadonlySet<string>) {
   return ticketIdsInText(text).filter((id) => teamTicketIds.has(id));

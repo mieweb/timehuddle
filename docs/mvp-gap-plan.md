@@ -375,8 +375,14 @@ no ticket or mention chips on the Clock page.
 - [ ] Upstream: the `@mieweb/ui` changes ship on `timehuddle/next` for now; their
       PR to `mieweb/ui` `main` will be bundled with other pending library work
       into one or two PRs, not opened per feature
-- [ ] Known limit: a first name two teammates share mentions no one, as in the
-      Huddle composer (`detectMentions`)
+- [x] In the plan composer a picked teammate goes in as a link to their profile
+      (`[@Name](/app/profile/<id>)`), so the mention names exactly that person
+      even when teammates share a first name; a typed `@Name` still resolves by
+      first name
+- [ ] Follow-up: a **Mention** button that types `@` and opens the same list,
+      for phones, where `@` sits on a secondary keyboard. Check on iOS and
+      Android that the list isn't hidden behind the keyboard and that tapping a
+      suggestion picks it
 - [ ] The clock-in composer opens pre-filled with one item per pinned ticket, in
       pin order — waits on M2 ([#884](https://github.com/mieweb/timehuddle/issues/884))
 - [x] A plan of ticket items alone satisfies **Require a plan**

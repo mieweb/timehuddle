@@ -36,6 +36,7 @@ import {
   findPostByText,
   holdUploadResponses,
   mediaInput,
+  getUserIdByEmail,
   mentionMember,
   openComposer,
   openPostInInbox,
@@ -153,12 +154,13 @@ test.describe('Huddle composer — individual actions', () => {
     await mentionMember(page, TEST_USERS.member1.name);
     await submitPost(page);
 
-    // Mentions resolve by first name, and every seeded user is "Test …", so
-    // the stored mention list can't name one here (detectMentions has the
-    // unit tests); the plan keeps the written mention.
+    // A picked teammate is a profile link, so the mention names exactly them
+    // even though every seeded user's first name is "Test".
     await openPostInInbox(page, postText);
+    const memberId = await getUserIdByEmail(TEST_USERS.member1.email);
     const stored = await findPostByText(postText);
-    expect(stored?.content.text).toContain('@Test');
+    expect(stored?.content.text).toContain(`/app/profile/${memberId}`);
+    expect(stored?.content.mentions).toEqual([memberId]);
   });
 
   test('a removed attachment is left out of the post', async ({ page }) => {
@@ -301,9 +303,8 @@ test.describe('Huddle composer — combined actions', () => {
     await expect(post.locator('a[href*="/uploads/media/"]')).toBeVisible();
     await playPulseVideoCard(post);
     await expect(post).toContainText(ticketTitle);
-    // See 'typing @ writes a teammate into the plan' for why the text is checked.
     const stored = await findPostByText(postText);
-    expect(stored?.content.text).toContain('@Test');
+    expect(stored?.content.mentions).toEqual([await getUserIdByEmail(TEST_USERS.member1.email)]);
 
     await clockOut(page);
     await deleteTicket(page, ticketTitle);

@@ -51,13 +51,20 @@ import type { TicketRef } from '../huddle/useTicketSelection';
 import {
   appendPlanItem,
   planTicketItem,
+  profilePath,
   planTicketName,
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
 import { useBoardTicketMentionOptions } from '../huddle/useBoardTicketMentionOptions';
 import { toPostAttachment } from '../huddle/api';
-import { fetchTeamRefs, postRefsIn } from '../huddle/postRefs';
+import {
+  fetchTeamRefs,
+  postRefsIn,
+  refsCover,
+  refsNeeded,
+  type TeamRefs,
+} from '../huddle/postRefs';
 import { ComposerAttachButtons, ComposerChips } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
@@ -187,10 +194,19 @@ export const ClockPage: React.FC = () => {
   const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
-  // Typing `@` in the editor offers teammates and the tickets on My Board.
+  // Typing `@` in the editor offers teammates and the tickets on My Board. A
+  // teammate goes in as a link to their profile, so the mention names exactly
+  // the person picked even when two share a first name (postRefsIn).
   const boardTicketOptions = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
   const mentionOptions = useMemo(
-    () => [...teamMentions.options, ...boardTicketOptions],
+    () => [
+      ...teamMentions.options.map((option) => ({
+        ...option,
+        label: `@${option.label}`,
+        href: profilePath(option.id),
+      })),
+      ...boardTicketOptions,
+    ],
     [teamMentions.options, boardTicketOptions],
   );
   // One failure notice for the composer, whichever step produced it — see
@@ -232,21 +248,33 @@ export const ClockPage: React.FC = () => {
    * team's people and tickets are read fresh first (see below).
    */
   const takeForPost = async () => {
-    // The team's people and tickets first, read fresh: nothing waits on the
-    // network between the uploads settling and being taken, and a failed
-    // lookup leaves the draft and its files in place for a retry. Both are
-    // read even when the draft names none — it can gain one while files upload.
-    const refs = gateTeamId
-      ? await fetchTeamRefs(gateTeamId, { members: true, tickets: true })
-      : { members: [], ticketIds: new Set<string>() };
-    if (!aliveRef.current) return null;
-    if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
-    try {
-      const { failed } = await uploads.settle();
+    // Uploads settle, then the team's people and tickets are read fresh — only
+    // what the text names, so a plain plan waits on nothing. A file attached
+    // or a reference added while that lookup runs goes round again, so nothing
+    // is taken unsettled or checked against a lookup that didn't cover it. A
+    // failed lookup leaves the draft and its files in place for a retry.
+    const noLookups = { members: false, tickets: false };
+    let refs: TeamRefs = { members: [], ticketIds: new Set<string>() };
+    let looked = noLookups;
+    for (;;) {
+      if (hasBusyUpload(uploads.current())) setAwaitingUploads(true);
+      try {
+        const { failed } = await uploads.settle();
+        if (!aliveRef.current) return null;
+        if (failed.length > 0) throw new Error(UPLOAD_TEXT.blocked(failed[0].file.name));
+      } finally {
+        if (aliveRef.current) setAwaitingUploads(false);
+      }
+      const settled = uploads.current();
+      const needs = gateTeamId ? refsNeeded(textRef.current) : noLookups;
+      if (refsCover(looked, needs)) break;
+      refs = await fetchTeamRefs(gateTeamId as string, needs);
+      looked = needs;
       if (!aliveRef.current) return null;
-      if (failed.length > 0) throw new Error(UPLOAD_TEXT.blocked(failed[0].file.name));
-    } finally {
-      if (aliveRef.current) setAwaitingUploads(false);
+      const now = uploads.current();
+      const unchanged =
+        now.length === settled.length && now.every((item, i) => item.id === settled[i].id);
+      if (unchanged && refsCover(looked, refsNeeded(textRef.current))) break;
     }
     if (!textRef.current.trim() && uploads.current().length === 0) return null;
     const taken = uploads.take();
@@ -259,6 +287,7 @@ export const ClockPage: React.FC = () => {
       ticketIds: postRefsIn(postText, refs).ticketIds,
       /** For a wrap-up whose saved text differs from the draft (the plan put back). */
       refs,
+      looked,
       /** Puts them back, as uploaded, when the post fails. */
       giveBack: () =>
         uploads.restore(
@@ -545,8 +574,15 @@ export const ClockPage: React.FC = () => {
     pendingStart.request.ticket.sourceId === 'huddle'
       ? pendingStart.request.ticket.id
       : null;
+  // Written once per waiting ticket: deleting its line keeps it deleted, even
+  // when the effect re-runs (the team list reloading changes `ticketPrefix`).
+  const writtenPendingRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!pendingTicketId) return;
+    if (!pendingTicketId) {
+      writtenPendingRef.current = null;
+      return;
+    }
+    if (writtenPendingRef.current === pendingTicketId) return;
     let cancelled = false;
     ticketApi
       .getTicket(pendingTicketId)
@@ -558,6 +594,7 @@ export const ClockPage: React.FC = () => {
           id: ticket.id,
           name: planTicketName(ticket, ticketPrefix),
         });
+        writtenPendingRef.current = pendingTicketId;
         setText((current) =>
           ticketIdsInText(current).includes(ticket.id) ? current : appendPlanItem(current, item),
         );
@@ -681,6 +718,13 @@ export const ClockPage: React.FC = () => {
           !shownSeedRef.current.includes(planText);
         const textToSave =
           editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+        // The text saved may have the plan put back, naming more than the draft.
+        const saveNeeds = refsNeeded(textToSave);
+        const saveRefs =
+          gateTeamId && !refsCover(ready.looked, saveNeeds)
+            ? await fetchTeamRefs(gateTeamId, saveNeeds)
+            : ready.refs;
+        const saved = postRefsIn(textToSave, saveRefs);
         const linkedInPlan = ticketIdsInText(planText);
         const attachedOnly = (sessionPost?.tickets ?? sessionPostFetch?.tickets ?? [])
           .map((t) => t.id)
@@ -690,13 +734,8 @@ export const ClockPage: React.FC = () => {
           effectivePostId,
           {
             text: textToSave,
-            // The plan's own mentions stay: the wrap-up is the same post.
-            mentions: [
-              ...new Set([
-                ...mentionUserIds,
-                ...(sessionPost?.content.mentions ?? sessionPostFetch?.content.mentions ?? []),
-              ]),
-            ],
+            // Read from the text saved: a mention deleted in the wrap-up goes.
+            mentions: saved.mentions,
           },
           {
             wrapUp: true,
@@ -710,9 +749,7 @@ export const ClockPage: React.FC = () => {
             // the wrap-up's to keep or delete; ones a plan only attached
             // (posted before plans linked them) were never shown, so stay.
             // Read from the text saved, which may have the plan put back in.
-            ticketIds: [
-              ...new Set([...attachedOnly, ...postRefsIn(textToSave, ready.refs).ticketIds]),
-            ],
+            ticketIds: [...new Set([...attachedOnly, ...saved.ticketIds])],
           },
         );
       } else {

@@ -11,6 +11,16 @@ describe('postRefs', () => {
     });
   });
 
+  it('names a picked mention exactly by its profile link, among shared first names', () => {
+    const members = [
+      { id: 'u-pam', name: 'Pam Beesly' },
+      { id: 'u-pam2', name: 'Pam Halpert' },
+    ] as TeamMember[];
+    const text = 'Ask [@Pam Halpert](/app/profile/u-pam2) and [@Gone](/app/profile/u-gone)';
+    expect(refsNeeded(text).members).toBe(true);
+    expect(postRefsIn(text, { members, ticketIds: new Set() }).mentions).toEqual(['u-pam2']);
+  });
+
   it("resolves mentions and the team's linked tickets", () => {
     const members = [{ id: 'u-pam', name: 'Pam Beesly' }] as TeamMember[];
     const text = 'With @Pam on [TH-1](/app/tickets/t1) and [x](/app/tickets/other)';

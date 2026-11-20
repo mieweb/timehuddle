@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MentionOption } from '@mieweb/ui/kerebron';
 import { useSession } from '@lib/useSession';
 import { useMyBoardKeys } from '../tickets/useMyBoardKeys';
-import { fetchTeamTickets } from './api';
+import { ticketApi } from '@lib/api';
 import { planTicketName, ticketPath } from './planItems';
 import type { Ticket } from './types';
 
@@ -29,7 +29,8 @@ export function useBoardTicketMentionOptions(
   useEffect(() => {
     if (!teamId) return;
     let cancelled = false;
-    fetchTeamTickets(teamId)
+    ticketApi
+      .getTickets(teamId, { brief: true })
       .then((tickets) => {
         if (!cancelled) setLoaded({ teamId, tickets });
       })
