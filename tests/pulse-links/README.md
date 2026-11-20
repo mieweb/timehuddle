@@ -44,7 +44,9 @@ sequenceDiagram
 - **The place is named:** a Huddle by its team with "Huddle update" for the
   recording, a ticket and its recording by the ticket's title. A name longer
   than 40 characters (or 120 once percent-encoded in the link) is cut, ending
-  in an ellipsis.
+  in an ellipsis. A name none of which would show (blank, or starting with
+  more zero-width characters than fit) gives the place's plain label instead
+  ("Huddle update", "Ticket video"), and a ticket's recording no name.
 - **The token signs the place's key:** a 16-character hash of who and where,
   the same on the next link for that place.
 - **The names are ready for a link:** `@mieweb/pulsevault`'s own

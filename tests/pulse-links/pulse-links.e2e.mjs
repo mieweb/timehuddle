@@ -34,14 +34,38 @@ const asHint = (text) => {
   });
   return new URLSearchParams(new URL(link).hash.slice(1)).get('label') ?? '';
 };
+/** Whether all `text` holds is whitespace and format characters (zero-width spaces, joiners). */
+const isBlank = (text) => /^[\s\p{Cf}]*$/u.test(text);
+/** Room for a name on a link: 40 characters, and 120 once encoded. */
+const HINT = { max: 40, maxEncoded: 120 };
 /**
- * Whether `shown` is how a link names something called `full`: all of it when
- * it fits 40 characters (and 120 once encoded), else its start and an ellipsis.
+ * Whether `shown` is how a link names something called `full` in `room`: all
+ * of it when it fits, else its start and an ellipsis. Never a name that shows
+ * as nothing.
  */
-function namedFor(shown, full) {
-  if (typeof shown !== 'string' || [...shown].length > 40 || encoded(shown) > 120) return false;
+function namedFor(shown, full, { max, maxEncoded } = HINT) {
+  if (typeof shown !== 'string' || isBlank(shown)) return false;
+  if ([...shown].length > max || encoded(shown) > maxEncoded) return false;
   const whole = asHint(full);
   return shown === whole || (shown.endsWith('…') && whole.startsWith(shown.slice(0, -1)));
+}
+/**
+ * Whether nothing of `full` can show in `room`, so the server names the place
+ * plainly instead: it doesn't fit whole, and its start up to its first
+ * visible character, with the ellipsis a cut ends in, doesn't fit either (a
+ * title that starts with 60 zero-width characters, each 9 characters once
+ * encoded), or it is blank once cleaned. The package's builder keeps 60
+ * characters of a hint, more than any room here, so what it drops can't fit.
+ */
+function showsAsNothing(full, room = HINT) {
+  const whole = asHint(full);
+  if (namedFor(whole, full, room)) return false;
+  let start = '';
+  for (const { segment } of new Intl.Segmenter().segment(whole)) {
+    start += segment;
+    if (!isBlank(segment)) return !namedFor(`${start}…`, full, room);
+  }
+  return true;
 }
 
 /** What a TimeHuddle page gets for its link. */
@@ -90,7 +114,7 @@ async function checkPlace(destination, { key, called, isLabel, isName }) {
   check(
     "@mieweb/pulsevault's link carries the names as reserved, and never the key",
     params.get('label') === reserved.label &&
-      params.get('name') === reserved.name &&
+      (params.get('name') ?? undefined) === reserved.name &&
       !params.has('ref'),
     [...params.entries()].filter(([param]) => param !== 'token'),
   );
@@ -113,16 +137,23 @@ const teamId = String(team.id ?? team._id);
 
 section("A team's Huddle");
 const HUDDLE = ' · Huddle';
+/** What is left of a label's room for the team's name. */
+const TEAM_ROOM = {
+  max: HINT.max - [...HUDDLE].length,
+  maxEncoded: HINT.maxEncoded - encoded(HUDDLE),
+};
 await checkPlace(
   { kind: 'huddle', teamId },
   {
     key: teamId,
-    called: { label: `"${team.name}${HUDDLE}"`, name: '"Huddle update"' },
+    called: {
+      label: `"${team.name}${HUDDLE}", or "Huddle update" when none of the name shows`,
+      name: '"Huddle update"',
+    },
     // The team's name is cut, never what the place is.
     isLabel: (label) =>
-      label?.endsWith(HUDDLE) &&
-      [...label].length <= 40 &&
-      namedFor(label.slice(0, -HUDDLE.length), team.name),
+      (label?.endsWith(HUDDLE) && namedFor(label.slice(0, -HUDDLE.length), team.name, TEAM_ROOM)) ||
+      (label === 'Huddle update' && showsAsNothing(team.name, TEAM_ROOM)),
     isName: (name) => name === 'Huddle update',
   },
 );
@@ -154,9 +185,14 @@ if (!ticket?.title || !ticketId) {
     { kind: 'ticket', id: ticketId },
     {
       key: ticketId.toLowerCase(),
-      called: { label: `by its title, "${ticket.title}"`, name: 'the same' },
-      isLabel: (label) => namedFor(label, ticket.title),
-      isName: (name) => namedFor(name, ticket.title),
+      called: {
+        label: `by its title, "${ticket.title}", or "Ticket video" when none of it shows`,
+        name: 'the same, or nothing when none of it shows',
+      },
+      isLabel: (label) =>
+        namedFor(label, ticket.title) || (label === 'Ticket video' && showsAsNothing(ticket.title)),
+      isName: (name) =>
+        name === undefined ? showsAsNothing(ticket.title) : namedFor(name, ticket.title),
     },
   );
 }
