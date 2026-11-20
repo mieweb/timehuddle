@@ -43,8 +43,9 @@ Meteor.startup(async () => {
   }
 });
 
-function validateRefs(refs) {
-  if (!Array.isArray(refs) || refs.length === 0) {
+/** `allowEmpty` for a call where no refs means something: setPins([]) unpins everything. */
+function validateRefs(refs, { allowEmpty = false } = {}) {
+  if (!Array.isArray(refs) || (refs.length === 0 && !allowEmpty)) {
     throw new Meteor.Error('bad-request', 'refs array required');
   }
   if (refs.length > MAX_BOARD_ENTRIES_PER_USER) {
@@ -262,7 +263,8 @@ Meteor.methods({
    */
   async 'myBoard.setPins'({ refs } = {}) {
     const { userId } = await requireIdentity(this);
-    validateRefs(refs);
+    // Empty is a real answer: the last pin dragged out of Pinned.
+    validateRefs(refs, { allowEmpty: true });
     const keys = refs.map((r) => refKey(r.sourceId, r.ticketId));
     if (new Set(keys).size !== keys.length) {
       throw new Meteor.Error('bad-request', 'Each ticket can be pinned once.');

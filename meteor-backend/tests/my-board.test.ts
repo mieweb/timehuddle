@@ -174,6 +174,10 @@ describe('myBoard pins', () => {
     expect(await pins()).toEqual([c, b]);
     expect((await call('myBoard.setPins', { refs: [ref(b), ref(a), ref(c)] })).ok).toBe(true);
     expect(await pins()).toEqual([b, a, c]);
+    // No refs unpins everything: the last pin dragged out of Pinned.
+    expect((await call('myBoard.setPins', { refs: [] })).ok).toBe(true);
+    expect(await pins()).toEqual([]);
+    expect((await call('myBoard.setPins', { refs: [ref(b), ref(a), ref(c)] })).ok).toBe(true);
   });
 
   it('unpins, keeping the ticket on the board', async () => {
