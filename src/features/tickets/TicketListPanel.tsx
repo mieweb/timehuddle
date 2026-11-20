@@ -29,6 +29,7 @@ type SharedListProps = Pick<
   | 'onToggleBoard'
   | 'pinnedKeys'
   | 'onTogglePin'
+  | 'onPinsReorder'
   | 'selecting'
   | 'onEditRequest'
   | 'onDeleteRequest'

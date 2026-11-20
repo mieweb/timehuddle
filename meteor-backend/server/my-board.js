@@ -256,27 +256,30 @@ Meteor.methods({
   },
 
   /**
-   * Put the caller's pins in this order. `refs` must name exactly the entries
-   * pinned now, so a reorder from a stale list is refused instead of quietly
-   * pinning or unpinning anything.
+   * Make `refs` the caller's pins, in this order: what one drag on My Board
+   * does, whether it reorders the pins, pins a ticket or unpins one. Every
+   * other board entry is unpinned. A ref no longer on the board is skipped.
    */
-  async 'myBoard.reorderPins'({ refs } = {}) {
+  async 'myBoard.setPins'({ refs } = {}) {
     const { userId } = await requireIdentity(this);
     validateRefs(refs);
-    const pinned = await MyBoard.find(
-      { userId, pinOrder: { $type: 'number' } },
-      { fields: { sourceId: 1, ticketId: 1 } },
-    ).fetchAsync();
-    const wanted = refs.map((r) => refKey(r.sourceId, r.ticketId));
-    const held = new Set(pinned.map((e) => refKey(e.sourceId, e.ticketId)));
-    if (new Set(wanted).size !== wanted.length || wanted.length !== held.size || wanted.some((k) => !held.has(k))) {
-      throw new Meteor.Error('stale-pins', 'Your pins changed. Reload and try again.');
+    const keys = refs.map((r) => refKey(r.sourceId, r.ticketId));
+    if (new Set(keys).size !== keys.length) {
+      throw new Meteor.Error('bad-request', 'Each ticket can be pinned once.');
     }
-    await MyBoard.rawCollection().bulkWrite(
-      refs.map(({ sourceId, ticketId }, pinOrder) => ({
-        updateOne: { filter: { userId, sourceId, ticketId }, update: { $set: { pinOrder } } },
-      })),
-    );
-    return { reordered: wanted.length };
+    const entries = await MyBoard.find(
+      { userId },
+      { fields: { sourceId: 1, ticketId: 1, pinOrder: 1 } },
+    ).fetchAsync();
+    const order = new Map(keys.map((key, index) => [key, index]));
+    const writes = entries.flatMap(({ sourceId, ticketId, pinOrder }) => {
+      const wanted = order.get(refKey(sourceId, ticketId));
+      if (wanted === pinOrder) return [];
+      const filter = { userId, sourceId, ticketId };
+      const update = wanted === undefined ? { $unset: { pinOrder: '' } } : { $set: { pinOrder: wanted } };
+      return [{ updateOne: { filter, update } }];
+    });
+    if (writes.length) await MyBoard.rawCollection().bulkWrite(writes);
+    return { pinned: entries.filter((e) => order.has(refKey(e.sourceId, e.ticketId))).length };
   },
 });

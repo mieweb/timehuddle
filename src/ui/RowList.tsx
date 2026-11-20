@@ -18,11 +18,10 @@
  */
 import {
   Badge,
+  Button,
   cn,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
   ListView,
+  ReorderableList,
   ScrollArea,
   Skeleton,
   Text,
@@ -154,7 +153,27 @@ export interface RowListSection<T> {
   items: T[];
   /** Shown in the section when it has no rows. Without it, an empty section is left out. */
   emptyText?: string;
+  /**
+   * The section keeps the list's sort, so a drag only moves rows into or out
+   * of it: a row moved within it goes back to its place.
+   */
+  sorted?: boolean;
 }
+
+/** A section's rows by id, in order, as a drag left them. */
+export interface RowListSectionOrder {
+  id: string;
+  ids: string[];
+}
+
+/** User-facing copy, kept together for translation. */
+export const ROW_LIST_TEXT = {
+  fold: (label: string) => `Fold ${label}`,
+  unfold: (label: string) => `Unfold ${label}`,
+  moved: (section: string, position: number, total: number) =>
+    `${section}, position ${position} of ${total}`,
+  movedInto: (section: string) => `Moved to ${section}`,
+};
 
 export interface RowListProps<T> {
   /** Accessible name of the list, e.g. "Open tickets". */
@@ -180,6 +199,12 @@ export interface RowListProps<T> {
    * every row: it decides between the rows and the empty state.
    */
   sections?: RowListSection<T>[];
+  /**
+   * Lets the rows be dragged (or moved with Alt+↑/↓) within and between the
+   * sections, each heading staying put; called with every section's new
+   * order. Nothing goes above the first heading.
+   */
+  onSectionsReorder?: (order: RowListSectionOrder[]) => void;
   className?: string;
 }
 
@@ -191,50 +216,222 @@ const SCROLL_AREA_CLASS = `row-list-scroll min-h-0 w-full flex-1 [&::-webkit-scr
 const LIST_VIEW_CLASS = 'overflow-visible rounded-none border-0 bg-transparent';
 const LIST_VIEW_CLASSNAMES = { item: 'gap-0 p-0' };
 
-interface RowListGroupProps<T> {
-  section: RowListSection<T>;
-  accessors: { getId: (item: T) => string; getTitle: (item: T) => string };
-  renderRow: (item: T) => React.ReactNode;
+const FOLDED_KEY = (id: string) => `row-list-section-folded:${id}`;
+
+function readFolded(id: string): boolean {
+  try {
+    return localStorage.getItem(FOLDED_KEY(id)) === '1';
+  } catch {
+    return false;
+  }
 }
 
-/** One section: a heading that folds it, with its row count, over its rows. */
-function RowListGroup<T>({ section, accessors, renderRow }: RowListGroupProps<T>) {
+function writeFolded(id: string, folded: boolean) {
+  try {
+    if (folded) localStorage.setItem(FOLDED_KEY(id), '1');
+    else localStorage.removeItem(FOLDED_KEY(id));
+  } catch {
+    // Not remembered in this browser; the section still folds.
+  }
+}
+
+/** Which sections are folded, remembered per viewer in this browser. */
+function useFoldedSections(ids: string[]) {
+  const [folded, setFolded] = React.useState(() => new Set(ids.filter(readFolded)));
+  const toggle = React.useCallback((id: string) => {
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      writeFolded(id, next.has(id));
+      return next;
+    });
+  }, []);
+  return { folded, toggle };
+}
+
+type SectionEntry<T> =
+  | { kind: 'heading'; id: string; section: RowListSection<T> }
+  | { kind: 'row'; id: string; item: T };
+
+const headingId = (sectionId: string) => `row-list-section:${sectionId}`;
+
+/**
+ * The row that moved between two orders of the same ids, or null. Headings
+ * never move, so when a row swapped with a heading the row is the one.
+ */
+function movedId(before: string[], after: string[], isHeading: (id: string) => boolean) {
+  let lo = 0;
+  while (lo < before.length && before[lo] === after[lo]) lo++;
+  if (lo === before.length) return null;
+  const rows = [before[lo], after[lo]].filter((id) => !isHeading(id));
+  if (rows.length === 1) return rows[0];
+  return before[lo] === after[lo + 1] ? after[lo] : before[lo];
+}
+
+/** A section's heading: folds it, and says how many rows it has. */
+function SectionHeading<T>({
+  section,
+  folded,
+  onToggle,
+}: {
+  section: RowListSection<T>;
+  folded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <Collapsible
-      defaultOpen
-      storageKey={`row-list-section:${section.id}`}
-      className="row-list-section"
-    >
-      <CollapsibleTrigger className="row-list-section-trigger group flex w-full items-center gap-2 border-b border-border px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+    <div className="row-list-section-heading border-b border-border">
+      <Button
+        variant="ghost"
+        aria-expanded={!folded}
+        aria-label={
+          folded ? ROW_LIST_TEXT.unfold(section.label) : ROW_LIST_TEXT.fold(section.label)
+        }
+        onClick={onToggle}
+        className="row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:bg-transparent hover:text-foreground"
+      >
         <ChevronDown
-          className="h-4 w-4 shrink-0 transition-transform group-data-[state=closed]:-rotate-90 rtl:group-data-[state=closed]:rotate-90"
+          className={cn(
+            'h-4 w-4 shrink-0 transition-transform',
+            folded && '-rotate-90 rtl:rotate-90',
+          )}
           aria-hidden="true"
         />
         <span className="row-list-section-label">{section.label}</span>
         <Badge variant="secondary" size="sm">
           {section.items.length}
         </Badge>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="row-list-section-rows">
-        {section.items.length > 0 ? (
-          <ListView
-            items={section.items}
-            accessors={accessors}
-            renderItem={renderRow}
-            className={LIST_VIEW_CLASS}
-            classNames={LIST_VIEW_CLASSNAMES}
-          />
-        ) : (
-          <Text
-            size="sm"
-            variant="muted"
-            className="row-list-section-empty px-(--row-list-inset) py-3"
-          >
-            {section.emptyText}
-          </Text>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
+      </Button>
+      {!folded && section.items.length === 0 && section.emptyText && (
+        <Text
+          size="sm"
+          variant="muted"
+          className="row-list-section-empty px-(--row-list-inset) pb-3"
+        >
+          {section.emptyText}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+interface RowListSectionsProps<T> {
+  label: string;
+  sections: RowListSection<T>[];
+  getId: (item: T) => string;
+  renderRow: (item: T) => React.ReactNode;
+  onSectionsReorder?: (order: RowListSectionOrder[]) => void;
+}
+
+/**
+ * The sections as one list: each heading is a row that stays put, so a row
+ * dragged past one changes section. A folded section's rows are left out of
+ * the list and keep their place behind its heading.
+ */
+function RowListSections<T>({
+  label,
+  sections,
+  getId,
+  renderRow,
+  onSectionsReorder,
+}: RowListSectionsProps<T>) {
+  const { folded, toggle } = useFoldedSections(sections.map((s) => s.id));
+  const [announcement, setAnnouncement] = React.useState('');
+  const shown = onSectionsReorder
+    ? sections
+    : sections.filter((section) => section.items.length > 0 || section.emptyText);
+
+  const entries = React.useMemo<SectionEntry<T>[]>(
+    () =>
+      shown.flatMap((section) => [
+        { kind: 'heading' as const, id: headingId(section.id), section },
+        ...(folded.has(section.id)
+          ? []
+          : section.items.map((item) => ({ kind: 'row' as const, id: getId(item), item }))),
+      ]),
+    [shown, folded, getId],
+  );
+
+  const handleReorder = (ids: string[]) => {
+    if (!onSectionsReorder) return;
+    const order: RowListSectionOrder[] = [];
+    for (const id of ids) {
+      const section = shown.find((s) => headingId(s.id) === id);
+      if (section) order.push({ id: section.id, ids: [] });
+      else order[order.length - 1]?.ids.push(id);
+    }
+    // A folded section keeps its hidden rows after any dropped onto it.
+    for (const part of order) {
+      if (!folded.has(part.id)) continue;
+      const section = shown.find((s) => s.id === part.id)!;
+      part.ids.push(...section.items.map(getId));
+    }
+    const moved = movedId(
+      entries.map((e) => e.id),
+      ids,
+      (id) => shown.some((section) => headingId(section.id) === id),
+    );
+    if (!moved) return;
+    const from = shown.find((s) => s.items.some((item) => getId(item) === moved));
+    const landed = order.find((part) => part.ids.includes(moved));
+    const into = shown.find((s) => s.id === landed?.id);
+    if (!landed || !into) return;
+    if (into.sorted) {
+      // Rows in a sorted section have no order of their own to change.
+      if (into === from) return;
+      setAnnouncement(ROW_LIST_TEXT.movedInto(into.label));
+    } else {
+      setAnnouncement(
+        ROW_LIST_TEXT.moved(into.label, landed.ids.indexOf(moved) + 1, landed.ids.length),
+      );
+    }
+    onSectionsReorder(order);
+  };
+
+  // A drag ends with a click on the row under the pointer; it isn't one.
+  const pressedAt = React.useRef<{ x: number; y: number } | null>(null);
+  const firstHeading = entries[0]?.id;
+
+  return (
+    <div
+      className="row-list-sections"
+      onPointerDownCapture={(e) => {
+        pressedAt.current = { x: e.clientX, y: e.clientY };
+      }}
+      onClickCapture={(e) => {
+        const from = pressedAt.current;
+        if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 5) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+    >
+      <ReorderableList
+        aria-label={label}
+        items={entries}
+        getId={(entry) => entry.id}
+        canDrag={(entry) => entry.kind === 'row'}
+        canDropOn={(_, target) => target !== firstHeading}
+        onReorder={onSectionsReorder ? handleReorder : undefined}
+        // Moves are announced below by section, not by place in the whole list.
+        labels={{ moved: () => '' }}
+        className="row-list-section-list"
+        renderItem={(entry) =>
+          entry.kind === 'heading' ? (
+            <SectionHeading
+              section={entry.section}
+              folded={folded.has(entry.section.id)}
+              onToggle={() => toggle(entry.section.id)}
+            />
+          ) : (
+            renderRow(entry.item)
+          )
+        }
+      />
+      <div className="sr-only" aria-live="polite">
+        {announcement}
+      </div>
+    </div>
   );
 }
 
@@ -249,6 +446,7 @@ export function RowList<T>({
   loading = false,
   scrollKey,
   sections,
+  onSectionsReorder,
   className,
 }: RowListProps<T>) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -282,16 +480,13 @@ export function RowList<T>({
         {/* While nothing has loaded yet, placeholders stand in for the empty state. */}
         {!(loading && items.length === 0) &&
           (sections && items.length > 0 ? (
-            sections
-              .filter((section) => section.items.length > 0 || section.emptyText)
-              .map((section) => (
-                <RowListGroup
-                  key={section.id}
-                  section={section}
-                  accessors={accessors}
-                  renderRow={renderRow}
-                />
-              ))
+            <RowListSections
+              label={label}
+              sections={sections}
+              getId={getId}
+              renderRow={renderRow}
+              onSectionsReorder={onSectionsReorder}
+            />
           ) : (
             <ListView
               items={items}

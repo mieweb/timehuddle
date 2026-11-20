@@ -165,24 +165,25 @@ describe('myBoard pins', () => {
     expect(res.ok).toBe(false);
   });
 
-  it('reorders exactly the pins there are, and refuses a stale list', async () => {
-    expect((await call('myBoard.reorderPins', { refs: [ref(a), ref(b)] })).ok).toBe(true);
-    expect(await pins()).toEqual([a, b]);
-    // Names an unpinned entry, leaves one out, or repeats one: all refused.
-    for (const refs of [[ref(a), ref(c)], [ref(a)], [ref(a), ref(a)]]) {
-      expect((await call('myBoard.reorderPins', { refs })).ok).toBe(false);
-    }
-    expect(await pins()).toEqual([a, b]);
+  it('sets the pins in order, unpinning the rest and skipping what is off the board', async () => {
+    await call('myBoard.pin', { ref: ref(a) });
+    const gone = new ObjectId().toHexString();
+    expect((await call('myBoard.setPins', { refs: [ref(c), ref(gone), ref(b)] })).ok).toBe(true);
+    expect(await pins()).toEqual([c, b]);
+    expect((await call('myBoard.setPins', { refs: [ref(a), ref(a)] })).ok).toBe(false);
+    expect(await pins()).toEqual([c, b]);
+    expect((await call('myBoard.setPins', { refs: [ref(b), ref(a), ref(c)] })).ok).toBe(true);
+    expect(await pins()).toEqual([b, a, c]);
   });
 
   it('unpins, keeping the ticket on the board', async () => {
     expect((await call('myBoard.unpin', { ref: ref(a) })).ok).toBe(true);
-    expect(await pins()).toEqual([b]);
+    expect(await pins()).toEqual([b, c]);
     expect(await boardKeys()).toContain(`huddle:${a}`);
   });
 
   it('takes the pin away with the board entry', async () => {
     expect((await call('myBoard.removeMany', { refs: [ref(b)] })).ok).toBe(true);
-    expect(await pins()).toEqual([]);
+    expect(await pins()).toEqual([c]);
   });
 });
