@@ -28,6 +28,7 @@ import {
   createCodePlugin,
   createImagePlugin,
   createMermaidPlugin,
+  createReferencesPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
 import {
   Fragment,
@@ -91,7 +92,7 @@ import {
   isGroupMentionId,
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
-import { useBoardTicketMentionOptions } from '../features/huddle/useBoardTicketMentionOptions';
+import { PERSON_LINKS, TICKET_LINKS, useTicketTrigger } from '../features/huddle/referenceTriggers';
 import { editedTicketIds } from '../features/huddle/planItems';
 import { fetchTeamRefs, postRefsIn, refsNeeded } from '../features/huddle/postRefs';
 import { useTicketVideos } from '../features/huddle/useTicketVideos';
@@ -346,8 +347,8 @@ export default function Huddle() {
   const ticketVideos = useTicketVideos(selectedTicketIds);
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
-  // `@` also offers the tickets on My Board, inserted as links to them.
-  const boardTicketOptions = useBoardTicketMentionOptions(
+  // `#` searches the team's tickets; a pick goes in as a link to it.
+  const ticketTrigger = useTicketTrigger(
     postingTeamId,
     allTeams.find((t) => t.id === postingTeamId)?.ticketPrefix,
   );
@@ -729,7 +730,19 @@ export default function Huddle() {
     }
     return searchConversations(allConversations, activePosts, searchQuery);
   }, [allConversations, activePosts, searchQuery, user, scope, threadBy, viewer, nowMinute]);
-  const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  // Links to teammates and tickets show as chips that open in the app.
+  const renderPlugins = useMemo(
+    () => [
+      createCodePlugin(),
+      imagePlugin,
+      createMermaidPlugin(),
+      createReferencesPlugin({
+        triggers: [PERSON_LINKS, TICKET_LINKS],
+        onOpen: (reference) => navigate(reference.href),
+      }),
+    ],
+    [navigate],
+  );
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
   // Who owns each video in view, for Rename: its owner, not whoever posted it
@@ -1433,8 +1446,8 @@ export default function Huddle() {
                       mentionOptions: [
                         ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
                         ...mentions.options,
-                        ...boardTicketOptions,
                       ],
+                      triggers: postingTeamId ? [ticketTrigger] : undefined,
                       sendOptions: postingTeamId
                         ? [
                             {

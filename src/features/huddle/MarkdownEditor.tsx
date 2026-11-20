@@ -29,7 +29,8 @@
  * editor, not the mirror, when the text is about to be persisted.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
-import type { CollabConfig, MentionOption, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { ReferenceTrigger } from '@mieweb/ui';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
@@ -48,13 +49,13 @@ interface MarkdownEditorProps {
    * listener below for why.
    */
   onFiles?: (files: File[]) => void;
-  /** `@` suggestions — people, or records with an `href` (inserted as links). */
-  mentionOptions?: MentionOption[];
+  /** Inline references (`@` teammates, `#` tickets), inserted as chips and saved as links. */
+  triggers?: ReferenceTrigger[];
 }
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, mentionOptions },
+    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, triggers },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -156,7 +157,7 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           value={value}
           onChange={onChange}
           collab={collab}
-          mentionOptions={mentionOptions}
+          triggers={triggers}
         />
       </div>
     );

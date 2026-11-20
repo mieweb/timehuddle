@@ -449,7 +449,7 @@ export async function mentionMember(page: Page, memberName: string): Promise<voi
   await editor.press('End');
   await page.keyboard.type(' @');
   await page
-    .getByRole('listbox', { name: 'Mention' })
+    .getByRole('listbox', { name: 'People' })
     .getByRole('option')
     .filter({ hasText: memberName })
     .first()

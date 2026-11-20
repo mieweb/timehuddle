@@ -367,14 +367,21 @@ no ticket or mention chips on the Clock page.
       too
 - [x] The composer has two buttons, **Media** (photo, video or document) and
       **Ticket**; there is no @Mention button
-- [x] Typing `@` — in the plan composer and in Huddle — suggests teammates, then
-      your My Board tickets, most recently updated first; a ticket goes in as an
-      inline link, and the post links that ticket. Built in `@mieweb/ui`
-      (`mentionOptions` with `href` in `RichEditor` and `ChatComposer`; branch
-      `feat/rich-editor-mentions`)
-- [ ] Upstream: the `@mieweb/ui` changes ship on `timehuddle/next` for now; their
-      PR to `mieweb/ui` `main` will be bundled with other pending library work
-      into one or two PRs, not opened per feature
+- [x] In the plan composer, `@` suggests teammates and `#` the team's open
+      tickets (My Board first); a pick is an atomic chip that Backspace removes
+      whole, saved as a link, so the post links that ticket. In Huddle, `@`
+      still lists teammates and `@team`/`@here`, and `#` inserts a ticket link;
+      posted links to teammates and tickets show as chips that open in the app.
+      Built on `@mieweb/ui` `ReferenceTrigger`s (`src/features/huddle/referenceTriggers.ts`)
+- [ ] Upstream: [mieweb/ui#797](https://github.com/mieweb/ui/issues/797) —
+      [#798](https://github.com/mieweb/ui/pull/798) chip and trigger types,
+      [#799](https://github.com/mieweb/ui/pull/799) `RichEditor` `triggers`,
+      [#800](https://github.com/mieweb/ui/pull/800) SuperChat chips,
+      [#801](https://github.com/mieweb/ui/pull/801) `ChatComposer` triggers (draft).
+      Vendored on `timehuddle/next` until they merge
+- [ ] Follow-up: chips while typing in the Huddle composer too — its textarea
+      shows the link's Markdown until the rich input in #801 supports uploads
+      and group mentions
 - [x] In the plan composer a picked teammate goes in as a link to their profile
       (`[@Name](/app/profile/<id>)`), so the mention names exactly that person
       even when teammates share a first name; a typed `@Name` still resolves by

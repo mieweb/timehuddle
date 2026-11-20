@@ -51,12 +51,11 @@ import type { TicketRef } from '../huddle/useTicketSelection';
 import {
   appendPlanItem,
   planTicketItem,
-  profilePath,
   planTicketName,
   ticketIdsInText,
 } from '../huddle/planItems';
 import { useTeamMentions } from '../huddle/useTeamMentions';
-import { useBoardTicketMentionOptions } from '../huddle/useBoardTicketMentionOptions';
+import { usePersonTrigger, useTicketTrigger } from '../huddle/referenceTriggers';
 import { toPostAttachment } from '../huddle/api';
 import {
   fetchTeamRefs,
@@ -194,21 +193,13 @@ export const ClockPage: React.FC = () => {
   const planTicketIds = useMemo(() => ticketIdsInText(text), [text]);
   const teamMentions = useTeamMentions(gateTeamId);
   const ticketPrefix = allTeams.find((t) => t.id === gateTeamId)?.ticketPrefix;
-  // Typing `@` in the editor offers teammates and the tickets on My Board. A
-  // teammate goes in as a link to their profile, so the mention names exactly
-  // the person picked even when two share a first name (postRefsIn).
-  const boardTicketOptions = useBoardTicketMentionOptions(gateTeamId, ticketPrefix);
-  const mentionOptions = useMemo(
-    () => [
-      ...teamMentions.options.map((option) => ({
-        ...option,
-        label: `@${option.label}`,
-        href: profilePath(option.id),
-      })),
-      ...boardTicketOptions,
-    ],
-    [teamMentions.options, boardTicketOptions],
-  );
+  // `@` offers teammates and `#` the team's tickets, inserted as chips and
+  // saved as links. A teammate's link is to their profile, so the mention
+  // names exactly the person picked even when two share a first name
+  // (postRefsIn).
+  const personTrigger = usePersonTrigger(teamMentions);
+  const ticketTrigger = useTicketTrigger(gateTeamId, ticketPrefix);
+  const triggers = useMemo(() => [personTrigger, ticketTrigger], [personTrigger, ticketTrigger]);
   // One failure notice for the composer, whichever step produced it — see
   // {@link ComposerError}. Reported here rather than via `alert()`.
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -1043,7 +1034,7 @@ export const ClockPage: React.FC = () => {
                       }
                       // Pasted or dropped files are tiles, as picked ones are.
                       onFiles={attach}
-                      mentionOptions={mentionOptions}
+                      triggers={triggers}
                     />
                   </Suspense>
 
