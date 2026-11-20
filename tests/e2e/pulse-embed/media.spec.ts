@@ -18,7 +18,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, goToTickets, ticketRow } from '../tickets/helpers';
-import { PULSE_FAKE_BROWSER, reachSeededDrafts, ticketAttachmentUrls, uploadForReal } from './fake';
+import { PULSE_FAKE_BROWSER, ticketAttachmentUrls, uploadForReal } from './fake';
 
 test.skip(process.env.VITE_PULSE_FAKE !== '1', 'Needs a VITE_PULSE_FAKE=1 build of the frontend');
 test.use(PULSE_FAKE_BROWSER);
@@ -121,7 +121,6 @@ async function scriptFakePulse(
   page: Page,
   script: { flows?: FakeFlow[]; drafts?: SeedDraft[] },
 ): Promise<void> {
-  await reachSeededDrafts(page);
   await page.addInitScript((s) => {
     (window as unknown as FakeWindow).__PULSE_FAKE_SCRIPT__ = {
       flows: s.flows ?? [{ result: 'kept' }],

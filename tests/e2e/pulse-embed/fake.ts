@@ -17,55 +17,6 @@ import { TEST_MP4, getSessionToken } from '../tickets/helpers';
 export const PULSE_FAKE_BROWSER =
   process.env.VITE_PULSE_FAKE === '1' ? ({ channel: 'chrome' } as const) : {};
 
-/** The fake's own host id and account, the namespace its seeded drafts are in. */
-const FAKE_HOST_ID = 'fake.host';
-const FAKE_ACCOUNT = { serverOrigin: 'https://host.fake', userId: 'fake-user' };
-
-/**
- * Lets the page see the drafts a spec seeds through
- * `__PULSE_FAKE_SCRIPT__.drafts`.
- *
- * The fake puts seeded drafts in the namespace of its default host id and
- * account (`fake.host` + FAKE_ACCOUNT), but TimeHuddle configures its own host
- * id (`com.mieweb.timehuddle`) and binds the signed-in person, so the page
- * would read an empty namespace and never list them. Until the fake seeds into
- * the namespace the host binds, the page's `configure` and `setAccount` calls
- * are pointed at the seed namespace here. A sign-out (`setAccount` with no
- * user) passes through unchanged. Call before the page loads.
- */
-export async function reachSeededDrafts(page: Page): Promise<void> {
-  await page.addInitScript(
-    ({ hostId, account }) => {
-      type Call = (method: string, args: unknown, callId?: string) => Promise<unknown>;
-      type Adapter = { call: Call } & Record<string, unknown>;
-      let installed: Adapter | undefined;
-      Object.defineProperty(window, '__PULSE_ADAPTER__', {
-        configurable: true,
-        get: () => installed,
-        set(adapter: Adapter | undefined) {
-          if (!adapter) {
-            installed = adapter;
-            return;
-          }
-          installed = {
-            ...adapter,
-            call(method, args, callId) {
-              const a = (args ?? null) as Record<string, unknown> | null;
-              let routed: unknown = args;
-              if (method === 'configure' && a) routed = { ...a, hostId };
-              if (method === 'setAccount' && a && typeof a.userId === 'string') {
-                routed = { ...a, ...account };
-              }
-              return adapter.call(method, routed, callId);
-            },
-          };
-        },
-      });
-    },
-    { hostId: FAKE_HOST_ID, account: FAKE_ACCOUNT },
-  );
-}
-
 /**
  * The fake's server mode: after Send it asks the page for an upload target
  * (`getUploadTarget` → the real `pulseUploads.begin`), uploads
@@ -84,14 +35,7 @@ export async function uploadForReal(page: Page, { pollMs = 500 } = {}): Promise<
       const w = window as unknown as { __PULSE_FAKE_SCRIPT__?: Record<string, unknown> };
       w.__PULSE_FAKE_SCRIPT__ = {
         ...(w.__PULSE_FAKE_SCRIPT__ ?? {}),
-        // The fake's default is the bare global `fetch`, which it then calls
-        // as a method of its own request object; a browser refuses that
-        // ("Illegal invocation"), so it gets one bound to the window.
-        server: {
-          fixture: bytes.buffer,
-          pollMs: poll,
-          fetch: (url: string, init: RequestInit) => window.fetch(url, init),
-        },
+        server: { fixture: bytes.buffer, pollMs: poll },
       };
     },
     { b64: fixture, poll: pollMs },
