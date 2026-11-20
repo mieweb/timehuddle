@@ -27,6 +27,7 @@ type SharedListProps = Pick<
   | 'boardKnown'
   | 'boardLoadingKey'
   | 'onToggleBoard'
+  | 'hideBoardButton'
   | 'selecting'
   | 'onEditRequest'
   | 'onDeleteRequest'

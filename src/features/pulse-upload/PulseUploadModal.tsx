@@ -77,11 +77,16 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
             words instead of above them, so the status line stays in view. */}
         <div className="pulse-modal-body flex flex-col items-center gap-4 py-2 [@media(max-height:520px)]:flex-row [@media(max-height:520px)]:items-start [@media(max-height:520px)]:justify-center">
           {link && !onPhone && (
-            <div className="pulse-modal-qr shrink-0 rounded-lg border border-border bg-white p-4 [@media(max-height:520px)]:p-2">
+            // As large as the window has room for: the bigger its squares, the
+            // easier a phone reads it from across a desk. 288 px in a window
+            // wide and tall enough to show it with the words below; 200 px in
+            // a smaller one; 140 px beside the words on a short one. Never
+            // wider than the modal.
+            <div className="pulse-modal-qr max-w-full shrink-0 rounded-lg border border-border bg-white p-4 [@media(max-height:520px)]:p-2">
               <QRCodeSVG
                 value={link}
-                size={200}
-                className="h-auto w-[200px] max-w-full [@media(max-height:520px)]:w-[140px]"
+                size={288}
+                className="h-auto w-[200px] max-w-full [@media(max-height:520px)]:w-[140px] [@media(min-width:640px)_and_(min-height:720px)]:w-[288px]"
                 aria-label="QR code to open the Pulse upload screen"
               />
             </div>

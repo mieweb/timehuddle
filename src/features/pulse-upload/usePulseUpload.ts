@@ -15,9 +15,15 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { videoApi, type PulseDestination, type PulseUploadStatus } from '../../lib/api';
+import {
+  videoApi,
+  type PulseDestination,
+  type PulseReservation,
+  type PulseUploadStatus,
+} from '../../lib/api';
 import { isMobileBrowser, isNativeApp, openExternalUrl } from '../../lib/device';
-import { buildPulseLink } from './pulseLinks';
+import { absoluteAppUrl } from '../../lib/useCopyLink';
+import { buildPulseLink, pulseReturnPath } from './pulseLinks';
 import { uploadVideoFile, videoFileProblem } from './videoFile';
 
 /** How often to ask whether the upload landed, while the page is visible. */
@@ -36,7 +42,11 @@ const PREPARED_FRESH_MS = 20 * 60 * 1000;
 export interface PulseLink {
   videoid: string;
   uploadToken: string;
-  /** Pulse's https pairing link: the QR's target, and what a phone opens. */
+  /**
+   * Pulse's https pairing link: the QR's target, and what a phone opens. On a
+   * phone (its browser, or the TimeHuddle app) it also names this page as the
+   * way back; a QR is scanned from another screen, so it doesn't.
+   */
   url: string;
 }
 
@@ -73,10 +83,20 @@ interface Options {
    * dropped and a new one prepared. A link already handed out is untouched.
    */
   prepareKey?: string;
+  /**
+   * In a phone's browser, have a link ready before the tap (the default), so
+   * one tap opens Pulse. A list with a button per row passes whether its row
+   * is on screen, so only those reserve a link (and again every 20 minutes);
+   * a link stays ready while the row is off screen, and is used again when it
+   * comes back. A tap with no link ready reserves first, then offers "Open
+   * Pulse" in the window: a second tap, since a browser opens another app
+   * only within one.
+   */
+  prepare?: boolean;
 }
 
 type LiveLink = PulseLink & { destinationKey: string; fromFile: boolean };
-type Reservation = { videoid: string; uploadToken: string };
+type Reservation = PulseReservation;
 type Prepared = { key: string; reservation: Reservation; at: number };
 
 const isSettled = (status: PulseUploadStatus | null) =>
@@ -84,7 +104,7 @@ const isSettled = (status: PulseUploadStatus | null) =>
 
 export function usePulseUpload(
   destination: PulseDestination,
-  { onSettled, prepareKey = '' }: Options = {},
+  { onSettled, prepareKey = '', prepare = true }: Options = {},
 ): PulseUpload {
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
@@ -130,8 +150,19 @@ export function usePulseUpload(
   // back ('' → shift → ''): a link made before that shift would be refused,
   // whether or not the one in between ever arrived.
   useEffect(() => setPrepared(null), [preparedKey]);
+  const preparedNow = useRef(prepared);
+  preparedNow.current = prepared;
   useEffect(() => {
-    if (!onPhoneBrowser) return;
+    if (!onPhoneBrowser || !prepare) return;
+    // One still fresh is kept (a row back on screen reserves nothing), and
+    // replaced when it is due; so is one that couldn't be reserved, by then.
+    const kept = preparedNow.current;
+    const fresh = kept?.key === preparedKey ? kept.at + PREPARED_FRESH_MS - Date.now() : 0;
+    const refresh = setTimeout(
+      () => setPrepareRound((n) => n + 1),
+      fresh > 0 ? fresh : PREPARED_FRESH_MS,
+    );
+    if (fresh > 0) return () => clearTimeout(refresh);
     let cancelled = false;
     videoApi
       .reserve(JSON.parse(destinationKey) as PulseDestination)
@@ -141,12 +172,11 @@ export function usePulseUpload(
       .catch(() => {
         // The tap reserves again, and says what went wrong.
       });
-    const refresh = setTimeout(() => setPrepareRound((n) => n + 1), PREPARED_FRESH_MS);
     return () => {
       cancelled = true;
       clearTimeout(refresh);
     };
-  }, [onPhoneBrowser, destinationKey, preparedKey, prepareRound]);
+  }, [onPhoneBrowser, prepare, destinationKey, preparedKey, prepareRound]);
 
   // A link belongs to the destination it was reserved for. When the host
   // moves on (another ticket), this hook starts afresh; the earlier link
@@ -246,7 +276,13 @@ export function usePulseUpload(
     (reservation: Reservation, fromFile: boolean): LiveLink => {
       const next: LiveLink = {
         ...reservation,
-        url: buildPulseLink(reservation.videoid, reservation.uploadToken),
+        // Opened on this phone, Pulse offers the way back here once a video is up.
+        url: buildPulseLink(
+          reservation,
+          onPhoneBrowser || isNativeApp()
+            ? absoluteAppUrl(pulseReturnPath(window.location))
+            : undefined,
+        ),
         destinationKey,
         fromFile,
       };
@@ -254,7 +290,7 @@ export function usePulseUpload(
       setStatus({ state: 'waiting' });
       return next;
     },
-    [destinationKey],
+    [destinationKey, onPhoneBrowser],
   );
 
   /** A new link for the destination on screen, or null when it failed or the host moved on. */

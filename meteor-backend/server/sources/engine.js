@@ -30,9 +30,17 @@ export function readPath(raw, path) {
   return path.split('.').reduce((value, key) => (value == null ? undefined : value[key]), raw);
 }
 
-/** `template` with `{key}` and `{container}` filled from `ref`, each URL-encoded. */
+/**
+ * `template` with `{key}` and `{container}` filled from `ref`, each URL-encoded.
+ * A container may have parts (`owner/repo`), so its slashes stay.
+ */
 export function fillTemplate(template, ref) {
-  return template.replace(/\{(\w+)\}/g, (_, name) => encodeURIComponent(ref[name] ?? ''));
+  return template.replace(/\{(\w+)\}/g, (_, name) =>
+    String(ref[name] ?? '')
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/'),
+  );
 }
 
 function callHook(hooks, value, args, ctx) {

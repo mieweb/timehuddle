@@ -170,6 +170,8 @@ export interface SourceDefinition {
     auth: 'none' | 'header' | 'bearer';
     header?: string;
     fields?: { id: string; label: string; secret?: boolean }[];
+    /** Connected in one click instead, through the deployment's OAuth app. */
+    oauth?: boolean;
   };
   /**
    * How an issue's address and ID look. Only these keys: an ID is plain text,
