@@ -1,13 +1,18 @@
 /**
  * "My Board" — a personal priority list of tickets/issues.
  *
- * Identity only: `{ userId, sourceId, ticketId, addedAt }`. No title, status, or
+ * Identity only: `{ userId, sourceId, ticketId, addedAt, pinOrder? }`. No title, status, or
  * any other display field is snapshotted here — the client resolves those by
  * looking the ref up against its already-fetched unified ticket list (Core
  * Model Data Discipline). A Redmine entry keeps its issue in that list — the
  * relevant list counts the board as a reason (`board`) — so an entry only goes
  * unresolved when its ticket is gone: a Huddle ticket deleted, or a Redmine
  * issue deleted or no longer visible. The Tickets page offers to remove those.
+ *
+ * Pinning (#884) is a place in the user's plan for the day, kept on the board
+ * row itself: `pinOrder` set means pinned, and pins list in ascending order.
+ * So only a ticket on the board can be pinned, and taking it off the board
+ * unpins it with no second write.
  */
 import { Meteor } from 'meteor/meteor';
 
@@ -38,8 +43,9 @@ Meteor.startup(async () => {
   }
 });
 
-function validateRefs(refs) {
-  if (!Array.isArray(refs) || refs.length === 0) {
+/** `allowEmpty` for a call where no refs means something: setPins([]) unpins everything. */
+function validateRefs(refs, { allowEmpty = false } = {}) {
+  if (!Array.isArray(refs) || (refs.length === 0 && !allowEmpty)) {
     throw new Meteor.Error('bad-request', 'refs array required');
   }
   if (refs.length > MAX_BOARD_ENTRIES_PER_USER) {
@@ -132,6 +138,12 @@ function bustIfRedmine(userId, refs) {
   if (refs.some((ref) => ref.sourceId === 'redmine')) bustUserCaches(userId);
 }
 
+/** One ref, as the pin methods take it. */
+function validateRef(ref) {
+  validateRefs([ref]);
+  return { sourceId: ref.sourceId, ticketId: ref.ticketId };
+}
+
 /** Delete these (sourceId, ticketId) entries from one user's board. */
 export async function removeBoardEntries(userId, refs) {
   const result = await MyBoard.rawCollection().deleteMany({
@@ -153,7 +165,7 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const entries = await MyBoard.find(
       { userId },
-      { fields: { sourceId: 1, ticketId: 1, addedAt: 1 } },
+      { fields: { sourceId: 1, ticketId: 1, addedAt: 1, pinOrder: 1 } },
     ).fetchAsync();
     const gone = await unavailableHuddleTicketIds(
       userId,
@@ -164,6 +176,7 @@ Meteor.methods({
         sourceId: e.sourceId,
         ticketId: e.ticketId,
         addedAt: e.addedAt,
+        ...(typeof e.pinOrder === 'number' ? { pinOrder: e.pinOrder } : {}),
         ...(e.sourceId === 'huddle' && gone.has(e.ticketId) ? { unavailable: true } : {}),
       })),
     };
@@ -209,5 +222,66 @@ Meteor.methods({
     validateRefs(refs);
     return { removedCount: await removeBoardEntries(userId, refs) };
   },
-});
 
+  /**
+   * Pin one of the caller's board entries, after the pins already there.
+   * Pinning one already pinned leaves it where it is.
+   */
+  async 'myBoard.pin'({ ref } = {}) {
+    const { userId } = await requireIdentity(this);
+    const { sourceId, ticketId } = validateRef(ref);
+    const entry = await MyBoard.findOneAsync(
+      { userId, sourceId, ticketId },
+      { fields: { pinOrder: 1 } },
+    );
+    if (!entry) throw new Meteor.Error('not-on-board', 'Only a ticket on My Board can be pinned.');
+    if (typeof entry.pinOrder === 'number') return { pinned: true };
+
+    const [last] = await MyBoard.find(
+      { userId, pinOrder: { $type: 'number' } },
+      { sort: { pinOrder: -1 }, limit: 1, fields: { pinOrder: 1 } },
+    ).fetchAsync();
+    await MyBoard.updateAsync(
+      { _id: entry._id },
+      { $set: { pinOrder: last ? last.pinOrder + 1 : 0 } },
+    );
+    return { pinned: true };
+  },
+
+  /** Unpin one of the caller's board entries. It stays on the board. */
+  async 'myBoard.unpin'({ ref } = {}) {
+    const { userId } = await requireIdentity(this);
+    const { sourceId, ticketId } = validateRef(ref);
+    await MyBoard.updateAsync({ userId, sourceId, ticketId }, { $unset: { pinOrder: '' } });
+    return { pinned: false };
+  },
+
+  /**
+   * Make `refs` the caller's pins, in this order: what one drag on My Board
+   * does, whether it reorders the pins, pins a ticket or unpins one. Every
+   * other board entry is unpinned. A ref no longer on the board is skipped.
+   */
+  async 'myBoard.setPins'({ refs } = {}) {
+    const { userId } = await requireIdentity(this);
+    // Empty is a real answer: the last pin dragged out of Pinned.
+    validateRefs(refs, { allowEmpty: true });
+    const keys = refs.map((r) => refKey(r.sourceId, r.ticketId));
+    if (new Set(keys).size !== keys.length) {
+      throw new Meteor.Error('bad-request', 'Each ticket can be pinned once.');
+    }
+    const entries = await MyBoard.find(
+      { userId },
+      { fields: { sourceId: 1, ticketId: 1, pinOrder: 1 } },
+    ).fetchAsync();
+    const order = new Map(keys.map((key, index) => [key, index]));
+    const writes = entries.flatMap(({ sourceId, ticketId, pinOrder }) => {
+      const wanted = order.get(refKey(sourceId, ticketId));
+      if (wanted === pinOrder) return [];
+      const filter = { userId, sourceId, ticketId };
+      const update = wanted === undefined ? { $unset: { pinOrder: '' } } : { $set: { pinOrder: wanted } };
+      return [{ updateOne: { filter, update } }];
+    });
+    if (writes.length) await MyBoard.rawCollection().bulkWrite(writes);
+    return { pinned: entries.filter((e) => order.has(refKey(e.sourceId, e.ticketId))).length };
+  },
+});

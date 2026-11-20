@@ -25,6 +25,17 @@ beforeEach(() => api.list.mockReset());
 afterEach(cleanup);
 
 describe('useMyBoardKeys', () => {
+  it('lists the pinned entries in pin order', async () => {
+    api.list.mockResolvedValue([
+      { ...entry('a'), pinOrder: 4 },
+      entry('b'),
+      { ...entry('c'), pinOrder: 1 },
+    ]);
+    const { result } = renderHook(() => useMyBoardKeys('u1'));
+    await waitFor(() => expect(result.current.boardKeys.size).toBe(3));
+    expect(result.current.pinnedKeys).toEqual(['huddle:c', 'huddle:a']);
+  });
+
   it('loads the board as keys, with the entries the user can no longer see', async () => {
     api.list.mockResolvedValue([entry('a'), entry('b', true)]);
     const { result } = renderHook(() => useMyBoardKeys('u1'));
