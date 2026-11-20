@@ -19,6 +19,8 @@ import React from 'react';
 
 import { RowList } from '../../ui/RowList';
 
+import { boardText } from './boardStrings';
+import { splitPinned } from './pinnedSections';
 import { TicketRow } from './TicketRow';
 import { TicketOpenClosedToggle } from './TicketOpenClosedToggle';
 import { TicketListControls, type TicketField } from './TicketListControls';
@@ -92,6 +94,12 @@ export interface TicketListProps {
   /** `${sourceId}:${id}` of the row being put on or taken off the board, if any. */
   boardLoadingKey: string | null;
   onToggleBoard: (ticket: UnifiedTicket) => void;
+  /**
+   * My Board's pins, in order. Given, the rows show as Pinned over Rest of my
+   * board, and each row's menu can pin or unpin it (#884).
+   */
+  pinnedKeys?: string[];
+  onTogglePin?: (ticket: UnifiedTicket) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -131,6 +139,8 @@ export const TicketList: React.FC<TicketListProps> = ({
   boardKnown,
   boardLoadingKey,
   onToggleBoard,
+  pinnedKeys,
+  onTogglePin,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -144,6 +154,24 @@ export const TicketList: React.FC<TicketListProps> = ({
   const someSelected = selectedOnPage > 0 && !allSelected;
 
   const [showHuddleIds, setShowHuddleIds] = useShowHuddleIds();
+
+  const sections = React.useMemo(() => {
+    if (!pinnedKeys) return undefined;
+    const { pinned, rest } = splitPinned(tickets, pinnedKeys);
+    return [
+      {
+        id: 'my-board-pinned',
+        label: boardText.pinnedSection,
+        items: pinned,
+        emptyText: boardText.pinnedEmpty,
+      },
+      { id: 'my-board-rest', label: boardText.restSection, items: rest },
+    ];
+  }, [tickets, pinnedKeys]);
+  const pinnedRowKeys = React.useMemo(
+    () => new Set(sections?.[0].items.map((t) => t.key)),
+    [sections],
+  );
 
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
@@ -296,6 +324,7 @@ export const TicketList: React.FC<TicketListProps> = ({
         getTitle={ticketTitle}
         loading={loading}
         scrollKey={listKey}
+        sections={sections}
         emptyState={emptyState}
         renderRow={(ticket) => (
           <TicketRow
@@ -313,6 +342,8 @@ export const TicketList: React.FC<TicketListProps> = ({
             boardKnown={boardKnown}
             boardLoading={boardLoadingKey === ticket.key}
             onToggleBoard={onToggleBoard}
+            pinned={pinnedRowKeys.has(ticket.key)}
+            onTogglePin={onTogglePin}
             onEditRequest={onEditRequest}
             onDeleteRequest={onDeleteRequest}
             onChangeStatusRequest={onChangeStatusRequest}

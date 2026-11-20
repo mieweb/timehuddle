@@ -57,6 +57,7 @@ import {
   starterText,
   useAssignedNotice,
 } from './assignedStarter';
+import { boardText } from './boardStrings';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -387,8 +388,15 @@ export const TicketsPage: React.FC = () => {
 
   // My Board membership, as identity only. Emptied and reloaded when the
   // signed-in user changes: this page stays mounted, and opens on the board.
-  const { boardKeys, setBoardKeys, unavailableHuddleKeys, loadBoard, boardLoaded, boardKnown } =
-    useMyBoardKeys(userId);
+  const {
+    boardKeys,
+    pinnedKeys,
+    setBoardKeys,
+    unavailableHuddleKeys,
+    loadBoard,
+    boardLoaded,
+    boardKnown,
+  } = useMyBoardKeys(userId);
   // The board is the view the page opens on, so it must not say "empty" in
   // the moment before it knows what is on it.
   const boardLoading = ticketsLoading || !boardLoaded;
@@ -819,6 +827,28 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, addToBoard, removeFromBoard],
   );
 
+  // One row's Pin / Unpin (#884). A pin new to the list goes after the others.
+  const handleTogglePin = useCallback(
+    (ticket: UnifiedTicket) => {
+      const entryKeys = boardEntryKeys(ticket, boardKeys);
+      const pinnedEntries = entryKeys.filter((key) => pinnedKeys.includes(key));
+      const unpinning = pinnedEntries.length > 0;
+      if (!unpinning && entryKeys.length === 0) return;
+      setBoardLoadingKey(ticket.key);
+      void (
+        unpinning
+          ? Promise.all(pinnedEntries.map((key) => myBoardApi.unpin(ticketRefOf(key))))
+          : myBoardApi.pin(ticketRefOf(entryKeys[0]))
+      )
+        .catch(() => toast.error(unpinning ? boardText.unpinFailed : boardText.pinFailed))
+        .finally(() => {
+          setBoardLoadingKey(null);
+          loadBoard();
+        });
+    },
+    [boardKeys, pinnedKeys, loadBoard, toast],
+  );
+
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
       (added) => added && ticketsView.clearSelection(),
@@ -1063,6 +1093,8 @@ export const TicketsPage: React.FC = () => {
             <TicketListPanel
               {...sharedListProps}
               view={boardView}
+              pinnedKeys={pinnedKeys}
+              onTogglePin={handleTogglePin}
               loading={boardLoading}
               // Unresolvable board entries, announced politely.
               afterBulkBar={

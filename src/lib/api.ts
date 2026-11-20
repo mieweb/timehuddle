@@ -2090,6 +2090,8 @@ export interface MyBoardEntry extends MyBoardRef {
   addedAt: string;
   /** A Huddle ticket the caller can no longer see (deleted, or a team they left). */
   unavailable?: boolean;
+  /** Set when the entry is pinned; pins list in ascending order (#884). */
+  pinOrder?: number;
 }
 
 export const myBoardApi = {
@@ -2101,6 +2103,12 @@ export const myBoardApi = {
 
   removeMany: (refs: MyBoardRef[]) =>
     wormholeCall<{ removedCount: number }>('myBoard.removeMany', { refs }),
+
+  /** Pin a board entry after the pins already there. Only a board entry can be pinned. */
+  pin: (ref: MyBoardRef) => wormholeCall<{ pinned: boolean }>('myBoard.pin', { ref }),
+
+  /** Unpin a board entry; it stays on the board. */
+  unpin: (ref: MyBoardRef) => wormholeCall<{ pinned: boolean }>('myBoard.unpin', { ref }),
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
