@@ -16,7 +16,18 @@
  * list semantics, empty state and item styling are the library's; this adds
  * the header, the scrolling, the trailing placeholders and the row layout.
  */
-import { cn, ListView, ScrollArea, Skeleton } from '@mieweb/ui';
+import {
+  Badge,
+  cn,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  ListView,
+  ScrollArea,
+  Skeleton,
+  Text,
+} from '@mieweb/ui';
+import { ChevronDown } from 'lucide-react';
 import React from 'react';
 
 import { MINIMAL_SCROLLBAR_CLASS } from './scrollbar';
@@ -135,6 +146,16 @@ export const RowListSkeleton: React.FC = () => (
   />
 );
 
+/** A titled run of rows that can be folded away, e.g. My Board's Pinned. */
+export interface RowListSection<T> {
+  /** Stable across renders; also keys the folded state kept for this viewer. */
+  id: string;
+  label: string;
+  items: T[];
+  /** Shown in the section when it has no rows. Without it, an empty section is left out. */
+  emptyText?: string;
+}
+
 export interface RowListProps<T> {
   /** Accessible name of the list, e.g. "Open tickets". */
   label: string;
@@ -154,6 +175,11 @@ export interface RowListProps<T> {
   loading?: boolean;
   /** Scrolls back to the first row whenever this changes. */
   scrollKey?: unknown;
+  /**
+   * Show the rows in these sections instead of as one run. `items` is still
+   * every row: it decides between the rows and the empty state.
+   */
+  sections?: RowListSection<T>[];
   className?: string;
 }
 
@@ -161,6 +187,56 @@ const SKELETON_ROWS_EMPTY = 5;
 const SKELETON_ROWS_TRAILING = 3;
 
 const SCROLL_AREA_CLASS = `row-list-scroll min-h-0 w-full flex-1 [&::-webkit-scrollbar]:w-1.5 ${MINIMAL_SCROLLBAR_CLASS}`;
+
+const LIST_VIEW_CLASS = 'overflow-visible rounded-none border-0 bg-transparent';
+const LIST_VIEW_CLASSNAMES = { item: 'gap-0 p-0' };
+
+interface RowListGroupProps<T> {
+  section: RowListSection<T>;
+  accessors: { getId: (item: T) => string; getTitle: (item: T) => string };
+  renderRow: (item: T) => React.ReactNode;
+}
+
+/** One section: a heading that folds it, with its row count, over its rows. */
+function RowListGroup<T>({ section, accessors, renderRow }: RowListGroupProps<T>) {
+  return (
+    <Collapsible
+      defaultOpen
+      storageKey={`row-list-section:${section.id}`}
+      className="row-list-section"
+    >
+      <CollapsibleTrigger className="row-list-section-trigger group flex w-full items-center gap-2 border-b border-border px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+        <ChevronDown
+          className="h-4 w-4 shrink-0 transition-transform group-data-[state=closed]:-rotate-90 rtl:group-data-[state=closed]:rotate-90"
+          aria-hidden="true"
+        />
+        <span className="row-list-section-label">{section.label}</span>
+        <Badge variant="secondary" size="sm">
+          {section.items.length}
+        </Badge>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="row-list-section-rows">
+        {section.items.length > 0 ? (
+          <ListView
+            items={section.items}
+            accessors={accessors}
+            renderItem={renderRow}
+            className={LIST_VIEW_CLASS}
+            classNames={LIST_VIEW_CLASSNAMES}
+          />
+        ) : (
+          <Text
+            size="sm"
+            variant="muted"
+            className="row-list-section-empty px-(--row-list-inset) py-3"
+          >
+            {section.emptyText}
+          </Text>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 export function RowList<T>({
   label,
@@ -172,6 +248,7 @@ export function RowList<T>({
   emptyState,
   loading = false,
   scrollKey,
+  sections,
   className,
 }: RowListProps<T>) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -203,16 +280,28 @@ export function RowList<T>({
         className={SCROLL_AREA_CLASS}
       >
         {/* While nothing has loaded yet, placeholders stand in for the empty state. */}
-        {!(loading && items.length === 0) && (
-          <ListView
-            items={items}
-            accessors={accessors}
-            renderItem={renderRow}
-            emptyState={emptyState}
-            className="overflow-visible rounded-none border-0 bg-transparent"
-            classNames={{ item: 'gap-0 p-0' }}
-          />
-        )}
+        {!(loading && items.length === 0) &&
+          (sections && items.length > 0 ? (
+            sections
+              .filter((section) => section.items.length > 0 || section.emptyText)
+              .map((section) => (
+                <RowListGroup
+                  key={section.id}
+                  section={section}
+                  accessors={accessors}
+                  renderRow={renderRow}
+                />
+              ))
+          ) : (
+            <ListView
+              items={items}
+              accessors={accessors}
+              renderItem={renderRow}
+              emptyState={emptyState}
+              className={LIST_VIEW_CLASS}
+              classNames={LIST_VIEW_CLASSNAMES}
+            />
+          ))}
         {placeholders > 0 && (
           <div className="row-list-placeholders" aria-hidden="true">
             {Array.from({ length: placeholders }, (_, i) => (
