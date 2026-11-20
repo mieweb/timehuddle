@@ -154,14 +154,15 @@ test.describe('Linking a ticket to a Redmine issue', () => {
     await expect(create).toBeEnabled();
     await expect(convert).toHaveCount(0);
 
-    // A GitHub issue is offered by its repo; left alone, it stays a plain link.
+    // A GitHub issue is offered as one; left alone, it stays a plain link.
     await field.fill('https://github.com/mieweb/timehuddle/issues/9999');
-    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+    const displayAsIssue = page.getByRole('button', { name: 'Display as GitHub issue' });
+    await expect(displayAsIssue).toBeVisible();
     await expect(page.getByText('Or save it as a plain link.')).toBeVisible();
-    await page.getByRole('button', { name: 'Convert to timehuddle issue' }).click();
+    await displayAsIssue.click();
     await expect(page.getByText('This ticket will go by timehuddle-9999.')).toBeVisible();
     await page.getByRole('button', { name: 'Keep as a plain link' }).click();
-    await expect(page.getByRole('button', { name: 'Convert to timehuddle issue' })).toBeVisible();
+    await expect(displayAsIssue).toBeVisible();
 
     // An issue on this TimeHuddle's Redmine converts to a Redmine link, found at once.
     await field.fill(`${BASE_URL}/issues/482`);
