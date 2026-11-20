@@ -88,7 +88,7 @@ export const ADMIN_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'team',
     label: 'Team',
-    description: 'Its clock and membership rules, unless its organization locks them.',
+    description: 'Its clock, membership and Pulse rules, unless its organization locks them.',
     icon: UsersIcon,
   },
   {

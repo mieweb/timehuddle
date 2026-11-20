@@ -71,6 +71,154 @@ jobs:
         working-directory: meteor-backend
         run: npm run test:unit
 
+  # The whole backend vitest suite (vitest.config.ts: tests/**/*.test.ts), so
+  # the server-backed tests that import ./helpers or mongodb run too, against
+  # the same `meteor run` test backend people run locally on :3101 and its own
+  # timehuddle_test database. It also re-runs the tests backend-unit runs.
+  # Opt-in for now: it runs on a PR labelled `backend-integration`, from the
+  # next push after the label is added.
+  backend-integration:
+    name: Backend Integration Tests
+    if: contains(github.event.pull_request.labels.*.name, 'backend-integration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # teams.test.ts reads the invitation emails the backend sends.
+      mailpit:
+        image: axllent/mailpit:v1.31.3
+        ports:
+          - 1025:1025
+          - 8025:8025
+    env:
+      METEOR_URL: http://localhost:3101
+      MONGO_URL: mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0
+      MONGO_OPLOG_URL: mongodb://127.0.0.1:27017/local?replicaSet=rs0
+      MONGODB_URI: mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0
+      MAILPIT_URL: http://localhost:8025
+      # Throwaway values for the suites that skip without them: the Redmine and
+      # GitHub stand-ins are HTTP servers inside the test process, and the
+      # backend reads the key the tests store with. GITHUB_API_URL is set in the
+      # backend step instead: the runner resets GITHUB_* defaults in every step.
+      REDMINE_ENCRYPTION_KEY: ci-only-throwaway-key
+      REDMINE_BASE_URL: http://127.0.0.1:3998
+      GITHUB_TEST_PORT: 3997
+      GITHUB_TEST_SERVER: http://127.0.0.1:3997
+      GITHUB_WEB_URL: http://127.0.0.1:3997
+      GITHUB_CLIENT_ID: ci-client-id
+      GITHUB_CLIENT_SECRET: ci-client-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init meteor-wormhole submodule
+        run: git submodule update --init vendor/meteor-wormhole
+
+      # A service container can't be given mongod's --replSet, and Meteor tails
+      # the oplog of a replica set. MongoDB 7.0, as the Dockerfile installs and
+      # main.yml pins: mongo:8 crashes on startup on ubuntu-latest runners
+      # (SERVER-121912, see main.yml).
+      - name: Start MongoDB 7.0 (single-node replica set)
+        run: |
+          mongo_failed() {
+            echo "::error::$1"
+            docker logs mongo 2>&1 | tail -n 100 || true
+            exit 1
+          }
+          mongo_running() {
+            [ "$(docker inspect -f '{{.State.Running}}' mongo 2> /dev/null)" = "true" ]
+          }
+          docker run -d --name mongo -p 27017:27017 mongo:7.0 --replSet rs0 --bind_ip_all
+          ready=false
+          for _ in $(seq 1 30); do
+            mongo_running || mongo_failed "The MongoDB container exited during startup"
+            if docker exec mongo mongosh --quiet --eval "db.adminCommand('ping').ok" > /dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" = true ] || mongo_failed "MongoDB did not answer a ping within 60s"
+          docker exec mongo mongosh --quiet --eval \
+            "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })" \
+            || mongo_failed "rs.initiate failed"
+          for _ in $(seq 1 30); do
+            mongo_running || mongo_failed "The MongoDB container exited during replica set init"
+            [ "$(docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary')" = "true" ] && exit 0
+            sleep 1
+          done
+          mongo_failed "MongoDB replica set has no primary after 30s"
+
+      # Saved under this PR's ref, so it helps this PR's later runs only: other
+      # PRs can restore caches from main, and this job never runs on main.
+      - name: Restore Meteor cache
+        id: meteor-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.meteor
+          key: meteor-${{ runner.os }}-${{ hashFiles('meteor-backend/.meteor/release', 'meteor-backend/.meteor/versions') }}
+
+      - name: Install Meteor
+        if: steps.meteor-cache.outputs.cache-hit != 'true'
+        run: curl -fsSL "https://install.meteor.com/?release=$(sed 's/^METEOR@//' meteor-backend/.meteor/release)" | sh
+
+      - name: Put Meteor on PATH
+        run: echo "$HOME/.meteor" >> "$GITHUB_PATH"
+
+      # With Meteor's own Node, so native modules (bcrypt) match the server.
+      - name: Install dependencies
+        working-directory: meteor-backend
+        run: meteor npm ci
+
+      - name: Start test backend on :3101
+        working-directory: meteor-backend
+        env:
+          PORT: 3101
+        run: |
+          # Exported here, not in env: GITHUB_API_URL is a runner default that
+          # the runner sets again for every step, over the job's env.
+          export GITHUB_API_URL=http://127.0.0.1:3997
+          nohup npm start > "$RUNNER_TEMP/meteor.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/meteor.pid"
+          deadline=$((SECONDS + 600))
+          # Only the app's own JSON answer counts: after a crash, `meteor run`
+          # keeps running, waiting for a file change, and its proxy serves an
+          # error page. So a crash is caught from Meteor's own log line too.
+          until curl -sf -m 10 "$METEOR_URL/health" 2> /dev/null | grep -q '"status":"ok"'; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/meteor.pid")" 2> /dev/null; then
+              echo "::error::The test backend exited before it was healthy"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            if grep -q 'Your application is crashing' "$RUNNER_TEMP/meteor.log"; then
+              echo "::error::The test backend crashed on startup"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::The test backend was not healthy within 600s"
+              tail -n 200 "$RUNNER_TEMP/meteor.log"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Test backend healthy at $METEOR_URL"
+
+      # Saved once the backend has built (its Atmosphere packages are then in
+      # ~/.meteor), so a failing test run still leaves the cache for the next.
+      - name: Save Meteor cache
+        if: steps.meteor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.meteor
+          key: ${{ steps.meteor-cache.outputs.cache-primary-key }}
+
+      - name: Test
+        working-directory: meteor-backend
+        run: meteor npm run test:integration
+
+      - name: Backend log
+        if: failure()
+        run: tail -n 300 "$RUNNER_TEMP/meteor.log" || true
+
   backend:
     if: false # Disabled - Fastify backend removed, Meteor backend doesn't have these npm scripts
     name: Backend Checks
@@ -151,6 +299,19 @@ jobs:
 
       - name: Patch Package.swift for CapgoCapacitorUpdater transitive SPM deps
         run: python3 scripts/patch-ios-spm.py
+
+      - name: Cache SwiftPM packages
+        # Xcode resolves SwiftPM packages into DerivedData/<project>/SourcePackages and keeps clones
+        # in ~/Library/Caches/org.swift.swiftpm. Keyed on the generated Package.swift (after the
+        # patch above) and Package.resolved, so a dependency change starts a fresh cache.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-checks-${{ runner.os }}-${{ hashFiles('ios/App/CapApp-SPM/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-checks-${{ runner.os }}-
 
       - name: Build for simulator
         run: |

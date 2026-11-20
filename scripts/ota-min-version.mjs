@@ -8,6 +8,10 @@
  * Clients running older than --version are held at a blocking update screen
  * until they download the latest bundle. This is the kill switch for a bad
  * release: it needs no rebuild and no republish.
+ *
+ * It sets the gate on the channel's newest bundle only. Once a native floor is
+ * in force (publish-ota.mjs --native-floor), shells below that floor are not
+ * gated by it; see publish-ota.mjs for replacing a bundle an older floor serves.
  */
 import { isValidVersion } from '@timehuddle/ota-version';
 

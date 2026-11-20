@@ -4,7 +4,8 @@
  * Visible only on small screens (md:hidden).
  * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, More.
  * "More" opens a sheet with the remaining sidebar destinations (Teams,
- * People, Enterprise, Profile, Settings) so every sidebar link
+ * People, Enterprise, Profile, Settings, and Media under Pulse's visibility
+ * rule, whose attention count also badges More) so every sidebar link
  * stays reachable on mobile without a hamburger drawer. Notifications is not
  * among them — the header's bell icon is present at every width.
  * Active tab indicator is an animated bubble that glides between positions.
@@ -13,6 +14,7 @@
  * plan-first gates and their inline composer are always visible.
  */
 import {
+  Badge,
   BriefcaseIcon,
   Button,
   ChevronLeftIcon,
@@ -29,12 +31,16 @@ import {
   XIcon,
   type LucideIcon,
 } from '@mieweb/ui';
+import { Film } from 'lucide-react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useState } from 'react';
 
 import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections, type AccountMenuSectionId } from './accountMenu';
+import { MEDIA_TEXT } from '../features/media/mediaStrings';
+import { useMediaNav } from '../features/media/MediaNavContext';
+import { MEDIA_PATH } from '../features/media/mediaVisibility';
 import { settingsPath } from '../features/settings/settingsSections';
 import { isActivePath, useRouter } from './router';
 
@@ -58,6 +64,8 @@ interface MoreItem {
   icon: LucideIcon;
   label: string;
   href: string;
+  /** A count that needs the person, as a badge. */
+  badge?: number;
 }
 
 const MORE_ITEMS: MoreItem[] = [
@@ -81,6 +89,14 @@ export const BottomNav: React.FC = () => {
   const { isClockedIn, planGate } = useClockToggle();
   const { user } = useSession();
   const accountSections = useAccountMenuSections();
+  const media = useMediaNav();
+  // Media leads the sheet while it shows.
+  const moreItems: MoreItem[] = media.visible
+    ? [
+        { icon: Film, label: MEDIA_TEXT.title, href: MEDIA_PATH, badge: media.attention },
+        ...MORE_ITEMS,
+      ]
+    : MORE_ITEMS;
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreSection, setMoreSection] = useState<MoreSection>('root');
   const moreButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -212,7 +228,7 @@ export const BottomNav: React.FC = () => {
               ref={tab.isMore ? moreButtonRef : null}
               type="button"
               onClick={tab.isMore ? openMore : () => navigate(tab.href)}
-              aria-label={tab.label}
+              aria-label={tab.isMore ? MEDIA_TEXT.moreLabel(tab.label, media.attention) : tab.label}
               aria-current={isActive ? 'page' : undefined}
               aria-haspopup={tab.isMore ? 'dialog' : undefined}
               className={[
@@ -234,6 +250,16 @@ export const BottomNav: React.FC = () => {
                 />
               )}
               <tab.icon className="relative h-5 w-5" />
+              {tab.isMore && media.attention > 0 && (
+                <Badge
+                  size="sm"
+                  variant="danger"
+                  className="bottom-nav-badge absolute end-[calc(50%-1.25rem)] top-1"
+                  aria-hidden
+                >
+                  {MEDIA_TEXT.navBadge(media.attention)}
+                </Badge>
+              )}
               <span className="relative text-[10px] font-medium">{tab.label}</span>
             </button>
           );
@@ -295,17 +321,28 @@ export const BottomNav: React.FC = () => {
               <div className="overflow-y-auto px-5 py-4">
                 {!activeSection ? (
                   <div className="grid grid-cols-3 gap-3">
-                    {MORE_ITEMS.map((item) => (
+                    {moreItems.map((item) => (
                       <button
                         key={item.label}
                         type="button"
                         onClick={
                           item.label === 'Profile' ? goToProfile : () => goToMoreItem(item.href)
                         }
-                        className={MORE_TILE_CLASS}
+                        aria-label={item.badge ? MEDIA_TEXT.navLabel(item.badge) : undefined}
+                        className={`${MORE_TILE_CLASS} relative`}
                       >
                         <item.icon className="h-6 w-6" />
                         <span className="text-xs font-medium">{item.label}</span>
+                        {item.badge ? (
+                          <Badge
+                            size="sm"
+                            variant="danger"
+                            className="more-tile-badge absolute end-2 top-2"
+                            aria-hidden
+                          >
+                            {MEDIA_TEXT.navBadge(item.badge)}
+                          </Badge>
+                        ) : null}
                       </button>
                     ))}
                     {accountSections.map((section) => (

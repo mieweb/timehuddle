@@ -4,6 +4,9 @@ Make the "Upload video with Pulse" flow open the **Pulse Cam** app directly on
 mobile browsers (instead of showing a QR code), and fall back to the App
 Store / Play Store when Pulse Cam isn't installed.
 
+For Pulse inside the TimeHuddle iPhone app, where this link stays the fallback, see
+[docs/pulse-embed.md](docs/pulse-embed.md).
+
 ## Background
 
 Today device detection is only `Capacitor.isNativePlatform()`:

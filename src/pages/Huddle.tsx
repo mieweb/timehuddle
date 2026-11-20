@@ -75,8 +75,10 @@ import type { MediaItem } from '../features/huddle/types';
 import { ScheduleDialog, ScheduledPostsButton } from '../features/huddle/ScheduleSend';
 import { SCHEDULE_TEXT, type PostSchedule } from '../features/huddle/postSchedule';
 import { PulseButton } from '../features/pulse-upload/PulseButton';
+import { PulseRecordButton } from '../features/pulse-embed/PulseRecordButton';
 import { pulseArtifactId, videoLabel } from '../features/pulse-upload/artifact';
 import { PulseVideoPlayer, VIDEO_CARD_SIZE } from '../features/pulse-upload/PulseVideoPlayer';
+import { renderSuperChatMedia } from '../features/pulse-upload/VideoFeedView';
 import { VideoMenu } from '../features/pulse-upload/VideoMenu';
 import { noteVideoNames, useVideoNamesVersion } from '../features/pulse-upload/videoNames';
 import { TicketPicker } from '../features/huddle/TicketPicker';
@@ -776,6 +778,8 @@ export default function Huddle() {
       // takes the whole screen above the message box.
       layout: 'overlay',
       muted: false,
+      // Each item in a player that shows a Pulse video's captions.
+      renderMedia: renderSuperChatMedia,
       // A Pulse video's menu; an image or an uploaded file has none.
       renderActions: ({ attachment }) =>
         pulseVideoOfMedia(attachment) ? (
@@ -1479,11 +1483,23 @@ export default function Huddle() {
                               >
                                 /
                               </span>
-                              <PulseButton
+                              {/* In the app with Pulse built in, Pulse records the new post
+                                  (huddle.post) in any conversation; else today's link. */}
+                              <PulseRecordButton
                                 key={postingTeamId}
-                                destination={{ kind: 'huddle', teamId: postingTeamId }}
-                                ariaLabel="Post a video with Pulse"
-                                onSettled={() => void refreshActiveScope()}
+                                place={{
+                                  type: 'huddle.post',
+                                  teamId: postingTeamId,
+                                  label: allTeams.find((t) => t.id === postingTeamId)?.name ?? '',
+                                }}
+                                showUnsent
+                                fallback={
+                                  <PulseButton
+                                    destination={{ kind: 'huddle', teamId: postingTeamId }}
+                                    ariaLabel="Post a video with Pulse"
+                                    onSettled={() => void refreshActiveScope()}
+                                  />
+                                }
                               />
                             </div>
                           )}

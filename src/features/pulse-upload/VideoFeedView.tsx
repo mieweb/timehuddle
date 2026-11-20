@@ -5,14 +5,36 @@
  * scrolling up and down to the others. Laid out as Huddle's media view and the
  * video's own page are — the same MediaFeed — with each video's ⋯ menu. Back
  * or Escape closes it, and focus returns to the ▶ that opened it.
+ *
+ * A video with captions plays with them (captions.ts). MediaFeed's own player
+ * has no place for a track yet, so a feed with a captioned video plays its
+ * videos in {@link FeedPlayer} through MediaFeed's `renderMedia`; a feed
+ * without one keeps MediaFeed's player. Huddle's media view (SuperChat's
+ * MediaFeed) plays its items the same way, through
+ * {@link renderSuperChatMedia}.
  */
-import { ArrowLeftIcon, Button, MediaFeed, useFocusTrap } from '@mieweb/ui';
-import React, { useEffect, useLayoutEffect } from 'react';
+import {
+  ArrowLeftIcon,
+  Button,
+  MediaFeed,
+  MediaPlayer,
+  useFocusTrap,
+  type MediaFeedMedia,
+  type MediaFeedRenderContext,
+} from '@mieweb/ui';
+import type { SuperChatMediaItem } from '@mieweb/ui/components/SuperChat';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { resolveMediaUrl } from '@lib/api';
 import { useEscapeWithin } from '@lib/useEscapeWithin';
 import { artifactPath, posterPath, videoLabel } from './artifact';
+import {
+  CAPTIONS_CROSS_ORIGIN,
+  captionsOfMedia,
+  trackProps,
+  type CaptionTrackProps,
+} from './captions';
 import { VideoMenu } from './VideoMenu';
 
 /** User-facing copy, kept together for translation. */
@@ -31,6 +53,8 @@ export interface FeedVideo {
   renamable?: boolean;
   /** Where the host lets the viewer take it off: its menu offers Remove. */
   onRemove?: () => void;
+  /** Its captions (the server's `captionsUrl`); null or absent: none. */
+  captionsUrl?: string | null;
 }
 
 interface VideoFeedViewProps {
@@ -74,6 +98,8 @@ export function VideoFeedView({ videos, openId, onClose, onRenamed }: VideoFeedV
   // (on the body, outside it) closes only that.
   useEscapeWithin(viewRef, onClose, open);
 
+  const captioned = videos.some((video) => trackProps(video.captionsUrl) !== null);
+
   if (!open) return null;
   return createPortal(
     <div
@@ -107,6 +133,18 @@ export function VideoFeedView({ videos, openId, onClose, onRenamed }: VideoFeedV
             poster: resolveMediaUrl(posterPath(video.id)),
           })}
           getTitle={(video) => videoLabel(video.name, video.id)}
+          renderMedia={
+            captioned
+              ? (media, context) => (
+                  <FeedPlayer
+                    media={media}
+                    context={context}
+                    captionsUrl={context.item.captionsUrl}
+                    title={videoLabel(context.item.name, context.item.id)}
+                  />
+                )
+              : undefined
+          }
           renderActions={(video) => (
             <VideoMenu
               video={video.id}
@@ -130,4 +168,159 @@ export function VideoFeedView({ videos, openId, onClose, onRenamed }: VideoFeedV
     </div>,
     document.body,
   );
+}
+
+/** What {@link FeedPlayer} needs of MediaFeed's `renderMedia` context. */
+export type FeedPlayerContext = Pick<
+  MediaFeedRenderContext<unknown>,
+  'active' | 'autoPlay' | 'muted' | 'loop' | 'playbackRequestId'
+>;
+
+interface FeedPlayerProps {
+  /** The item's media, as MediaFeed hands it to `renderMedia`. */
+  media: MediaFeedMedia;
+  context: FeedPlayerContext;
+  /** The video's captions (the server's `captionsUrl`); null or absent: none. */
+  captionsUrl?: string | null;
+  /** What to call it, for screen readers. */
+  title?: string;
+}
+
+/**
+ * One item of a MediaFeed, for its `renderMedia`, playing a video with its
+ * captions until MediaFeed's own player takes a track: the same player
+ * (MediaPlayer with the overlay controls, whose captions button shows only
+ * when there's a track) and the feed's playback rules — it plays only while
+ * it's the active item, starts on its own when the feed autoplays, and once
+ * for each Play request the feed hands it. A picture shows as it is.
+ *
+ * Keyed by its source and captions, so a change of either starts a fresh
+ * player, with the video's CORS mode set before it loads.
+ */
+export function FeedPlayer(props: FeedPlayerProps) {
+  const track = trackProps(props.captionsUrl);
+  if (props.media.kind === 'image') {
+    return (
+      <img
+        src={props.media.src}
+        alt={props.media.alt ?? props.title ?? ''}
+        loading="lazy"
+        className="h-full max-h-full w-full object-contain"
+      />
+    );
+  }
+  return (
+    <FeedPlayerVideo key={`${props.media.src} ${track?.src ?? ''}`} {...props} track={track} />
+  );
+}
+
+/**
+ * Huddle's media view (SuperChat's `mediaFeedProps.renderMedia`): each item
+ * in {@link FeedPlayer}, a Pulse video with the captions superChatFeed.ts
+ * carried on its media item (captionsOfMedia) and anything else as it is, a
+ * picture shown, a video played without a track or CORS mode.
+ *
+ * Every item, captioned or not, since a SuperChat feed's items change as
+ * posts arrive: a renderer that came and went with them would swap the player
+ * under a video playing and start it over. A module function, so the feed's
+ * props keep their identity.
+ */
+export function renderSuperChatMedia(
+  media: MediaFeedMedia,
+  context: MediaFeedRenderContext<SuperChatMediaItem>,
+): React.ReactNode {
+  const { attachment } = context.item;
+  return (
+    <FeedPlayer
+      media={media}
+      context={context}
+      captionsUrl={captionsOfMedia(attachment)}
+      title={attachment.title ?? attachment.alt}
+    />
+  );
+}
+
+function FeedPlayerVideo({
+  media,
+  context: { active, autoPlay, muted, loop, playbackRequestId },
+  title,
+  track,
+}: FeedPlayerProps & { track: CaptionTrackProps | null }) {
+  const element = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  // MediaPlayer hands its element over here as it mounts, before the browser
+  // fetches the video or its track (both wait for the task to finish), so the
+  // track's request is a CORS one. Without a track the video loads as before.
+  // One object for the player's life (the key changes with the track), so
+  // MediaPlayer doesn't let go of its element on every render.
+  const captioned = track !== null;
+  const mediaElementRef = useMemo<React.RefObject<HTMLVideoElement | HTMLAudioElement | null>>(
+    () => ({
+      get current() {
+        return element.current;
+      },
+      set current(el) {
+        if (el && captioned) el.crossOrigin = CAPTIONS_CROSS_ORIGIN;
+        element.current = el;
+      },
+    }),
+    [captioned],
+  );
+
+  // A Play request (a tap on a card's ▶) is handled once, by the active item.
+  const handledRequest = useRef<string | number | undefined>(undefined);
+
+  // Only the active item plays: it starts on its own when the feed autoplays,
+  // and stops when another item takes over. A Play request not yet handled
+  // starts it below instead, so it isn't started twice (as MediaFeed's own
+  // player leaves autoplay to a pending request).
+  useEffect(() => {
+    const el = element.current;
+    if (!el) return;
+    const requestPending =
+      playbackRequestId !== undefined && playbackRequestId !== handledRequest.current;
+    if (active && autoPlay && !requestPending) play(el);
+    else if (!active) el.pause();
+  }, [active, autoPlay, playbackRequestId]);
+
+  useEffect(() => {
+    if (!active || playbackRequestId === undefined || playbackRequestId === handledRequest.current)
+      return;
+    handledRequest.current = playbackRequestId;
+    if (element.current) play(element.current);
+  }, [active, playbackRequestId]);
+
+  // Nothing plays on once it's gone.
+  useEffect(() => {
+    const el = element.current;
+    return () => el?.pause();
+  }, []);
+
+  return (
+    <div className="feed-player relative flex h-full min-h-0 w-full flex-col items-center justify-center">
+      <MediaPlayer
+        src={media.src}
+        kind={media.kind === 'audio' ? 'audio' : 'video'}
+        poster={media.poster}
+        mediaElementRef={mediaElementRef}
+        muted={muted}
+        loop={loop}
+        preload={active ? 'metadata' : 'none'}
+        controls={active}
+        controlsStyle="overlay"
+        aria-label={title}
+        className="min-h-0 flex-1 [&_video]:h-full [&_video]:w-full"
+      >
+        {track && <track {...track} />}
+      </MediaPlayer>
+    </div>
+  );
+}
+
+/** Start playing; a refusal (autoplay blocked) leaves the player's own ▶ to do it. */
+function play(el: HTMLMediaElement) {
+  try {
+    void el.play()?.catch(() => {});
+  } catch {
+    // A browser without media playback (tests) has nothing to start.
+  }
 }

@@ -3,13 +3,25 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId, isObjectIdHex } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { isTeamAdminOrOrgOwner } from './org-helpers';
-import { mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { CANONICAL_ITEM, mayRenameVideo, videoIdOf, videoNamesFor } from './video-names.js';
+import { captionsUrlOf } from './pulse-captions-core.js';
 import { keepReferencedUploads } from './uploads';
+import { existingOnDuplicate, pulseFieldsOf, videoTargetFilter } from './attachments-dedupe-core.js';
+import { runPulseAttachmentsDedupe } from './migrations/pulse-attachments-dedupe.js';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const VALID_KINDS = ['clock', 'ticket'];
 const VALID_TYPES = ['video', 'image', 'link'];
+
+// A video lands on a ticket or session once (huddle-server §12): old
+// duplicates go, then the unique index on its target comes. `DRY_RUN=1` only
+// logs how many duplicates there are. Not awaited: startup doesn't wait on it.
+Meteor.startup(() => {
+  runPulseAttachmentsDedupe(rawDb(), { dryRun: process.env.DRY_RUN === '1' }).catch((error) =>
+    console.error('[attachments] video dedupe or its unique index failed:', error.message),
+  );
+});
 
 function toPublic(a) {
   return {
@@ -46,14 +58,31 @@ async function fetchYouTubeTitle(url) {
  * caller-identity resolution. Used by upload pipelines (PulseVault) that
  * already know the owning userId from their own reservation/auth context
  * rather than the current Meteor method invocation.
+ *
+ * A video lands on its target once: a replay (same url, kind and id) returns
+ * the attachment already there instead of throwing. Links and images may
+ * repeat. Pulse deliveries also pass `source: 'pulse'`, `videoid`,
+ * `pulseUploadId` and `uploadType`, which are stored but not returned.
  */
-export async function createAttachment({ url, type, title, attachedTo, addedBy }) {
+export async function createAttachment({
+  url,
+  type,
+  title,
+  attachedTo,
+  addedBy,
+  source,
+  videoid,
+  pulseUploadId,
+  uploadType,
+}) {
   if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
   if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
   if (!attachedTo?.kind || typeof attachedTo.id !== 'string' || !attachedTo.id) {
     throw new Meteor.Error('bad-request', 'attachedTo is required');
   }
   if (!VALID_KINDS.includes(attachedTo.kind)) throw new Meteor.Error('bad-request', 'Invalid attachedTo.kind');
+  const pulse = pulseFieldsOf(type, { source, videoid, pulseUploadId, uploadType });
+  if (pulse.error) throw new Meteor.Error('bad-request', pulse.error);
 
   const resolvedTitle = title ?? (isYouTubeUrl(url) ? await fetchYouTubeTitle(url) : undefined);
 
@@ -65,11 +94,35 @@ export async function createAttachment({ url, type, title, attachedTo, addedBy }
     attachedTo,
     addedBy,
     addedAt: new Date(),
+    ...pulse.fields,
   };
   // An upload a post dropped, waiting to be deleted, stays for this.
   await keepReferencedUploads([doc.url]);
-  await rawDb().collection('attachments').insertOne(doc);
-  return toPublic(doc);
+  const attachments = rawDb().collection('attachments');
+  try {
+    await attachments.insertOne(doc);
+    return toPublic(doc);
+  } catch (error) {
+    const existing = await existingOnDuplicate(error, () => attachments.findOne(videoTargetFilter(doc)));
+    return toPublic(existing);
+  }
+}
+
+/**
+ * Each video's captions URL (pulse-captions-core.js), by video id, from its
+ * media item's `captionsId`: null for a video with none, or none known yet.
+ */
+async function captionsUrlsFor(videoIds) {
+  const ids = [...new Set(videoIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const items = await rawDb()
+    .collection('mediaitems')
+    .find({ videoid: { $in: ids } }, { projection: { videoid: 1, captionsId: 1 }, ...CANONICAL_ITEM })
+    .toArray();
+  const urls = new Map();
+  // The first is CANONICAL_ITEM's, where old data has duplicates.
+  for (const item of items) if (!urls.has(item.videoid)) urls.set(item.videoid, captionsUrlOf(item));
+  return urls;
 }
 
 /** The team document, by either id shape a team can have. */
@@ -122,7 +175,8 @@ Meteor.methods({
       .sort({ addedAt: 1 })
       .toArray();
     // A video's name is its media item's (video-names.js), renamed by its owner.
-    const videos = await videoNamesFor(docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null)));
+    const videoIds = docs.map((a) => (a.type === 'video' ? videoIdOf(a.url) : null));
+    const [videos, captions] = await Promise.all([videoNamesFor(videoIds), captionsUrlsFor(videoIds)]);
     return {
       attachments: docs.map((a) => {
         const videoId = a.type === 'video' ? videoIdOf(a.url) : null;
@@ -136,6 +190,8 @@ Meteor.methods({
                 // item, whoever PulseVault says uploaded it (videoNamesFor) —
                 // the rule videos.rename applies (attaching a URL proves nothing).
                 canRename: mayRenameVideo({ item: video ? { userId: video.ownerId } : null, userId }),
+                // Its captions (huddle-server §11), played with it; null for none.
+                captionsUrl: (videoId && captions.get(videoId)) ?? null,
               }
             : {}),
         };

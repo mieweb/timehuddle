@@ -8,7 +8,7 @@
  *
  * An open ticket leads with its timer button; a closed one has its purple mark
  * there instead. The My Board button sits at the row's end, beside the ⋮ menu,
- * which offers the same in words; a Huddle ticket's Pulse chip comes before it
+ * which offers the same in words; the ticket's Pulse button comes before it
  * (`TicketPulseButton`), for a video straight from the list. Every other action is in that menu and gated
  * on `ticket.capabilities`, so a source cannot render a control it is unable
  * to perform (Redmine issues, for instance, are never deleted).
@@ -46,7 +46,7 @@ import { ticketTimerText } from '../timers/ticketTimerStrings';
 
 import { BoardToggleButton } from './BoardToggleButton';
 import { FilterDropdown } from './FilterDropdown';
-import { TicketPulseButton } from './TicketPulseButton';
+import { pulseTicketOf, TicketPulseButton } from './TicketPulseButton';
 import { boardText } from './boardStrings';
 import { outsideRefOf } from './ticketIds';
 import { useShowHuddleIds } from './useShowHuddleIds';
@@ -137,6 +137,8 @@ export const TicketRow: React.FC<TicketRowProps> = ({
   // its own permissions server-side (Redmine checks the user's role and
   // workflow), so its rows offer the action and surface any refusal.
   const canEdit = capabilities.edit && (ticket.sourceId !== 'huddle' || isCreator);
+  // The ticket a Pulse video from this row lands on (null: not a TimeHuddle ticket).
+  const pulseTicket = pulseTicketOf(ticket);
 
   // Every source has an in-app page; a source's own page is a separate menu item.
   const openTicket = useCallback(() => navigate(ticketDetailPath(ticket)), [navigate, ticket]);
@@ -275,9 +277,13 @@ export const TicketRow: React.FC<TicketRowProps> = ({
     <>
       {/* The row's own actions, side by side: one group, as adjacent buttons are. */}
       <ButtonGroup orientation="horizontal" className="ticket-row-actions gap-1">
-        {/* A video for this ticket, straight from the list (Huddle tickets only). */}
-        {ticket.sourceId === 'huddle' && (
-          <TicketPulseButton ticketId={ticket.id} title={ticket.title} />
+        {/* A video for this ticket, straight from the list: every ticket takes one (H5). */}
+        {pulseTicket && (
+          <TicketPulseButton
+            ticketId={pulseTicket.ticketId}
+            teamId={pulseTicket.teamId}
+            title={ticket.title}
+          />
         )}
         <BoardToggleButton
           onBoard={onBoard}

@@ -6,6 +6,8 @@
  * video, and what its public page may show.
  */
 
+import { captionsUrlOf } from './pulse-captions-core.js';
+
 /** A Pulse video's playback path, with or without a trailing slash. */
 const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
 /** Longest name kept. */
@@ -112,11 +114,13 @@ export function mayRenameVideo({ item, userId, uploadedByUser = false }) {
 }
 
 /**
- * What a video's public page (`videos.publicInfo`) may show: its name and when
- * it was added, to anyone with the link; who added it only to someone signed in
- * (`viewerId`), since a link can travel outside the team.
+ * What a video's public page (`videos.publicInfo`) may show: its name, when it
+ * was added and its captions (`captionsUrl`, null for none), to anyone with the
+ * link; who added it only to someone signed in (`viewerId`), since a link can
+ * travel outside the team. `captionsId` is the item's own unless the caller
+ * looked it up (a video with no item, or one not yet backfilled).
  */
-export function publicVideoInfo({ id, item, viewerId, owner, canRename = false }) {
+export function publicVideoInfo({ id, item, viewerId, owner, canRename = false, captionsId = item?.captionsId }) {
   const signedIn = Boolean(viewerId);
   return {
     videoId: id,
@@ -124,5 +128,6 @@ export function publicVideoInfo({ id, item, viewerId, owner, canRename = false }
     addedAt: item?.uploadedAt ?? null,
     author: signedIn && owner ? { name: owner.profile?.name ?? null, image: owner.image ?? null } : null,
     canRename: signedIn && canRename === true,
+    captionsUrl: captionsUrlOf({ captionsId }),
   };
 }

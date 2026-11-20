@@ -1,7 +1,13 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Share } from '@capacitor/share';
+import type { PulseClient } from '@mieweb/pulse-embed';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SUPPORT_TEXT } from '../pulse-embed/support/supportStrings';
+import { PULSE_EMBED_OFF, PulseEmbedContext, type PulseEmbed } from '../pulse-embed/usePulseEmbed';
 import { ReportIssueModal } from './ReportIssueModal';
+
+vi.mock('@capacitor/share', () => ({ Share: { share: vi.fn() } }));
 
 // Mock window.open
 const mockWindowOpen = vi.fn();
@@ -130,5 +136,88 @@ describe('ReportIssueModal', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(mockWindowOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReportIssueModal with Pulse in the app', () => {
+  const LOG = SUPPORT_TEXT.log;
+  const logFile = vi.fn();
+  const share = vi.mocked(Share.share);
+
+  const renderWith = (pulse: Partial<PulseEmbed>, onClose = vi.fn()) =>
+    render(
+      <PulseEmbedContext.Provider value={{ ...PULSE_EMBED_OFF, ...pulse }}>
+        <ReportIssueModal open={true} onClose={onClose} />
+      </PulseEmbedContext.Provider>,
+    );
+  const ready = () => ({
+    status: 'ready' as const,
+    client: { logFile } as unknown as PulseClient,
+  });
+
+  beforeEach(() => {
+    // The file's window stub (for window.open) is a plain copy that waitFor
+    // can't observe; these tests open no window.
+    vi.unstubAllGlobals();
+    logFile.mockResolvedValue({
+      rel: 'logs/pulse.log',
+      path: '/data/PulseKit/ns/logs/pulse.log',
+      webUrl: 'capacitor://localhost/_capacitor_file_/data/PulseKit/ns/logs/pulse.log',
+    });
+    share.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    logFile.mockReset();
+    share.mockReset();
+  });
+
+  it('offers no Pulse log outside the app, or before Pulse is ready', () => {
+    renderWith({});
+    expect(screen.queryByText(LOG.title)).toBeNull();
+    cleanup();
+    renderWith({ status: 'starting' });
+    expect(screen.queryByText(LOG.title)).toBeNull();
+  });
+
+  it("attaches Pulse's log through the share sheet and keeps the dialog open", async () => {
+    const onClose = vi.fn();
+    renderWith(ready(), onClose);
+    expect(screen.getByText(LOG.description)).toBeTruthy();
+
+    fireEvent.click(screen.getByText(LOG.title).closest('button')!);
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe(LOG.shared));
+    expect(logFile).toHaveBeenCalledTimes(1);
+    expect(share).toHaveBeenCalledWith({
+      title: LOG.fileTitle,
+      files: ['file:///data/PulseKit/ns/logs/pulse.log'],
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    // The person still picks where to report it.
+    expect(screen.getByText('GitHub Issues')).toBeTruthy();
+  });
+
+  it("says so when Pulse can't give its log", async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    logFile.mockRejectedValueOnce(new Error('unsupported'));
+    renderWith(ready());
+
+    fireEvent.click(screen.getByText(LOG.title).closest('button')!);
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(LOG.failed));
+    expect(share).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('shows nothing when the person closes the share sheet', async () => {
+    share.mockRejectedValueOnce(new Error('Share canceled'));
+    renderWith(ready());
+
+    fireEvent.click(screen.getByText(LOG.title).closest('button')!);
+
+    await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe(''));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

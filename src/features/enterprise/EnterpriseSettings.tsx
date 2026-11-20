@@ -19,6 +19,7 @@ import { ApiError, enterpriseApi, type SettingsPatch } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { NOTIFICATION_DEFAULT_ROWS } from '../notifications/notificationCopy';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
+import { pulseDefaultRows } from '../settings/settingsCopy';
 import { ENTERPRISE_STRINGS } from './enterpriseStrings';
 import { useEnterpriseDetail } from './useEnterpriseDetail';
 
@@ -42,6 +43,7 @@ export const ENTERPRISE_DEFAULT_ROWS: DefaultSettingRow[] = [
     lockable: true,
   },
   ...NOTIFICATION_DEFAULT_ROWS,
+  ...pulseDefaultRows('enterprise'),
 ];
 
 const S = ENTERPRISE_STRINGS.settings;

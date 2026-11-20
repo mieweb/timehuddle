@@ -59,6 +59,7 @@ Path params use `matchPath('/app/tickets/:ticketId', pathname)`, which returns `
 | Settings → Usage                | `period`, `usageOrg` — not `org`, which is the app-wide scope                                |
 | Settings                        | `section`; `github=taken\|expired`, `github_confirm=<code>` (Connect GitHub, read once)      |
 | Settings → Team                 | `team` — the one Settings section that carries the team scope; other sections drop it        |
+| Media `/app/media`              | `filter=ticket\|clock\|post\|library\|other` (All when absent)                               |
 
 Search boxes use `useSearchParam(name)`: the page filters as you type and the URL follows once typing pauses.
 
@@ -70,13 +71,17 @@ A signed-out visitor who opens an `/app/...` link signs in and comes back to it 
 
 Notification payloads and bookmarks already in the wild use these. They are read as aliases and normalised to the new name the next time the URL is written.
 
-| Legacy                                                                                                                             | Now                                            |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `?teamId=`                                                                                                                         | `?team=`                                       |
-| `?postId=`                                                                                                                         | `?post=`                                       |
-| `?memberId=`                                                                                                                       | `?member=`                                     |
-| `?requestId=`                                                                                                                      | `?request=`                                    |
-| `/app/timesheet`, `/app/messages`, `/app/media`, `/app/activity`, `/app/org/members`, `/app/org/usage`, `/app/seeder`, `/app/work` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
+| Legacy                                                                                                               | Now                                            |
+| -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `?teamId=`                                                                                                           | `?team=`                                       |
+| `?postId=`                                                                                                           | `?post=`                                       |
+| `?memberId=`                                                                                                         | `?member=`                                     |
+| `?requestId=`                                                                                                        | `?request=`                                    |
+| `/app/timesheet`, `/app/messages`, `/app/activity`, `/app/org/members`, `/app/org/usage`, `/app/seeder`, `/app/work` | `RETIRED_ROUTES` in [`router.tsx`](router.tsx) |
+
+## A Page Behind a Rule: `/app/media`
+
+`/app/media` was retired (in `RETIRED_ROUTES`) and is a page again: Unsent videos and Your library ([`features/media`](../features/media/MediaPage.tsx)). It shows only under Pulse's visibility rule: Pulse runs in this app, and one of the person's teams has "Pulse in the app" on or Pulse holds unsent videos on this phone. Where the rule doesn't hold (any browser, the desktop, an app without Pulse, or every setting off and nothing unsent), the page replaces the URL with `/app/dashboard`, keeping the query, exactly as the retired route did. Its nav entry follows the same rule.
 
 ## Paths That Don't Resolve
 

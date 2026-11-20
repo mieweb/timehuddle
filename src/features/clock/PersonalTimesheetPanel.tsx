@@ -1142,6 +1142,19 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               entityId={videosSession.id}
               currentUserId={user?.id}
               showHeading={false}
+              // Pulse in the app records a session video for it (clock.session),
+              // the open session's included: never its wrap-up.
+              place={{
+                type: 'clock.session',
+                clockEventId: videosSession.id,
+                label: [
+                  formatDate(new Date(videosSession.startTime), true),
+                  teams.find((t) => t.id === videosSession.teamId)?.name,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+              }}
+              teamId={videosSession.teamId}
             />
           )}
         </ModalBody>

@@ -40,12 +40,16 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity } from './auth-bridge.js';
 import { CANONICAL_ITEM, uploaderOf } from './video-names-core.js';
+import { captionsIdOf, captionsUrlOf } from './pulse-captions-core.js';
 import { isDuplicateKey } from './video-names.js';
 import { deliverPulseVideo, resolvePulseDestination } from './pulse-destinations.js';
 import { createPulseReserve, PULSE_RESERVE_LIMIT, TOO_MANY_RESERVES } from './pulse-reserve-core.js';
 import { discardUnusedMedia, libraryItemsFilter } from './uploads.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { createRateLimiter } from './rate-limit';
+import { PULSE_MAX_UPLOAD_BYTES } from './pulse-upload-types.js';
+import { pulseArtifactEvent, pulseUploadAuthorized } from './pulse-uploads.js';
+import { deliverPulseUpload } from './pulse-upload-delivery.js';
 import path from 'path';
 import { persistentDir } from './storage-paths';
 
@@ -114,6 +118,34 @@ export async function videoArtifactStatus(artifactId) {
 /** Whether PulseVault holds a video by this id (an upload under way counts). */
 export async function videoArtifactExists(artifactId) {
   return (await videoArtifactStatus(artifactId)) !== null;
+}
+
+/**
+ * The id of a video's captions artifact (a finished `.vtt` `relatedTo` it, see
+ * captionsIdOf), else null — also for an id that isn't a video's. Throws when
+ * PulseVault's storage can't be read, so a caller can tell "none" from "don't
+ * know". Waits for the storage to be ready, for a caller at startup.
+ */
+export async function captionsIdFor(videoId) {
+  await storageReady;
+  return captionsIdOf(await core.getPulse(videoId));
+}
+
+/**
+ * Record on a video's media items which captions it has (`captionsId`: the
+ * artifact's id, or null for none), for every API that returns the video to
+ * give its `captionsUrl`. Best-effort: when the lookup fails the field stays
+ * unset, and the startup backfill (pulse-captions.js) tries again.
+ */
+export async function storeCaptionsId(videoId) {
+  try {
+    const captionsId = await captionsIdFor(videoId);
+    await rawDb().collection('mediaitems').updateMany({ videoid: videoId }, { $set: { captionsId } });
+    return captionsId;
+  } catch (err) {
+    console.error(`[pulsevault] looking up captions of ${videoId} failed:`, err);
+    return undefined;
+  }
 }
 
 /**
@@ -235,13 +267,20 @@ function describeVideo({ artifactId, ext, size, name, webReady }) {
 
 const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
 
+/** Resolves once `storage.initialize()` has run at startup (see captionsIdFor). */
+let storageIsReady;
+const storageReady = new Promise((resolve) => {
+  storageIsReady = resolve;
+});
+
 const core = createPulseVaultCore({
   storage,
   basePath: '/pulsevault',
   // WebApp.connectHandlers.use('/pulsevault', ...) already strips the mount
   // prefix before calling the handler — per the package's Meteor integration docs.
   stripBasePath: false,
-  maxUploadSize: 500 * 1024 * 1024, // 500 MB
+  // 500 MB: the size every Pulse upload type also refuses at begin.
+  maxUploadSize: PULSE_MAX_UPLOAD_BYTES,
   // Uploads a client abandoned, and the captions, manifest or thumbnail of a
   // video that never finished, are removed after a day: well above the
   // capability token's lifetime, past which no upload can continue anyway.
@@ -282,6 +321,19 @@ const core = createPulseVaultCore({
       // Returns the token's context on `create`, which PulseVault stores with
       // the upload and hands back to `onUploadComplete`.
       const result = await verifyUploadToken(request, ctx);
+      // An upload Pulse in the app sends (its token names a pulseUploads row):
+      // the row refuses it once cancelled or abandoned, and moves when the
+      // video's upload starts. Read back from storage after the create.
+      const context = result?.context ?? ctx.context;
+      if (typeof context?.uploadId === 'string') {
+        await pulseUploadAuthorized({
+          uploadId: context.uploadId,
+          userId: context.userId,
+          artifactId: ctx.artifactId,
+          phase: ctx.phase,
+          kind: ctx.kind,
+        });
+      }
       console.log('[pulsevault][hook] authorize PASSED', ctx.phase, ctx.artifactId);
       return result;
     } catch (err) {
@@ -295,9 +347,25 @@ const core = createPulseVaultCore({
   validatePayload: createVideoValidator(),
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete', ctx.artifactId, ctx.kind, ctx.replay ? '(replay)' : '');
-    // Only the video is attached: its captions, manifest and thumbnail are
-    // separate artifacts, found from the video at read time.
+    // Pulse sends a video's captions before the video, so the video's own
+    // completion finds them (below). Captions that finish after it (a retry)
+    // are recorded on its media item now.
+    if (ctx.kind === 'captions' && ctx.relatedTo) {
+      await storeCaptionsId(ctx.relatedTo);
+      return;
+    }
+    // Only the video is attached: its manifest and thumbnail are separate
+    // artifacts, found from the video at read time.
     if (ctx.kind !== 'video') return;
+    // Sent from Pulse in the app: its row says where it goes (pulse-upload-delivery.js).
+    const uploadId = ctx.context?.uploadId;
+    if (typeof uploadId === 'string') {
+      const sent = await deliverPulseUpload(uploadId, describeVideo(ctx));
+      await storeCaptionsId(ctx.artifactId);
+      await core.recordOutcome(ctx.artifactId, { ...sent, uploadId });
+      console.log('[pulsevault]', sent.state, ctx.artifactId, uploadId, sent.note ?? sent.reason);
+      return;
+    }
     const userId = ctx.context?.userId;
     const destination = destinationOf(ctx.context ?? {});
     if (!userId || !destination) {
@@ -308,12 +376,20 @@ const core = createPulseVaultCore({
     // `kept` when the destination is gone for good; anything else throws, so
     // PulseVault replays the completion.
     const outcome = await deliverPulseVideo(userId, destination, describeVideo(ctx));
+    // On the media item delivery made, for every API that returns the video.
+    await storeCaptionsId(ctx.artifactId);
     await core.recordOutcome(ctx.artifactId, outcome);
     console.log('[pulsevault]', outcome.state, ctx.artifactId, outcome.note ?? outcome.reason);
   },
-  onArtifactEvent: (event) => {
+  onArtifactEvent: async (event) => {
     if (event.phase === 'processed' && event.webReady?.action !== 'none') {
       console.log('[pulsevault] web-ready', event.artifactId, event.webReady);
+    }
+    // A Pulse-in-the-app row follows its video: bytes in, or the upload abandoned.
+    try {
+      await pulseArtifactEvent(event);
+    } catch (err) {
+      console.error('[pulsevault] pulseUploads did not follow', event.phase, event.artifactId, err);
     }
   },
 });
@@ -431,6 +507,7 @@ Wormhole.use({
 
 Meteor.startup(async () => {
   await storage.initialize();
+  storageIsReady();
   // Completions that never finished (the attach threw, or the server restarted
   // between the final byte and the attach) are delivered now, and every five
   // minutes after.
@@ -451,6 +528,27 @@ function mintUploadToken(artifactId, context, ref) {
     context,
     ...(ref ? { ref } : {}),
   });
+}
+
+/** How long a Pulse-in-the-app upload token lives: a long video on a slow network finishes under one. */
+export const PULSE_UPLOAD_TOKEN_SECONDS = 2 * 60 * 60;
+
+/**
+ * The capability token for one `pulseUploads` row's artifact, and when it
+ * expires (ms). Its context is only who and which row: everything else is
+ * read from the row, so the token stays far under PulseVault's context cap,
+ * and a row that is cancelled refuses its token at once (authorize). No
+ * `ref`: that is for pairing links.
+ */
+export function mintPulseUploadToken(artifactId, uploadId, userId) {
+  const expiresAt = Date.now() + PULSE_UPLOAD_TOKEN_SECONDS * 1000;
+  const token = issueCapabilityToken(artifactId, CAPABILITY_SECRET, {
+    keyId: CAPABILITY_KEY_ID,
+    issuer: ISSUER,
+    expirySeconds: PULSE_UPLOAD_TOKEN_SECONDS,
+    context: { userId, uploadId },
+  });
+  return { token, expiresAt };
 }
 
 /**
@@ -510,6 +608,7 @@ Meteor.methods({
       size: doc.size ?? 0,
       thumbnail: doc.thumbnail ?? null,
       uploadedAt: doc.uploadedAt ?? null,
+      captionsUrl: captionsUrlOf(doc),
     };
   },
 
@@ -540,6 +639,7 @@ Meteor.methods({
         size: doc.size ?? 0,
         thumbnail: doc.thumbnail ?? null,
         uploadedAt: doc.uploadedAt ?? null,
+        captionsUrl: captionsUrlOf(doc),
       })),
     };
   },

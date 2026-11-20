@@ -1,7 +1,8 @@
 /**
  * OrganizationSettings — Settings → Organization, for owners and admins of the
  * selected organization: the defaults its teams inherit (with locks) and its
- * ticket ID prefixes. Both cards are unchanged from when they sat on Members.
+ * ticket ID prefixes. Both cards are unchanged from when they sat on Members,
+ * apart from the Pulse defaults.
  */
 import { Alert, Spinner } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,9 +18,10 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { useTeam } from '../../lib/TeamContext';
 import { NOTIFICATION_DEFAULT_ROWS } from '../notifications/notificationCopy';
 import { DefaultsCard, type DefaultSettingRow } from '../settings/DefaultsCard';
+import { pulseDefaultRows } from '../settings/settingsCopy';
 import { TicketIdsCard } from './TicketIdsCard';
 
-const TEAM_DEFAULT_ROWS: DefaultSettingRow[] = [
+export const TEAM_DEFAULT_ROWS: DefaultSettingRow[] = [
   {
     key: 'requirePlanForClock',
     title: 'Require a plan for every clock-in/out',
@@ -39,6 +41,7 @@ const TEAM_DEFAULT_ROWS: DefaultSettingRow[] = [
     lockable: false,
   },
   ...NOTIFICATION_DEFAULT_ROWS,
+  ...pulseDefaultRows('org'),
 ];
 
 const STRINGS = {

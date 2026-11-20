@@ -21,6 +21,7 @@ let package = Package(
         .package(name: "CapacitorPushNotifications", path: "../../../node_modules/@capacitor/push-notifications"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
         .package(name: "CapgoCapacitorUpdater", path: "../../../node_modules/@capgo/capacitor-updater"),
+        .package(name: "MiewebCapacitorPulse", path: "../../../node_modules/@mieweb/capacitor-pulse"),
         // Transitive remote deps of CapgoCapacitorUpdater.
         // cap sync regenerates Package.swift without these — re-run this script if
         // it's overwritten. See: https://github.com/mieweb/timehuddle/pull/492
@@ -44,6 +45,7 @@ let package = Package(
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapgoCapacitorUpdater", package: "CapgoCapacitorUpdater"),
+                .product(name: "MiewebCapacitorPulse", package: "MiewebCapacitorPulse"),
                 // Explicit links pull transitive deps into the build graph so
                 // xcodebuild compiles them before CapgoCapacitorUpdater
                 .product(name: "Alamofire", package: "Alamofire"),

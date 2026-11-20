@@ -62,6 +62,7 @@ import { NotificationEventSettings } from '../features/notifications/Notificatio
 import { NOTIFICATION_STRINGS } from '../features/notifications/notificationCopy';
 import { QuietTimeSettings } from '../features/notifications/QuietTimeSettings';
 import { OrganizationSettings } from '../features/org/OrganizationSettings';
+import { usePulseSignOut } from '../features/pulse-embed/SignOutPulseDialog';
 import { GitHubSourceCard } from '../features/settings/GitHubSourceCard';
 import { GITHUB_SOURCE_STRINGS } from '../features/settings/settingsCopy';
 import { TeamSettings, useManageableTeams } from '../features/settings/TeamSettings';
@@ -928,8 +929,12 @@ const RedmineConnection: React.FC = () => {
 // ─── Account and privacy ──────────────────────────────────────────────────────
 
 const AccountSettings: React.FC = () => {
-  const { signOut } = useSession();
+  const { user, signOut } = useSession();
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // Sign out warns first when Pulse holds unsent videos on this phone, and
+  // deleting the account removes them (TH-9). The password-change sign-outs
+  // below are the app's own, so they keep the videos without asking.
+  const pulseSignOut = usePulseSignOut({ userId: user?.id ?? null, signOut });
 
   // Change-password form state
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -1074,10 +1079,11 @@ const AccountSettings: React.FC = () => {
             variant="danger"
             size="sm"
             leftIcon={<LogOutIcon className="h-3.5 w-3.5" />}
-            onClick={() => void signOut()}
+            onClick={() => void pulseSignOut.requestSignOut()}
           >
             Sign out
           </Button>
+          {pulseSignOut.dialog}
         </Row>
         <Row
           label="Delete account"
@@ -1100,6 +1106,7 @@ const AccountSettings: React.FC = () => {
               setDeleteBusy(true);
               try {
                 await userApi.deleteAccount();
+                await pulseSignOut.purgeDeletedAccount();
                 await signOut();
               } catch (err: unknown) {
                 window.alert(

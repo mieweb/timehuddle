@@ -8,6 +8,8 @@
 import { Capacitor } from '@capacitor/core';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
+import { noteSessionExpired, reportPulseAccount } from '../features/pulse-embed/signOut';
+import { PulseSignOutNotice } from '../features/pulse-embed/SignOutPulseDialog';
 import { authApi, orgApi, type TimecoreUser } from './api';
 import { DdpTimeoutError, getDdpClient } from './ddp';
 import { isNativeApp } from './device';
@@ -86,7 +88,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const ddp = getDdpClient();
       // With a stored session the org list can load alongside getMe instead of after it.
-      const orgsInFlight = localStorage.getItem('meteor_resume_token') ? loadOrganizations() : null;
+      const hadToken = !!localStorage.getItem('meteor_resume_token');
+      const orgsInFlight = hadToken ? loadOrganizations() : null;
       const meteorUser = await ddp.getCurrentUser();
 
       if (meteorUser) {
@@ -114,6 +117,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.log(
           `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`,
         );
+        // Only a refused resume drops the token; a network error keeps it (and the drafts).
+        if (hadToken && !localStorage.getItem('meteor_resume_token')) noteSessionExpired();
         setUser(null);
       }
     } catch (err) {
@@ -173,6 +178,13 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .catch(() => {});
   }, [nativeAppUserId]);
 
+  // Pulse in the app keeps each person's videos apart, so it learns who is
+  // signed in (sign-in, restore, sign-out, expiry) before it reads anything.
+  const pulseUserId = loading && !user ? undefined : (user?.id ?? null);
+  useEffect(() => {
+    if (pulseUserId !== undefined) void reportPulseAccount(pulseUserId);
+  }, [pulseUserId]);
+
   const signOut = useCallback(async () => {
     // Clear token FIRST so no wormhole calls fire with invalidated token
     localStorage.removeItem('meteor_resume_token');
@@ -216,6 +228,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }}
     >
       {children}
+      <PulseSignOutNotice />
     </SessionContext.Provider>
   );
 };

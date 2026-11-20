@@ -466,6 +466,56 @@ describe('postsToConversations', () => {
     expect(labelOf('plan')).toBe('Plan');
   });
 
+  describe('Pulse videos sent with a clock action', () => {
+    const session = { startTime: SEP_29_0858, endTime: SEP_29_1032 };
+    const at = new Date(SEP_29_1032).toISOString();
+    const labelOf = (post: HuddlePost) =>
+      postsToConversations([post], 'session', VIEWER_MEMBER, NOW)[0].thread.find(
+        (m) => m.id === post.id,
+      )?.label;
+
+    it("says the session post's wrap-up video is on its way", () => {
+      const post = makePost({
+        id: 'wrapup',
+        clockEventId: 'evt-1',
+        session,
+        wrapUpAt: at,
+        pendingVideos: [{ uploadId: 'up1', role: 'wrapup', at }],
+      });
+      expect(labelOf(post)).toBe('Wrap-up · Video on its way');
+    });
+
+    it("says a late one hasn't arrived yet, and a missing one didn't arrive", () => {
+      const overdue = makePost({
+        id: 'late',
+        clockEventId: 'evt-1',
+        session,
+        wrapUpAt: at,
+        pendingVideos: [{ uploadId: 'up1', role: 'wrapup', at, overdueAt: at }],
+      });
+      expect(labelOf(overdue)).toBe("Wrap-up · Wrap-up video hasn't arrived yet");
+      const missing = makePost({
+        id: 'gone',
+        clockEventId: 'evt-1',
+        session,
+        missingVideos: [{ uploadId: 'up2', role: 'plan', at }],
+      });
+      expect(labelOf(missing)).toBe("Plan · Plan video didn't arrive");
+    });
+
+    it('says nothing once the video has landed', () => {
+      const post = makePost({
+        id: 'landed',
+        clockEventId: 'evt-1',
+        session,
+        wrapUpAt: at,
+        pendingVideos: [],
+        missingVideos: [],
+      });
+      expect(labelOf(post)).toBe('Wrap-up');
+    });
+  });
+
   describe('ticket links', () => {
     const tickets = [
       { id: 'tkt-1', title: 'Onboarding checklist', label: 'TH-1: Onboarding checklist' },

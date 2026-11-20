@@ -9,6 +9,8 @@ import { discardVideo, removeVideoArtifacts } from './pulsevault';
 import { CANONICAL_ITEM, cleanVideoName, listedVideoName, titleRowOf, videoIdOf, videoNamesFor } from './video-names.js';
 import { excludingPostMedia, ownUploadsAmong, uploadIdsOf, uploadUrlsIn } from './media-library-core.js';
 import { keepForReference, markUnusedUploads, uploadUseQueries } from './post-attachments-core.js';
+import { captionsUrlOf } from './pulse-captions-core.js';
+import { accountPulseCleanup, artifactsToRemove } from './pulse-delivery-core.js';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -292,6 +294,36 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
 
 // ── Account deletion (/api/me/account) ───────────────────────────────────────
 
+/**
+ * The user's Pulse videos, as their account goes (huddle-server §14): their
+ * unfinished uploads cancelled first (PulseVault refuses anything more for
+ * them), then every PulseVault video of theirs removed with what belongs to it
+ * (captions, thumbnail, manifest), their video media items and files, the
+ * video attachments they added, and their `pulseUploads` rows.
+ */
+async function removePulseVideos(db, userId) {
+  const plan = accountPulseCleanup(userId, new Date());
+  const uploads = db.collection('pulseUploads');
+  await uploads.updateMany(plan.cancel.filter, plan.cancel.update);
+  const rows = await uploads
+    .find(plan.uploads, { projection: { artifactId: 1, replacedArtifactIds: 1 } })
+    .toArray();
+  const items = await db
+    .collection('mediaitems')
+    .find(plan.videoItems, { projection: { _id: 1, videoid: 1, url: 1, thumbnail: 1 } })
+    .toArray();
+  // removeVideoArtifacts is best-effort and never throws.
+  for (const videoid of artifactsToRemove(rows, items)) await removeVideoArtifacts(videoid);
+  for (const item of items) {
+    // Only a file under /uploads/media is ours to unlink; a Pulse video's is PulseVault's, removed above.
+    unlinkSafe(resolveUploadPath(item.url, '/uploads/media/', MEDIA_DIR));
+    unlinkSafe(resolveUploadPath(item.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR));
+  }
+  if (items.length) await db.collection('mediaitems').deleteMany({ _id: { $in: items.map((item) => item._id) } });
+  await db.collection('attachments').deleteMany(plan.attachments);
+  await uploads.deleteMany(plan.uploads);
+}
+
 WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
   setCors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
@@ -317,6 +349,7 @@ WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
       );
     }
     await db.collection('profiles').deleteMany({ userId, app: 'timeharbor' });
+    await removePulseVideos(db, userId);
     await Meteor.users.removeAsync({ _id: userId });
     return sendJson(res, 200, { ok: true });
   }
@@ -745,6 +778,10 @@ function toPublicMediaItem(m, names = new Map()) {
     caption: m.caption ?? null,
     altText: m.altText ?? null,
     thumbnail: m.thumbnail ?? null,
+    // A Pulse video's captions (pulse-captions-core.js), null when it has none or none known yet.
+    captionsUrl: captionsUrlOf(m),
+    // Why a Pulse video sent somewhere is here instead (its place was gone), or null.
+    keptReason: typeof m.keptReason === 'string' ? m.keptReason : null,
     // A video named before it had a media item has no known upload time.
     uploadedAt:
       m.uploadedAt instanceof Date ? m.uploadedAt.toISOString() : m.uploadedAt ? String(m.uploadedAt) : null,

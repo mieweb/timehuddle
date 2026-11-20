@@ -9,6 +9,15 @@
  * post), not here: links attached before that rule are still listed, and can
  * be removed.
  *
+ * With a Pulse `place` (a ticket, a clock session), the phone with Pulse in
+ * the app records with "Record with Pulse" instead (PulseRecordButton), and
+ * the place's videos on their way show above the list as "On this phone"
+ * rows: this phone's drafts merged with the server's uploads by draftKey,
+ * live. A row whose video lands becomes the video's card in the same slot,
+ * and the list is fetched again. Anywhere Pulse doesn't run in the app the
+ * panel is as it always was, except for others' videos on their way
+ * ("Uploading from iPhone…").
+ *
  * Usage:
  *   <AttachmentsPanel kind="clock" entityId={clockEventId} />
  *   <AttachmentsPanel kind="ticket" entityId={ticketId} />
@@ -24,6 +33,7 @@ import {
   useAttachmentUploads,
   useDropzone,
 } from '@mieweb/ui';
+import type { FlowResult } from '@mieweb/pulse-embed';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -40,6 +50,12 @@ import { UPLOAD_TEXT } from '../huddle/uploadText';
 import { usePulseUpload } from '../pulse-upload/usePulseUpload';
 import { PulseVideoPlayer } from '../pulse-upload/PulseVideoPlayer';
 import { VideoFeedView, type FeedVideo } from '../pulse-upload/VideoFeedView';
+import { mergeRows, type PulseRow } from '../pulse-embed/mergeRows';
+import { OnThisPhoneRows } from '../pulse-embed/OnThisPhoneRows';
+import { pulsePlace, type PulsePlaceInput } from '../pulse-embed/place';
+import { PulseRecordButton } from '../pulse-embed/PulseRecordButton';
+import { useLiveUploads } from '../pulse-embed/useLiveUploads';
+import { usePulseDrafts, usePulseEmbed } from '../pulse-embed/usePulseEmbed';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -47,7 +63,30 @@ interface AttachmentsPanelProps {
   currentUserId?: string;
   /** False where the host already names the section (a "Session videos" window). */
   showHeading?: boolean;
+  /**
+   * Where a Pulse video recorded here goes, for Pulse in the app (a ticket's
+   * `ticket.video`, a session's `clock.session`). Without one, only today's
+   * Pulse link records here.
+   */
+  place?: PulsePlaceInput | null;
+  /** The place's team, whose Pulse settings apply (the place's own when it has one). */
+  teamId?: string | null;
 }
+
+/** How long after a flow its new row may still take focus when it shows. */
+const ROW_FOCUS_WAIT_MS = 5_000;
+
+/** The row a flow's result left on this phone, by its draftKey. */
+function draftKeyOf(result: FlowResult): string | null {
+  if (result.status === 'completed' && result.mode === 'pulse') return result.draftKey;
+  if (result.status === 'closed' || result.status === 'completed') {
+    return result.draft?.draftKey ?? null;
+  }
+  return null;
+}
+
+/** An attachment's slot, in the list or in a landed Pulse row. */
+const ATTACHMENT_ITEM = 'attachment-item flex items-center justify-between gap-2 text-sm';
 
 /** When a landed video is looked for in the list again, about 37 s in all. */
 const LIST_RETRY_MS = [0, 2_000, 5_000, 10_000, 20_000];
@@ -57,6 +96,8 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   entityId,
   currentUserId,
   showHeading = true,
+  place = null,
+  teamId = null,
 }) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -115,6 +156,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       videos.set(id, {
         id,
         name: a.name ?? null,
+        captionsUrl: a.captionsUrl,
         renamable: a.canRename,
         onRemove: mine ? () => void handleRemove(a.id) : undefined,
       });
@@ -127,6 +169,63 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     { kind, id: entityId },
     { onSettled: (status) => status.state === 'done' && void fetchAttachments() },
   );
+
+  // Pulse in the app: this place's videos on this phone and on their way,
+  // one row each. The server's rows are read (and kept live) wherever the
+  // panel shows, so a computer sees a phone's video on its way too.
+  const embed = usePulseEmbed();
+  const placeKey = (place && pulsePlace(place)?.context.key) || null;
+  const live = useLiveUploads(placeKey, { onLanded: () => void fetchAttachments() });
+  const local = usePulseDrafts(placeKey ? { contextKey: placeKey } : null);
+  const attachmentIds = useMemo(() => new Set(attachments.map((a) => a.id)), [attachments]);
+  const pulseRows = useMemo(
+    () =>
+      mergeRows(local.drafts, live.uploads, { userId: currentUserId ?? null }).map((row) =>
+        // A landed row is its video's card, in the same slot, once the list has it.
+        row.landed && !attachmentIds.has(row.server?.attachmentId ?? '')
+          ? { ...row, landed: false }
+          : row,
+      ),
+    [local.drafts, live.uploads, currentUserId, attachmentIds],
+  );
+  // Videos shown in a row's slot are not listed again below.
+  const inRows = useMemo(
+    () => new Set(pulseRows.filter((r) => r.landed).map((r) => r.server?.attachmentId ?? '')),
+    [pulseRows],
+  );
+  const listed = useMemo(() => attachments.filter((a) => !inRows.has(a.id)), [attachments, inRows]);
+  const pulseReady = embed.status === 'ready';
+  const { open: openPulse } = embed;
+  // A row of this phone's opens its draft in Pulse's editor (Pulse refuses one
+  // that is sending, and says so). Another device's row has nothing to open.
+  const openRow = useCallback(
+    (row: PulseRow) => {
+      if (row.local && row.local.state !== 'sent') {
+        void openPulse({ entry: 'edit', draftId: row.local.id });
+      }
+    },
+    [openPulse],
+  );
+
+  // After a flow, focus moves on from the record button to the new row once it shows.
+  const rowsBox = useRef<HTMLDivElement>(null);
+  const [focusRow, setFocusRow] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusRow) return;
+    const index = pulseRows.findIndex((row) => row.key === focusRow);
+    if (index < 0) return;
+    const item = rowsBox.current?.querySelectorAll<HTMLElement>('.on-this-phone-row')[index];
+    item?.querySelector<HTMLElement>('button')?.focus();
+    setFocusRow(null);
+  }, [focusRow, pulseRows]);
+  useEffect(() => {
+    if (!focusRow) return;
+    const timer = setTimeout(() => setFocusRow(null), ROW_FOCUS_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [focusRow]);
+  const onPulseResult = useCallback((result: FlowResult) => {
+    setFocusRow(draftKeyOf(result));
+  }, []);
 
   // Video files from this device: each uploads at once, shown in place as a
   // pending card, several at a time. The server attaches each one when it
@@ -204,6 +303,59 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     multiple: true,
   });
 
+  /** An attachment's card: a PulseVault video plays, anything else is a link. */
+  const attachmentBody = (a: Attachment) => {
+    // Same rule as the Huddle feed: a video that's a PulseVault artifact
+    // is a card; anything else is a link.
+    const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
+    const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
+    return videoId ? (
+      // Rename and Remove live on the card's own ⋯ menu, as on
+      // every video card.
+      <figure className="attachment-video min-w-0">
+        <PulseVideoPlayer
+          video={videoId}
+          title={videoLabel(a.name, videoId)}
+          caption={a.name}
+          renamable={a.canRename}
+          onRenamed={(name) => renameVideo(videoId, name)}
+          onRemove={mine ? () => void handleRemove(a.id) : undefined}
+          onOpen={() => setOpenVideo(videoId)}
+        />
+      </figure>
+    ) : (
+      <>
+        {/* A link attached before links moved to the description
+            passes through resolveMediaUrl untouched; a backend path
+            is bound to the current origin. */}
+        <a
+          href={resolveMediaUrl(a.url)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="attachment-link min-w-0 truncate text-primary hover:underline"
+        >
+          {a.title ?? a.url}
+        </a>
+        {mine && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleRemove(a.id)}
+            isLoading={deletingId === a.id}
+            aria-label={`Remove ${a.title ?? a.url}`}
+          >
+            <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden />
+          </Button>
+        )}
+      </>
+    );
+  };
+  const renderAttachment = (a: Attachment) => (
+    <li key={a.id} className={ATTACHMENT_ITEM}>
+      {attachmentBody(a)}
+    </li>
+  );
+
   return (
     <section className="attachments-panel relative" {...dropzone.getRootProps()}>
       <DropzoneOverlay
@@ -227,14 +379,40 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             Videos
           </Text>
         )}
-        <PulseControls
-          pulse={pulse}
-          onFiles={addFiles}
-          ariaLabel="Add a video with Pulse"
-          allowFile
-          card={showHeading ? 'end' : 'start'}
+        <PulseRecordButton
+          place={place}
+          teamId={teamId}
+          showUnsent
+          onResult={onPulseResult}
+          fallback={
+            <PulseControls
+              pulse={pulse}
+              onFiles={addFiles}
+              ariaLabel="Add a video with Pulse"
+              allowFile
+              card={showHeading ? 'end' : 'start'}
+            />
+          }
         />
       </div>
+
+      {(pulseRows.length > 0 || local.error != null) && (
+        <div ref={rowsBox} className="attachments-pulse-rows mb-3">
+          <OnThisPhoneRows
+            items={pulseRows}
+            error={local.error}
+            headless={embed.info?.capabilities.includes('headless') ?? false}
+            // "On this phone" only above this phone's own videos; another
+            // device's on their way need no heading.
+            heading={pulseRows.some((row) => row.local && !row.landed) ? undefined : null}
+            onOpen={pulseReady ? openRow : undefined}
+            renderLanded={(row) => {
+              const a = attachments.find((item) => item.id === row.server?.attachmentId);
+              return a ? <div className={ATTACHMENT_ITEM}>{attachmentBody(a)}</div> : null;
+            }}
+          />
+        </div>
+      )}
 
       {/* Said as videos upload; a file turned away says why. */}
       <UploadAnnouncer items={fileUploads.items} labels={UPLOAD_TEXT} />
@@ -248,66 +426,14 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
 
       {loading && <Spinner size="sm" />}
 
-      {!loading && attachments.length === 0 && pending.length === 0 && (
+      {!loading && attachments.length === 0 && pending.length === 0 && pulseRows.length === 0 && (
         <Text size="xs" variant="muted">
           No videos yet.
         </Text>
       )}
 
       <ul className="attachment-list flex flex-col gap-1" aria-label="Videos">
-        {attachments.map((a) => {
-          // Same rule as the Huddle feed: a video that's a PulseVault artifact
-          // is a card; anything else is a link.
-          const videoId = a.type === 'video' ? pulseArtifactId(a.url) : null;
-          const mine = Boolean(currentUserId) && currentUserId === a.addedBy;
-          return (
-            <li
-              key={a.id}
-              className="attachment-item flex items-center justify-between gap-2 text-sm"
-            >
-              {videoId ? (
-                // Rename and Remove live on the card's own ⋯ menu, as on
-                // every video card.
-                <figure className="attachment-video min-w-0">
-                  <PulseVideoPlayer
-                    video={videoId}
-                    title={videoLabel(a.name, videoId)}
-                    caption={a.name}
-                    renamable={a.canRename}
-                    onRenamed={(name) => renameVideo(videoId, name)}
-                    onRemove={mine ? () => void handleRemove(a.id) : undefined}
-                    onOpen={() => setOpenVideo(videoId)}
-                  />
-                </figure>
-              ) : (
-                <>
-                  {/* A link attached before links moved to the description
-                      passes through resolveMediaUrl untouched; a backend path
-                      is bound to the current origin. */}
-                  <a
-                    href={resolveMediaUrl(a.url)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="attachment-link min-w-0 truncate text-primary hover:underline"
-                  >
-                    {a.title ?? a.url}
-                  </a>
-                  {mine && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleRemove(a.id)}
-                      isLoading={deletingId === a.id}
-                      aria-label={`Remove ${a.title ?? a.url}`}
-                    >
-                      <FontAwesomeIcon icon={faTrash} className="text-destructive" aria-hidden />
-                    </Button>
-                  )}
-                </>
-              )}
-            </li>
-          );
-        })}
+        {listed.map((a) => renderAttachment(a))}
         {pending.map((upload) => (
           // A video on its way up, in place and drawn like the card it becomes.
           <li key={upload.id} className="attachment-item attachment-sending">

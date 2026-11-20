@@ -1,6 +1,18 @@
+import type { PulseClient, Usage } from '@mieweb/pulse-embed';
+import { createFakePulse } from '@mieweb/pulse-embed/testing';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { PulseTeamSettings } from '../lib/api';
+import { MediaPage } from '../features/media/MediaPage';
+import { MEDIA_GATE_WAIT_MS } from '../features/media/mediaVisibility';
+import { PLACES, draftAt } from '../features/media/testRows';
+import {
+  PULSE_EMBED_OFF,
+  PulseEmbedContext,
+  type PulseEmbed,
+} from '../features/pulse-embed/usePulseEmbed';
+import { pulseSurfacesVisible } from '../features/pulse-embed/visibility';
 import {
   isActivePath,
   matchPath,
@@ -11,6 +23,16 @@ import {
   useSearchParam,
   withQuery,
 } from './router';
+
+// The Media page reads the server's rows and the library; neither matters here.
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>();
+  return {
+    ...actual,
+    mediaApi: { ...actual.mediaApi, list: async () => [] },
+    pulseUploadApi: { ...actual.pulseUploadApi, list: async () => ({ uploads: [] }) },
+  };
+});
 
 describe('matchPath', () => {
   it('extracts named params', () => {
@@ -68,6 +90,11 @@ describe('resolveUrl', () => {
   it('collapses repeated slashes so a retired route still resolves', () => {
     expect(resolveUrl('//app/timesheet')).toBe('/app/dashboard?view=timesheet');
     expect(resolveUrl('//app//tickets?status=open')).toBe('/app/tickets?status=open');
+  });
+
+  it('/app/media is a page again; /app/messages stays retired', () => {
+    expect(resolveUrl('/app/media?team=t1')).toBe('/app/media?team=t1');
+    expect(resolveUrl('/app/messages?team=t1')).toBe('/app/dashboard?team=t1');
   });
 
   it('drops a trailing slash, which the route table would otherwise miss', () => {
@@ -218,5 +245,112 @@ describe('useSearchParam', () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
     expect(search.draft).toBe('crash');
+  });
+});
+
+// ── /app/media: shown under the visibility rule, else the Dashboard as on main ─
+
+describe('/app/media', () => {
+  const off: PulseTeamSettings = {
+    pulseInApp: false,
+    pulseClockInOut: false,
+    pulseSharedDevice: false,
+  };
+  const usage = (unsent: number): Usage => ({
+    namespace: 'ns',
+    bytes: 0,
+    drafts: unsent,
+    unsent,
+    uploading: 0,
+    failed: 0,
+    receipts: 0,
+  });
+
+  /** Pulse in the app as the provider has it: the rule computed as it computes it. */
+  function embedWith(over: Partial<PulseEmbed>): PulseEmbed {
+    const embed = { ...PULSE_EMBED_OFF, ...over };
+    return {
+      ...embed,
+      surfacesVisible: pulseSurfacesVisible({
+        available: embed.status === 'ready' && embed.client !== null,
+        teams: embed.teams,
+        unsent: embed.usage?.unsent ?? null,
+      }),
+    };
+  }
+
+  function Shell() {
+    const { pathname, search } = useRouter();
+    return (
+      <>
+        <div data-testid="url">{pathname + search}</div>
+        {pathname === '/app/media' && <MediaPage />}
+      </>
+    );
+  }
+
+  function renderMedia(embed: PulseEmbed, at = '/app/media?team=t1') {
+    window.history.replaceState(null, '', at);
+    const length = window.history.length;
+    const view = render(
+      <RouterProvider>
+        <PulseEmbedContext.Provider value={embed}>
+          <Shell />
+        </PulseEmbedContext.Provider>
+      </RouterProvider>,
+    );
+    return { ...view, length };
+  }
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('with no plugin and no unsent drafts, goes to the Dashboard exactly as on main', async () => {
+    const { length } = renderMedia(embedWith({ status: 'unavailable' }));
+    // Main's RETIRED_ROUTES rewrite of the same link: same place, query kept, no history entry.
+    await waitFor(() => expect(url()).toBe('/app/dashboard?team=t1'));
+    expect(window.location.pathname + window.location.search).toBe('/app/dashboard?team=t1');
+    expect(window.history.length).toBe(length);
+    expect(screen.queryByRole('heading', { name: /Unsent videos/ })).toBeNull();
+  });
+
+  it('in a browser (Pulse off) it goes to the Dashboard too', async () => {
+    renderMedia(PULSE_EMBED_OFF, '/app/media');
+    await waitFor(() => expect(url()).toBe('/app/dashboard'));
+  });
+
+  it('with every team off and nothing unsent, it goes to the Dashboard', async () => {
+    const client = createFakePulse({}).client as PulseClient;
+    renderMedia(embedWith({ status: 'ready', client, teams: { t1: off }, usage: usage(0) }));
+    await waitFor(() => expect(url()).toBe('/app/dashboard?team=t1'));
+  });
+
+  it('with every team off and one unsent draft, it shows Unsent videos (AD25)', async () => {
+    const fake = createFakePulse({ drafts: [draftAt(PLACES.ticket, 'ready')] });
+    renderMedia(
+      embedWith({
+        status: 'ready',
+        client: fake.client as PulseClient,
+        teams: { t1: off },
+        usage: usage(1),
+      }),
+    );
+    expect(await screen.findByRole('heading', { name: 'Unsent videos (1)' })).toBeTruthy();
+    expect(url()).toBe('/app/media?team=t1');
+    fake.dispose();
+  });
+
+  it('waits for both facts before deciding, then gives up after a while', async () => {
+    vi.useFakeTimers();
+    const client = createFakePulse({}).client as PulseClient;
+    // The team settings are in, Pulse's usage isn't yet.
+    renderMedia(embedWith({ status: 'ready', client, teams: { t1: off }, usage: null }));
+    expect(url()).toBe('/app/media?team=t1');
+    act(() => vi.advanceTimersByTime(MEDIA_GATE_WAIT_MS - 1));
+    expect(url()).toBe('/app/media?team=t1');
+    act(() => vi.advanceTimersByTime(1));
+    expect(url()).toBe('/app/dashboard?team=t1');
   });
 });

@@ -11,6 +11,12 @@
  * Route shapes and response contracts are taken directly from
  * `@mieweb/pulsevault`'s `PROTOCOL.md` (the wire protocol the package
  * implements), not invented here.
+ *
+ * Also here: `GET /pulse/captions/{videoId}` (pulse-captions.js), the other
+ * raw route a Pulse video uses. The methods Pulse in the app calls
+ * (`pulseUploads.*`, `pulseUploadTypes.list`, `clock.stopWithVideo`,
+ * `clock.startWithPlan`) are Meteor methods, documented with their schemas on
+ * `/api/docs`. See docs/pulse-embed.md.
  */
 
 const ERROR_RESPONSE_SCHEMA = {
@@ -23,11 +29,20 @@ const ERROR_RESPONSE_SCHEMA = {
   required: ['ok', 'error'],
 };
 
+/** What `GET /pulse/captions/{videoId}` answers on a 400 or 404 (pulse-captions.js). */
+const CAPTIONS_ERROR_SCHEMA = {
+  type: 'object',
+  properties: { error: { type: 'string', example: 'No captions for this video' } },
+  required: ['error'],
+};
+
 const AUTH_HEADER_PARAM = {
   name: 'Authorization',
   in: 'header',
   required: true,
-  description: 'Capability token: `Bearer <token>` (PROTOCOL.md §5.1).',
+  description:
+    'Capability token: `Bearer <token>` (PROTOCOL.md §5.1), from `pulsevault.reserve` (a Pulse link) ' +
+    'or `pulseUploads.begin` / `pulseUploads.token` (Pulse in the app).',
   schema: { type: 'string', example: 'Bearer <token>' },
 };
 
@@ -35,7 +50,7 @@ const ARTIFACT_ID_PARAM = {
   name: 'artifactId',
   in: 'path',
   required: true,
-  description: 'UUID minted by `pulsevault.reserve`.',
+  description: 'UUID minted by `pulsevault.reserve` or `pulseUploads.begin`.',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -53,9 +68,12 @@ export const pulsevaultOpenApiSpec = {
     title: 'PulseVault raw upload/playback API',
     version: '1.0.0',
     description:
-      'Binary TUS resumable-upload and artifact-serving endpoints for video attachments. ' +
-      'Mounted directly on Meteor (see `pulsevault.js`), documented separately from ' +
-      '`/api/docs` since these carry raw bytes rather than JSON method calls.',
+      'Binary TUS resumable-upload and artifact-serving endpoints for video attachments, and ' +
+      "the route a video's captions are found by. Mounted directly on Meteor (see " +
+      '`pulsevault.js`), documented separately from `/api/docs` since these carry raw bytes ' +
+      'rather than JSON method calls. Pulse in the app starts each upload with ' +
+      '`pulseUploads.begin`, a method on `/api/docs` (`POST /api/pulseUploads_begin`), which ' +
+      'returns the artifactId, the token and this endpoint.',
   },
   servers: [{ url: '/pulsevault' }],
   paths: {
@@ -135,7 +153,10 @@ export const pulsevaultOpenApiSpec = {
           403: {
             description:
               'Invalid/expired token, or not the shape of a pulse: a video under any id but the ' +
-              "token's, or a thumbnail/manifest/captions not under its own id `relatedTo` the video.",
+              "token's, or a thumbnail/manifest/captions not under its own id `relatedTo` the video. " +
+              "For a token from `pulseUploads.begin`: the upload's row is cancelled or abandoned, " +
+              'the artifact is an older one of the row, or the token is not the caller\'s ' +
+              '("That upload is no longer open").',
             content: { 'application/json': { schema: ERROR_RESPONSE_SCHEMA } },
           },
           409: {
@@ -169,6 +190,12 @@ export const pulsevaultOpenApiSpec = {
           204: {
             description: 'Chunk accepted',
             headers: { 'Upload-Offset': { schema: { type: 'integer' } } },
+          },
+          403: {
+            description:
+              "Invalid/expired token, or (a `pulseUploads.begin` token) the upload's row is " +
+              'cancelled or abandoned: "That upload is no longer open".',
+            content: { 'application/json': { schema: ERROR_RESPONSE_SCHEMA } },
           },
           409: {
             description: 'Offset mismatch — client MUST re-HEAD before resuming (PROTOCOL.md §4.2)',
@@ -297,6 +324,48 @@ export const pulsevaultOpenApiSpec = {
             },
           },
           404: { description: 'The video has no finished poster frame.' },
+        },
+      },
+    },
+    '/captions/{videoId}': {
+      // Not under /pulsevault: served by pulse-captions.js at /pulse/captions.
+      servers: [{ url: '/pulse' }],
+      get: {
+        summary: "Find a Pulse video's captions",
+        description:
+          "Redirects to the video's captions artifact (WebVTT, served as `text/vtt` by " +
+          '`/pulsevault/artifacts/{artifactId}`). Public, like playback. Not cached: captions can ' +
+          'still arrive for a video. Clients that already have a `captionsUrl` (attachments, ' +
+          'posts, `media.list`) use that instead.',
+        operationId: 'pulse_captions_lookup',
+        tags: ['pulse'],
+        parameters: [
+          {
+            name: 'videoId',
+            in: 'path',
+            required: true,
+            description: "The video's artifactId.",
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          302: {
+            description: 'The video has captions.',
+            headers: {
+              Location: {
+                schema: { type: 'string', example: '/pulsevault/artifacts/<captionsId>' },
+                description: "The captions artifact's path.",
+              },
+            },
+          },
+          400: {
+            description: '`videoId` is not a UUID.',
+            content: { 'application/json': { schema: CAPTIONS_ERROR_SCHEMA } },
+          },
+          404: {
+            description: 'The video has no captions, or is not a video.',
+            content: { 'application/json': { schema: CAPTIONS_ERROR_SCHEMA } },
+          },
         },
       },
     },

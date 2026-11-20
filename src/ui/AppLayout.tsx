@@ -28,6 +28,10 @@ import { Spinner, ToastProvider } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
+import { MediaNavProvider } from '../features/media/MediaNavContext';
+import { MEDIA_TEXT } from '../features/media/mediaStrings';
+import { PulseEmbedProvider } from '../features/pulse-embed/PulseEmbedProvider';
+import { usePulseEmbed, useQueuedNavigate } from '../features/pulse-embed/usePulseEmbed';
 import { WhatsNewBanner } from '../features/release-notes/WhatsNewBanner';
 import { TicketStartProvider } from '../features/timers/TicketStartProvider';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
@@ -104,6 +108,7 @@ const EnterprisePage = lazyNamed(
   () => import('../features/enterprise/EnterprisePage'),
   'EnterprisePage',
 );
+const MediaPage = lazyNamed(() => import('../features/media/MediaPage'), 'MediaPage');
 
 /** Shown in place of a page while its chunk downloads. */
 const PageLoading: React.FC = () => (
@@ -127,6 +132,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
+  '/app/media': { title: MEDIA_TEXT.title, component: MediaPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'People', component: PeoplePage },
@@ -182,7 +188,10 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const { pathname, navigate } = useRouter();
+  const { pathname, navigate: routerNavigate } = useRouter();
+  // While Pulse is open, a push tap or a timehuddle:// link opens once it closes.
+  const navigate = useQueuedNavigate(routerNavigate);
+  const { navigate: queueWhilePulseOpen } = usePulseEmbed();
 
   // A web push clicked while the app was closed opens it with ?notification=<id>
   // (public/sw.js): mark that one read, then drop the param.
@@ -204,10 +213,10 @@ const AppLayoutContent: React.FC = () => {
       console.log('[handleNotificationData] received:', JSON.stringify(data));
       markTappedNotificationRead(data);
       if (data.type === 'shift-end-reminder') {
-        window.dispatchEvent(
-          new CustomEvent('timehuddle:openShiftReminder', {
-            detail: { clockEventId: data.clockEventId, teamId: data.teamId },
-          }),
+        const detail = { clockEventId: data.clockEventId, teamId: data.teamId };
+        // Held like a navigation while Pulse is open, so the dialog isn't behind it.
+        queueWhilePulseOpen('shift-end-reminder', () =>
+          window.dispatchEvent(new CustomEvent('timehuddle:openShiftReminder', { detail })),
         );
       } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
         // data.url carries ?postId=... so Huddle opens the conversation holding it.
@@ -230,7 +239,7 @@ const AppLayoutContent: React.FC = () => {
         }
       }
     },
-    [navigate],
+    [navigate, queueWhilePulseOpen],
   );
 
   // ── Foreground in-app notification banner state ───────────────────────────
@@ -566,7 +575,11 @@ export const AppLayout: React.FC = () => {
       <ToastProvider>
         <AppToasts />
         <TeamProvider>
-          <AppLayoutContent />
+          <PulseEmbedProvider>
+            <MediaNavProvider>
+              <AppLayoutContent />
+            </MediaNavProvider>
+          </PulseEmbedProvider>
         </TeamProvider>
       </ToastProvider>
     </RouterProvider>

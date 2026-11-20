@@ -1,6 +1,9 @@
 import { Button, ModalBody, ModalFooter, ModalHeader } from '@mieweb/ui';
 import { AppModal } from '@ui/AppModal';
-import React from 'react';
+import React, { useState } from 'react';
+
+import { SUPPORT_TEXT } from '../pulse-embed/support/supportStrings';
+import { usePulseEmbed } from '../pulse-embed/usePulseEmbed';
 
 interface ReportIssueModalProps {
   open: boolean;
@@ -12,19 +15,48 @@ const PAGE_SLUG = ENV.VITE_POLLENATE_BUGS_PAGE_SLUG || 'bug-reports';
 const POLLENATE_URL = `https://pollenate.dev/f/medical-informatics-engineering-3/${PAGE_SLUG}`;
 const GITHUB_URL = 'https://github.com/mieweb/timehuddle/issues/new';
 
+const LOG = SUPPORT_TEXT.log;
+
+type LogShare = 'idle' | 'sharing' | 'shared' | 'failed';
+
 export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClose }) => {
+  // In the app with Pulse, its log goes with the report (TH-4): the share
+  // sheet hands it to wherever the person files it.
+  const pulse = usePulseEmbed();
+  const pulseClient = pulse.status === 'ready' ? pulse.client : null;
+  const [logShare, setLogShare] = useState<LogShare>('idle');
+
+  const close = () => {
+    setLogShare('idle');
+    onClose();
+  };
+
+  const handleShareLog = async () => {
+    if (!pulseClient || logShare === 'sharing') return;
+    setLogShare('sharing');
+    try {
+      // Loaded on tap: the share sheet's plugin stays out of the first screen's bundle.
+      const { sharePulseLog } = await import('../pulse-embed/support/shareLog');
+      const result = await sharePulseLog(pulseClient);
+      setLogShare(result === 'shared' ? 'shared' : 'idle');
+    } catch (error) {
+      console.error('[report-issue] sharing the Pulse log failed:', error);
+      setLogShare('failed');
+    }
+  };
+
   const handleOpenGitHub = () => {
     window.open(GITHUB_URL, '_blank', 'noopener,noreferrer');
-    onClose();
+    close();
   };
 
   const handleOpenPollenate = () => {
     window.open(POLLENATE_URL, '_blank', 'noopener,noreferrer');
-    onClose();
+    close();
   };
 
   return (
-    <AppModal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
+    <AppModal open={open} onOpenChange={(isOpen) => !isOpen && close()} size="sm">
       <ModalHeader>Report an Issue</ModalHeader>
       <ModalBody>
         <div className="space-y-4">
@@ -110,11 +142,61 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
                 />
               </svg>
             </button>
+
+            {pulseClient && (
+              <button
+                onClick={handleShareLog}
+                disabled={logShare === 'sharing'}
+                aria-describedby="report-issue-pulse-log-status"
+                className="report-issue-pulse-log flex w-full items-start gap-3 rounded-lg border border-neutral-200 p-4 text-left transition-colors hover:border-neutral-300 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="mt-0.5 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M16 6l-4-4-4 4M12 2v13"
+                  />
+                </svg>
+                <div className="flex-1">
+                  <div className="font-medium text-neutral-900 dark:text-neutral-100">
+                    {LOG.title}
+                  </div>
+                  <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+                    {LOG.description}
+                  </div>
+                </div>
+              </button>
+            )}
           </div>
+          {pulseClient && (
+            <p
+              id="report-issue-pulse-log-status"
+              role={logShare === 'failed' ? 'alert' : 'status'}
+              aria-live={logShare === 'failed' ? 'assertive' : 'polite'}
+              className={
+                logShare === 'failed'
+                  ? 'text-sm text-red-600 dark:text-red-400'
+                  : 'text-sm text-neutral-600 dark:text-neutral-400'
+              }
+            >
+              {logShare === 'sharing' && LOG.sharing}
+              {logShare === 'shared' && LOG.shared}
+              {logShare === 'failed' && LOG.failed}
+            </p>
+          )}
         </div>
       </ModalBody>
       <ModalFooter>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={close}>
           Cancel
         </Button>
       </ModalFooter>

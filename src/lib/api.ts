@@ -1354,6 +1354,12 @@ export interface HuddlePostAttachment {
    * posted it (null: a video from before every video had a media item). Videos only.
    */
   ownerId?: string | null;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only. Not sent yet: the server's post
+   * attachments don't carry it.
+   */
+  captionsUrl?: string | null;
 }
 
 export interface HuddlePost {
@@ -1384,6 +1390,10 @@ export interface HuddlePost {
   session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
+  /** Pulse videos sent at a clock action that are still on their way. */
+  pendingVideos?: PulseVideoMark[];
+  /** Pulse videos sent at a clock action that won't arrive (deleted, or sending cancelled). */
+  missingVideos?: PulseVideoMark[];
   /** Scheduled post (#596): only its author sees it, and nobody is notified, until then. */
   deliverAt?: string;
   /** When a scheduled post was delivered; absent while it is still waiting. */
@@ -1542,7 +1552,10 @@ export interface ResolvedSetting {
   sourceId?: string;
 }
 
-export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins';
+/** Pulse in the iPhone app: off unless a team, org or enterprise turns it on. */
+export type PulseSettingKey = 'pulseInApp' | 'pulseClockInOut' | 'pulseSharedDevice';
+
+export type TeamSettingKey = 'requirePlanForClock' | 'autoAcceptJoins' | PulseSettingKey;
 
 /** Settings an org or enterprise can hold; `allowAutoJoin` has no team-level value. */
 export type DefaultSettingKey =
@@ -1577,8 +1590,10 @@ export interface Team {
   /** The servers the team's organization has named, for outside IDs like `RM0-214`. */
   sourcePrefixes: SourcePrefix[];
   /** Plain booleans, kept for app versions that predate `resolvedSettings`. */
-  settings: Record<TeamSettingKey, boolean>;
-  resolvedSettings: Record<TeamSettingKey, ResolvedSetting>;
+  settings: Record<Exclude<TeamSettingKey, PulseSettingKey>, boolean>;
+  /** The Pulse keys are absent from a server that predates them. */
+  resolvedSettings: Record<Exclude<TeamSettingKey, PulseSettingKey>, ResolvedSetting> &
+    Partial<Record<PulseSettingKey, ResolvedSetting>>;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -1913,6 +1928,31 @@ export const clockApi = {
     justification?: TimesheetJustification,
   ) =>
     wormholeCall<ClockEvent | PendingChange>('clock.createManual', { ...data, ...justification }),
+
+  /**
+   * Clock out at a Pulse Send (`at`), with the wrap-up video still to come:
+   * the wrap-up line goes on the session's post and the session ends.
+   * Idempotent per `draftKey`.
+   */
+  stopWithVideo: (args: {
+    teamId: string;
+    clockEventId: string;
+    at: number;
+    postDate: string;
+    draftKey: string;
+    bytes?: number;
+    name?: string | null;
+  }) => wormholeCall<PulseClockSend>('clock.stopWithVideo', { ...args }),
+
+  /** Clock in at a Pulse Send (`at`) with a plan video still to come. Idempotent per `draftKey`. */
+  startWithPlan: (args: {
+    teamId: string;
+    at: number;
+    postDate: string;
+    draftKey: string;
+    bytes?: number;
+    name?: string | null;
+  }) => wormholeCall<PulseClockSend>('clock.startWithPlan', { ...args }),
 };
 
 // ─── Team Dashboard API ───────────────────────────────────────────────────────
@@ -2121,6 +2161,12 @@ export interface Attachment {
   name?: string | null;
   /** Whether the caller owns the video and so may rename it. Videos only. */
   canRename?: boolean;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only. Not sent yet: `attachments.list`
+   * doesn't return it.
+   */
+  captionsUrl?: string | null;
 }
 
 export const attachmentApi = {
@@ -2415,6 +2461,8 @@ export interface VideoPublicInfo {
   author: { name: string | null; image: string | null } | null;
   /** The caller added it, so they may rename it. */
   canRename: boolean;
+  /** Its captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`); null or absent: none. */
+  captionsUrl?: string | null;
 }
 
 export const videoApi = {
@@ -2536,6 +2584,247 @@ export interface PulseReservation {
   name?: string;
 }
 
+// ─── Pulse in the app (embedded uploads) ─────────────────────────────────────
+
+/**
+ * What a video recorded with Pulse inside the TimeHuddle app is for (see
+ * meteor-backend/server/pulse-upload-types.js). The link flow's
+ * PulseDestination kinds stay as they are; these are the embed's.
+ */
+export type PulseUploadTypeId =
+  | 'ticket.video'
+  | 'clock.session'
+  | 'clock.wrapup'
+  | 'clock.plan'
+  | 'huddle.post'
+  | 'library.video';
+
+/**
+ * Where the video goes. `clock` is an open session (its videos, or its
+ * wrap-up); `clock-plan` is a day's plan in a team, made at Send; `huddle` is
+ * a new post in a team's Huddle, in the conversation current at Send.
+ */
+export type PulseUploadTarget =
+  | { kind: 'ticket'; id: string }
+  | { kind: 'clock'; id: string }
+  | { kind: 'clock-plan'; teamId: string; postDate: string }
+  | { kind: 'huddle'; teamId: string; conversationId?: string | null }
+  | { kind: 'library' };
+
+export type PulseUploadState =
+  | 'intent'
+  | 'reserved'
+  | 'uploading'
+  | 'processing'
+  | 'delivered'
+  | 'kept'
+  | 'canceled'
+  | 'failed'
+  | 'abandoned';
+
+/** One upload type as `pulseUploadTypes.list` offers it: the source of Pulse's UploadTypeSpec. */
+export interface PulseUploadTypeInfo {
+  id: PulseUploadTypeId;
+  version: number;
+  targetKind: PulseUploadTarget['kind'];
+  title: string | null;
+  /** Export's primary action; null for Pulse's default ("Send to <label>"). */
+  sendLabel: string | null;
+  prompt: string | null;
+  limits: { maxDurationMs?: number; minClips?: number } | null;
+  requireName: boolean;
+  /** The clock action its Send runs, if any. */
+  clock: 'stop' | 'start' | null;
+  /** Send is disabled offline. */
+  requireOnline: boolean;
+  /** Pulse waits for the host's confirmSend (the clock call) before it closes. */
+  confirmSend: boolean;
+  /** The largest video the server takes, in bytes. */
+  maxBytes: number;
+}
+
+/** A team's Pulse settings, as `pulseUploadTypes.list` resolves them. */
+export type PulseTeamSettings = Record<PulseSettingKey, boolean>;
+
+export interface PulseUploadTypesList {
+  /** The types this person may send; a type missing here falls back to the link flow. */
+  types: PulseUploadTypeInfo[];
+  /** Pulse is paused for everyone: no record buttons and no background calls. */
+  runtimePaused: boolean;
+  /** Each of the person's teams, by id. */
+  teams: Record<string, PulseTeamSettings>;
+}
+
+export interface PulseUploadBegin {
+  clientKey: string;
+  draftKey: string;
+  type: PulseUploadTypeId;
+  target: PulseUploadTarget;
+  name?: string | null;
+  /** ms epoch of Send, device time. */
+  sentAt: number;
+  durationMs?: number;
+  bytes?: number;
+  /** PulseVault answered 404 for the current artifact: mint a new one for the same row. */
+  renewArtifact?: boolean;
+  client?: { appVersion?: string; contractVersion?: string; platform?: 'ios' | 'android' };
+}
+
+/** `pulseUploads.begin`'s answer: Pulse's UploadTarget, plus the place's name. */
+export interface PulseUploadGrant {
+  uploadId: string;
+  clientKey: string;
+  artifactId: string;
+  /** `<ROOT_URL>/pulsevault`. */
+  endpoint: string;
+  token: string;
+  expiresAt: number;
+  state: 'reserved' | 'uploading' | 'processing' | 'delivered' | 'kept';
+  label: string;
+}
+
+export interface PulseUploadPublic {
+  id: string;
+  userId: string;
+  type: PulseUploadTypeId;
+  targetKey: string;
+  state: PulseUploadState;
+  name: string | null;
+  durationMs: number | null;
+  sentAt: string | null;
+  updatedAt: string | null;
+  reason: string | null;
+  note: string | null;
+  attachmentId: string | null;
+  mediaId: string | null;
+  /** Own rows only (null on a clock call's row before its begin). */
+  clientKey?: string | null;
+  draftKey?: string | null;
+}
+
+export type PulseUploadCancelReason = 'canceled' | 'edited' | 'deleted';
+
+/**
+ * A Pulse video a post is waiting for, or won't get (HuddlePost's
+ * `pendingVideos` / `missingVideos`): sent with a clock-out (`wrapup`) or
+ * clock-in (`plan`) at `at`. `overdueAt` is set once it is 24 h late;
+ * delivery removes the entry.
+ */
+export interface PulseVideoMark {
+  uploadId: string;
+  role: 'plan' | 'wrapup';
+  at: string | null;
+  overdueAt?: string | null;
+}
+
+/** What `clock.stopWithVideo` / `clock.startWithPlan` answer. */
+export interface PulseClockSend {
+  /** The pulseUploads row the video will be sent under. */
+  uploadId: string;
+  /** The post the video attaches to. */
+  postId: string;
+  /** The session as the server recorded it. */
+  clockEvent: ClockEvent;
+  /** Where the plan post landed, when the team has conversations. */
+  conversationId?: string;
+}
+
+/**
+ * Pulse's uploads from inside the app (huddle-server §5): Huddle calls these
+ * for Pulse (src/features/pulse-embed/grants.ts), over REST like every call.
+ */
+export const pulseUploadApi = {
+  /** The types this person may send, whether Pulse is paused, and each team's Pulse settings. */
+  types: () => wormholeCall<PulseUploadTypesList>('pulseUploadTypes.list', {}),
+
+  /** Start (or resume) sending one video: its artifact and a 2 h PulseVault token. */
+  begin: (args: PulseUploadBegin) =>
+    wormholeCall<PulseUploadGrant>('pulseUploads.begin', { ...args }),
+
+  /** A fresh token for one of the caller's uploads. */
+  token: (uploadId: string, clientKey?: string) =>
+    wormholeCall<{ token: string; expiresAt: number }>(
+      'pulseUploads.token',
+      clientKey ? { uploadId, clientKey } : { uploadId },
+    ),
+
+  /** Cancel sending (Cancel sending, Edit, Delete); a video whose bytes are in is left as it is. */
+  cancel: (args: { uploadId?: string; clientKey?: string; reason?: PulseUploadCancelReason }) =>
+    wormholeCall<{ state: PulseUploadState }>('pulseUploads.cancel', { ...args }),
+
+  /** The caller's own uploads, newest first. */
+  list: (
+    args: { states?: PulseUploadState[]; targetKey?: string; since?: number; limit?: number } = {},
+  ) => wormholeCall<{ uploads: PulseUploadPublic[] }>('pulseUploads.list', { ...args }),
+
+  /** Send a video kept in the library (its place was gone) somewhere else. */
+  retarget: (args: { uploadId: string; type: PulseUploadTypeId; target: PulseUploadTarget }) =>
+    wormholeCall<{ state: 'delivered'; note: string }>('pulseUploads.retarget', { ...args }),
+
+  /**
+   * Support: the caller's uploads and those of the teams they administer, newest first;
+   * with `teamId`, only that team's.
+   */
+  adminList: (
+    args: {
+      teamId?: string;
+      userId?: string;
+      targetKey?: string;
+      clockEventId?: string;
+      limit?: number;
+    } = {},
+  ) => wormholeCall<{ uploads: PulseUploadAdmin[] }>('pulseUploads.adminList', { ...args }),
+
+  /** Support: how a team's videos are doing since `since` (default 30 days). Team admins only. */
+  metrics: (args: { teamId: string; since?: number }) =>
+    wormholeCall<PulseUploadMetrics>('pulseUploads.metrics', { ...args }),
+};
+
+/** A row as `pulseUploads.adminList` shows it to support: every stored field, dates as ISO. */
+export interface PulseUploadAdmin extends Omit<PulseUploadPublic, 'clientKey' | 'draftKey'> {
+  userName: string | null;
+  teamId?: string | null;
+  label?: string | null;
+  clockEventId?: string | null;
+  artifactId?: string | null;
+  attempts?: number;
+  platform?: 'ios' | 'android' | null;
+  appVersion?: string | null;
+  createdAt?: string | null;
+  deliveredAt?: string | null;
+  /** Set by the sweep 24 h after Send while the video hasn't landed; delivery clears it. */
+  overdueAt?: string | null;
+}
+
+/** `pulseUploads.metrics` counts, for a team or one upload type. */
+export interface PulseUploadCounts {
+  total: number;
+  /** All but the cancelled: the rates are of this. */
+  sent: number;
+  canceled: number;
+  inFlight: number;
+  delivered: number;
+  kept: number;
+  failed: number;
+  abandoned: number;
+  overdue: number;
+}
+
+export interface PulseUploadMetrics {
+  teamId: string;
+  since: string;
+  until: string;
+  /** The window held more rows than one call reads. */
+  truncated: boolean;
+  counts: PulseUploadCounts;
+  /** 0–1 of sent; null when nothing was sent. */
+  rates: Record<'success' | 'kept' | 'failed' | 'abandoned' | 'overdue', number | null>;
+  timeToAttachMs: { count: number; p50: number | null; p95: number | null };
+  /** Must be 0. */
+  duplicateAttachments: { sets: number; extra: number };
+  byType: Record<string, PulseUploadCounts>;
+}
+
 // ─── Media Library ────────────────────────────────────────────────────────────
 
 export interface MediaItem {
@@ -2552,6 +2841,16 @@ export interface MediaItem {
   altText: string | null;
   thumbnail: string | null;
   uploadedAt: string;
+  /**
+   * A video's captions (WebVTT), path-only (`/pulsevault/artifacts/<id>`);
+   * null or absent: none. Videos only.
+   */
+  captionsUrl?: string | null;
+  /**
+   * Why a Pulse video is in the library instead of where it was sent (its
+   * place was gone at delivery); null or absent otherwise.
+   */
+  keptReason?: string | null;
 }
 
 function withAbsoluteMediaItem(item: MediaItem): MediaItem {

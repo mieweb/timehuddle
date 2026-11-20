@@ -13,10 +13,17 @@ export const DEFAULT_BACKENDS = {
   production: 'https://timecore-prod.os.mieweb.org',
 };
 
-/** Reads `--name <value>` out of argv. */
+/**
+ * Reads `--name <value>` out of argv: undefined when the flag is absent. A flag
+ * given without a value fails, rather than reading as absent and silently
+ * keeping whatever the server already has in force.
+ */
 export function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? undefined : process.argv[i + 1];
+  if (i === -1) return undefined;
+  const value = process.argv[i + 1];
+  if (value === undefined || value.startsWith('--')) fail(`--${name} needs a value`);
+  return value;
 }
 
 export function fail(message) {

@@ -55,7 +55,10 @@ import { watchSettingsChanges } from './settings/changes';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+import './pulse-captions';
+import { createCorsMiddleware, createOriginPolicy } from './pulse-cors-core.js';
 import { PULSE_DESTINATION_KINDS } from './pulse-destinations.js';
+import { exposePulseUploads } from './pulse-uploads-expose.js';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
 import './huddle';
@@ -128,92 +131,17 @@ Meteor.startup(() => {
  * If unset, falls back to origins sharing the same base domain as ROOT_URL
  * (handles PR preview deployments where env vars may not propagate).
  */
-const _rawCorsOrigins = process.env.CORS_ORIGINS || '';
-const CORS_ALLOW_ALL = _rawCorsOrigins === '*';
-const ALLOWED_ORIGINS = _rawCorsOrigins
-  ? _rawCorsOrigins
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-  : [];
-
-// Hardcoded preview base domain — all MIEWeb Proxmox previews live here.
-// This guarantees CORS works for PR previews even if env vars are not injected.
-const PREVIEW_BASE_DOMAINS = ['os.mieweb.org'];
-
-// Native mobile app WebView origins. These are the app's own bundled WebView
-// (not a remote site), so they are always safe to allow:
-//   • Capacitor iOS      → capacitor://localhost
-//   • Capacitor Android  → https://localhost (androidScheme: 'https')
-//   • Legacy Ionic       → ionic://localhost
-const NATIVE_APP_ORIGINS = new Set([
-  'capacitor://localhost',
-  'https://localhost',
-  'ionic://localhost',
-]);
-
-// Optionally derive an additional base domain from ROOT_URL
-const _rootUrl = process.env.ROOT_URL || '';
-const _rootHostname = (() => {
-  try {
-    return new URL(_rootUrl).hostname;
-  } catch {
-    return '';
-  }
-})();
-// Use all suffix components (e.g. os.mieweb.org) not just the last 2
-// to avoid accidentally allowing all of mieweb.org
-const _baseDomain = _rootHostname.includes('.')
-  ? _rootHostname.split('.').slice(-3).join('.') // last 3 parts: os.mieweb.org
-  : '';
-
-// RFC1918 private-LAN hostnames — dev live-reload serves the WebView from
-// the machine's LAN IP (e.g. http://10.3.95.139:3000), which changes with
-// DHCP/network and can't be pinned in ROOT_URL or CORS_ORIGINS. Without this,
-// `_baseDomain` (derived from ROOT_URL) is a meaningless string for a dotted
-// IPv4 host, so the origin never matches and CORS headers are skipped —
-// breaking raw XHR/fetch calls from the WebView (e.g. tus-js-client video
-// uploads) while native-bridge calls (CapacitorHttp) keep working, since
-// those aren't subject to CORS. See memories/repo/timehuddle-capacitor-rest-cors.md.
-function isPrivateLanHost(hostname) {
-  return (
-    hostname === 'localhost' ||
-    /^127\./.test(hostname) ||
-    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
-  );
-}
-
-function isOriginAllowed(origin) {
-  if (!origin) return false;
-  if (CORS_ALLOW_ALL) return true;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
-  // Native mobile app WebViews (Capacitor / Ionic) — the app's own bundle.
-  if (NATIVE_APP_ORIGINS.has(origin)) return true;
-  try {
-    const h = new URL(origin).hostname;
-    // Allow hardcoded preview base domains
-    for (const base of PREVIEW_BASE_DOMAINS) {
-      if (h === base || h.endsWith('.' + base)) return true;
-    }
-    // Allow same base domain as ROOT_URL (non-localhost)
-    if (_baseDomain && _baseDomain !== 'localhost') {
-      if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
-    }
-    // Dev only: allow any private-LAN origin (see isPrivateLanHost above).
-    if (!Meteor.isProduction && isPrivateLanHost(h)) return true;
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
+const { isOriginAllowed, corsOrigins, baseDomain } = createOriginPolicy({
+  corsOrigins: process.env.CORS_ORIGINS,
+  rootUrl: process.env.ROOT_URL,
+  isProduction: Meteor.isProduction,
+});
 
 console.log(
   '[cors] CORS_ORIGINS:',
-  _rawCorsOrigins || '(not set)',
+  corsOrigins || '(not set)',
   '| ROOT_URL base domain:',
-  _baseDomain || '(none)',
+  baseDomain || '(none)',
 );
 
 // Relax Node's HTTP timeouts for slow mobile video uploads. PulseCam streams
@@ -253,40 +181,10 @@ WebApp.rawConnectHandlers.use((req, _res, next) => {
   next();
 });
 
-// Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
-// EXCEPT /uploads/tus which handles its own protocol-specific OPTIONS
-WebApp.rawConnectHandlers.use((req, res, next) => {
-  // Skip TUS endpoints — they handle their own OPTIONS with protocol headers
-  if (req.url?.startsWith('/uploads/tus')) {
-    return next();
-  }
-
-  const origin = req.headers.origin;
-  if (isOriginAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-    // Includes the TUS resumable-upload protocol headers (@mieweb/pulsevault's
-    // /pulsevault/upload route) — tus-js-client sends Tus-Resumable on every
-    // request, so without it here the browser blocks the preflight before the
-    // upload ever reaches the handler.
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, X-Requested-With, Tus-Resumable, Upload-Length, Upload-Metadata, Upload-Offset, Upload-Concat, Upload-Defer-Length',
-    );
-    res.setHeader(
-      'Access-Control-Expose-Headers',
-      'Location, Upload-Offset, Upload-Length, Tus-Resumable, Tus-Version, Tus-Max-Size, Tus-Extension',
-    );
-    res.setHeader('Access-Control-Max-Age', '86400');
-  }
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  next();
-});
+// Global CORS — catches ALL routes (DDP, /api, /uploads, /pulsevault,
+// /pulse/captions, etc.) EXCEPT /uploads/tus, which handles its own
+// protocol-specific OPTIONS. See pulse-cors-core.js.
+WebApp.rawConnectHandlers.use(createCorsMiddleware(isOriginAllowed));
 
 // Oversized-body guard — must run BEFORE the wormhole REST bridge, which
 // destroys the socket on its own 1 MB check and so never delivers its 413.
@@ -2369,6 +2267,9 @@ Meteor.startup(async () => {
         teamId: { type: 'string' },
         requirePlanForClock: { type: ['boolean', 'null'] },
         autoAcceptJoins: { type: ['boolean', 'null'] },
+        pulseInApp: { type: ['boolean', 'null'] },
+        pulseClockInOut: { type: ['boolean', 'null'] },
+        pulseSharedDevice: { type: ['boolean', 'null'] },
       },
       required: ['teamId'],
     },
@@ -3163,6 +3064,8 @@ Meteor.startup(async () => {
       },
     },
   });
+
+  exposePulseUploads(Wormhole);
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

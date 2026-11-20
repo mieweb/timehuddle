@@ -19,6 +19,7 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useMemo, useState } from 'react';
 
+import { usePulseSignOut } from '../features/pulse-embed/SignOutPulseDialog';
 import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
 import { useSession } from '../lib/useSession';
 import { useAccountMenuSections } from './accountMenu';
@@ -34,11 +35,16 @@ export const UserDropdown: React.FC = () => {
   const [open, setOpen] = useState(false);
 
   const { navigate } = useRouter();
+  // Warns first when Pulse holds unsent videos on this phone (TH-9).
+  const { requestSignOut, dialog: signOutDialog } = usePulseSignOut({
+    userId: user?.id ?? null,
+    signOut,
+  });
 
   const handleLogout = useCallback(() => {
     setOpen(false);
-    void signOut();
-  }, [signOut]);
+    void requestSignOut();
+  }, [requestSignOut]);
 
   const unseenReleaseCount = useMemo(
     () => unseenReleaseNotes(releaseNotes, user?.releaseNotesSeenVersion, user?.createdAt).length,
@@ -151,6 +157,7 @@ export const UserDropdown: React.FC = () => {
           <span className="font-normal">Sign out</span>
         </DropdownItem>
       </Dropdown>
+      {signOutDialog}
     </>
   );
 };
