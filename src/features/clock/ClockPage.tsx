@@ -461,7 +461,11 @@ export const ClockPage: React.FC = () => {
     const token = `${composerMode}:${seedText}`;
     if (seededTokenRef.current === token) return;
     seededTokenRef.current = token;
-    setText((current) => (current.trim() ? current : seedText));
+    // A draft already showing (the plan handed over at clock-in, or text typed
+    // first) stays as it is: remounting the editor for it would drop an edit
+    // made just as the seed lands.
+    if (textRef.current.trim()) return;
+    setText(seedText);
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText, submittingMode]);
 
