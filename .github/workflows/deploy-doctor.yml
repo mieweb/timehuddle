@@ -1,0 +1,208 @@
+name: Deploy Doctor
+
+# When a deploy workflow fails, Claude diagnoses it against docs/deploy-failures.md,
+# records what it learns there, and opens a `deploy-failure` issue. Instructions:
+# .claude/agents/deploy-doctor.md.
+#
+# Two jobs, so the agent never holds a token that can write code:
+#   diagnose — Claude, with a read-only contents token. It edits the checkout and
+#              describes the fix; a trusted step saves that as a patch.
+#   publish  — no AI. Applies the patch to the commit Claude diagnosed, on a fresh
+#              deploy-doctor/run-<id> branch, and opens the PR against the branch
+#              that failed to deploy (main, development, prod or master). A patch touching .github/workflows/ is posted on the
+#              issue for a person instead: GITHUB_TOKEN cannot push workflow files.
+#
+# Run the same diagnosis locally:  bash scripts/deploy-doctor.sh <run-id>
+#
+# Requires the ANTHROPIC_API_KEY secret. workflow_run only fires once this file is
+# on the default branch.
+
+on:
+  workflow_run:
+    workflows: ['Main Branch Deployment', 'CI / Deploy']
+    types: [completed]
+
+permissions: {}
+
+# One doctor at a time, so two failures cannot both miss each other's issue and
+# open duplicate PRs. GitHub keeps one queued run and drops older queued ones.
+concurrency:
+  group: deploy-doctor
+  cancel-in-progress: false
+
+env:
+  RUN_ID: ${{ github.event.workflow_run.id }}
+  OUT: .deploy-doctor-out # agent → publish hand-off, inside the checkout
+
+jobs:
+  diagnose:
+    name: Diagnose Failed Deploy
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      base: ${{ steps.deploy_branch.outputs.base }}
+      sha: ${{ steps.pinned.outputs.sha }}
+    steps:
+      # Fix the branch that failed to deploy: main (main.yml) or development, prod
+      # or master (ci.yml). Anything else is refused rather than checked out.
+      - name: Resolve deploy branch
+        id: deploy_branch
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          case "$HEAD_BRANCH" in
+            main | development | prod | master) echo "base=$HEAD_BRANCH" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Not a deploy branch: $HEAD_BRANCH"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.deploy_branch.outputs.base }}
+          fetch-depth: 0 # the collector diffs against the last good deploy
+          persist-credentials: false
+
+      # Recorded before Claude runs: the patch is diffed against this commit and
+      # the publish job applies it to the same commit.
+      - name: Pin diagnosed commit
+        id: pinned
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Ensure labels
+        run: |
+          gh label create deploy-failure --color B60205 --force \
+            --description "A deploy workflow failed — opened by the deploy doctor"
+          gh label create needs-human --color FBCA04 --force \
+            --description "The deploy doctor could not resolve this on its own"
+
+      - name: Collect failure context
+        run: |
+          mkdir -p "$OUT"
+          bash scripts/deploy-doctor.sh "$RUN_ID" | tee "$OUT/failure.md"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Deploy run ${{ env.RUN_ID }} of "${{ github.event.workflow_run.name }}" failed
+            on branch ${{ github.event.workflow_run.head_branch }}.
+
+            Follow .claude/agents/deploy-doctor.md exactly — you are running in
+            GitHub Actions. The collector output is already in
+            ${{ env.OUT }}/failure.md; read it instead of re-running it.
+          claude_args: >-
+            --max-turns 60
+            --allowedTools "Read,Edit,Write,Grep,Glob,Bash(bash scripts/deploy-doctor.sh:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh issue:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(git status:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(npm ci:*),Bash(npm run lint:*),Bash(npm run typecheck:*),Bash(npm run format:*),Bash(npx tsc:*),Bash(patch:*),Bash(curl -sL https://registry.npmjs.org/*)"
+
+      - name: Save proposed fix
+        if: always()
+        env:
+          BASE_SHA: ${{ steps.pinned.outputs.sha }}
+        run: |
+          mkdir -p "$OUT"
+          mv "$OUT" "$RUNNER_TEMP/doctor"
+          git add -A
+          if ! git diff --cached --quiet "$BASE_SHA"; then
+            git diff --cached --binary "$BASE_SHA" > "$RUNNER_TEMP/doctor/fix.patch"
+          fi
+          ls -la "$RUNNER_TEMP/doctor"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deploy-doctor-${{ env.RUN_ID }}
+          path: ${{ runner.temp }}/doctor
+          retention-days: 14
+
+  publish:
+    name: Open Fix PR
+    needs: diagnose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: deploy-doctor/run-${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-doctor-${{ env.RUN_ID }}
+          path: ${{ runner.temp }}/doctor
+
+      - name: Check for a proposed fix
+        id: fix
+        run: |
+          D="$RUNNER_TEMP/doctor"
+          if [ ! -s "$D/fix.patch" ]; then
+            echo "No fix proposed."; echo "present=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          issue=$(tr -dc '0-9' < "$D/issue-number.txt" 2>/dev/null || true)
+          [ -n "$issue" ] || { echo "::error::Fix proposed without issue-number.txt"; exit 1; }
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          if git apply --numstat "$D/fix.patch" | cut -f3 | grep -q '^\.github/workflows/'; then
+            echo "workflow=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Hand workflow fixes to a person
+        if: steps.fix.outputs.workflow == 'true'
+        env:
+          ISSUE: ${{ steps.fix.outputs.issue }}
+          BASE: ${{ needs.diagnose.outputs.base }}
+          BASE_SHA: ${{ needs.diagnose.outputs.sha }}
+        run: |
+          patch="$RUNNER_TEMP/doctor/fix.patch"
+          artifact="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID#artifacts"
+          {
+            echo "The fix changes \`.github/workflows/\`, which GitHub's built-in token cannot push."
+            echo "Download \`fix.patch\` from the [deploy-doctor-$RUN_ID artifact]($artifact), apply it"
+            echo "on \`$BASE\` (made against \`${BASE_SHA:0:8}\`) with \`git apply\`, and open the PR yourself."
+            echo
+            if [ "$(wc -c < "$patch")" -gt 60000 ]; then
+              echo "**Preview only — truncated. Apply the artifact, not this.**"
+            fi
+            echo '```diff'
+            head -c 60000 "$patch"
+            echo '```'
+          } > comment.md
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+
+      - uses: actions/checkout@v4
+        if: steps.fix.outputs.present == 'true' && steps.fix.outputs.workflow != 'true'
+        with:
+          ref: ${{ needs.diagnose.outputs.sha }} # the commit the patch was made against
+
+      - name: Push branch and open PR
+        if: steps.fix.outputs.present == 'true' && steps.fix.outputs.workflow != 'true'
+        env:
+          ISSUE: ${{ steps.fix.outputs.issue }}
+          BASE: ${{ needs.diagnose.outputs.base }}
+        run: |
+          D="$RUNNER_TEMP/doctor"
+          git apply --index "$D/fix.patch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          title=$(head -n 1 "$D/pr-title.txt" 2>/dev/null || echo "Fix Failed Deploy Run $RUN_ID")
+          git switch -c "$BRANCH"
+          git commit -q -m "$title" -m "Proposed by the deploy doctor for run $RUN_ID (#$ISSUE)."
+          git push origin "HEAD:refs/heads/$BRANCH"
+          body="$D/pr-body.md"; [ -s "$body" ] || { echo "Fixes the deploy failure in #$ISSUE." > pr-body.md; body=pr-body.md; }
+          url=$(gh pr create --base "$BASE" \
+            --head "$BRANCH" --title "$title" --body-file "$body")
+          gh issue comment "$ISSUE" --body "Fix PR: $url"
