@@ -17,7 +17,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Checkbox, Text, useMediaQuery } from '@mieweb/ui';
 import React from 'react';
 
-import { RowList } from '../../ui/RowList';
+import { RowList, type RowListSectionOrder } from '../../ui/RowList';
 
 import { boardText } from './boardStrings';
 import { splitPinned } from './pinnedSections';
@@ -102,6 +102,11 @@ export interface TicketListProps {
    */
   pinnedKeys?: string[];
   onTogglePin?: (ticket: UnifiedTicket) => void;
+  /**
+   * With `pinnedKeys`, rows can be dragged into, within and out of Pinned.
+   * Called with the Pinned rows before and after the drag.
+   */
+  onPinsReorder?: (before: UnifiedTicket[], after: UnifiedTicket[]) => void;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -144,6 +149,7 @@ export const TicketList: React.FC<TicketListProps> = ({
   hideBoardButton,
   pinnedKeys,
   onTogglePin,
+  onPinsReorder,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -168,9 +174,19 @@ export const TicketList: React.FC<TicketListProps> = ({
         items: pinned,
         emptyText: boardText.pinnedEmpty,
       },
-      { id: 'my-board-rest', label: boardText.restSection, items: rest },
+      { id: 'my-board-rest', label: boardText.restSection, items: rest, sorted: true },
     ];
   }, [tickets, pinnedKeys]);
+  const handleSectionsReorder = React.useMemo(() => {
+    if (!sections || !onPinsReorder) return undefined;
+    return (order: RowListSectionOrder[]) => {
+      const byKey = new Map(tickets.map((t) => [t.key, t]));
+      const after = (order.find((part) => part.id === sections[0].id)?.ids ?? []).flatMap(
+        (key) => byKey.get(key) ?? [],
+      );
+      onPinsReorder(sections[0].items, after);
+    };
+  }, [sections, tickets, onPinsReorder]);
   const pinnedRowKeys = React.useMemo(
     () => new Set(sections?.[0].items.map((t) => t.key)),
     [sections],
@@ -328,6 +344,7 @@ export const TicketList: React.FC<TicketListProps> = ({
         loading={loading}
         scrollKey={listKey}
         sections={sections}
+        onSectionsReorder={handleSectionsReorder}
         emptyState={emptyState}
         renderRow={(ticket) => (
           <TicketRow

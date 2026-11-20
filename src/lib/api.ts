@@ -2111,6 +2111,9 @@ export const myBoardApi = {
 
   /** Unpin a board entry; it stays on the board. */
   unpin: (ref: MyBoardRef) => wormholeCall<{ pinned: boolean }>('myBoard.unpin', { ref }),
+
+  /** Make these the pins, in this order; every other board entry is unpinned. */
+  setPins: (refs: MyBoardRef[]) => wormholeCall<{ pinned: number }>('myBoard.setPins', { refs }),
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────

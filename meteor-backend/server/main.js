@@ -1605,8 +1605,8 @@ Meteor.startup(async () => {
     inputSchema: myBoardRefSchema,
   });
 
-  Wormhole.expose('myBoard.reorderPins', {
-    description: "Put the caller's pins in this order (must name exactly the current pins)",
+  Wormhole.expose('myBoard.setPins', {
+    description: "Make these the caller's pins, in this order; every other board entry is unpinned",
     inputSchema: myBoardRefsSchema,
   });
 

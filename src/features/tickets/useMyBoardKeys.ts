@@ -26,6 +26,8 @@ export interface MyBoardKeys {
   boardKeys: Set<string>;
   /** The board's pinned entries, as keys, in the user's order (#884). */
   pinnedKeys: string[];
+  /** For an optimistic update while a new pin order saves. */
+  setPinnedKeys: React.Dispatch<React.SetStateAction<string[]>>;
   /** For optimistic updates after a move to or from the board. */
   setBoardKeys: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** Huddle board entries the server says the user can no longer see. */
@@ -94,6 +96,7 @@ export function useMyBoardKeys(userId: string | null): MyBoardKeys {
   return {
     boardKeys,
     pinnedKeys,
+    setPinnedKeys,
     setBoardKeys,
     unavailableHuddleKeys,
     loadBoard,

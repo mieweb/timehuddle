@@ -34,3 +34,24 @@ export function splitPinned(
     rest: placed.filter((p) => p.index < 0).map((p) => p.ticket),
   };
 }
+
+/**
+ * The full pin list after a drag on My Board. `before` and `after` are the
+ * pins the list showed, in order, before and after the drag. Pins it didn't
+ * show (filtered out) keep their places; the shown ones fill the shown slots
+ * in their new order, and a newly pinned one beyond those goes at the end.
+ */
+export function mergePinOrder(
+  current: readonly string[],
+  before: readonly string[],
+  after: readonly string[],
+): string[] {
+  const shown = new Set(before);
+  const queue = [...after];
+  const merged: string[] = [];
+  for (const key of current) {
+    if (!shown.has(key)) merged.push(key);
+    else if (queue.length) merged.push(queue.shift()!);
+  }
+  return [...merged, ...queue];
+}

@@ -32,8 +32,9 @@ export const boardText = {
   unpin: 'Unpin',
   pinFailed: "Couldn't pin that ticket. Try again in a moment.",
   unpinFailed: "Couldn't unpin that ticket. Try again in a moment.",
+  reorderFailed: "Couldn't save your pins. Try again in a moment.",
   pinnedSection: 'Pinned',
   restSection: 'Rest of my board',
-  pinnedEmpty: 'Pin the tickets you plan to work on from their ⋮ menu.',
+  pinnedEmpty: 'Drag the tickets you plan to work on here, or pin them from their ⋮ menu.',
   columnHeading: 'My Board and timer',
 };

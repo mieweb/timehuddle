@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pinIndex, splitPinned } from './pinnedSections';
+import { mergePinOrder, pinIndex, splitPinned } from './pinnedSections';
 import type { UnifiedTicket } from './sources/types';
 
 const ticket = (id: string, linkedIssue?: string) =>
@@ -31,5 +31,21 @@ describe('pinIndex', () => {
     expect(pinIndex(carrier, ['huddle:x', 'redmine:42'])).toBe(1);
     expect(pinIndex(carrier, ['redmine:42', 'huddle:a'])).toBe(0);
     expect(pinIndex(carrier, ['huddle:x'])).toBe(-1);
+  });
+});
+
+describe('mergePinOrder', () => {
+  it('reorders the shown pins and keeps a hidden one in its place', () => {
+    expect(mergePinOrder(['a', 'h', 'b'], ['a', 'b'], ['b', 'a'])).toEqual(['b', 'h', 'a']);
+  });
+
+  it('pins a dragged-in ticket where it was dropped, and drops an unpinned one', () => {
+    expect(mergePinOrder(['a', 'h', 'b'], ['a', 'b'], ['x', 'a', 'b'])).toEqual([
+      'x',
+      'h',
+      'a',
+      'b',
+    ]);
+    expect(mergePinOrder(['a', 'h', 'b'], ['a', 'b'], ['b'])).toEqual(['b', 'h']);
   });
 });

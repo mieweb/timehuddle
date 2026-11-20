@@ -58,6 +58,7 @@ import {
   useAssignedNotice,
 } from './assignedStarter';
 import { boardText } from './boardStrings';
+import { mergePinOrder } from './pinnedSections';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketCreateModal } from './TicketCreateModal';
 import { TicketListPanel } from './TicketListPanel';
@@ -391,6 +392,7 @@ export const TicketsPage: React.FC = () => {
   const {
     boardKeys,
     pinnedKeys,
+    setPinnedKeys,
     setBoardKeys,
     unavailableHuddleKeys,
     loadBoard,
@@ -849,6 +851,27 @@ export const TicketsPage: React.FC = () => {
     [boardKeys, pinnedKeys, loadBoard, toast],
   );
 
+  // A drag into, within or out of Pinned saves the whole pin list in its new
+  // order, shown at once and put back from the server if the save fails.
+  const handleReorderPins = useCallback(
+    (before: UnifiedTicket[], after: UnifiedTicket[]) => {
+      const pinnedOf = (ticket: UnifiedTicket) =>
+        boardEntryKeys(ticket, boardKeys).filter((key) => pinnedKeys.includes(key));
+      const keysOf = (ticket: UnifiedTicket) => {
+        const pinned = pinnedOf(ticket);
+        return pinned.length ? pinned : boardEntryKeys(ticket, boardKeys).slice(0, 1);
+      };
+      const next = mergePinOrder(pinnedKeys, before.flatMap(pinnedOf), after.flatMap(keysOf));
+      if (next.join() === pinnedKeys.join()) return;
+      setPinnedKeys(next);
+      void myBoardApi
+        .setPins(next.map(ticketRefOf))
+        .catch(() => toast.error(boardText.reorderFailed))
+        .finally(loadBoard);
+    },
+    [boardKeys, pinnedKeys, setPinnedKeys, loadBoard, toast],
+  );
+
   const handleMoveToBoard = useCallback(() => {
     void addToBoard([...ticketsView.selectedKeys]).then(
       (added) => added && ticketsView.clearSelection(),
@@ -1095,6 +1118,7 @@ export const TicketsPage: React.FC = () => {
               view={boardView}
               pinnedKeys={pinnedKeys}
               onTogglePin={handleTogglePin}
+              onPinsReorder={handleReorderPins}
               loading={boardLoading}
               hideBoardButton
               // Unresolvable board entries, announced politely.

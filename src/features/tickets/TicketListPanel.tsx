@@ -30,6 +30,7 @@ type SharedListProps = Pick<
   | 'hideBoardButton'
   | 'pinnedKeys'
   | 'onTogglePin'
+  | 'onPinsReorder'
   | 'selecting'
   | 'onEditRequest'
   | 'onDeleteRequest'
