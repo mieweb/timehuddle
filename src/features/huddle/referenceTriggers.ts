@@ -6,10 +6,11 @@
  * postRefs). Search results are suggestions only: what a post carries is
  * checked against fresh data when it's sent.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import type { ReferenceOption, ReferenceTrigger } from '@mieweb/ui';
 import { ticketApi } from '@lib/api';
 import { useSession } from '@lib/useSession';
+import { CLOSED_STATUSES } from '../tickets/sources/huddleSource';
 import { useMyBoardKeys } from '../tickets/useMyBoardKeys';
 import { planTicketName, profilePath, ticketPath } from './planItems';
 import type { Ticket } from './types';
@@ -78,7 +79,7 @@ export function usePersonTrigger(mentions: TeamMentions): ReferenceTrigger {
 const updatedTime = (ticket: Ticket) => (ticket.updatedAt ? Date.parse(ticket.updatedAt) : 0);
 
 /**
- * `#` tickets: the team's open tickets matching the key or title typed, the
+ * `#` tickets: the team's open tickets (not closed or reviewed) matching the key or title typed, the
  * ones on your My Board first, most recently updated first.
  */
 export function useTicketTrigger(
@@ -87,39 +88,30 @@ export function useTicketTrigger(
 ): ReferenceTrigger {
   const { user } = useSession();
   const { boardKeys } = useMyBoardKeys(user?.id ?? null);
-  const [loaded, setLoaded] = useState<{ teamId: string; tickets: Ticket[] } | null>(null);
-
-  useEffect(() => {
-    if (!teamId) return;
-    let cancelled = false;
-    ticketApi
-      .getTickets(teamId, { brief: true })
-      .then((tickets) => {
-        if (!cancelled) setLoaded({ teamId, tickets });
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded({ teamId, tickets: [] });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [teamId]);
-
-  // Keyed by team: never another team's tickets.
-  const tickets = teamId && loaded?.teamId === teamId ? loaded.tickets : null;
+  // The team's tickets, as a request a search can wait on: `#` typed before
+  // they arrive gets them, not an empty list that stays empty. Keyed by team,
+  // so a search never sees another team's tickets.
+  const request = useMemo(
+    () =>
+      teamId
+        ? ticketApi.getTickets(teamId, { brief: true }).catch((): Ticket[] => [])
+        : Promise.resolve<Ticket[]>([]),
+    [teamId],
+  );
   // Read at search time, so the trigger keeps its identity as data arrives.
-  const latest = useRef({ tickets, boardKeys, ticketPrefix });
-  latest.current = { tickets, boardKeys, ticketPrefix };
+  const latest = useRef({ request, boardKeys, ticketPrefix });
+  latest.current = { request, boardKeys, ticketPrefix };
 
   return useMemo(
     () => ({
       ...TICKET_LINKS,
-      search: (query: string) => {
-        const { tickets: all, boardKeys: board, ticketPrefix: prefix } = latest.current;
+      search: async (query: string) => {
+        const { request: pending, boardKeys: board, ticketPrefix: prefix } = latest.current;
+        const all = await pending;
         const q = query.toLowerCase();
         const onBoard = (ticket: Ticket) => board.has(`huddle:${ticket.id}`);
-        return (all ?? [])
-          .filter((ticket) => ticket.status !== 'closed')
+        return all
+          .filter((ticket) => !CLOSED_STATUSES.has(ticket.status))
           .map((ticket) => ({ ticket, name: planTicketName(ticket, prefix) }))
           .filter(({ name }) => name.toLowerCase().includes(q))
           .sort(

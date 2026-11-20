@@ -3,10 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchTeamMembers } from './api';
 import {
-  GROUP_MENTION_OPTIONS,
   detectGroupMentions,
   detectMentions,
-  isGroupMentionId,
   useTeamMentions,
 } from './useTeamMentions';
 
@@ -39,41 +37,9 @@ describe('useTeamMentions', () => {
     ]);
   });
 
-  it('resolves a mention of a teammate who has never posted in the thread', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('can you look at this @Priya')).toEqual(['u1']);
-  });
-
-  it('matches case-insensitively and ignores surrounding punctuation', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('(@priya) and @Bob, thanks')).toEqual(['u1', 'u2']);
-  });
-
-  it('does not match a longer name that merely starts with the token', async () => {
-    const { result } = await renderWithRoster();
-    // '@Bob' must not also fire 'Bobby', and '@Bobby' must not fire 'Bob'.
-    expect(result.current.detect('@Bobby please')).toEqual(['u3']);
-  });
-
-  it('ignores an email address rather than reading it as a mention', async () => {
-    const { result } = await renderWithRoster();
-    expect(result.current.detect('mail priya@bob.com')).toEqual([]);
-  });
-
-  it('leaves a first name two teammates share unresolved rather than tagging both', async () => {
-    mockFetch.mockResolvedValue([
-      ...roster,
-      { id: 'u4', name: 'Priya Patel', email: 'pp@x.com', username: null, image: null },
-    ]);
-    const { result } = renderHook(() => useTeamMentions('team-1'));
-    await waitFor(() => expect(result.current.options).toHaveLength(4));
-    expect(result.current.detect('@Priya and @Bob')).toEqual(['u2']);
-  });
-
   it('returns nothing without a team', () => {
     const { result } = renderHook(() => useTeamMentions(null));
     expect(result.current.options).toEqual([]);
-    expect(result.current.detect('@Priya')).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -95,13 +61,33 @@ describe('useTeamMentions', () => {
 
     rerender({ teamId: 'team-2' });
     expect(result.current.options).toEqual([]);
-    expect(result.current.detect('@Priya')).toEqual([]);
   });
 });
 
 describe('detectMentions', () => {
-  it('resolves against an arbitrary roster, not just the hook’s own team', () => {
-    expect(detectMentions('ping @Bob please', roster)).toEqual(['u2']);
+  it('resolves a teammate by first name', () => {
+    expect(detectMentions('can you look at this @Priya', roster)).toEqual(['u1']);
+  });
+
+  it('matches case-insensitively and ignores surrounding punctuation', () => {
+    expect(detectMentions('(@priya) and @Bob, thanks', roster)).toEqual(['u1', 'u2']);
+  });
+
+  it('does not match a longer name that merely starts with the token', () => {
+    // '@Bob' must not also fire 'Bobby', and '@Bobby' must not fire 'Bob'.
+    expect(detectMentions('@Bobby please', roster)).toEqual(['u3']);
+  });
+
+  it('ignores an email address rather than reading it as a mention', () => {
+    expect(detectMentions('mail priya@bob.com', roster)).toEqual([]);
+  });
+
+  it('leaves a first name two teammates share unresolved rather than tagging both', () => {
+    const shared = [
+      ...roster,
+      { id: 'u4', name: 'Priya Patel', email: 'pp@x.com', username: null, image: null },
+    ];
+    expect(detectMentions('@Priya and @Bob', shared)).toEqual(['u2']);
   });
 });
 
@@ -114,10 +100,5 @@ describe('group mentions', () => {
 
   it('ignores longer words and email addresses', () => {
     expect(detectGroupMentions('@teamwork and ops@team.com')).toEqual([]);
-  });
-
-  it('keeps the group options out of the user-id mentions', () => {
-    for (const option of GROUP_MENTION_OPTIONS) expect(isGroupMentionId(option.id)).toBe(true);
-    expect(isGroupMentionId('u1')).toBe(false);
   });
 });

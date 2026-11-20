@@ -89,13 +89,12 @@ import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth'
 import {
   GROUP_MENTION_OPTIONS,
   detectGroupMentions,
-  isGroupMentionId,
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
 import { PERSON_LINKS, TICKET_LINKS, useTicketTrigger } from '../features/huddle/referenceTriggers';
 import { editedTicketIds } from '../features/huddle/planItems';
 import { fetchTeamRefs, postRefsIn, refsNeeded } from '../features/huddle/postRefs';
-import { useTicketVideos } from '../features/huddle/useTicketVideos';
+import { fetchTicketVideos, useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
@@ -1064,7 +1063,6 @@ export default function Huddle() {
   // rejects; a slow refresh afterwards doesn't.
   async function handleMessageSent(
     text: string,
-    sentMentions: string[],
     composerAttachments: ComposerAttachment[],
     conversationId: string,
     sendOption?: string,
@@ -1104,27 +1102,32 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
-      // Linked tickets checked against the team's, read fresh; skipped without links.
-      const { ticketIds: linkedTicketIds } = postRefsIn(
+      // Mentions and linked tickets checked against the team's, read fresh;
+      // each lookup skipped when the text has nothing for it. A teammate's
+      // profile link names exactly them, and its label isn't read as typed.
+      const { mentions: mentionedIds, ticketIds: linkedTicketIds } = postRefsIn(
         text,
-        await fetchTeamRefs(postingTeamId, { members: false, tickets: refsNeeded(text).tickets }),
+        await fetchTeamRefs(postingTeamId, refsNeeded(text)),
       );
+      // Tickets linked with # bring their videos, as picked ones do.
+      const inlineOnly = linkedTicketIds.filter((ticketId) => !ticketIds.includes(ticketId));
+      const inlineVideos = inlineOnly.length ? await fetchTicketVideos(inlineOnly) : [];
+      const videos = [
+        ...new Map([...staged, ...inlineVideos].map((video) => [video.id, video])).values(),
+      ];
       ({ id, clockEventId } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
-          // SuperChat only resolves names of people already in the thread, so
-          // the roster match is unioned in for everyone else on the team.
-          mentions: [...new Set([...sentMentions, ...mentions.detect(text)])].filter(
-            (participantId) =>
-              participantId !== SYSTEM_PARTICIPANT_ID && !isGroupMentionId(participantId),
-          ),
+          // From the team's roster, not SuperChat's thread-only match, which
+          // reads a profile link's label as a typed name.
+          mentions: mentionedIds,
           // @team / @here only mean something in a team's Huddle, not Personal.
           groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
-        // Picked with the Ticket button, or linked in the text with @.
+        // Picked with the Ticket button, or linked in the text with #.
         ticketIds: [...new Set([...ticketIds, ...linkedTicketIds])],
-        attachments: [...media, ...staged].map(toPostAttachment),
+        attachments: [...media, ...videos].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
@@ -1408,17 +1411,8 @@ export default function Huddle() {
                     mediaFeedProps={mediaFeedProps}
                     acceptedFileTypes={['image', 'video', 'pdf', 'document']}
                     onComposerError={handleComposerError}
-                    onMessageSent={(
-                      text,
-                      { conversation, mentions: sentMentions, attachments, sendOption },
-                    ) =>
-                      handleMessageSent(
-                        text,
-                        sentMentions,
-                        attachments,
-                        conversation.id,
-                        sendOption,
-                      )
+                    onMessageSent={(text, { conversation, attachments, sendOption }) =>
+                      handleMessageSent(text, attachments, conversation.id, sendOption)
                     }
                     onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
                       void handleMessageEdited(messageId, text, { removedMedia, removedFiles })

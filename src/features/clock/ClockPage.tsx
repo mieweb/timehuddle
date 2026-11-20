@@ -288,14 +288,28 @@ export const ClockPage: React.FC = () => {
   };
 
   // A picked ticket is a new last item; the editor reloads `value`, so it shows at once.
-  const handleTicketSelect = (ticket: TicketRef) => {
-    setText((current) =>
-      appendPlanItem(
-        current,
-        planTicketItem({ id: ticket.id, name: planTicketName(ticket, ticketPrefix) }),
-      ),
-    );
+  // Adds `item` as the plan's last item, built from the editor's own text:
+  // the `text` mirror can lag the last keystroke (onChange is asynchronous),
+  // and reloading the editor from it would drop that edit. Read again if the
+  // mirror moves while reading, so an edit made meanwhile isn't lost either.
+  const editorHandleRef = useRef<RichEditorHandle | null>(null);
+  const appendToPlan = async (item: string, skip?: (current: string) => boolean) => {
+    let current = textRef.current;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = textRef.current;
+      const handle = editorHandleRef.current;
+      current = handle ? await handle.getContent().catch(() => textRef.current) : before;
+      if (!aliveRef.current) return;
+      if (textRef.current === before) break;
+    }
+    setText(skip?.(current) ? current : appendPlanItem(current, item));
     setComposerExpanded(true);
+  };
+
+  const handleTicketSelect = (ticket: TicketRef) => {
+    void appendToPlan(
+      planTicketItem({ id: ticket.id, name: planTicketName(ticket, ticketPrefix) }),
+    );
   };
 
   // ── Recent sessions — the user's last completed sessions on this team ──
@@ -392,6 +406,7 @@ export const ClockPage: React.FC = () => {
   // the ref callback itself: RichEditor's `focus()` waits on a load it starts
   // in its own mount effect, which hasn't run yet when the ref is attached.
   const [editorHandle, setEditorHandle] = useState<RichEditorHandle | null>(null);
+  editorHandleRef.current = editorHandle;
   useEffect(() => {
     if (focusEditorOnMountRef.current) editorHandle?.focus();
   }, [editorHandle]);
@@ -590,10 +605,7 @@ export const ClockPage: React.FC = () => {
           name: planTicketName(ticket, ticketPrefix),
         });
         writtenPendingRef.current = pendingTicketId;
-        setText((current) =>
-          ticketIdsInText(current).includes(ticket.id) ? current : appendPlanItem(current, item),
-        );
-        setComposerExpanded(true);
+        void appendToPlan(item, (current) => ticketIdsInText(current).includes(ticket.id));
       })
       .catch(() => {});
     return () => {

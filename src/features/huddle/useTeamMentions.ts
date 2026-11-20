@@ -31,13 +31,6 @@ export const GROUP_MENTION_OPTIONS: MentionOption[] = [
   { id: '@here', label: 'here', value: 'here', description: 'Everyone clocked in now' },
 ];
 
-const GROUP_MENTION_IDS = new Set(GROUP_MENTION_OPTIONS.map((option) => option.id));
-
-/** Whether a composer mention id is a group, not a person. */
-export function isGroupMentionId(id: string): boolean {
-  return GROUP_MENTION_IDS.has(id);
-}
-
 /** The group mentions written in `text`, by the same word-boundary rule as a person's. */
 export function detectGroupMentions(text: string): GroupMention[] {
   return (['team', 'here'] as const).filter((group) =>
@@ -47,8 +40,6 @@ export function detectGroupMentions(text: string): GroupMention[] {
 
 export interface TeamMentions {
   options: MentionOption[];
-  /** Ids of roster members named in `text`, matching SuperChat's own rule; ambiguous first names resolve to no one. */
-  detect: (text: string) => string[];
 }
 
 function escapeRegExp(value: string): string {
@@ -98,7 +89,6 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
   return useMemo(
     () => ({
       options: members.map((member) => ({ id: member.id, label: member.name })),
-      detect: (text: string) => detectMentions(text, members),
     }),
     [members],
   );

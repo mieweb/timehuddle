@@ -19,7 +19,7 @@ import {
 } from './types';
 
 /** Huddle statuses that mean "no longer open". Mirrors the Open/Closed tabs. */
-const CLOSED_STATUSES = new Set(['closed', 'reviewed']);
+export const CLOSED_STATUSES = new Set(['closed', 'reviewed']);
 
 /** Huddle's priority vocabulary, ranked for cross-source sorting. */
 const PRIORITY_RANK: Record<string, number> = {

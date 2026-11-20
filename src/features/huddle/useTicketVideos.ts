@@ -27,6 +27,28 @@ const NOTHING_LOADED: Loaded = { key: '', videos: [], error: null };
 
 const selectionKey = (ticketIds: string[]) => ticketIds.join(',');
 
+/** The Pulse videos attached to `ticketIds`, as composer attachments. Rejects if a request fails. */
+export async function fetchTicketVideos(ticketIds: string[]): Promise<MediaItem[]> {
+  const lists = await Promise.all(
+    ticketIds.map((ticketId) => attachmentApi.list('ticket', ticketId)),
+  );
+  return (
+    lists
+      .flat()
+      // Only Pulse videos: the server takes a post's video only as one
+      // (an older ticket's YouTube link would refuse the whole post).
+      .filter((att) => att.type === 'video' && pulseArtifactId(att.url))
+      .map((att) => ({
+        id: att.id,
+        url: att.url,
+        filename: att.title || 'video',
+        type: 'video',
+        size: 0, // not reported by the attachments API
+        mimeType: 'video/mp4',
+      }))
+  );
+}
+
 export function useTicketVideos(ticketIds: string[]): TicketVideos {
   const [loaded, setLoaded] = useState<Loaded>(NOTHING_LOADED);
   const key = selectionKey(ticketIds);
@@ -36,26 +58,10 @@ export function useTicketVideos(ticketIds: string[]): TicketVideos {
     setLoaded(NOTHING_LOADED);
     if (!key) return;
     let cancelled = false;
-    Promise.all(key.split(',').map((ticketId) => attachmentApi.list('ticket', ticketId)))
-      .then((lists) => {
+    fetchTicketVideos(key.split(','))
+      .then((videos) => {
         if (cancelled) return;
-        setLoaded({
-          key,
-          error: null,
-          videos: lists
-            .flat()
-            // Only Pulse videos: the server takes a post's video only as one
-            // (an older ticket's YouTube link would refuse the whole post).
-            .filter((att) => att.type === 'video' && pulseArtifactId(att.url))
-            .map((att) => ({
-              id: att.id,
-              url: att.url,
-              filename: att.title || 'video',
-              type: 'video',
-              size: 0, // not reported by the attachments API
-              mimeType: 'video/mp4',
-            })),
-        });
+        setLoaded({ key, error: null, videos });
       })
       .catch((err) => {
         console.error('[useTicketVideos] Failed to fetch ticket videos:', err);
