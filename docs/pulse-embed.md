@@ -420,7 +420,7 @@ never point them at a shared database.
      tests/timer-updates.test.ts tests/users.test.ts
    ```
 
-A PR labelled `backend-integration` runs the same suites in CI (`checks.yml`).
+A PR labelled `backend-integration` runs every integration suite in CI (`checks.yml`). CI starts the backend without `PULSE_UPLOADS_SWEEP_MS`, so the overdue-sweep cases skip there.
 
 Wormhole answers every refused method with HTTP 500 and the error code in the body's `error`
 (`conflict`, `too-large`, `forbidden`, `not-found`), so the suites assert the code, not the
