@@ -267,6 +267,26 @@ const CARD_TOP = 'rounded-t-xl border-t';
 const CARD_BOTTOM = 'overflow-hidden rounded-b-xl border-b [&_.row-list-item]:border-b-0';
 /** Rows within a card are ruled off more quietly than a plain list's. */
 const CARD_ROW = '[&_.row-list-item]:border-border/40';
+/**
+ * A heading's part of its card. Always ruled at the bottom, so sticking
+ * changes only the rule's colour and the corners: in place it rules off its
+ * rows (or is the card's bottom edge); stuck to the top it closes into a
+ * card of its own, the bottom corners rounding as it does.
+ */
+const CARD_HEADING = cn(
+  'border-b transition-[border-radius,border-color] duration-200 motion-reduce:transition-none',
+  '[&:has([data-stuck])]:rounded-b-xl [&:has([data-stuck])]:border-b-border/50',
+);
+
+/**
+ * The surface behind the list: the app shell's. A stuck heading's item is
+ * painted with it, so the rows scrolling under it don't show around its
+ * rounded corners or in the gap under it.
+ */
+const SURFACE =
+  '[--row-list-surface:var(--color-neutral-50)] dark:[--row-list-surface:var(--color-neutral-950)]';
+/** Room between headings stacked at the top. */
+const STACK_GAP = '0.375rem';
 
 const headingId = (sectionId: string) => `row-list-section:${sectionId}`;
 const emptyId = (sectionId: string) => `row-list-section-empty:${sectionId}`;
@@ -537,24 +557,32 @@ function RowListSections<T>({
         // Moves are announced below by section, not by place in the whole list.
         labels={{ moved: () => '' }}
         // A stuck heading's height (h-8 and its top border): the next one stacks under it, covering any rule beneath.
-        className="row-list-section-list [--row-list-stuck-heading:calc(2rem+1px)]"
+        className="row-list-section-list"
+        style={{ '--row-list-stack-gap': STACK_GAP } as React.CSSProperties}
         // The gap between cards; a heading is the first thing in each.
         classNames={{
           // Each heading sticks to the top while its section scrolls under
           // it, the next one stacking under it. Opaque, so rows don't show through.
-          item: '[&:has(.row-list-section-heading)]:sticky [&:has(.row-list-section-heading)]:top-0 [&:has([data-heading-index="1"])]:top-(--row-list-stuck-heading) [&:has([data-heading-index="2"])]:top-[calc(2*var(--row-list-stuck-heading))] [&:has(.row-list-section-heading)]:z-[5] [&:has(.row-list-section-heading)]:bg-background [&:not(:first-child):has(.row-list-section-heading)]:mt-3 [&:has([data-stuck])]:mb-2',
+          item: cn(
+            '[&:has(.row-list-section-heading)]:sticky [&:has(.row-list-section-heading)]:top-0 [&:has(.row-list-section-heading)]:z-[5] [&:has(.row-list-section-heading)]:bg-(--row-list-surface)',
+            // A stuck heading is h-8 plus its top and bottom rules; the next
+            // one stacks that far down, plus the gap.
+            '[&:has([data-heading-index="1"])]:top-[calc(2rem+2px+var(--row-list-stack-gap))] [&:has([data-heading-index="2"])]:top-[calc(2*(2rem+2px+var(--row-list-stack-gap)))]',
+            // The gap above a stacked heading, in the surface's colour.
+            '[&:not(:first-child):has([data-stuck])]:shadow-[0_calc(-1*var(--row-list-stack-gap))_0_0_var(--row-list-surface)]',
+            '[&:not(:first-child):has(.row-list-section-heading)]:mt-3 [&:has([data-stuck])]:mb-2',
+          ),
         }}
         renderItem={(entry) => (
           <div
             className={cn(
               CARD_PART,
-              entry.kind === 'heading' ? CARD_TOP : CARD_ROW,
+              entry.kind === 'heading' ? [CARD_TOP, CARD_HEADING] : CARD_ROW,
+              entry.last && CARD_BOTTOM,
               // Ruled off from its rows; an empty section's hint reads as part of it.
               entry.kind === 'heading' &&
                 !entry.last &&
-                entry.section.items.length > 0 &&
-                'border-b border-b-border/40',
-              entry.last && CARD_BOTTOM,
+                (entry.section.items.length > 0 ? 'border-b-border/40' : 'border-b-transparent'),
             )}
           >
             {entry.kind === 'heading' ? (
@@ -609,7 +637,12 @@ export function RowList<T>({
 
   return (
     <div
-      className={cn('row-list @container flex min-h-0 flex-1 flex-col', SPACING_VARS, className)}
+      className={cn(
+        'row-list @container flex min-h-0 flex-1 flex-col',
+        SPACING_VARS,
+        SURFACE,
+        className,
+      )}
     >
       {header && (
         // A rounded panel the list's full width. Its sides are padded by the
