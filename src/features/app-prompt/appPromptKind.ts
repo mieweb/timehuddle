@@ -3,7 +3,7 @@
  *
  * - iPhone / iPad / Android browser, no app on that platform → ask to install
  *   it from the App Store or Google Play
- * - iPhone / iPad / Android browser, has the app → offer to open this page in it
+ * - iPhone / iPad / Android browser, has the app → offer to open the dashboard in it
  * - Laptop / desktop browser, no app on either platform → QR codes to install
  *   it on an iPhone or an Android phone
  * - Everything else → nothing: inside the native app, people who already have

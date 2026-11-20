@@ -34,6 +34,7 @@ import {
   androidAppLink,
   getAppUrl,
   openInAppUrl,
+  storeUrlFor,
 } from '../../lib/appLinks';
 import { getMobileOS, isNativeApp, openExternalUrl, type MobileOS } from '../../lib/device';
 import { useSession } from '../../lib/useSession';
@@ -185,22 +186,24 @@ const AppPromptAction: React.FC<{
       </Button>
     );
   }
-  if (install && os === 'ios') {
+  // Download goes straight to the store. Not the Android intent link: browsers
+  // other than Chrome and Samsung Internet may ignore `intent://`, which would
+  // leave the button doing nothing.
+  if (install) {
     return (
       <Button
         variant="primary"
         size="sm"
         className="shrink-0"
         leftIcon={icon}
-        onClick={() => void openExternalUrl(APP_STORE_URL)}
+        onClick={() => void openExternalUrl(storeUrlFor(os))}
       >
         {label}
       </Button>
     );
   }
   // A real link: an app link only opens the app when it's navigated to. On
-  // Android it opens the app when installed and Google Play when not, so
-  // Download never strands someone who already has it.
+  // Android the intent link falls back to Google Play if the app is gone.
   return (
     <a
       href={os === 'android' ? androidAppLink(route) : openInAppUrl(route)}

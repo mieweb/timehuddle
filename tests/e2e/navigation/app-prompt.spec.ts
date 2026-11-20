@@ -4,7 +4,7 @@
  * The first time the dashboard renders in a browser tab, a one-line strip
  * under the navbar tells people
  * without the app about it, and offers people on an iPhone or Android phone
- * who have it to open this page in the app. Who "has it" comes from the
+ * who have it to open the dashboard in the app. Who "has it" comes from the
  * server (`nativeAppLastSeenAt`, written by the native app on launch), so these
  * tests set that field directly.
  *
@@ -16,9 +16,9 @@
  *    not on coming back to the dashboard or on reload
  * 2. Laptop, has either app: no strip
  * 3. iPhone, no app: Download goes to the App Store; ✕ dismisses the strip
- * 4. iPhone, has the app: Open in App links to the current page
- * 5. Android, no app (even with the iOS app): Download opens the app or Google Play
- * 6. Android, has the app: Open in App through the same intent link
+ * 4. iPhone, has the app: Open in App links to the dashboard
+ * 5. Android, no app (even with the iOS app): Download goes to Google Play
+ * 6. Android, has the app: Open in App through an intent link
  * 7. Automated browser: no strip
  */
 import { test, expect, devices, type Page } from '@playwright/test';
@@ -150,7 +150,7 @@ test.describe('App card on an iPhone', () => {
     await expect(installCard).toHaveCount(0);
   });
 
-  test('offers someone with the app to open this page in it', async ({ page }) => {
+  test('offers someone with the app to open the dashboard in it', async ({ page }) => {
     await setNativeApps('ios');
     await asPerson(page);
     await loginAs(page, USER);
@@ -177,14 +177,22 @@ test.describe('App card on an Android phone', () => {
     const installCard = strip(page);
     await expect(installCard).toBeVisible();
     await expect(installCard).toContainText(INSTALL_TEXT);
-    // Opens the app when it's installed after all, Google Play when it isn't.
-    await expect(installCard.getByRole('link', { name: 'Download' })).toHaveAttribute(
-      'href',
-      /^intent:\/\/open\/app\/dashboard.*package=com\.mieweb\.timehuddle;S\.browser_fallback_url=https%3A%2F%2Fplay\.google\.com/,
-    );
+    // A plain store link, not `intent://`, which some Android browsers ignore.
+    // Record the URL instead of opening Google Play, so the test needs no network.
+    await page.evaluate(() => {
+      const w = window as Window & { openedUrl?: string };
+      w.open = (url?: string | URL) => {
+        w.openedUrl = String(url);
+        return null;
+      };
+    });
+    await installCard.getByRole('button', { name: 'Download' }).click();
+    expect(
+      await page.evaluate(() => (window as Window & { openedUrl?: string }).openedUrl),
+    ).toMatch(/^https:\/\/play\.google\.com\/store\/apps\/details\?id=com\.mieweb\.timehuddle/);
   });
 
-  test('offers someone with the app to open this page in it', async ({ page }) => {
+  test('offers someone with the app to open the dashboard in it', async ({ page }) => {
     await setNativeApps('android');
     await asPerson(page);
     await loginAs(page, USER);
