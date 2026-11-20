@@ -292,15 +292,13 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
-type Stuck = 'top' | 'bottom' | null;
-
 /**
- * Where a sticky heading is riding its scroller: at the top once its section
- * has scrolled up under it, at the bottom while its section is still below,
- * or null in its own place. `jump` scrolls its section into view.
+ * Whether a sticky heading is riding the top of its scroller (under any
+ * headings stuck before it), its section scrolling under it. `jump` scrolls
+ * its section back to just under them.
  */
-function useStuckEdge(ref: React.RefObject<HTMLElement | null>) {
-  const [stuck, setStuck] = React.useState<Stuck>(null);
+function useStuckToTop(ref: React.RefObject<HTMLElement | null>) {
+  const [stuck, setStuck] = React.useState(false);
   /**
    * Where the heading would sit if it didn't stick: after the last row before
    * it, plus any headings in between (an empty section's), which stick too
@@ -329,7 +327,7 @@ function useStuckEdge(ref: React.RefObject<HTMLElement | null>) {
     const measure = () => {
       frame = 0;
       const offset = item.getBoundingClientRect().top - naturalTop(item);
-      setStuck(offset > 1 ? 'top' : offset < -1 ? 'bottom' : null);
+      setStuck(offset > 1);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -350,7 +348,8 @@ function useStuckEdge(ref: React.RefObject<HTMLElement | null>) {
     const item = ref.current?.closest('[data-slot="reorderable-list-item"]');
     const scroller = scrollParent(ref.current);
     if (!item || !scroller) return;
-    const by = naturalTop(item) - scroller.getBoundingClientRect().top;
+    const stickAt = parseFloat(getComputedStyle(item).top) || 0;
+    const by = naturalTop(item) - scroller.getBoundingClientRect().top - stickAt;
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     scroller.scrollBy({ top: by, behavior: smooth ? 'smooth' : 'auto' });
   }, [ref, naturalTop]);
@@ -361,20 +360,28 @@ function useStuckEdge(ref: React.RefObject<HTMLElement | null>) {
 /** A section's heading: folds it, and says how many rows it has. */
 function SectionHeading<T>({
   section,
+  index,
   folded,
   onToggle,
 }: {
   section: RowListSection<T>;
+  /** Its place among the headings, which stack in this order at the top. */
+  index: number;
   folded: boolean;
   onToggle: () => void;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
-  const { stuck, jump } = useStuckEdge(ref);
+  const { stuck, jump } = useStuckToTop(ref);
   return (
-    <div ref={ref} className="row-list-section-heading" data-stuck={stuck ?? undefined}>
+    <div
+      ref={ref}
+      className="row-list-section-heading"
+      data-stuck={stuck || undefined}
+      data-heading-index={index}
+    >
       <Button
         variant="ghost"
-        // Stuck to an edge, it takes you to its section; in place, it folds it.
+        // Stuck to the top, it takes you to its section; in place, it folds it.
         aria-expanded={stuck ? undefined : !folded}
         aria-label={
           stuck
@@ -386,12 +393,11 @@ function SectionHeading<T>({
         onClick={stuck ? jump : onToggle}
         // A plain tap: none of Button's press-down shrink or fill.
         className={cn(
-          'row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-[color,padding] duration-200 hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent motion-reduce:transition-none dark:hover:bg-transparent dark:active:bg-transparent',
+          'row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-[color,height] duration-200 hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent motion-reduce:transition-none dark:hover:bg-transparent dark:active:bg-transparent',
           // Slimmer while it rides the top of the list, full size back in place;
-          // its item gains the difference as margin (mb-2), so nothing below moves.
-          // Only at the top: at the bottom, a slimmer heading shortens the list
-          // under it, which would move it out of the place it's stuck in.
-          stuck === 'top' ? 'py-1.5' : 'py-2.5',
+          // its item gains the difference as margin (mb-2), so nothing below
+          // moves. Fixed heights, so the next heading knows where to stack.
+          stuck ? 'h-8' : 'h-10',
         )}
       >
         <ChevronDown
@@ -530,12 +536,13 @@ function RowListSections<T>({
         onReorder={onSectionsReorder ? handleReorder : undefined}
         // Moves are announced below by section, not by place in the whole list.
         labels={{ moved: () => '' }}
-        className="row-list-section-list"
+        // A stuck heading's height (h-8 and its top border): the next one stacks under it, covering any rule beneath.
+        className="row-list-section-list [--row-list-stuck-heading:calc(2rem+1px)]"
         // The gap between cards; a heading is the first thing in each.
         classNames={{
           // Each heading sticks to the top while its section scrolls under
-          // it; the next one slides over it. Opaque, so rows don't show through.
-          item: '[&:has(.row-list-section-heading)]:sticky [&:has(.row-list-section-heading)]:top-0 [&:has(.row-list-section-heading)]:bottom-0 [&:has(.row-list-section-heading)]:z-[5] [&:has(.row-list-section-heading)]:bg-background [&:not(:first-child):has(.row-list-section-heading)]:mt-3 [&:has([data-stuck=top])]:mb-2',
+          // it, the next one stacking under it. Opaque, so rows don't show through.
+          item: '[&:has(.row-list-section-heading)]:sticky [&:has(.row-list-section-heading)]:top-0 [&:has([data-heading-index="1"])]:top-(--row-list-stuck-heading) [&:has([data-heading-index="2"])]:top-[calc(2*var(--row-list-stuck-heading))] [&:has(.row-list-section-heading)]:z-[5] [&:has(.row-list-section-heading)]:bg-background [&:not(:first-child):has(.row-list-section-heading)]:mt-3 [&:has([data-stuck])]:mb-2',
         }}
         renderItem={(entry) => (
           <div
@@ -553,6 +560,7 @@ function RowListSections<T>({
             {entry.kind === 'heading' ? (
               <SectionHeading
                 section={entry.section}
+                index={shown.indexOf(entry.section)}
                 folded={folded.has(entry.section.id)}
                 onToggle={() => toggle(entry.section.id)}
               />
