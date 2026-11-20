@@ -22,6 +22,7 @@ import {
   Text,
   WebsiteInput,
 } from '@mieweb/ui';
+import { github, matchIssueUrl } from '@timehuddle/ticket-sources';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -90,10 +91,14 @@ export function TicketLinkFields({
   const redmineIssueLink =
     redmineReady &&
     isRedmineIssueUrl(linkText, redmineStatus?.baseUrl ?? redmineStatus?.defaultBaseUrl);
+  const pullRequest = /\/pull\/\d/.test(linkText);
+  const githubLink = matchIssueUrl(github, linkText) !== null;
   const convertLabel = redmineIssueLink
     ? ticketLinkText.convertTo(convertId ? prefixOf(convertId) : ticketLinkText.redmine, false)
     : convertId
-      ? ticketLinkText.convertTo(prefixOf(convertId), /\/pull\/\d/.test(linkText))
+      ? githubLink
+        ? ticketLinkText.displayAsGitHub(pullRequest)
+        : ticketLinkText.convertTo(prefixOf(convertId), pullRequest)
       : null;
 
   const reducedMotion = useReducedMotion();
