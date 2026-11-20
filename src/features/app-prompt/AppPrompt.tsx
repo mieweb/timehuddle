@@ -121,7 +121,13 @@ function useAppPrompt(): { kind: AppPromptKind | null; mobileOS: MobileOS | null
   return prompt;
 }
 
-export const AppPrompt: React.FC = () => {
+/**
+ * `focusAfterDismiss` takes focus when the strip is dismissed, since the
+ * dismiss button that held it is gone; without it keyboard users lose their place.
+ */
+export const AppPrompt: React.FC<{ focusAfterDismiss?: React.RefObject<HTMLElement | null> }> = ({
+  focusAfterDismiss,
+}) => {
   const { kind, mobileOS } = useAppPrompt();
   const { needsUsernameClaim } = useSession();
   const [dismissed, setDismissed] = useState(false);
@@ -143,7 +149,7 @@ export const AppPrompt: React.FC = () => {
       >
         {/* Polite status, like WhatsNewBanner: the strip can appear after in-app
             navigation, with focus still on the nav, so screen readers hear it. */}
-        <p role="status" className="app-prompt-strip-text min-w-0 flex-1 truncate text-sm">
+        <p role="status" className="app-prompt-strip-text min-w-0 flex-1 text-sm break-words">
           {install ? COPY.installText : COPY.openText}
         </p>
         <AppPromptAction kind={kind} os={mobileOS} onShowQr={() => setQrOpen(true)} />
@@ -151,7 +157,10 @@ export const AppPrompt: React.FC = () => {
           variant="ghost"
           size="icon-sm"
           aria-label={COPY.dismissLabel}
-          onClick={() => setDismissed(true)}
+          onClick={() => {
+            setDismissed(true);
+            focusAfterDismiss?.current?.focus();
+          }}
           className="app-prompt-strip-dismiss shrink-0"
         >
           <XIcon size={16} aria-hidden="true" />
@@ -260,7 +269,7 @@ const InstallQrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               href={badge.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-lg focus-visible:ring-2 focus-visible:ring-orange-500/60 focus-visible:outline-none"
+              className="rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
             >
               <img
                 src={badge.src}

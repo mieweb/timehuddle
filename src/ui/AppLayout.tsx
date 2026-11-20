@@ -482,12 +482,17 @@ const AppLayoutContent: React.FC = () => {
                   <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                     <AppHeader />
                     <TopNav />
-                    {/* The phone-app strip, on the dashboard only (#859). */}
-                    {pathname === '/app/dashboard' && <AppPrompt />}
+                    {/* The phone-app strip, on a usable dashboard only (#859):
+                        not while ?team=/?org= access is pending or denied, so a
+                        no-access page doesn't use up its once-per-tab showing. */}
+                    {pathname === '/app/dashboard' && teamAccess === 'ok' && orgAccess === 'ok' && (
+                      <AppPrompt focusAfterDismiss={mainRef} />
+                    )}
                     <WhatsNewBanner />
                     <main
                       ref={mainRef}
-                      className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0"
+                      tabIndex={-1}
+                      className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0 focus:outline-none"
                     >
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
