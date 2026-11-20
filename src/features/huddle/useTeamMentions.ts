@@ -73,14 +73,19 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
   const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
   const loadedRef = useRef(loaded);
   const inFlight = useRef<{ teamId: string; request: Promise<TeamMember[]> } | null>(null);
+  // A previous team's late response must not replace the current team's roster.
+  const currentTeamRef = useRef(teamId);
+  currentTeamRef.current = teamId;
 
   const loadRoster = useCallback((): Promise<TeamMember[]> => {
     if (!teamId) return Promise.resolve([]);
     if (inFlight.current?.teamId === teamId) return inFlight.current.request;
     const request = fetchTeamMembers(teamId)
       .then((members) => {
-        loadedRef.current = { teamId, members };
-        setLoaded(loadedRef.current);
+        if (currentTeamRef.current === teamId) {
+          loadedRef.current = { teamId, members };
+          setLoaded(loadedRef.current);
+        }
         return members;
       })
       .catch((err): TeamMember[] => {

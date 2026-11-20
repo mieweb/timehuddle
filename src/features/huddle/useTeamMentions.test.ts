@@ -61,6 +61,21 @@ describe('useTeamMentions', () => {
     await waitFor(() => expect(result.current.options).toHaveLength(3));
   });
 
+  it('keeps the current team’s roster when the previous team’s answers late', async () => {
+    let answerTeamOne: (members: typeof roster) => void = () => {};
+    mockFetch.mockImplementationOnce(() => new Promise((resolve) => (answerTeamOne = resolve)));
+    mockFetch.mockResolvedValueOnce([roster[0]]);
+    const { result, rerender } = renderHook(({ teamId }) => useTeamMentions(teamId), {
+      initialProps: { teamId: 'team-1' },
+    });
+    rerender({ teamId: 'team-2' });
+    await waitFor(() => expect(result.current.options).toHaveLength(1));
+
+    answerTeamOne(roster);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(result.current.options).toEqual([{ id: 'u1', label: 'Priya Sharma' }]);
+  });
+
   it('drops the previous team’s roster as soon as the team changes', async () => {
     mockFetch.mockResolvedValueOnce(roster);
     mockFetch.mockImplementationOnce(() => new Promise(() => {}));
