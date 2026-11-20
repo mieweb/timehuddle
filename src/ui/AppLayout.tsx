@@ -492,7 +492,7 @@ const AppLayoutContent: React.FC = () => {
                     <main
                       ref={mainRef}
                       tabIndex={-1}
-                      className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0 focus:outline-none"
+                      className="flex flex-1 flex-col overflow-auto app-main-scroll md:pb-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                     >
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
