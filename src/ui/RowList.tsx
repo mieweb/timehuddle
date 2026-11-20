@@ -173,6 +173,7 @@ export const ROW_LIST_TEXT = {
   moved: (section: string, position: number, total: number) =>
     `${section}, position ${position} of ${total}`,
   movedInto: (section: string) => `Moved to ${section}`,
+  goTo: (label: string) => `Go to ${label}`,
 };
 
 export interface RowListProps<T> {
@@ -253,6 +254,7 @@ function useFoldedSections(ids: string[]) {
 /** `last` marks what closes its section's card: its last row, or a heading with none shown. */
 type SectionEntry<T> =
   | { kind: 'heading'; id: string; section: RowListSection<T>; last: boolean }
+  | { kind: 'empty'; id: string; text: string; last: boolean }
   | { kind: 'row'; id: string; item: T; last: boolean };
 
 /**
@@ -267,6 +269,7 @@ const CARD_BOTTOM = 'overflow-hidden rounded-b-xl border-b [&_.row-list-item]:bo
 const CARD_ROW = '[&_.row-list-item]:border-border/40';
 
 const headingId = (sectionId: string) => `row-list-section:${sectionId}`;
+const emptyId = (sectionId: string) => `row-list-section-empty:${sectionId}`;
 
 /**
  * The row that moved between two orders of the same ids, or null. Headings
@@ -281,6 +284,80 @@ function movedId(before: string[], after: string[], isHeading: (id: string) => b
   return before[lo] === after[lo + 1] ? after[lo] : before[lo];
 }
 
+/** The nearest ancestor that scrolls vertically, or null for the page. */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let node = el?.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
+type Stuck = 'top' | 'bottom' | null;
+
+/**
+ * Where a sticky heading is riding its scroller: at the top once its section
+ * has scrolled up under it, at the bottom while its section is still below,
+ * or null in its own place. `jump` scrolls its section into view.
+ */
+function useStuckEdge(ref: React.RefObject<HTMLElement | null>) {
+  const [stuck, setStuck] = React.useState<Stuck>(null);
+  /**
+   * Where the heading would sit if it didn't stick: after the last row before
+   * it, plus any headings in between (an empty section's), which stick too
+   * and so can't be measured from where they are.
+   */
+  const naturalTop = React.useCallback((item: Element) => {
+    const marginTop = (el: Element) => parseFloat(getComputedStyle(el).marginTop) || 0;
+    let top = marginTop(item);
+    let prev = item.previousElementSibling;
+    while (prev?.querySelector('.row-list-section-heading')) {
+      top += prev.getBoundingClientRect().height + marginTop(prev);
+      prev = prev.previousElementSibling;
+    }
+    const base = prev
+      ? prev.getBoundingClientRect().bottom
+      : item.parentElement!.getBoundingClientRect().top;
+    return base + top;
+  }, []);
+
+  React.useEffect(() => {
+    const heading = ref.current;
+    const item = heading?.closest('[data-slot="reorderable-list-item"]');
+    const scroller = scrollParent(heading);
+    if (!heading || !item || !scroller) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const offset = item.getBoundingClientRect().top - naturalTop(item);
+      setStuck(offset > 1 ? 'top' : offset < -1 ? 'bottom' : null);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(scroller);
+    resize.observe(item.parentElement!);
+    return () => {
+      scroller.removeEventListener('scroll', schedule);
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [ref, naturalTop]);
+
+  const jump = React.useCallback(() => {
+    const item = ref.current?.closest('[data-slot="reorderable-list-item"]');
+    const scroller = scrollParent(ref.current);
+    if (!item || !scroller) return;
+    const by = naturalTop(item) - scroller.getBoundingClientRect().top;
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scroller.scrollBy({ top: by, behavior: smooth ? 'smooth' : 'auto' });
+  }, [ref, naturalTop]);
+
+  return { stuck, jump };
+}
+
 /** A section's heading: folds it, and says how many rows it has. */
 function SectionHeading<T>({
   section,
@@ -291,17 +368,31 @@ function SectionHeading<T>({
   folded: boolean;
   onToggle: () => void;
 }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const { stuck, jump } = useStuckEdge(ref);
   return (
-    <div className="row-list-section-heading">
+    <div ref={ref} className="row-list-section-heading" data-stuck={stuck ?? undefined}>
       <Button
         variant="ghost"
-        aria-expanded={!folded}
+        // Stuck to an edge, it takes you to its section; in place, it folds it.
+        aria-expanded={stuck ? undefined : !folded}
         aria-label={
-          folded ? ROW_LIST_TEXT.unfold(section.label) : ROW_LIST_TEXT.fold(section.label)
+          stuck
+            ? ROW_LIST_TEXT.goTo(section.label)
+            : folded
+              ? ROW_LIST_TEXT.unfold(section.label)
+              : ROW_LIST_TEXT.fold(section.label)
         }
-        onClick={onToggle}
+        onClick={stuck ? jump : onToggle}
         // A plain tap: none of Button's press-down shrink or fill.
-        className="row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-colors hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent dark:hover:bg-transparent dark:active:bg-transparent"
+        className={cn(
+          'row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-[color,padding] duration-200 hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent motion-reduce:transition-none dark:hover:bg-transparent dark:active:bg-transparent',
+          // Slimmer while it rides the top of the list, full size back in place;
+          // its item gains the difference as margin (mb-2), so nothing below moves.
+          // Only at the top: at the bottom, a slimmer heading shortens the list
+          // under it, which would move it out of the place it's stuck in.
+          stuck === 'top' ? 'py-1.5' : 'py-2.5',
+        )}
       >
         <ChevronDown
           className={cn(
@@ -315,15 +406,6 @@ function SectionHeading<T>({
           {section.items.length}
         </Badge>
       </Button>
-      {!folded && section.items.length === 0 && section.emptyText && (
-        <Text
-          size="sm"
-          variant="muted"
-          className="row-list-section-empty px-(--row-list-inset) pb-3"
-        >
-          {section.emptyText}
-        </Text>
-      )}
     </div>
   );
 }
@@ -356,10 +438,21 @@ function RowListSections<T>({
 
   const entries = React.useMemo<SectionEntry<T>[]>(
     () =>
-      shown.flatMap((section) => {
-        const rows = folded.has(section.id) ? [] : section.items;
+      shown.flatMap((section): SectionEntry<T>[] => {
+        const isFolded = folded.has(section.id);
+        const rows = isFolded ? [] : section.items;
+        // An empty section's hint sits under its heading, which sticks without it.
+        const hint = !isFolded && !rows.length && section.emptyText;
         return [
-          { kind: 'heading' as const, id: headingId(section.id), section, last: !rows.length },
+          {
+            kind: 'heading' as const,
+            id: headingId(section.id),
+            section,
+            last: !rows.length && !hint,
+          },
+          ...(hint
+            ? [{ kind: 'empty' as const, id: emptyId(section.id), text: hint, last: true }]
+            : []),
           ...rows.map((item, index) => ({
             kind: 'row' as const,
             id: getId(item),
@@ -371,13 +464,16 @@ function RowListSections<T>({
     [shown, folded, getId],
   );
 
+  // Headings and empty-section hints stay put; only rows move.
+  const fixedIds = new Set(entries.filter((e) => e.kind !== 'row').map((e) => e.id));
+
   const handleReorder = (ids: string[]) => {
     if (!onSectionsReorder) return;
     const order: RowListSectionOrder[] = [];
     for (const id of ids) {
       const section = shown.find((s) => headingId(s.id) === id);
       if (section) order.push({ id: section.id, ids: [] });
-      else order[order.length - 1]?.ids.push(id);
+      else if (!fixedIds.has(id)) order[order.length - 1]?.ids.push(id);
     }
     // A folded section keeps its hidden rows after any dropped onto it.
     for (const part of order) {
@@ -388,7 +484,7 @@ function RowListSections<T>({
     const moved = movedId(
       entries.map((e) => e.id),
       ids,
-      (id) => shown.some((section) => headingId(section.id) === id),
+      (id) => fixedIds.has(id),
     );
     if (!moved) return;
     const from = shown.find((s) => s.items.some((item) => getId(item) === moved));
@@ -436,13 +532,21 @@ function RowListSections<T>({
         labels={{ moved: () => '' }}
         className="row-list-section-list"
         // The gap between cards; a heading is the first thing in each.
-        classNames={{ item: '[&:not(:first-child):has(.row-list-section-heading)]:mt-3' }}
+        classNames={{
+          // Each heading sticks to the top while its section scrolls under
+          // it; the next one slides over it. Opaque, so rows don't show through.
+          item: '[&:has(.row-list-section-heading)]:sticky [&:has(.row-list-section-heading)]:top-0 [&:has(.row-list-section-heading)]:bottom-0 [&:has(.row-list-section-heading)]:z-[5] [&:has(.row-list-section-heading)]:bg-background [&:not(:first-child):has(.row-list-section-heading)]:mt-3 [&:has([data-stuck=top])]:mb-2',
+        }}
         renderItem={(entry) => (
           <div
             className={cn(
               CARD_PART,
               entry.kind === 'heading' ? CARD_TOP : CARD_ROW,
-              entry.kind === 'heading' && !entry.last && 'border-b border-b-border/40',
+              // Ruled off from its rows; an empty section's hint reads as part of it.
+              entry.kind === 'heading' &&
+                !entry.last &&
+                entry.section.items.length > 0 &&
+                'border-b border-b-border/40',
               entry.last && CARD_BOTTOM,
             )}
           >
@@ -452,6 +556,14 @@ function RowListSections<T>({
                 folded={folded.has(entry.section.id)}
                 onToggle={() => toggle(entry.section.id)}
               />
+            ) : entry.kind === 'empty' ? (
+              <Text
+                size="sm"
+                variant="muted"
+                className="row-list-section-empty px-(--row-list-inset) pb-3"
+              >
+                {entry.text}
+              </Text>
             ) : (
               renderRow(entry.item)
             )}
