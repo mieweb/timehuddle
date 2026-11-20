@@ -30,6 +30,15 @@ describe('postRefs', () => {
     expect(postRefsIn(text, { members, ticketIds: new Set() }).mentions).toEqual(['u-annmarie']);
   });
 
+  it('skips a picked label that holds escaped brackets', () => {
+    const members = [
+      { id: 'u-ann', name: 'Ann Smith' },
+      { id: 'u-annmarie', name: 'Ann-Marie Jones' },
+    ] as TeamMember[];
+    const text = 'Ask [@Ann-Marie Jones \\[PTO\\]](/app/profile/u-annmarie)';
+    expect(postRefsIn(text, { members, ticketIds: new Set() }).mentions).toEqual(['u-annmarie']);
+  });
+
   it("resolves mentions and the team's linked tickets", () => {
     const members = [{ id: 'u-pam', name: 'Pam Beesly' }] as TeamMember[];
     const text = 'With @Pam on [TH-1](/app/tickets/t1) and [x](/app/tickets/other)';

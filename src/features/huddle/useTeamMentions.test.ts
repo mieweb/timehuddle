@@ -97,4 +97,8 @@ describe('group mentions', () => {
   it('ignores longer words and email addresses', () => {
     expect(detectGroupMentions('@teamwork and ops@team.com')).toEqual([]);
   });
+
+  it('reads a teammate’s profile link as that person, not the group', () => {
+    expect(detectGroupMentions('[@Team Support](/app/profile/u9) and @here')).toEqual(['here']);
+  });
 });

@@ -84,7 +84,8 @@ export function profileIdsInText(text: string): string[] {
 
 /** `text` without its profile links, label and all — what's left of it is typed. */
 export function withoutProfileLinks(text: string): string {
-  return text.replace(/\[[^\]]*\]\(\/app\/profile\/[^)\s]*\)/g, ' ');
+  // A label may hold escaped brackets (`\\[PTO\\]`), so `\\` escapes are skipped whole.
+  return text.replace(/\[(?:\\.|[^\]\\])*\]\(\/app\/profile\/[^)\s]*\)/g, ' ');
 }
 
 /**

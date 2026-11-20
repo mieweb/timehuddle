@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { fetchTeamMembers } from './api';
+import { withoutProfileLinks } from './planItems';
 import type { TeamMember } from './types';
 
 export interface MentionOption {
@@ -33,13 +34,17 @@ export const GROUP_MENTION_OPTIONS: MentionOption[] = [
 
 /** The group mentions written in `text`, by the same word-boundary rule as a person's. */
 export function detectGroupMentions(text: string): GroupMention[] {
+  // A teammate's profile link (`[@Team Support](…)`) names that person, not the team.
+  const typed = withoutProfileLinks(text);
   return (['team', 'here'] as const).filter((group) =>
-    new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(text),
+    new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(typed),
   );
 }
 
 export interface TeamMentions {
   options: MentionOption[];
+  /** The team's members once loaded (empty if the request failed). */
+  roster: Promise<TeamMember[]>;
 }
 
 function escapeRegExp(value: string): string {
@@ -64,21 +69,28 @@ export function detectMentions(text: string, members: TeamMember[]): string[] {
 export function useTeamMentions(teamId: string | null | undefined): TeamMentions {
   const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
 
+  // The roster as a request, so a search typed before it arrives can wait on it.
+  const request = useMemo(
+    () =>
+      teamId
+        ? fetchTeamMembers(teamId).catch((err): TeamMember[] => {
+            console.error('[useTeamMentions] Failed to load team members:', err);
+            return [];
+          })
+        : Promise.resolve<TeamMember[]>([]),
+    [teamId],
+  );
+
   useEffect(() => {
     if (!teamId) return;
     let cancelled = false;
-    fetchTeamMembers(teamId)
-      .then((data) => {
-        if (!cancelled) setLoaded({ teamId, members: data });
-      })
-      .catch((err) => {
-        console.error('[useTeamMentions] Failed to load team members:', err);
-        if (!cancelled) setLoaded({ teamId, members: [] });
-      });
+    void request.then((data) => {
+      if (!cancelled) setLoaded({ teamId, members: data });
+    });
     return () => {
       cancelled = true;
     };
-  }, [teamId]);
+  }, [teamId, request]);
 
   // Keyed by team: the previous team's roster must not mention people into this team's post.
   const members = useMemo(
@@ -89,7 +101,8 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
   return useMemo(
     () => ({
       options: members.map((member) => ({ id: member.id, label: member.name })),
+      roster: request,
     }),
-    [members],
+    [members, request],
   );
 }

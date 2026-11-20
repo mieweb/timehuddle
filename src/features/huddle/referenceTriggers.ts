@@ -56,23 +56,24 @@ export const TICKET_LINKS: ReferenceTrigger = {
   fromHref: pathId(/^\/app\/tickets\/(?!redmine\/)([^/?#]+)$/),
 };
 
-/** `@` teammates, from the team's roster. */
+/** `@` teammates, from the team's roster — waited on if `@` is typed before it loads. */
 export function usePersonTrigger(mentions: TeamMentions): ReferenceTrigger {
+  const { roster } = mentions;
   return useMemo(
     () => ({
       ...PERSON_LINKS,
-      search: (query: string) => {
+      search: async (query: string) => {
         const q = query.toLowerCase();
-        return mentions.options
-          .filter((person) => person.label.toLowerCase().includes(q))
+        return (await roster)
+          .filter((person) => person.name.toLowerCase().includes(q))
           .map<ReferenceOption>((person) => ({
             kind: 'person',
             id: person.id,
-            label: `@${person.label}`,
+            label: `@${person.name}`,
           }));
       },
     }),
-    [mentions.options],
+    [roster],
   );
 }
 
@@ -88,26 +89,28 @@ export function useTicketTrigger(
 ): ReferenceTrigger {
   const { user } = useSession();
   const { boardKeys } = useMyBoardKeys(user?.id ?? null);
-  // The team's tickets, as a request a search can wait on: `#` typed before
-  // they arrive gets them, not an empty list that stays empty. Keyed by team,
-  // so a search never sees another team's tickets.
-  const request = useMemo(
-    () =>
-      teamId
-        ? ticketApi.getTickets(teamId, { brief: true }).catch((): Ticket[] => [])
-        : Promise.resolve<Ticket[]>([]),
-    [teamId],
-  );
   // Read at search time, so the trigger keeps its identity as data arrives.
-  const latest = useRef({ request, boardKeys, ticketPrefix });
-  latest.current = { request, boardKeys, ticketPrefix };
+  const latest = useRef({ teamId, boardKeys, ticketPrefix });
+  latest.current = { teamId, boardKeys, ticketPrefix };
+  // The team's tickets, as a request the searches wait on. Read afresh at
+  // each new `#` (an empty query) — Huddle stays mounted, so a first-load
+  // snapshot would miss new tickets and keep closed ones — and reused while
+  // that query is typed. Keyed by team: never another team's tickets.
+  const tickets = useRef<{ teamId: string; request: Promise<Ticket[]> } | null>(null);
 
   return useMemo(
     () => ({
       ...TICKET_LINKS,
       search: async (query: string) => {
-        const { request: pending, boardKeys: board, ticketPrefix: prefix } = latest.current;
-        const all = await pending;
+        const { teamId: id, boardKeys: board, ticketPrefix: prefix } = latest.current;
+        if (!id) return [];
+        if (query === '' || tickets.current?.teamId !== id) {
+          tickets.current = {
+            teamId: id,
+            request: ticketApi.getTickets(id, { brief: true }).catch((): Ticket[] => []),
+          };
+        }
+        const all = await tickets.current.request;
         const q = query.toLowerCase();
         const onBoard = (ticket: Ticket) => board.has(`huddle:${ticket.id}`);
         return all
