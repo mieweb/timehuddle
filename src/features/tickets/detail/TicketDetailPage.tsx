@@ -54,7 +54,7 @@ import { settingsPath } from '../../settings/settingsSections';
 import { LinkedIssueSection } from '../link/LinkedIssueSection';
 import { ticketLinkText } from '../link/ticketLinkStrings';
 import { huddleTicketRef, invalidateRedmineCache, ticketKey } from '../sources';
-import { carriedKeyOf, carriedRefOf, linkRefOf } from '../ticketIds';
+import { carriedKeyOf, ticketOutsideRefOf } from '../ticketIds';
 
 import { fromConversation, fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
 import { BackToTicketsButton } from './BackToTicketsButton';
@@ -541,9 +541,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   // The ID the ticket goes by on its source (`timehuddle-222`, `RMX-150`), shown
   // beside its own; the issue's server is the one it was just read from.
   const prefixes = team?.sourcePrefixes ?? [];
-  const outsideRef =
-    carriedRefOf(ticket.linkedIssue ?? null, prefixes, carried?.record.ref?.server ?? null) ??
-    linkRefOf(ticket, prefixes);
+  const outsideRef = ticketOutsideRefOf(ticket, prefixes, carried?.record.ref?.server ?? null);
 
   const assigneeOptions = [
     { value: '', label: 'Unassigned' },

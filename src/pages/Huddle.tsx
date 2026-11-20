@@ -28,6 +28,7 @@ import {
   createCodePlugin,
   createImagePlugin,
   createMermaidPlugin,
+  createReferencesPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
 import {
   Fragment,
@@ -39,12 +40,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  discardMedia,
-  fetchTeamMembers,
-  uploadedMedia,
-  toPostAttachment,
-} from '../features/huddle/api';
+import { discardMedia, uploadedMedia, toPostAttachment } from '../features/huddle/api';
 import { ComposerChips, TicketVideoChips } from '../features/huddle/ComposerAttachments';
 import { ComposerError } from '../features/huddle/ComposerError';
 import { composerErrorMessage, composerRefusalMessage } from '../features/huddle/composerErrors';
@@ -93,11 +89,12 @@ import { useStoredSidebarWidth } from '../features/huddle/useStoredSidebarWidth'
 import {
   GROUP_MENTION_OPTIONS,
   detectGroupMentions,
-  detectMentions,
-  isGroupMentionId,
   useTeamMentions,
 } from '../features/huddle/useTeamMentions';
-import { useTicketVideos } from '../features/huddle/useTicketVideos';
+import { PERSON_LINKS, TICKET_LINKS, useTicketTrigger } from '../features/huddle/referenceTriggers';
+import { editedTicketIds } from '../features/huddle/planItems';
+import { fetchTeamRefs, postRefsIn, refsNeeded } from '../features/huddle/postRefs';
+import { fetchTicketVideos, useTicketVideos } from '../features/huddle/useTicketVideos';
 import { useTicketSelection } from '../features/huddle/useTicketSelection';
 import { AppPage } from '../ui/AppPage';
 import { NoAccessState } from '../ui/NoAccessState';
@@ -349,6 +346,11 @@ export default function Huddle() {
   const ticketVideos = useTicketVideos(selectedTicketIds);
   // @mentions reach the whole team, not just whoever is in the open thread.
   const mentions = useTeamMentions(postingTeamId);
+  // `#` searches the team's tickets; a pick goes in as a link to it.
+  const ticketTrigger = useTicketTrigger(
+    postingTeamId,
+    allTeams.find((t) => t.id === postingTeamId),
+  );
   // A send is in flight. The ref is what guards re-entry; the state only
   // drives the composer's busy send button.
   const sendingRef = useRef(false);
@@ -727,7 +729,19 @@ export default function Huddle() {
     }
     return searchConversations(allConversations, activePosts, searchQuery);
   }, [allConversations, activePosts, searchQuery, user, scope, threadBy, viewer, nowMinute]);
-  const renderPlugins = useMemo(() => [createCodePlugin(), imagePlugin, createMermaidPlugin()], []);
+  // Links to teammates and tickets show as chips that open in the app.
+  const renderPlugins = useMemo(
+    () => [
+      createCodePlugin(),
+      imagePlugin,
+      createMermaidPlugin(),
+      createReferencesPlugin({
+        triggers: [PERSON_LINKS, TICKET_LINKS],
+        onOpen: (reference) => navigate(reference.href),
+      }),
+    ],
+    [navigate],
+  );
   // A post's Pulse video (its message's media, see superChatFeed.ts) is the
   // same card as everywhere else; here ▶ opens the conversation's media view.
   // Who owns each video in view, for Rename: its owner, not whoever posted it
@@ -1049,7 +1063,6 @@ export default function Huddle() {
   // rejects; a slow refresh afterwards doesn't.
   async function handleMessageSent(
     text: string,
-    sentMentions: string[],
     composerAttachments: ComposerAttachment[],
     conversationId: string,
     sendOption?: string,
@@ -1089,21 +1102,32 @@ export default function Huddle() {
       // Every file was uploaded as it was attached (composerProps.uploadAttachment),
       // and the composer waited for the rest before calling this.
       const media = composerAttachments.map(uploadedMedia);
+      // Mentions and linked tickets checked against the team's, read fresh;
+      // each lookup skipped when the text has nothing for it. A teammate's
+      // profile link names exactly them, and its label isn't read as typed.
+      const { mentions: mentionedIds, ticketIds: linkedTicketIds } = postRefsIn(
+        text,
+        await fetchTeamRefs(postingTeamId, refsNeeded(text)),
+      );
+      // Tickets linked with # bring their videos, as picked ones do.
+      const inlineOnly = linkedTicketIds.filter((ticketId) => !ticketIds.includes(ticketId));
+      const inlineVideos = inlineOnly.length ? await fetchTicketVideos(inlineOnly) : [];
+      const videos = [
+        ...new Map([...staged, ...inlineVideos].map((video) => [video.id, video])).values(),
+      ];
       ({ id, clockEventId } = await huddleApi.createPost({
         teamId: postingTeamId,
         content: {
           text,
-          // SuperChat only resolves names of people already in the thread, so
-          // the roster match is unioned in for everyone else on the team.
-          mentions: [...new Set([...sentMentions, ...mentions.detect(text)])].filter(
-            (participantId) =>
-              participantId !== SYSTEM_PARTICIPANT_ID && !isGroupMentionId(participantId),
-          ),
+          // From the team's roster, not SuperChat's thread-only match, which
+          // reads a profile link's label as a typed name.
+          mentions: mentionedIds,
           // @team / @here only mean something in a team's Huddle, not Personal.
           groupMentions: scope === 'team' ? detectGroupMentions(text) : [],
         },
-        ticketIds,
-        attachments: [...media, ...staged].map(toPostAttachment),
+        // Picked with the Ticket button, or linked in the text with #.
+        ticketIds: [...new Set([...ticketIds, ...linkedTicketIds])],
+        attachments: [...media, ...videos].map(toPostAttachment),
         postDate,
         ...(sendSchedule && { deliverAt: sendSchedule.deliverAt.toISOString() }),
       }));
@@ -1215,13 +1239,24 @@ export default function Huddle() {
     // would save `mentions: []` and deliver a scheduled post silently. A failed
     // fetch here fails the save instead.
     try {
-      const editedMentions = detectMentions(body, await fetchTeamMembers(post.teamId)).filter(
+      const refs = await fetchTeamRefs(post.teamId, {
+        members: true,
+        tickets: refsNeeded(body).tickets || refsNeeded(post.content.text).tickets,
+      });
+      const editedMentions = postRefsIn(body, refs).mentions.filter(
         (participantId) => participantId !== SYSTEM_PARTICIPANT_ID,
       );
+      // Ticket links added or deleted in the edit; sent only when that changes them.
+      const carried = (post.tickets ?? []).map((t) => t.id);
+      const ticketIds = editedTicketIds(carried, post.content.text, body, refs.ticketIds);
+      const ticketsChanged =
+        ticketIds.length !== carried.length || ticketIds.some((id) => !carried.includes(id));
       await huddleApi.updatePost(
         messageId,
         { text: body, mentions: editedMentions, groupMentions: detectGroupMentions(body) },
-        attachments ? { attachments } : undefined,
+        attachments || ticketsChanged
+          ? { ...(attachments && { attachments }), ...(ticketsChanged && { ticketIds }) }
+          : undefined,
       );
       // REST refresh too: with the DDP socket down (mobile, backgrounded) the
       // saved edit would otherwise stay invisible until a manual refresh.
@@ -1376,17 +1411,8 @@ export default function Huddle() {
                     mediaFeedProps={mediaFeedProps}
                     acceptedFileTypes={['image', 'video', 'pdf', 'document']}
                     onComposerError={handleComposerError}
-                    onMessageSent={(
-                      text,
-                      { conversation, mentions: sentMentions, attachments, sendOption },
-                    ) =>
-                      handleMessageSent(
-                        text,
-                        sentMentions,
-                        attachments,
-                        conversation.id,
-                        sendOption,
-                      )
+                    onMessageSent={(text, { conversation, attachments, sendOption }) =>
+                      handleMessageSent(text, attachments, conversation.id, sendOption)
                     }
                     onMessageEdited={(messageId, text, { removedMedia, removedFiles }) =>
                       void handleMessageEdited(messageId, text, { removedMedia, removedFiles })
@@ -1411,10 +1437,11 @@ export default function Huddle() {
                       // rejected then would lose the picked files, which the
                       // composer clears before `onSend` (gap 4.14).
                       isSending: sending || ticketVideos.loading,
-                      mentionOptions:
-                        scope === 'team'
-                          ? [...GROUP_MENTION_OPTIONS, ...mentions.options]
-                          : mentions.options,
+                      mentionOptions: [
+                        ...(scope === 'team' ? GROUP_MENTION_OPTIONS : []),
+                        ...mentions.options,
+                      ],
+                      triggers: postingTeamId ? [ticketTrigger] : undefined,
                       sendOptions: postingTeamId
                         ? [
                             {
@@ -1440,8 +1467,6 @@ export default function Huddle() {
                             <ComposerChips
                               selectedTickets={selectedTickets}
                               onTicketRemove={removeTicket}
-                              mentions={[]}
-                              onMentionRemove={() => {}}
                               attachments={[]}
                               onAttachmentRemove={() => {}}
                             />

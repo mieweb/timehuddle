@@ -30,6 +30,7 @@
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import type { ReferenceTrigger } from '@mieweb/ui';
 import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
@@ -48,11 +49,13 @@ interface MarkdownEditorProps {
    * listener below for why.
    */
   onFiles?: (files: File[]) => void;
+  /** Inline references (`@` teammates, `#` tickets), inserted as chips and saved as links. */
+  triggers?: ReferenceTrigger[];
 }
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles },
+    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles, triggers },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
@@ -149,7 +152,13 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           }
         }}
       >
-        <RichEditor ref={ref} value={value} onChange={onChange} collab={collab} />
+        <RichEditor
+          ref={ref}
+          value={value}
+          onChange={onChange}
+          collab={collab}
+          triggers={triggers}
+        />
       </div>
     );
   },

@@ -11,8 +11,6 @@ function renderChips(selectedTickets: TicketRef[], onTicketRemove = vi.fn()) {
     <ComposerChips
       selectedTickets={selectedTickets}
       onTicketRemove={onTicketRemove}
-      mentions={[]}
-      onMentionRemove={() => {}}
       attachments={[]}
       onAttachmentRemove={() => {}}
     />,

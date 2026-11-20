@@ -12,6 +12,7 @@
 import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import { avatarColorToCss, getUserColor } from './avatar';
+import { ticketIdsInText, ticketLinkMarkdown } from './planItems';
 import { formatDuration } from '@lib/timeUtils';
 import { artifactPath, posterPath, pulseArtifactId } from '../pulse-upload/artifact';
 import { knownVideoName } from '../pulse-upload/videoNames';
@@ -256,21 +257,6 @@ function ticketNames(post: HuddlePost): string[] {
   return existingTickets(post).map((t) => t.name);
 }
 
-/** In-app path of a ticket's page (see src/ui/ROUTING.md). */
-export function ticketPath(ticketId: string): string {
-  return `/app/tickets/${encodeURIComponent(ticketId)}`;
-}
-
-/** Escape text so markdown punctuation in it (`[`, `*`, …) shows as typed. */
-function escapeMarkdown(text: string): string {
-  return text.replace(/[\\`*_[\]<>]/g, '\\$&');
-}
-
-/** "[TH-7: Onboarding checklist](/app/tickets/…)" — the inbox opens it in the app. */
-function ticketLinkMarkdown(ticket: { id: string; name: string }): string {
-  return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
-}
-
 function groupKeyFor(post: HuddlePost, threadBy: ThreadBy): string {
   switch (threadBy) {
     case 'all':
@@ -431,8 +417,10 @@ function postLabelParts(post: HuddlePost, isSessionPost: boolean): string[] {
   if (isSessionPost) {
     parts.push(post.wrapUpAt ? 'Wrap-up' : 'Plan');
   }
+  // A ticket written into the post as a plan item is already linked there.
+  const inText = new Set(ticketIdsInText(post.content.text));
   for (const ticket of existingTickets(post)) {
-    parts.push(ticketLinkMarkdown(ticket));
+    if (!inText.has(ticket.id)) parts.push(ticketLinkMarkdown(ticket));
   }
   return parts;
 }

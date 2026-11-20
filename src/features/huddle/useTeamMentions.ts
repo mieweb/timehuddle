@@ -9,8 +9,9 @@
  * sent text against it — SuperChat's own ids still come through and are
  * unioned by the caller.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTeamMembers } from './api';
+import { withoutProfileLinks } from './planItems';
 import type { TeamMember } from './types';
 
 export interface MentionOption {
@@ -31,24 +32,22 @@ export const GROUP_MENTION_OPTIONS: MentionOption[] = [
   { id: '@here', label: 'here', value: 'here', description: 'Everyone clocked in now' },
 ];
 
-const GROUP_MENTION_IDS = new Set(GROUP_MENTION_OPTIONS.map((option) => option.id));
-
-/** Whether a composer mention id is a group, not a person. */
-export function isGroupMentionId(id: string): boolean {
-  return GROUP_MENTION_IDS.has(id);
-}
-
 /** The group mentions written in `text`, by the same word-boundary rule as a person's. */
 export function detectGroupMentions(text: string): GroupMention[] {
+  // A teammate's profile link (`[@Team Support](…)`) names that person, not the team.
+  const typed = withoutProfileLinks(text);
   return (['team', 'here'] as const).filter((group) =>
-    new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(text),
+    new RegExp(`(?<![\\w@])@${group}(?![\\w])`, 'i').test(typed),
   );
 }
 
 export interface TeamMentions {
   options: MentionOption[];
-  /** Ids of roster members named in `text`, matching SuperChat's own rule; ambiguous first names resolve to no one. */
-  detect: (text: string) => string[];
+  /**
+   * Reads the team's members afresh, sharing a read already in flight. A
+   * failed read gives the last roster loaded (empty when there is none).
+   */
+  loadRoster: () => Promise<TeamMember[]>;
 }
 
 function escapeRegExp(value: string): string {
@@ -72,22 +71,39 @@ export function detectMentions(text: string, members: TeamMember[]): string[] {
 
 export function useTeamMentions(teamId: string | null | undefined): TeamMentions {
   const [loaded, setLoaded] = useState<{ teamId: string; members: TeamMember[] } | null>(null);
+  const loadedRef = useRef(loaded);
+  const inFlight = useRef<{ teamId: string; request: Promise<TeamMember[]> } | null>(null);
+  // A previous team's late response must not replace the current team's roster.
+  const currentTeamRef = useRef(teamId);
+  currentTeamRef.current = teamId;
 
-  useEffect(() => {
-    if (!teamId) return;
-    let cancelled = false;
-    fetchTeamMembers(teamId)
-      .then((data) => {
-        if (!cancelled) setLoaded({ teamId, members: data });
+  const loadRoster = useCallback((): Promise<TeamMember[]> => {
+    if (!teamId) return Promise.resolve([]);
+    if (inFlight.current?.teamId === teamId) return inFlight.current.request;
+    const request = fetchTeamMembers(teamId)
+      .then((members) => {
+        if (currentTeamRef.current === teamId) {
+          loadedRef.current = { teamId, members };
+          setLoaded(loadedRef.current);
+        }
+        return members;
       })
-      .catch((err) => {
+      .catch((err): TeamMember[] => {
         console.error('[useTeamMentions] Failed to load team members:', err);
-        if (!cancelled) setLoaded({ teamId, members: [] });
+        return loadedRef.current?.teamId === teamId ? loadedRef.current.members : [];
+      })
+      .finally(() => {
+        if (inFlight.current?.request === request) inFlight.current = null;
       });
-    return () => {
-      cancelled = true;
-    };
+    inFlight.current = { teamId, request };
+    return request;
   }, [teamId]);
+
+  // Runs again each time a retained <Activity> shows the page, so teammates
+  // who joined meanwhile are offered.
+  useEffect(() => {
+    void loadRoster();
+  }, [loadRoster]);
 
   // Keyed by team: the previous team's roster must not mention people into this team's post.
   const members = useMemo(
@@ -98,8 +114,8 @@ export function useTeamMentions(teamId: string | null | undefined): TeamMentions
   return useMemo(
     () => ({
       options: members.map((member) => ({ id: member.id, label: member.name })),
-      detect: (text: string) => detectMentions(text, members),
+      loadRoster,
     }),
-    [members],
+    [members, loadRoster],
   );
 }

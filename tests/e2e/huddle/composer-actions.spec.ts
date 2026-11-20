@@ -34,8 +34,9 @@ import {
   clockOut,
   composerEditor,
   findPostByText,
-  getUserIdByEmail,
   holdUploadResponses,
+  mediaInput,
+  getUserIdByEmail,
   mentionMember,
   openComposer,
   openPostInInbox,
@@ -147,15 +148,19 @@ test.describe('Huddle composer — individual actions', () => {
     expect(await fetchStatus(page, (await link.getAttribute('href'))!)).toBe(200);
   });
 
-  test('posts with an @mention of a teammate', async ({ page }) => {
+  test('typing @ writes a teammate into the plan', async ({ page }) => {
     const postText = `Mention post ${Date.now()}`;
     await composerEditor(page).fill(postText);
     await mentionMember(page, TEST_USERS.member1.name);
     await submitPost(page);
 
+    // A picked teammate is a profile link, so the mention names exactly them
+    // even though every seeded user's first name is "Test".
     await openPostInInbox(page, postText);
+    const memberId = await getUserIdByEmail(TEST_USERS.member1.email);
     const stored = await findPostByText(postText);
-    expect(stored?.content.mentions).toContain(await getUserIdByEmail(TEST_USERS.member1.email));
+    expect(stored?.content.text).toContain(`/app/profile/${memberId}`);
+    expect(stored?.content.mentions).toEqual([memberId]);
   });
 
   test('a removed attachment is left out of the post', async ({ page }) => {
@@ -196,7 +201,7 @@ test.describe('Huddle composer — individual actions', () => {
     await deleteTicket(page, ticketTitle);
   });
 
-  test('posts with several tickets attached, each once', async ({ page }) => {
+  test('posts with several tickets as plan items, each once', async ({ page }) => {
     const titles = [`First Ticket ${Date.now()}`, `Second Ticket ${Date.now()}`];
     for (const title of titles) await createTicket(page, title);
     await openComposer(page);
@@ -204,13 +209,11 @@ test.describe('Huddle composer — individual actions', () => {
     const postText = `Multi-ticket post ${Date.now()}`;
     await composerEditor(page).fill(postText);
     for (const title of titles) await attachTicket(page, title);
-    for (const title of titles) {
-      await expect(
-        page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),
-      ).toBeVisible();
-    }
+    const ticketLink = (title: string) =>
+      composerEditor(page).getByRole('link').filter({ hasText: title });
+    for (const title of titles) await expect(ticketLink(title)).toBeVisible();
 
-    // A ticket already attached is marked in the picker and can't be added again.
+    // A ticket already in the plan is marked in the picker and can't be added again.
     await page.getByRole('button', { name: 'Ticket', exact: true }).click();
     await page.getByPlaceholder('Search tickets...').fill(titles[0]);
     await expect(
@@ -220,16 +223,16 @@ test.describe('Huddle composer — individual actions', () => {
 
     await submitPost(page);
 
-    // The wrap-up starts with the plan's tickets, named by title; dropping one
-    // keeps the other. Seeded like this it opens expanded, chips showing.
-    for (const title of titles) {
-      await expect(
-        page.getByRole('button', { name: `Remove ticket ${title}`, exact: true }),
-      ).toBeVisible();
-    }
+    // The wrap-up opens on the plan, its ticket items included; deleting one's
+    // line drops that ticket and keeps the other.
+    for (const title of titles) await expect(ticketLink(title)).toBeVisible();
     const stored = (await findPostByText(postText)) as { ticketIds?: string[] } | null;
     expect(stored?.ticketIds).toHaveLength(2);
-    await page.getByRole('button', { name: `Remove ticket ${titles[0]}`, exact: true }).click();
+    await ticketLink(titles[0]).click();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+    await page.keyboard.press('Backspace');
+    await expect(ticketLink(titles[0])).toHaveCount(0);
     await page.getByRole('button', { name: 'Clock out with a wrap-up' }).click();
     await expect(page.getByRole('button', { name: 'Clock in with a plan' })).toBeVisible({
       timeout: 30000,
@@ -271,7 +274,7 @@ test.describe('Huddle composer — combined actions', () => {
     await clockOut(page);
   });
 
-  test('posts photo + doc + video + mention + ticket in one post', async ({ page }) => {
+  test('posts photo + doc + video + @ mention + ticket in one post', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await selectSharedTestTeam(page);
 
@@ -301,7 +304,7 @@ test.describe('Huddle composer — combined actions', () => {
     await playPulseVideoCard(post);
     await expect(post).toContainText(ticketTitle);
     const stored = await findPostByText(postText);
-    expect(stored?.content.mentions).toContain(await getUserIdByEmail(TEST_USERS.member1.email));
+    expect(stored?.content.mentions).toEqual([await getUserIdByEmail(TEST_USERS.member1.email)]);
 
     await clockOut(page);
     await deleteTicket(page, ticketTitle);
@@ -328,9 +331,7 @@ test.describe('Huddle composer — upload progress', () => {
     await holdUploadResponses(page);
 
     await composerEditor(page).fill(`Upload progress ${Date.now()}`);
-    await page
-      .locator('input[type="file"][aria-label="Choose a video to attach"]')
-      .setInputFiles(FIXTURE.video);
+    await mediaInput(page).setInputFiles(FIXTURE.video);
 
     // The tile says how far it has got; the × cancels it while it's going up.
     await expect(page.getByRole('progressbar', { name: /^Uploading test-video\.mp4/ })).toBeVisible(
@@ -353,9 +354,7 @@ test.describe('Huddle composer — upload progress', () => {
 
     const postText = `Posted mid-upload ${Date.now()}`;
     await composerEditor(page).fill(postText);
-    await page
-      .locator('input[type="file"][aria-label="Choose a document to attach"]')
-      .setInputFiles(FIXTURE.doc);
+    await mediaInput(page).setInputFiles(FIXTURE.doc);
     await expect(page.getByRole('progressbar', { name: /^Uploading test-doc\.txt/ })).toBeVisible({
       timeout: 15000,
     });
