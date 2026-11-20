@@ -361,10 +361,9 @@ The plan's text is the one source of its tickets and mentions: the ids a plan
 posts are read back out of it (`src/features/huddle/planItems.ts`), so there are
 no ticket or mention chips on the Clock page.
 
-- [x] The composer's **Ticket** action adds a checklist item holding the ticket
-      link (`- [ ] [TH-923: …](/app/tickets/…)`) as the plan's last item, using
-      the `RichEditor` `task_list` / `task_item` nodes; free-text lines are items
-      too
+- [x] The composer's **Ticket** action adds the ticket on its own line as a
+      chip, with no checkbox (`[TH-923: …](/app/tickets/…)`); people can still
+      write their own checklist items
 - [x] The composer has two buttons, **Media** (photo, video or document) and
       **Ticket**; there is no @Mention button
 - [x] In the plan composer, `@` suggests teammates and `#` the team's open

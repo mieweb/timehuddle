@@ -1,8 +1,8 @@
 /**
- * A plan is markdown: a checklist whose ticket items link to the ticket's page
- * (`- [ ] [TH-7: Fix login](/app/tickets/…)`). The text is the one source of a
- * plan's tickets — the ids a post links are read back out of it — so picking a
- * ticket writes it into the plan, and deleting its line drops it.
+ * A plan is markdown; its tickets are links to the ticket's page
+ * (`[TH-7: Fix login](/app/tickets/…)`), shown as chips. The text is the one
+ * source of a plan's tickets — the ids a post links are read back out of it —
+ * so picking a ticket writes it into the plan, and deleting it drops it.
  */
 
 import { huddleTicketRef } from '../tickets/sources/huddleSource';
@@ -31,20 +31,15 @@ export function ticketLinkMarkdown(ticket: { id: string; name: string }): string
   return `[${escapeMarkdown(ticket.name)}](${ticketPath(ticket.id)})`;
 }
 
-/** An unchecked plan item for a ticket. */
+/** A plan line for a ticket: its link alone, no checkbox. */
 export function planTicketItem(ticket: { id: string; name: string }): string {
-  return `- [ ] ${ticketLinkMarkdown(ticket)}`;
+  return ticketLinkMarkdown(ticket);
 }
 
-/**
- * `text` with `item` added as its last checklist line. Joined to a checklist
- * the text already ends with; after a paragraph, a blank line starts the list.
- */
+/** `text` with `item` added as its own last line (paragraph). */
 export function appendPlanItem(text: string, item: string): string {
   const trimmed = text.replace(/\s+$/, '');
-  if (!trimmed) return item;
-  const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
-  return /^\s*[-*+] /.test(lastLine) ? `${trimmed}\n${item}` : `${trimmed}\n\n${item}`;
+  return trimmed ? `${trimmed}\n\n${item}` : item;
 }
 
 // A link to a ticket's page; Redmine issues live under /app/tickets/redmine/.
