@@ -250,9 +250,21 @@ function useFoldedSections(ids: string[]) {
   return { folded, toggle };
 }
 
+/** `last` marks what closes its section's card: its last row, or a heading with none shown. */
 type SectionEntry<T> =
-  | { kind: 'heading'; id: string; section: RowListSection<T> }
-  | { kind: 'row'; id: string; item: T };
+  | { kind: 'heading'; id: string; section: RowListSection<T>; last: boolean }
+  | { kind: 'row'; id: string; item: T; last: boolean };
+
+/**
+ * Each section reads as a card: its heading opens it and its last row closes
+ * it. The rows are list items of their own, so each one draws its part of the
+ * card, with a soft fill and outline so the rows stay the loudest thing.
+ */
+const CARD_PART = 'row-list-card-part border-x border-border/50 bg-muted/20';
+const CARD_TOP = 'rounded-t-xl border-t';
+const CARD_BOTTOM = 'overflow-hidden rounded-b-xl border-b [&_.row-list-item]:border-b-0';
+/** Rows within a card are ruled off more quietly than a plain list's. */
+const CARD_ROW = '[&_.row-list-item]:border-border/40';
 
 const headingId = (sectionId: string) => `row-list-section:${sectionId}`;
 
@@ -280,7 +292,7 @@ function SectionHeading<T>({
   onToggle: () => void;
 }) {
   return (
-    <div className="row-list-section-heading border-b border-border">
+    <div className="row-list-section-heading">
       <Button
         variant="ghost"
         aria-expanded={!folded}
@@ -288,7 +300,8 @@ function SectionHeading<T>({
           folded ? ROW_LIST_TEXT.unfold(section.label) : ROW_LIST_TEXT.fold(section.label)
         }
         onClick={onToggle}
-        className="row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:bg-transparent hover:text-foreground"
+        // A plain tap: none of Button's press-down shrink or fill.
+        className="row-list-section-trigger h-auto w-full justify-start gap-2 rounded-none px-(--row-list-inset) py-2.5 text-start text-xs font-semibold tracking-wide text-muted-foreground uppercase transition-colors hover:bg-transparent hover:text-foreground active:scale-100 active:bg-transparent dark:hover:bg-transparent dark:active:bg-transparent"
       >
         <ChevronDown
           className={cn(
@@ -343,12 +356,18 @@ function RowListSections<T>({
 
   const entries = React.useMemo<SectionEntry<T>[]>(
     () =>
-      shown.flatMap((section) => [
-        { kind: 'heading' as const, id: headingId(section.id), section },
-        ...(folded.has(section.id)
-          ? []
-          : section.items.map((item) => ({ kind: 'row' as const, id: getId(item), item }))),
-      ]),
+      shown.flatMap((section) => {
+        const rows = folded.has(section.id) ? [] : section.items;
+        return [
+          { kind: 'heading' as const, id: headingId(section.id), section, last: !rows.length },
+          ...rows.map((item, index) => ({
+            kind: 'row' as const,
+            id: getId(item),
+            item,
+            last: index === rows.length - 1,
+          })),
+        ];
+      }),
     [shown, folded, getId],
   );
 
@@ -416,17 +435,28 @@ function RowListSections<T>({
         // Moves are announced below by section, not by place in the whole list.
         labels={{ moved: () => '' }}
         className="row-list-section-list"
-        renderItem={(entry) =>
-          entry.kind === 'heading' ? (
-            <SectionHeading
-              section={entry.section}
-              folded={folded.has(entry.section.id)}
-              onToggle={() => toggle(entry.section.id)}
-            />
-          ) : (
-            renderRow(entry.item)
-          )
-        }
+        // The gap between cards; a heading is the first thing in each.
+        classNames={{ item: '[&:not(:first-child):has(.row-list-section-heading)]:mt-3' }}
+        renderItem={(entry) => (
+          <div
+            className={cn(
+              CARD_PART,
+              entry.kind === 'heading' ? CARD_TOP : CARD_ROW,
+              entry.kind === 'heading' && !entry.last && 'border-b border-b-border/40',
+              entry.last && CARD_BOTTOM,
+            )}
+          >
+            {entry.kind === 'heading' ? (
+              <SectionHeading
+                section={entry.section}
+                folded={folded.has(entry.section.id)}
+                onToggle={() => toggle(entry.section.id)}
+              />
+            ) : (
+              renderRow(entry.item)
+            )}
+          </div>
+        )}
       />
       <div className="sr-only" aria-live="polite">
         {announcement}
